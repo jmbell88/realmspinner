@@ -201,6 +201,23 @@ def test_wireframe_draws_strictly_less_than_solid(gl, renderer, viewport, box_gl
     assert coverage(wire) < coverage(solid)
 
 
+def test_the_wireframe_overlay_draws_over_the_shaded_surface(gl, renderer, viewport, box_glb):
+    """The overlay is a second pass on top of the shaded surface, not a
+    replacement for it -- the opposite contrast from ``wireframe=True`` above,
+    which draws strictly less than solid. On the unfixed code this raised
+    ``AttributeError: module 'moderngl' has no attribute
+    'POLYGON_OFFSET_FILL'`` instead of drawing anything."""
+    solid, _gpu, _camera = _shown(gl, renderer, viewport, box_glb)
+    overlay, _gpu, _camera = _shown(gl, renderer, viewport, box_glb, wire_overlay=True)
+    background = np.array([0x14, 0x15, 0x1A])
+
+    def coverage(px):
+        return (np.abs(px[..., :3].astype(int) - background) > 12).any(axis=-1).mean()
+
+    assert not np.array_equal(solid, overlay)
+    assert coverage(overlay) >= coverage(solid)
+
+
 def test_the_viewport_reads_back_top_row_first(gl, renderer, viewport):
     """GL reads bottom-up and every consumer counts from the top; getting this
     backwards flips every sheet cell and every thumbnail."""

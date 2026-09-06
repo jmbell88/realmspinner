@@ -129,16 +129,19 @@ class Renderer:
                 # hair toward the eye. Without the polygon offset the lines sit
                 # in exactly the plane of the faces they outline and z-fighting
                 # makes them dashed -- which reads as a broken mesh rather than
-                # as a wireframe.
+                # as a wireframe. moderngl has no polygon-offset enable flag --
+                # the ``polygon_offset`` setter below is itself the switch (a
+                # non-zero pair enables, ``(0.0, 0.0)`` disables), so the
+                # ``ctx.enable(moderngl.POLYGON_OFFSET_FILL)`` that used to sit
+                # here raised AttributeError and tripped Clay's viewport for
+                # every user of the Wireframe overlay from v0.0.30 until 2026-09-06.
                 ctx.wireframe = True
-                ctx.enable(moderngl.POLYGON_OFFSET_FILL)
                 ctx.polygon_offset = (-1.0, -1.0)
                 self._draw_model(
                     gpu, camera, view, proj, model_matrix, True, 1.0,
                     tint=WIRE_TINT,
                 )
                 ctx.polygon_offset = (0.0, 0.0)
-                ctx.disable(moderngl.POLYGON_OFFSET_FILL)
                 ctx.wireframe = False
 
         if overlays:
