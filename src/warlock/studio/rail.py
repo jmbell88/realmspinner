@@ -153,6 +153,7 @@ def _item(
     *,
     selected: bool,
     tooltip: str = "",
+    purpose: str = "",
     badge: str = "",
     height: float = 0.0,
     enabled: bool = True,
@@ -210,11 +211,35 @@ def _item(
     if words > 0.0:
         size = imgui.calc_text_size(label)
         text_x = origin.x + sp(RAIL_W) - sp(tokens.SP_1)
-        draw.add_text(
-            (text_x, origin.y + (height - size.y) * 0.5),
-            imgui.get_color_u32(theme.rgba(theme.TEXT if selected else theme.MUTED, alpha * words)),
-            label,
+        label_colour = imgui.get_color_u32(
+            theme.rgba(theme.TEXT if selected else theme.MUTED, alpha * words)
         )
+        # The purpose repeats as a second, muted line under the label -- but
+        # only when the row is tall enough to hold both without the two
+        # touching. ``fitted_height`` compresses rows down to ``MIN_ITEM_H``
+        # on a short window (see its docstring), and a two-line label in a
+        # 24 dp row would overlap itself, which is worse than the one line it
+        # replaced. So the block is measured first, and a row too short for it
+        # falls back to the label alone.
+        purpose_size = None
+        if purpose:
+            with fonts.small(imgui):
+                purpose_size = imgui.calc_text_size(purpose)
+        line_gap = sp(tokens.SP_1) * 0.5
+        block_h = size.y + (line_gap + purpose_size.y if purpose_size else 0.0)
+        if purpose_size and block_h <= height:
+            top = origin.y + (height - block_h) * 0.5
+            draw.add_text((text_x, top), label_colour, label)
+            with fonts.small(imgui):
+                draw.add_text(
+                    (text_x, top + size.y + line_gap),
+                    imgui.get_color_u32(
+                        theme.rgba(theme.MUTED, alpha * words * 0.75)
+                    ),
+                    purpose,
+                )
+        else:
+            draw.add_text((text_x, origin.y + (height - size.y) * 0.5), label_colour, label)
         if badge:
             _badge(
                 draw, badge, text_x + size.x + sp(tokens.SP_2),
@@ -228,10 +253,13 @@ def _item(
     # Every rail item now has something more to say (``modes.PURPOSE``), so the
     # collapsed rail prepends the label: without it, hovering a bare glyph gave
     # a sentence about a mode whose *name* was the one thing not on screen.
+    # "·" rather than "—", to match the separator the labelled rail's own
+    # second line implies (a label, then the purpose after it) instead of
+    # reading as a dash-joined aside.
     if hovered and (tooltip or words < 0.5):
         text = tooltip or label
         if tooltip and words < 0.5:
-            text = f"{label} — {tooltip}"
+            text = f"{label} · {tooltip}"
         imgui.set_tooltip(text)
     if hovered:
         imgui.set_mouse_cursor(imgui.MouseCursor_.hand.value)
@@ -317,7 +345,7 @@ def draw(app: Any, ctx: Any) -> None:
         imgui.end_child()
         return
     item_w = imgui.get_content_region_avail().x
-    labels = {key: (label, icon) for key, label, icon in modes.MODES}
+    labels = {key: (label, icon) for key, label, icon, _purpose in modes.MODES}
     body_groups = modes.RAIL_GROUPS
     # The rail is destinations only. Manual, shortcuts, layouts, Settings and
     # the labels toggle live in the global menus/status bar.
@@ -437,6 +465,7 @@ def draw(app: Any, ctx: Any) -> None:
                 item_w,
                 selected=key == current,
                 tooltip=tooltip,
+                purpose=purpose,
                 badge="Download" if blocked else modes.MATURITY.get(key, ""),
                 height=item_h,
                 enabled=not blocked,

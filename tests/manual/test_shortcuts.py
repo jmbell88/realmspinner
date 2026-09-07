@@ -181,7 +181,7 @@ def test_every_mode_the_chapter_gives_a_section_has_a_group_in_the_sheet():
     groups = {title for title, _ in shortcut_sections()}
     missing = sorted(
         label
-        for _key, label, _icon in modes.MODES
+        for _key, label, _icon, _purpose in modes.MODES
         if label in headings and label not in groups
     )
     assert not missing, (

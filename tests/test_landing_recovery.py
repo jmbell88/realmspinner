@@ -31,3 +31,21 @@ def test_the_trim_happens_before_the_button_is_placed() -> None:
     button's column would be measuring a region the title no longer owns."""
     source = inspect.getsource(landing._recovery_row)
     assert source.index("fit_text") < source.index("get_cursor_pos_x")
+
+
+def test_an_empty_resume_region_offers_a_starter_not_a_sentence() -> None:
+    """The empty Resume region used to read "Nothing yet. Start something
+    above, or press Ctrl+K." -- a sentence pointing the reader somewhere
+    else on the screen instead of giving them something to press right
+    there. It must offer a starter of its own, routed through the same
+    ``NEW_ITEMS`` callbacks ``_start()`` uses (reused, not redefined), with
+    the Ctrl+K hint kept on as muted text alongside it."""
+    resume_source = inspect.getsource(landing._resume)
+    assert "Nothing yet" not in resume_source
+    assert "_resume_empty" in resume_source
+
+    empty_source = inspect.getsource(landing._resume_empty)
+    assert "for key, label, icon, action in NEW_ITEMS:" in empty_source
+    assert "action(ctx)" in empty_source
+    assert "Ctrl+K" in empty_source
+    assert "widgets.muted" in empty_source

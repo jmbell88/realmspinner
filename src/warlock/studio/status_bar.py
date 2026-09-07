@@ -38,7 +38,9 @@ def items(ctx: Any) -> list[StatusItem]:
     from . import modes
 
     mode = str(getattr(ctx.state, "mode", "home"))
-    label = next((name for key, name, _icon in modes.MODES if key == mode), mode.title())
+    label = next(
+        (name for key, name, _icon, _purpose in modes.MODES if key == mode), mode.title()
+    )
     out = [StatusItem("workspace", label)]
 
     if mode == "poser":

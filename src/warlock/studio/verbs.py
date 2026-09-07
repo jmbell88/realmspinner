@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from . import modes
 
-_LABELS: dict[str, str] = {key: label for key, label, _icon in modes.MODES}
+_LABELS: dict[str, str] = {key: label for key, label, _icon, _purpose in modes.MODES}
 
 
 def _mode(key: str) -> str:

@@ -48,8 +48,10 @@ leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`)
 route, see [Keyboard shortcuts](38-shortcuts.md).
 
 The rail shows glyphs by default and expands to show the labels beside them; **Window → Navigation
-labels** toggles that, and the choice is remembered. In icon-only form every item names itself in a tooltip.
-A window too narrow to hold the labelled rail *and* three usable columns draws the collapsed one
+labels** toggles that, and the choice is remembered. Every mode carries a short purpose sentence
+saying what it is for; in icon-only form it names itself and that sentence in a tooltip, and in
+the labelled form the sentence is a second, muted line under the label when the row has room for
+it. A window too narrow to hold the labelled rail *and* three usable columns draws the collapsed one
 until there is room again — what you chose and what fits are two different facts, so dragging the
 window wider brings the labels back.
 

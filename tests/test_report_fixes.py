@@ -345,7 +345,7 @@ def test_every_mode_says_what_it_is_for():
     for key, text in modes.PURPOSE.items():
         assert text.strip() and text[0].isupper() and text.endswith("."), key
         # A tooltip repeating the label is the noise ``_item`` suppresses.
-        labels = {k: label.lower() for k, label, _icon in modes.MODES}
+        labels = {k: label.lower() for k, label, _icon, _purpose in modes.MODES}
         assert text.strip().lower() != labels[key]
 
 

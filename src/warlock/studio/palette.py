@@ -348,7 +348,7 @@ def _mode_commands(ctx: Any) -> list[Command]:
     from .panes import model_gate
 
     out = []
-    for key, label, _icon in modes.MODES:
+    for key, label, _icon, _purpose in modes.MODES:
         where, _blocked = model_gate.mode_gate(ctx, key)
         if not where:
             out.append(

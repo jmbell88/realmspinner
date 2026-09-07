@@ -149,7 +149,7 @@ def test_every_pack_gates_a_mode_the_rail_actually_has():
     from warlock import packs as packs_mod
     from warlock.studio import modes as modes_mod
 
-    known = {key for key, _label, _icon in modes_mod.MODES}
+    known = {key for key, _label, _icon, _purpose in modes_mod.MODES}
     for pack in packs_mod.PACKS:
         for key in pack.modes:
             assert key in known, f"{pack.key} gates {key!r}, which is not a mode"

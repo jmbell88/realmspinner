@@ -1582,6 +1582,12 @@ def _cancel(ctx: Any, key: str) -> None:
     if controls.small_button(f"Cancel##cancel-{key}"):
         stopped = winjob.terminate_tracked("fetch")
         ctx.toast("Stopping the download..." if stopped else "Nothing left to stop.")
+    # A hard kill, not a rollback: the fetch child's staging tree survives
+    # whatever stopped it, cancel included, and the next attempt resumes into
+    # it rather than starting over (F1, 2026-09-05). Said here so Cancel does
+    # not read as "throw away the last twenty minutes".
+    imgui.same_line()
+    widgets.muted("Cancel keeps what has downloaded. Installing again resumes from here.")
 
 
 def _start(ctx: Any, row_keys: list[str], *, key: str) -> None:
@@ -1651,7 +1657,7 @@ def pack_unlocks(row: dict[str, Any]) -> str:
     """
     from .. import modes as modes_mod
 
-    labels = {key: label for key, label, _icon in modes_mod.MODES}
+    labels = {key: label for key, label, _icon, _purpose in modes_mod.MODES}
     named = [labels.get(key, key.title()) for key in (row.get("modes") or ())]
     if not named:
         return ""

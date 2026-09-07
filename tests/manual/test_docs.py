@@ -270,7 +270,9 @@ def test_every_mode_is_named_in_the_manuals_own_list_of_them():
 
     overview = (_root() / "docs" / "manual" / "20-overview.md").read_text(encoding="utf-8")
     section = overview.split("## The modes", 1)[1].split("\n## ", 1)[0]
-    missing = [label for _key, label, _icon in modes.MODES if f"**{label}.**" not in section]
+    missing = [
+        label for _key, label, _icon, _purpose in modes.MODES if f"**{label}.**" not in section
+    ]
     assert not missing, f"the overview's mode list does not name {missing}"
 
 

@@ -551,7 +551,7 @@ def test_the_app_opens_on_home_and_only_the_work_modes_take_shortcuts():
     assert set(modes.KEYS) - modes.WORK_MODES
     assert modes.KEYS[0] == "home"
     assert AppState().mode == "home"
-    assert set(modes.KEYS) == {k for k, _l, _i in modes.MODES}
+    assert set(modes.KEYS) == {k for k, _l, _i, _p in modes.MODES}
 
 
 def test_no_mode_is_persisted_anywhere():

@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from . import icons
 
-# (key, label, icon). The key is what lands in ``AppState.mode``.
+# (key, label, icon, purpose). The key is what lands in ``AppState.mode``.
+# ``purpose`` is a short, plain sentence saying what the mode is *for* -- a
+# fourth field of the tuple rather than a table kept beside it (as ``PURPOSE``
+# used to be, see below), because the order-and-grouping tuple is not the only
+# thing every reader of this file needs: the rail wants a sentence to show
+# beside the glyph and the label alike, and a lookup table drifts from the
+# tuple it was hand-copied from the moment a mode is added to one and not the
+# other. ``PURPOSE`` is still exported, derived rather than duplicated, for
+# the call sites that only want the sentence keyed by mode.
 #
 # **The order is the rail's order** (the UI redesign, wave 3): where you start and
 # what you look at, then the eight creative workspaces, then Settings. It used to
@@ -33,8 +41,8 @@ from . import icons
 # said that "manage my styles" is a place you travel to; it became a sheet over
 # the Reference stage and was then deleted outright -- a recipe is copied off a
 # finished result, not curated in a second store.
-MODES: list[tuple[str, str, str]] = [
-    ("home", "Home", icons.HOUSE),
+MODES: list[tuple[str, str, str, str]] = [
+    ("home", "Home", icons.HOUSE, "Start here: recent work and what to make next."),
     # A real mode rather than a sub-view of Home. The Library and Review were
     # tiles on the chooser and a ``state.landing_view`` enum behind it, which
     # is what a destination looks like when there is nowhere to put it; Home
@@ -45,7 +53,10 @@ MODES: list[tuple[str, str, str]] = [
     #
     # It sits *before* Create because that is the order of the question: what
     # do I have, then make another one.
-    ("library", "Library", icons.FOLDER_OPEN),
+    (
+        "library", "Library", icons.FOLDER_OPEN,
+        "Every asset made so far, searchable and filterable.",
+    ),
     # **One mode, not two** (the UI redesign, wave 5). "2D" and "3D" were the two
     # halves of a single journey -- you write a prompt, you get a picture, you
     # turn the picture into a mesh -- presented as two destinations you had to
@@ -56,10 +67,10 @@ MODES: list[tuple[str, str, str]] = [
     # property of the asset in front of you rather than a place in the
     # navigation. The glyph is neither of the two it replaces, deliberately:
     # IMAGE and BOX went with the stages that kept their meanings.
-    ("create", "Create", icons.SPARKLES),
-    ("inker", "Inker", icons.PEN_TOOL),
-    ("clay", "Clay", icons.RULER),
-    ("poser", "Poser", icons.PERSON_STANDING),
+    ("create", "Create", icons.SPARKLES, "Prompt to reference image to 3D model."),
+    ("inker", "Inker", icons.PEN_TOOL, "Paint and animate pixel art."),
+    ("clay", "Clay", icons.RULER, "Assemble and edit meshes from primitives."),
+    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh and author animation clips."),
     # Troupe (the Troupe programme's own mode). A workspace of its own rather
     # than a panel in Create for the reason Poser is one: what happens here is
     # *watching* -- a walk cycle plays continuously and you judge it -- and
@@ -69,9 +80,9 @@ MODES: list[tuple[str, str, str]] = [
     # rail's default became icons (``layout.py``), so two adjacent rows drew
     # the same standing figure and were told apart only by hovering. FILM is
     # what this mode makes: frames of a character, played.
-    ("troupe", "Troupe", icons.FILM),
-    ("plotter", "Plotter", icons.GRID),
-    ("packwright", "Packwright", icons.LAYERS),
+    ("troupe", "Troupe", icons.FILM, "Render a 3D character to an animated sprite sheet."),
+    ("plotter", "Plotter", icons.GRID, "Paint tile maps and export them to Tiled."),
+    ("packwright", "Packwright", icons.LAYERS, "Pack loose sprites into an atlas."),
     # Muse: the thirteenth mode, and the one whose output is a **job row**.
     #
     # Sirens' comment below justifies its own workspace status partly with
@@ -91,7 +102,7 @@ MODES: list[tuple[str, str, str]] = [
     #
     # The glyph is a *note* against Sirens' waveform, which reads as the right
     # distinction: a waveform is sound you build, a note is a song you ask for.
-    ("muse", "Muse", icons.MUSIC),
+    ("muse", "Muse", icons.MUSIC, "Generate a finished soundtrack from a description."),
     # Sirens: the twelfth mode, and the first thing in this app that makes a
     # sound. A workspace rather than a stage of Create for the reason Plotter
     # and Packwright are: it owns a document type (``.wsng``), it has its own
@@ -101,14 +112,14 @@ MODES: list[tuple[str, str, str]] = [
     # rest are not a pipeline. Muse arrived later and went *before* it all the
     # same, for the reason written against Muse: those two are a pair, and the
     # pair has an order the rest of the group does not.
-    ("sirens", "Sirens", icons.AUDIO_WAVEFORM),
+    ("sirens", "Sirens", icons.AUDIO_WAVEFORM, "Write chiptune music and sound effects."),
     # Review is footer matter, beside Settings, and shares its glyph history
     # with the Library above (both were Home tiles). It is the one place you
     # go to *judge* rather than to make, and it is entered rarely and left
     # again -- which is the same shape as Settings and not the shape of the
     # workspaces it used to sit among.
-    ("review", "Review", icons.CIRCLE_CHECK),
-    ("settings", "Settings", icons.SETTINGS),
+    ("review", "Review", icons.CIRCLE_CHECK, "Judge and grade finished assets side by side."),
+    ("settings", "Settings", icons.SETTINGS, "Models, folders, appearance and hardware."),
 ]
 
 # The rail's sections, hand-written. **Not derived**, and that is the reversal
@@ -211,36 +222,20 @@ NAV_KEY_MODES = frozenset(
     {"home", "library", "review", "inker", "plotter", "troupe", "muse", "sirens"}
 )
 
-KEYS = tuple(key for key, _label, _icon in MODES)
+KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 
-#: One line saying what each mode is *for*, shown as the rail item's tooltip.
+#: One line saying what each mode is *for*, keyed by mode -- derived from
+#: ``MODES``' own fourth field, not hand-copied, so the two cannot drift.
 #:
 #: The rail is the primary navigation and eight of its thirteen labels --
 #: Inker, Clay, Poser, Troupe, Plotter, Packwright, Muse, Sirens -- are
-#: invented names. A new user
-#: hovering one got a word and an icon, because ``rail._item`` suppresses its
-#: accessible-name tooltip once the label is legible (correctly: a tooltip
-#: repeating a word already on screen is noise) and no call site had anything
-#: more to say. This is the something more.
-#:
-#: A table beside ``MODES`` rather than a fourth element of it, so that the
-#: order-and-grouping tuple stays the thing every reader already knows, and a
-#: mode with nothing useful to add can simply be absent.
-PURPOSE: dict[str, str] = {
-    "home": "Start here: recent work, what needs attention, and what to make next.",
-    "library": "Every asset you have made, searchable and filterable.",
-    "create": "Prompt to reference image to 3D model — the main pipeline.",
-    "inker": "Pixel-art and image editor: layers, animation, tilesets.",
-    "clay": "Assemble and edit meshes from primitives and booleans.",
-    "poser": "Rig a mesh to a skeleton and author animation clips.",
-    "troupe": "Render a 3D character to an animated sprite sheet.",
-    "plotter": "Paint tile maps and export them to Tiled.",
-    "packwright": "Pack loose sprites into an atlas with a manifest.",
-    "muse": "Generate finished music from a description and a lyric sheet.",
-    "sirens": "Write chiptune music and sound effects in a tracker grid.",
-    "review": "Judge and grade finished assets side by side.",
-    "settings": "Models, folders, appearance and hardware.",
-}
+#: invented names. A new user hovering one used to get a word and an icon,
+#: because ``rail._item`` suppresses its accessible-name tooltip once the
+#: label is legible (correctly: a tooltip repeating a word already on screen
+#: is noise) and no call site had anything more to say. ``purpose`` is the
+#: something more, shown beside the label in the rail's tooltip and again as
+#: a second, muted line when the rail is expanded.
+PURPOSE: dict[str, str] = {key: purpose for key, _label, _icon, purpose in MODES}
 
 #: Modes whose maturity the rail says out loud, and the word it uses.
 #:

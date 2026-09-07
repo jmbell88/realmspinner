@@ -73,7 +73,7 @@ def test_the_modes_a_pack_names_are_real_modes():
     ``warlock.packs``. Strings drift, so they are pinned here instead."""
     from warlock.studio import modes
 
-    known = {key for key, _label, _icon in modes.MODES}
+    known = {key for key, _label, _icon, _purpose in modes.MODES}
     for pack in packs.PACKS:
         assert pack.modes, f"{pack.key} unlocks nothing"
         for key in pack.modes:

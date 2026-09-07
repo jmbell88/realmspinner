@@ -118,7 +118,7 @@ def test_the_list_is_a_shortlist_rather_than_a_history():
 
 def test_a_rows_glyph_comes_from_the_mode_table():
     """A second copy is how a row comes to open Clay under Plotter's icon."""
-    from_modes = {key: icon for key, _label, icon in modes.MODES}
+    from_modes = {key: icon for key, _label, icon, _purpose in modes.MODES}
     settings = FakeSettings({recents.SETTING: []})
     for kind in recents.KINDS:
         recents.remember(settings, kind, f"x.{kind}", when=1.0)
@@ -422,7 +422,7 @@ def test_every_row_destination_is_a_real_mode_or_deliberately_empty():
     """The empty string means "the provider navigates itself" and is the one
     value allowed not to name a mode. Anything else must be switchable to, or
     Recover would move the app somewhere that does not exist."""
-    keys = {key for key, _label, _icon in modes.MODES}
+    keys = {key for key, _label, _icon, _purpose in modes.MODES}
     for kind, mode in landing._KIND_MODES.items():
         assert mode == "" or mode in keys, f"{kind} -> {mode!r}"
 

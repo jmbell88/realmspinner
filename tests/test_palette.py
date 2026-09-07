@@ -343,7 +343,7 @@ def test_the_document_dispatch_covers_every_document_mode():
     quietly stop working in it -- which is how Plotter came to have no New."""
     from warlock.studio import modes as modes_mod
 
-    assert set(palette._DOC_MODES) <= {key for key, _label, _icon in modes_mod.MODES}
+    assert set(palette._DOC_MODES) <= {key for key, _label, _icon, _purpose in modes_mod.MODES}
     # Poser joined in B1: it has a Save and a Save-as and had neither a key
     # nor a palette entry for them. **Troupe deliberately does not** -- it has
     # no document, so all four commands would be empty rows.

@@ -68,7 +68,7 @@ UNREVIEWED_LIMIT = 200
 # The mode each document kind opens in, and the glyph its Resume row wears.
 # Off ``modes.MODES`` rather than a second table: a row that opened Clay under
 # Plotter's icon is exactly the drift a hand-copied glyph produces.
-_MODE_ICONS = {key: icon for key, _label, icon in modes.MODES}
+_MODE_ICONS = {key: icon for key, _label, icon, _purpose in modes.MODES}
 
 
 @dataclass(frozen=True)
@@ -981,6 +981,29 @@ def _status(ctx: Any, status: list[Status]) -> None:
             widgets.text_colored(row.colour, row.text)
 
 
+def _resume_empty(ctx: Any) -> None:
+    """The Resume region when there is nothing to resume yet.
+
+    This used to be a sentence -- "Nothing yet. Start something above, or
+    press Ctrl+K." -- telling the reader to look somewhere else on the
+    screen. It is a button instead, offering the same starters ``_start()``
+    already routes through ``NEW_ITEMS``, so the empty grid is itself a place
+    to begin rather than a dead end pointing elsewhere. The Ctrl+K hint
+    survives, muted, beside it -- the shortcut is still true, just no longer
+    the *only* thing on offer.
+    """
+    if widgets.primary_button(f"{icons.PLUS} New...", (sp(160), 0)):
+        imgui.open_popup("landing-resume-new")
+    if imgui.begin_popup("landing-resume-new"):
+        widgets.popup_chrome(_imgui=imgui)
+        for key, label, icon, action in NEW_ITEMS:
+            if controls.menu_item(f"{icon}  {label}##landing-resume-new-{key}", "", False)[0]:
+                action(ctx)
+        imgui.end_popup()
+    imgui.same_line()
+    widgets.muted("or press Ctrl+K.")
+
+
 def _resume(ctx: Any) -> None:
     """What you were working on, as pictures.
 
@@ -993,7 +1016,7 @@ def _resume(ctx: Any) -> None:
     widgets.section("Resume")
     drawn = rows(ctx)
     if not drawn:
-        widgets.muted("Nothing yet. Start something above, or press Ctrl+K.")
+        _resume_empty(ctx)
         return
     style = imgui.get_style()
     pad = style.window_padding

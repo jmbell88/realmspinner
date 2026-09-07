@@ -80,12 +80,12 @@ def test_the_card_action_ladder_uses_the_same_words():
 
 
 def test_every_rail_icon_is_unique():
-    glyphs = [icon for _key, _label, icon in modes.MODES]
+    glyphs = [icon for _key, _label, icon, _purpose in modes.MODES]
     assert len(glyphs) == len(set(glyphs)), glyphs
 
 
 def test_troupe_wears_the_same_glyph_on_every_surface():
     from warlock.studio import troupe_mode
 
-    icon = dict((k, i) for k, _l, i in modes.MODES)["troupe"]
+    icon = dict((k, i) for k, _l, i, _p in modes.MODES)["troupe"]
     assert icon == troupe_mode.ICON == icons.FILM

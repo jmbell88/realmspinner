@@ -101,7 +101,11 @@ def _command_specs(
                 and ctx.state.mode != "inker"
             ):
                 label = next(
-                    (name for key, name, _icon in modes.MODES if key == ctx.state.mode),
+                    (
+                        name
+                        for key, name, _icon, _purpose in modes.MODES
+                        if key == ctx.state.mode
+                    ),
                     "Actions",
                 )
                 path = (label,)

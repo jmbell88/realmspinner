@@ -14,6 +14,62 @@ from warlock.studio import modes
 
 MODES_PATH = Path(modes.__file__)
 
+ALL_MODE_KEYS = (
+    "home", "library", "create", "inker", "clay", "poser", "troupe", "plotter",
+    "packwright", "muse", "sirens", "review", "settings",
+)
+
+
+def test_every_mode_carries_a_purpose_and_the_rail_shows_it():
+    """Every entry of ``MODES`` is a (key, label, icon, purpose) 4-tuple, and
+    ``rail._item`` uses ``purpose`` in the tooltip and as a second line.
+
+    Before this test, ``MODES`` was a 3-tuple and the purpose sentence lived
+    only in a separate ``PURPOSE`` dict that ``rail.draw`` consulted, so a
+    fresh mode could be added to ``MODES`` without ever getting a purpose --
+    nothing tied the two together. This asserts the sentence is part of the
+    tuple itself, that it exists (non-empty, plain, no trailing period-less
+    fragment) for all thirteen modes, and that the rail module actually wires
+    it into both the tooltip and the labelled-rail drawing path.
+    """
+    assert {key for key, *_rest in modes.MODES} == set(ALL_MODE_KEYS)
+
+    for entry in modes.MODES:
+        assert len(entry) == 4, f"{entry!r} is not a (key, label, icon, purpose) 4-tuple"
+        key, label, icon, purpose = entry
+        assert isinstance(purpose, str) and purpose.strip(), (
+            f"mode {key!r} ({label!r}) has no purpose string"
+        )
+        # Plain and in the app's voice: no second person ("you"/"your"), and
+        # not a fragment ending mid-sentence.
+        lowered = purpose.lower()
+        assert " you " not in f" {lowered} " and "your" not in lowered, (
+            f"mode {key!r}'s purpose reads second-person: {purpose!r}"
+        )
+        assert purpose[-1] in ".!", f"mode {key!r}'s purpose has no closing punctuation"
+
+    # ``PURPOSE`` is derived from the tuple, not a second hand-kept table.
+    assert {key: purpose for key, _label, _icon, purpose in modes.MODES} == modes.PURPOSE
+
+    # ``rail._item`` accepts and uses ``purpose``: the icon-mode tooltip joins
+    # label and purpose with "·", and the labels-mode drawing path measures a
+    # second, muted line for it rather than ignoring the argument.
+    import inspect
+
+    from warlock.studio import rail
+
+    source = inspect.getsource(rail._item)
+    assert "purpose" in inspect.signature(rail._item).parameters
+    assert "·" in source, "rail._item's icon-mode tooltip should join label and purpose with ·"
+    assert "purpose_size" in source, (
+        "rail._item should measure a second line for the purpose in labels mode"
+    )
+
+    draw_source = inspect.getsource(rail.draw)
+    assert "purpose=purpose" in draw_source, (
+        "rail.draw must pass the mode's purpose through to _item"
+    )
+
 
 def _comment_before(marker: str) -> str:
     """The comment block ending at the line containing ``marker``."""
