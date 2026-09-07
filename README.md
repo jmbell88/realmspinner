@@ -31,7 +31,10 @@ are looking at.
    reference (prompt, guidance, base model and style LoRA, conditioning, seeds
    and candidates), then the mesh, then rig, pose, sprite sheet and surface
    re-texture. Text jobs stop at the reference for approval by default, before
-   anything pays for a trellis run.
+   anything pays for a trellis run. A "send this asset to..." menu — Inker,
+   Clay, Poser, Troupe, Plotter, Packwright, whichever the asset in front of
+   you can actually become — is on every stage and in the Library alike, so a
+   destination that isn't reachable yet says why rather than disappearing.
 
 **Workspaces** — each fills the window with its own three-column layout:
 
@@ -80,8 +83,10 @@ are looking at.
    `.tsx` for grid packs. Re-export of an unchanged document is byte-identical.
 10. **Muse** — generated music: comma-separated style tags and an optional lyric
     block become a finished track from **ACE-Step v1** (3.5B, text-to-music,
-    local and offline), one job row per take, auditioned in the mode and
-    openable in Sirens as a sample instrument.
+    local and offline) — up to ten minutes per generation (30s/60s/120s/240s/10m
+    presets, or any typed length in between), four minutes when extending an
+    existing take — one job row per take, auditioned in the mode and openable
+    in Sirens as a sample instrument.
 11. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
    grid, an envelope editor, sample import and sound effects, with WAV, stems
    and sfx export.
@@ -240,7 +245,7 @@ uv run warlock doctor   # checks dependencies, weights, and configuration
 
 `warlock sweep --image ~/.warlock/assets/<job-id>/input.png --bands auto,4,8 --seed 42` regenerates one reference at several trellis `--band` values with a fixed seed and audits each resulting mesh.
 
-`python -m warlock.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v1`, `pixel-v1`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `run`, `score`, `calibrate`, `prune`, `purge`.
+`python -m warlock.bench` is the developer measurement suite behind quality decisions: versioned suites (`core-v2`, `pixel-v2`) run under named recipes, rendered to eight views per mesh and scored on silhouette IoU and DINOv2 identity (always A-against-B, never as an absolute). Subcommands: `suites`, `recipes`, `run`, `score`, `calibrate`, `prune`, `purge`.
 
 ### Configuration
 
