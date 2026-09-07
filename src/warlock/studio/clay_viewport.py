@@ -84,9 +84,9 @@ class ClayViewport:
     def _clay_viewport(self, ctx: Any, clay_mode: Any, widgets: Any) -> None:
         from imgui_bundle import imgui
 
-        from . import tokens
+        from . import icons, tokens
         from .main import TARGET_FPS
-        from .panes import clay_header, clay_hud, clay_menu
+        from .panes import clay_header, clay_hud, clay_menu, overlay
 
         self._clay_tabs(ctx, clay_mode)
         tab = clay_mode.active(ctx)
@@ -139,6 +139,20 @@ class ClayViewport:
         texture = view.draw(tab.doc, rect, 1.0 / TARGET_FPS)
         imgui.image(widgets.texture_ref(texture), (rect[2], rect[3]), (0, 1), (1, 0))
         self._build_hovered = imgui.is_item_hovered()
+        if not tab.doc.objects:
+            # The tab is open and the render is live -- an empty grid, not a
+            # missing document -- so the "start a document" screen
+            # (``_clay_empty``) is the wrong one here. What is missing is the
+            # *first shape*, and nothing on screen said so before this: the
+            # viewport was just an empty grid until Tools was noticed at the
+            # side (W1.5).
+            imgui.set_cursor_screen_pos((rect[0], rect[1]))
+            overlay.centred_empty(
+                icons.BOX,
+                "Add a shape",
+                "Pick one from Tools.",
+                action=overlay.action_for(ctx, "clay"),
+            )
         self._clay_marquee(imgui, view, rect)
         self._clay_drag_hud(imgui, widgets, view, rect)
         # Over the render and inside the same clip: the widget is a control you

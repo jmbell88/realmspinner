@@ -927,6 +927,40 @@ def test_the_overlay_offers_clear_only_where_there_is_something_to_clear(app_ctx
         app_ctx.state.mode = was_mode
 
 
+def test_wireframe_and_turntable_hide_until_a_mesh_is_loaded(app_ctx, imgui_ctx, monkeypatch):
+    """The two viewport tools were gated on ``viewer is not None`` -- true the
+    instant the viewer exists, well before anything is loaded into it -- so
+    Wireframe and Turntable drew over an empty viewport with nothing for
+    either to affect. They belong on ``viewer.has_model`` instead.
+    """
+    from warlock.studio import widgets
+    from warlock.studio.panes import overlay
+
+    drawn: list[str] = []
+    real_toggle = widgets.toggle
+
+    def spy_toggle(label, value, *, tag=None, tooltip=""):
+        drawn.append(label)
+        return real_toggle(label, value, tag=tag, tooltip=tooltip)
+
+    monkeypatch.setattr(widgets, "toggle", spy_toggle)
+
+    assert app_ctx.viewer.has_model is False
+    _frame(imgui_ctx, lambda: overlay.toolbar(app_ctx))
+    assert "Wireframe" not in drawn, "no mesh loaded, so nothing for it to affect"
+    assert "Turntable" not in drawn
+
+    drawn.clear()
+    app_ctx.viewer.gpu = object()
+    try:
+        assert app_ctx.viewer.has_model is True
+        _frame(imgui_ctx, lambda: overlay.toolbar(app_ctx))
+        assert "Wireframe" in drawn, "a mesh is loaded, so the tool is findable"
+        assert "Turntable" in drawn
+    finally:
+        app_ctx.viewer.gpu = None
+
+
 def test_toasts_and_dialogs_build(app_ctx, imgui_ctx):
     from warlock.studio import dialogs, widgets
 
@@ -2496,6 +2530,49 @@ def test_the_clay_viewport_draws_through_the_real_imgui_backend(app_ctx, imgui_c
         _frame(imgui_ctx, build)
     finally:
         view.release()
+
+
+def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, monkeypatch):
+    """A document with a tab open but no objects in it used to be an empty
+    grid with nothing on screen to say what to do next -- the ``Tools`` panel
+    was the only place that said "add a shape", and only if you looked there
+    (W1.5). The viewport now says so itself, through the same
+    ``overlay.centred_empty`` every other empty viewport in the app uses.
+    """
+    from warlock.studio import clay_mode, widgets
+    from warlock.studio.clay import document as bd
+    from warlock.studio.main import App
+    from warlock.studio.panes import overlay
+
+    app = App(app_ctx.runtime)
+    app.app_ctx = app_ctx
+    app.ctx = gl
+
+    clay_mode.adopt(app_ctx, bd.ClayDoc(), title="Empty")
+
+    seen: dict = {}
+    real_centred_empty = overlay.centred_empty
+
+    def spy(icon, title, hint, *, action=None):
+        seen["icon"] = icon
+        seen["title"] = title
+        seen["hint"] = hint
+        seen["action"] = action
+        real_centred_empty(icon, title, hint, action=action)
+
+    monkeypatch.setattr(overlay, "centred_empty", spy)
+    try:
+        _frame(
+            imgui_ctx,
+            lambda: app._clay_viewport(app_ctx, clay_mode, widgets),
+        )
+    finally:
+        if app.clay_view is not None:
+            app.clay_view.release()
+
+    assert seen, "an empty Clay scene must draw the centred empty state"
+    assert seen["title"] == "Add a shape"
+    assert "Tools" in seen["hint"]
 
 
 def test_a_built_document_renders_the_flat_reference_trellis_is_given(app_ctx, gl):

@@ -109,14 +109,19 @@ def toolbar(ctx: Any) -> None:
     # route into the manual at all.
     _wrap(icons.INFO)
     manual_render.help_button_inline(ctx, "overlay")
-    _wrap("Wireframe")
-    changed, state.wireframe = widgets.toggle("Wireframe", state.wireframe, tag="wireframe")
-    if changed:
-        viewer.set_wireframe(state.wireframe)
-    _wrap("Turntable")
-    changed, state.turntable = widgets.toggle("Turntable", state.turntable, tag="turntable")
-    if changed:
-        viewer.set_turntable(state.turntable)
+    if viewer.has_model:
+        # Gated on a loaded mesh, not merely a viewer instance: the viewer
+        # exists (and is non-None) before anything is ever loaded into it, so
+        # ``viewer is not None`` let Wireframe and Turntable draw over an
+        # empty viewport with nothing for either to affect.
+        _wrap("Wireframe")
+        changed, state.wireframe = widgets.toggle("Wireframe", state.wireframe, tag="wireframe")
+        if changed:
+            viewer.set_wireframe(state.wireframe)
+        _wrap("Turntable")
+        changed, state.turntable = widgets.toggle("Turntable", state.turntable, tag="turntable")
+        if changed:
+            viewer.set_turntable(state.turntable)
     _wrap(icons.CAMERA)
     if widgets.icon_button(icons.CAMERA, "Screenshot...", enabled=viewer.has_model):
         _screenshot(ctx)

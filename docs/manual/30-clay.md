@@ -27,6 +27,10 @@ work, and entering the mode is not a reason to disturb them.
 
 ## Adding a primitive
 
+A document with nothing in it says so in the viewport itself — "Add a shape", with "Pick one from
+Tools" underneath and a button that drops a box at the origin — rather than leaving you to notice an
+empty grid and go looking for the **add** row on your own.
+
 The **add** row has one button per shape, in two groups. **Primitives**: box, plane, grid, cylinder,
 cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch and column. Clicking one
 places it at the origin and selects it. Hovering a button names it.
