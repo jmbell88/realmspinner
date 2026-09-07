@@ -85,14 +85,26 @@ def draw(ctx: Any) -> None:
         return
 
     with forms.Form("poser-controls"):
+        if state.job_id:
+            _asset_banner(ctx, state)
+            widgets.divider()
         _banner(state, viewer)
         _joint(ctx, viewer)
         _root(viewer)
-        _save(ctx, viewer)
+        _save(ctx, state, viewer)
+
+
+def _asset_banner(ctx: Any, state: Any) -> None:
+    """Who this session is bound to, and the way back to browsing templates."""
+    widgets.text_colored(theme.ACCENT, f"Editing pose for {state.asset_label or 'this asset'}")
+    if controls.button("Close", tooltip="Return to browsing the shared skeleton library."):
+        poser_mode.close_asset(ctx)
 
 
 def _banner(state: Any, viewer: Any) -> None:
-    record = state.find(viewer.editor.current)
+    record = state.find_asset_pose(viewer.editor.current) if state.job_id else state.find(
+        viewer.editor.current
+    )
     label = str(record.get("name")) if record else "New pose"
     if viewer.editor.has_unsaved_edits():
         label += " - unsaved changes"
@@ -231,8 +243,31 @@ def _root(viewer: Any) -> None:
         )
 
 
-def _save(ctx: Any, viewer: Any) -> None:
+def _save(ctx: Any, state: Any, viewer: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
+    if state.job_id:
+        _save_asset(ctx, state)
+        widgets.section("Reusable pose")
+        widgets.muted_wrapped(
+            "Also contribute this to the shared library, for every asset on "
+            "this skeleton -- not just this one."
+        )
+    _save_library(ctx, viewer)
+
+
+def _save_asset(ctx: Any, state: Any) -> None:
+    busy = ctx.busy(f"{poser_mode.ASSET_SAVE_KEY_PREFIX}{state.job_id}")
+    if widgets.disabled_button(
+        "Save pose to this asset",
+        not busy,
+        (-1, 0),
+        tooltip="Write this pose into the asset's own poses, the way the "
+        "inspector's Pose tab would.",
+    ):
+        poser_mode.save_pose_to_asset(ctx)
+
+
+def _save_library(ctx: Any, viewer: Any) -> None:
     busy = ctx.busy(poser_mode.SAVE_KEY)
     editing = viewer.editor.current is not None
     if editing and widgets.disabled_button(
@@ -243,7 +278,7 @@ def _save(ctx: Any, viewer: Any) -> None:
     ):
         poser_mode.save(ctx)
     if widgets.disabled_button(
-        "Save as...",
+        "Save as reusable pose...",
         not busy,
         (-1, 0),
         tooltip="Add a new pose to the library every asset on this skeleton can use.",

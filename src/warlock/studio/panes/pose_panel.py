@@ -185,31 +185,22 @@ def _poser_link(ctx: Any, job: Any) -> None:
 
 
 def open_in_poser(ctx: Any, job: Any) -> None:
-    """Leave for the Poser, on this rig's skeleton.
+    """Leave for the Poser, on this rig's own mesh.
 
     Behind :func:`guard` because it is an exit from the editor like any other,
     and through :func:`leave` because the Poser has its *own* viewer -- a
     shared viewer left in pose mode would keep ``_sync_viewer`` returning
-    early for the rest of the session.
-
-    The template is read from the rig rather than assumed, so the Poser opens
-    on the library that applies to what is on screen; ``set_template``
-    early-returns when it is already the one showing.
+    early for the rest of the session. ``poser_mode.open_asset`` is what
+    actually hands the mesh across: Poser binds its own viewer to this same
+    ``rig.glb`` rather than falling back to the generic, meshless skeleton
+    preview, so what was being posed here keeps being posed there.
     """
     from .. import poser_mode
     from ..state import set_mode
 
     def proceed() -> None:
         leave(ctx)
-        rig = None
-        # A missing or unreadable rig.json is not a reason to refuse the trip:
-        # the Poser has a template picker of its own and its default is the
-        # config's, which is the same answer this would have guessed.
-        with contextlib.suppress(Exception):
-            rig = svc_rig.get_rig(ctx.svc, job["id"])
-        template = str((rig or {}).get("template") or "")
-        if template:
-            poser_mode.set_template(ctx, template)
+        poser_mode.open_asset(ctx, job)
         set_mode(ctx.state, "poser")
 
     guard(ctx, "open the Poser", proceed)

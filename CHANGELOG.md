@@ -18,6 +18,20 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.39 — 2026-09-07
+
+- **Poser can open a rigged asset's own mesh, not just a bare skeleton.**
+  Until now Poser authored poses against a meshless armature preview only —
+  the same generic humanoid, quadruped, bird or blob skeleton, with no way to
+  see what a pose actually looked like on a real character. The inspector's
+  Pose tab already had a working, skinned, textured pose editor for one
+  specific asset; Poser now shares that same machinery on its own viewer, so
+  "Open in Poser" from the Library or the inspector loads the asset's actual
+  `rig.glb` and poses the real model. The shared, skeleton-wide pose library
+  stays exactly what it was — a saved pose still applies by bone name to any
+  mesh on that skeleton — and a new "Save pose to this asset" writes onto the
+  asset itself, the way the inspector's own Pose tab already could.
+
 ## 0.0.38 — 2026-09-06
 
 The slow parts got faster without a line of C, and the sprite ceiling came

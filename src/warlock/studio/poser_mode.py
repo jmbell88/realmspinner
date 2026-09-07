@@ -1,4 +1,5 @@
-"""Poser mode's controller: authoring reusable poses against a skeleton template.
+"""Poser mode's controller: authoring reusable poses against a skeleton template,
+or against one real rigged asset's own mesh.
 
 The ``clay_mode.py`` pattern -- state and logic here, drawing in ``main.py``
 and the two panes, no imgui anywhere under this import -- so everything about
@@ -7,10 +8,19 @@ what a session holds is assertable without a GL context.
 What it is for. A pose authored here is a *complete* bone map against one of
 the shipped skeleton templates, stored globally under ``data_dir/poser/`` and
 applied to any rigged asset of the same template from the asset's Pose panel.
-The preview it is authored on is an armature-only GLB built by the same
-Blender code path as a real rig (``op_armature``), over the canonical unit box
--- so the bone frames the editor rotates are the frames every bake will see,
-and model units are character heights literally.
+By default the preview it is authored on is an armature-only GLB built by the
+same Blender code path as a real rig (``op_armature``), over the canonical
+unit box -- so the bone frames the editor rotates are the frames every bake
+will see, and model units are character heights literally.
+
+**Or the session can bind to one real asset instead** (``open_asset`` /
+``close_asset``), loading that job's own ``rig.glb`` and posing the actual
+mesh -- the same ``Viewer.enter_pose_mode`` the inspector's Pose panel uses,
+just on Poser's own instance. The shared, skeleton-keyed pose library stays
+exactly what it always was and stays visible either way (a template pose
+applies by bone name, whether or not a mesh happens to be bound); what an
+asset session adds is a place to save a pose *onto that asset* rather than
+into the library, mirroring what the inspector's Pose tab already offers.
 
 **Poser owns its own Viewer instance.** ``adopt_model`` on the shared viewer
 calls ``exit_pose_mode`` unconditionally, so loading the preview into it would
@@ -23,11 +33,14 @@ mode trips like an open Inker document, and no guard is needed on *leaving*
 the mode -- only on quit and on destructive in-mode actions. The instance
 lives on the App/Ctx (``ctx.poser_viewer``), constructed lazily on the frame
 thread at first entry and released in teardown; this module only ever reads
-it through ``viewer_of``.
+it through ``viewer_of``. The same instance is shared by both kinds of
+session -- template preview and asset -- because they are mutually exclusive
+by construction (``state.job_id`` says which) and never need to coexist.
 """
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
 from dataclasses import dataclass, field
@@ -48,10 +61,20 @@ RENAME_KEY = "poser-rename"
 PREVIEW_KEY_PREFIX = "poser-preview:"
 CLIPS_KEY = "poser-clips"
 CLIPS_SAVE_KEY = "poser-clips-save"
+# The asset session's own keys -- distinct from ``pose_panel``'s ``pose-save:``/
+# ``pose-del:`` family on purpose. ``main.py``'s generic task dispatch matches
+# any ``"pose-"`` key against the *shared* viewer (``self.viewer.editor.dirty =
+# False``); reusing that family from here would clear or misattribute the
+# wrong viewer's dirty flag. These start "poser-" instead, so they route to
+# this module's own ``on_task_done`` like every other key here does.
+ASSET_POSES_KEY_PREFIX = "poser-asset-poses:"
+ASSET_SAVE_KEY_PREFIX = "poser-asset-save:"
+ASSET_DELETE_KEY_PREFIX = "poser-asset-delete:"
 
-# What pose_job_id carries in an authoring session. Can never equal a 12-hex
-# job id (a colon fails is_valid_id), belt-and-braces under the separate
-# viewer instance: a save can never be addressed to a job.
+# What pose_job_id carries in a *template* authoring session. Can never equal
+# a 12-hex job id (a colon fails is_valid_id) -- but an *asset* session
+# (``open_asset``) binds the viewer with the real job id instead, deliberately,
+# because that save really is addressed to a job.
 TOKEN_PREFIX = "poser:"
 
 
@@ -123,6 +146,32 @@ class PoserState:
     #: clip, the same argument Inker's tiled view makes about itself.
     onion: bool = False
 
+    # -- the asset session ----------------------------------------------------
+    #
+    # Empty ``job_id`` is the ordinary, template-browsing session above; a
+    # non-empty one means the viewer is bound to this real job's own rig.glb
+    # instead of the meshless armature preview. The two are mutually exclusive
+    # -- never both at once -- which is what lets everything above (the shared
+    # library, the clip editor) keep working unchanged either way.
+    job_id: str = ""
+    #: The bound asset's own name, for the viewport banner -- read once at
+    #: open time rather than looked up by id every draw.
+    asset_label: str = ""
+    #: The bound asset's ``rig.json``, or None if it had none readable. Held
+    #: rather than re-read, the same reason ``pose_panel._enter`` reads it once.
+    asset_rig: dict[str, Any] | None = None
+    #: This asset's own saved poses (``service.rig.list_poses``), distinct from
+    #: the shared, skeleton-keyed library above.
+    asset_poses: list[dict[str, Any]] = field(default_factory=list)
+    asset_poses_loading: bool = False
+    #: Set when binding the viewer to the asset failed (a missing rig.glb, a
+    #: GLB with no skin). Cleared only by :func:`retry_asset`, so a broken rig
+    #: is not retried every frame.
+    asset_error: str = ""
+
+    def find_asset_pose(self, pose_id: Any) -> dict[str, Any] | None:
+        return next((p for p in self.asset_poses if p.get("id") == pose_id), None)
+
     def open_clip(self) -> dict[str, Any] | None:
         """The clip record being edited, or None."""
         for record in self.clips.get("clips") or ():
@@ -180,14 +229,21 @@ def enter(ctx: Any) -> None:
 
     Driven off the mode change (the Review-arrival rule), not off "the list is
     empty" -- which would submit a directory walk every frame on a library
-    that genuinely holds nothing.
+    that genuinely holds nothing. Fires on *every* arrival, including a mode
+    trip back into an already-open asset session -- so an asset session asks
+    for its own poses to be re-read instead of the meshless preview, which
+    would otherwise spend a Blender subprocess building a preview nothing is
+    about to show.
     """
     state = ensure(ctx)
     if not state.template:
         return
     refresh(ctx)
     clips_refresh(ctx)
-    request_preview(ctx)
+    if state.job_id:
+        refresh_asset_poses(ctx)
+    else:
+        request_preview(ctx)
 
 
 def _collect(svc: Any, template: str) -> dict[str, Any]:
@@ -308,6 +364,181 @@ def set_template(ctx: Any, template: str) -> None:
     guarded()
 
 
+# --- the asset session ---------------------------------------------------------
+
+
+def open_asset(ctx: Any, job: dict[str, Any]) -> None:
+    """Bind the session to one real rigged asset's own mesh, behind the guard.
+
+    Reads the rig's template so the shared library beside it is the one that
+    applies -- ``pose_panel.open_in_poser``'s old rule, kept, since a saved
+    library pose still applies by bone name whether or not a mesh is bound.
+    A missing or unreadable rig.json is not a reason to refuse the trip, the
+    same tolerance ``pose_panel._enter`` already applies: only the mirror
+    button and the joint editor need what it carries.
+    """
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return
+    rig = None
+    with contextlib.suppress(Exception):
+        rig = svc_rig.get_rig(ctx.svc, job_id)
+    template = str((rig or {}).get("template") or "") or state.template
+    switching_template = bool(template) and template != state.template
+
+    def proceed() -> None:
+        if switching_template:
+            # The poser-01 reset, restated: every field a template switch
+            # discards needs clearing here too, since this can also change
+            # which skeleton's clip library is open.
+            state.template = template
+            state.clips = {}
+            state.clip = ""
+            state.key_index = 0
+            state.frame = -1
+            state.frames = []
+            state.clips_error = ""
+            state.clips_unsaved = False
+        state.job_id = job_id
+        state.asset_label = str(job.get("name") or job.get("prompt") or job_id)
+        state.asset_rig = rig
+        state.asset_error = ""
+        state.asset_poses = []
+        viewer = viewer_of(ctx)
+        if viewer is not None:
+            # Whatever the viewer was showing -- another asset, the meshless
+            # preview -- is not this one; sync_asset binds the new one when
+            # the viewport next draws.
+            viewer.exit_pose_mode()
+            viewer.clear()
+        refresh(ctx)
+        clips_refresh(ctx)
+        refresh_asset_poses(ctx)
+
+    def guarded() -> None:
+        guard(ctx, "open this asset", proceed)
+
+    if switching_template and state.clips_unsaved:
+        ctx.confirms.ask(
+            dialogs.Confirm(
+                title="Discard unsaved changes?",
+                message="Unsaved clip changes will be lost if you open this asset.",
+                on_confirm=guarded,
+            )
+        )
+        return
+    guarded()
+
+
+def close_asset(ctx: Any) -> None:
+    """Leave the asset session, behind the guard, back to browsing templates."""
+    state = ensure(ctx)
+    if not state.job_id:
+        return
+
+    def proceed() -> None:
+        state.job_id = ""
+        state.asset_label = ""
+        state.asset_rig = None
+        state.asset_poses = []
+        state.asset_error = ""
+        viewer = viewer_of(ctx)
+        if viewer is not None:
+            viewer.exit_pose_mode()
+            viewer.clear()
+        request_preview(ctx)
+
+    guard(ctx, "close this asset", proceed)
+
+
+def retry_asset(ctx: Any) -> None:
+    """Clear a load failure so :func:`sync_asset` tries again next frame."""
+    ensure(ctx).asset_error = ""
+
+
+def refresh_asset_poses(ctx: Any) -> None:
+    """Ask for the bound asset's own saved poses to be re-read."""
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    if not state.job_id or state.asset_poses_loading:
+        return
+    state.asset_poses_loading = True
+    key = f"{ASSET_POSES_KEY_PREFIX}{state.job_id}"
+    if not ctx.submit(key, svc_rig.list_poses, ctx.svc, state.job_id):
+        state.asset_poses_loading = False
+
+
+def save_pose_to_asset(ctx: Any) -> None:
+    """Save the pose being edited onto the bound asset, not the shared library.
+
+    The point of opening a real mesh rather than a template: a change here
+    should be able to stick to *this* asset, exactly like the inspector's own
+    Pose tab already offers via ``service.rig.save_pose``.
+    """
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if not state.job_id or viewer is None or not viewer.pose_mode:
+        return
+    job_id = state.job_id
+    existing = viewer.editor.current
+
+    def accept(name: str) -> None:
+        payload: dict[str, Any] = {"name": name, "bones": viewer.get_pose()}
+        if existing:
+            payload["id"] = existing
+        ctx.submit(
+            f"{ASSET_SAVE_KEY_PREFIX}{job_id}", svc_rig.save_pose, ctx.svc, job_id, payload
+        )
+
+    ctx.prompts.ask(dialogs.Prompt(title="Name this pose", label="Name", on_accept=accept))
+
+
+def apply_asset_pose(ctx: Any, pose_id: str) -> None:
+    """Load one of the asset's own saved poses into the editor, behind the guard."""
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    record = state.find_asset_pose(pose_id)
+    if record is None or viewer is None or not viewer.pose_mode:
+        return
+
+    def proceed() -> None:
+        viewer.reset_all(dirty=False)
+        viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
+
+    guard(ctx, "apply a saved pose", proceed)
+
+
+def delete_asset_pose(ctx: Any, pose_id: str, name: str) -> None:
+    """Delete one of the asset's own saved poses, behind a confirm."""
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    if not state.job_id:
+        return
+    job_id = state.job_id
+    dialogs.ask_delete(
+        ctx,
+        title="Delete this pose?",
+        message=(
+            f'"{name}" and its saved GLB are deleted. This cannot be undone.\n\n'
+            "The asset's mesh and skeleton are untouched."
+        ),
+        on_confirm=lambda: ctx.submit(
+            f"{ASSET_DELETE_KEY_PREFIX}{job_id}:{pose_id}",
+            svc_rig.delete_pose,
+            ctx.svc,
+            job_id,
+            pose_id,
+        ),
+    )
+
+
 # --- the preview -------------------------------------------------------------
 
 
@@ -378,17 +609,55 @@ def bind_preview(ctx: Any, viewer: Any, template_key: str) -> None:
     viewer.frame_bounds(lo, hi)
 
 
-def reframe(ctx: Any) -> None:
-    """Put the armature back on screen. ``F``, and the button beside it.
+def sync_asset(ctx: Any, viewer: Any) -> bool:
+    """Bind the viewer to the session's asset if it is not already shown.
 
-    ``frame_bounds`` on the template's own box rather than ``Viewer.frame``:
-    a Poser armature has no mesh, so ``Model.bounds()`` is zeros and framing
-    the model would put the camera in a point.
+    Frame thread only, ``sync_preview``'s reason. Unlike the template preview
+    there is no background build to track: loading a rig.glb is a synchronous
+    parse and GPU upload, the same call ``pose_panel._enter`` makes directly.
+    A failure is remembered in ``state.asset_error`` rather than retried every
+    frame -- :func:`retry_asset` is what asks again. -> whether the viewer is
+    showing the bound asset.
+    """
+    state = ensure(ctx)
+    job_id = state.job_id
+    if not job_id:
+        return False
+    if viewer.pose_mode and viewer.pose_job_id == job_id:
+        return True
+    if state.asset_error:
+        return False
+    rig_path = ctx.job_dir(job_id) / "rig.glb"
+    try:
+        viewer.load_model(rig_path)
+    except Exception:
+        log.exception("could not open the rig for job %s", job_id)
+        state.asset_error = "Could not open the rig."
+        return False
+    if not viewer.enter_pose_mode(state.asset_rig, job_id):
+        state.asset_error = "That GLB carries no skeleton."
+        return False
+    viewer.frame()
+    return True
+
+
+def reframe(ctx: Any) -> None:
+    """Put the subject back on screen. ``F``, and the button beside it.
+
+    An asset session frames the real mesh (``Viewer.frame``, off
+    ``Model.bounds()``); the template session frames ``frame_bounds`` on the
+    template's own box instead, because a Poser armature has no mesh and
+    framing a zero-size model would put the camera in a point.
     """
 
     viewer = viewer_of(ctx)
     state = ensure(ctx)
-    if viewer is None or not state.template:
+    if viewer is None:
+        return
+    if state.job_id:
+        viewer.frame()
+        return
+    if not state.template:
         return
     lo, hi = preview_bounds(state.template)
     viewer.frame_bounds(lo, hi)
@@ -487,8 +756,12 @@ def document_label(ctx: Any) -> tuple[str, bool] | None:
     if viewer is None or not viewer.pose_mode:
         return None
     state = ensure(ctx)
-    record = state.find(viewer.editor.current)
-    name = str((record or {}).get("name") or "") or "Untitled"
+    if state.job_id:
+        record = state.find_asset_pose(viewer.editor.current)
+        name = str((record or {}).get("name") or "") or state.asset_label or "Untitled"
+    else:
+        record = state.find(viewer.editor.current)
+        name = str((record or {}).get("name") or "") or "Untitled"
     return name, bool(getattr(ctx.state, "pose_dirty", False))
 
 
@@ -651,15 +924,21 @@ def handle_key(ctx: Any, event: Any) -> bool:
     if ctrl and clay_mode.axis_view_key(viewer.camera, name, shift):
         return True
     if name == "f" and not ctrl:
-        # ``frame`` on the armature's own bounds, not the model's: a Poser
-        # armature has no mesh, which is exactly why ``frame_bounds`` exists.
         reframe(ctx)
         return True
     # Ctrl+S / Ctrl+Shift+S, the one chord a user carries between every editor
     # in this app. Both functions existed and neither had a key: saving a pose
-    # was a button in one pane and nothing else.
+    # was a button in one pane and nothing else. Shift always means the shared
+    # library, even in an asset session -- the deliberate "contribute this
+    # back" route -- while bare Ctrl+S saves onto the bound asset when one is
+    # open, matching the button poser_controls draws as the primary action.
     if ctrl and name == "s":
-        save_as(ctx) if event.mod & pygame.KMOD_SHIFT else save(ctx)
+        if event.mod & pygame.KMOD_SHIFT:
+            save_as(ctx)
+        elif ensure(ctx).job_id:
+            save_pose_to_asset(ctx)
+        else:
+            save(ctx)
         return True
     return False
 
@@ -723,6 +1002,36 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 return
             adopt_clips(ctx, done.result)
         return
+    if key.startswith(ASSET_POSES_KEY_PREFIX):
+        state.asset_poses_loading = False
+        job_id = key[len(ASSET_POSES_KEY_PREFIX):]
+        if job_id == state.job_id and isinstance(done.result, dict):
+            state.asset_poses = list(done.result.get("poses") or ())
+        return
+    if key.startswith(ASSET_SAVE_KEY_PREFIX):
+        job_id = key[len(ASSET_SAVE_KEY_PREFIX):]
+        viewer = viewer_of(ctx)
+        if (
+            viewer is not None
+            and viewer.pose_mode
+            and viewer.pose_job_id == job_id
+            and isinstance(done.result, dict)
+        ):
+            # Only now is the pose actually on disk -- the pose_panel _save
+            # rule: a failed write leaves dirty set and the guard standing.
+            viewer.editor.dirty = False
+            viewer.editor.current = done.result.get("id")
+        if job_id == state.job_id:
+            refresh_asset_poses(ctx)
+        return
+    if key.startswith(ASSET_DELETE_KEY_PREFIX):
+        job_id, _, deleted = key[len(ASSET_DELETE_KEY_PREFIX):].partition(":")
+        viewer = viewer_of(ctx)
+        if viewer is not None and viewer.pose_job_id == job_id and viewer.editor.current == deleted:
+            viewer.editor.current = None
+        if job_id == state.job_id:
+            refresh_asset_poses(ctx)
+        return
 
 
 def on_task_failed(ctx: Any, done: Any) -> None:
@@ -750,6 +1059,10 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         # generic failure path.
         state.clips_loading = False
         clips_pump(ctx)
+        return
+    if done.key.startswith(ASSET_POSES_KEY_PREFIX):
+        state.asset_poses_loading = False
+        return
 
 
 # --- crash recovery (UX-05) ---------------------------------------------------

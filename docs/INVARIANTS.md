@@ -189,6 +189,26 @@ template's name — and because `clips_pump` refuses to re-read while `clips_uns
 `clips_refresh()` call would not have caught it either. Every field a template switch discards
 needs its own reset and, where it can hold unsaved work, its own guard question.
 
+**Poser can bind its own `Viewer` to a real job's `rig.glb` instead of the meshless armature
+preview, and the two sessions are mutually exclusive on one `PoserState`.** `open_asset`/
+`close_asset` (`poser_mode.py`) are the door: `state.job_id` empty means the ordinary
+template-browsing session above, non-empty means `ctx.poser_viewer` is bound via
+`viewer.enter_pose_mode(rig, job_id)` — the same call the inspector's Pose tab makes on the
+*shared* viewer — rather than `enter_pose_authoring` on a bones-only GLB. Consequently
+`pose_job_id` on Poser's own viewer is no longer always the `poser:<template>` token
+`enter_pose_authoring` mints; an asset session puts a real 12-hex job id there deliberately, so a
+save from that session really is addressed to a job. That is why the asset session's own task
+keys (`ASSET_POSES_KEY_PREFIX`/`ASSET_SAVE_KEY_PREFIX`/`ASSET_DELETE_KEY_PREFIX`, all `"poser-"`
+so they route to this module's own `on_task_done`) are deliberately **not** `pose_panel`'s
+`pose-save:`/`pose-del:` family: `main.py`'s generic task dispatch matches any `"pose-"` key
+against `self.viewer` — the shared one — unconditionally, so reusing that family from Poser's own
+viewer would clear or misattribute the wrong viewer's dirty flag. Both the inspector and Poser are
+allowed to bind `pose_job_id` to the *same* real job at once — opening an asset in Poser does not
+lock it — which is intentional and unlocked, last-save-wins, the same as any two editors open on
+one file with no lock between them. `open_asset` reuses set_template's poser-01 reset (`clips`/
+`clip`/`clips_unsaved`/etc.) whenever the rig's own template differs from the one already browsed,
+because it can change which skeleton's clip library is open exactly as `set_template` can.
+
 **The glTF loader has ceilings, because import is deliberately structural-only.** `check_glb` at the door checks the container and a size limit, so any file under it reaches `viewer/gltf.py` with whatever its JSON chunk claims — on the frame thread. Three refusals or degrades hold the line: `update_world` carries a `seen` set and a range check, so a children cycle or an index naming no node costs the malformed part rather than spinning the frame loop; `load` refuses a document declaring more than `MAX_NODES` (100 000) nodes, a hang rather than a scene; and a texture over `MAX_TEXTURE_PIXELS` (16 000 000, mirroring `service.validation.MAX_IMAGE_PIXELS` without importing service into the viewer) is skipped and counted, the same policy a corrupt map already had — measured from `Image.open`'s lazy size, before any pixel is decoded. Both ceilings are module-level constants so a test can lower one rather than craft a hostile asset. Below them, `glbio.split_glb` turns `struct.error` into `ValueError`: every other refusal in that module is a `ValueError` and callers key on it, so a file too short to hold its own header used to sail straight past them. A node's `mesh` and `skin` indices get the same treatment: `_Reader.node` refuses with a `ValueError` naming the index once it exceeds the file's declared `meshes`/`skins` count. **The same gap reached two more boundaries that pass missed**, closed 2026-09-06: `prim["material"]` checked only the upper bound, so a *negative* index wrapped through Python's own indexing onto the last palette entry instead of falling back to the default material -- silently, with no log line and no toast, so a corrupted file loaded as a plausible one wearing the wrong colour (finding clay-06; `clay.document._material_at`'s explicit `0 <= index` check was always right and this loader's copy was not). And a material's texture index, its image index, and an image's `bufferView` index were none of them bounds-checked at all, raising a bare `IndexError`/`KeyError` where every sibling boundary in this file raises the named `ValueError` callers key on (finding clay-09). All three are now refused in `_Reader.primitive`, `_Reader.texture` and `_Reader._image_bytes` in `node()`'s shape, negative indices included. They were the gap the 2026-09-05 audit (finding create-01) found -- `prim["material"]` was bounds-checked and `update_world` had its range check, but a node naming skin 7 of 2 raised a bare `IndexError` out of `GpuModel.__init__` *after* `ctx.buffer` objects existed for earlier, valid nodes in the same document. The constructor never returns, so nothing holds them, and this app sets no moderngl `gc_mode` -- every failed import of such a file leaked driver memory for the life of the process. Refusing inside `load` puts the check back on the task thread, before a single GPU object is allocated.
 
 **Two more ceilings closed 2026-09-07.** `load` bounded `nodes` against `MAX_NODES` but

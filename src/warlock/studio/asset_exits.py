@@ -213,7 +213,7 @@ def _poser(ctx: Any, job: Any) -> Exit | None:
         return None
     from .panes import pose_panel
 
-    hint = "Author poses and clips on this mesh's own skeleton."
+    hint = "Pose this mesh's own rig, or author clips for its skeleton."
 
     def door(ctx: Any, job: Any) -> None:
         pose_panel.open_in_poser(ctx, job)

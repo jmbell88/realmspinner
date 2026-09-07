@@ -298,15 +298,15 @@ P28's rendered sheets. This is the most important art task in the programme.
 comments (or a measurement document), after which the picker stops offering
 what has not earned its place.
 
-## P11. Decide: two Troupe questions
+## P11. Decide: `plotter-wave-2`
 
 **Why it is yours:** design, not implementation.
 
-- **Where does the "judge clips as pixels" preview live?** It cannot go in
-  Poser as built: `template_preview` (`service/poses.py`) builds an
-  armature-only GLB, so there is nothing to pixelise. Either Poser learns to
-  load a rigged asset for preview, or the pixel verdict stays in Troupe where
-  the mesh is.
+Poser can now load a rigged asset for preview and posing (`poser_mode.open_asset`,
+2026-09-07), which was the blocker the "judge clips as pixels" question named —
+that half is built, not decided; whether the pixel verdict actually *moves* out
+of Troupe once that preview exists is still open and unrelated to this entry.
+
 - **`plotter-wave-2`.** No branch of that name exists — it was converted to
   `refs/tags/archive/plotter-wave-2` at `d1995fad` (2026-08-14), the same
   commit its last move landed on, so recovering it means deriving a branch
@@ -315,9 +315,8 @@ what has not earned its place.
   Two outcomes: derive a branch and rebase or cherry-pick what still applies,
   or leave it archived.
 
-**Expected outcome:** two recorded decisions; the first turns into a buildable
-spec, the second into either a branch derived from the tag or the tag staying
-archived.
+**Expected outcome:** one recorded decision, into either a branch derived from
+the tag or the tag staying archived.
 
 ## P13. Troupe phases 7 and 8 — fully specified, deliberately unstarted
 

@@ -142,7 +142,10 @@ def test_both_panes_delegate_rather_than_keeping_a_copy():
 def _cross_ctx(*, dirty: bool):
     """Enough for ``open_in_poser``: a shared viewer that records leaving, a
     state with a mode, and a service whose rig read fails -- which is the case
-    the trip has to survive, because the Poser has a picker of its own."""
+    the trip has to survive, because the Poser has a picker of its own.
+    ``submit``/``busy`` are stubs that decline every submit -- ``open_asset``
+    asks the Poser library/clips/asset-poses to refresh on arrival, and this
+    test cares only that the trip lands, not that the refresh completes."""
     from warlock.studio.state import AppState
 
     viewer = _viewer(dirty=dirty)
@@ -153,6 +156,8 @@ def _cross_ctx(*, dirty: bool):
     ctx.state.create_stage = "pose"
     ctx.svc = SimpleNamespace(job_dir=lambda _id: (_ for _ in ()).throw(OSError))
     ctx.rig_default = ""
+    ctx.submit = lambda *args, **kwargs: False
+    ctx.busy = lambda *args, **kwargs: False
     return ctx
 
 

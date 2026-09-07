@@ -64,8 +64,12 @@ class PoseOps:
         A separate entry point rather than a relaxed ``enter_pose_mode``: that
         one's skins check is its job-scoped contract (a mesh with no skin has
         nothing to pose) and stays intact. ``token`` fills ``pose_job_id`` --
-        it can never equal a 12-hex job id, belt-and-braces under the separate
-        Poser Viewer instance, so a save can never be addressed to a job.
+        it can never equal a 12-hex job id, so a *template* authoring session
+        can never be saved as though it were addressed to a job. Poser's own
+        asset sessions (``poser_mode.open_asset``) bind through
+        ``enter_pose_mode`` instead, on this same Viewer instance, and do
+        carry a real job id there deliberately -- the two entry points are
+        mutually exclusive per session, never both at once.
         """
         if self.model is None:
             return False

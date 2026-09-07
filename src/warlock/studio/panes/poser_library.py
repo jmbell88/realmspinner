@@ -29,21 +29,70 @@ def draw(ctx: Any) -> None:
         widgets.muted("Posing needs Blender, which is not installed.")
         return
 
-    widgets.field_label("Skeleton")
-    chosen = widgets.combo(
-        "##poser-template",
-        state.template,
-        [(entry["key"], entry["label"]) for entry in rigging.catalog()],
-    )
-    if chosen and chosen != state.template:
-        poser_mode.set_template(ctx, chosen)
+    if state.job_id:
+        # The skeleton follows the bound asset's own rig; changing it makes no
+        # sense until the asset session is closed, so the combo is replaced
+        # with a fact rather than shown disabled with no way to act on it.
+        label = next(
+            (e["label"] for e in rigging.catalog() if e["key"] == state.template),
+            state.template,
+        )
+        widgets.field_label("Skeleton")
+        widgets.muted(f"{label} (from this asset's rig)")
+    else:
+        widgets.field_label("Skeleton")
+        chosen = widgets.combo(
+            "##poser-template",
+            state.template,
+            [(entry["key"], entry["label"]) for entry in rigging.catalog()],
+        )
+        if chosen and chosen != state.template:
+            poser_mode.set_template(ctx, chosen)
 
     imgui.dummy((0, sp(tokens.SP_1)))
     if controls.button("New pose", (-1, 0)):
         poser_mode.new_pose(ctx)
 
+    if state.job_id:
+        _asset_poses(ctx, state)
     _library(ctx, state)
     _presets(ctx, state)
+
+
+def _asset_poses(ctx: Any, state: Any) -> None:
+    """Poses saved onto the bound asset itself, distinct from the shared
+    library below -- ``service.rig.list_poses``, not ``service.poses``."""
+    widgets.section("This asset's poses")
+    if not state.asset_poses:
+        widgets.empty_state(
+            icons.PERSON_STANDING,
+            "No saved poses",
+            "Rotate a joint, then Save pose to this asset.",
+        )
+        return
+    viewer = poser_mode.viewer_of(ctx)
+    editing = None if viewer is None else viewer.editor.current
+    needle = widgets.list_filter(ctx, "poser-asset-poses", len(state.asset_poses))
+    shown = 0
+    for pose in state.asset_poses:
+        pose_id = str(pose.get("id") or "")
+        name = str(pose.get("name") or pose_id)
+        if needle and needle not in name.lower():
+            continue
+        shown += 1
+        imgui.push_id(f"asset-pose-{pose_id}")
+        if pose_id == editing:
+            widgets.text_colored(theme.ACCENT, name)
+        else:
+            imgui.text(name)
+        widgets.same_line_or_wrap(widgets.button_width("Apply"))
+        if controls.small_button("Apply"):
+            poser_mode.apply_asset_pose(ctx, pose_id)
+        widgets.same_line_or_wrap(widgets.button_width("Delete"))
+        if controls.small_button("Delete"):
+            poser_mode.delete_asset_pose(ctx, pose_id, name)
+        imgui.pop_id()
+    widgets.no_matches(needle, shown)
 
 
 def _library(ctx: Any, state: Any) -> None:

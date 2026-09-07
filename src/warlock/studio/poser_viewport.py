@@ -94,28 +94,42 @@ class PoserViewport:
             overlay.placeholder(ctx)
             return
         viewer = self._ensure_poser_viewer()
-        showing = poser_mode.sync_preview(ctx, viewer)
-        if not showing:
-            # Both branches through ``centred_empty``, the shape every other
-            # workspace's empty viewport takes. These two were the app's one
-            # pair of top-left muted lines where nine centred cards go.
-            if state.building:
-                overlay.centred_empty(
-                    icons.PERSON_STANDING,
-                    "Building the skeleton preview",
-                    "The armature is built by Blender once per skeleton and "
-                    "cached; the first open of a template takes a moment.",
-                )
-            elif state.error:
-                overlay.centred_empty(
-                    icons.TRIANGLE_ALERT,
-                    "The skeleton did not build",
-                    state.error,
-                    action=("Try again", lambda: poser_mode.request_preview(ctx)),
-                )
-            else:
-                overlay.placeholder(ctx)
-            return
+        if state.job_id:
+            showing = poser_mode.sync_asset(ctx, viewer)
+            if not showing:
+                if state.asset_error:
+                    overlay.centred_empty(
+                        icons.TRIANGLE_ALERT,
+                        "This asset did not open",
+                        state.asset_error,
+                        action=("Try again", lambda: poser_mode.retry_asset(ctx)),
+                    )
+                else:
+                    overlay.placeholder(ctx)
+                return
+        else:
+            showing = poser_mode.sync_preview(ctx, viewer)
+            if not showing:
+                # Both branches through ``centred_empty``, the shape every other
+                # workspace's empty viewport takes. These two were the app's one
+                # pair of top-left muted lines where nine centred cards go.
+                if state.building:
+                    overlay.centred_empty(
+                        icons.PERSON_STANDING,
+                        "Building the skeleton preview",
+                        "The armature is built by Blender once per skeleton and "
+                        "cached; the first open of a template takes a moment.",
+                    )
+                elif state.error:
+                    overlay.centred_empty(
+                        icons.TRIANGLE_ALERT,
+                        "The skeleton did not build",
+                        state.error,
+                        action=("Try again", lambda: poser_mode.request_preview(ctx)),
+                    )
+                else:
+                    overlay.placeholder(ctx)
+                return
         avail = imgui.get_content_region_avail()
         rect = (
             imgui.get_cursor_screen_pos().x,

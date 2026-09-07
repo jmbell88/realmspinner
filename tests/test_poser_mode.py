@@ -8,6 +8,7 @@ dirty-clears-only-on-landing rule lives on.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,6 +61,9 @@ class FakeCtx:
     def toast(self, message, level="info", *args) -> None:
         self.toasts.append((message, level))
 
+    def job_dir(self, job_id):
+        return self.svc.job_dir(job_id)
+
 
 class FakeViewer:
     """Just the surface poser_mode touches, over a real PoseEditor."""
@@ -78,6 +82,13 @@ class FakeViewer:
         from warlock.studio.viewer.camera import Camera
 
         self.camera = Camera()
+        # ``enter_pose_mode``'s stand-in for "the loaded GLB has a skeleton" --
+        # real ``Viewer.enter_pose_mode`` checks ``self.model.skins``, which
+        # this fake never parses a real GLB into, so it is a plain flag
+        # instead. Defaults True: most callers are testing the orchestration
+        # around it, not the skin check itself.
+        self.skinned = True
+        self.pose_job_id: str | None = None
         if model is not None:
             self.editor.bind(model, bones)
             self.pose_mode = True
@@ -90,7 +101,24 @@ class FakeViewer:
         self.editor.mirror_pairs = [list(p) for p in mirror_pairs]
         self.pose_mode = True
         self.token = token
+        self.pose_job_id = token
         return True
+
+    def enter_pose_mode(self, rig, job_id) -> bool:
+        if not self.skinned:
+            return False
+        self.rig = rig
+        self.pose_job_id = job_id
+        self.pose_mode = True
+        return True
+
+    def exit_pose_mode(self) -> None:
+        self.pose_mode = False
+        self.pose_job_id = None
+
+    def frame(self) -> float:
+        self.framed = "whole-model"
+        return 1.0
 
     def frame_bounds(self, lo, hi) -> float:
         self.framed = (lo, hi)
@@ -264,6 +292,122 @@ def test_switching_template_refreshes_the_clip_library_and_guards_unsaved_clip_e
     assert state.clip == ""
     assert state.clips_unsaved is False
     assert poser_mode.CLIPS_KEY in ctx.submitted, "the new template's clips must be re-read"
+
+
+# --- the asset session --------------------------------------------------------
+
+
+def _rigged_job(svc, **meta):
+    """A finished mesh with a rig beside it, the way the worker leaves one --
+    ``test_inspector_rig.py``'s helper, needed here because ``open_asset``
+    goes through the real ``service.rig`` doors (``get_rig``, ``list_poses``),
+    which refuse a job with no rig on disk."""
+    job_id = svc.store.create("image", "a prop", {}, stage="model", status="done")
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"glTF-not-really")
+    (job_dir / "rig.glb").write_bytes(b"glTF-not-really")
+    (job_dir / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "humanoid", "bones": [], **meta}), "utf-8"
+    )
+    return job_id
+
+
+def test_open_asset_binds_via_enter_pose_mode_not_authoring(svc):
+    """Opening a rigged asset must show its real mesh -- ``enter_pose_mode``,
+    the skin-checked entry point -- never fall back to the meshless armature's
+    ``enter_pose_authoring``."""
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = FakeViewer()
+    job = {"id": job_id, "name": "Test Prop"}
+
+    poser_mode.open_asset(ctx, job)
+    state = poser_mode.ensure(ctx)
+    assert state.job_id == job_id
+    assert state.asset_label == "Test Prop"
+
+    assert poser_mode.sync_asset(ctx, viewer) is True
+    assert viewer.loaded == [ctx.job_dir(job_id) / "rig.glb"]
+    assert viewer.pose_mode is True
+    assert viewer.pose_job_id == job_id, "a save from here must address the job"
+    assert viewer.framed == "whole-model", "the real mesh is framed, not a bone box"
+
+    # Idempotent: already showing it, so no second load.
+    assert poser_mode.sync_asset(ctx, viewer) is True
+    assert len(viewer.loaded) == 1
+
+
+def test_sync_asset_reports_a_skeletonless_glb_without_retrying_every_frame(svc):
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = FakeViewer()
+    viewer.skinned = False
+
+    poser_mode.open_asset(ctx, {"id": job_id})
+    state = poser_mode.ensure(ctx)
+
+    assert poser_mode.sync_asset(ctx, viewer) is False
+    assert state.asset_error
+    loaded_once = list(viewer.loaded)
+
+    # A load failure is not retried every frame until asked to be.
+    assert poser_mode.sync_asset(ctx, viewer) is False
+    assert viewer.loaded == loaded_once
+
+    poser_mode.retry_asset(ctx)
+    viewer.skinned = True
+    assert poser_mode.sync_asset(ctx, viewer) is True
+
+
+def test_a_dirty_editor_guards_opening_an_asset(svc):
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = _bound_viewer()
+    viewer.editor.dirty = True
+
+    poser_mode.open_asset(ctx, {"id": job_id})
+    state = poser_mode.ensure(ctx)
+    assert state.job_id == "", "nothing moved before the answer"
+    assert len(ctx.confirms.asked) == 1
+
+    ctx.confirms.asked[0].on_confirm()
+    assert state.job_id == job_id
+    assert viewer.cleared == 1, "the old session must not stay poseable"
+
+
+def test_close_asset_resets_every_asset_field(svc, monkeypatch):
+    """The poser-01 lesson, restated for the asset session: every field
+    ``open_asset`` can leave set has to be cleared by its own exit door."""
+    _fake_blender(monkeypatch)
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = FakeViewer()
+    poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    state = poser_mode.ensure(ctx)
+    poser_mode.sync_asset(ctx, viewer)
+    state.asset_poses = [{"id": "p1", "name": "idle"}]
+
+    poser_mode.close_asset(ctx)
+    assert state.job_id == ""
+    assert state.asset_label == ""
+    assert state.asset_rig is None
+    assert state.asset_poses == []
+    assert state.asset_error == ""
+    assert viewer.pose_mode is False, "exit_pose_mode must run before clear"
+    assert viewer.cleared == 2, "once when open_asset bound it, once on close"
+    assert poser_mode.PREVIEW_KEY_PREFIX + state.template in ctx.submitted, (
+        "closing falls back to the template preview"
+    )
+
+
+def test_reframe_frames_the_real_mesh_when_an_asset_is_bound(svc):
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = FakeViewer()
+    poser_mode.open_asset(ctx, {"id": job_id})
+    poser_mode.reframe(ctx)
+    assert viewer.framed == "whole-model"
 
 
 # --- applying ----------------------------------------------------------------
