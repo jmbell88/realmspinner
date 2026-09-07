@@ -33,7 +33,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import anchors, controls, inker_export, inker_mode, inker_ops, tokens, widgets
+from .. import anchors, controls, inker_export, inker_mode, inker_ops, theme, tokens, widgets
 from ..inker import sheetout
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -157,10 +157,10 @@ def _exports(ctx: Any, tab: Any) -> None:
         # its three neighbours off the bottom of the pane (the harness called
         # them *clipped*). Every one of them keeps its remembered value while
         # the header is shut -- closing it changes nothing that is written.
-        _export_options(ctx)
+        _export_options(ctx, tab)
 
 
-def _export_options(ctx: Any) -> None:
+def _export_options(ctx: Any, tab: Any) -> None:
     """The knobs the sheet doors read, and nothing else reads.
 
     They were the trailing of the timeline's export row; they came with the
@@ -281,6 +281,107 @@ def _export_options(ctx: Any) -> None:
             "vocabulary; a PNG sequence reads {title} and {frame}, a "
             "per-tag or per-layer split reads {title} and {tag}/{layer}."
         )
+    imgui.dummy((0, sp(tokens.SP_2)))
+    preview = sheet_preview(tab, state)
+    if preview is not None:
+        _draw_sheet_preview(preview)
+
+
+def sheet_preview(tab: Any, state: Any) -> dict[str, Any] | None:
+    """The grid the sheet doors would write, from the exact values
+    ``_export_options`` reads -- ``None`` when there is nothing to show a
+    picture of.
+
+    The doors are not named here on purpose: their labels are spelled in
+    :mod:`inker_export` alone, and ``test_each_export_label_is_spelled_in
+    _exactly_one_module`` scans this directory for copies of them.
+
+    Built by calling :func:`sheetout.plan_frames` once, the same function
+    ``sheetout.build`` calls to plan the real export, so this can never become
+    a second implementation that quietly disagrees with the one that actually
+    writes cells: a combination the export would refuse (an oversized atlas,
+    an ``arrange`` fighting a directional layout) returns ``None`` here for
+    the same reason rather than drawing a plan that was never going to exist.
+
+    ``splits`` is where a per-tag export's files would divide the frame
+    order, since a tag is exactly the span :func:`inker_export.export_per_tag`
+    slices on -- a per-layer split is not a range of frames and has no place
+    in this grid.
+    """
+    if tab is None:
+        return None
+    doc = getattr(tab, "doc", None)
+    anim = getattr(doc, "anim", None) if doc is not None else None
+    if anim is None or not anim.frames:
+        return None
+    frame_w, frame_h = doc.size
+    layout = getattr(anim, "layout", None)
+    arrange = None if layout is not None else state.export_arrange
+    wrap = state.export_wrap if arrange in sheetout.COUNTED_ARRANGES else None
+    try:
+        plan = sheetout.plan_frames(
+            len(anim.frames), frame_w, frame_h, layout=layout, arrange=arrange, wrap=wrap
+        )
+    except ValueError:
+        return None
+    return {
+        "columns": plan.columns,
+        "rows": plan.rows,
+        "padding": max(0, int(getattr(state, "export_padding", 0) or 0)),
+        "cells": [(cell.row, cell.column, cell.frame) for cell in plan.cells],
+        "splits": [(tag.name, tag.start, tag.end) for tag in getattr(anim, "tags", ())],
+    }
+
+
+#: The tag-band colours, cycled -- three is plenty for a schematic and the
+#: same three roles ``clay_hud`` already draws chrome in.
+_PREVIEW_TAG_COLOURS = ("ACCENT", "WARN", "OK")
+
+#: The square each cell draws at, before the available width clamps it down.
+_PREVIEW_CELL = 16.0
+
+
+def _draw_sheet_preview(preview: dict[str, Any]) -> None:
+    """``sheet_preview``'s grid, as a small draw-list picture -- frame order
+    left-to-right and top-to-bottom, a gap between cells once Padding is
+    above zero, and a tag's frames banded in one colour where a per-tag split
+    would carry them into their own file.
+
+    Draw-list only, no imgui input widget: this is what keeps it out of the
+    clipped-control count P30 measured (``scripts/exercise_mode.py``) --
+    everything here lives inside the same collapsed **Sheet options** header
+    the nine knobs above it do, so it draws nothing at the pane's rest state.
+    """
+    columns = max(1, int(preview["columns"]))
+    rows = max(1, int(preview["rows"]))
+    gap = sp(2.0) if preview["padding"] else 0.0
+    avail = imgui.get_content_region_avail().x
+    cell = min(sp(_PREVIEW_CELL), max(sp(6.0), (avail - gap * (columns - 1)) / columns))
+    width = columns * cell + gap * (columns - 1)
+    height = rows * cell + gap * (rows - 1)
+
+    frame_colour: dict[int, str] = {}
+    for index, (_name, start, end) in enumerate(preview["splits"]):
+        colour = _PREVIEW_TAG_COLOURS[index % len(_PREVIEW_TAG_COLOURS)]
+        for frame in range(start, end + 1):
+            frame_colour[frame] = colour
+
+    origin = imgui.get_cursor_screen_pos()
+    draw_list = imgui.get_window_draw_list()
+    edge = imgui.get_color_u32(theme.rgba(theme.EDGE))
+    for row, column, frame in preview["cells"]:
+        x0 = origin[0] + column * (cell + gap)
+        y0 = origin[1] + row * (cell + gap)
+        x1, y1 = x0 + cell, y0 + cell
+        role = frame_colour.get(frame, "ELEV_2")
+        fill = imgui.get_color_u32(theme.rgba(getattr(theme, role)))
+        draw_list.add_rect_filled((x0, y0), (x1, y1), fill)
+        draw_list.add_rect((x0, y0), (x1, y1), edge)
+    imgui.dummy((width, height))
+
+    if preview["splits"]:
+        names = ", ".join(name for name, _start, _end in preview["splits"])
+        widgets.muted(f"Per-tag split would carry: {names}")
 
 
 def link_line(tab: Any) -> str:

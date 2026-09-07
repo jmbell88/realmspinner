@@ -8,7 +8,9 @@ reason the panel exists rather than staying a menu.
 
 from __future__ import annotations
 
-from warlock.studio import inker_ops
+from warlock.studio import inker, inker_ops
+from warlock.studio.inker import sheetout
+from warlock.studio.inker_state import InkerDoc
 from warlock.studio.panes import inker_generate
 
 
@@ -68,3 +70,41 @@ def test_revert_is_refused_with_a_sentence_on_an_unlinked_document():
 
     reason = inker_ops.reason_for(op, _State(), _Tab())
     assert "no original" in reason.lower()
+
+
+class _SheetState:
+    export_arrange = "columns"
+    export_wrap = 2
+    export_padding = 4
+
+
+def test_sheet_preview_matches_the_export_layout():
+    """The grid Sheet options draws is built by calling ``plan_frames`` once --
+    the same function ``sheetout.build`` calls for the real export -- rather
+    than by a second implementation that could quietly disagree with it about
+    where a frame lands."""
+
+    doc = inker.Document.blank(8, 8)
+    for _ in range(5):
+        doc.add_frame(link=True)
+    assert doc.add_tag("intro", 0, 1)
+    assert doc.add_tag("walk", 2, 5)
+    tab = InkerDoc(doc=doc, title="walk.ora")
+
+    preview = inker_generate.sheet_preview(tab, _SheetState())
+    assert preview is not None
+
+    expected = sheetout.plan_frames(
+        len(doc.anim.frames), *doc.size, arrange="columns", wrap=2
+    )
+    assert preview["columns"] == expected.columns
+    assert preview["rows"] == expected.rows
+    assert preview["cells"] == [
+        (cell.row, cell.column, cell.frame) for cell in expected.cells
+    ]
+    assert preview["padding"] == 4
+    assert preview["splits"] == [("intro", 0, 1), ("walk", 2, 5)]
+
+
+def test_sheet_preview_is_nothing_with_no_document():
+    assert inker_generate.sheet_preview(None, _SheetState()) is None

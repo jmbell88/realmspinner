@@ -1346,6 +1346,13 @@ on, read the sidecar cell-driven — each cell's own `x`/`y`/`w`/`h` — rather 
 from the top-level frame size and column count: that arithmetic no longer accounts for the gutters
 or the per-cell trim, and only the cells themselves still say where everything actually landed.
 
+Below the filename template, once a document is open, a small grid draws the plan these knobs
+describe — frame order, a gap between cells once Padding is above zero, and, if the document has
+tags, each tag's frames banded in its own colour with a line underneath naming which tags a
+per-tag split would carry into their own file. It reads the same values the export itself does, so
+it never shows a plan the export would not actually write — an Arrange or a Count that would refuse
+(a directional-layout document, an oversized atlas) leaves the grid blank rather than guessing.
+
 **Export PNGs** writes one numbered PNG per frame — `name_0000.png`, `name_0001.png` and so on,
 beside whatever name you pick. No atlas to slice and no sidecar to read, which is what an engine
 with its own importer wants.
