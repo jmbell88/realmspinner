@@ -19,9 +19,10 @@ characters, because past the cap the box simply stops taking text.
 
 Further down the recipe column, under the seed row, a **Recent prompts…** button opens your last
 twenty prompts, most recent first and deduplicated — it appears once you have generated at least one
-reference, so there is history to show. Picking one replaces what is in the box. The history is per
-session and per prompt text only — if you want a whole recipe back, use **Copy settings to form**
-from a job's overflow menu instead, which is described in [Rerun and
+reference, so there is history to show. Picking one replaces what is in the box. The history outlives
+the session (it is saved with your other Studio preferences and is there again after a restart), and
+it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
+job's overflow menu instead, which is described in [Rerun and
 promotion](36-library-and-jobs.md#rerun-and-promotion).
 
 Under **Avoid**, further down the pane, is a second box listing what the image must not
@@ -284,9 +285,10 @@ never had, while 1.0 holds the shape to the final step and tends to look traced.
 
 Structure needs a checkpoint that runs with real guidance, and the section says so rather than
 offering a control that cannot work. Which fix it names depends on which control chose the
-checkpoint: with a checkpoint named it says which models could run it, and under automatic routing it
-tells you to switch the Recipe to Quality — because the Fast recipe is what picked a guidance-zero
-checkpoint on your behalf, and no combo on screen is showing that checkpoint's name.
+checkpoint: with a checkpoint named in the **Model** row it says which of the others could run it,
+and under Automatic it tells you to pick a full-CFG model there instead — because Automatic is what
+picked a guidance-zero checkpoint on your behalf, and the row is showing "Automatic" rather than
+that checkpoint's name.
 
 Clearing the reference clears both selections with it, since neither can be submitted without an
 image.

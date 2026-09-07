@@ -84,23 +84,33 @@ def draw(ctx: Any) -> None:
         ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template=skeleton(ctx))
 
 
-def _skeleton_picker(ctx: Any) -> None:
-    """The template combo. Silent with no templates rather than drawing an
-    empty select: a list with nothing in it is a configuration failure, and
-    ``ctx.rig_templates`` being empty is already reported by the doctor."""
+def skeleton_field(ctx: Any, form: dict[str, Any], *, help_text: str | None = None) -> None:
+    """The Skeleton combo over ``form["rig_template"]`` -- the control, its
+    stale-ring clearing, and its refusal display, drawn once for both doors
+    that offer it.
+
+    The 2026-09-07 review, item 5.1: this stage's own ``_skeleton_picker`` and
+    ``settings_3d._rig`` drew the identical control over the identical field,
+    down to a near-verbatim copy of the create-05 comment below -- two
+    implementations of one control, which is exactly how the two halves of a
+    fix drift apart. ``help_text`` is the one real difference between the two
+    sites (this stage explains the fit; the Rig-when-it-lands checkbox on the
+    Mesh stage does not have room to) and stays a parameter rather than being
+    collapsed away.
+
+    Silent with no templates rather than drawing an empty select: a list with
+    nothing in it is a configuration failure, and ``ctx.rig_templates`` being
+    empty is already reported by the doctor.
+    """
     options = [(t["key"], t["label"]) for t in ctx.rig_templates]
     if not options:
         return
-    form = ctx.state.form_3d
     before = form.get("rig_template")
     form["rig_template"] = widgets.labeled_combo(
         "Skeleton",
         form.get("rig_template") or ctx.rig_default,
         options,
-        help_text=(
-            "Which template's joints are fitted onto the mesh. The fit is by "
-            "proportion unless the mesh's own landmarks are found."
-        ),
+        help_text=help_text,
     )
     # The 2026-09-05 audit, finding create-05: this combo bypasses forms.Form
     # entirely (bare labeled_combo + field_error), so it never had the
@@ -108,7 +118,18 @@ def _skeleton_picker(ctx: Any) -> None:
     # a rig_template refusal's ring outlived the very edit meant to answer it.
     if form["rig_template"] != before:
         ctx.state.clear_field_error("rig_template")
-    # ``settings_3d``'s reason: ``service/rig.py`` and ``service/poses.py``
+    # ``settings_3d``'s reason too: ``service/rig.py`` and ``service/poses.py``
     # both refuse on ``rig_template``, and a generic toast that leaves the
     # dropdown at fault unmarked is the one failure the form cannot point at.
     widgets.field_error(ctx.state, "rig_template")
+
+
+def _skeleton_picker(ctx: Any) -> None:
+    skeleton_field(
+        ctx,
+        ctx.state.form_3d,
+        help_text=(
+            "Which template's joints are fitted onto the mesh. The fit is by "
+            "proportion unless the mesh's own landmarks are found."
+        ),
+    )

@@ -101,7 +101,8 @@ def draw(ctx: Any) -> None:
     if show_count:
         _count(ctx, form)
         imgui.same_line()
-    _generate(ctx, form, spec, enabled=not problems and not busy, problems=problems)
+    _generate(ctx, form, spec, enabled=not problems and not busy, problems=problems,
+              show_count=show_count)
 
 
 def _row_widths(sheet: bool) -> tuple[float, bool]:
@@ -117,9 +118,12 @@ def _row_widths(sheet: bool) -> tuple[float, bool]:
 
     So the row gives way in a stated order, the way the rail does. The prompt
     shrinks first, to ``PROMPT_MIN_W``. Then the **count** is dropped -- it is
-    the only one of the four with a sane default and the only one whose value
-    is restated elsewhere, in the plan block's "N candidates". The type and
-    Generate never give way, because they are what the bar is for.
+    the only one of the four with a sane default, and the only one whose value
+    ``_generate`` can restate for it: the settings column's own "N candidates"
+    is a ``layout`` pane that can itself be collapsed, so at the width this
+    drops the count the plan block is not a reliable second copy of it (the
+    2026-09-07 Create review, item 5.9). The type and Generate never give way,
+    because they are what the bar is for.
     """
     gap = imgui.get_style().item_spacing.x
     avail = imgui.get_content_region_avail().x
@@ -217,7 +221,13 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
 
 
 def _generate(
-    ctx: Any, form: dict[str, Any], spec: Any, *, enabled: bool, problems: list[Any]
+    ctx: Any,
+    form: dict[str, Any],
+    spec: Any,
+    *,
+    enabled: bool,
+    problems: list[Any],
+    show_count: bool,
 ) -> None:
     """The press. Always visible, which is the point of the bar.
 
@@ -225,6 +235,14 @@ def _generate(
     which lists every problem and offers the one-click repairs. Here it is a
     tooltip: a bar has no room for a list, and a button that says nothing about
     why it is dead is the complaint this redesign started from.
+
+    ``show_count`` is ``_row_widths``' own answer, not re-derived: the count
+    pills carry their own value the moment they are on screen, so restating it
+    here as well would be a second control saying the same number an inch to
+    its left. It is only appended once ``_row_widths`` has dropped them --
+    which the settings column's plan block, the count's other echo, cannot be
+    relied on to catch either, since that column is itself a ``layout`` pane a
+    person can collapse (the 2026-09-07 Create review, item 5.9).
     """
     from .panes import settings_2d
 
@@ -235,13 +253,27 @@ def _generate(
             enabled=enabled,
             # ``Problem`` is a str subclass -- the message *is* the object.
             reason=str(problems[0]) if problems else "",
-            tooltip="Ctrl+Enter",
+            tooltip=_generate_tooltip(show_count, int(form["count"])),
         )
         anchors.mark("create/generate")
         if focused and enabled and _enter_pressed():
             pressed = True
     if pressed:
         settings_2d.generate(ctx, form)
+
+
+def _generate_tooltip(show_count: bool, count: int) -> str:
+    """Ctrl+Enter, plus the count once its own pills are off screen.
+
+    The shortcut stays first because that is what the tooltip is mainly for;
+    the count is appended rather than replacing it, separated the same way a
+    plan block reads a list of facts. Silent while the pills are visible --
+    a tooltip repeating a control drawn an inch to its left is noise, not help.
+    """
+    if show_count:
+        return "Ctrl+Enter"
+    noun = "candidate" if count == 1 else "candidates"
+    return f"Ctrl+Enter · {count} {noun}"
 
 
 def _ring(ctx: Any, field: str) -> bool:

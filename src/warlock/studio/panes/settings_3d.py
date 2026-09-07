@@ -17,13 +17,32 @@ from imgui_bundle import imgui
 from ... import guidance, vectors
 from ...bench import findings as findings_lib
 from ...service import jobs as svc_jobs
+from ...service import sheets as svc_sheets
 from ...service.errors import Invalid
 from ...service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
-from .. import controls, dialogs, focus, forms, matte_preview, theme, widgets
+from .. import controls, create_stages, dialogs, focus, forms, matte_preview, theme, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
+from . import stage_rig
 
 MATTE_TITLE = "Check the cutout"
+
+# The 2026-09-07 review, item 5.4: an opt-in ``ctx.settings`` key (not a
+# ``Config`` field -- this is a per-user UI preference, not a process setting,
+# and app_settings.py's own toggles read and write ``ctx.settings`` directly
+# the same way). Off by default, on purpose: "Put the matte in front of the
+# two minutes of GPU" (see ``promote``'s docstring) does not change, and this
+# key only ever lets a *clean* result skip the question, never a refused,
+# warned or fallback-sourced one.
+SKIP_CLEAN_MATTE_SETTING = "skip_clean_matte_preview"
+
+# Where the last matte the setting above skipped past is kept, so the Mesh
+# column can still show what Make 3D actually used (the review's ask, done
+# with what this pane already owns rather than a new preview pipeline).
+# ``state.preview`` because it is exactly this kind of frame-scoped, UI-only
+# fact -- the sheet strip cache and the settings category tab already live
+# there for the same reason.
+_LAST_AUTO_MATTE_SLOT = "mesh_last_auto_matte"
 
 # This pane's key in the focus ring; see ``settings_2d.FOCUS_PANE``.
 FOCUS_PANE = "3d"
@@ -160,6 +179,7 @@ def _draw_form(
     _hint(ctx, "reference_prep", form["reference_prep"])
 
     _rig(ctx, form)
+    _turnaround(ctx)
     _reset_row(ctx)
     _submit(ctx, form)
 
@@ -364,6 +384,7 @@ def _source(ctx: Any) -> None:
 
     state = ctx.state
     source = ctx.cache.get(state.source_job)
+    mesh = None if source is not None else _selected_mesh(ctx)
     dragging = library.dragged_job(ctx)
     imgui.begin_group()
     origin = imgui.get_cursor_screen_pos()
@@ -372,6 +393,13 @@ def _source(ctx: Any) -> None:
         widgets.muted(f"reference - {source['id']}")
         if controls.button("Clear"):
             state.source_job = None
+        _auto_matte_preview(ctx, source)
+    elif mesh is not None:
+        # The 2026-09-07 review, item 5.2: a finished mesh selected in the
+        # library moves the viewport but never ``state.source_job`` (see
+        # ``library.select``), so without this branch the block below read
+        # "Pick a finished reference" over a mesh that plainly is one.
+        _mesh_source(ctx, mesh)
     elif dragging is not None:
         # The invitation replaces the instruction only while something is in
         # the air: a line about dropping, with nothing to drop, is noise.
@@ -415,6 +443,80 @@ def _source(ctx: Any) -> None:
         imgui.end_drag_drop_target()
 
 
+def _selected_mesh(ctx: Any) -> dict[str, Any] | None:
+    """The selected job, if it is a finished mesh -- so this column can
+    describe it instead of asking for a reference nobody was about to pick.
+
+    The 2026-09-07 review, item 5.2, verified at ``library.select``:
+    ``state.source_job`` is only ever set for a *done reference* row, so
+    landing on a finished mesh moves the viewport and the selection but
+    leaves ``source_job`` pointing at whatever reference (or nothing) had
+    been picked before -- which is what read as "Choose a reference first"
+    over a mesh that was plainly the thing on screen.
+
+    ``ctx.job`` is asked for rather than assumed, ``create_stages._current``'s
+    rule and for its reason: ``promote`` is reachable from the command palette
+    and from ``main``, whose ctx objects are not guaranteed to carry a job
+    cache -- and a refusal that has nothing to do with this fallback (the
+    library's own "Choose a reference first") must not turn into an
+    AttributeError on the way to being spoken.
+    """
+    getter = getattr(ctx, "job", None)
+    job = getter() if callable(getter) else None
+    if job is None or job.get("stage") != "model" or job.get("status") != "done":
+        return None
+    return job
+
+
+def _mesh_source(ctx: Any, mesh: dict[str, Any]) -> None:
+    """Describe an already-built mesh instead of drawing the reference picker.
+
+    Drawn only while no explicit ``source_job`` is picked -- an explicit pick
+    (a card dragged in, or Clear then a fresh choice) always wins, and this is
+    the fallback for the one case that used to read as "nothing is chosen"
+    while the viewport disagreed.
+    """
+    reference = create_stages.parent(ctx, mesh)
+    imgui.text_wrapped(mesh.get("name") or mesh.get("prompt") or mesh["id"])
+    if reference is not None:
+        label = reference.get("name") or reference.get("prompt") or reference["id"]
+        widgets.muted(f"mesh - built from {label}")
+    else:
+        # The parent has scrolled out of the loaded page (create_stages.parent's
+        # own caveat) or the mesh predates parent_id being recorded at all.
+        widgets.muted(f"mesh - {mesh['id']}")
+    widgets.muted("This mesh is already built. Make 3D below rebuilds it from that reference.")
+
+
+def _effective_source(ctx: Any, source: dict[str, Any] | None) -> dict[str, Any] | None:
+    """``source`` if there is one, or -- item 5.2 -- the reference behind a
+    selected finished mesh, so a submit from this column names and uses what
+    is actually on screen rather than refusing over a stale or absent
+    ``source_job``. ``source_job`` keeps meaning exactly what it always has,
+    an explicit pick; this only answers the one case it cannot.
+    """
+    if source is not None:
+        return source
+    mesh = _selected_mesh(ctx)
+    return create_stages.parent(ctx, mesh) if mesh is not None else None
+
+
+def _auto_matte_preview(ctx: Any, source: dict[str, Any]) -> None:
+    """The cutout Make 3D actually used, when item 5.4's setting skipped the
+    modal for it.
+
+    Kept only as long as it is still about the reference on screen: switching
+    sources drops it implicitly, since the stored preview's ``job_id`` then no
+    longer matches. Nothing is drawn when the setting has never fired, which
+    is every session until it is turned on and a matte qualifies.
+    """
+    preview = ctx.state.preview.get(_LAST_AUTO_MATTE_SLOT)
+    if preview is None or getattr(preview, "job_id", None) != source.get("id"):
+        return
+    widgets.muted("Cutout used for the last Make 3D (the preview was skipped):")
+    _matte_image(ctx, preview)
+
+
 def _rig(ctx: Any, form: dict[str, Any]) -> None:
     if not ctx.rigging_available:
         # Hidden rather than disabled: without bpy the whole feature is absent,
@@ -425,31 +527,88 @@ def _rig(ctx: Any, form: dict[str, Any]) -> None:
     if changed:
         form["rig"] = rig
     if form["rig"]:
-        options = [(t["key"], t["label"]) for t in ctx.rig_templates]
-        if options:
-            before = form["rig_template"]
-            form["rig_template"] = widgets.labeled_combo(
-                "Skeleton", form["rig_template"] or ctx.rig_default, options
-            )
-            # The 2026-09-05 audit, finding create-05: this combo is drawn the
-            # same bare way stage_rig.py's identical control was, with no
-            # forms.Form(on_edit=...) to clear a stale ring -- so a
-            # rig_template refusal argued about a value the user had already
-            # changed until an unrelated submit happened to clear it.
-            if form["rig_template"] != before:
-                ctx.state.clear_field_error("rig_template")
-            # Three doors refuse on this exact field -- ``validation.py``,
-            # ``service/rig.py`` and ``service/poses.py`` -- and without this
-            # the one dropdown at fault was the only control in the form never
-            # outlined, unlike a bad ``profile`` or ``base_model``.
-            widgets.field_error(ctx.state, "rig_template")
+        # The 2026-09-07 review, item 5.1: this combo used to be a second,
+        # near-verbatim copy of ``stage_rig._skeleton_picker`` -- same field,
+        # same create-05 fix, same comment -- which is exactly the shape that
+        # let the two drift apart in the first place. ``stage_rig.py`` already
+        # owns the skeleton every rig submission uses (see its module
+        # docstring), so the drawing lives there and this just calls it. No
+        # ``help_text`` here, same as before: the checkbox row has no room for
+        # the longer explanation stage_rig gives on its own stage.
+        stage_rig.skeleton_field(ctx, form)
+
+
+def _turnaround(ctx: Any) -> None:
+    """"Render turnaround": the sprite-sheet control, reached from the mesh
+    that already exists rather than from a rig-shaped stage.
+
+    The 2026-09-07 review, item 7.1: ``docs/manual/27-sprite-sheets.md`` is
+    plain that a turnaround needs no rig at all, but its only door was a
+    collapsed header on the Pose stage (``sheet_panel.py``) -- so a finished,
+    unrigged prop needed a stage built around a skeleton it does not have.
+    This draws only while the job on screen is itself a finished mesh
+    (:func:`_selected_mesh`) and submits through the identical door and key
+    ``sheet_panel._submit`` does: ``svc_sheets.create_sheet`` under
+    ``f"sheet:{job_id}"``. Same key means a press here and a press on the Pose
+    stage's own button are the same in-flight submit as far as
+    ``TaskRunner.submit`` is concerned, so a second one anywhere is refused
+    exactly as it is there -- nothing here duplicates that door's own submit
+    logic, it only reaches it from a second place.
+    """
+    mesh = _selected_mesh(ctx)
+    if mesh is None or "model.glb" not in (mesh.get("files") or []):
+        return
+    from . import sheet_panel
+
+    job_id = mesh["id"]
+    widgets.section("Turnaround")
+    if not ctx.rigging_available:
+        # Rendering a sheet is Blender out of process the same way rigging is
+        # (S138); the pattern every "needs Blender" sentence in the app
+        # follows (service/characters.py's own comment states it), applied to
+        # this door.
+        widgets.muted("Rendering a sheet needs Blender, which is not installed.")
+        return
+    key = f"sheet:{job_id}"
+    busy = ctx.busy(key)
+    saved = (ctx.state.preview or {}).get("sheets") or []
+    cap_reason = None if busy else sheet_panel.sheet_cap_reason(saved, ctx.cache.jobs, job_id)
+    widgets.cost_note(
+        "Queued like a generation: the default 8-direction turnaround is "
+        "eight Blender renders, run in a separate process."
+    )
+    if widgets.disabled_button(
+        "Render turnaround",
+        not busy and not cap_reason,
+        reason="A sheet is already rendering for this asset." if busy else (cap_reason or ""),
+    ):
+        # Last time's rings first, sheet_panel._submit's own rule: a new
+        # submit is judged on its own.
+        ctx.state.clear_field_errors()
+        defaults = (ctx.sheet_options or {}).get("defaults") or {}
+        ctx.submit(
+            key,
+            svc_sheets.create_sheet,
+            ctx.svc,
+            job_id,
+            poses=[],
+            elevation=float(defaults.get("elevation") or 0.0),
+            frame_size=int(defaults.get("frame_size") or 128),
+            lighting=defaults.get("lighting") or "flat",
+            name="",
+            clip_from=None,
+            clip_to=None,
+            clip_frames=8,
+            yaws=8,
+        )
 
 
 def _submit(ctx: Any, form: dict[str, Any]) -> None:
     imgui.dummy((0, sp(8)))
     widgets.divider()
     state = ctx.state
-    source = ctx.cache.get(state.source_job)
+    explicit = ctx.cache.get(state.source_job)
+    source = _effective_source(ctx, explicit)
     problems = validate(source)
     for problem in problems:
         imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
@@ -457,6 +616,12 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
         imgui.pop_style_color()
     _candidates(form)
     count = candidate_count(form)
+    if explicit is None and source is not None:
+        # Item 5.2: naming the reference this button would actually use, since
+        # it is not the one the user last explicitly picked -- it is the
+        # parent of a selected finished mesh (``_effective_source``).
+        label = source.get("name") or source.get("prompt") or source["id"]
+        widgets.muted(f"Make 3D uses {label}, this mesh's reference.")
     widgets.muted(
         "Roughly two minutes of GPU."
         if count == 1
@@ -595,7 +760,15 @@ def promote(ctx: Any, source: dict[str, Any] | None, form: dict[str, Any]) -> No
     committed. The composition gate's own verdict moves into the same panel for
     the same reason -- one place, before the spend, rather than a confirm here
     and a surprise there.
+
+    ``source`` is resolved through :func:`_effective_source` before anything
+    else: ``main.py`` and ``palette.py`` both call this with
+    ``ctx.cache.get(ctx.state.source_job)`` verbatim (item 5.2 changes only
+    what happens when that is None), so the fallback lives here rather than
+    at each call site -- Ctrl+Enter and the palette's promote get the same
+    correction ``_submit`` does.
     """
+    source = _effective_source(ctx, source)
     problems = validate(source)
     if problems:
         # ``settings_2d.generate``'s reason exactly: Ctrl+Enter in 3D mode and
@@ -654,6 +827,62 @@ def reroll_mesh_seed(form: dict[str, Any]) -> None:
         form["mesh_seed"] = random_seed()
 
 
+def _matte_is_clean(preview: Any) -> bool:
+    """Whether ``preview`` is boring enough that the setting may skip it.
+
+    Item 5.4's bar, verbatim: the composition gate raised nothing at all --
+    neither a hard refusal (``reasons``) nor a soft one (``warnings``) -- and
+    the cut itself came from BiRefNet rather than the corner-fill fallback
+    (``MATTE_SOURCES``'s "the model's weights are not installed" case) or an
+    alpha the reference already carried. ``approved`` is deliberately not
+    enough on its own: the review names the *backend*, and a pre-matted image
+    can carry an edge nobody here has ever looked at.
+    """
+    return preview.source == "birefnet" and not preview.reasons and not preview.warnings
+
+
+def _auto_accept(ctx: Any, state: Any) -> None:
+    """The Accept button's own path, pressed by the setting instead of a click.
+
+    Through ``matte_preview.accept`` -> ``submit_promotion``, identically: the
+    review requires the skipped route to be indistinguishable from pressing
+    Accept, and this is how ``_matte_body``'s Accept button does it two
+    screens down. ``refused`` is never true here -- ``_matte_is_clean`` is the
+    gate that got this function called at all, and a refused preview always
+    carries a reason.
+    """
+    # The preview outlives ``accept`` closing the state, so the Mesh column can
+    # still show the cutout that was actually used (the review's ask; see
+    # ``_LAST_AUTO_MATTE_SLOT``).
+    ctx.state.preview[_LAST_AUTO_MATTE_SLOT] = state.preview
+    job_id = state.job_id
+    matte_preview.accept(
+        ctx, lambda kwargs, force: submit_promotion(ctx, job_id, kwargs, force)
+    )
+
+
+def _wants_auto_accept(ctx: Any, state: Any) -> bool:
+    """Whether this frame should draw nothing because item 5.4's setting
+    applies. True means "handled" -- either the cutout is still being
+    computed (wait rather than opening a modal that may turn out to be
+    unnecessary) or it just qualified and was submitted without ever being
+    shown. False means draw the modal exactly as before, which is also the
+    answer whenever the setting is off.
+    """
+    if not ctx.settings.get(SKIP_CLEAN_MATTE_SETTING, False):
+        return False
+    if state.preview is None:
+        # A failure still has to reach the modal -- its Cancel is the only
+        # door back to Fix matte, and the toast alone does not offer it. See
+        # docs/INVARIANTS.md on ``_tried_and_failed`` vs. ``failed_stamp``:
+        # the stamp alone cannot tell "not tried yet" from "tried and failed".
+        return not state._tried_and_failed
+    if not _matte_is_clean(state.preview):
+        return False
+    _auto_accept(ctx, state)
+    return True
+
+
 def matte_modal(ctx: Any) -> None:
     """The promote preview. Drawn beside the confirms, because it is a modal.
 
@@ -664,6 +893,11 @@ def matte_modal(ctx: Any) -> None:
     """
     state = matte_preview.pump(ctx)
     if state is None:
+        return
+    if not state._open and _wants_auto_accept(ctx, state):
+        # Handled without ever drawing a popup: the cutout was clean and the
+        # setting is on, or it is still being computed and might yet be --
+        # either way there is nothing to show this frame.
         return
     appearing = not state._open
     if appearing:

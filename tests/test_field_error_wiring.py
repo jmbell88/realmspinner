@@ -390,18 +390,23 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
 
     ``remesh_panel``/``retarget_panel`` clear a field's ring the moment its
     control is edited (via ``forms.Form(on_edit=...)``) and again before a
-    fresh submit is judged on its own. ``stage_rig._skeleton_picker`` bypasses
-    ``forms.Form`` entirely and did neither -- and ``settings_3d._rig`` draws
-    the same combo the same way.
+    fresh submit is judged on its own. ``stage_rig.skeleton_field`` (the
+    combo both ``stage_rig._skeleton_picker`` and ``settings_3d._rig`` call --
+    see the 2026-09-07 review, item 5.1, which deduplicated the two
+    near-identical copies this test used to check separately) bypasses
+    ``forms.Form`` entirely and has to do the clearing itself.
     """
     import inspect
 
     from warlock.studio.panes import settings_3d, stage_rig
 
-    picker_src = inspect.getsource(stage_rig._skeleton_picker)
-    assert 'clear_field_error("rig_template")' in picker_src, (
-        "stage_rig._skeleton_picker never clears rig_template's ring when the "
+    field_src = inspect.getsource(stage_rig.skeleton_field)
+    assert 'clear_field_error("rig_template")' in field_src, (
+        "stage_rig.skeleton_field never clears rig_template's ring when the "
         "skeleton combo is changed"
+    )
+    assert 'field_error(ctx.state, "rig_template")' in field_src, (
+        "stage_rig.skeleton_field never rings rig_template on a refusal"
     )
 
     draw_src = inspect.getsource(stage_rig.draw)
@@ -409,11 +414,10 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
         "stage_rig.draw submits a fresh rig without clearing last time's rings first"
     )
 
-    rig_src = inspect.getsource(settings_3d._rig)
-    assert 'clear_field_error("rig_template")' in rig_src, (
-        "settings_3d._rig has the identical gap: its rig_template combo never "
-        "clears the ring either"
-    )
+    # Both call sites route through the one implementation rather than
+    # drawing the combo themselves.
+    assert "stage_rig.skeleton_field(" in inspect.getsource(settings_3d._rig)
+    assert "skeleton_field(" in inspect.getsource(stage_rig._skeleton_picker)
 
 
 # --- Muse's recipe column: six bare controls, no forms.Form -------------------

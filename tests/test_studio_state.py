@@ -639,15 +639,24 @@ def test_an_int_over_a_float_scale_is_dropped():
     assert settingslib.restore_form(defaults, {"ip_scale": 1})["ip_scale"] == defaults["ip_scale"]
 
 
-def test_the_reference_path_never_persists():
-    """A remembered path to a file that has since moved would silently
-    condition next week's generation on nothing."""
-    form = dict(statelib.default_form_2d(), ref_path="D:/pictures/knight.png")
-    assert "ref_path" not in settingslib.sanitise_form(form)
-    restored = settingslib.restore_form(
-        statelib.default_form_2d(), {"ref_path": "D:/pictures/knight.png"}
-    )
-    assert restored["ref_path"] == ""
+def test_the_reference_path_persists_and_is_checked_rather_than_dropped(tmp_path):
+    """The 2026-09-07 Create review, item 5.3a, replacing this test's own claim.
+
+    ``ref_path`` used to be ``VOLATILE`` while ``ip_adapter`` and ``control``
+    persisted beside it, so a restart reopened the form with the conditioning
+    selections back and no reference to apply them to. The hazard the old
+    rule existed for is real -- a remembered path to a file that has since
+    moved would condition next week's generation on nothing -- so it is
+    answered where it can actually be answered, against the filesystem
+    (``panes.settings_2d._verify_reference_path``), rather than by throwing
+    the value away every time on the chance that it went stale.
+    """
+    kept = tmp_path / "knight.png"
+    kept.write_bytes(b"")
+    form = dict(statelib.default_form_2d(), ref_path=str(kept))
+    assert settingslib.sanitise_form(form)["ref_path"] == str(kept)
+    restored = settingslib.restore_form(statelib.default_form_2d(), {"ref_path": str(kept)})
+    assert restored["ref_path"] == str(kept)
 
 
 def test_the_conditioning_pickers_live_in_the_references_section():

@@ -34,6 +34,7 @@ from .. import app_ctx, controls, dialogs, forms, icons, theme, tokens, widgets
 from .. import layouts as layouts_mod
 from ..manual import render as manual_render
 from ..tokens import sp
+from . import settings_3d
 
 #: How wide the settings column is allowed to grow, in design pixels.
 #:
@@ -292,6 +293,29 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     )
     if changed:
         _apply_reduce_motion(ctx, reduced)
+
+    # The 2026-09-07 Create review, item 5.4. ``settings_3d.promote``'s own
+    # docstring states why the matte preview is on by default and stays there
+    # -- it is the single decision that most often turns a good reference
+    # into a solid slab, and it used to be made two minutes of GPU too late.
+    # This is the opt-in escape from it, and it is narrow on purpose: it only
+    # ever lets Make 3D skip the question when the composition gate raised
+    # nothing at all and BiRefNet made the cut, never a refused, warned, or
+    # corner-fill-fallback matte (``settings_3d._matte_is_clean``).
+    skip_matte = bool(ctx.settings.get(settings_3d.SKIP_CLEAN_MATTE_SETTING, False))
+    changed, skip_matte = form_ui.switch(
+        "skip_clean_matte_preview",
+        "Don't ask for clean cutouts",
+        skip_matte,
+        help_text=(
+            "Skip the cutout preview on Make 3D when the composition gate has "
+            "nothing to say and the cut came from BiRefNet. Anything refused, "
+            "warned, or made by the corner-fill fallback still opens it."
+        ),
+        helper="Off by default: the preview is the one place a bad cutout is still cheap to catch.",
+    )
+    if changed:
+        ctx.settings.set(settings_3d.SKIP_CLEAN_MATTE_SETTING, skip_matte)
     # There was an "Effects" section here: the four Phase 5 GPU-tier switches
     # (soft shadows, translucent panels, spring motion, continuous corners).
     # The phase shipped them behind "a config flag per item while it

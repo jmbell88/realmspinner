@@ -440,10 +440,21 @@ def _stage_pane(ctx: Any) -> None:
     The fall-through is Reference: the front of the pipeline, and the only
     stage that says something with nothing selected at all.
     """
-    from . import icons, widgets
+    from imgui_bundle import imgui
+
+    from . import generation_workspace, icons, widgets
     from .panes import inspector, pose_panel, settings_2d, settings_3d, stage_rig
 
     stage = ctx.state.create_stage
+    # 2026-09-07 Create review, item 5.7: progress used to be visible only
+    # from the Reference stage's canvas tray, so a remesh or a rig bake
+    # started from its own stage showed nothing here but the floating card
+    # until it finished. Reference keeps its own copy out of this --
+    # ``generation_workspace.draw`` no longer draws it either, since
+    # Reference already states a running job twice more (the plan block's
+    # "Queue: ..." line and the floating card) and did not need a third.
+    if stage != "reference" and generation_workspace.progress_row(ctx):
+        imgui.separator()
     if stage == "mesh":
         settings_3d.draw(ctx)
     elif stage == "rig":
@@ -2100,6 +2111,7 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                 # findings.json only when somebody next filed a verdict.
                 if job.get("stage") == "model" and job.get("kind") in ("text", "image"):
                     review_mode.refresh_findings(ctx)
+                    self._select_finished_mesh_if_waiting(job)
                 # 2026-09-05 audit, finding create-02: a remesh or a re-texture
                 # is a *queued* job, unlike a retarget's foreground task, so the
                 # "remesh:"/"retexture:" keys the panels submit fire when the
@@ -2340,6 +2352,34 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         source_job = str((job.get("params") or {}).get("source_job") or "")
         if source_job and source_job == self.app_ctx.state.selected:
             self._reload_viewer()
+
+    def _select_finished_mesh_if_waiting(self, job: dict[str, Any]) -> None:
+        """A finished ``Make 3D`` becomes the selection, for a user still
+        watching it land.
+
+        2026-09-07 Create review, item 5.8: the Character build is the only
+        auto-advance Create has (:meth:`_landed_character`); every other
+        outcome, this one included, lands as a fading toast with a "Show"
+        action -- so a user who pressed Make 3D, waited on the Mesh stage,
+        and got a mesh was still looking at the reference. Fixed narrowly:
+        all three conditions have to hold, or a user who has navigated away,
+        changed the selection, or is standing on some other stage entirely
+        would have their selection stolen out from under them mid-click.
+
+        ``create_stages.parent`` is the lineage walk this reuses rather than
+        re-deriving "the reference this mesh was promoted from" a fourth
+        time, and the move itself goes through ``create_stages.go`` -- the
+        one stage switch -- never a bare ``state.selected =``.
+        """
+        from . import create_stages
+
+        ctx = self.app_ctx
+        if not create_stages.at(ctx.state, "mesh"):
+            return
+        parent = create_stages.parent(ctx, job)
+        if parent is None or str(parent["id"]) != str(ctx.state.selected):
+            return
+        create_stages.go(ctx, "mesh", select=str(job["id"]))
 
     def _landed_character(self, result: dict[str, Any]) -> None:
         """A finished character, straight to the stage that can draw it.
@@ -3820,7 +3860,15 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             "create-stages",
             items,
             ctx.state.create_stage,
-            done=create_stages.reached(job, meta, poses),
+            # A set of ticked segments, not the single furthest one
+            # (2026-09-07 Create review, item 3.5): ``reached`` stops at the
+            # first stage a job has not got to, which left Rig, Pose and
+            # Export dark forever on a finished prop with no rig -- Export
+            # sits behind the two it can never pass. ``ticked`` walks the
+            # same table but skips a failing *optional* stage instead of
+            # stopping on it.
+            done=create_stages.ticked(job, meta, poses),
+            optional=create_stages.OPTIONAL_HINTS,
             max_width=(imgui.get_content_region_avail().x if max_width is None else max_width),
         )
         anchors.mark("create/stages")

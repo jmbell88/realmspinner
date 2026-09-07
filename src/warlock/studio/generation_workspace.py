@@ -159,15 +159,25 @@ def should_draw(ctx: Any) -> bool:
 
 
 def draw(ctx: Any, height: float = 0.0) -> None:
-    """Draw the persistent results-and-iteration tray in the Create canvas."""
+    """Draw the persistent results-and-iteration tray in the Create canvas.
+
+    No longer draws "Working now" itself (2026-09-07 Create review, item
+    5.7): on the Reference stage that used to be the *third* restatement of
+    a running job's status, after the plan block's "Queue: ..." line
+    (``panes.settings_2d``) and the floating card (``panes.overlay``). Of the
+    two this module could actually retire -- the Queue line lives in a pane
+    this change does not own -- this was the one that said least: it never
+    carried anything the floating card did not already show more prominently,
+    and while queued it only repeated the plan block's own position count.
+    :func:`progress_row` is what is left of it, now drawn once per stage by
+    ``main._stage_pane`` instead of here.
+    """
     if height > 0 and not imgui.begin_child("generation-results", (0, height), False):
         imgui.end_child()
         return
     widgets.pane_header("Generations")
     widgets.muted(_brief_caption(ctx))
     active = getattr(ctx.cache, "active", None)
-    if active is not None:
-        _progress(ctx, active)
     group = candidates_mod.pending(ctx.cache.jobs)
     if group is not None:
         _candidate_grid(ctx, group)
@@ -184,6 +194,26 @@ def draw(ctx: Any, height: float = 0.0) -> None:
             )
     if height > 0:
         imgui.end_child()
+
+
+def progress_row(ctx: Any) -> bool:
+    """The tray's "Working now" narration and Cancel, for any stage. -> True
+    if a job was drawn.
+
+    2026-09-07 Create review, item 5.7: this used to be reachable only from
+    the Reference stage's tray, so a remesh or a rig bake started from its
+    own stage showed nothing here but the floating card -- three restatements
+    of "something is running" on Reference and one everywhere else. Pulled
+    out to a name of its own so ``main._stage_pane`` can draw it on every
+    stage the way it always could have been drawn on any of them: the
+    narration reads ``ctx.cache.active``, which is not stage-scoped, so a job
+    the user started from Rig reports here while they are standing on Rig.
+    """
+    active = getattr(ctx.cache, "active", None)
+    if active is None:
+        return False
+    _progress(ctx, active)
+    return True
 
 
 def _brief_caption(ctx: Any) -> str:

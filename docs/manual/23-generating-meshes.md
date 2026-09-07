@@ -12,6 +12,10 @@ Select a finished reference in the library — its card offers **Make 3D**, and 
 promotable reference also makes it the Mesh stage's source automatically. The **Source** section at
 the top of that column names what the job will start from, and **Make 3D** at the bottom submits it.
 
+Selecting an already-finished mesh instead — to look at it again, or to send it through Make 3D a
+second time — has the Source section describe that mesh and the reference it came from, rather than
+asking you to choose one: **Make 3D** rebuilds from that same reference, named on the button.
+
 The new job is an ordinary image job whose input image is the reference's, recorded as a child of
 the reference so the library can show them as one lineage rather than two unrelated rows.
 
@@ -54,6 +58,12 @@ Three buttons:
 
 A matte you edited and saved travels to the engine as the image's own alpha, and the job records
 that it was approved — the engine is told to keep the alpha rather than cut its own.
+
+Settings has an opt-in **Don't ask for clean cutouts** switch, off by default, that skips this panel
+for the case it exists to catch the least: a cutout with no report warnings or refusals, made by the
+BiRefNet model itself rather than the corner-fill fallback. Anything the report flags, or anything the
+fallback made, still opens the panel whether the switch is on or not — and the skipped submission is
+the identical **Accept**, not a different route to the same job.
 
 ## Candidates
 
@@ -321,6 +331,27 @@ Neither measurement can fail your job. If either cannot be computed, the failure
 job still completes: the GLB is already on disk, and a missing verdict is better than a lost mesh.
 
 ## Exports
+
+Standing on the Export stage, above the grid of buttons, is **Ready for an engine?** — a checklist
+built from measurements the app already took, so it costs nothing new to look at and nothing here is
+re-measured. It reads the mesh report (triangles against the budget, watertightness, UVs, base
+colour and metallic/roughness maps, the pivot), a note left behind if a rebuild's normalize step
+silently failed, and whether the rig on this asset was fitted before the mesh was last retargeted.
+Each line says **OK** or **Attention** in words, not only in colour, with the one fact behind it.
+Nothing here refuses an export — like the mesh report itself, this is advice, not a gate — and it
+draws nothing at all for a plain reference or a mesh nothing has measured yet, rather than showing an
+empty or falsely all-green checklist.
+
+Some lines carry a button and most do not, because a line only gets one where a press already exists
+elsewhere in the app. An over-budget triangle count, a normalize failure and a rig left behind by a
+retarget all send you to the **Rig** stage, where the remesh and retarget panels live. The rest — a
+leaky seal, missing UVs or texture maps, a pivot off the floor, a size that landed far from what you
+asked for, or no target size at all — are named with no button, because nothing in the app fixes them
+in one press. Size is the instructive one: the checklist will tell you what a sword is usually sized
+at, but it will not write that number onto a finished mesh. The scale was baked into the geometry
+when the mesh was made, and the number you asked for is part of what the app recorded about the run,
+so changing it afterwards would only make the record disagree with the file. Ask for the size on the
+Mesh stage and rebuild.
 
 The inspector's **Export** tab lists everything you can take away, as a two-column grid of buttons:
 

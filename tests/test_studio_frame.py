@@ -74,6 +74,15 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
             # no-op stand-in is right, the same call ``_sync_viewer`` gets.
             pass
 
+        def _select_finished_mesh_if_waiting(self, job: dict[str, Any]) -> None:
+            # 2026-09-07 Create review, item 5.8: ``announce`` calls this on a
+            # landed mesh, beside ``review_mode.refresh_findings``. These tests
+            # are about the findings recompute and not about the selection, so
+            # the same no-op stand-in the two calls above get -- the selection
+            # rule itself is pinned in
+            # ``tests/test_create_rail_and_progress_2026_09_07.py``.
+            pass
+
     return FakeApp()
 
 

@@ -89,8 +89,10 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
     "pose": ("sheet",),
     # The grid itself is the stage's *column*; this side answers the question
     # a person actually has in front of it -- is this the right asset, and
-    # what was it made from.
-    "export": ("_reference", "_settings"),
+    # what was it made from. ``_readiness`` goes first: standing at Export, the
+    # question a person actually has is "what is left before an engine takes
+    # this", not "what did I generate" (the 2026-09-07 Create review, item 3.3).
+    "export": ("_readiness", "_reference", "_settings"),
 }
 
 
@@ -100,6 +102,7 @@ def _stage_body(ctx: Any, job: Any) -> None:
     named = {
         "_edit_actions": lambda: _edit_actions(ctx, job),
         "_lineage": lambda: _lineage(ctx, job),
+        "_readiness": lambda: _readiness(ctx, job),
         "_settings": lambda: _settings(ctx, job),
         "_reference": lambda: _reference(ctx, job),
         "_pixel": lambda: _pixel(ctx, job),
@@ -337,6 +340,50 @@ def _lineage(ctx: Any, job: Any) -> None:
         widgets.hint_text(
             "One mesh from this reference." if len(made) == 1 else f"{len(made)} meshes from this."
         )
+
+
+def _readiness(ctx: Any, job: Any) -> None:
+    """The engine-readiness checklist, first on the Export stage.
+
+    The 2026-09-07 Create review, item 3.3: everything a row here says was
+    already measured and recorded by something else -- ``mesh_report`` (the
+    Mesh stage's own ``_quality`` section), ``degraded`` (a swallowed
+    normalize/optimize failure) and whether a retarget outran the rig beside
+    it -- and until now it was either buried on a stage a person had already
+    left, or shown nowhere at all. :mod:`..readiness` is the pure half; this
+    is only the drawing and the wiring of the two repairs that already exist
+    elsewhere in the app.
+
+    Draws nothing when :func:`readiness.rows_for` finds no evidence -- a bare
+    reference at Export, which is legal, must not get an empty or all-green
+    checklist claiming a mesh was checked. Same precedent as ``_quality``'s
+    own early return.
+    """
+    from .. import readiness
+
+    rows = readiness.rows_for(job)
+    if not rows:
+        return
+    widgets.section("Ready for an engine?")
+    for row in rows:
+        ok = row.state == "ok"
+        # The word carries the verdict, not only the tint: theme.OK and
+        # theme.WARN can both render close to grey under some palettes, and a
+        # screenshot or a colour-blind reader must still be able to tell
+        # "Attention" from "OK" without the colour.
+        widgets.text_colored(
+            theme.OK if ok else theme.WARN,
+            f"{'OK' if ok else 'Attention'} - {row.label}: {row.detail}",
+        )
+        if row.repair == readiness.REPAIR_GO_TO_RIG:
+            imgui.same_line()
+            if controls.small_button(f"Fix on Rig stage##readiness-{row.label}"):
+                # The one stage switch (``create_stages.go``'s own docstring);
+                # this pane must never set ``state.create_stage`` itself. The
+                # rig-stage repairs (remesh for an over-budget mesh, the
+                # retarget panel's Rebuild mesh for a degraded normalize or a
+                # rig that has outrun a retarget) all live there already.
+                create_stages.go(ctx, "rig")
 
 
 def _details_tab(ctx: Any, job: Any) -> None:

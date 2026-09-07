@@ -120,8 +120,19 @@ def draw(ctx: Any, job: Any) -> None:
 
 
 def _form(ctx: Any, job_id: str) -> dict[str, Any]:
-    form = ctx.state.preview.get("remesh_form")
-    if form is None or form.get("job_id") != job_id:
+    """The request, kept on the app state, keyed by job id.
+
+    The 2026-09-07 Create review, item 5.3b: this used to be one form,
+    rebuilt whenever the selection moved, so a user who set up a remesh,
+    glanced at another asset, and came back found the defaults again rather
+    than what they had typed. Keyed by job id instead: nothing here names a
+    file or a resource tied to the *previous* selection, so there is nothing
+    that must reset on a reselect the way ``sheet_panel``/``sprite_panel``'s
+    viewer-bound caches do.
+    """
+    forms_by_job = ctx.state.preview.setdefault("remesh_forms", {})
+    form = forms_by_job.get(job_id)
+    if form is None:
         form = {
             "job_id": job_id,
             "remesh_profile": remesh.DEFAULT_PROFILE,
@@ -129,7 +140,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
             "texture_size": "",
             "close_holes": False,
         }
-        ctx.state.preview["remesh_form"] = form
+        forms_by_job[job_id] = form
     return form
 
 

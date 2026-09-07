@@ -87,14 +87,26 @@ def draw(ctx: Any, job: Any) -> None:
 
 
 def _form(ctx: Any, job_id: str) -> dict[str, Any]:
-    """The request, kept on the app state so it survives a reselect.
+    """The request, kept on the app state, keyed by job id.
 
-    Rebuilt when the selection moves, for ``sheet_panel._form``'s reason: the
-    seeds are this attempt's, and carrying them to another asset would offer a
-    "Reroll" that had already happened somewhere else.
+    The 2026-09-07 Create review, item 5.3b: this used to be one form,
+    rebuilt whenever the selection moved, so a user who set up a sprite sheet,
+    glanced at another asset, and came back found fresh seeds and defaults
+    rather than what they had typed. Keyed by job id instead: each job gets
+    its own entry, so its seeds stay "this attempt's" without a reselect
+    wiping them, and a *different* job still gets its own fresh roll rather
+    than reusing an attempt that already happened elsewhere.
     """
-    form = ctx.state.preview.get("sprite_form")
-    if form is None or form.get("job_id") != job_id:
+    forms_by_job = ctx.state.preview.setdefault("sprite_forms", {})
+    # The focus marker is not part of what the user typed; it names a draft in
+    # *whichever* job is currently open, and stays a singleton reset on every
+    # switch to a different job -- carried across one it would decorate
+    # whichever draft in the new job happened to share the old job's id.
+    if ctx.state.preview.get("sprite_active_job") != job_id:
+        ctx.state.preview["sprite_active_job"] = job_id
+        ctx.state.preview.pop("sprite_focus", None)
+    form = forms_by_job.get(job_id)
+    if form is None:
         defaults = (svc_sprites.sprite_options() or {}).get("defaults") or {}
         form = {
             "job_id": job_id,
@@ -104,11 +116,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
             "seed_a": validation.random_seed(),
             "seed_b": validation.random_seed(),
         }
-        ctx.state.preview["sprite_form"] = form
-        # Cleared beside the rest of the per-job preview state: the marker
-        # names a draft in *this* job, so carrying it to another asset would
-        # decorate whichever draft happened to share the id.
-        ctx.state.preview.pop("sprite_focus", None)
+        forms_by_job[job_id] = form
     return form
 
 

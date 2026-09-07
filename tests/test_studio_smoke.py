@@ -798,7 +798,9 @@ def test_the_sheet_panel_builds_with_poses_and_a_clip(app_ctx, imgui_ctx):
         {"id": "abcdef012346", "name": "walk"},
     ]
     _frame(imgui_ctx, lambda: sheet_panel.draw(app_ctx, job))
-    form = app_ctx.state.preview["sheet_form"]
+    # Keyed by job id since the 2026-09-07 Create review, item 5.3b (a form
+    # per job survives a selection round-trip instead of being clobbered).
+    form = app_ctx.state.preview["sheet_forms"][job_id]
     form["clip"] = True
     form["clip_from"] = "abcdef012345"
     form["clip_to"] = "abcdef012346"

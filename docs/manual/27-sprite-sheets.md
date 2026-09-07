@@ -1,9 +1,12 @@
 # Sprite sheets
 
 Any finished mesh can be baked into a 2D sprite sheet: a grid of rendered views, plus an
-engine-neutral JSON sidecar describing what each cell contains. The controls are in the inspector
-at the **Pose** stage, under the collapsed **Sprite sheet** header — a sheet is made of poses, so it
-sits beside the editor that makes them.
+engine-neutral JSON sidecar describing what each cell contains. The full controls are in the
+inspector at the **Pose** stage, under the collapsed **Sprite sheet** header — a sheet is made of
+poses, so it sits beside the editor that makes them. A finished mesh selected at the **Mesh** stage
+also offers a plain **Render turnaround** button, for the case a rig-shaped stage should not be a
+detour to reach: see [Unrigged props](#unrigged-props). Both submit the same job, so a render started
+from either place is refused as one in-flight submit rather than two.
 
 A 2D reference that never became a mesh has its own way in, described under
 [From a single drawing](#from-a-single-drawing) — the same kind of sheet, generated rather than
@@ -227,6 +230,12 @@ reference keeps at most 50.
 A sheet does not require a rig. A crate, a rock or a sword has no poses and needs none — render it
 with no rows ticked and you get a **turnaround of its rest pose**: one row, one cell per direction,
 which is exactly what a prop needs for a 2D game.
+
+Because a turnaround needs no rig, it does not need the Pose stage either: select the finished mesh
+at Create's **Mesh** stage and press **Render turnaround** there, which asks for nothing and starts
+the default eight-direction turnaround directly. It is the same job as pressing **Render sheet** on
+the Pose stage's panel with no rows ticked — one button for the common case, reached from the stage
+that already shows a plain prop's mesh rather than one shaped around a skeleton it does not have.
 
 Only posed rows and animated clips need a rigged mesh, and the panel says so before the button if
 you ask for one without a rig. Sheets themselves still need Blender, so they live behind the same

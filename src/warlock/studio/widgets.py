@@ -2404,14 +2404,28 @@ def stage_rail(
     items: list[tuple[str, str, str, str | None]],
     current: str,
     *,
-    done: str | None = None,
+    done: str | frozenset[str] | set[str] | None = None,
+    optional: dict[str, str] | None = None,
     max_width: float | None = None,
 ) -> str:
     """The Create mode's breadcrumb: where this asset is, and what is left.
 
     ``items`` is ``(key, label, icon, blocked_reason)`` in pipeline order;
-    ``done`` names the furthest stage the asset has actually reached. ->
-    the key the user picked, or ``current``.
+    ``done`` names the segments the asset has actually landed on. -> the key
+    the user picked, or ``current``.
+
+    ``done`` is a **set of keys**, not the single furthest one (2026-09-07
+    Create review, item 3.5): a finished prop with no rig and no pose still
+    has an export grid, and "furthest reached" could only tick Reference and
+    Mesh for it, leaving Export dark on every asset the app will ever finish.
+    A single key is still accepted, for a caller with nothing but "the one
+    thing so far" to report -- it is folded into a one-member set below.
+
+    ``optional`` names segments a finished asset may legitimately never earn
+    (``create_stages.OPTIONAL_HINTS``, keyed the same way). A segment named
+    there that is open (not blocked) and not in ``done`` gets a tooltip
+    saying so -- the same courtesy a blocked segment's reason already is, for
+    a segment that is merely skippable rather than unreachable.
 
     The segmented control's idiom deliberately -- one track, a sliding pill,
     the same padding and radius -- because this *is* a switch between panels
@@ -2447,16 +2461,25 @@ def stage_rail(
     pad_x, pad_y = sp(12), sp(6)
     keys = [key for key, _label, _icon, _reason in items]
     order = {key: index for index, key in enumerate(keys)}
-    done_index = order.get(done, -1) if done is not None else -1
+    # A lone string is one caller's "just this one" -- folded into the set
+    # rather than given its own code path, so everything below asks one
+    # question (``key in done_keys``) regardless of how ``done`` arrived.
+    if done is None:
+        done_keys: frozenset[str] = frozenset()
+    elif isinstance(done, str):
+        done_keys = frozenset({done})
+    else:
+        done_keys = frozenset(done)
+    optional = optional or {}
     with fonts.label(imgui):
         # What each segment actually reads as, before it is measured: a check
         # is part of the width, which is why it is a rung of the ladder.
         def faces(compact: bool, ticks: bool) -> list[str]:
             out = []
-            for index, (key, label, icon, _reason) in enumerate(items):
+            for key, label, icon, _reason in items:
                 if compact:
                     out.append(icon)
-                elif ticks and index <= done_index and key != current:
+                elif ticks and key in done_keys and key != current:
                     out.append(f"{icons.CHECK} {label}")
                 else:
                     out.append(label)
@@ -2503,8 +2526,8 @@ def stage_rail(
             (height - sp(4)) * 0.5,
         )
         picked = current
-        for position, ((key, label, _icon, reason), text, width, offset) in enumerate(
-            zip(items, shown, widths, offsets, strict=True)
+        for (key, label, _icon, reason), text, width, offset in zip(
+            items, shown, widths, offsets, strict=True
         ):
             imgui.set_cursor_screen_pos((origin.x + offset, origin.y))
             # A blocked segment is still an *item*: it has to be hoverable to
@@ -2514,18 +2537,27 @@ def stage_rail(
             hovered = imgui.is_item_hovered()
             if hit and reason is None:
                 picked = key
+            done_here = key in done_keys
+            active = key == current
             if hovered:
                 tip = titles.get(key)
                 if reason is not None:
                     tip = f"{label} -- {reason}" if tip is None else f"{tip} -- {reason}"
+                elif not done_here and not active and key in optional:
+                    # The blocked reason's courtesy, extended to a segment
+                    # that is open rather than unreachable: this asset may
+                    # simply never take it (2026-09-07 Create review, item
+                    # 3.5), and a rail that says nothing about that reads as
+                    # if the segment were merely late rather than skippable.
+                    hint = optional[key]
+                    tip = f"{label} -- {hint}" if tip is None else f"{tip} -- {hint}"
                 if tip is not None:
                     imgui.set_tooltip(tip)
-            active = key == current
             if reason is not None:
                 alpha = tokens.DISABLED_ALPHA * 0.6
             elif active:
                 alpha = 1.0
-            elif position <= done_index:
+            elif done_here:
                 alpha = 0.85 if not hovered else 1.0
             else:
                 alpha = 0.85 if hovered else 0.55

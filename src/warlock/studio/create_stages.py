@@ -112,10 +112,12 @@ def _reached_export(job: Any, rig_meta: Any, poses: Any) -> bool:
     still outstanding on every finished asset there will ever be. Answer the
     rail's question instead: the export grid is stage-keyed and never empty
     (:func:`artifacts.artifacts_for`), so this is reached the moment the
-    asset is one the grid has entries for. Note that :func:`reached` stops at
-    the first unreached stage, which is what keeps this from ticking on a bare
-    reference: Export is only asked about once mesh, rig and pose have all
-    answered yes.
+    asset is one the grid has entries for. Note that :func:`ticked` still
+    stops on a bare reference -- Mesh is required, not optional, so failing
+    it ends the walk before Export is even asked -- but does *not* stop on a
+    finished, unrigged, unposed prop: Rig and Pose are :data:`OPTIONAL_STAGES`
+    now, so this predicate goes on being asked, and answers honestly, past
+    the two a prop may never earn.
     """
     from . import artifacts
 
@@ -154,7 +156,8 @@ def _stage_of(job: Any) -> str | None:
 
 
 def reached(job: Any, rig_meta: Any = None, poses: Any = None) -> str | None:
-    """The furthest stage ``job`` has got to, or None. -> a key of :data:`STAGES`.
+    """The furthest stage ``job`` has got to *in sequence*, or None. -> a key
+    of :data:`STAGES`, monotone in the pipeline's order.
 
     Three pieces of evidence, and every predicate takes all three whether it
     reads them or not, so a later stage is a *row* in :data:`_REACHED` rather
@@ -162,11 +165,18 @@ def reached(job: Any, rig_meta: Any = None, poses: Any = None) -> str | None:
     ``rig.json`` (:func:`panes.inspector.rig_meta`); ``poses`` is its saved
     pose list, which is the one fact no artifact on the row carries.
 
-    **None with no job**, rather than the first stage. This is the value the
-    rail ticks its segments off against, and an empty Create mode had a check
-    beside Reference -- claiming a step was finished on a screen where nothing
-    had been generated at all. Standing at a stage and having completed it are
-    different facts; ``state.create_stage`` is the first one.
+    **None with no job**, rather than the first stage. An empty Create mode
+    had a check beside Reference -- claiming a step was finished on a screen
+    where nothing had been generated at all. Standing at a stage and having
+    completed it are different facts; ``state.create_stage`` is the first one.
+
+    **Not what the rail ticks off against any more** (2026-09-07 Create
+    review, item 3.5) -- that is :func:`ticked`, which does not stop at Rig
+    or Pose the way this does. This stays, distinct, because "how far along
+    the pipeline in strict order" is still a true and simpler question than
+    "what has landed": it is what the tests above pin as monotone, and a
+    future breadcrumb-of-progress reading (a resume list's "made it to Rig",
+    say) wants the strict version, not the everything-that-landed set.
     """
     out: str | None = None
     for stage in STAGES:
@@ -174,6 +184,52 @@ def reached(job: Any, rig_meta: Any = None, poses: Any = None) -> str | None:
             break
         out = stage
     return out
+
+
+#: The stages a *finished* asset may legitimately never earn. Named apart
+#: from the required three (2026-09-07 Create review, item 3.5): Rig and Pose
+#: are the only entries in :data:`STAGES` that are not implied by anything
+#: after them landing. A crate has no moving parts, so it has no rig and
+#: therefore no pose, and it is done all the same -- unlike Mesh, which every
+#: later stage genuinely depends on, or Export, which is the question the
+#: rail is answering and cannot itself be optional.
+OPTIONAL_STAGES: frozenset[str] = frozenset({"rig", "pose"})
+
+#: What the rail tells you about an optional segment you have not taken --
+#: the same courtesy :func:`available`'s blocked-reason gives a segment you
+#: cannot reach yet, for a segment that is merely open and skippable. One
+#: sentence, Latin-1, no verdict: the asset is not incomplete for lacking it.
+OPTIONAL_HINTS: dict[str, str] = {
+    "rig": "Optional: a prop with no moving parts exports fine with no rig.",
+    "pose": "Optional: a rig with no saved pose still exports, in its bind pose.",
+}
+
+
+def ticked(job: Any, rig_meta: Any = None, poses: Any = None) -> frozenset[str]:
+    """Which segments the rail should draw with a check, for ``job``.
+
+    2026-09-07 Create review, item 3.5. :func:`reached` walks :data:`STAGES`
+    and stops at the first stage the job has not got to -- right for a bare
+    reference, where "not reached Mesh" genuinely means nothing past
+    Reference is true yet, but wrong for a finished crate: it has no rig and
+    never will, so the same stop-at-the-first-no rule left Rig, Pose *and
+    Export* unticked forever on every prop the app will ever make, because
+    Export sits after the two it can never pass.
+
+    The fix keeps the walk but changes what a "no" does: a *required* stage
+    failing still ends the walk (nothing after Mesh means anything without
+    Mesh), while an *optional* stage failing is skipped, not stopped on, so
+    the walk can still reach Export. A bare reference still ticks only
+    Reference, because Mesh -- the very next stage, and required -- ends the
+    walk exactly as :func:`reached` does.
+    """
+    out: set[str] = set()
+    for stage in STAGES:
+        if _REACHED[stage](job, rig_meta, poses):
+            out.add(stage)
+        elif stage not in OPTIONAL_STAGES:
+            break
+    return frozenset(out)
 
 
 def shows(stage: str, job: Any) -> bool:

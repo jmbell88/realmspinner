@@ -1130,6 +1130,17 @@ class AppState:
     # The Simple/Advanced disclosure is workspace state, not a creative
     # setting. It deliberately resets each launch and is never persisted.
     create_advanced: bool = False
+    # Whether this session has already checked the 2D reference path restored
+    # from settings (the 2026-09-07 Create review, item 5.3a): ``ref_path``
+    # persists like ``ip_adapter``/``control`` now (``settings.VOLATILE``), so
+    # a restart reopens with it still selected -- unless the file moved or was
+    # deleted while Warlock was shut, in which case a live value would fail
+    # silently at submit instead of failing where it broke. One shot rather
+    # than every frame: the file will not appear or vanish while the pane sits
+    # open, so re-``stat``-ing it on every keystroke elsewhere in the form
+    # would be pure cost with nothing new to find. Never persisted itself --
+    # it describes this process's own check, not a preference.
+    reference_path_checked: bool = False
     # Every outstanding failure the banner is showing, oldest first. A list
     # rather than the single ``last_error`` slot it replaces: three writers
     # (a failed doctor check, a dead worker, a worker that never started) all

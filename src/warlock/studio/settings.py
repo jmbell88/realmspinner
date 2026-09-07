@@ -31,11 +31,20 @@ VERSION = 1
 
 # Fields that must never survive a restart, whatever the form dict holds.
 #
-# ref_path for a different reason than the seeds: a remembered path to a file
+# ``ref_path`` used to be here for its own reason: a remembered path to a file
 # that has since moved or been deleted would silently condition next week's
-# generation on nothing, and the failure is invisible -- the image simply
-# comes out unconditioned.
-VOLATILE = ("seed", "mesh_seed", "ref_path")
+# generation on nothing, with the failure invisible -- the image simply came
+# out unconditioned. But its neighbours ``ip_adapter`` and ``control`` were
+# never volatile, so the pair split on every restart (the 2026-09-07 Create
+# review, item 5.3a): a session that once conditioned a reference reopened
+# with the *conditioning* selections back and the *reference* gone, and
+# ``settings_2d.validate`` had to grow a dedicated "reachable from a restored
+# form" branch just to keep that split from refusing Generate over a control
+# nobody had touched. ``ref_path`` now persists like the other two, and
+# ``settings_2d._verify_reference_path`` re-checks it against the filesystem
+# once per session on load, clearing it (and saying so) rather than leaving a
+# dead path to fail silently at submit.
+VOLATILE = ("seed", "mesh_seed")
 
 
 def as_dict(value: Any, default: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -63,15 +63,36 @@ def draw(ctx: Any, job: Any) -> None:
 
 
 def _form(ctx: Any, job_id: str) -> dict[str, Any]:
-    """Lazily created and kept on the app state, so it survives a reselect.
+    """Lazily created and kept on the app state, keyed by job id.
 
-    Rebuilt when the selection moves to a different job, because half of it is
-    pose ids: those belong to the rig they were fitted to, and carrying them
-    across a selection change submits another job's poses -- which ``validate``
-    cannot catch, since it only checks that *a* rig exists.
+    The 2026-09-07 Create review, item 5.3b: this used to be one form,
+    rebuilt whenever ``job_id`` changed, so a user who set up a sheet, glanced
+    at another asset, and came back found the defaults again rather than what
+    they had typed. Keyed by job id instead, so a selection round-trip
+    restores exactly the form that job had. Poses are not the reason to
+    reset any more: they were never shared across jobs to begin with -- a
+    *different* job id gets its *own* dict entry and its own empty
+    ``poses`` set, so a job's poses can never reach another job's submit --
+    the reset above just happened to also throw away everything else in the
+    form on every reselect, which is the defect this fixes.
     """
-    form = ctx.state.preview.get("sheet_form")
-    if form is None or form.get("job_id") != job_id:
+    forms_by_job = ctx.state.preview.setdefault("sheet_forms", {})
+    # The rendered strip and the two sheet-id-keyed caches are not part of
+    # what the user typed; they describe the mesh currently on the viewer and
+    # the asset directory currently open, and stay singletons reset on every
+    # switch to a *different* job. Left cached across a selection change the
+    # strip would keep showing the previous asset's turnaround under the new
+    # asset's controls, and a sheet id from the new job's directory can
+    # collide with one from the old, with nothing in the panel to say either
+    # was stale.
+    if ctx.state.preview.get("sheet_active_job") != job_id:
+        ctx.state.preview["sheet_active_job"] = job_id
+        ctx.state.preview.pop("sheet_strip", None)
+        ctx.state.preview.pop("pixel_forms", None)
+        ctx.state.preview.pop("pixel_sidecars", None)
+        release_strip_texture(ctx)
+    form = forms_by_job.get(job_id)
+    if form is None:
         defaults = (ctx.sheet_options or {}).get("defaults") or {}
         form = {
             "job_id": job_id,
@@ -86,18 +107,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
             "clip_frames": 8,
             "name": "",
         }
-        ctx.state.preview["sheet_form"] = form
-        # The rendered strip belongs to the same rig the pose ids do. Left
-        # cached across a selection change it kept showing the *previous*
-        # asset's turnaround under the new asset's controls, with nothing in
-        # the panel to say the picture was stale.
-        ctx.state.preview.pop("sheet_strip", None)
-        # Both are keyed by sheet id, and sheet ids belong to the asset whose
-        # directory holds them: carried across a selection change they would
-        # describe another job's sheets.
-        ctx.state.preview.pop("pixel_forms", None)
-        ctx.state.preview.pop("pixel_sidecars", None)
-        release_strip_texture(ctx)
+        forms_by_job[job_id] = form
     return form
 
 

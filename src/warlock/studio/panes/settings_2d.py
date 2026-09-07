@@ -77,6 +77,7 @@ def draw(ctx: Any) -> None:
     if "asset_type" not in form:
         form["asset_type"] = create_assets.legacy_asset_type(form)
     create_assets.sync_legacy_fields(form)
+    _verify_reference_path(ctx, form)
     # Form.errors now places the rings and copy beneath the owning controls;
     # these are the routes it replaces and keeps wired by the same field keys:
     # field_error(ctx.state, "prompt")
@@ -1284,6 +1285,40 @@ def _reset(ctx: Any) -> None:
     ctx.toast("The image settings are back to their defaults.")
 
 
+def _verify_reference_path(ctx: Any, form: dict[str, Any]) -> None:
+    """Clear a restored reference path that no longer names a file.
+
+    The 2026-09-07 Create review, item 5.3a: ``ref_path`` used to be the one
+    conditioning field ``settings.VOLATILE`` dropped on every restart, while
+    its neighbours ``ip_adapter`` and ``control`` survived -- so a session
+    that had conditioned a job reopened with the *conditioning* selections
+    back and no reference to apply them to, and Generate refused for a reason
+    that named a control the user had not touched this session. ``ref_path``
+    now persists like the other two, which trades that defect for a new one a
+    plain restore would have: a path that has since moved or been deleted
+    would come back as a live-looking value that only fails at the far end of
+    a submit, or worse, silently reaches the worker as "no reference" once
+    ``generation.request_from_legacy`` starts guarding on existence too.
+    Checked once per session, against the filesystem, rather than trusted
+    because it round-tripped through JSON.
+
+    A toast rather than a silent drop: the Conditioning header already claims
+    a reference is attached until this clears it (``_conditioning_tail``), so
+    saying nothing here would make a control disappear with no visible cause.
+    Once per session rather than every frame it is missing, so relaunching
+    with the drive that held it still unmounted does not toast on every visit
+    to this pane.
+    """
+    if ctx.state.reference_path_checked:
+        return
+    ctx.state.reference_path_checked = True
+    path = str(form.get("ref_path") or "")
+    if not path or Path(path).is_file():
+        return
+    form["ref_path"] = ""
+    ctx.toast(f"The reference image is missing and was cleared: {path}", "warn")
+
+
 def _history(ctx: Any, form: dict[str, Any]) -> None:
     """Reuse a prompt from this session.
 
@@ -1605,9 +1640,15 @@ def recipe_structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
     spec = modelslib.BASE_MODELS.get(resolved.base_model)
     if spec is None or spec.controlnet:
         return None
+    # The 2026-09-07 Create review, item 5.5.1: this used to say "Switch the
+    # Recipe to Quality", a control that has not existed since the Fast/Quality
+    # tier was folded into the Model combo (``model_options``'s own comment).
+    # The only remedy left is the same one ``structure_note`` gives for the
+    # advanced case -- pick a full-CFG checkpoint from that combo -- so this
+    # says that instead of naming a control nobody can find.
     return (
-        f"{resolved.recipe.label} runs at guidance 0 and cannot run a ControlNet. "
-        "Switch the Recipe to Quality, or pick a full-CFG model under Advanced."
+        f"{resolved.recipe.label} runs at guidance 0 and cannot run a "
+        "ControlNet. Pick a full-CFG model above to run one."
     )
 
 
@@ -1616,9 +1657,14 @@ def structure_note(ctx: Any, form: dict[str, Any]) -> str | None:
     bases = ctx.guidance.get("controlnet_bases") or []
     if (form.get("base_model") or "") in bases:
         return None
+    # The 2026-09-07 Create review, item 5.5.1: "under Advanced" named a
+    # disclosure the 2026-08-17 taxonomy retirement flattened away -- the
+    # Model combo this points at is drawn earlier in this same column, not
+    # behind a fold, which is the wording ``model_options``'s own "no
+    # compatible installed recipe" note already uses ("pick one above").
     return (
         "Structure control needs a full-CFG model -- pick one of "
-        f"{_base_labels(ctx, bases)} under Advanced."
+        f"{_base_labels(ctx, bases)} above."
     )
 
 
@@ -1744,6 +1790,13 @@ def model_options(ctx: Any) -> list[tuple[str, str]]:
 def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -> None:
     auto = str(form.get("model_mode") or "auto") == "auto"
     before = "" if auto else str(form.get("base_model") or "")
+    # The 2026-09-07 Create review, item 5.5.3: drawn as a bare ``##model``
+    # widget with no visible name, unlike ``_locked_sheet_recipe``'s "Image
+    # model" label at the same spot in the tileset/sprite arms' pinned
+    # display. "Recipe" above names the section, not this control -- a
+    # section heading is not a field label, and the two neighbouring
+    # controls in it (Seed, Style LoRA) both have their own.
+    widgets.field_label("Image model")
     picked = widgets.combo("##model", before, model_options(ctx))
     if picked != before:
         if picked:
@@ -1854,6 +1907,12 @@ def _lora(
     show_strength: bool = True,
     findings_doc: Any = _LOAD_FINDINGS,
 ) -> None:
+    # The 2026-09-07 Create review, item 5.5.3: drawn as a bare ``##style_lora``
+    # widget with no visible name, unlike ``_locked_sheet_recipe``'s "Style
+    # LoRA" label at the same spot in the tileset/sprite arms' pinned display.
+    # Drawn before the disabled block below, not inside it: the name of a
+    # disabled control is exactly the thing a disabled control must not hide.
+    widgets.field_label("Style LoRA")
     no_lora = lora_note(ctx, form)
     if no_lora is not None:
         # Disabled rather than hidden, this pane's stated rule: the form holds
@@ -2205,9 +2264,19 @@ def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> 
             )
         return
     if "full-CFG" in message or "guidance 0" in message:
-        if controls.button("Switch to Quality##preflight-quality", role=controls.ButtonRole.GHOST):
-            form["quality"] = "quality"
+        if controls.button(
+            "Switch to Automatic##preflight-quality", role=controls.ButtonRole.GHOST
+        ):
+            # The 2026-09-07 Create review, item 5.5.2, the create-03 finding's
+            # shape repeated: this used to write ``form["quality"]``, a key no
+            # control sets any more since the Fast/Quality tier folded into the
+            # Model combo (``model_options``) -- so the write changed nothing
+            # ``resolve_recipe`` reads once ``model_mode`` is "auto". What the
+            # combo's own Automatic entry actually writes is these two fields
+            # (``_model``'s ``else`` branch), which is what genuinely decides
+            # whether the recipe that resolves next can run a ControlNet.
             form["model_mode"] = "auto"
+            form["model_override"] = ""
             clear_for_tier(ctx, form)
             ctx.state.clear_field_error("base_model")
         return
@@ -2276,9 +2345,11 @@ def validate(form: dict[str, Any]) -> list[widgets.Problem]:
     # A character request reaches ``service.characters.create_character``, which
     # reads no checkpoint, no LoRA, no ControlNet and no reference -- so every
     # check below guarded by this flag would be a refusal about somebody else's
-    # job, and reachable rather than theoretical: ``control`` is persisted while
-    # ``ref_path`` is VOLATILE, so any session that once conditioned an Object
-    # reopens with the pair already split.
+    # job, and reachable rather than theoretical: ``control`` is persisted and
+    # so is ``ref_path``, but ``_verify_reference_path`` clears a ``ref_path``
+    # that has since moved or been deleted (the 2026-09-07 Create review, item
+    # 5.3a), so a session that once conditioned an Object can still reopen
+    # with the pair split.
     pinned = tileset or _is_character(form)
     base = form.get("base_model")
     style = form.get("style_lora")
@@ -2309,15 +2380,17 @@ def validate(form: dict[str, Any]) -> list[widgets.Problem]:
     # checks after this are skipped for it -- not as a tolerance, but because a
     # disabled Generate reading "Conditioning needs a reference image" over a
     # ``control`` the run will never load is a refusal about somebody else's
-    # job. It is reachable rather than theoretical: ``control`` is persisted and
-    # ``ref_path`` is VOLATILE, so any session that once conditioned an Object
-    # reopens with the pair already split. The sprite arm is deliberately *not*
-    # exempt -- its first step is an ordinary reference job and reads all four.
-    # Both reachable from a restored form rather than from this frame's
-    # controls, which is why they are checked here and not only where the
-    # widgets are drawn: a persisted selection outlives the ref_path that
-    # justified it (ref_path is VOLATILE), and the base model can be changed
-    # under Advanced after a control was picked.
+    # job. It is reachable rather than theoretical: ``control`` and ``ref_path``
+    # both persist, but ``_verify_reference_path`` clears a ``ref_path`` that
+    # has since moved or been deleted (the 2026-09-07 Create review, item
+    # 5.3a), so a session that once conditioned an Object can reopen with the
+    # pair split. The sprite arm is deliberately *not* exempt -- its first
+    # step is an ordinary reference job and reads all four. Both reachable
+    # from a restored form rather than from this frame's controls, which is
+    # why they are checked here and not only where the widgets are drawn: a
+    # persisted ``control``/``ip_adapter`` can outlive the ``ref_path`` that
+    # justified it, and the base model can be changed under Advanced after a
+    # control was picked.
     if (
         not pinned
         and not form.get("ref_path")
