@@ -1,0 +1,300 @@
+"""Insertion decides shading: the 2026-09-06 audit's organic-shapes decision.
+
+The user's call that day: organic shapes -- the eight figure assemblies and
+the curved primitives -- insert smooth-shaded; structural shapes keep hard
+edges. The mechanism is not new: it is ``clay_ops._shade_auto``'s existing
+angle rule (a face is smooth only when *every* one of its edges is under the
+threshold), extracted here as :func:`clay.shading.auto_smooth` so the two
+insertion doors -- ``panes/clay_tools.add_primitive`` for a shape off the grid
+and ``panes/clay_tools.add_assembly`` for a figure's parts -- and the manual
+"Shade Auto..." op all read one rule rather than three copies of it.
+
+Consequence, stated by the rule itself and pinned here rather than assumed:
+**a cylinder and a cone stay flat**, because every side face meets a cap at a
+right angle -- see :func:`shading.auto_smooth`'s own docstring for why that is
+correct for this renderer rather than a gap. Do not "fix" that by
+special-casing either generator into partial smoothing.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import numpy as np
+import pytest
+from _ui_context import imgui_context
+
+from warlock.studio.clay import document as bd
+from warlock.studio.clay import mesh as bm
+from warlock.studio.clay import primitives as bp
+from warlock.studio.clay import shading
+from warlock.studio.clay.adjacency import adjacency
+from warlock.studio.panes import clay_props, clay_tools
+
+
+@pytest.fixture
+def ui(monkeypatch):
+    """The shared imgui context; see ``_ui_context`` for why it is not a
+    conftest fixture."""
+    with imgui_context(monkeypatch) as imgui:
+        yield imgui
+
+
+# --- the extracted rule: byte identity with the pre-extraction inline code --
+
+
+def _old_inline_auto_smooth(mesh: bm.Mesh, angle: float = 30.0) -> np.ndarray:
+    """A verbatim copy of ``clay_ops._shade_auto``'s inline computation as it
+    stood at ``git show HEAD:src/warlock/studio/clay_ops.py`` before the
+    2026-09-06 audit's extraction, kept independent of
+    :func:`shading.auto_smooth` so this test cannot pass merely by calling the
+    thing it exists to check.
+    """
+    faces = bm.face_count(mesh)
+    if faces == 0:
+        return np.asarray(mesh.smooth)
+    limit = float(np.cos(np.radians(max(0.0, min(180.0, float(angle))))))
+    normals = np.asarray(bm.face_normals(mesh), dtype="f8")
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 1e-12)
+    counts = np.diff(np.asarray(mesh.starts, dtype="i8"))
+    face_of = np.repeat(np.arange(faces, dtype="i8"), counts)
+    twin = np.asarray(adjacency(mesh).twin, dtype="i8")
+    paired = np.flatnonzero(twin >= 0)
+    smooth = np.ones(faces, dtype=bool)
+    if len(paired):
+        left, right = face_of[paired], face_of[twin[paired]]
+        sharp = np.einsum("ij,ij->i", normals[left], normals[right]) < limit
+        smooth[left[sharp]] = False
+        smooth[right[sharp]] = False
+    return smooth
+
+
+@pytest.mark.parametrize(
+    "build", [bp.uv_sphere, bp.cylinder, bp.box], ids=["sphere", "cylinder", "box"]
+)
+def test_auto_smooth_is_byte_identical_to_the_old_inline_computation(build) -> None:
+    mesh = build()
+    expected = _old_inline_auto_smooth(mesh)
+    got = shading.auto_smooth(mesh)
+    assert np.array_equal(got.smooth, expected)
+
+
+def test_auto_smooth_returns_the_same_object_when_nothing_changes() -> None:
+    """A box is already flat everywhere the rule would leave it, so applying
+    the rule must not allocate a new ``Mesh`` -- which is what lets both
+    insertion doors call it unconditionally on every shape without paying for
+    a GPU cache miss on the ones the rule leaves alone."""
+    mesh = bp.box()
+    assert shading.auto_smooth(mesh) is mesh
+
+
+# --- the twelve generators, measured through the insertion door ------------
+
+
+def test_a_sphere_placed_from_the_grid_arrives_smooth() -> None:
+    doc = bd.ClayDoc()
+    obj = clay_tools.add_primitive(None, doc, "uv_sphere")
+    assert obj.mesh.smooth.all()
+
+
+def test_a_box_placed_from_the_grid_arrives_flat() -> None:
+    doc = bd.ClayDoc()
+    obj = clay_tools.add_primitive(None, doc, "box")
+    assert not obj.mesh.smooth.any()
+
+
+def test_a_cylinder_placed_from_the_grid_arrives_flat() -> None:
+    """Not a gap in the rule: every side quad meets a cap at a right angle, so
+    every face on a capped cylinder has at least one sharp neighbour under
+    :func:`shading.auto_smooth`'s angle rule. Smoothing the band while the
+    caps stayed flat would average the cap normals into the rim and round the
+    very edge the caps exist to define -- the reason is spelled out in
+    ``shading.auto_smooth``'s own docstring. A future reader who finds a
+    cylinder looking faceted in the viewport should not "fix" this by
+    special-casing the generator into partial smoothing; that is the
+    consequence the 2026-09-06 audit's organic-shapes decision explicitly
+    accepted.
+    """
+    doc = bd.ClayDoc()
+    obj = clay_tools.add_primitive(None, doc, "cylinder")
+    assert not obj.mesh.smooth.any()
+
+
+# --- a figure's parts -------------------------------------------------------
+
+
+def test_a_figures_box_and_sphere_parts_come_out_flat_and_smooth() -> None:
+    doc = bd.ClayDoc()
+    objs = clay_tools.add_assembly(None, doc, "humanoid")
+    by_name = {obj.name: obj for obj in objs}
+
+    hand = by_name["Hand.L"]
+    assert hand.generator == "box"
+    assert not hand.mesh.smooth.any()
+
+    head = by_name["Head"]
+    assert head.generator == "uv_sphere"
+    assert head.mesh.smooth.all()
+
+
+def test_a_figures_capsule_limbs_come_out_smooth_rather_than_beaded() -> None:
+    """The outcome the 2026-09-06 decision was actually for.
+
+    A capsule has no caps, so by :func:`shading.auto_smooth`'s rule nothing on
+    one is inherently sharp, and a capsule at the grid's own defaults comes
+    back fully smooth. A figure's limbs did not, and the arithmetic is the
+    whole story: a hemisphere divides 90 degrees by its ring count, so
+    ``presets.LIMB_RINGS = 3`` stepped by exactly 30 -- precisely
+    :data:`shading.DEFAULT_ANGLE`. Landing *on* the threshold is not a margin;
+    quad-normal blending tipped enough bands past it that a humanoid's upper
+    arm measured 33% smooth and the figure went on reading as a string of
+    beads, which is the complaint the decision existed to answer.
+
+    ``LIMB_RINGS`` is 4 since 2026-09-06: the step is 22.5 degrees, the same
+    limb measures ~93%, and the silhouette is untouched because ring count is
+    tessellation density rather than proportion. This test asserts the *wanted*
+    number rather than the measured-today one -- it is the claim, not a pin on
+    an accident.
+    """
+    doc = bd.ClayDoc()
+    objs = clay_tools.add_assembly(None, doc, "humanoid")
+    by_name = {obj.name: obj for obj in objs}
+
+    limb = by_name["Upper arm.L"]
+    assert limb.generator == "capsule"
+    limb_fraction = float(limb.mesh.smooth.mean())
+
+    standalone = shading.auto_smooth(bp.capsule())
+    assert standalone.smooth.all(), "a capsule at its own defaults is fully smooth"
+
+    assert limb_fraction > 0.85, (
+        f"Upper arm.L is {limb_fraction:.0%} smooth; limbs must read as round, "
+        "and a drop back towards a third means a ring count has landed on "
+        "shading.DEFAULT_ANGLE again"
+    )
+
+    # A figure's boxy parts keep their hard edges under the same rule -- the
+    # half of the decision that says structural geometry is left alone.
+    assert not by_name["Hand.L"].mesh.smooth.any(), "a box part stays flat"
+
+
+# --- surviving a properties-panel rebuild -----------------------------------
+#
+# ``clay_props._generator`` rebuilds the mesh from edited params and calls
+# ``set_generator_params``; the rebuilt mesh always arrives flat (every
+# generator does), so without ``_carry_shading`` a Shade Smooth the user had
+# applied -- or the shading an insertion door had already given the object --
+# would be silently discarded the moment any field was touched. ``_widget`` is
+# monkeypatched to report "changed" without a live imgui frame typing into a
+# field: the panel does not care whether the change came from a keystroke or
+# from this fixed answer, only from ``_widget``'s return.
+
+
+def _placed_box(doc: bd.ClayDoc) -> bd.Obj:
+    return doc.add_object(
+        bd.Obj(
+            uid=bd.new_uid(),
+            name="Box",
+            mesh=bp.box(),
+            generator="box",
+            params={"size": (1.0, 1.0, 1.0)},
+        )
+    )
+
+
+def test_a_hand_set_shading_survives_a_rebuild_that_keeps_the_face_count(monkeypatch, ui) -> None:
+    doc = bd.ClayDoc()
+    obj = _placed_box(doc)
+    # A hand-set Shade Smooth on every face of a box -- nonsense under the
+    # angle rule, and exactly the point: it must come back exactly as set,
+    # not re-derived, because the rebuild below does not change the face
+    # count (a box is always six quads).
+    hand_set = np.ones(bm.face_count(obj.mesh), dtype=bool)
+    doc.set_mesh(obj.uid, replace(obj.mesh, smooth=hand_set), keep_generator=True)
+
+    def fake_widget(key, value, default):
+        if key == "size":
+            return (2.0, 1.0, 1.0), True
+        return value, False
+
+    monkeypatch.setattr(clay_props, "_widget", fake_widget)
+
+    ui.new_frame()
+    ui.begin("##host")
+    clay_props._generator(doc, doc.by_uid(obj.uid))
+    ui.end()
+    ui.end_frame()
+
+    rebuilt = doc.by_uid(obj.uid)
+    assert tuple(rebuilt.params["size"]) == (2.0, 1.0, 1.0)
+    assert np.array_equal(rebuilt.mesh.smooth, hand_set)
+
+
+def test_a_rebuild_that_changes_face_count_re_derives_shading_by_the_rule(monkeypatch, ui) -> None:
+    """A sphere, not a cylinder: a cylinder is flat both before this fix (no
+    shading logic ran at all) and after it (the angle rule leaves a capped
+    cylinder flat regardless), so a cylinder cannot tell "re-derived" apart
+    from "nothing ran". A sphere can -- ``clay.shading.auto_smooth`` leaves a
+    freshly built one **fully** smooth, which only a re-derive (not the
+    always-flat mesh a bare rebuild produces) can reach.
+    """
+    doc = bd.ClayDoc()
+    obj = doc.add_object(
+        bd.Obj(
+            uid=bd.new_uid(),
+            name="Ball",
+            mesh=bp.uv_sphere(segments=16, rings=4),
+            generator="uv_sphere",
+            params={"radius": 0.5, "segments": 16, "rings": 4},
+        )
+    )
+    original_faces = bm.face_count(obj.mesh)
+    # Deliberately wrong for a sphere, and the wrong length for the rebuilt
+    # mesh too -- there is no reading of "carry this over" that could produce
+    # it, so its survival would only mean the rebuild fell back to the flat
+    # mesh a bare ``build()`` call returns.
+    doc.set_mesh(
+        obj.uid,
+        replace(obj.mesh, smooth=np.zeros(original_faces, dtype=bool)),
+        keep_generator=True,
+    )
+
+    def fake_widget(key, value, default):
+        if key == "rings":
+            return 8, True
+        return value, False
+
+    monkeypatch.setattr(clay_props, "_widget", fake_widget)
+
+    ui.new_frame()
+    ui.begin("##host")
+    clay_props._generator(doc, doc.by_uid(obj.uid))
+    ui.end()
+    ui.end_frame()
+
+    rebuilt = doc.by_uid(obj.uid)
+    assert rebuilt.params["rings"] == 8
+    assert bm.face_count(rebuilt.mesh) != original_faces, (
+        "the rebuild must have actually changed face count"
+    )
+    # Re-derived by the rule: a sphere comes back fully smooth.
+    assert rebuilt.mesh.smooth.all()
+
+
+def test_carry_shading_keeps_the_old_array_verbatim_when_face_count_matches() -> None:
+    """The pure half of the rebuild rule, independent of imgui entirely."""
+    old = bp.box()
+    old = replace(old, smooth=np.array([True, False, True, False, True, False]))
+    rebuilt = bp.box(size=(2.0, 1.0, 1.0))
+    carried = clay_props._carry_shading(old, rebuilt)
+    assert np.array_equal(carried.smooth, old.smooth)
+
+
+def test_carry_shading_re_derives_when_face_count_differs() -> None:
+    old = bp.cylinder(segments=8)
+    old = replace(old, smooth=np.ones(bm.face_count(old), dtype=bool))
+    rebuilt = bp.cylinder(segments=16)
+    carried = clay_props._carry_shading(old, rebuilt)
+    assert bm.face_count(carried) == bm.face_count(rebuilt)
+    assert np.array_equal(carried.smooth, shading.auto_smooth(rebuilt).smooth)

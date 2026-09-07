@@ -1019,13 +1019,18 @@ the choice is missing.
     **Still open, and smaller than it was:** whether a "Place on ground" action
     over real mesh bounds is wanted for ordinary objects, which is a different
     feature from a preset knowing where it lands.
-6. **Decide whether organic presets insert smooth-shaded.** Everything inserts
-    flat today. `clay/primitives.py` argued that from the absence of a shading
-    tool, and that reason expired — Shade Smooth, Shade Flat and
-    auto-smooth-by-angle all ship — so the docstring was rewritten on 2026-09-06
-    to argue the default on its own merits. The default itself was deliberately
-    left alone. Also open: whether Flat/Smooth should be offered *at* insertion
-    and preserved across a parameter rebuild.
+6. ~~**Decide whether organic presets insert smooth-shaded.**~~ **Answered and
+    built 2026-09-06:** they do. `clay_ops._shade_auto`'s angle rule moved into
+    `clay/shading.py` and both insertion doors apply it, so spheres,
+    icospheres, capsules, toruses and every figure's limbs and heads arrive
+    smooth while boxes, pyramids, arches, columns and a figure's hands and jaw
+    stay flat. Cylinders and cones stay flat too, by the rule rather than in
+    spite of it. `LIMB_RINGS` went 3→4 and the torus default `sides` 12→16
+    because both had been stepping by exactly the 30-degree threshold and came
+    back a third smooth; silhouettes did not move. A parameter rebuild
+    preserves shading (`clay_props._carry_shading`).
+    **Still open:** whether Flat/Smooth should be offered as a control *at*
+    insertion, rather than applied by the rule and overridden afterwards.
 7. **Decide whether a figure keeps its identity after placement.**
     `docs/manual/30-clay.md` says a figure "is a starting point that saves you
     the assembly, not a special kind of object — once placed, nothing" marks it,

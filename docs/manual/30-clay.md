@@ -31,6 +31,13 @@ The **add** row has one button per shape, in two groups. **Primitives**: box, pl
 cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch and column. Clicking one
 places it at the origin and selects it. Hovering a button names it.
 
+Shapes arrive with their shading already set, by the same rule the **Shade Auto...** button uses: a
+sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch and a
+column come in flat. A **cylinder and a cone come in flat too**, and that is the rule working rather
+than missing them — every face on the side band meets a flat cap at a right angle, and smoothing the
+band on its own would round the cap's rim, which is the edge the cap is there to define. Shade
+Smooth and Shade Flat override any of this whenever you want them to.
+
 The structures are the shapes that are tedious rather than hard — the ones you would otherwise
 assemble out of three or four primitives and then have to keep assembled. A **pyramid**'s base sits
 square to the axes, which is what separates it from a four-sided cone: a cone stands on a corner,
@@ -65,6 +72,9 @@ Quadruped, Bird, Insect/spider and Blob — arrive standing exactly on the groun
 and the Fish are swimmers: they keep the height they were drawn at, above the grid, and are never
 dropped to it.
 
+A figure's parts are shaded by that same rule as they are placed: limbs, bodies and heads come in
+smooth, and the boxy parts — hands, feet, fins, a jaw — keep their hard edges.
+
 Every part is a normal generated object: it keeps its generator and parameters, so the properties
 panel offers a leg's radius exactly as it would for a cylinder you added yourself. A figure is a
 starting point that saves you the assembly, not a special kind of object — once placed, nothing
@@ -75,6 +85,11 @@ A placed object remembers *how it was made*. Its generator and the parameters it
 kept, so the properties panel offers those parameters — a cylinder's radius, height and segment
 count — and changing one rebuilds the mesh. That is a single undo step, so `Ctrl+Z` takes the
 object back to the shape it had rather than to some intermediate state.
+
+A rebuild keeps your shading. Change something that leaves the face count alone — a radius, a height
+— and whatever shading the object had, hand-picked or automatic, comes through untouched. Change
+something that alters the faces themselves, like a segment count, and the shading is worked out
+again by the same rule the object arrived with, because they are not the same faces any more.
 
 ## The viewport header
 

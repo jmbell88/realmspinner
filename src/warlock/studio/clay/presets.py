@@ -82,9 +82,22 @@ MIN_CAPSULE_SECTION = 0.01
 
 # Enough sides to read as round on a limb, and no more: an assembly is twenty
 # parts at once, and the default sixteen would put a third again as many
-# triangles into the scene for a difference nobody sees on a forearm.
+# triangles into the scene for a difference nobody sees on a forearm. That
+# argument still holds for ``LIMB_SEGMENTS``, around the tube, where the step
+# is 360/12 = 30 degrees between faces that share a *long* edge.
 LIMB_SEGMENTS = 12
-LIMB_RINGS = 3
+
+# Four, not three, and the reason is arithmetic rather than taste. A capsule's
+# hemisphere divides 90 degrees by its ring count, so ``rings=3`` steps by
+# exactly 30 -- precisely ``shading.DEFAULT_ANGLE``, the threshold insertion
+# smooths against. Landing *on* a threshold is not a margin: quad-normal
+# blending tips enough of those bands fractionally past it that a limb came
+# back 33% smooth, and a figure went on reading as a string of beads after the
+# 2026-09-06 decision that organic shapes insert smooth-shaded was supposed to
+# fix exactly that. Four rings steps by 22.5 and clears it -- measured, the
+# same limb goes to 93% smooth for 48 more triangles. The silhouette does not
+# move: this is tessellation density, not proportion.
+LIMB_RINGS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,6 +523,22 @@ def build(key: str) -> tuple[Part, ...]:
     :data:`SWIMMERS` and is therefore grounded like any other terrestrial
     figure, which is the point of naming the exceptions rather than the
     default.
+
+    A ``Part`` carries a generator name and a params dict, not a built
+    ``Mesh`` -- so this function is not where a part's shading is decided,
+    the same way it is not where a part's geometry is built. That happens once,
+    downstream, in ``panes/clay_tools.add_assembly``, which calls
+    :func:`GENERATORS`'s builder for each part exactly as it always did and
+    now also runs the result through ``clay.shading.auto_smooth`` before the
+    object is placed -- the same rule and the same unconditional application
+    ``add_primitive`` uses for a lone shape off the grid, so a humanoid's box
+    hands and feet get hard edges without this module or that one needing a
+    list of which parts are "organic". :data:`LIMB_RINGS` is 4 rather than 3
+    because of that rule and not independently of it: three rings put a
+    hemisphere's latitude step at exactly the threshold and limbs came back a
+    third smooth, so the figures went on reading as beads after the change
+    meant to stop them doing so -- see that constant's own comment and
+    ``tests/clay/test_shading.py`` for the measurement.
     """
     _label, builder = ASSEMBLIES[key]
     parts = builder()

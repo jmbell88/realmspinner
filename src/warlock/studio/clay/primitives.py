@@ -59,18 +59,26 @@ one keystroke away from a minus sign, and mirroring is ``mesh.transformed``'s
 job -- it reverses the loops to keep the winding honest, which a generator
 handed a negative number cannot do on the caller's behalf.
 
-Every face comes back **flat-shaded on material zero**. Flat rather than smooth
-on the curved shapes deliberately: ``smooth`` is per-face, and shading a curved
-primitive on the caller's behalf would be a guess about a decision that
-belongs to the person about to make it explicitly, with Shade Smooth, Shade
-Flat or auto-smooth-by-angle (``clay_ops.py``). A generator that guessed wrong
-would look identical to one that guessed right until the object was exported,
-so faceted geometry that tells the truth about the mesh as placed is the
-honest default to hand over -- not a stand-in for a tool that does not exist,
-but the one starting point that never disagrees with what a properties panel
-or an export actually contains. Axes are glTF's -- Y up, right-handed --
-because that is the space the viewer, the exporter and everything downstream
-of Clay already speak.
+Every face comes back **flat-shaded on material zero**, and every generator
+here always will: that is what makes ``clamp_params``' rebuild a pure function
+of a generator's own parameters, with nothing about *placement* smuggled into
+the shape itself. It used to also be the reason nothing here looked smooth --
+there was no shading tool to hand a curved primitive over to, so faceted
+geometry was the only honest default available. That reason expired the day
+Shade Smooth, Shade Flat and auto-smooth-by-angle shipped (``clay_ops.py``),
+and on 2026-09-06 the user decided what replaces it: **organic shapes insert
+smooth-shaded.** The decision belongs at *insertion*, not here -- a generator
+is called every time a parameter field is edited, and a generator that decided
+its own shading would be deciding it again on every keystroke, silently
+overwriting a Shade Flat the user had just clicked. So the two doors an object
+is placed through, ``panes/clay_tools.add_primitive`` and
+``panes/clay_tools.add_assembly``, apply ``clay.shading.auto_smooth`` to what a
+generator hands back, and this module keeps handing back the same flat mesh it
+always did -- a box "at rest" is one description regardless of where it ends
+up, and what a viewport shows of it is a fact about the door it walked through,
+not about the box. Axes are glTF's -- Y up, right-handed -- because that is the
+space the viewer, the exporter and everything downstream of Clay already
+speak.
 """
 
 from __future__ import annotations
@@ -1051,7 +1059,13 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
     "cylinder": ({"radius": 0.5, "height": 1.0, "segments": 16}, cylinder),
     "cone": ({"radius": 0.5, "height": 1.0, "segments": 16}, cone),
     "uv_sphere": ({"radius": 0.5, "segments": 16, "rings": 8}, uv_sphere),
-    "torus": ({"radius": 0.35, "tube": 0.15, "segments": 24, "sides": 12}, torus),
+    # ``sides`` is 16 rather than 12 for the reason ``presets.LIMB_RINGS`` is
+    # 4: twelve sides puts the step around the tube at exactly 30 degrees,
+    # which is ``shading.DEFAULT_ANGLE``, so a freshly placed torus came back
+    # a third smooth instead of smooth throughout (measured 2026-09-06, when
+    # insertion began applying the angle rule). Sixteen steps by 22.5 and
+    # reads as round, for 192 more triangles.
+    "torus": ({"radius": 0.35, "tube": 0.15, "segments": 24, "sides": 16}, torus),
     "grid": ({"size": (1.0, 1.0), "divisions": 4}, grid),
     "capsule": ({"radius": 0.25, "height": 0.5, "segments": 16, "rings": 4}, capsule),
     "icosphere": ({"radius": 0.5, "subdivisions": 2}, icosphere),

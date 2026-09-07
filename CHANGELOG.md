@@ -21,6 +21,20 @@ the release you are actually running.
 The slow parts got faster without a line of C, and the sprite ceiling came
 back.
 
+- **Clay inserts organic shapes smooth-shaded.** A sphere, capsule, torus or
+  icosphere arrived faceted like everything else, because nothing but the
+  manual "Shade Auto..." button ever ran the angle rule that decides shading.
+  Placing one — from the grid or as part of a figure — now runs that rule as it
+  lands. Boxes, pyramids, arches and columns are unaffected, and a capped
+  cylinder or cone stays flat on purpose: every side face meets a cap at a right
+  angle, and smoothing the band alone would round the rim the cap exists to
+  define. Two shapes had been built to sit *exactly* on the 30-degree threshold
+  — a limb capsule's three hemisphere rings, a torus's twelve sides, both
+  stepping by precisely 30 — so they came back a third smooth and figures went
+  on reading as strings of beads; both gained one step of tessellation, which
+  moves no silhouette and takes a humanoid to 2,960 triangles. A parameter edit
+  that keeps the face count keeps whatever shading the object had; one that
+  changes it re-derives shading by the same rule.
 - **Clay's figures stand on the ground.** All eight sat wherever their bone
   landmarks happened to put them: six sank into the grid by up to 0.13 metres —
   a foot reaching for the floor and missing — while the serpent and the fish

@@ -197,12 +197,25 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
     object, so the properties panel can offer them and a change regenerates the
     mesh as one step -- until the first element op edits its topology, at which
     point ``clay_ops`` clears the field and the panel switches to counts.
+
+    **Shading is decided here, not by the generator.** ``primitives.py`` always
+    hands back a flat mesh (see its own module docstring); this is one of the
+    two doors an object is placed through, and the 2026-09-06 audit's
+    organic-shapes decision was that placing one is what smooths it.
+    ``shading.auto_smooth`` runs unconditionally on every shape rather than
+    against a membership list of "the organic ones" -- box, plane, pyramid and
+    every other faceted primitive already come back flat under the angle rule
+    (a capped cylinder's caps meet its band at a right angle, same as a box's
+    faces meet each other), so a list here would only be a second, driftable
+    statement of what the rule already decides.
     """
+    from ..clay import shading
+
     defaults, build = bp.GENERATORS[name]
     obj = bd.Obj(
         uid=bd.new_uid(),
         name=_unique_name(doc, name.replace("_", " ").title().replace(" ", "")),
-        mesh=build(**defaults),
+        mesh=shading.auto_smooth(build(**defaults)),
         generator=name,
         params=dict(defaults),
     )
@@ -232,8 +245,20 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
     (terrestrial figures sit on the ground, the two swimmers keep their
     authored placement) applies here without this pane knowing which key is
     which.
+
+    **The other insertion door.** Every part gets ``shading.auto_smooth`` the
+    same way ``add_primitive``'s lone shape does -- unconditionally, by the
+    same rule, rather than a per-generator or per-part list of which parts are
+    "organic": every figure part is a capsule, a sphere, an icosphere or a box
+    (see ``presets.py``), so the rule alone gives a humanoid's boxy hands and
+    feet hard edges with nothing here needing to know which parts those are.
+    A capsule limb's *own* result is coarser than that: ``presets.py``'s
+    ``LIMB_SEGMENTS``/``LIMB_RINGS`` put a limb's mesh right at the angle
+    rule's threshold, so a limb comes back mostly rather than fully smooth --
+    measured in ``tests/clay/test_shading.py``, and a figure-proportions
+    question this change is scoped out of touching.
     """
-    from ..clay import presets
+    from ..clay import presets, shading
 
     label, _builder = presets.ASSEMBLIES[key]
     objs: list[Any] = []
@@ -247,7 +272,7 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
             bd.Obj(
                 uid=bd.new_uid(),
                 name=name,
-                mesh=make(**params),
+                mesh=shading.auto_smooth(make(**params)),
                 generator=part.generator,
                 params=dict(params),
                 translation=list(part.translation),

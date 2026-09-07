@@ -44,6 +44,8 @@ from typing import Any
 
 import numpy as np
 
+from .clay import shading as _shading
+
 __all__ = [
     "OPS",
     "Op",
@@ -714,66 +716,26 @@ def _shade(smooth: bool) -> Callable[..., None]:
     return run
 
 
-def _shade_auto(ctx: Any, doc: Any, angle: float = 30.0, **_: Any) -> None:
+def _shade_auto(ctx: Any, doc: Any, angle: float = _shading.DEFAULT_ANGLE, **_: Any) -> None:
     """Smooth every face whose *every* neighbour agrees with it to within *angle*.
 
-    Per face rather than per edge, because ``smooth`` is a per-face flag and
-    there is nowhere to record "smooth along this edge only" -- so a face is
-    smooth only when it has no sharp edge at all. That is a real limitation and
-    it is stated here because the result surprises people: **a capped cylinder
-    comes out entirely flat**, since every side quad meets a cap at a right
-    angle.
-
-    That is also the *correct* answer for this renderer rather than a gap in
-    the rule. A smooth face takes accumulated vertex normals, so smoothing the
-    band while the caps stay flat would average the cap normals into the rim
-    and round the very edge the caps are there to define. Blender avoids this
-    with per-edge split normals, which is a different mesh format.
-
-    What it does do well is exactly what it should: a sphere or a torus goes
-    smooth throughout, a box stays flat, and a mesh that mixes the two gets the
-    right answer per region. The measurement is the cosine between adjacent
-    face normals -- the same question ``glbimport`` asks of an imported mesh's
-    supplied normals -- and a boundary edge has no neighbour to disagree with,
-    so it makes nothing sharp.
+    Delegates to :func:`clay.shading.auto_smooth`, which is the specification
+    -- see its docstring for the full rule and for why a capped cylinder comes
+    out entirely flat on purpose. What is left here, after the 2026-09-06
+    audit's organic-shapes extraction, is only the object-selection plumbing:
+    which objects to run over, and folding an unchanged one into no edit at
+    all rather than a no-op history step.
     """
-    from dataclasses import replace
-
-    import numpy as np
-
-    from .clay import mesh as bm
-    from .clay.adjacency import adjacency
-
-    limit = float(np.cos(np.radians(max(0.0, min(180.0, float(angle))))))
 
     def one(doc: Any, obj: Any) -> None:
         mesh = obj.mesh
-        faces = bm.face_count(mesh)
-        if faces == 0:
-            return
-        # Normalised: ``face_normals`` returns Newell normals, whose length is
-        # proportional to face area -- a dot product of two of those is not a
-        # cosine, and comparing it against one silently called every pair sharp.
-        normals = np.asarray(bm.face_normals(mesh), dtype="f8")
-        lengths = np.linalg.norm(normals, axis=1, keepdims=True)
-        normals = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 1e-12)
-        counts = np.diff(np.asarray(mesh.starts, dtype="i8"))
-        face_of = np.repeat(np.arange(faces, dtype="i8"), counts)
-        twin = np.asarray(adjacency(mesh).twin, dtype="i8")
-
-        paired = np.flatnonzero(twin >= 0)
-        smooth = np.ones(faces, dtype=bool)
-        if len(paired):
-            left, right = face_of[paired], face_of[twin[paired]]
-            sharp = np.einsum("ij,ij->i", normals[left], normals[right]) < limit
-            smooth[left[sharp]] = False
-            smooth[right[sharp]] = False
-        if np.array_equal(smooth, mesh.smooth):
+        smoothed = _shading.auto_smooth(mesh, angle)
+        if smoothed is mesh:
             return
         # One step per object, and only for an object this changed: going
         # through ``set_shading`` first and then writing the array would push
         # two, and a Ctrl+Z would land halfway.
-        doc.set_mesh(obj.uid, replace(mesh, smooth=smooth), keep_generator=True)
+        doc.set_mesh(obj.uid, smoothed, keep_generator=True)
 
     # The whole document when nothing is selected: this is the one op here that
     # means "tidy the shading", and a user with no selection means all of it.
@@ -1073,7 +1035,7 @@ def _register_defaults() -> None:
                 Param(
                     "angle",
                     "sharp above (deg)",
-                    30.0,
+                    _shading.DEFAULT_ANGLE,
                     5.0,
                     low=0.0,
                     high=180.0,
