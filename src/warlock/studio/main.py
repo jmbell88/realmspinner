@@ -482,6 +482,42 @@ def _stage_pane(ctx: Any) -> None:
         settings_2d.draw(ctx)
 
 
+#: Settings-file keys for W3.1 ("startup can reopen the last workspace").
+#:
+#: Two keys rather than one, because "what to do" and "what happened last"
+#: answer different questions: ``LAST_WORKSPACE_SETTING`` is written on every
+#: mode change regardless of ``STARTUP_MODE_SETTING``'s value, so choosing
+#: "Last workspace" mid-session has something to read immediately rather than
+#: waiting on a mode that was remembered only while the preference was set.
+STARTUP_MODE_SETTING = "startup_mode"
+STARTUP_HOME = "home"
+STARTUP_LAST = "last"
+LAST_WORKSPACE_SETTING = "last_workspace"
+
+
+def initial_mode(settings: Any, available: Callable[[str], bool]) -> str:
+    """Which mode a fresh window opens on.
+
+    Home, unless Settings says to reopen the last workspace and that
+    workspace's door is still open. **The default stays Home for a fresh
+    install** -- an absent ``startup_mode`` reads the same as an explicit
+    "home", so a settings file written before this existed, or a user who
+    never opened the choice, gets exactly the launch they always had.
+
+    A remembered mode that is gated (weights or a pack not installed) falls
+    back to Home through the same refusal every other switch already goes
+    through: ``available`` is asked the identical question
+    ``state.set_mode``'s ``_MODE_AVAILABLE`` hook asks, so this cannot answer
+    "yes" to a door that switch would then refuse.
+    """
+    if str(settings.get(STARTUP_MODE_SETTING) or STARTUP_HOME) != STARTUP_LAST:
+        return STARTUP_HOME
+    remembered = str(settings.get(LAST_WORKSPACE_SETTING) or "")
+    if not remembered or not available(remembered):
+        return STARTUP_HOME
+    return remembered
+
+
 class StartupRefused(Exception):
     """A named startup failure, with the sentence the user should read.
 
@@ -794,9 +830,12 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         monitor_scale = self._monitor_scale
 
         state = AppState()
-        # No mode restore, and nothing writes one either: the app opens on Home
-        # every launch (AppState's default), so a stored mode would be a key
-        # with no reader that four call sites kept half-updated.
+        # No mode restore *here*: ``AppState.mode`` still defaults to Home, so
+        # a settings file that never expresses a startup preference (or says
+        # "home" outright) opens exactly where it always did. The one case
+        # that restores something else -- ``STARTUP_LAST`` -- is applied below,
+        # once ``mode_gate`` exists to answer whether the remembered mode's
+        # door is still open (W3.1).
         state.show_fps = bool(settings.get("show_fps"))
         # Absent means on: this defaults to shown, so a settings file written
         # before it existed must not read as "the user turned it off".
@@ -848,16 +887,31 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         # And the mode gate, at the one door every switch already goes through
         # (H14). Bound the same way and replaced the same way; ``state`` itself
         # must not learn what a Ctx is.
-        from .state import set_mode_gate
+        from .state import set_mode, set_mode_gate
 
         # ``mode_gate`` rather than ``mode_block``: the refusal and the rail's
         # grey-out have to answer the same question, and since F4 that question
         # includes the dependency pack as well as the weights.
-        set_mode_gate(lambda key: not model_gate.mode_gate(self.app_ctx, key)[0])
+        #
+        # Named rather than inlined into ``set_mode_gate``'s call below: W3.1's
+        # ``initial_mode`` asks the identical question once, after the model
+        # and pack snapshots land, and a second lambda here would be a second
+        # spelling of the one door.
+        mode_available = lambda key: not model_gate.mode_gate(self.app_ctx, key)[0]  # noqa: E731
+        set_mode_gate(mode_available)
         self.app_ctx.load_presets = self.load_presets
         self.app_ctx.refresh_rig_data = self._refresh_rig_side_data
         self.eta = Eta()
         self._load_static_answers()
+        # W3.1: reopen the last workspace, if Settings says to and the door
+        # is still open. After ``_load_static_answers`` and not before --
+        # that call is what populates ``model_rows``/``pack_rows``, and
+        # ``mode_gate`` reads an unpopulated snapshot as "nothing missing"
+        # (``model_gate.missing``'s own contract), which would let a genuinely
+        # gated mode straight through on the one frame that matters.
+        target = initial_mode(settings, mode_available)
+        if target != state.mode:
+            set_mode(state, target)
         if self.app_ctx.first_run:
             self.app_ctx.first_run_info = first_run.snapshot(self.app_ctx)
         # Off the frame thread (C32): the walk stats every file under every
@@ -2831,6 +2885,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             state.previous_mode = state.mode_observed
             state.mode_observed = state.mode
 
+    def _note_last_workspace(self, ctx: Any) -> None:
+        """Persist ``ctx.state.mode`` so a later launch can reopen it (W3.1).
+
+        Guarded the same way the crossfade above it is -- ``self._last_mode``
+        rather than a per-frame write -- because ``Settings.set`` is a no-op
+        on an unchanged value anyway and the point is *when* the value last
+        changed being obvious from the diff, not from re-deriving it.
+        Whatever ``state.mode`` is when this fires is what "Last workspace"
+        means; there is no narrower list to filter it through, because a user
+        who quit from Settings or the Library wanted exactly that back too.
+        """
+        if ctx.state.mode != self._last_mode:
+            ctx.settings.set(LAST_WORKSPACE_SETTING, ctx.state.mode)
+
     def _set_mode(self, key: str) -> None:
         """The one way a *shortcut* changes mode, so Home's reset is not a
         second spelling of the switch's.
@@ -3610,6 +3678,7 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             from . import poser_mode
 
             poser_mode.enter(ctx)
+        self._note_last_workspace(ctx)
         self._last_mode = ctx.state.mode
 
         viewport = imgui.get_main_viewport()

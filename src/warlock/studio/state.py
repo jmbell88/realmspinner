@@ -453,14 +453,33 @@ class Filters:
     # is also why it is the one field here that is never persisted -- see
     # ``VOLATILE_FILTERS``.
     trash: bool = False
+    # An explicit set of job ids the view is scoped to, overriding every rule
+    # below -- including the sweep/candidate exclusions, which is the whole
+    # reason this exists. Review's "Show examples" (W3.5) is the one caller: a
+    # finding's supporting jobs are graded sweep units by construction (the
+    # matched-pair and per-vector pools findings are drawn from), and the
+    # ordinary rules exist specifically to keep those dozens of near-identical
+    # rows out of the workshop -- so opening onto them at all needs a bypass,
+    # not a narrower version of the same filter. ``None`` is "no override";
+    # never persisted, for the reason ``trash`` is not (``VOLATILE_FILTERS``) --
+    # this is a one-shot destination, not a standing way to browse.
+    job_ids: frozenset[str] | None = None
 
     def matches(self, job: dict[str, Any]) -> bool:
         # First, and above the sweep/candidate rules: a trashed job is out of
         # the workshop entirely, and the trash view is out of everything else.
         # Asked as one equality so the two views can never both show a row or
-        # both hide one.
+        # both hide one -- which ``job_ids`` below must not undo, or Review's
+        # "Show examples" would put deleted rows back in the workshop.
         if bool(job.get("deleted_at")) != self.trash:
             return False
+        if self.job_ids is not None:
+            # A one-shot destination for Review's supporting examples. It
+            # bypasses the sweep and candidate rules on purpose -- a finding
+            # is drawn from graded sweep units, which those rules hide by
+            # design, so without this the button opens onto nothing -- but it
+            # does not bypass the trash equality above.
+            return job.get("id") in self.job_ids
         if job.get("sweep_id"):
             # A sweep's units are dozens of near-identical rows whose whole
             # purpose is to be compared against each other in Review. Left in,
@@ -614,7 +633,12 @@ class Filters:
 # are looking at, so a session that ended while emptying the trash reopened in
 # the trash -- an empty-looking library with no obvious way back, and the one
 # reading of "restore my filters" nobody wants.
-VOLATILE_FILTERS: tuple[str, ...] = ("trash",)
+#
+# ``job_ids`` for the same reason: it is a one-shot destination for Review's
+# "Show examples" (W3.5), not a standing way to browse, and a session that
+# quit mid-review must not reopen scoped to three jobs from a finding nobody
+# remembers looking at.
+VOLATILE_FILTERS: tuple[str, ...] = ("trash", "job_ids")
 
 
 def filters_to_store(filters: Filters) -> dict[str, Any]:
@@ -902,8 +926,11 @@ class AppState:
     # which is the authoritative list, not restated here: a copy of it in this
     # comment went stale twice (it still said "2d | 3d"). It defaults
     # to the Home screen, which is what makes the chooser appear on every
-    # launch rather than only the first ever; no mode is ever persisted
-    # (``test_no_mode_is_persisted_anywhere`` pins that).
+    # launch rather than only the first ever. This field itself is never
+    # persisted (``test_no_mode_is_persisted_anywhere`` pins that); the
+    # Startup setting remembers the last workspace under its own
+    # ``last_workspace`` key instead, and ``main.initial_mode`` decides on
+    # launch whether to honour it, falling back to Home when its door is shut.
     mode: str = "home"
     # Where Esc goes from a mode you only pass through (Home, the Manual, app
     # Settings): back to the work you left, not to the chooser. ``mode_observed``

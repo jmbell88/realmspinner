@@ -10,6 +10,13 @@ window is: everything here is a short labelled row, and a form stretched across 
 the label and the control it belongs to at opposite ends of the desk. Which category you last had
 open is not remembered between launches — it is where you were, not something you chose.
 
+A **search field** sits above the category list. Typing filters by a row's label, its tooltip, and a
+small table of plain-language synonyms — "bigger text" finds *UI scale*, "disk space" finds
+**Models**, "music" finds **Packs** — and shows every match under its own category heading, the way
+the Manual's own search shows matching sections under their chapter. Clicking a match opens that
+category. Clearing the box brings the ordinary category list back; a search that matches nothing says
+"Nothing matches" rather than leaving an empty column with no explanation.
+
 ## Appearance
 
 *UI scale* is a multiplier on top of whatever your monitor's own DPI scaling already
@@ -33,6 +40,13 @@ viewport's background, which stays the dark `#0F1014` under all three: that colo
 of the renderer rather than of the palette, and making it follow the theme means threading a colour
 into the render-skip key so a theme switch triggers a redraw. It is a known gap, deliberately left
 open. *Show frame rate* is the same toggle as `F10`.
+
+*Startup* chooses which screen opens when you launch Warlock. **Home** is the default and unchanged
+from every earlier build — a fresh install, or a settings file written before this setting existed,
+opens on Home exactly as it always has. **Last workspace** reopens whatever mode you were last in,
+whatever that was — a workspace, the Library, even Settings itself. If that mode needs model weights
+or a dependency pack this machine has not installed, it falls back to Home through the same refusal
+a greyed rail item already gives, rather than a second, differently-worded one.
 
 *System resources* puts a live reading of VRAM, RAM and CPU at the right end of
 the status line, in every mode. It is there because the app already forces the question on you: a

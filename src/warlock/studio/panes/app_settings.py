@@ -95,6 +95,100 @@ CATEGORIES_COMPACT = [(key, label.split(" ", 1)[0]) for key, label in CATEGORIES
 #: library a fortnight ago.
 CATEGORY_SLOT = "settings_category"
 
+#: Where the search box's text lives. The same reasoning as ``CATEGORY_SLOT``:
+#: a half-typed query is where you were, not a preference to carry back in on
+#: the next launch.
+SEARCH_SLOT = "settings_search"
+
+
+@dataclass(frozen=True)
+class SearchRow:
+    """One row the W3.2 search box can find, as plain data.
+
+    Not derived from the drawing functions below: a category body is imgui
+    calls interleaved with the state they read, and there is no "list of this
+    frame's rows" to introspect without actually running one. This is a small,
+    hand-kept index instead -- the same trade the manual's own search makes
+    (``manual.render._toc``), and for the same reason: it is a short, stable
+    list, and it is worth more readable as data than derived from a draw call
+    it cannot safely make.
+    """
+
+    category: str
+    label: str
+    tooltip: str = ""
+
+
+#: Every row worth finding, grouped by the category it lives in and ordered
+#: the way that category draws them. Deliberately not exhaustive -- read-only
+#: diagnostic rows (a config line, a health check) have nothing a synonym
+#: would name -- but every control a user would type a plain-language guess
+#: for is here.
+SEARCH_INDEX: tuple[SearchRow, ...] = (
+    SearchRow("appearance", "UI scale", "Rescale everything drawn from tokens."),
+    SearchRow(
+        "appearance", "Theme",
+        "The whole palette: chrome, canvas surround and every hand-drawn edge.",
+    ),
+    SearchRow("appearance", "Startup", "Which screen opens: Home or your last workspace."),
+    SearchRow("appearance", "Show frame rate", "The FPS counter, also toggled by F10."),
+    SearchRow("appearance", "System resources", "VRAM, RAM and CPU in the status bar."),
+    SearchRow("appearance", "Reduce motion", "Turns off transitions and hover motion."),
+    SearchRow("models", "Models", "Which weights are downloaded, and how much room they take."),
+    SearchRow("models", "Style LoRAs", "Import or train a style adapter from your own art."),
+    SearchRow("packs", "Packs", "The heavy extras: torch, bpy, the music stack."),
+    SearchRow("updates", "Updates", "Check for and install a newer Warlock."),
+    SearchRow("storage", "Storage", "What the library and the model store hold on disk."),
+    SearchRow("storage", "Maintenance", "Check, back up, prune or clean the library."),
+    SearchRow("health", "Checks", "What doctor found, and what to do about it."),
+    SearchRow("advanced", "Layout", "Pane sizes, collapsed sections, the sidebar width."),
+    SearchRow("advanced", "Workspace layouts", "Which panes are in which column."),
+    SearchRow(
+        "advanced", "Effective configuration", "Every setting this process actually runs on.",
+    ),
+)
+
+#: The synonym table the brief asks for: plain language that names no word on
+#: the row it should find. Kept small and in this one obvious place -- a
+#: phrase belongs here only once it has actually confused someone, not on
+#: spec, so the table stays short enough to read in one glance.
+SEARCH_SYNONYMS: dict[str, str] = {
+    "bigger text": "UI scale",
+    "disk space": "Models",
+    "music": "Packs",
+}
+
+
+def _row_matches(row: SearchRow, needle: str) -> bool:
+    """Whether ``needle`` (already stripped and lowered) names this row."""
+    hay = f"{row.label} {row.tooltip}".lower()
+    if needle in hay:
+        return True
+    return any(
+        needle and needle in phrase and target.lower() in hay
+        for phrase, target in SEARCH_SYNONYMS.items()
+    )
+
+
+def search_rows(query: str) -> list[SearchRow]:
+    """Every :data:`SEARCH_INDEX` row ``query`` names, in category order.
+
+    Pure, so W3.2's claim -- that a plain-language phrase with no word in
+    common with a row still finds it -- is assertable without a window. A
+    blank query answers empty rather than "everything": no filter is on, and
+    the rail should draw its ordinary category list, not a full dump under
+    "Nothing matches" headings.
+    """
+    needle = query.strip().lower()
+    if not needle:
+        return []
+    return [
+        row
+        for key, _label in CATEGORIES
+        for row in SEARCH_INDEX
+        if row.category == key and _row_matches(row, needle)
+    ]
+
 
 def draw(ctx: Any) -> None:
     # always_use_window_padding, because a *borderless* child gets zero window
@@ -125,7 +219,15 @@ def draw(ctx: Any) -> None:
 
 
 def _category_rail(ctx: Any) -> str:
-    """Persistent Settings navigation, independent of content scrolling."""
+    """Persistent Settings navigation, independent of content scrolling.
+
+    W3.2's search box lives here, above the list it can replace: typing
+    swaps the plain category list for the rows that matched, grouped under
+    their own category heading -- exactly ``manual.render._draw_toc``'s
+    shape, for the reason its own docstring gives (the reader has said what
+    they are looking for, and the chapter -- here, category -- they happen to
+    have open is not it).
+    """
 
     current = str(ctx.state.preview.get(CATEGORY_SLOT) or CATEGORIES[0][0])
     if current not in dict(CATEGORIES):
@@ -133,11 +235,53 @@ def _category_rail(ctx: Any) -> str:
     if imgui.begin_child("app-settings-categories", (sp(CATEGORY_W), 0)):
         widgets.pane_header("Settings")
         manual_render.help_button(ctx, "app-settings")
-        for key, label in CATEGORIES:
-            if controls.selectable(f"{label}##settings-category/{key}", key == current)[0]:
-                current = key
-                ctx.state.preview[CATEGORY_SLOT] = key
+        imgui.set_next_item_width(-1)
+        query = str(ctx.state.preview.get(SEARCH_SLOT) or "")
+        _changed, query = controls.input_text_with_hint(
+            "##settings-search", "Search settings...", query
+        )
+        ctx.state.preview[SEARCH_SLOT] = query
+        if query.strip():
+            current = _search_rail(ctx, query, current)
+        else:
+            for key, label in CATEGORIES:
+                if controls.selectable(f"{label}##settings-category/{key}", key == current)[0]:
+                    current = key
+                    ctx.state.preview[CATEGORY_SLOT] = key
     imgui.end_child()
+    return current
+
+
+def _search_rail(ctx: Any, query: str, current: str) -> str:
+    """The rail's other face: matches grouped under their category heading.
+
+    -> the category a click landed on, ``current`` unchanged otherwise. A
+    match jumps to its category exactly as clicking the category itself
+    does -- there is no finer-grained target inside a category body to land
+    on, and this is the same courtesy ``request_install`` and the rest of
+    ``model_gate`` already give a gated mode: point at the screen, not at a
+    pixel.
+    """
+    rows = search_rows(query)
+    if not rows:
+        widgets.empty_state(
+            icons.SEARCH, "Nothing matches.",
+            "Try a different word -- labels, tooltips and a few plain-language terms are searched.",
+        )
+        return current
+    by_category = dict(CATEGORIES)
+    heading = ""
+    for row in rows:
+        label = by_category.get(row.category, row.category).split(" ", 1)[-1]
+        if label != heading:
+            widgets.section(label)
+            heading = label
+        if controls.selectable(
+            f"{row.label}##settings-search-row/{row.category}/{row.label}",
+            row.category == current,
+        )[0]:
+            current = row.category
+            ctx.state.preview[CATEGORY_SLOT] = row.category
     return current
 
 
@@ -261,6 +405,28 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     )
     if chosen != tokens.THEME:
         _apply_theme(ctx, chosen)
+
+    # W3.1. Home stays the default (``main.initial_mode`` reads an absent key
+    # the same as "home"), so a fresh install's launch is unchanged; this is
+    # the opt in to something else.
+    from .. import main as main_mod
+
+    startup = str(ctx.settings.get(main_mod.STARTUP_MODE_SETTING) or main_mod.STARTUP_HOME)
+    if startup not in (main_mod.STARTUP_HOME, main_mod.STARTUP_LAST):
+        startup = main_mod.STARTUP_HOME
+    _changed, chosen_startup = form_ui.combo(
+        "startup_mode",
+        "Startup",
+        startup,
+        [(main_mod.STARTUP_HOME, "Home"), (main_mod.STARTUP_LAST, "Last workspace")],
+        help_text="Which screen opens when you launch Warlock.",
+        helper=(
+            "Last workspace falls back to Home if that workspace needs models "
+            "or packs you haven't installed."
+        ),
+    )
+    if chosen_startup != startup:
+        ctx.settings.set(main_mod.STARTUP_MODE_SETTING, chosen_startup)
 
     show_fps = bool(ctx.state.show_fps)
     changed, show_fps = form_ui.switch("show_fps", "Show frame rate (F10)", show_fps)
