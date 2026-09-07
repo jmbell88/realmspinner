@@ -122,7 +122,20 @@ options themselves — quote them verbatim when handing over.
 **Needs:** nothing but CPU — Clay's geometry is procedural, no GPU or weights
 involved, and items 1, 4, 5 and 6 of this entry are already struck (built
 2026-09-06). Verified against the current text: what remains open is items
-2, 3 and 7.
+2, 3 and 7. **Two of the struck items carry their own residual rider, not
+closed by the strike-through** — a sitting on items 2/3/7 does not touch
+either, but a reader trusting only "items 2, 3, 7 still open" would not know
+they exist. Item 5 ("Pick the grounding convention"), verbatim after its own
+"Answered and built 2026-09-06": *"Still open, and smaller than it was:
+whether a 'Place on ground' action over real mesh bounds is wanted for
+ordinary objects, which is a different feature from a preset knowing where it
+lands."* Item 6 ("Decide whether organic presets insert smooth-shaded"),
+verbatim after its own "Answered and built 2026-09-06": *"Still open: whether
+Flat/Smooth should be offered as a control at insertion, rather than applied
+by the rule and overridden afterwards."* Neither blocks a sitting on 2, 3 or
+7 — the point is that a reader trusting the "items 2, 3, 7 still open"
+summary would not know these two riders exist; read both struck items' full
+text in `TODO.md` before treating either as wholly closed.
 
 - **Item 2 (Group 1 shape — renders, then judge):** fish and bird silhouettes
   read weak; wants attachment overlap, tapered wedges, a deliberate wing

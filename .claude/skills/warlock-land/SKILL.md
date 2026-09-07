@@ -66,12 +66,57 @@ whatever else is dirty.
 For each test file that is new or has a changed test in the session's own
 diff, read `git show HEAD:<path>` (the pre-session version) and check by
 reading — not by touching the tree — that the test would actually have failed
-against it, and *why*. "Fails" is not enough on its own: the 2026-09-05
-lesson, carried in the audit skill, is that a test failing pre-fix with
-`AttributeError: no such method` pins nothing about the wiring it claims to
-guard, and a finding closed on that evidence has to be re-opened. State the
-reason each test fails pre-fix — the assertion it trips, not merely that
-collection or execution errors out.
+against it, and *why*. "Fails" is not enough on its own, but what counts as
+proof splits into two cases, and the two are easy to conflate because both
+can show up as the same exception name:
+
+- **A test guarding code that is wholly new** — a new module, or a new
+  function/constant/method added to a module that already existed. A pre-fix
+  failure here is expected to be an import or attribute error (the symbol
+  simply is not there yet, whatever the housing file's own history) and that
+  failure **proves nothing about the wiring either way** — it is not evidence
+  the test is weak, and it is not evidence the test is strong. What proves
+  the test is that its assertions, once the code exists, are specific
+  behavioural claims — the test's *name* is the claim, per CLAUDE.md — rather
+  than that it merely fails, in any manner, before the code exists. Judge it
+  by reading the finished assertions, not by the shape of the pre-fix
+  traceback.
+- **A test guarding changed behaviour of code that already existed and was
+  already callable the same way** — the function ran before this change and
+  now must run differently. This one must trip a real, *evaluated* assertion
+  pre-fix: the pre-fix call succeeds and returns or does the wrong thing, and
+  the test's own `assert` is what fails. The 2026-09-05 lesson, carried in
+  the audit skill: a test failing pre-fix with `AttributeError: no such
+  method` here pins nothing about the wiring it claims to guard, and a
+  finding closed on that evidence has to be re-opened — an `AttributeError`
+  in this case is a sign the test is actually the first case wearing this
+  one's clothes (a helper that does not exist yet, not a helper that exists
+  and does the wrong thing), and worth re-classifying rather than accepting.
+
+**Telling them apart is a question about the specific symbol under test, not
+about whether its file is new.** A new function added to a long-lived module
+is still the first case — the module having a history does not make the
+function's own absence pre-fix mean anything.
+
+**Worked example, `8cf1aaa7`, checked against the tree rather than assumed:**
+`tests/inker/test_nineslice.py` guards `src/warlock/studio/inker/nineslice.py`,
+which did not exist before this commit (confirmed: `git cat-file -e
+8cf1aaa7^:src/warlock/studio/inker/nineslice.py` fails) — so `ModuleNotFoundError`
+is the *only* possible pre-fix failure, is entirely legitimate under the first
+case, and the test is proven instead by its own specific assertions once the
+module exists. `tests/test_poser_mode.py`'s new tests
+(`test_rerig_submits_under_a_poser_key_not_the_shared_pose_key` and its
+neighbours) are a sharper instance of the *same* first case, not the second:
+`poser_mode.py` the file already existed, but `rerig`, `pump_rerig` and
+`ASSET_RERIG_KEY_PREFIX` — the exact symbols these tests call — did not
+(confirmed against `git show 8cf1aaa7^:src/warlock/studio/poser_mode.py`, which
+has none of them), so these tests too fail pre-fix on a missing symbol
+(`AttributeError`, not a tripped assertion) and are proven the same way
+nineslice's are: by the name-as-claim in each assertion, e.g. that the
+submitted key is prefixed `"poser-"` and not the shared `"pose-"` dispatch.
+A file having existed before this session is not, on its own, evidence that a
+test against it belongs to the second case — check whether the *symbol*
+existed, not the file.
 
 ## 4. Work out what else the change owes
 
@@ -153,7 +198,10 @@ produce the manifest that release carries.
   user's.
 - What the change owed per `landing-checklist.md`'s five obligations, and
   whether each was paid, not applicable, or already covered.
-- Each regression test proved, and the specific assertion it trips pre-fix.
+- Each regression test proved: for a test guarding wholly new code, which
+  case-one assertion makes it specific; for a test guarding changed
+  behaviour of code that already existed, the specific assertion it trips
+  pre-fix.
 - The gate's last lines from step 5 (or step 7's full run, in `--release`
   mode).
 - The commit hash and subject.

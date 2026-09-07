@@ -37,8 +37,13 @@ thirteen existing files, plus one new module**.
     sorts into.
  6. `src/warlock/studio/panes/library.py` — `_remeshable()`. Whether the overflow menu
     offers Remesh; must never offer an action `service` would refuse.
- 7. `src/warlock/studio/palette.py` — `rerollable()`. The command palette's version of
-    the same rule.
+ 7. `src/warlock/studio/palette.py` and `src/warlock/studio/panes/library.py` — each has
+    its own local `rerollable()`, but both are now thin delegators to
+    `src/warlock/service/_jobs_resubmit.py::rerollable(job)` (re-exported as
+    `service.jobs.rerollable`), which is where the actual judgement lives —
+    `palette.py`'s own comment names it as "the one spelling," because this split
+    happened precisely to fix the two call sites disagreeing. A new kind is handled
+    here by teaching `_jobs_resubmit.rerollable`, not by editing either delegator.
  8. `src/warlock/studio/create_stages.py` — `IMAGE_STAGES` (does this kind's stage open
     in Create's Reference stage rather than Mesh) and `available("mesh", …)` (if the
     kind cannot promote to a mesh, that function must refuse it **in its own words**,
@@ -46,7 +51,34 @@ thirteen existing files, plus one new module**.
  9. `src/warlock/studio/widgets.py` — `STAGE_BADGES` and, if the kind ships its own
     exportable-files list, an `ARTIFACTS_<KIND>` constant; `src/warlock/studio/panes/thumbs.py`
     — `thumb_glyph()`. Together, what the card looks like. Miss this and the card draws
-    the fallback CIRCLE glyph next to the raw stage string — Muse's own miss.
+    the fallback CIRCLE glyph next to the raw stage string — Muse's own miss. **This
+    site carries a second, deeper defect this dry run found live in the tree on
+    2026-09-07, and a reader checking only for the CIRCLE fallback will call it clean
+    and be wrong.** `stage_badge()` (`widgets.py`) keys its lookup on
+    `job.get("stage")`, never on `card_kind(job)`; `thumb_glyph()` (`panes/thumbs.py`)
+    keys on `card_kind(job)` — the two halves of this one site disagree about which
+    column tells them what a row is. Every follow-up kind's `stage` column is frozen
+    at the sqlite default: `db.Store.create`'s `stage` kwarg defaults to `"model"`
+    (confirmed at `src/warlock/db.py`'s `create` signature), and no call site under
+    `service/` that creates a `rig`, `sheet`, `pixel_sheet`, `sprite_synthesis` or
+    `charsheet` row passes a `stage=` kwarg at all (`rig.py`'s two `store.create("rig",
+    ...)` calls, `sheets.py`'s `store.create("sheet", ...)` and its separate
+    `store.create("pixel_sheet", ...)`, `sprites.py`'s
+    `store.create("sprite_synthesis", ...)` and `troupe.py`'s two
+    `store.create("charsheet", ...)` calls are all bare, so every one is born
+    `stage="model"`), and `db.py`'s `set_stage` has no caller anywhere in `src/`
+    (confirmed by grep — the only other hit is a doc comment in `asset_open.py`).
+    So a finished charsheet card is badged **"model", with the box icon**, and
+    `STAGE_BADGES`' own `"rig"` and `"sheet"` entries are dead code via this path —
+    a table with the right keys that nothing ever looks up with. **Reaches further
+    than `rig`/`sheet` alone:** `pixel_sheet` and `sprite_synthesis` are born
+    `stage="model"` the identical way, so their cards are badged wrong too, and only
+    `tilesheet` among the follow-up kinds escapes it, because `tilesheets.py` is the
+    one call site that actually passes `stage="tilesheet"`. This predates charsheet
+    and is a standing tree defect across every follow-up kind but one, not a
+    charsheet-specific miss, and a `job-kind` addition inherits it silently unless
+    the kind's worker explicitly calls `set_stage` (which nothing today does) or
+    this site is fixed to key on `card_kind` the way `thumb_glyph` already does.
 10. `src/warlock/service/validation.py` — `DERIVED_PARAMS`. Whatever the worker records
     about its own run (a report, a measured seed) that must be stripped on rerun or
     promotion, or a promoted row inherits a stale, worker-written value describing a
@@ -71,7 +103,13 @@ thirteen existing files, plus one new module**.
 15. A new `src/warlock/_q_<kind>.py` module. Ten exist today, confirmed against the
     tree: `_q_mesh.py`, `_q_lora.py`, `_q_generate.py`, `_q_jobs.py`, `_q_troupe.py`,
     `_q_rig.py`, `_q_sprite.py`, `_q_tilesheet.py`, `_q_tileset.py`, `_q_music.py`. Read
-    the shape of the nearest existing one before writing an eleventh.
+    the shape of the nearest existing one before writing an eleventh. **The naming is
+    not uniform, so do not guess a filename from the kind string:** charsheet's own
+    module is `_q_troupe.py`, named after the *mode* its worker method belongs to
+    (`Worker._charsheet`) rather than after the `"charsheet"` kind string itself — the
+    per-kind dispatch branch lives in site #12's `Worker._generate`
+    (`src/warlock/_q_generate.py`), and that `if job["kind"] == ...` branch is what
+    actually names the module to go read, not the kind's own name.
 
 **What a miss looks like, concretely.**
 
@@ -99,8 +137,16 @@ thirteen existing files, plus one new module**.
   shape `followup-kind` documents below, for a *different* reason — the stage-routing
   default rather than a missing `asset_open.route` branch — so a `create_stages` miss
   and a `route` miss can look identical on screen and have to be told apart by reading).
-- **#9 STAGE_BADGES / thumb_glyph** — the fallback CIRCLE glyph with the raw stage
-  string ("pixel_sheet", not a picture), Muse's literal defect.
+- **#9 STAGE_BADGES / thumb_glyph** — two different failure signatures, and both are
+  real. The shallow one: the fallback CIRCLE glyph with the raw stage string
+  ("pixel_sheet", not a picture), Muse's literal defect, from a *missing* dict entry.
+  The deeper one, found live in this tree: a *present, correctly-typed* entry read off
+  the wrong source data — `stage_badge()` keys on `job.get("stage")` rather than
+  `card_kind(job)`, so a finished follow-up row (`rig`, `sheet`, `pixel_sheet`,
+  `sprite_synthesis`, and by the same mechanism `charsheet`) shows "model" and the box
+  icon rather than its own badge, because nothing ever writes its `stage` column away
+  from the sqlite default. A walk that only asks "is there a badge, does it fall back
+  to CIRCLE" calls this site clean and misses the second signature entirely.
 - **#11 asset_open.route** — "Show" opens a blank Create screen for a kind whose real
   home is a workspace.
 - **#12 Worker._generate** — the row never runs; it sits `queued` with no error.

@@ -136,17 +136,37 @@ This is the part the whole skill exists to protect.
    matches (P28's seven questions, P8's five per-clip briefs, P33's seven
    things to judge separately, whatever the matched entry states). Do not
    summarise it, shorten it, or reorder it into what you think matters most.
-2. Print the exact keystrokes or steps the human needs to act, from
-   `references/setup-recipes.md`'s Review-mode section if the sitting is a
-   grading pass (the digit magnitudes, `R` arming the negative sign, `0` as
-   its own key, Ctrl/Shift+1–5 for the two tag vocabularies, and the guided
-   pass's different `A`/`R`/`Esc` meanings while it is open — get these from
-   the reference exactly, they are precise for a reason) — or the manual
-   chapter and page to follow out loud if the sitting is a listening pass
-   (P14, P23, P24, P35).
-3. Say plainly where the pictures or the queued rows are, and whether the
+2. The hand-over takes one of three shapes, and most Group 1/1b entries are
+   the third, not the first two:
+   - **A grading pass** through Review mode's keyboard, for a sitting that
+     queued real job rows — print the exact keystrokes from
+     `references/setup-recipes.md`'s Review-mode section (the digit
+     magnitudes, `R` arming the negative sign, `0` as its own key,
+     Ctrl/Shift+1–5 for the two tag vocabularies, and the guided pass's
+     different `A`/`R`/`Esc` meanings while it is open — get these from the
+     reference exactly, they are precise for a reason).
+   - **A listening pass**, for ears against a manual chapter followed out
+     loud (P14, P23, P24, P35) — print the chapter and page.
+   - **Static pictures opened directly, no queue, no job rows, no
+     blinding** — most of the CPU-only entries (P30, P34, and any Group 1/1b
+     sitting whose output is a contact sheet or a rendered comparison rather
+     than a graded library row) are this third shape. There is no verdict
+     loop to drive here: no keystrokes to hand over, nothing to blind,
+     because nothing was queued for review in the first place. Give the file
+     paths to the pictures and quote the entry's own findings verbatim as
+     the questions to confirm or correct against them — P34's item 2 ("fish
+     and bird silhouettes read weak... wants attachment overlap, tapered
+     wedges, a deliberate wing outline and thickness direction") and item 3
+     ("the shape chooser undersells the objects... sphere/torus share an
+     icon...") are exactly this: claims to check against renders, not a
+     seven-question rubric to grade through a keybound loop.
+3. Say plainly where the pictures or the queued rows are, and, only where a
+   verdict loop actually exists (the first two shapes above), whether the
    pass is blind, per `references/setup-recipes.md`'s note that blindness is
-   a session property and must be stated rather than assumed.
+   a session property and must be stated rather than assumed. For the third
+   shape, say plainly instead that there is no verdict loop to drive and
+   nothing to blind — the human is looking at pictures directly, not grading
+   library rows.
 4. **Never guess a verdict, never grade on the human's behalf, and never
    describe what you think the pictures show in a way that would anchor the
    judgement.** Not "the walk looks pretty convincing to me" — not even as a

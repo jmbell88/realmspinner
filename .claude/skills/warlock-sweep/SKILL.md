@@ -109,6 +109,17 @@ brief, plus the sweep's row from `sweeps.md`, plus the name being added. Use
 subagent may launch another). Launch a batch as `Agent` calls in a single
 message; when a batch returns, launch the next.
 
+**A `--dry-run` is always walked by one agent, regardless of the sweep's own
+size.** `job-kind` is a large sweep by this step's own rule, but a dry run is
+read-only and needs none of the fan-out machinery above — there is nothing to
+partition file ownership over when nothing is being edited. Fanning it out
+would also lose findings, not just add overhead: on 2026-09-07 the real
+`charsheet` finding at site 9 (see `sweeps.md`'s "what a miss looks like"
+paragraph for that sweep) only surfaced because the one agent doing the walk
+still had site 5's `card_kind` result in context while reading site 9 — a
+connection eight independent subagent transcripts, each returning in
+isolation, cannot make.
+
 ## 4. Refuse to report done with an unvisited site
 
 Before any gate or report, check the row's site list against what you
@@ -120,6 +131,11 @@ subagent's silence about a site stand in for having checked it: read what it
 returned against the row's list line by line.
 
 ## 5. Add the gate
+
+**Stop here for a `--dry-run`.** A dry run truncates the procedure after step
+4: no gate is added, step 6 does not run, and there is no hand-off to
+`/warlock-land` — the report described in "A dry-run mode" below is the whole
+output. Steps 5 through 7 are for an addition actually being made.
 
 Read `references/gate-patterns.md`. A sweep run is not finished by touching
 every site; it is finished by leaving something behind that would have caught
@@ -162,17 +178,44 @@ sites for a kind that **already exists**, read-only, and reports which of the
 fifteen sites that kind actually joined, using `git show HEAD:<path>` and
 ordinary reads rather than editing anything.
 
+**A dry run stops after step 4 of the main procedure and goes no further.**
+It does step 1 (resolve the sweep), step 2 (freeze the baseline — the `git`
+and `ruff` lines still get recorded, since they cost nothing and confirm the
+tree this walk is read against), step 3 (read the row and walk the sites, by
+one agent per the rule above) and step 4 (check every site was reached). It
+does **not** reach step 5: no gate is added or extended, because nothing was
+changed for a gate to protect. It does not reach step 6: the suite is not run,
+`ruff` is not run a second time, and `preflight` is not run at all. It does
+not reach step 7: there is nothing finished to hand off, so `/warlock-land` is
+never named. A fresh agent that reads steps 5–7 as unconditional and goes on
+to run them against a `--dry-run` invocation has changed nothing on disk but
+has still broken the "change nothing" rule this section states, by spending
+the run on work the invocation never asked for.
+
 **Grepping for the kind's name is not the check, and a walk that does that
-will report seven false holes.** Measured on 2026-09-07: `sprite_synthesis`
-appears by name at only eight of the fifteen sites, and most of the other
-seven are correct anyway because they do not dispatch on kind at all —
-`files.ready` keys on the *artifact name* (`model.glb`, `source.glb`) and
-`widgets.STAGE_BADGES` and `create_stages.IMAGE_STAGES` key on the *stage*,
-so a kind whose artifacts and stage are already covered needs no branch
-there and its absence is the right answer. `DERIVED_PARAMS` is the sharper
-case: `sprite_synthesis` has no entry because its worker records nothing
-about its own run that a rerun must strip — which is a real, checkable claim
-about that worker, and the only way to know it is to read the worker.
+will report false holes.** Measured on 2026-09-07: `sprite_synthesis` appears
+by name at only eight of the fifteen sites, and most of the rest are correct
+anyway because they do not dispatch on kind at all — `files.ready` keys on
+the *artifact name* (`model.glb`, `source.glb`) and `create_stages.IMAGE_STAGES`
+keys on the *stage*, so a kind whose artifacts and stage are already covered
+needs no branch there and its absence is the right answer. `DERIVED_PARAMS`
+is the sharper case: `sprite_synthesis` has no entry because its worker
+records nothing about its own run that a rerun must strip — which is a real,
+checkable claim about that worker, and the only way to know it is to read the
+worker.
+
+**But "it keys on the stage, so no branch is needed" is not a verdict either,
+and site 9 is where that reasoning fails.** This paragraph said exactly that
+about `widgets.STAGE_BADGES` until the 2026-09-07 `--dry-run charsheet` walk
+disproved it. `stage_badge()` does key on `job.get("stage")` rather than on
+the kind — and that is the defect, not the excuse: every follow-up row's
+`stage` is frozen at `db.Store.create`'s `"model"` default, so the badge is
+wrong for `rig`, `sheet`, `charsheet`, `retexture`, `pixel_sheet` and
+`sprite_synthesis` alike, while `thumbs.thumb_glyph()` — the other half of
+the same site — reads `card_kind(job)` and gets it right. A site that
+dispatches on a *different* field is only correct if that field carries the
+answer; check that it does, rather than stopping at "this site does not read
+the kind." Site 9's own row in `sweeps.md` carries the full provenance.
 
 So each site's verdict is **semantic, not textual**: read the site and answer
 whether this kind is handled correctly, by an explicit branch *or* by a
@@ -180,11 +223,18 @@ default that is right for it, and say which of the two. A site reported
 "absent" must say what would break if that were wrong, or it is a grep
 result wearing a finding's clothes.
 
-`charsheet` should independently rediscover
-the `progress` miss the invariant records — `phases_for("charsheet")` falls
-back to `PHASES_IMAGE` in the tree as it stood when Troupe shipped, which is
-exactly the hole `tests/test_progress.py::test_the_multi_pass_kinds_have_their_own_contiguous_tables`
-now closes for that one kind. A `--dry-run` on any other sweep key follows the
+`charsheet` is the second worked example, and the walk was run on
+2026-09-07 so its answer is known: the `progress` miss the invariant records
+is **closed**. `PHASES_CHARSHEET` is registered in `_PHASES_BY_KIND`, its five
+spans are contiguous from 0.0 to 1.0, and
+`tests/test_progress.py::test_the_multi_pass_kinds_have_their_own_contiguous_tables`
+is parametrised to include `charsheet` and passes. A walk that reports that
+site as still broken has read the invariant's history as if it were the
+present tense, which is its own kind of false hole — the paragraph records
+what Troupe shipped, not what the tree does now. What that walk *did* turn up
+is site 9, above, which is live today and which no invariant records at all.
+
+A `--dry-run` on any other sweep key follows the
 same shape: read every site for the name given, report present/absent/partial
 per site, and change nothing.
 

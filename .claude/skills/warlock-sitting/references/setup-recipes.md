@@ -225,6 +225,58 @@ Warlock Studio can never open. For those, pin nothing and say so: the run
 happens against `~/.warlock` (or whatever `WARLOCK_HOME` the user's install
 already uses), on purpose.
 
+## Static geometry to pictures, with no queue and no card
+
+**The gap this section closes, recorded 2026-09-07.** Every recipe above goes
+through the job queue, a campaign script, the bench, or a real weight — but
+P34 is exactly the "needs nothing but CPU and time" shape this skill
+advertises, and none of them fit it: Clay's geometry is built in process, with
+no job row at all, and turning it into a picture a human can look at is not
+covered anywhere in this file. 0% of the render mechanism below came from a
+recipe that already existed here; making it work the first time meant reading
+roughly 150 lines against five modules the hard way. Copy the chain below
+rather than re-deriving it.
+
+**Build the geometry in process**, the same construction
+`panes/clay_tools.py`'s `add_primitive` / `add_assembly` use — copy their
+call shape rather than inventing a new one:
+
+- `studio/clay/primitives.py`'s `GENERATORS` dict maps a generator name to
+  `(defaults, make)`; call `make(**params)` (params built from `defaults`,
+  overridden as needed) to get a `Mesh`.
+- `studio/clay/presets.py`'s `build(key)` returns a whole figure (a tuple of
+  `Part`) for the eight preset figures (`humanoid`, `quadruped`, `bird`,
+  `blob`, and so on) — use this instead of `GENERATORS` for a figure rather
+  than a bare primitive.
+- `studio/clay/shading.py`'s `auto_smooth(mesh)` applies the same
+  flat/smooth angle rule both insertion doors in the running app apply, so a
+  primitive built by hand and never passed through this reads wrong beside
+  what a user would actually see.
+
+**Export to bytes:** `studio/clay/document.py`'s `to_model(doc)` turns a
+`ClayDoc` into a `gltf.Model`; `studio/viewer/glbwrite.py`'s `write_glb(model)`
+turns that into the GLB bytes. Assemble a `ClayDoc` from the built parts/mesh
+the way the pane's insertion path does, rather than hand-rolling one.
+
+**Render: there is no public entry point for a static, unrigged turntable.**
+`pipelines/blender_worker.py` has two public ops and neither fits this job —
+`op_views` is shaped for retexture baking (it expects a texture-bake context,
+not a plain look-at-the-mesh render) and `op_sheet` is shaped for a rigged
+animation sheet (it expects a rig and clips, neither of which a Clay
+primitive has). What actually works is calling the module's private helpers
+directly, in this order: `_reset_scene`, `_import_glb`, `_scene_bounds`,
+`_setup_render`, `_make_lit`, `_setup_camera`, then `_aim_camera` once per
+yaw you want a picture from.
+
+**The caveat, stated as a caveat, not a footnote.** Depending on
+underscore-prefixed helpers is fragile: they carry no compatibility promise,
+and a rename inside `blender_worker.py` for an unrelated reason breaks this
+recipe silently, with no test anywhere to catch it before a sitting does. The
+durable fix is a public op — `op_turntable` or similar — or a real script
+under `scripts/`; until one of those exists, this is what there is. Do not
+build that script as part of running a sitting; it is out of scope here and
+belongs to whoever picks up the durable fix.
+
 ## Contact sheets and zoom levels (P28 in particular)
 
 P28 asks for every direction and every animation at zoom 1 and zoom 4: zoom 1
