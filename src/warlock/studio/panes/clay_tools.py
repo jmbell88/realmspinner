@@ -226,13 +226,19 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
     the count is taken against the document *as it grows*, which is why the
     objects are appended to a list here and handed over in one call rather
     than named up front.
+
+    Goes through ``presets.build`` rather than calling ``ASSEMBLIES[key][1]``
+    itself, so the grounding rule from the 2026-09-06 audit's clay-08 finding
+    (terrestrial figures sit on the ground, the two swimmers keep their
+    authored placement) applies here without this pane knowing which key is
+    which.
     """
     from ..clay import presets
 
-    _label, build = presets.ASSEMBLIES[key]
+    label, _builder = presets.ASSEMBLIES[key]
     objs: list[Any] = []
     taken: set[str] = set()
-    for part in build():
+    for part in presets.build(key):
         defaults, make = bp.GENERATORS[part.generator]
         params = {**defaults, **part.params}
         name = _unique_name(doc, part.name, taken)
@@ -249,7 +255,7 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
                 scale=list(part.scale),
             )
         )
-    doc.add_objects(objs, _label)
+    doc.add_objects(objs, label)
     del ctx
     return objs
 

@@ -21,6 +21,14 @@ the release you are actually running.
 The slow parts got faster without a line of C, and the sprite ceiling came
 back.
 
+- **Clay's figures stand on the ground.** All eight sat wherever their bone
+  landmarks happened to put them: six sank into the grid by up to 0.13 metres —
+  a foot reaching for the floor and missing — while the serpent and the fish
+  floated, and nothing said which was intended, so a ninth figure would have
+  been a coin toss. The six that walk now arrive with their lowest vertex at
+  exactly zero; the two swimmers keep the height they were drawn at. The drop is
+  measured from the built geometry, so editing a limb's radius cannot quietly
+  un-ground the figure it belongs to.
 - **Clay's undo stopped lying about what one keystroke did.** Deleting or
   duplicating a multi-object selection pushed one history step *per object*, so
   three boxes and one `Delete` took three `Ctrl+Z` presses to undo -- and the

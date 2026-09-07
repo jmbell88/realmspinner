@@ -25,28 +25,54 @@ off a template has to go through :func:`_to_clay` -- ``(x, y, z) -> (x, z, -y)``
 Blender. Getting it wrong does not crash anything: it produces a figure lying on
 its face, which looks like a modelling mistake rather than an axis one.
 
-**The landmarks are copied here, not read.** This module imports ``numpy`` and
-nothing else, because the whole clay package's claim is that
-it is assertable headlessly; reaching into ``warlock/templates`` for a JSON file
-would buy an outward dependency (and a file-system read) for a handful of
-numbers. So the head/tail pairs below are a hard-coded copy and
-``tests/clay/test_presets.py`` cross-checks every one of them against the real
-template -- a template edited without editing this file is a red test rather
-than a body that has quietly drifted off its skeleton.
+**The landmarks are copied here, not read.** This module imports ``numpy`` at
+its core, because the whole clay package's claim is that it is assertable
+headlessly; reaching into ``warlock/templates`` for a JSON file would buy an
+outward dependency (and a file-system read) for a handful of numbers. So the
+head/tail pairs below are a hard-coded copy and ``tests/clay/test_presets.py``
+cross-checks every one of them against the real template -- a template edited
+without editing this file is a red test rather than a body that has quietly
+drifted off its skeleton. It also reaches for its two siblings, ``primitives``
+and ``mesh``, and for ``viewer.math3d`` -- outward only as far as
+``tests/clay/test_clay_imports.py`` already lets the rest of the package go --
+because grounding (below) has to build each part's *real* mesh and place it in
+world space rather than trust a bone midpoint to say where the geometry ends.
 
 The *thicknesses* could not be read from the template even if we wanted to: a
 skeleton gives joint landmarks and says nothing about how fat a limb is. They
 are art direction, and they live here as constants beside the segment they
 belong to.
+
+**Grounding, and why two assemblies are exempt from it.** The 2026-09-06
+audit's clay-08 finding: the eight assembly builders below followed three
+different, undocumented conventions for where they sat relative to Y=0 --
+measured, six sank into the grid by between 0.0009 and 0.1300 and two floated
+above it, and nothing said which was intended. The six that sink
+(``humanoid``, ``biped_tail``, ``quadruped``, ``bird``, ``insect``, ``blob``)
+all have a part *reaching* for the ground and missing it by a small authoring
+error -- a foot box modelled a hair short, a lobe roughed out approximately.
+The two that float (``serpent``, ``fish``) have no ground-reaching part at
+all: a serpent has no feet to miss the floor with, and both are authored
+suspended on purpose -- the serpent's whole spine chain sits at a constant
+template ``z = 0.30`` and the fish's at ``z = 0.50``. That is a placement
+decision, not a miss, so it is left alone. :func:`build` is the door this
+distinction is applied behind: every assembly not in :data:`SWIMMERS` comes
+back with its lowest built vertex at exactly Y=0, computed from the real
+generated geometry rather than eight hand-tuned offset constants that a preset
+edited later would have to remember to re-measure.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
+
+from ..viewer import math3d as m3
+from .mesh import bounds, transformed
+from .primitives import GENERATORS
 
 # The smallest cylindrical section a capsule may be left with. A bone shorter
 # than twice its own authored radius -- a neck, a finger-length hand -- would
@@ -406,6 +432,90 @@ def blob() -> tuple[Part, ...]:
         _ico("Lobe.L", "lobe.L", (0.10, 0.00, 0.30), (0.44, 0.00, 0.40), 0.120),
         _ico("Lobe.R", "lobe.R", (-0.10, 0.00, 0.30), (-0.44, 0.00, 0.40), 0.120),
     )
+
+
+SWIMMERS: frozenset[str] = frozenset({"serpent", "fish"})
+"""Assembly keys :func:`build` must never ground.
+
+The 2026-09-06 audit's clay-08 finding drew this line: the six other figures
+each have a part *reaching* for the ground and missing it by a small
+authoring error (measured between 0.0009 and 0.1300 of the figure's own
+height), where these two have no ground-reaching part at all and are
+authored suspended on purpose -- the serpent's whole spine chain sits at a
+constant template ``z = 0.30`` and the fish's at ``z = 0.50``. That is a
+deliberate placement, not a miss, so it must not move. A key absent from this
+set is terrestrial and :func:`build` grounds it; the point of naming the two
+exceptions rather than the six defaults is that a *ninth* figure -- terrestrial
+or not -- gets a rule to satisfy instead of a coin toss.
+"""
+
+
+def _world_min_y(part: Part) -> float:
+    """The lowest world-space Y the built mesh for *part* actually reaches.
+
+    Built from the real generator output, not the bone landmark: a landmark is
+    a skeleton joint, and the geometry roughed out on it -- a foot box, a
+    lobe's radius -- can end short of or past the ground the joint sits at.
+    The 2026-09-06 audit's clay-08 finding is exactly that gap going
+    unmeasured. ``GENERATORS[part.generator]`` is a ``(defaults, builder)``
+    pair, so the defaults are splatted under the part's own params first, the
+    same way ``panes/clay_tools.py`` builds the object the user ends up with.
+    """
+    defaults, make = GENERATORS[part.generator]
+    local = make(**{**defaults, **part.params})
+    matrix = m3.compose(
+        np.asarray(part.translation, dtype="f8"),
+        np.asarray(part.rotation, dtype="f8"),
+        np.asarray(part.scale, dtype="f8"),
+    )
+    lo, _hi = bounds(transformed(local, matrix))
+    return float(lo[1])
+
+
+def _grounded(parts: tuple[Part, ...]) -> tuple[Part, ...]:
+    """*parts*, shifted as one rigid body so the assembly's lowest vertex is Y=0.
+
+    One shift for the whole assembly, not one measurement per part: a figure
+    is a single body standing (or not) on the ground, and grounding a limb
+    independently of its neighbours would pull the assembly apart at every
+    joint it is measured on. Deriving the shift from the built meshes rather
+    than hand-tuning eight offset constants is the 2026-09-06 audit's clay-08
+    fix -- a preset edited later stays grounded without anyone remembering to
+    re-measure it.
+    """
+    drop = min(_world_min_y(part) for part in parts)
+    if drop == 0.0:
+        return parts
+    return tuple(
+        replace(
+            part,
+            translation=(
+                part.translation[0],
+                part.translation[1] - drop,
+                part.translation[2],
+            ),
+        )
+        for part in parts
+    )
+
+
+def build(key: str) -> tuple[Part, ...]:
+    """The one door: *key*'s assembly, grounded unless it is a swimmer.
+
+    A caller gets a figure that already satisfies the grounding rule without
+    knowing what the rule is or which of the eight keys is exempt from it --
+    the 2026-09-06 audit's clay-08 finding was exactly that no single place
+    stated the rule at all. A key this module has never seen (a test fixture,
+    a future preset added straight to :data:`ASSEMBLIES`) is not in
+    :data:`SWIMMERS` and is therefore grounded like any other terrestrial
+    figure, which is the point of naming the exceptions rather than the
+    default.
+    """
+    _label, builder = ASSEMBLIES[key]
+    parts = builder()
+    if key in SWIMMERS:
+        return parts
+    return _grounded(parts)
 
 
 ASSEMBLIES: dict[str, tuple[str, Callable[[], tuple[Part, ...]]]] = {

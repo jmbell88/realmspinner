@@ -1007,17 +1007,18 @@ the choice is missing.
 
 **Do** — the three that are one decision each:
 
-5. **Pick the grounding convention.** Measured on 2026-09-06, assembled world
-    bounds: humanoid and biped_tail `minY −0.0214`, quadruped `−0.0124`, bird
-    `−0.0122`, insect `−0.0009`, blob `−0.1300`, serpent `+0.2200`, fish
-    `+0.1663`. Six sink below the grid, two float above it, and nothing in
-    `clay/presets.py` or `docs/manual/30-clay.md` says which is intended — so a
-    ninth figure has no rule to satisfy. Decide whether terrestrial figures sit
-    on the ground and swimmers keep deliberate placement, and whether a "Place
-    on ground" action over real mesh bounds is wanted. **Once decided this is
-    buildable in an hour** and the test writes itself
-    (`test_every_figure_preset_meets_the_ground_plane`); it is only here because
-    the convention is yours to name.
+5. ~~**Pick the grounding convention.**~~ **Answered and built 2026-09-06:**
+    terrestrial figures sit on the ground, swimmers keep their placement. The six
+    that walk (humanoid, biped_tail, quadruped, bird, insect, blob) now come out
+    of `presets.build` with their lowest built vertex at exactly Y=0; `serpent`
+    and `fish` are named in `presets.SWIMMERS` and are never moved. The shift is
+    derived from the built geometry rather than eight constants, so a later edit
+    to a radius cannot un-ground a figure —
+    `tests/clay/test_presets.py::test_every_terrestrial_figure_preset_meets_the_ground_plane`
+    and `::test_swimmers_keep_their_authored_placement` hold both halves.
+    **Still open, and smaller than it was:** whether a "Place on ground" action
+    over real mesh bounds is wanted for ordinary objects, which is a different
+    feature from a preset knowing where it lands.
 6. **Decide whether organic presets insert smooth-shaded.** Everything inserts
     flat today. `clay/primitives.py` argued that from the absence of a shading
     tool, and that reason expired — Shade Smooth, Shade Flat and

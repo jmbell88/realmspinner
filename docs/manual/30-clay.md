@@ -60,6 +60,11 @@ They are one undo step, not one per part. `Ctrl+Z` after placing a figure remove
 rather than taking sixteen presses through fourteen states in which the figure is half there. The
 step is named after the figure in the history panel.
 
+Where a figure lands is decided, not incidental. The six that walk — Humanoid, Biped with tail,
+Quadruped, Bird, Insect/spider and Blob — arrive standing exactly on the ground plane. The Serpent
+and the Fish are swimmers: they keep the height they were drawn at, above the grid, and are never
+dropped to it.
+
 Every part is a normal generated object: it keeps its generator and parameters, so the properties
 panel offers a leg's radius exactly as it would for a cylinder you added yourself. A figure is a
 starting point that saves you the assembly, not a special kind of object — once placed, nothing

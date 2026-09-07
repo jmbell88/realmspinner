@@ -63,6 +63,13 @@ OUTWARD_IMPORTS = {
     ("glbimport.py", "warlock.glbio"),
     ("ops.py", "warlock.studio.viewer"),
     ("serialize.py", "warlock.studio.viewer"),
+    # Added deliberately on 2026-09-06 (the audit's clay-08): grounding a
+    # figure preset has to know where its *built* geometry ends, not just
+    # where its bone landmark sits, so ``presets.build`` places each part
+    # through ``viewer.math3d.compose`` the same way ``drag.py``, ``ops.py``
+    # and ``document.py`` already do -- one quaternion convention, not a
+    # second one invented for this file.
+    ("presets.py", "warlock.studio.viewer"),
 }
 
 #: Which modules of the viewer, since the entry above is recorded at package
