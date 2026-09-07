@@ -93,6 +93,21 @@ The refused rows are checked in both directions against every
 `tests/plotter/test_compat_matrix.py`; the corpus then exercises Tiled XML →
 Plotter → Tiled XML, Tiled XML → Plotter JSON, and `.wmap` round trips.
 
+**A `round-trips` row can still fall back or draw nothing on one input, and
+since W3.2 that no longer reaches only the log.** The *Maps* table's
+`staggered and hexagonal maps` row is one such input: an unknown
+`staggeraxis`/`staggerindex` value falls back rather than refusing the file.
+A second case, not itself a table row because it is a malformed-input guard
+rather than a modeled feature — a tile object naming a gid no tileset in the
+map covers — falls back the same way. Both are now read by
+`tmx.read_tmx`/`read_tmj` into `tmx.ImportWarning` rows, one per fallback,
+carrying the layer or object name it is about (empty for a map-level
+fallback like the stagger case). The Map file pane
+(`panes/plotter_bridge.py`) shows them under the import row, grouped by
+layer, so a map that opened looking wrong says why without the log open. The
+`log.warning` call each already made is unchanged and still fires first — the
+pane is a second channel for the same fact, not a replacement for the first.
+
 **What the corpus does and does not prove.** A fixture pair proves the code
 path runs and is stable across the trip. It proves compatibility with Tiled
 only when the fixture was *authored in Tiled*.

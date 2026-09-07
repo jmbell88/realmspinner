@@ -75,10 +75,56 @@ def draw(ctx: Any) -> None:
             "at least one before it can be exported."
         )
 
+    _import_warnings(tab)
+
     imgui.dummy((0, sp(tokens.SP_2)))
     _history(ctx, tab)
     _exits(ctx, tab)
     _recent(ctx)
+
+
+def grouped_import_warnings(tab: Any) -> list[tuple[str, list[str]]]:
+    """``tab.import_warnings`` folded into ``(layer, [detail, ...])`` groups.
+
+    Grouped rather than shown flat, because a map that names a dropped tile on
+    six objects of one layer reads as six unrelated lines flat and as one
+    layer with six notes grouped -- which is the question a user opening the
+    import actually has ("what got dropped on *this* layer?"). Order is first
+    appearance, both of groups and of layers within a group, so it tracks the
+    order the reader hit them in rather than an alphabetisation nobody asked
+    for. ``""`` -- a warning about the map as a whole, not one layer -- sorts
+    to "Map" rather than to a blank heading.
+    """
+    order: list[str] = []
+    by_layer: dict[str, list[str]] = {}
+    for warning in tab.import_warnings:
+        layer = warning.layer or "Map"
+        if layer not in by_layer:
+            order.append(layer)
+            by_layer[layer] = []
+        by_layer[layer].append(warning.detail)
+    return [(layer, by_layer[layer]) for layer in order]
+
+
+def _import_warnings(tab: Any) -> None:
+    """What the last Tiled import dropped or fell back on, under the file row.
+
+    The log line this mirrors (``plotter.tmx``'s three ``log.warning`` calls)
+    is still written -- this is the same sentence, read as data instead of
+    only logged, so a user who opened a map that lost something sees it here
+    rather than needing the log open to learn it happened at all (W3.2).
+    """
+    from imgui_bundle import imgui
+
+    groups = grouped_import_warnings(tab)
+    if not groups:
+        return
+    imgui.dummy((0, sp(tokens.SP_2)))
+    widgets.secondary(f"{icons.TRIANGLE_ALERT} This import dropped or changed something:")
+    for layer, details in groups:
+        widgets.muted_wrapped(f"{layer}:")
+        for detail in details:
+            widgets.muted_wrapped(f"  • {detail}")
 
 
 def _exits(ctx: Any, tab: Any) -> None:

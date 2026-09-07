@@ -373,6 +373,14 @@ class PlotterDoc:
     saved_head: int = 0
     saving: bool = False
 
+    #: What the Tiled reader fell back on or dropped, as
+    #: ``plotter.tmx.ImportWarning`` rows, set once on open and never mutated
+    #: afterward (W3.2). Empty for a ``.wmap`` or a new document, which never
+    #: fall back on anything a Tiled file can. View state: not undoable, not
+    #: serialized, dropped with the tab -- the log line beside it is the
+    #: durable record, this is only what the pane shows next to the import.
+    import_warnings: list[Any] = field(default_factory=list)
+
     # Crash-safety, owned by :mod:`studio.journal` (UX-05). Inker's three
     # fields, verbatim, because they are the same three questions: which file
     # this tab owns under the autosave directory (minted on the first copy, so

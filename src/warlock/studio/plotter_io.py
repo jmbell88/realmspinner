@@ -235,11 +235,19 @@ def _load(path: Path) -> dict[str, Any]:
     path = _within_ceiling(Path(path))
     data = path.read_bytes()
     suffix = path.suffix.lower()
+    # Only the two Tiled formats can drop or fall back on anything: ``.wmap``
+    # is this editor's own container, so there is nothing it declines to
+    # understand about itself.
+    import_warnings: list[tmxlib.ImportWarning] = []
     try:
         if suffix == plotter_state.TMX_SUFFIX:
-            doc = tmxlib.read_tmx(data, **_loaders(path.parent))
+            doc = tmxlib.read_tmx(
+                data, import_warnings=import_warnings, **_loaders(path.parent)
+            )
         elif suffix == plotter_state.TMJ_SUFFIX:
-            doc = tmxlib.read_tmj(data, **_loaders(path.parent))
+            doc = tmxlib.read_tmj(
+                data, import_warnings=import_warnings, **_loaders(path.parent)
+            )
         else:
             doc = wmaplib.read_wmap(data)
     except RecursionError as exc:
@@ -261,6 +269,7 @@ def _load(path: Path) -> dict[str, Any]:
         "path": str(path),
         "title": plotter_state.title_for(path),
         "format": plotter_state.format_for(path),
+        "import_warnings": import_warnings,
     }
 
 

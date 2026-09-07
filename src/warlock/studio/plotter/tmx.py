@@ -46,6 +46,7 @@ import re
 import xml.etree.ElementTree as ET
 import zlib
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from typing import Any
 
@@ -189,6 +190,24 @@ class _Budget:
 _HEX_ROTATE = gidlib.DTYPE(0x10000000)
 
 
+@dataclass(frozen=True)
+class ImportWarning:
+    """One thing a Tiled import fell back on or drew nothing for.
+
+    Read as **data**, not only logged (W3.2): before this, a value Tiled wrote
+    that this reader could not honour -- an unknown stagger setting, an object
+    naming a tile no tileset in the map covers -- reached only ``log.warning``,
+    so the map opened looking wrong or missing a piece with nothing on screen
+    saying why. ``layer`` is the layer or object name the warning is about, or
+    ``""`` for one that is about the map as a whole (a stagger fallback, say);
+    ``detail`` is the sentence a reader would want, the same one the log line
+    already carries.
+    """
+
+    layer: str
+    detail: str
+
+
 # --- shared refusals ----------------------------------------------------------
 
 
@@ -215,7 +234,9 @@ def _check_orientation(orientation: str) -> str:
     return orientation
 
 
-def _offset_fields(root: ET.Element) -> dict[str, Any]:
+def _offset_fields(
+    root: ET.Element, warnings: list[ImportWarning] | None = None
+) -> dict[str, Any]:
     """Tiled's three offset-lattice attributes, with its own defaults.
 
     Read for every map rather than only for the two projections that use them,
@@ -226,7 +247,7 @@ def _offset_fields(root: ET.Element) -> dict[str, Any]:
     """
     axis = root.get("staggeraxis", "y")
     index = root.get("staggerindex", "odd")
-    _warn_unknown_stagger(axis, index)
+    _warn_unknown_stagger(axis, index, warnings)
     return {
         "stagger_axis": axis if axis in project.STAGGER_AXES else "y",
         "stagger_index": index if index in project.STAGGER_INDICES else "odd",
@@ -234,7 +255,9 @@ def _offset_fields(root: ET.Element) -> dict[str, Any]:
     }
 
 
-def _warn_unknown_stagger(axis: str, index: str) -> None:
+def _warn_unknown_stagger(
+    axis: str, index: str, warnings: list[ImportWarning] | None = None
+) -> None:
     """Say when a stagger value is being replaced rather than read.
 
     Both fall back silently, and for a *staggered* map the fallback moves every
@@ -242,19 +265,32 @@ def _warn_unknown_stagger(axis: str, index: str) -> None:
     anywhere saying a value was not understood. Logged rather than refused --
     the map is still openable and the setting is one combo box away -- which is
     the same trade every other unknown-vocabulary field here makes.
+
+    ``warnings``, when given, gets the same sentence as data (W3.2) -- ``""``
+    for the layer, since a stagger setting belongs to the map as a whole.
     """
 
     if axis not in project.STAGGER_AXES:
         log.warning("unknown stagger axis %r; opening as 'y'", axis)
+        if warnings is not None:
+            warnings.append(
+                ImportWarning("", f"unknown stagger axis {axis!r}; opened as 'y'")
+            )
     if index not in project.STAGGER_INDICES:
         log.warning("unknown stagger index %r; opening as 'odd'", index)
+        if warnings is not None:
+            warnings.append(
+                ImportWarning("", f"unknown stagger index {index!r}; opened as 'odd'")
+            )
 
 
-def _offset_fields_json(payload: dict[str, Any]) -> dict[str, Any]:
+def _offset_fields_json(
+    payload: dict[str, Any], warnings: list[ImportWarning] | None = None
+) -> dict[str, Any]:
     """:func:`_offset_fields` over Tiled's JSON spelling."""
     axis = str(payload.get("staggeraxis", "y"))
     index = str(payload.get("staggerindex", "odd"))
-    _warn_unknown_stagger(axis, index)
+    _warn_unknown_stagger(axis, index, warnings)
     return {
         "stagger_axis": axis if axis in project.STAGGER_AXES else "y",
         "stagger_index": index if index in project.STAGGER_INDICES else "odd",
@@ -678,13 +714,19 @@ def _read_tmx_text(node: ET.Element, width: float, height: float) -> Text:
     )
 
 
-def _warn_dangling_tile_objects(doc: MapDoc) -> None:
+def _warn_dangling_tile_objects(
+    doc: MapDoc, warnings: list[ImportWarning] | None = None
+) -> None:
     """Say when a tile object names a gid no tileset in this map covers.
 
     The gid was read and stored unchecked, so such an object drew nothing and
     said nothing -- indistinguishable, on screen, from an object the reader had
     dropped. Logged rather than refused: it is one object of a map, the map is
     otherwise sound, and Tiled itself opens these.
+
+    ``warnings``, when given, gets the same sentence as data (W3.2), against
+    the object's layer name, so a caller can show it beside the import rather
+    than only in the log.
     """
 
     from ._map_model import ObjectLayer, TileShape
@@ -703,13 +745,22 @@ def _warn_dangling_tile_objects(doc: MapDoc) -> None:
             local = int(shape.gid) & gidlib.GID_MASK
             if not local or any(low <= local <= high for low, high in ranges):
                 continue
+            name = entry.name or entry.uid
             log.warning(
                 "object %r on layer %r names tile %d, which no tileset in this "
                 "map covers; it will draw nothing",
-                entry.name or entry.uid,
+                name,
                 layer.name,
                 local,
             )
+            if warnings is not None:
+                warnings.append(
+                    ImportWarning(
+                        layer.name,
+                        f"object {name!r} names tile {local}, which no tileset "
+                        "in this map covers; it will draw nothing",
+                    )
+                )
 
 
 def _read_tmx_object(node: ET.Element) -> MapObject:
@@ -936,12 +987,21 @@ def _read_tmx_layers(
 
 
 def read_tmx(
-    data: bytes, *, image_loader: ImageLoader, tsx_loader: TilesetLoader
+    data: bytes,
+    *,
+    image_loader: ImageLoader,
+    tsx_loader: TilesetLoader,
+    import_warnings: list[ImportWarning] | None = None,
 ) -> MapDoc:
     """A ``.tmx``'s bytes as a :class:`~.tilemap.MapDoc`.
 
     Built by *construction* rather than through the document's own mutators,
     which would push one undo step per layer and open every file already dirty.
+
+    ``import_warnings``, when given a list, is appended to with every fallback
+    or dropped reference this read hits (W3.2) -- the same sentences the log
+    already carries, as :class:`ImportWarning` rows a caller can show beside
+    the import rather than only in the log.
     """
     root = xml_root(data, "map")
     _check_map(root)
@@ -968,7 +1028,7 @@ def read_tmx(
     )
     doc.skew_x = int(root.get("skewx", 0) or 0)
     doc.skew_y = int(root.get("skewy", 0) or 0)
-    for name, value in _offset_fields(root).items():
+    for name, value in _offset_fields(root, import_warnings).items():
         setattr(doc, name, value)
     doc.properties = read_properties(root)
     doc.tilesets = _read_tmx_tilesets(
@@ -989,7 +1049,7 @@ def read_tmx(
         next_object_id=_optional_int(root.get("nextobjectid")),
     )
     _adopt_object_space(doc)
-    _warn_dangling_tile_objects(doc)
+    _warn_dangling_tile_objects(doc, import_warnings)
     return doc
 
 
@@ -1300,13 +1360,18 @@ def _read_tmj_layers(
 
 
 def read_tmj(
-    data: bytes, *, image_loader: ImageLoader, tsx_loader: TilesetLoader
+    data: bytes,
+    *,
+    image_loader: ImageLoader,
+    tsx_loader: TilesetLoader,
+    import_warnings: list[ImportWarning] | None = None,
 ) -> MapDoc:
     """The JSON spelling of the same map. Every refusal above applies here.
 
     Split into the same two halves the XML reader has -- tilesets, then layers
     -- so the two formats are one shape read twice rather than two readers that
-    happen to agree today.
+    happen to agree today. ``import_warnings`` is :func:`read_tmx`'s parameter
+    of the same name.
     """
     try:
         payload = json.loads(data)
@@ -1334,7 +1399,7 @@ def read_tmj(
     )
     doc.skew_x = int(payload.get("skewx", 0) or 0)
     doc.skew_y = int(payload.get("skewy", 0) or 0)
-    for name, value in _offset_fields_json(payload).items():
+    for name, value in _offset_fields_json(payload, import_warnings).items():
         setattr(doc, name, value)
     doc.properties = read_json_properties(payload.get("properties"))
     doc.tilesets = _read_tmj_tilesets(
@@ -1348,7 +1413,7 @@ def read_tmj(
         next_object_id=_optional_int(payload.get("nextobjectid")),
     )
     _adopt_object_space(doc)
-    _warn_dangling_tile_objects(doc)
+    _warn_dangling_tile_objects(doc, import_warnings)
     return doc
 
 

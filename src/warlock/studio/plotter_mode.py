@@ -129,6 +129,7 @@ def adopt(
     path: Path | None = None,
     title: str | None = None,
     file_format: str | None = None,
+    import_warnings: Any = None,
 ) -> PlotterDoc:
     state = ensure(ctx)
     tab = PlotterDoc(
@@ -137,6 +138,11 @@ def adopt(
         path=path,
         file_format=file_format or plotter_state.format_for(path),
         saved_head=doc.history.head,
+        # What ``tmx.read_tmx``/``read_tmj`` fell back on or dropped, so the
+        # bridge pane can show it beside the import row rather than only in
+        # the log (W3.2). ``None`` (a new document, a reopened ``.wmap``) reads
+        # as "nothing to say", same as an empty list.
+        import_warnings=list(import_warnings) if import_warnings else [],
     )
     state.add(tab)
     remember_path(ctx, path)
@@ -287,6 +293,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 path=Path(result["path"]) if result.get("path") else None,
                 title=result.get("title"),
                 file_format=result.get("format"),
+                import_warnings=result.get("import_warnings"),
             )
             set_mode(ctx.state, "plotter")
         return

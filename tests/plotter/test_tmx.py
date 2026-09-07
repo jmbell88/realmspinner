@@ -722,3 +722,75 @@ def test_an_image_layer_name_collision_never_clobbers_the_other_layers_bytes():
     assert len(set(sources)) == 2, "the two layers must reference two files"
     assert files[sources[0]] == png_bytes(a_pixels)
     assert files[sources[1]] == png_bytes(b_pixels)
+
+
+# --- W3.2: import warnings reach the pane, not only the log -------------------
+
+
+def _tmx_with_unknown_stagger() -> bytes:
+    """A map that hits ``tmx.py``'s stagger fallback (lines 248, 250): not
+    refused -- the map is still openable and every value is one combo box
+    away -- so today the fallback is said only to the log."""
+    return (
+        b'<map version="1.10" orientation="orthogonal" width="1" height="1" '
+        b'tilewidth="16" tileheight="16" staggeraxis="diagonal" '
+        b'staggerindex="middle"></map>'
+    )
+
+
+def test_import_warnings_reach_the_pane_not_only_the_log(caplog):
+    """Before W3.2, ``read_tmx`` only logged what it fell back on or drew
+    nothing for -- ``tmx.py`` lines 248, 250 and 706 -- so a map that lost or
+    changed something opened looking wrong with nothing on screen saying why.
+    Now the same sentences come back as data on the read, and the Map file
+    pane groups them by layer under the import row."""
+    from warlock.studio.panes import plotter_bridge
+    from warlock.studio.plotter.tilemap import MapDoc, MapObject, TileShape, new_uid
+    from warlock.studio.plotter_state import PlotterDoc
+    from warlock.studio.tilegrid.tileset import Tileset
+
+    # The stagger fallback, through the real read path: map-level, so no
+    # layer name attaches to it.
+    warnings: list[tmx.ImportWarning] = []
+    with caplog.at_level("WARNING"):
+        doc = tmx.read_tmx(
+            _tmx_with_unknown_stagger(), import_warnings=warnings, **_bare_loaders()
+        )
+    assert "diagonal" in caplog.text and "middle" in caplog.text  # the log kept
+    assert any(w.layer == "" and "diagonal" in w.detail for w in warnings)
+    assert any(w.layer == "" and "middle" in w.detail for w in warnings)
+
+    # The dangling-tile-object case (line 706): a document whose tile object
+    # names a gid no tileset covers. ``tmx._finish`` refuses such a file
+    # outright on import, so this is exercised the way ``tmx.py`` itself
+    # exercises it -- directly on a built document -- to prove the *reader*
+    # (``_warn_dangling_tile_objects``) reports it as data and not only to
+    # the log, exactly like the two fallbacks above.
+    caplog.clear()
+    dangling = MapDoc(4, 4, 16, 16)
+    dangling.add_tileset(Tileset(name="terrain", pixels=_pixels(), tile_w=16, tile_h=16))
+    layer = dangling.add_object_layer("Things")
+    dangling.add_object(
+        layer.uid,
+        MapObject(uid=new_uid(), name="spawn", x=0, y=0, shape=TileShape(gid=99, w=16, h=16)),
+    )
+    with caplog.at_level("WARNING"):
+        tmx._warn_dangling_tile_objects(dangling, warnings)
+    assert "no tileset in this" in caplog.text  # the log kept
+    assert any(
+        w.layer == "Things" and "spawn" in w.detail and "99" in w.detail
+        for w in warnings
+    )
+
+    # The pane groups what it was handed, by layer, "Map" standing in for the
+    # layer-less rows -- this is what ``plotter_bridge.draw`` shows under the
+    # import row rather than nothing at all.
+    tab = PlotterDoc(doc=doc, title="Map", import_warnings=warnings)
+    groups = dict(plotter_bridge.grouped_import_warnings(tab))
+    assert "Things" in groups and any("spawn" in d for d in groups["Things"])
+    assert "Map" in groups and len(groups["Map"]) == 2
+
+    # A clean import -- nothing fell back, nothing dangles -- carries no
+    # warnings at all, so the pane draws nothing extra for the common case.
+    clean_tab = PlotterDoc(doc=_doc(), title="Map")
+    assert plotter_bridge.grouped_import_warnings(clean_tab) == []
