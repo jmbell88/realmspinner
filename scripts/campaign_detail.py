@@ -2,11 +2,18 @@
 
 The instrument ``docs/measurements/2026-09-03-trellis-detail-sweep.md``
 pre-registers: for each subject, one sweep whose units are the *vectors* below
-rather than an OFAT fan-out, because two of the rungs are pairs (``--decim 0``
-is only a question beside a gltfpack budget, and a 4096 atlas only beside a
-1024 texture). ``expand`` adds its own ``baseline`` unit per sweep, which *is*
+rather than an OFAT fan-out, because a 4096 atlas is only a question beside a
+1024 texture. ``expand`` adds its own ``baseline`` unit per sweep, which *is*
 the shipped rung, so no vector restates it -- ``_validate`` would refuse the
 duplicate by canonical key.
+
+The three ``decim0-*`` rungs were retired on 2026-09-06, which is the
+document's own ``decim0-*`` decision rule firing negative: the flag stays
+``None`` and remains an axis. ``--decim 0`` does reach the exe, and what comes
+back is ~35M faces -- a GLB past ``trellis.MAX_GLB_BYTES`` at a 300k budget,
+and a dead trellis-server at 1M and at raw, ~29 minutes a unit either way. The
+amendment in the measurement document has the log evidence. Do not re-add the
+axis without reading it.
 
 Two passes, because ``resolution=1536`` puts trellis at 24 GiB beside the
 7 GiB image pipe and on a 32 GB card that is a WDDM spill into host commit
@@ -14,7 +21,7 @@ waiting to happen. ``--exclusive-pass`` plans one unit per subject -- the
 sweep's *base* is resolution 1536 and there are no vectors, so ``expand``'s
 own ``baseline`` unit is the 1536 rung and nothing restates the shipped one
 -- under its own tag, and is submitted and drained under
-``WARLOCK_VRAM_EXCLUSIVE=1``. The default pass emits the five res-1024
+``WARLOCK_VRAM_EXCLUSIVE=1``. The default pass emits the two res-1024
 vectors beside the shipped baseline.
 
 One sweep *per subject* because a ``SweepPlan`` carries exactly one prompt
@@ -57,27 +64,10 @@ DEFAULT_CORPUS = _ROOT / "docs" / "measurements" / "corpora" / "detail-v1.txt"
 DEFAULT_TAG = "detail-060"
 EXCLUSIVE_TAG = "detail-060-1536"
 
-#: The exe's own quadric target at res 1024, so the decim0-300k rung asks
-#: gltfpack for the same count the shipped rung gets from the exe.
-EXE_FACE_TARGET = 300_000
-
 #: The res-1024 rungs, beside the implicit ``baseline`` (the shipped default:
 #: decim omitted, raw, tex_res 512, atlas omitted). Label first, because the
 #: unit label is what the tabulator prints beside each row.
 VECTORS: tuple[dict[str, object], ...] = (
-    {
-        "label": "decim0-300k",
-        "trellis_decim": 0,
-        "profile": "custom",
-        "custom_triangles": EXE_FACE_TARGET,
-    },
-    {
-        "label": "decim0-1M",
-        "trellis_decim": 0,
-        "profile": "custom",
-        "custom_triangles": 1_000_000,
-    },
-    {"label": "decim0-raw", "trellis_decim": 0},
     {"label": "tex1024", "trellis_tex_res": 1024},
     {"label": "tex1024-atlas4096", "trellis_tex_res": 1024, "trellis_atlas": 4096},
 )

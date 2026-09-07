@@ -277,12 +277,25 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     rank = params.get("rank")
     score = rank.get("score") if isinstance(rank, dict) else None
     if score is not None:
-        # Named for what it is. "score 72%" reads as a measurement of the
-        # picture; it is the trained probe's *probability that you would keep
-        # this one* (``judge.score``), which is a guess about the reader and
-        # advisory by construction -- the job records nothing when the probe is
-        # missing or the embedding width has changed.
-        widgets.muted(f"judge: {float(score) * 100:.0f}% likely a keeper")
+        # **The ranker, and it says so.** This used to read "judge: N% likely a
+        # keeper", which named the wrong instrument twice over: the value is
+        # ``rank.score`` (composition, an optional DINOv2 anchor, an optional
+        # PickScore blend), written by ``_q_mesh._rank_reference``, and the
+        # trained probe -- ``service.judge`` -- is never called from this mode
+        # at all. It is only ever scored from Review, and its answer is not
+        # persisted onto the row, so there is nothing here to draw even when a
+        # probe exists.
+        #
+        # The mislabel was not merely imprecise. Until the speckle floor was
+        # fixed (docs/measurements/2026-09-06-speckle-composition-floor.md) the
+        # composition term clamped to zero on every real reference, so an
+        # ordinary generation with no anchor rendered "judge: 0% likely a
+        # keeper" -- the app asserting, in the trained probe's name, that a
+        # picture it had no opinion about was certain to be discarded.
+        #
+        # "rank" is what it orders and all it claims: where this candidate sits
+        # in its strip, not whether it is any good.
+        widgets.muted(f"rank {float(score) * 100:.0f}%")
     imgui.end_group()
     # **Two per row, not one per row.** Four full-width buttons stacked under a
     # 72 dp thumbnail make a card taller than the tray that holds it, and the

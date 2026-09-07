@@ -105,6 +105,17 @@ def default_form_2d() -> dict[str, Any]:
         # How many times each material line is drawn. A string for the reason
         # ``tile_size`` is one, and converted at the same boundary.
         "variants": "1",
+        # The materials layout's two checkboxes. Declared here rather than
+        # only being written by the pane, which is what they did: an undeclared
+        # key is not in ``VOLATILE`` and is not in the defaults either, so
+        # ``restore_form`` had no default to type-check it against and the
+        # setting did not survive a restart. Bools, so the
+        # ``type(value) is type(default)`` gate passes.
+        #
+        # ``style_lock`` also widens the weight gate (``sheet_rows``): it makes
+        # the first material the IP-Adapter reference for the rest.
+        "style_lock": False,
+        "seam_erase": False,
         # The terrain layout's two surfaces, in precedence order: ``inner`` is
         # the one the forty-seven blob cases are pictures *of*.
         "inner_terrain": "",
@@ -1044,6 +1055,14 @@ class AppState:
     # keypress and a tag is optional at every grade.
     inspector_tags_job: str | None = None
     inspector_tags: list[str] = field(default_factory=list)
+    # Which meshes have a human verdict on file, memoised. ``Was this any good?``
+    # opens itself on a mesh nobody has graded, and the alternative to a cache
+    # is a ``verdicts_for`` query on the frame thread sixty times a second --
+    # the same "never a live status call" rule ``review_panes`` is written
+    # under. One query per mesh the inspector opens; the entry is dropped when a
+    # verdict is filed, which is the only thing that can change the answer while
+    # the app is running.
+    inspector_graded: dict[str, bool] = field(default_factory=dict)
     form_2d: dict[str, Any] = field(default_factory=default_form_2d)
     form_3d: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_FORM_3D))
     filters: Filters = field(default_factory=Filters)

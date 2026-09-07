@@ -14,7 +14,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import vectors
+from ... import guidance, vectors
 from ...bench import findings as findings_lib
 from ...service import jobs as svc_jobs
 from ...service.errors import Invalid
@@ -105,7 +105,7 @@ def _draw_form(
     _hint(ctx, "platform", form["platform"])
     _budget(ctx, form)
 
-    _size(form)
+    _size(ctx, form)
     # Deliberately unhinted, unlike every other control here: size_m is
     # continuous, so its buckets are keyed on "0.35" and "0.36" separately and
     # a threshold of five would essentially never be met.
@@ -259,7 +259,7 @@ SIZE_DRAG_SPEED = 0.01
 SIZE_NO_BOUND = (0.0, 0.0)
 
 
-def _size(form: dict[str, Any]) -> None:
+def _size(ctx: Any, form: dict[str, Any]) -> None:
     """Metres, as a drag with the unit *in* the readout.
 
     "Size (m)" put the unit in the label and the number in the box, so a value
@@ -274,6 +274,39 @@ def _size(form: dict[str, Any]) -> None:
         # Floored here rather than by the widget: unbounded means unbounded in
         # both directions, and a negative size is not a smaller asset.
         form["size_m"] = max(0.0, size)
+    _size_suggestion(ctx, form)
+
+
+def _size_suggestion(ctx: Any, form: dict[str, Any]) -> None:
+    """"barrel -- usually 0.9 m", with a button, while the size is unset.
+
+    Scale is the first thing an engine import gets wrong, and this control is
+    opt-in: leave it alone and every asset lands at whatever the reference
+    recorded, so a 0.15 m potion and a 2.1 m door are the same height in the
+    scene. The table (``guidance.SIZE_HINTS_M``) is the cheap half of the fix.
+
+    **Offered, never applied.** The unset value means "keeps the reference's"
+    and that is a real answer a user may want; a table that filled the field in
+    would turn every unconsidered press into a claim about scale nobody made,
+    and would do it from a noun match crude enough to be wrong. So this draws
+    only while the field is unset, and it takes a press -- the same shape as
+    the 2D pane's ``_preflight_fix`` repairs.
+
+    The noun comes from the source reference's prompt, because this pane owns no
+    prompt controls at all: the 3D job inherits the 2D asset's words, which is
+    the same reasoning ``_findings_hint`` picks its subject by.
+    """
+    if float(form["size_m"]) > 0.0:
+        return
+    source = ctx.cache.get(ctx.state.source_job)
+    hint = guidance.size_hint(source.get("prompt")) if source else None
+    if hint is None:
+        return
+    noun, metres = hint
+    widgets.muted(f"{noun} - usually {metres:g} m")
+    imgui.same_line()
+    if controls.button(f"Use {metres:g} m##size-hint"):
+        form["size_m"] = float(metres)
 
 
 def _budget(ctx: Any, form: dict[str, Any]) -> None:

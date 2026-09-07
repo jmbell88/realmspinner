@@ -1125,7 +1125,14 @@ def sheet_rows(form: dict[str, Any]) -> tuple[str, ...]:
     """
     if form.get("sheet_type") == "sprite":
         return svc_sprites.SPRITE_ROWS
-    key = "mode_reference_rows_needed" if form.get("ref_path") else "mode_rows_needed"
+    # ``style_lock`` counts as a reference. The checkbox makes the first
+    # material the IP-Adapter reference for every material after it
+    # (``tilesheets._check_weights`` folds it into ``rows_needed`` the same
+    # way), so a locked sheet loads the adapter with no file attached -- and a
+    # gate that only looked at ``ref_path`` let that press reach the door and
+    # be refused there for a download this note had said nothing about.
+    needs_adapter = bool(form.get("ref_path")) or bool(form.get("style_lock"))
+    key = "mode_reference_rows_needed" if needs_adapter else "mode_rows_needed"
     return tuple(_tile_options()[key][tile_mode_of(form)])
 
 
@@ -1998,6 +2005,93 @@ def problems_for(ctx: Any, form: dict[str, Any]) -> list[widgets.Problem]:
     return problems
 
 
+# Words whose subjects reconstruct as *open* forms: gaps, slats, spokes, spans
+# and thin members that a single-view reconstruction has to guess the back of.
+# Open form is the surviving failure class after the matte question was settled
+# -- the audit flags it on the meshes that die -- so this is the one lint worth
+# drawing before three minutes are spent.
+#
+# Nouns and materials only, no adjectives: "open" is in half the prompts that
+# reconstruct fine, and a lint that fires on everything is a lint nobody reads.
+OPEN_FORM_WORDS = (
+    "awning", "basket", "bellows", "birdcage", "bow", "branch", "branches",
+    "bridge", "cage", "chain", "chains", "fence", "gate", "grate", "grating",
+    "harp", "lattice", "ladder", "leg", "legs", "mesh", "net", "netting",
+    "pane", "panes", "post", "posts", "railing", "rigging", "rope", "sail",
+    "scaffold", "spoke", "spokes", "stairs", "string", "strings", "trellis",
+    "web", "wheel", "wicker", "wire", "wires",
+)
+
+# What the repair appends. A clause rather than a rewrite: the user's words are
+# theirs, and a lint that silently rewrote a prompt would be answering a
+# question it is only allowed to ask.
+CLOSED_FORM_CLAUSE = "solid closed form, filled-in gaps, no see-through openings"
+
+
+def open_form_words(prompt: str) -> tuple[str, ...]:
+    """The open-form words in ``prompt``, in the order they appear.
+
+    Whole words, lowercased, de-duplicated -- pure, so the wording of the
+    advisory and the test that pins it read the same function.
+    """
+    import re
+
+    seen: list[str] = []
+    for word in re.findall(r"[a-z]+", str(prompt or "").lower()):
+        if word in OPEN_FORM_WORDS and word not in seen:
+            seen.append(word)
+    return tuple(seen)
+
+
+def advisories_for(ctx: Any, form: dict[str, Any]) -> list[widgets.Advisory]:
+    """Everything worth knowing that is **not** stopping the press.
+
+    Deliberately not folded into :func:`problems_for`: that list is documented
+    as "everything stopping a press" and every member of it disables Generate.
+    An advisory disables nothing, and the separation is what makes it safe to
+    say something uncertain.
+
+    Cheap enough to run per frame without ``problems_for``'s cache -- a regex
+    over one prompt -- and it takes ``ctx`` anyway so that the next tenant can
+    look at the corpus without changing every call site.
+    """
+    del ctx
+    out: list[widgets.Advisory] = []
+    if create_assets.selected(form).key == "3d_model":
+        words = open_form_words(str(form.get("prompt") or ""))
+        if words:
+            named = ", ".join(words[:3])
+            out.append(
+                widgets.Advisory(
+                    f"\"{named}\" tends to draw an open form -- gaps, slats or thin "
+                    "members. Open forms reconstruct usable about 2 times in 5; "
+                    "the graded corpus overall runs about 1 in 2. Worth a press "
+                    "either way -- this is a risk, not a verdict.",
+                    field="prompt",
+                )
+            )
+    return out
+
+
+def _advisory_fix(ctx: Any, form: dict[str, Any], advisory: widgets.Advisory) -> None:
+    """The one-press repair for an advisory, where there is a safe one.
+
+    ``_preflight_fix``'s shape and its rule: only repairs that need no second
+    decision. Appending a clause is reversible and visible in the box the user
+    is looking at; rewriting their sentence would not be.
+    """
+    if getattr(advisory, "field", "") != "prompt":
+        return
+    prompt = str(form.get("prompt") or "")
+    if CLOSED_FORM_CLAUSE in prompt:
+        return
+    if controls.button(
+        "Ask for a closed form##advisory-open-form", role=controls.ButtonRole.GHOST
+    ):
+        form["prompt"] = f"{prompt.rstrip().rstrip(',')}, {CLOSED_FORM_CLAUSE}"
+        ctx.state.clear_field_error("prompt")
+
+
 def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """What a press will cost, and what is stopping it. Pinned, never scrolled.
 
@@ -2008,10 +2102,15 @@ def _plan_footer(ctx: Any, form: dict[str, Any]) -> None:
     """
     imgui.dummy((0, sp(8)))
     widgets.divider()
-    _generation_plan(ctx, form, problems_for(ctx, form))
+    _generation_plan(ctx, form, problems_for(ctx, form), advisories_for(ctx, form))
 
 
-def _generation_plan(ctx: Any, form: dict[str, Any], problems: list[widgets.Problem]) -> None:
+def _generation_plan(
+    ctx: Any,
+    form: dict[str, Any],
+    problems: list[widgets.Problem],
+    advisories: list[widgets.Advisory] | None = None,
+) -> None:
     """The persistent, actionable statement of what Generate will do.
 
     Validation still belongs to :func:`validate` and the service.  This is the
@@ -2045,8 +2144,13 @@ def _generation_plan(ctx: Any, form: dict[str, Any], problems: list[widgets.Prob
     else:
         widgets.muted("Queue: ready")
     refusal = str(getattr(ctx.state, "submit_refusal", "") or "")
+    advisories = advisories or []
     if not problems and not refusal:
+        # "Ready to generate" is still true with an advisory standing -- that
+        # is the whole difference between the two lists -- so it is said, and
+        # then the advisory is drawn under it rather than instead of it.
         widgets.muted("Ready to generate.")
+        _advisories_block(ctx, form, advisories)
         return
     if refusal:
         # Above the form problems: the form is fine -- this is the *door*
@@ -2061,6 +2165,24 @@ def _generation_plan(ctx: Any, form: dict[str, Any], problems: list[widgets.Prob
         imgui.text_wrapped(f"Needs attention: {problem}")
         imgui.pop_style_color()
         _preflight_fix(ctx, form, problem)
+    _advisories_block(ctx, form, advisories)
+
+
+def _advisories_block(
+    ctx: Any, form: dict[str, Any], advisories: list[widgets.Advisory]
+) -> None:
+    """The advisories, under the problems, in the warning colour.
+
+    Under, and in a different colour, because the reading order is the order
+    they matter in: a problem is why the button is off, and an advisory is
+    something to think about while pressing it. "Worth knowing" rather than
+    "Needs attention" for the same reason -- nothing here needs anything.
+    """
+    for advisory in advisories:
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.WARN)))
+        imgui.text_wrapped(f"Worth knowing: {advisory}")
+        imgui.pop_style_color()
+        _advisory_fix(ctx, form, advisory)
 
 
 def _preflight_fix(ctx: Any, form: dict[str, Any], problem: widgets.Problem) -> None:
@@ -2497,6 +2619,15 @@ def tile_sheet_kwargs(form: dict[str, Any]) -> dict[str, Any]:
         # ``"none"`` here would be naming a setting this kind does not have.
         "palette": str(form.get("palette") or ""),
         "dither": bool(form.get("dither")),
+        # The two checkboxes under Materials. They were drawn, they wrote to
+        # the form, and the form was never read: the request left without them
+        # and ``default_form_2d`` declared neither, so the values did not
+        # survive a restart either. Both halves below them were already live --
+        # ``service.jobs`` passes them to the worker and
+        # ``tilesheets._check_weights`` already widens the weight gate on
+        # ``style_lock`` -- so this line is the whole of what was missing.
+        "style_lock": bool(form.get("style_lock")),
+        "seam_erase": bool(form.get("seam_erase")),
         **create_assets.persisted_intent(form),
     }
     if mode == svc_tilesheets.MODE_MATERIALS:

@@ -19,36 +19,36 @@ def test_a_refused_reference_scores_zero():
 
 def test_a_clean_reference_at_the_target_occupancy_scores_one():
     assert (
-        rank.composition_score(_report(occupancy=reference.DEFAULT_OCCUPANCY, components=1))
+        rank.composition_score(_report(occupancy=reference.DEFAULT_OCCUPANCY, components_major=1))
         == 1.0
     )
 
 
 def test_missing_the_target_occupancy_costs_something_but_not_everything():
-    near = rank.composition_score(_report(occupancy=0.70, components=1))
-    far = rank.composition_score(_report(occupancy=0.20, components=1))
+    near = rank.composition_score(_report(occupancy=0.70, components_major=1))
+    far = rank.composition_score(_report(occupancy=0.20, components_major=1))
     assert 0.0 < far < near < 1.0
 
 
 def test_a_second_object_is_penalised():
-    one = rank.composition_score(_report(occupancy=0.78, components=1))
-    two = rank.composition_score(_report(occupancy=0.78, components=2))
+    one = rank.composition_score(_report(occupancy=0.78, components_major=1))
+    two = rank.composition_score(_report(occupancy=0.78, components_major=2))
     assert two < one
 
 
 def test_running_off_the_edge_is_penalised():
-    clean = rank.composition_score(_report(occupancy=0.78, components=1))
+    clean = rank.composition_score(_report(occupancy=0.78, components_major=1))
     cropped = rank.composition_score(
-        _report(occupancy=0.78, components=1, touches=("left",))
+        _report(occupancy=0.78, components_major=1, touches=("left",))
     )
     assert cropped < clean
 
 
 def test_warnings_cost_less_than_reasons():
     warned = rank.composition_score(
-        _report(occupancy=0.78, components=1, warnings=("close to the edge",))
+        _report(occupancy=0.78, components_major=1, warnings=("close to the edge",))
     )
-    clean = rank.composition_score(_report(occupancy=0.78, components=1))
+    clean = rank.composition_score(_report(occupancy=0.78, components_major=1))
     refused = rank.composition_score(_report(ok=False, reasons=("too small",)))
     assert refused < warned < clean
 
@@ -60,13 +60,13 @@ def test_no_report_at_all_is_a_middling_score_not_a_zero():
 
 
 def test_the_score_is_the_composition_when_there_is_no_anchor():
-    out = rank.score(_report(occupancy=0.78, components=1))
+    out = rank.score(_report(occupancy=0.78, components_major=1))
     assert out["score"] == out["composition"] == 1.0
     assert out["anchor"] is None
 
 
 def test_an_anchor_cosine_moves_the_score_and_is_recorded():
-    report = _report(occupancy=0.78, components=1)
+    report = _report(occupancy=0.78, components_major=1)
     close = rank.score(report, anchor_cosine=0.9)
     far = rank.score(report, anchor_cosine=0.1)
     assert close["score"] > far["score"]
@@ -75,6 +75,31 @@ def test_an_anchor_cosine_moves_the_score_and_is_recorded():
 
 def test_every_score_stays_inside_zero_and_one():
     for cosine in (-1.0, 0.0, 1.0):
-        for report in (None, _report(ok=False), _report(occupancy=0.01, components=5)):
+        for report in (None, _report(ok=False), _report(occupancy=0.01, components_major=5)):
             out = rank.score(report, anchor_cosine=cosine)
             assert 0.0 <= out["score"] <= 1.0
+
+
+def test_speckle_does_not_floor_the_composition_score():
+    """The defect this module shipped with, pinned.
+
+    A real reference carries 15-18 connected components and one *subject*
+    (docs/measurements/2026-08-17-reference-source-bench.md). Charging
+    COMPONENT_COST against the raw count took 2.25 off a base of 1.0, so the
+    clamp fired on every image and the 0.6-weighted composition term was a
+    constant. Fails against the unfixed code, which returns 0.0 here.
+    """
+    speckled = _report(occupancy=reference.DEFAULT_OCCUPANCY, components=18, components_major=1)
+    assert rank.composition_score(speckled) == 1.0
+
+
+def test_the_raw_component_count_is_not_what_is_charged_for():
+    clean = _report(occupancy=0.78, components=1, components_major=1)
+    speckled = _report(occupancy=0.78, components=40, components_major=1)
+    assert rank.composition_score(speckled) == rank.composition_score(clean)
+
+
+def test_a_report_written_before_the_filter_existed_is_unmeasured_not_floored():
+    """No ``components_major`` key at all -- an August report read back off disk."""
+    old = {"ok": True, "occupancy": reference.DEFAULT_OCCUPANCY, "components": 17}
+    assert rank.composition_score(old) == 1.0

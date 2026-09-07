@@ -251,3 +251,52 @@ def test_the_tiled_preview_is_off_by_default():
     from warlock.studio.state import AppState
 
     assert AppState().tile_preview is False
+
+
+def test_style_lock_reaches_the_tile_sheet_job():
+    """The checkbox wrote to the form and the form was never read.
+
+    ``_tile_materials`` has drawn "Keep one style across the list" and "Erase
+    the seam" since the materials layout landed, and both halves *below* the
+    form were live -- ``service.jobs`` passes them to the worker, and
+    ``tilesheets._check_weights`` already widened the weight gate on
+    ``style_lock``. What was missing was the middle: ``tile_sheet_kwargs`` did
+    not send either key, so pressing them changed nothing at all.
+    """
+    form = default_form_2d()
+    form["output"] = "sheet"
+    form["sheet_type"] = "tile"
+    form["prompt"] = "mossy stone"
+    form["materials"] = "mossy stone\ncracked mud"
+    form["style_lock"] = True
+    form["seam_erase"] = True
+
+    kwargs = settings_2d.tile_sheet_kwargs(form)
+
+    assert kwargs["style_lock"] is True
+    assert kwargs["seam_erase"] is True
+
+
+def test_the_two_material_checkboxes_survive_a_restart():
+    """Undeclared keys have no default for ``restore_form`` to type-check."""
+    form = default_form_2d()
+    assert form["style_lock"] is False
+    assert form["seam_erase"] is False
+
+
+def test_locking_the_style_asks_for_the_adapter_it_will_load():
+    """``style_lock`` makes the first material the reference for the rest.
+
+    So it needs the IP-Adapter with no file attached, and the note above
+    Generate has to say so -- otherwise the press reaches the door and is
+    refused there for a download nothing had mentioned.
+    """
+    form = default_form_2d()
+    form["output"] = "sheet"
+    form["sheet_type"] = "tile"
+    plain = settings_2d.sheet_rows(form)
+    form["style_lock"] = True
+    locked = settings_2d.sheet_rows(form)
+
+    assert set(plain) < set(locked)
+    assert any(row.startswith("adapter:") for row in locked)

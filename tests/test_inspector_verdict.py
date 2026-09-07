@@ -131,3 +131,44 @@ def test_an_inspector_verdict_feeds_the_same_findings_a_sweep_does(svc):
         "top_reasons": [],
     }
     assert len(svc_findings.presets(doc)) == 1
+
+
+def test_an_ungraded_mesh_is_asked_about(svc):
+    """"Was this any good?" opens itself until it has been answered.
+
+    The corpus behind ``judge.MIN_PER_CLASS`` can only be closed by ordinary
+    use -- 2026-08-09-judge-threshold.md rules out going looking for one class
+    -- and behind a header that defaulted closed it did not grow at all.
+    """
+    ctx = FakeCtx(svc)
+    job_id = _done_mesh(svc)
+
+    assert inspector.is_graded(ctx, job_id) is False
+
+    assert inspector.record_verdict(ctx, job_id, 3)
+    assert inspector.is_graded(ctx, job_id) is True
+
+
+def test_the_graded_answer_is_read_once_per_mesh_not_once_per_frame(svc):
+    """A ``verdicts_for`` query on the frame thread sixty times a second is the
+    thing ``review_panes`` refuses to do with ``judge.status``."""
+    ctx = FakeCtx(svc)
+    job_id = _done_mesh(svc)
+    calls: list[Any] = []
+    real = svc.store.verdicts_for
+
+    def counted(job_ids, **kwargs):
+        calls.append(list(job_ids))
+        return real(job_ids, **kwargs)
+
+    svc.store.verdicts_for = counted
+    for _ in range(10):
+        inspector.is_graded(ctx, job_id)
+    assert len(calls) == 1
+
+
+def test_a_verdict_filed_elsewhere_does_not_leave_the_section_reopening(svc):
+    ctx = FakeCtx(svc)
+    job_id = _done_mesh(svc)
+    inspector.record_verdict(ctx, job_id, -3, ("holes",))
+    assert ctx.state.inspector_graded[job_id] is True

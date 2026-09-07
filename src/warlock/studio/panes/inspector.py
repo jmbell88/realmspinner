@@ -1309,6 +1309,10 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
         ctx.toast("Could not record that verdict.", "error")
         return False
     clear_tags(ctx.state)
+    # The memo this invalidates is ``_verdict``'s open-by-default: with the
+    # answer left stale the section would keep springing open on a mesh that
+    # has just been graded.
+    ctx.state.inspector_graded[job_id] = True
     # Through Review's own request, not a second submit under a copy of its
     # key: two spellings of one task key are two things to keep in step.
     review_mode.refresh_findings(ctx)
@@ -1316,12 +1320,47 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
     return True
 
 
+def is_graded(ctx: Any, job_id: str) -> bool:
+    """Whether a person has already filed a verdict on this mesh. Memoised.
+
+    A DB read, so it happens once per mesh rather than once per frame -- see
+    ``state.inspector_graded``. Any failure answers *graded*: the only thing
+    this decides is whether a section opens itself, and a section that springs
+    open on every frame because a query keeps failing is worse than one that
+    stays shut.
+    """
+    cached = ctx.state.inspector_graded.get(job_id)
+    if cached is not None:
+        return cached
+    try:
+        found = ctx.svc.store.verdicts_for([job_id], source="human", stage="model")
+    except Exception:  # noqa: BLE001 - see the docstring; never fail a frame
+        return True
+    graded = bool(found)
+    ctx.state.inspector_graded[job_id] = graded
+    return graded
+
+
 def _verdict(ctx: Any, job: Any) -> None:
     if job.get("status") != "done" or job.get("stage") != "model":
         return
-    if not widgets.header("Was this any good?", default_open=False):
-        return
     job_id = job["id"]
+    # **Open on an ungraded mesh.** The corpus this feeds is the only unbiased
+    # way to close the probe's ``MIN_PER_CLASS`` floor -- a corpus assembled by
+    # going looking for one class is exactly what
+    # docs/measurements/2026-08-09-judge-threshold.md says makes the resulting
+    # threshold worthless -- so it has to grow from ordinary use, and behind a
+    # collapsed header it did not grow at all. Closed again the moment a
+    # verdict is filed, because then there is nothing left to ask.
+    #
+    # The id carries the job, because imgui's ``default_open`` applies the
+    # first time an id is drawn and never again: under one shared id the flag
+    # would be read once per session and every mesh after the first would
+    # inherit whatever the user last did. Per job it means what it says, and
+    # collapsing it on one mesh no longer collapses it on the next.
+    header = f"Was this any good?##verdict-{job_id}"
+    if not widgets.header(header, default_open=not is_graded(ctx, job_id)):
+        return
     widgets.muted("Feeds the same findings a sweep does.")
     pending = staged_tags(ctx.state, job_id)
 

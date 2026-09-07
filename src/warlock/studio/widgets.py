@@ -1737,6 +1737,33 @@ class Problem(str):
         return self
 
 
+class Advisory(str):
+    """Something worth knowing that is **not** stopping the press.
+
+    ``Problem``'s sibling and deliberately a separate type rather than a
+    severity field on it: ``problems_for`` is documented as "everything
+    stopping a press" and every one of its members disables Generate, so a
+    warning added to that list would refuse a request the app has no grounds to
+    refuse. The two are drawn in one block and are never merged into one list.
+
+    The distinction is not decorative. The first thing this carries is the
+    open-form lint, and an audit-flagged open form still grades usable two
+    times in five (docs/measurements/2026-09-02-fantasy-v1.md) -- a rate that
+    is worth telling somebody about and nowhere near a verdict. An advisory
+    that blocked would be the app claiming a certainty the corpus does not
+    support.
+
+    Same ``field`` contract as ``Problem`` so one repair helper can serve both.
+    """
+
+    __slots__ = ("field",)
+
+    def __new__(cls, text: str, field: str = "") -> Advisory:
+        self = super().__new__(cls, text)
+        self.field = field
+        return self
+
+
 def field_error(state: Any, field: str) -> bool:
     """Ring the control just drawn, and say why, if a refusal named it (UX.md
     Phase 3). -> whether anything was drawn.

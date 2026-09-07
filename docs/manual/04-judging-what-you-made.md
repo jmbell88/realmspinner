@@ -43,6 +43,14 @@ The list you are judging is not something you have to build. Anything finished t
 judged shows up automatically in a bucket called **Recent, unreviewed** — daily work and deliberate
 experiments feed one pool.
 
+You do not have to go to Review to file one, either. When you open a finished mesh in the inspector
+and nobody has graded it, the **Was this any good?** section is already open, with the same grade
+buttons and the same tags. Once it has a verdict the section starts collapsed, because there is
+nothing left to ask. This is deliberate and it is worth cooperating with: the app's own accept/reject
+probe cannot be fitted until there are enough graded meshes of *both* kinds, and a corpus assembled
+by going looking for failures would be worthless for the purpose. The only way to get an honest one
+is for ordinary work to be graded as it lands.
+
 ## A judging pass
 
 When there is a backlog, grading one item at a time is the slow way. **Start judging** walks

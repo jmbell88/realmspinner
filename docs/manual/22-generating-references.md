@@ -85,6 +85,21 @@ Pinned at the bottom of the column, never scrolling, is the **generation plan**:
 cost, what recipe it will use, and — when Generate is disabled — every reason why, each with a
 one-click repair. The button itself carries the first of those reasons as its tooltip.
 
+Under those, in amber rather than red, the plan may also draw one or more lines starting **Worth
+knowing**. These are *advisories*, and the difference from the red ones is the whole point: an
+advisory never disables Generate and never means the press will fail. It is something measured about
+this kind of request that you may want to know before spending the time. The plan still says *Ready
+to generate* above it. Where there is a safe one-press change, an advisory carries its own ghost
+button, exactly as a problem does.
+
+The advisory you are most likely to meet is the **open-form** lint on the *3D Model* type. When the
+prompt names something with gaps, slats, spokes or thin members — a birdcage, a cart wheel, a rope
+ladder — the plan says so, because open forms are the single largest surviving cause of an unusable
+mesh: they reconstruct usable about two times in five, against about one in two across the graded
+corpus overall. Two in five is a real chance, which is why this is a note and not a refusal. **Ask
+for a closed form** appends a clause asking for filled-in gaps to your prompt; it appends rather than
+rewrites, so you can see exactly what changed and delete it.
+
 **Generation type** has six entries: *Image*, *3D Model*, *Seamless Material*, *Tileset*, *Sprite
 Sheet* and *Character*. Three of them are described elsewhere in this chapter — see
 [Seamless tiles](#seamless-tiles), [Sheets](#sheets) and [Characters](#characters). *Character* is
@@ -221,15 +236,21 @@ The mesh has its own separate seed, at the Mesh stage. See
 ### Which candidate to look at first
 
 A fan-out of eight arrives in the order the seeds happened to be drawn in, which is no order at all.
-Each finished reference therefore carries a **score**, shown as a percentage on its library card,
-and it exists to answer one question: which of these is worth opening first.
+Each finished reference therefore carries a **rank**, shown as a percentage on its library card, and
+it exists to answer one question: which of these is worth opening first. It is labelled *rank* and
+nothing else, because that is all it claims — where this candidate sits in its own strip, not whether
+it is any good. (Through v0.0.38 the same figure was drawn as "judge: N% likely a keeper", which named
+the wrong instrument: the trained probe in [Review](37-review.md) is a different thing and is never
+consulted here.)
 
 Three things go into it, and each is absent-changes-nothing — a term that could not be measured
 leaves the score exactly what it would have been without it:
 
 - **Composition** — the framing report the reference stage takes anyway. It leads, because it is the
   one term that predicts whether the mesh stage can succeed at all: a subject cropped at the edge of
-  the frame reconstructs badly however handsome it is.
+  the frame reconstructs badly however handsome it is. It counts *subjects* — a stray speck of noise
+  beside the silhouette is not a second object. (Before v0.0.39 it counted every speck, which floored
+  this term to zero on every real image and left the rank deciding nothing.)
 - **Style anchor** — how close the image looks to the reference image attached under *Conditioning*,
   when there is one.
 - **Human preference** — how likely a person is to pick this image for this prompt, from PickScore.

@@ -125,6 +125,13 @@ zero it reads *unset*, which means "keep whatever the reference recorded". That 
 to 1 m. There is no upper stop, because there
 is no largest asset: a wall section is legitimately 8 m.
 
+While the size is unset and the source reference's prompt names something the app has a figure for,
+a suggestion appears under the control — *barrel — usually 0.9 m*, with a **Use 0.9 m** button. It is
+a plain table of typical real-world sizes, not a measurement, and it is never applied for you: unset
+is a real answer, and a press is what turns a suggestion into a decision. The match is crude and
+takes the last noun it recognises, so "a sword in a barrel" is a barrel; if it names the wrong thing,
+ignore it and drag the control.
+
 Scaling is optional, but **grounding is not**. Every finished mesh is centred on X and Z and has its
 lowest point put at Y = 0, whether or not a size was asked for. A pivot sitting at the centre of the
 reconstruction volume is a manual fixup on every Godot or Unity import, so the app does it for you

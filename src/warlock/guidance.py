@@ -25,6 +25,7 @@ keeps images TRELLIS-friendly lives in pipelines/prompt.PROMPT_TEMPLATE.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,74 @@ SIZE_MAX_M = 100.0
 
 # Fallback when the caller names no size.
 DEFAULT_SIZE_M = 1.0
+
+# Typical real-world longest axis, in metres, for the nouns Warlock is asked
+# for most. **A suggestion and never a default**: nothing here is applied to a
+# request, ``normalize`` does not read this table, and the Size control keeps
+# its "unset -- keeps the reference's" value until a person presses the
+# suggestion. That is the whole distinction the control is built around, and a
+# table that quietly filled it in would make every unconsidered press a claim
+# about scale that nobody made.
+#
+# Editorial rather than measured, so there is no document behind it and it does
+# not need one: it changes no output on its own. Longest axis to match
+# ``normalize_glb``, which grounds and scales on exactly that.
+SIZE_HINTS_M: dict[str, float] = {
+    "arrow": 0.75,
+    "axe": 0.8,
+    "barrel": 0.9,
+    "book": 0.25,
+    "bottle": 0.3,
+    "bucket": 0.35,
+    "cauldron": 0.7,
+    "chair": 0.95,
+    "chest": 1.0,
+    "coin": 0.03,
+    "crate": 0.8,
+    "door": 2.1,
+    "goblet": 0.2,
+    "hammer": 0.9,
+    "helmet": 0.3,
+    "key": 0.1,
+    "lantern": 0.35,
+    "potion": 0.15,
+    "ring": 0.02,
+    "sack": 0.6,
+    "shield": 1.0,
+    "sign": 0.9,
+    "staff": 1.8,
+    "sword": 1.0,
+    "table": 1.6,
+    "torch": 0.6,
+    "wagon": 3.5,
+    "wheel": 1.0,
+}
+
+
+def size_hint(prompt: str | None) -> tuple[str, float] | None:
+    """``(noun, metres)`` for the last hinted noun in ``prompt``, or None.
+
+    The **last** match, not the first: an English noun phrase puts its head on
+    the right, so "a barrel of swords" is a barrel and "a sword in a barrel" is
+    a sword -- the head is what the picture is of, and the picture is what gets
+    reconstructed. Crude, and crude is the correct amount of machinery for a
+    suggestion a person confirms.
+
+    Whole words only, so "keyhole" is not a key and "doorway" is not a door.
+    """
+    if not prompt:
+        return None
+    words = re.findall(r"[a-z]+", str(prompt).lower())
+    for word in reversed(words):
+        # Naive singularisation, in the one direction that matters: the prompt
+        # template asks for a single subject, so a plural here is a stray "s"
+        # rather than a different noun.
+        for candidate in (word, word[:-1] if word.endswith("s") else word):
+            if candidate in SIZE_HINTS_M:
+                return candidate, SIZE_HINTS_M[candidate]
+    return None
+
+
 DEFAULT_PLATFORM = "3d"
 
 # How trellis-server mattes the input image. Not an Option table: these are

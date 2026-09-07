@@ -46,7 +46,20 @@ PROFILES: dict[str, int | None] = {
 }
 
 CUSTOM_MIN = 5_000
-CUSTOM_MAX = 2_000_000
+# Lowered from 2M to 250k on 2026-09-06. The 2M ceiling was raised on
+# 2026-09-03 so a gltfpack budget could ask for a million faces once
+# ``--decim 0`` stopped the exe throwing them away. The detail-060 sweep then
+# retired that axis: every ``decim0`` rung failed on the first subject at ~29
+# minutes each, so ``trellis_decim`` stays ``None`` and the exe's own quadric
+# simplify always runs. That is the condition this ceiling depends on --
+# *with decimation on*, source.glb lands at ~300k faces at res 1024, so a
+# budget above that asks gltfpack to remove nothing. (Undecimated the mesh is
+# ~35M faces and a 300k budget would be a real reduction; it is unreachable,
+# because the same run showed the pipeline cannot carry an undecimated mesh
+# at all.) 250k therefore sits just under the landing point, where a custom
+# budget is always a genuine reduction of something that exists.
+# docs/measurements/2026-09-03-trellis-detail-sweep.md has the evidence.
+CUSTOM_MAX = 250_000
 
 DEFAULT_TIMEOUT = 300.0
 

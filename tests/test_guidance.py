@@ -435,3 +435,37 @@ def test_an_ip_adapter_on_a_non_sdxl_base_is_refused_at_the_door():
     with pytest.raises(ValueError, match="ip_adapter") as excinfo:
         guidance.normalize({"base_model": "flux_klein", "ip_adapter": "plus"})
     assert excinfo.value.field == "ip_adapter"
+
+
+def test_a_known_noun_suggests_its_real_world_size():
+    assert guidance.size_hint("a wooden barrel, weathered") == ("barrel", 0.9)
+    assert guidance.size_hint("a small health potion")[1] == 0.15
+    assert guidance.size_hint("a heavy oak door")[1] == 2.1
+
+
+def test_the_head_of_the_phrase_wins():
+    """"a sword in a barrel" is a barrel; English puts the head on the right."""
+    assert guidance.size_hint("a sword in a barrel")[0] == "barrel"
+    assert guidance.size_hint("a barrel of swords")[0] == "sword"
+
+
+def test_a_noun_inside_another_word_is_not_a_match():
+    assert guidance.size_hint("an ornate keyhole") is None
+    assert guidance.size_hint("a stone doorway") is None
+
+
+def test_an_unknown_subject_suggests_nothing():
+    assert guidance.size_hint("a bioluminescent fungus cluster") is None
+    assert guidance.size_hint("") is None
+    assert guidance.size_hint(None) is None
+
+
+def test_the_size_table_is_a_suggestion_and_never_a_default():
+    """``normalize`` must not read it: an unspecified size stays DEFAULT_SIZE_M.
+
+    The Size control's "unset -- keeps the reference's" is a real answer, and a
+    noun table crude enough to read "a barrel of swords" as a sword is not
+    allowed to answer for the user.
+    """
+    out = guidance.normalize({"prompt": "a wooden barrel"})
+    assert out["size_m"] == guidance.DEFAULT_SIZE_M

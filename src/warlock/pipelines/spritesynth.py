@@ -1571,7 +1571,11 @@ def front_fits(source_report, front_report) -> tuple[bool, str]:
             False,
             "The reference touches the edge of its frame, so it was not pasted in.",
         )
-    if source_report.components > 1:
+    # ``components_major``, not the raw count: the question here is the
+    # docstring's own -- "is the source two objects?" -- and the raw count is
+    # speckle, so this arm refused to paste the front cell on essentially every
+    # real reference. Same defect as ``rank.composition_score``'s, same fix.
+    if source_report.components_major > 1:
         return (
             False,
             "The reference is more than one object, so it was not pasted in.",

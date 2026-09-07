@@ -907,7 +907,10 @@ def test_a_clean_reference_of_matching_proportions_is_pasted_in():
     (
         ({"ok": False}, "refused"),
         ({"touches": ("left",)}, "touches the edge"),
-        ({"components": 2}, "more than one object"),
+        # ``components_major``, not the raw blob count: the raw count is
+        # speckle on every real reference (median 15-18), so gating on it
+        # declined to paste the front cell on essentially all of them.
+        ({"components_major": 2}, "more than one object"),
         ({"bbox": None}, "could not be measured"),
     ),
 )

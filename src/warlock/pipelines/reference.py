@@ -60,6 +60,21 @@ MIN_OCCUPANCY = 0.04
 MIN_SECOND_COMPONENT = 0.08
 MAX_ASPECT = 8.0
 
+# How large a connected component has to be, as a fraction of the largest one,
+# before it counts as *a subject* rather than as speckle.
+#
+# The same 0.08 as ``MIN_SECOND_COMPONENT`` and deliberately the same constant
+# rather than a second one beside it: "is this blob big enough to be a second
+# object?" is one question, and the ``multi_object`` refusal and the subject
+# count have to answer it the same way or the report contradicts itself --
+# ``components_major >= 2`` is exactly when that refusal fires, and a test pins
+# it. What the raw count measures at this image class is JPEG-grade noise
+# around the silhouette: median 15-18 blobs per image
+# (docs/measurements/2026-08-17-reference-source-bench.md), which is why
+# ``rank.composition_score`` charged 0.15 apiece and floored at zero on
+# everything it was ever shown.
+MIN_MAJOR_COMPONENT = MIN_SECOND_COMPONENT
+
 # The same four refusals as ``Report.reasons``, spelled for a machine.
 #
 # ``reasons`` are sentences written for a person and are rewritten whenever the
@@ -132,7 +147,17 @@ class Report:
     occupancy: float = 0.0
     bbox: tuple[int, int, int, int] | None = None
     touches: tuple[str, ...] = ()
+    # Every connected component in the mask, speckle included. **Recorded, so
+    # it does not move.** ``params["reference_report"]`` is stored on every job
+    # and ``vectors._refusal_metrics`` rolls it into a corpus that outlives the
+    # jobs in it, so redefining this key would silently re-base a stored
+    # quantity -- the corpus would compare August's blob count against
+    # September's subject count and call the difference a finding.
     components: int = 0
+    # The components big enough to be subjects (``MIN_MAJOR_COMPONENT``). This
+    # is the one a reader asking "how many objects are in this picture?" wants,
+    # and the one ``rank.composition_score`` charges for.
+    components_major: int = 0
     alpha_source: bool = False
     size: tuple[int, int] = (0, 0)
     normalised: bool = False
@@ -148,6 +173,7 @@ class Report:
             "bbox": list(self.bbox) if self.bbox else None,
             "touches": list(self.touches),
             "components": self.components,
+            "components_major": self.components_major,
             "alpha_source": self.alpha_source,
             "size": list(self.size),
             "normalised": self.normalised,
@@ -260,6 +286,20 @@ def _components(mask) -> list[int]:
     return sorted((int(s) for s in sizes if s), reverse=True)
 
 
+def _major(sizes: list[int]) -> int:
+    """How many of those components are large enough to be subjects.
+
+    ``sizes`` arrives largest-first, so the gate is a straight prefix count
+    against the largest -- relative rather than absolute because the subject
+    fills a target fraction of the frame at any resolution, and an absolute
+    pixel floor would mean something different at 512 than at 1024.
+    """
+    if not sizes:
+        return 0
+    floor = sizes[0] * MIN_MAJOR_COMPONENT
+    return sum(1 for s in sizes if s >= floor)
+
+
 def unmeasured(reason: str) -> Report:
     """A report that makes no claim.
 
@@ -318,6 +358,7 @@ def measure(image: PILImage) -> Report:
     )
     sizes = _components(mask)
     components = len(sizes)
+    components_major = _major(sizes)
 
     reasons: list[str] = []
     # Appended in lockstep with ``reasons`` -- one refusal, one sentence, one
@@ -338,7 +379,7 @@ def measure(image: PILImage) -> Report:
     if len(touches) >= 3 or opposite:
         reasons.append("The subject runs off the edge of the frame.")
         codes.append("edge")
-    if len(sizes) >= 2 and sizes[1] >= sizes[0] * MIN_SECOND_COMPONENT:
+    if components_major >= 2:
         reasons.append("There is more than one object in the reference.")
         codes.append("multi_object")
 
@@ -360,6 +401,7 @@ def measure(image: PILImage) -> Report:
         bbox=bbox,
         touches=touches,
         components=components,
+        components_major=components_major,
         alpha_source=alpha_source,
         size=(w, h),
     )
@@ -412,6 +454,7 @@ def normalise(
         bbox=out_report.bbox,
         touches=out_report.touches,
         components=out_report.components,
+        components_major=out_report.components_major,
         alpha_source=out_report.alpha_source,
         size=out_report.size,
         normalised=True,

@@ -96,3 +96,85 @@ def test_the_candidate_grid_scrolls_rather_than_truncating():
     source = inspect.getsource(gw._candidate_grid)
     assert 'begin_child("generation-candidate-scroll"' in source
     assert "end_child()" in source
+
+
+def test_the_keeper_pill_is_not_the_ranker():
+    """The card may not label ``rank.score`` as the trained probe.
+
+    ``params["rank"]`` is written by ``_q_mesh._rank_reference`` from
+    ``pipelines.rank.score``; ``service.judge`` is called only from Review and
+    never persists its probability onto the row, so this module has no probe
+    answer to draw. Drawing the ranker under the judge's name asserted a
+    keep-probability nobody computed -- and, before the speckle floor was fixed,
+    asserted it was **zero** on every ordinary generation.
+
+    A source test because the claim is about a string the frame draws, and this
+    module's card is drawn straight into imgui.
+    """
+    import inspect
+
+    src = inspect.getsource(generation_workspace)
+    body = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "likely a keeper" not in body
+    assert "judge" not in body.lower()
+    assert 'f"rank {' in body
+
+
+def _model_form(prompt):
+    from warlock.studio.panes import settings_2d
+
+    form = default_form_2d()
+    form["asset_type"] = form["generation_type"] = "3d_model"
+    create_assets.sync_legacy_fields(form)
+    form["prompt"] = prompt
+    return settings_2d, form
+
+
+def test_open_form_prompt_is_advisory_and_does_not_block_generate():
+    """The lint may not join ``problems_for``.
+
+    Every member of that list disables Generate, and an audit-flagged open form
+    still grades usable two times in five
+    (docs/measurements/2026-09-02-fantasy-v1.md) -- so blocking would be the app
+    asserting a certainty the corpus does not support. Fails against the
+    unfixed code, where ``advisories_for`` does not exist.
+    """
+    settings_2d, form = _model_form("a wooden cart wheel with spokes")
+
+    advisories = settings_2d.advisories_for(None, form)
+
+    assert len(advisories) == 1
+    assert advisories[0].field == "prompt"
+    assert "2 times in 5" in str(advisories[0])
+    # Never a verdict.
+    assert "will fail" not in str(advisories[0]).lower()
+    # And it is a different type from the thing that stops a press.
+    from warlock.studio import widgets
+
+    assert isinstance(advisories[0], widgets.Advisory)
+    assert not isinstance(advisories[0], widgets.Problem)
+
+
+def test_a_closed_subject_draws_no_advisory():
+    settings_2d, form = _model_form("a solid stone barrel, banded with iron")
+    assert settings_2d.advisories_for(None, form) == []
+
+
+def test_the_lint_is_only_about_the_reconstruction_arm():
+    """A picture of a birdcage is a fine picture; only a mesh has a back."""
+    settings_2d, form = _model_form("an ornate birdcage")
+    assert settings_2d.advisories_for(None, form)
+    form["asset_type"] = form["generation_type"] = "image"
+    create_assets.sync_legacy_fields(form)
+    assert settings_2d.advisories_for(None, form) == []
+
+
+def test_the_words_are_matched_whole_and_named_back():
+    from warlock.studio.panes import settings_2d
+
+    assert settings_2d.open_form_words("a cart wheel with spokes") == ("wheel", "spokes")
+    # "netting" is a word in the list; "vignetting" is not this word.
+    assert settings_2d.open_form_words("heavy vignetting") == ()
+    assert settings_2d.open_form_words("a barrel") == ()

@@ -66,6 +66,36 @@ def test_two_objects_are_rejected():
     assert any("more than one object" in r for r in report.reasons)
 
 
+def test_speckle_is_counted_but_is_not_a_second_subject():
+    """The raw count and the subject count are two different numbers.
+
+    A dozen stray pixels around the silhouette is what a real SDXL reference
+    looks like to ``cv2.connectedComponents`` -- median 15-18 blobs
+    (docs/measurements/2026-08-17-reference-source-bench.md). They are recorded,
+    because ``params["reference_report"]`` is a corpus nothing may re-base, and
+    they are not subjects: ``components_major`` is what the refusal and the
+    ranker read.
+    """
+    im = _subject()
+    draw = ImageDraw.Draw(im)
+    for i in range(12):
+        x = 10 + i * 3
+        draw.rectangle([x, 12, x + 1, 13], fill=(30, 30, 30))
+    report = reference.measure(im)
+    assert report.components > 1
+    assert report.components_major == 1
+    assert report.ok
+    assert "multi_object" not in report.codes
+
+
+def test_the_multi_object_refusal_is_exactly_two_major_components():
+    im = _subject(box=(20, 100, 90, 170))
+    ImageDraw.Draw(im).rectangle([160, 100, 230, 170], fill=(160, 40, 40))
+    report = reference.measure(im)
+    assert report.components_major == 2
+    assert "multi_object" in report.codes
+
+
 def test_an_empty_frame_is_rejected():
     report = reference.measure(Image.new("RGB", (128, 128), BG))
     assert not report.ok

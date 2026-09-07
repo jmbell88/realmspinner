@@ -74,6 +74,34 @@ TOUCH_COST = 0.10
 OCCUPANCY_COST = 0.40
 
 
+def _subjects(report: dict[str, Any]) -> int:
+    """How many *objects* the report saw, not how many blobs.
+
+    ``components_major`` or nothing. The raw ``components`` count is speckle at
+    this image class -- median 15-18 per image
+    (docs/measurements/2026-08-17-reference-source-bench.md) -- so charging
+    ``COMPONENT_COST`` against it took 2.25 to 2.55 off a base of 1.0 and every
+    reference this function was ever shown clamped to zero. A 0.6-weighted term
+    that is a constant on all inputs is not a weight; it meant candidate order
+    was decided by the DINOv2 anchor alone where there was one, and was
+    arbitrary where there was not.
+
+    A report written before ``components_major`` existed has no way to recover
+    the filtered count, so it reads 1 -- unmeasured rather than floored, which
+    is the same "absence changes nothing" rule the anchor and the preference
+    term follow. It does mean a stored report re-scored today scores higher
+    than it did when it was written; that is the fix, and the corpus keeps the
+    raw count under its own key so nothing already recorded moved.
+    """
+    value = report.get("components_major")
+    if value is None:
+        return 1
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 1
+
+
 def composition_score(report: dict[str, Any] | None) -> float:
     """0..1 for how well framed one reference is, from its own report."""
     if not isinstance(report, dict):
@@ -90,7 +118,7 @@ def composition_score(report: dict[str, Any] | None) -> float:
         occupancy = 0.0
     score -= OCCUPANCY_COST * min(1.0, abs(occupancy - DEFAULT_OCCUPANCY))
     score -= WARNING_COST * len(report.get("warnings") or ())
-    score -= COMPONENT_COST * max(0, int(report.get("components") or 1) - 1)
+    score -= COMPONENT_COST * max(0, _subjects(report) - 1)
     score -= TOUCH_COST * min(1, len(report.get("touches") or ()))
     return max(0.0, min(1.0, score))
 
