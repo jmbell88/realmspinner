@@ -21,7 +21,10 @@ the reference so the library can show them as one lineage rather than two unrela
 
 Everything the Mesh stage holds is an **override**. Omitting one means "keep what the reference
 recorded", which is not the same as sending the reference's value back — so the selects offer
-"keep the reference's" as their first entry and that is where they start.
+that unset choice as their first entry and that is where they start. When the chosen reference has a
+recorded value for the field, the entry names it — "From reference: High detail" rather than the bare
+"keep the reference's" — so leaving a control alone is an informed choice, not a guess. A reference
+with nothing recorded for that field (an older job, say) still gets the generic wording.
 
 Two settings are exceptions and are always sent explicitly: the rig checkbox and the
 normalise-the-reference checkbox. Both are the Mesh stage's own decisions, and an omission would let

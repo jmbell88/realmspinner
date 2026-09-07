@@ -360,13 +360,46 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
             form["custom_triangles"] = max(0, value)
 
 
+def _source_param(ctx: Any, key: str) -> str | None:
+    """The reference job's own recorded value for ``key``, if it has one.
+
+    ``ctx.state.source_job`` and the form key are the same name a job's
+    ``params`` dict was written under (``_q_generate.py``), so this is a
+    plain lookup rather than a mapping this pane has to keep in sync.
+    """
+    source = ctx.cache.get(ctx.state.source_job)
+    if source is None:
+        return None
+    return (source.get("params") or {}).get(key) or None
+
+
+def _inherit_label(ctx: Any, key: str, label_for: dict[str, str] | None = None) -> str:
+    """"keep the reference's" made concrete.
+
+    The generic wording answered "what happens if I leave this alone" with
+    "something, unnamed" -- correct, but a user picking a reference with a
+    known ``platform``/``bg_removal`` already recorded had no way to see what
+    that something *was* without leaving this pane. Falls back to the old
+    text when the reference has no value for this key (no reference chosen
+    yet, or an older job that predates the field).
+    """
+    value = _source_param(ctx, key)
+    if value is None:
+        return "keep the reference's"
+    shown = (label_for or {}).get(value, value)
+    return f"From reference: {shown}"
+
+
 def _platform_options(ctx: Any) -> list[tuple[str, str]]:
     entries = (ctx.guidance.get("fields") or {}).get("platform") or []
-    return [("", "keep the reference's")] + [(e["key"], e["label"]) for e in entries]
+    label_for = {e["key"]: e["label"] for e in entries}
+    return [("", _inherit_label(ctx, "platform", label_for))] + [
+        (e["key"], e["label"]) for e in entries
+    ]
 
 
 def _bg_options(ctx: Any) -> list[tuple[str, str]]:
-    return [("", "keep the reference's")] + [
+    return [("", _inherit_label(ctx, "bg_removal"))] + [
         (key, key) for key in (ctx.guidance.get("bg_removal") or [])
     ]
 
