@@ -45,6 +45,13 @@ its nested **match flipped / rotated** counts a tile that is another one turned 
 same tile; the count line says how many that removes before you commit to it. It is off by default,
 because a repack should be faithful unless you ask otherwise.
 
+Below the tile-size fields, the popup shows the sheet itself with that grid drawn over it: a kept
+cell (has an opaque pixel somewhere in it) gets an outline, a dropped cell (fully transparent) is
+dimmed, and any strip too narrow to make a whole tile — the same one the paragraph above says is left
+out of the grid — is hatched. It is what the count line already says, but by cell rather than by
+number, and it is what you would check by eye before pressing Import anyway: is this the tile size
+that lines up with the art.
+
 **From Inker** is the reason this mode sits beside the raster editor. Every document open in
 [Inker](28-inker.md) gets a button here: an animated document contributes one sprite per frame, and
 a still one contributes one sprite per layer. A packed frame is pixel-identical to what the timeline

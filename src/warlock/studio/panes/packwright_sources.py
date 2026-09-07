@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import controls, icons, packwright_mode, tokens, widgets
+from .. import controls, docmodes, icons, packwright_mode, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 
@@ -99,6 +99,174 @@ def draw(ctx: Any) -> None:
 
 TILESET_POPUP = "packwright-tileset-import"
 
+#: The parked sheet's own GL texture, keyed on ``id(pixels)``. One import is
+#: parked at a time (``PackwrightState.tileset_import`` is a single slot), so
+#: a bare prefix sweep is enough to forget it -- ``packwright_textures``'s
+#: rule, shrunk to one entry.
+_SLICE_TEX_PREFIX = "packwright_tileset_slice:"
+
+#: The last occupancy grid the slice preview drew, and the ``(id(pixels),
+#: tile)`` it was drawn for. Module-level rather than on ``PackwrightState``:
+#: this is the preview's own cache, nothing else reads it. Caching at all is
+#: the same reason ``request_tileset_preview`` moved its own count off the
+#: frame thread (the 2026-09-07 audit's packwright-05) -- this grid is one
+#: vectorised pass over the sheet's alpha channel rather than a re-slice with
+#: dihedral hashing, so it is cheap by comparison, but the popup redraws
+#: every frame it is open and there is still no reason to pay for the same
+#: answer sixty times a second.
+_slice_grid_cache: tuple[tuple[int, tuple[int, int]], Any] | None = None
+
+
+def _occupancy_for(pixels: Any, tile: tuple[int, int]) -> Any:
+    """The occupancy grid for one sheet at one cell size -- ``tileset_occupancy``'s
+    own output, cached until either input moves. Returns ``None`` for a cell
+    size ``tileset_occupancy`` refuses (below 1 x 1)."""
+    global _slice_grid_cache
+    from ..packwright.sources import tileset_occupancy
+
+    cell = (int(tile[0]), int(tile[1]))
+    key = (id(pixels), cell)
+    if _slice_grid_cache is not None and _slice_grid_cache[0] == key:
+        return _slice_grid_cache[1]
+    try:
+        grid = tileset_occupancy(pixels, tile=cell)
+    except ValueError:
+        grid = None
+    _slice_grid_cache = (key, grid)
+    return grid
+
+
+def _slice_texture(ctx: Any, pixels: Any) -> Any:
+    """The parked sheet's own pixels as a GL texture, or ``None`` with no GL.
+
+    ``packwright_textures.atlas_texture``'s shape, shrunk to one entry: the
+    sheet is frozen for as long as it is parked (the decode task hands the
+    popup one array and never mutates it), so identity alone is the staleness
+    stamp.
+    """
+    if ctx.viewer is None:
+        return None
+    key = f"{_SLICE_TEX_PREFIX}{id(pixels)}"
+    texture = ctx.state.preview.get(key)
+    if texture is None:
+        texture = ctx.viewer.ctx.texture(
+            (int(pixels.shape[1]), int(pixels.shape[0])), 4, pixels.tobytes()
+        )
+        # Nearest: the same reason ``packwright_textures.atlas_texture`` picks
+        # it -- this is inspected at whole-pixel zooms and a linear filter
+        # would blur the very cell edges this preview exists to mark.
+        nearest = ctx.viewer.ctx.NEAREST
+        texture.filter = (nearest, nearest)
+        ctx.state.preview[key] = texture
+    return texture
+
+
+def _forget_slice_preview(ctx: Any) -> None:
+    """Drop the parked sheet's texture and cached grid.
+
+    Called wherever the popup stops showing one -- cancelled, imported, or
+    dismissed by a click outside -- so a closed popup does not go on holding a
+    megapixel texture for the rest of the session. Idempotent: the texture
+    prefix may already be empty and the grid may already be ``None``."""
+    global _slice_grid_cache
+    docmodes.release_prefix(ctx, _SLICE_TEX_PREFIX)
+    _slice_grid_cache = None
+
+
+def _hatch(
+    draw: Any, lo: tuple[float, float], hi: tuple[float, float], colour: int, spacing: float
+) -> None:
+    """Diagonal lines filling one rect -- the remainder strip's mark.
+
+    Clipped rather than measured: cutting a line off at the rect's own edges
+    by hand needs the same trig at every call site, and the draw list already
+    knows how to do it once.
+    """
+    if hi[0] <= lo[0] or hi[1] <= lo[1]:
+        return
+    draw.push_clip_rect(lo, hi, True)
+    span = hi[1] - lo[1]
+    x = lo[0] - span
+    while x < hi[0]:
+        draw.add_line((x, hi[1]), (x + span, lo[1]), colour, 1.0)
+        x += spacing
+    draw.pop_clip_rect()
+
+
+def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
+    """The sheet with its occupancy grid over it: what Import is about to keep.
+
+    Kept cells (opaque somewhere in them) are **outlined**, so the sheet still
+    shows through; dropped cells (fully transparent) are **dimmed**; the
+    remainder strip -- the sliver along the right or bottom edge too narrow to
+    make a whole tile, which ``tileset_occupancy`` already leaves out of its
+    grid rather than this function deciding it a second time -- is
+    **hatched**. Three different marks for three different fates, because the
+    sentence above this already says the counts and a fourth repetition of the
+    same three numbers would not tell anyone *which* cells.
+    """
+    from imgui_bundle import imgui
+
+    from .. import theme
+    from ..tokens import sp
+
+    grid = _occupancy_for(pixels, tile)
+    if grid is None or grid.shape[0] == 0 or grid.shape[1] == 0:
+        return
+    height, width = pixels.shape[:2]
+    tile_w, tile_h = int(tile[0]), int(tile[1])
+    avail = max(imgui.get_content_region_avail().x, sp(80))
+    zoom = min(avail / width, 1.0) if width > 0 else 1.0
+    max_h = sp(220)
+    if height > 0 and height * zoom > max_h:
+        zoom = max_h / height
+    draw_w, draw_h = width * zoom, height * zoom
+
+    origin = imgui.get_cursor_screen_pos()
+    texture = _slice_texture(ctx, pixels)
+    if texture is None:
+        # No GL context: the headless smoke suite and every state-only test.
+        widgets.thumb_placeholder(draw_w, icons.GRID, draw_h)
+    else:
+        imgui.image(widgets.texture_ref(texture), (draw_w, draw_h))
+
+    draw = imgui.get_window_draw_list()
+    step_w, step_h = tile_w * zoom, tile_h * zoom
+    rows, columns = grid.shape
+    kept_colour = imgui.get_color_u32(theme.rgba(theme.OK, 0.9))
+    dropped_colour = imgui.get_color_u32((0.0, 0.0, 0.0, 0.55))
+    hatch_colour = imgui.get_color_u32(theme.rgba(theme.WARN, 0.7))
+    for row in range(rows):
+        for column in range(columns):
+            lo = (origin.x + column * step_w, origin.y + row * step_h)
+            hi = (lo[0] + step_w, lo[1] + step_h)
+            if grid[row, column]:
+                draw.add_rect(lo, hi, kept_colour, 0.0, max(sp(1.5), 1.0))
+            else:
+                draw.add_rect_filled(lo, hi, dropped_colour)
+
+    # The remainder: whatever the grid above does not reach because the sheet's
+    # own size leaves less than one tile on the right, the bottom, or both.
+    # The bottom strip stops at the grid's own width so the corner -- covered
+    # by the right strip's full height -- is not hatched twice.
+    grid_w, grid_h = columns * step_w, rows * step_h
+    if grid_w < draw_w:
+        _hatch(
+            draw,
+            (origin.x + grid_w, origin.y),
+            (origin.x + draw_w, origin.y + draw_h),
+            hatch_colour,
+            sp(6),
+        )
+    if grid_h < draw_h:
+        _hatch(
+            draw,
+            (origin.x, origin.y + grid_h),
+            (origin.x + grid_w, origin.y + draw_h),
+            hatch_colour,
+            sp(6),
+        )
+
 
 def _cell_pair(value: tuple[int, int]) -> tuple[int, int]:
     """Two small integer fields on one row -- ``inker_bridge._pair``'s shape."""
@@ -131,9 +299,11 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
             state.tileset_import_open = False
             state.tileset_import = None
             state.tileset_preview_key = None
+        _forget_slice_preview(ctx)
         return
     widgets.popup_chrome(_imgui=imgui)
     if state.tileset_import is None:
+        _forget_slice_preview(ctx)
         imgui.end_popup()
         return
     path, stem, pixels = state.tileset_import
@@ -186,6 +356,9 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
         )
     else:
         widgets.muted(f"{columns} x {rows} cells - {kept} tile(s), {dropped} empty dropped")
+
+    imgui.dummy((0, sp(tokens.SP_1)))
+    _slice_preview(ctx, pixels, state.tileset_cell)
 
     imgui.dummy((0, sp(tokens.SP_1)))
     imgui.begin_disabled(bool(problem) or computing)
