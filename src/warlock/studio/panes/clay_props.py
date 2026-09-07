@@ -133,7 +133,11 @@ def _selected(doc: Any) -> Any:
 
 
 def _identity(doc: Any, obj: Any) -> None:
-    name = widgets.input_text("name##buildname", obj.name, max_length=120)
+    # commit=True: the 2026-09-06 audit's clay-02 found this field reporting a
+    # change on every keystroke, so ``set_props`` -- an unconditional
+    # ``history.push`` -- fired once per letter typed and a lone Ctrl+Z after
+    # a rename undid one character instead of the whole name.
+    name = widgets.input_text("name##buildname", obj.name, max_length=120, commit=True)
     if name != obj.name:
         doc.set_props(obj.uid, name=name)
     changed, value = widgets.toggle(f"{icons.EYE} Visible", obj.visible, tag=str(obj.uid))
@@ -225,12 +229,22 @@ def _generator(doc: Any, obj: Any) -> None:
             changed = True
     if not changed:
         return
+    # Match what the generator will actually build *before* building it: the
+    # 2026-09-06 audit's clay-05 finding was that a segment count of zero (or
+    # a torus tube wider than its radius, clay-04) gets clamped inside the
+    # generator without being reported back, so this panel used to save the
+    # number the user typed rather than the one the mesh was built from.
+    edited = bp.clamp_params(obj.generator, edited)
     try:
         mesh = build(**edited)
     except Exception:  # noqa: BLE001
-        # A generator raises on a value it cannot build -- a zero segment
-        # count, a tube thicker than its radius. The old mesh stays; the field
-        # keeps the number the user typed, so they can correct it.
+        # A generator raises on a value it cannot build at all -- not the
+        # zero segment count or oversized torus tube this comment used to
+        # name (both are clamped, by clamp_params above and by the generator
+        # itself; see the 2026-09-06 audit's clay-04 and clay-05 findings),
+        # but a non-finite number that survives to ``int()``, such as a
+        # pasted value large enough to parse as infinity. The old mesh stays;
+        # the field keeps the number the user typed, so they can correct it.
         #
         # Logged, not merely swallowed. A refusal about a number and a
         # ``TypeError`` from a renamed keyword are the same silence here, and
@@ -413,7 +427,12 @@ def _palette_row(doc: Any, obj: Any) -> None:
         # last thing using it came back magenta on redo.
         widgets.muted(f"{users} face(s) use this slot (including undone deletions)")
 
-    name = widgets.input_text("slot name##matname", doc.materials[index].name or "", max_length=60)
+    # commit=True for the reason ``_identity``'s name field needs it: the
+    # 2026-09-06 audit's clay-02 found this one reporting per keystroke too,
+    # pushing a ``set_material`` history step for every letter of a slot name.
+    name = widgets.input_text(
+        "slot name##matname", doc.materials[index].name or "", max_length=60, commit=True
+    )
     if name != (doc.materials[index].name or ""):
         from dataclasses import replace
 

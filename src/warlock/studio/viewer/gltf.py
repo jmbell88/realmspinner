@@ -628,7 +628,13 @@ class _Reader:
                 weights[dead, 0] = 1.0
                 total = weights.sum(axis=1, keepdims=True)
             out.weights = weights / total
-        if "material" in prim and prim["material"] < len(materials):
+        # The 2026-09-06 audit, finding clay-06: this only checked the upper
+        # bound, so ``"material": -1`` resolved through Python's own
+        # negative-index wraparound to the *last* palette entry instead of
+        # falling back to the default -- no error, no log, no toast. The
+        # sibling reader, ``clay.document._material_at``, already got this
+        # right with an explicit ``0 <= index`` check; this is the same rule.
+        if "material" in prim and 0 <= prim["material"] < len(materials):
             out.material = materials[prim["material"]]
         return out
 
@@ -669,7 +675,24 @@ class _Reader:
         images sit in a second buffer into "this file will not open".
         """
         if "bufferView" in image:
-            view = self.gltf["bufferViews"][image["bufferView"]]
+            # The 2026-09-06 audit, finding clay-09: indexing straight into
+            # ``bufferViews`` raised a bare ``IndexError`` for an out-of-range
+            # index, while every sibling boundary in this file (node.mesh,
+            # node.skin, skin.joints, an accessor's own bufferView, the buffer
+            # index) raises the named ``ValueError`` this module's callers key
+            # on. Unlike the *reachability* check just below -- which stays a
+            # cosmetic skip, because a buffer genuinely too small for a view is
+            # not the same class of bug as a view that names no bufferView at
+            # all -- a bad index is refused with the same message shape
+            # ``node()``/``skin()`` use.
+            buffer_views = self.gltf.get("bufferViews", [])
+            bv = image["bufferView"]
+            if not 0 <= bv < len(buffer_views):
+                raise ValueError(
+                    f"a texture references bufferView {bv}, but this GLB "
+                    f"declares {len(buffer_views)} bufferView(s)"
+                )
+            view = buffer_views[bv]
             try:
                 self._check_buffer(view)
             except Exception as exc:
@@ -698,11 +721,30 @@ class _Reader:
             return None
         from PIL import Image
 
-        tex = self.gltf.get("textures", [])[ref["index"]]
+        # The 2026-09-06 audit, finding clay-09: both lookups below indexed
+        # straight into the file's own arrays with no bounds check, so a
+        # material naming an out-of-range (or negative) texture/image index
+        # raised a bare IndexError instead of the named ValueError every other
+        # boundary in this file raises. Refused here, before either array is
+        # touched, in the same message shape ``node()``/``skin()`` use.
+        textures = self.gltf.get("textures", [])
+        index = ref["index"]
+        if not 0 <= index < len(textures):
+            raise ValueError(
+                f"a material references texture {index}, but this GLB "
+                f"declares {len(textures)} texture(s)"
+            )
+        tex = textures[index]
         source = tex["source"]
+        images = self.gltf.get("images", [])
+        if not 0 <= source < len(images):
+            raise ValueError(
+                f"a material references image {source}, but this GLB "
+                f"declares {len(images)} image(s)"
+            )
         if source in self._images:
             return self._images[source]
-        image = self.gltf.get("images", [])[source]
+        image = images[source]
         data = self._image_bytes(image)
         if data is None:
             self._images[source] = None

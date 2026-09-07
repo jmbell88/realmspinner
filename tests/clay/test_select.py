@@ -237,3 +237,58 @@ def test_the_mirror_axis_is_a_parameter():
     assert len(select.mirror_pairs(box, 0)) == 8
     assert len(select.mirror_pairs(box, 1)) == 8
     assert len(select.mirror_pairs(box, 2)) == 8
+
+
+# --- delete and duplicate, one undo step per gesture --------------------------
+#
+# The 2026-09-06 audit, finding clay-01: delete_selected and duplicate_selected
+# pushed one ObjectRemoveEdit/ObjectAddEdit per object instead of one
+# CompoundEdit for the whole gesture, unlike add_objects, set_visibility and
+# join_objects, which this same package bundles for exactly this reason. A
+# user who selected three objects and pressed Delete once got all three gone,
+# but a single Ctrl+Z restored only one of them.
+
+
+def _three_boxes():
+    from warlock.studio.clay import document as bd
+
+    doc = bd.ClayDoc()
+    for i in range(3):
+        doc.add_object(bd.Obj(bd.new_uid(), f"Box{i}", bp.box()))
+    doc.history.clear()  # the three add_object calls are not part of the gesture under test
+    return doc
+
+
+def test_deleting_several_selected_objects_undoes_in_one_step():
+    from warlock.studio.clay import selection
+
+    doc = _three_boxes()
+    doc.select([obj.uid for obj in doc.objects])
+
+    steps_before = len(doc.history)
+    selection.delete_selected(doc)
+
+    assert len(doc.history) - steps_before == 1, "one keystroke, one undo step"
+    assert doc.objects == []
+
+    doc.undo()
+
+    assert len(doc.objects) == 3, "one Ctrl+Z must restore every object the keystroke removed"
+
+
+def test_duplicating_several_selected_objects_undoes_in_one_step():
+    from warlock.studio.clay import selection
+
+    doc = _three_boxes()
+    doc.select([obj.uid for obj in doc.objects])
+
+    steps_before = len(doc.history)
+    fresh = selection.duplicate_selected(doc)
+
+    assert len(fresh) == 3
+    assert len(doc.history) - steps_before == 1, "one keystroke, one undo step"
+    assert len(doc.objects) == 6
+
+    doc.undo()
+
+    assert len(doc.objects) == 3, "one Ctrl+Z must remove every copy the keystroke made"

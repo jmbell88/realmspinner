@@ -11,6 +11,15 @@ Both go through ``ctx.submit`` and come back through :func:`on_task_done`, which
 is why saving is a *state* (``ClayTab.saving``) rather than a function call
 that returns.
 
+**The encode half of that rule was not actually followed here until the
+2026-09-06 audit (clay-03).** ``save_to``, ``save_as`` and ``export_asset``
+each called the zip-and-PNG build (``serialize.wblk_bytes``, and
+``export_asset``'s ``glbwrite.write_glb``) on the calling thread, before
+``ctx.submit`` ever ran -- only the disk write was inside the closure. Each
+now takes a cheap snapshot on the frame thread (``serialize.snapshot``, and
+``export_asset``'s own call to ``document.to_model``) and encodes it inside
+``run()``, the shape ``packwright_io.save_to`` already used.
+
 Two consequences follow, and both were bugs in the raster editor before they
 were rules here.
 
@@ -354,17 +363,23 @@ def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
     The head is read *here*, before the submit and after the document is in
     whatever state the save will encode -- one place, so the two halves of the
     dirty comparison cannot drift apart.
+
+    ``serialize.snapshot`` is the cheap frame-thread half; the zip-and-PNG
+    encode (``snapshot_bytes``) now runs inside ``run()``, on the task thread.
+    The 2026-09-06 audit (clay-03) found this calling ``wblk_bytes`` -- the
+    encode itself -- right here instead, which is the exact stall this
+    module's stated rule (see the module docstring) exists to forbid.
     """
     from .clay import serialize
 
     path = Path(path)
     doc = tab.doc
     rev = doc.history.head
-    data = serialize.wblk_bytes(doc, view=camera_of(ctx, tab))
+    snap = serialize.snapshot(doc, view=camera_of(ctx, tab))
 
     def run() -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic.write_bytes(path, data)
+        atomic.write_bytes(path, serialize.snapshot_bytes(snap))
         return {"rev": rev, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"clay-save:{tab.uid}", run)
@@ -380,10 +395,16 @@ def save(ctx: Any, tab: ClayTab | None = None) -> None:
 def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
     """The picker and the encode on one task thread.
 
-    The bytes are built on the frame thread and the *picker* is what runs on
-    the task thread, which is the opposite of what it looks like it should be:
-    serialising reads the live document, and doing that after an unbounded
-    modal dialog would encode whatever the user did while it was open.
+    The *snapshot* is taken on the frame thread and the picker -- and now the
+    encode too -- run on the task thread, which is the opposite of what it
+    looks like it should be: reading the live document after an unbounded
+    modal dialog would snapshot whatever the user did while it was open.
+
+    ``serialize.snapshot`` is cheap enough to take before the picker for
+    exactly that reason; the zip-and-PNG encode it used to do inline
+    (``wblk_bytes``, before ``ctx.submit`` ran at all) is ``snapshot_bytes``
+    now, moved inside ``run()`` by the 2026-09-06 audit (clay-03) alongside
+    ``save_to``'s.
     """
     from .clay import serialize
 
@@ -392,7 +413,7 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
         return
     doc, title = tab.doc, tab.title
     rev = doc.history.head
-    data = serialize.wblk_bytes(doc, view=camera_of(ctx, tab))
+    snap = serialize.snapshot(doc, view=camera_of(ctx, tab))
 
     def run() -> dict[str, Any] | None:
         path = dialogs.save_file(
@@ -405,7 +426,7 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
         # the ordinary way to overwrite one, and a write that dies partway
         # through would leave that file truncated with no copy of it anywhere.
         # No mkdir -- the picker returns a directory that exists.
-        atomic.write_bytes(path, data)
+        atomic.write_bytes(path, serialize.snapshot_bytes(snap))
         return {"rev": rev, "path": str(path), "retitle": True}
 
     _start(ctx, tab, f"clay-saveas:{tab.uid}", run)
@@ -423,9 +444,17 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
 
     The mesh is written first and the ``.wblk`` sidecar second, so a crash
     between them leaves the sidecar absent rather than lying about a mesh it
-    did not produce. Both the GLB and the document are built on the frame
-    thread for the reason ``save_as`` states, and only the service calls go to
-    the task thread.
+    did not produce.
+
+    ``to_model`` and ``serialize.snapshot`` are the two reads of the live
+    document, both taken on the frame thread for the reason ``save_as``
+    states; each already hands back something that owes the document nothing
+    further -- ``to_model`` copies every transform and rebuilds every
+    primitive's arrays fresh, and a snapshot holds only references INVARIANTS
+    312 says are safe to keep. **The actual encodes -- ``glbwrite.write_glb``
+    and ``serialize.snapshot_bytes`` -- run inside ``run()`` now.** The
+    2026-09-06 audit (clay-03) found both running here, on the calling
+    thread, before ``ctx.submit`` was ever reached.
     """
     from .clay import document as bd
     from .clay import serialize
@@ -442,16 +471,17 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         ctx.toast("There is nothing visible to export.", "error")
         return
 
-    glb = glbwrite.write_glb(bd.to_model(doc))
-    wblk = serialize.wblk_bytes(doc, view=camera_of(ctx, tab))
+    model = bd.to_model(doc)
+    snap = serialize.snapshot(doc, view=camera_of(ctx, tab))
 
     def run() -> dict[str, Any]:
         from ..service import files as svc_files
         from ..service import jobs as svc_jobs
 
+        glb = glbwrite.write_glb(model)
         result = svc_jobs.import_mesh(ctx.svc, glb, name=title, prompt=title)
         job_id = result["id"]
-        svc_files.save_clay_source(ctx.svc, job_id, wblk)
+        svc_files.save_clay_source(ctx.svc, job_id, serialize.snapshot_bytes(snap))
         return {"job_id": job_id, "exported": True}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)

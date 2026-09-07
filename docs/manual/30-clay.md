@@ -158,7 +158,9 @@ last used.
 
 `Ctrl+A` selects everything in the current mode's sense of everything, `Ctrl+Shift+I` inverts it, and
 `Esc` steps back: first it drops the element selection, then it leaves the element mode, then it
-clears the object selection. `Delete` in an element mode deletes *faces*, never the object. Neither
+clears the object selection. `Delete` in an element mode deletes *faces*, never the object. In object mode it
+removes every selected object as **one** undo step rather than one per object, so a single `Ctrl+Z`
+brings the whole selection back. Neither
 `Ctrl+A` nor `Ctrl+Shift+I` reaches a **hidden** object, in either sense of everything: hiding
 something takes it out of what you are working on, so nothing you select can act on it by accident.
 
@@ -314,7 +316,8 @@ the selection — dragging one end of a long strip fades out away from that end 
 strip. Setting the radius to zero is the same as switching it off.
 
 Two operations act on the whole selection. **Duplicate** (`Ctrl+J`) makes a copy under a new name,
-counting up — `Box`, `Box.001`, `Box.002`. **Bake** folds an object's position, rotation and scale
+counting up — `Box`, `Box.001`, `Box.002`; duplicating several objects at once is one undo step, not
+one per copy. **Bake** folds an object's position, rotation and scale
 into its geometry and resets the transform to identity, which is what you want before measuring
 something or exporting it into a frame that has to match.
 

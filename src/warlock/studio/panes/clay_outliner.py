@@ -224,7 +224,11 @@ def _row(
     width = imgui.get_content_region_avail().x - sp(28) - imgui.get_style().item_spacing.x
     if state.renaming == obj.uid:
         imgui.set_next_item_width(width)
-        name = widgets.input_text("##rename", obj.name, max_length=120)
+        # commit=True: the 2026-09-06 audit's clay-02 found this field
+        # reporting a change on every keystroke, so ``set_props`` -- an
+        # unconditional ``history.push`` -- fired once per letter typed and a
+        # lone Ctrl+Z after a rename undid one character instead of the name.
+        name = widgets.input_text("##rename", obj.name, max_length=120, commit=True)
         if name != obj.name:
             doc.set_props(obj.uid, name=name)
         if imgui.is_item_deactivated():

@@ -32,6 +32,7 @@ from test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
 
 from warlock.studio import controls, sirens_mode, undo, widgets
 from warlock.studio.panes import (
+    clay_outliner,
     clay_props,
     inker_colors,
     inker_picker,
@@ -351,6 +352,31 @@ def test_the_sirens_name_fields_commit_on_release(pane):
     source = inspect.getsource(pane)
     field = source.split('widgets.input_text(\n        "Name"', 1)[1].split(")", 1)[0]
     assert "commit=True" in field
+
+
+@pytest.mark.parametrize(
+    "func,field",
+    [
+        (clay_outliner._row, '"##rename"'),
+        (clay_props._identity, '"name##buildname"'),
+        (clay_props._palette_row, '"slot name##matname"'),
+    ],
+    ids=["outliner-rename", "properties-name", "material-slot-name"],
+)
+def test_renaming_an_object_or_material_slot_in_clay_is_one_undo_step_not_one_per_keystroke(
+    func, field
+):
+    """The 2026-09-06 audit's clay-02: the outliner's rename field, the
+    properties panel's name field and the material slot's name field each
+    called ``widgets.input_text`` with no ``commit=True``, so
+    ``doc.set_props``/``doc.set_material`` -- an unconditional
+    ``history.push`` -- fired once per keystroke instead of once per gesture.
+    Typing a four-letter name pushed four undo steps and one Ctrl+Z undid one
+    typed character rather than the rename."""
+    source = inspect.getsource(func)
+    after_field = source.split(field, 1)[1]
+    call_end = after_field.index(")")
+    assert "commit=True" in after_field[:call_end]
 
 
 # --- 6. the 2026-09-05 audit's own doors ---------------------------------------

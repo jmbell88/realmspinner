@@ -971,3 +971,131 @@ def test_repeated_textures_over_the_document_budget_are_refused(monkeypatch):
     # past the 10,000-byte document budget this test lowers.
     with pytest.raises(ValueError, match="byte budget"):
         gltf.load(data)
+
+
+# --- material and texture indices: negative and out-of-range -----------------
+#
+# The 2026-09-06 audit, findings clay-06 and clay-09: node.mesh, node.skin and
+# skin.joints were all hardened against a bad index (create-01, create2-01),
+# but a primitive's own ``material`` and a material's own texture/image/
+# bufferView references were not -- and Python's negative-index wraparound
+# means "not bounds-checked" is not even the same failure as "raises".
+
+
+def test_a_negative_material_index_falls_back_to_default_rather_than_wrapping_to_the_last_material():  # noqa: E501
+    """``prim["material"]: -1`` used to satisfy ``-1 < len(materials)`` and
+    resolve through Python's own negative-index wraparound to
+    ``materials[-1]`` -- the *last* entry in the palette -- rather than to the
+    default ``Material()`` an out-of-range positive index already falls back
+    to. No error, no log line, no toast anywhere in the call chain: the
+    primitive just came out painted with a plausible but wrong material."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        materials=[{"name": "mat0"}, {"name": "mat1"}],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": -1}]}
+        ],
+    )
+    model = gltf.load(data)
+    prim = model.meshes[0][0]
+    assert prim.material.name == "", (
+        f"expected the default material, got {prim.material.name!r} -- a "
+        "negative index wrapped onto the palette instead of falling back"
+    )
+
+
+def test_an_out_of_range_texture_index_is_refused_with_a_value_error_not_an_index_error():
+    """``glbimport.py``'s own comments say every refusal in this module is a
+    ``ValueError`` and callers key on it. A material naming a texture index
+    past the end of (or with no) ``textures`` array used to index straight
+    into the list and raise a bare ``IndexError`` instead -- the same gap
+    ``node()``/``skin()`` were hardened against for mesh/skin/joint indices."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        # No "textures" array at all -- the probe case from the finding.
+        materials=[
+            {"pbrMetallicRoughness": {"baseColorTexture": {"index": 5}}}
+        ],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}
+        ],
+    )
+    with pytest.raises(ValueError, match="texture 5"):
+        gltf.load(data)
+
+
+def test_a_negative_texture_index_is_refused_rather_than_wrapping_to_the_last_texture():
+    """Same wraparound risk as clay-06, one boundary over: ``ref["index"]: -1``
+    would satisfy an upper-bound-only check and silently resolve to the last
+    texture in the file rather than being refused."""
+    import base64
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO()
+    Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(buf, "PNG")
+    uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        images=[{"uri": uri}],
+        textures=[{"source": 0}],
+        materials=[
+            {"pbrMetallicRoughness": {"baseColorTexture": {"index": -1}}}
+        ],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}
+        ],
+    )
+    with pytest.raises(ValueError, match="texture -1"):
+        gltf.load(data)
+
+
+def test_an_out_of_range_image_index_is_refused_with_a_value_error_not_an_index_error():
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        # A texture naming an image index past the end of an empty images array.
+        textures=[{"source": 3}],
+        materials=[
+            {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}
+        ],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}
+        ],
+    )
+    with pytest.raises(ValueError, match="image 3"):
+        gltf.load(data)
+
+
+def test_an_out_of_range_buffer_view_on_an_image_is_refused_with_a_value_error_not_an_index_error():
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        # Only bufferView 0 exists (the geometry's own), so an image naming
+        # bufferView 9 is the out-of-range case.
+        images=[{"bufferView": 9}],
+        textures=[{"source": 0}],
+        materials=[
+            {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}
+        ],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}
+        ],
+    )
+    with pytest.raises(ValueError, match="bufferView 9"):
+        gltf.load(data)

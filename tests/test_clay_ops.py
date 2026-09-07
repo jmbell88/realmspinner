@@ -153,6 +153,65 @@ def test_object_ops_need_an_object_selection() -> None:
     assert clay_ops.get("duplicate").enabled(doc)
 
 
+# --- reasons (clay-07, 2026-09-06 audit) -------------------------------------
+#
+# The ``Op`` dataclass carried no explanation at all for a refusal: none of the
+# three surfaces that grey a row -- the context menu, the tools-pane buttons,
+# the Delete button -- passed anything to the ``reason``/``tooltip`` argument
+# the widgets already accept, so Merge Objects, Bridge Loops and every element
+# op (Bevel, Inset, Weld...) greyed out with nothing on screen saying why.
+
+
+def test_every_disabled_clay_op_names_the_gate_that_refused_it() -> None:
+    """A fresh, empty document refuses every op that has a non-default
+    ``enabled`` at once -- no objects, object mode, nothing selected -- which
+    is what makes this a sweep across the whole registry rather than one test
+    per op. The four ops with no gate at all (``select-all``, ``select-invert``,
+    ``select-boundary``, ``frame``) are the only ones this document does not
+    refuse, and are checked for that instead.
+    """
+    doc = bd.ClayDoc()
+    always_enabled = {"select-all", "select-invert", "select-boundary", "frame"}
+    gated = 0
+    for op in clay_ops.OPS:
+        if op.name in always_enabled:
+            assert op.enabled(doc), f"{op.name}: expected to have no gate"
+            continue
+        assert not op.enabled(doc), f"{op.name}: expected refused on an empty document"
+        assert clay_ops.reason_for(op, doc), f"{op.name}: refused with no reason"
+        gated += 1
+    # Guards the sweep itself: a registry that grew no gated ops at all would
+    # let every assertion above pass on an empty loop.
+    assert gated >= 25
+
+
+def test_a_reason_clears_the_moment_its_own_gate_passes() -> None:
+    """The sentence must track ``enabled`` rather than drift from it -- picked
+    across the shapes ``reason_for`` covers: an object selection, two visible
+    objects, an element mode, and an element selection."""
+    doc, uid = _doc()
+    duplicate = clay_ops.get("duplicate")
+    assert clay_ops.reason_for(duplicate, doc) == "Select an object first."
+    doc.select([uid])
+    assert clay_ops.reason_for(duplicate, doc) == ""
+
+    doc, first = _doc()
+    second = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box())).uid
+    join = clay_ops.get("join")
+    assert clay_ops.reason_for(join, doc) == "Select two visible objects first."
+    doc.select([first, second])
+    assert clay_ops.reason_for(join, doc) == ""
+
+    doc, uid = _doc()
+    bridge = clay_ops.get("bridge")
+    assert "Switch to edge mode" in clay_ops.reason_for(bridge, doc)
+    doc.set_element_mode("edge")
+    assert clay_ops.reason_for(bridge, doc) == "Select something first."
+    a = doc.by_uid(uid).mesh
+    doc.set_element_sel(uid, el.ElementSel(edges=[[int(a.loops[0]), int(a.loops[1])]]))
+    assert clay_ops.reason_for(bridge, doc) == ""
+
+
 # --- running ----------------------------------------------------------------
 
 
@@ -194,6 +253,35 @@ def test_every_op_that_changes_geometry_freezes_it(key: str) -> None:
 
     assert doc.by_uid(uid).generator is None
     assert doc.by_uid(uid).params == {}
+
+
+def test_bake_transform_undoes_the_mesh_and_the_transform_in_one_step() -> None:
+    """clay-11 (2026-09-06 audit): ``_bake``'s own docstring claimed "an undo
+    of a bake is two presses rather than a compound type that exists for one
+    button" -- the opposite of what ``run`` has always actually done here.
+    ``run``'s ``_one_step`` folds everything an op pushes (the mesh and the
+    transform, for Bake) into one history entry for every op without
+    exception, so a bake was already a single compound undo; only the
+    docstring disagreed with the code beside it.
+    """
+    import inspect
+
+    doc_text = inspect.getdoc(clay_ops._bake) or ""
+    assert "two presses" not in doc_text, "docstring still claims the fold skips bake"
+    assert "one" in doc_text.lower() and "compound" in doc_text.lower()
+
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[1.0, 2.0, 3.0])
+    depth = len(doc.history)
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("bake"))
+
+    assert len(doc.history) == depth + 1, "one history entry, not two"
+    assert doc.undo() is True
+    obj = doc.by_uid(uid)
+    assert np.allclose(obj.translation, [1.0, 2.0, 3.0]), "the transform came back"
+    assert obj.generator == "box", "and the mesh's generator claim came back with it"
 
 
 def test_deleting_elements_freezes_the_generator() -> None:

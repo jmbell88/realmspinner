@@ -350,6 +350,39 @@ def test_the_archive_holds_one_mesh_per_object() -> None:
     assert names == {ser.SCENE} | {f"meshes/{o.uid}.npz" for o in doc.objects}
 
 
+# --- the frame-thread/task-thread split (clay-03, 2026-09-06 audit) ----------
+
+
+def test_snapshot_bytes_of_a_snapshot_matches_wblk_bytes() -> None:
+    """``wblk_bytes`` is now just ``snapshot_bytes(snapshot(doc))`` -- the two
+    must never drift, or a caller choosing one path over the other would write
+    a different file for the same document."""
+    doc = _doc()
+    assert ser.snapshot_bytes(ser.snapshot(doc)) == ser.wblk_bytes(doc)
+
+
+def test_a_clay_snapshot_is_what_the_document_was_when_the_save_was_pressed() -> None:
+    """The document goes on being edited while a task encodes the snapshot --
+    ``wpack.snapshot``'s own claim, made here for ``ClayDoc``. ``snapshot`` is
+    the cheap frame-thread half ``clay_mode.save_to`` now takes before
+    ``ctx.submit``; ``snapshot_bytes`` is the encode a task thread runs
+    afterwards, and it must answer for the document as it was, not as it has
+    become.
+    """
+    doc = _doc()
+    before = ser.wblk_bytes(doc)
+    snap = ser.snapshot(doc)
+
+    doc.set_props(doc.objects[0].uid, name="renamed while the task ran")
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="Late", mesh=bp.box()))
+    doc.materials.append(gltf.Material(name="late-material"))
+
+    assert ser.snapshot_bytes(snap) == before
+    out = ser.read_wblk(ser.snapshot_bytes(snap))
+    assert [o.name for o in out.objects] == ["Cyl", "Hidden", "Frozen"]
+    assert len(out.materials) == 3
+
+
 # --- version 2: uvs and textures --------------------------------------------
 
 

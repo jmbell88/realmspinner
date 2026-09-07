@@ -41,10 +41,16 @@ de-duplicate on: a document whose eight objects share one baked base-colour map
 writes one PNG. A ``scene.json`` for an untextured document is v1-shaped apart
 from the version number, so the readable half stays readable.
 
-The one accepted cost is stated rather than hidden: the PNG encode runs on the
-frame thread, and at 0.2--0.5 s for a 2K map it is a visible hitch. Saves are
-explicit and infrequent, and moving the encode off-thread means either encoding
-a document the user is still editing or copying every texture first.
+The PNG encode -- 0.2--0.5 s for a 2K map -- and the mesh zip together are what
+:func:`snapshot_bytes` runs. **They no longer run on the frame thread**: the
+2026-09-06 audit (clay-03) found ``clay_mode``'s own save and export paths
+calling :func:`wblk_bytes` -- this whole module's cost -- directly, before
+``ctx.submit`` ever ran, which is exactly the frame-thread stall this format's
+byte-identity work was supposed to make affordable to pay for, not free to
+skip. :func:`snapshot` is the cheap half taken on the frame thread; only its
+already-copied text and already-built PNG tuples reach :func:`snapshot_bytes`,
+which any caller off the frame thread -- a task closure, a test, a batch
+conversion -- is free to call together as :func:`wblk_bytes` still does.
 
 **A missing texture member is refused**, exactly as a missing mesh is, and for
 the same reason: opening the file with a blank material would show the user a
@@ -296,6 +302,89 @@ def scene_json(
     return json.dumps(scene, sort_keys=True, indent=2)
 
 
+class WblkSnapshot:
+    """The frame-thread half of :func:`wblk_bytes` -- cheap, and safe to encode
+    later on another thread.
+
+    The 2026-09-06 audit (clay-03) found ``clay_mode.save_to``/``save_as``/
+    ``export_asset`` calling ``wblk_bytes`` itself before ``ctx.submit`` ran --
+    the zip-and-PNG encode this module's own docstring says runs on the frame
+    thread, done on it every time regardless. ``wpack.Snapshot`` already drew
+    this line for Packwright's atlas and this mirrors it exactly: everything
+    that is *text* is finished here, and everything that is *bytes to encode*
+    is deferred.
+
+    ``scene`` is the already-built ``scene.json`` string: assembling it walks
+    the document's own lists once (materials, per-object floats) and allocates
+    nothing large, so there is no reason to defer it, and doing it here rather
+    than in :func:`snapshot_bytes` means the task thread never reads
+    ``doc.materials`` or ``doc.objects`` at all -- both are plain lists the
+    document appends to and pops from on every edit, with no lock around
+    either.
+
+    ``meshes`` holds each object's mesh **by reference**, paired with the uid
+    that names its archive member. That is sound under INVARIANTS 312: a
+    ``Mesh`` is an immutable CSR array -- every array is copied and frozen at
+    construction, and every op is ``Mesh -> Mesh`` -- so a reference taken here
+    keeps meaning exactly what it meant when the snapshot was built, however
+    many edits land on the *live* document before the task thread gets to it.
+
+    ``images`` is the same reference-holding, for the same reason: each entry
+    is an already-built ``(width, height, bytes)`` tuple that is never mutated
+    once a material holds it -- only replaced, wholesale, by a new tuple.
+    """
+
+    __slots__ = ("scene", "meshes", "images")
+
+    def __init__(
+        self, scene: str, meshes: tuple[tuple[int, bm.Mesh], ...], images: tuple[Any, ...]
+    ) -> None:
+        self.scene = scene
+        self.meshes = meshes
+        self.images = images
+
+
+def snapshot(doc: ClayDoc, *, view: Any = None) -> WblkSnapshot:
+    """The frame-thread half of a save: cheap, and reads the document once.
+
+    ``view`` is consumed here too -- ``view_json`` turns whatever camera object
+    a caller hands in into a plain dict before this returns, so nothing about
+    the snapshot depends on that object staying alive or unchanged.
+    """
+    collected = _collect_textures(doc)
+    images, _index = collected
+    scene = scene_json(doc, collected, view=view)
+    meshes = tuple((int(obj.uid), obj.mesh) for obj in doc.objects)
+    return WblkSnapshot(scene=scene, meshes=meshes, images=tuple(images))
+
+
+def snapshot_bytes(snap: WblkSnapshot) -> bytes:
+    """The task-thread half: encode a :func:`snapshot` into a ``.wblk`` archive.
+
+    This is the whole cost :func:`wblk_bytes` used to spend on the frame
+    thread -- the zip container, one npz build per mesh, and one PNG encode
+    per texture -- run here against a snapshot that no longer touches the live
+    document at all.
+    """
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), snap.scene)
+        for uid, mesh in snap.meshes:
+            arrays = {name: getattr(mesh, name) for name in _MESH_FIELDS}
+            if mesh.uv is not None:
+                arrays["uv"] = mesh.uv
+            zf.writestr(
+                zipfile.ZipInfo(f"{MESH_DIR}/{uid}.npz", _EPOCH),
+                _npz_bytes(arrays),
+            )
+        for i, image in enumerate(snap.images):
+            info = zipfile.ZipInfo(f"{TEXTURE_DIR}/{i}.png", _EPOCH)
+            # Stored, not deflated: a PNG is already compressed, and deflating
+            # it again spends time to make it marginally bigger.
+            zf.writestr(info, _png_bytes(image), zipfile.ZIP_STORED)
+    return out.getvalue()
+
+
 def wblk_bytes(doc: ClayDoc, *, view: Any = None) -> bytes:
     """The document as the bytes of a ``.wblk`` archive.
 
@@ -303,26 +392,14 @@ def wblk_bytes(doc: ClayDoc, *, view: Any = None) -> bytes:
     site: a document written without one is byte-for-byte the file this wrote
     before the key existed, which is what keeps the format additive rather than
     versioned.
+
+    Both halves at once, for callers that are already off the frame thread --
+    a test, a batch conversion, ``clay_mode``'s own crash-recovery reader. A
+    caller *on* the frame thread wants :func:`snapshot` and :func:`snapshot_bytes`
+    split across its own ``ctx.submit``, which is what ``clay_mode.save_to``,
+    ``save_as`` and ``export_asset`` now do.
     """
-    out = io.BytesIO()
-    collected = _collect_textures(doc)
-    images, _index = collected
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(zipfile.ZipInfo(SCENE, _EPOCH), scene_json(doc, collected, view=view))
-        for obj in doc.objects:
-            arrays = {name: getattr(obj.mesh, name) for name in _MESH_FIELDS}
-            if obj.mesh.uv is not None:
-                arrays["uv"] = obj.mesh.uv
-            zf.writestr(
-                zipfile.ZipInfo(f"{MESH_DIR}/{int(obj.uid)}.npz", _EPOCH),
-                _npz_bytes(arrays),
-            )
-        for i, image in enumerate(images):
-            info = zipfile.ZipInfo(f"{TEXTURE_DIR}/{i}.png", _EPOCH)
-            # Stored, not deflated: a PNG is already compressed, and deflating
-            # it again spends time to make it marginally bigger.
-            zf.writestr(info, _png_bytes(image), zipfile.ZIP_STORED)
-    return out.getvalue()
+    return snapshot_bytes(snapshot(doc, view=view))
 
 
 # --- reading ----------------------------------------------------------------

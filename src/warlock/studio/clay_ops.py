@@ -51,6 +51,7 @@ __all__ = [
     "by_key",
     "defaults_for",
     "menu",
+    "reason_for",
     "register",
     "run",
     "run_mesh_op",
@@ -112,6 +113,16 @@ class Op:
     the parameterised ops can show it, because only they open a dialog, which
     is the right restriction: a bare action gives no moment to read anything.
     """
+    reason: Callable[[Any], str] = lambda doc: ""
+    """Why ``enabled(doc)`` is refused right now, or ``""`` when it is not.
+
+    The 2026-09-06 audit's clay-07: every refused op greyed out in the context
+    menu, the tools pane and the Delete button with nothing anywhere naming the
+    gate that refused it -- ``hint`` describes what an op *does*, not why it is
+    currently unavailable. Called only through :func:`reason_for`, which is the
+    one place that decides *whether* to call it, so a ``reason`` never needs to
+    re-check ``enabled`` itself and cannot disagree with it about that.
+    """
 
 
 OPS: list[Op] = []
@@ -143,6 +154,20 @@ def get(name: str) -> Op:
         if op.name == name:
             return op
     raise KeyError(f"no op named {name!r}")
+
+
+def reason_for(op: Op, doc: Any) -> str:
+    """Why *op* is greyed for *doc* right now, or ``""`` when it is not.
+
+    Gated on ``op.enabled`` rather than trusting ``op.reason`` to also answer
+    "whether": the sentence a caller draws must never disagree with the
+    predicate that actually decides the row, which is exactly the drift the
+    2026-09-06 audit's clay-07 finding warns against -- a reason is only ever
+    consulted once ``enabled(doc)`` has already said no.
+    """
+    if op.enabled(doc):
+        return ""
+    return op.reason(doc)
 
 
 # --- running ----------------------------------------------------------------
@@ -410,6 +435,56 @@ def in_mode(*modes: str) -> Callable[[Any], bool]:
     return check
 
 
+# --- reasons ------------------------------------------------------------
+#
+# One function per predicate above, each naming the gate that predicate
+# checks rather than restating the app's general "nothing selected" toast.
+# clay-07 (2026-09-06 audit): none of these existed, so Merge Objects, Bridge
+# Loops and every element op greyed out with nothing anywhere saying why --
+# ``op.hint`` was the only sentence attached to a disabled row, and it
+# describes what the op does rather than why it is refused. Each of these
+# answers only the "why"; :func:`reason_for` is what decides whether to ask.
+
+
+def _has_objects_reason(doc: Any) -> str:
+    return "" if has_objects(doc) else "Select an object first."
+
+
+def _any_object_reason(doc: Any) -> str:
+    return "" if any_object(doc) else "This document has no objects yet."
+
+
+def _has_elements_reason(doc: Any) -> str:
+    return "" if has_elements(doc) else "Select something in the viewport first."
+
+
+def _has_two_visible_reason(doc: Any) -> str:
+    # The manual's own wording for this gate (docs/manual/30-clay.md, "Merging
+    # objects"): "greys out unless two visible objects are selected".
+    return "" if has_two_visible(doc) else "Select two visible objects first."
+
+
+def _selection_reason(doc: Any) -> str:
+    return "" if doc.selection else "Select an object first."
+
+
+def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
+    """A reason matching :func:`in_mode`'s own two gates, in the same order --
+    the mode first, then the selection -- so the sentence shown can never
+    disagree with the row it is explaining."""
+
+    label = " or ".join(modes)
+
+    def reason(doc: Any) -> str:
+        if doc.element_mode not in modes:
+            return f"Switch to {label} mode first."
+        if not doc.element_sel:
+            return "Select something first."
+        return ""
+
+    return reason
+
+
 # --- the object-level ops (moved out of the tools pane) ---------------------
 
 
@@ -495,10 +570,18 @@ def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
 def _bake(ctx: Any, doc: Any, **_: Any) -> None:
     """Fold each selected object's transform into its geometry.
 
-    Two steps rather than one compound: the mesh and the transform are separate
-    edits in this document's vocabulary, and keeping them separate means an undo
-    of a bake is two presses rather than a compound type that exists for one
-    button.
+    Two ``doc`` calls -- ``set_mesh`` then ``set_transform`` -- because the mesh
+    and the transform are separate edits in this document's vocabulary and each
+    op should push its own kind of change rather than reach for a bake-shaped
+    special case. But ``run``'s ``_one_step`` folds everything an op pushes into
+    one history entry (the module docstring's "one press, one Ctrl+Z"), and
+    that applies here exactly as it does to every other op: **a bake is one
+    compound undo step**, and an earlier version of this docstring claimed the
+    opposite -- that undoing a bake took a second press -- which was stale the
+    day it was written (clay-11, 2026-09-06 audit): ``test_clay_ops.py``'s own
+    ``test_every_op_that_changes_geometry_freezes_it`` already runs a bake
+    through ``clay_ops.run`` and would have caught the fold landing as two
+    steps rather than one.
     """
     from .clay import ops as clay_ops_geom
 
@@ -888,6 +971,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_select_none,
             enabled=has_elements,
+            reason=_has_elements_reason,
             key="Esc",
         )
     )
@@ -907,6 +991,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_selection_op(_verb_linked),
             enabled=has_elements,
+            reason=_has_elements_reason,
             key="L",
             hint="Everything joined to what is selected. Two shapes welded into "
             "one mesh are separable again by it.",
@@ -919,6 +1004,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_selection_op(_verb_grow),
             enabled=has_elements,
+            reason=_has_elements_reason,
             key="Ctrl+=",
         )
     )
@@ -929,6 +1015,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_selection_op(_verb_shrink),
             enabled=has_elements,
+            reason=_has_elements_reason,
             key="Ctrl+-",
             hint="Peels the border off the selection, leaving its middle.",
         )
@@ -954,6 +1041,7 @@ def _register_defaults() -> None:
             modes=("object",),
             run=_duplicate,
             enabled=has_objects,
+            reason=_has_objects_reason,
             key="Ctrl+J",
             separator_before=True,
         )
@@ -966,6 +1054,7 @@ def _register_defaults() -> None:
                 modes=("object", "face"),
                 run=_shade(smooth),
                 enabled=has_objects,
+                reason=_has_objects_reason,
                 separator_before=smooth,
             )
         )
@@ -979,6 +1068,7 @@ def _register_defaults() -> None:
             # "the whole document when nothing is selected", and the tighter
             # gate made that unreachable.
             enabled=any_object,
+            reason=_any_object_reason,
             params=(
                 Param(
                     "angle",
@@ -999,6 +1089,7 @@ def _register_defaults() -> None:
             modes=("object",),
             run=_unwrap,
             enabled=has_objects,
+            reason=_has_objects_reason,
         )
     )
     register(
@@ -1008,6 +1099,7 @@ def _register_defaults() -> None:
             modes=("object",),
             run=_bake,
             enabled=has_objects,
+            reason=_has_objects_reason,
         )
     )
     register(
@@ -1022,6 +1114,7 @@ def _register_defaults() -> None:
             # that is what ``_join`` will actually merge -- a row enabled by an
             # object the merge then skips is the greyed one's problem again.
             enabled=has_two_visible,
+            reason=_has_two_visible_reason,
             key="Ctrl+M",
             # The pointer at its counterpart, here rather than in the menu: this
             # dialog is the one moment the user has committed to "make these one
@@ -1066,6 +1159,7 @@ def _register_defaults() -> None:
             modes=("object",),
             run=_union,
             enabled=has_two_visible,
+            reason=_has_two_visible_reason,
             key="Ctrl+Shift+M",
         )
     )
@@ -1077,6 +1171,7 @@ def _register_defaults() -> None:
                 modes=("object",),
                 run=(lambda a: lambda ctx, doc, **kw: mirror(ctx, doc, a, **kw))(axis),
                 enabled=has_objects,
+                reason=_has_objects_reason,
                 separator_before=axis == 0,
             )
         )
@@ -1088,6 +1183,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_extrude,
             enabled=has_elements,
+            reason=_has_elements_reason,
             key="E",
             separator_before=True,
         )
@@ -1099,6 +1195,7 @@ def _register_defaults() -> None:
             modes=("edge",),
             run=_element("ops_topo.bridge_edges"),
             enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
         )
     )
     register(
@@ -1108,6 +1205,7 @@ def _register_defaults() -> None:
             modes=("face",),
             run=_element("ops_topo.inset_faces"),
             enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
             params=(
                 Param("thickness", "thickness (m)", 0.1, 0.01),
                 Param("depth", "depth (m)", 0.0, 0.01, low=-1e6),
@@ -1121,6 +1219,7 @@ def _register_defaults() -> None:
             modes=("edge",),
             run=_element("ops_bevel.bevel_edges"),
             enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
             params=(Param("width", "width (m)", 0.05, 0.01),),
         )
     )
@@ -1131,6 +1230,7 @@ def _register_defaults() -> None:
             modes=("edge",),
             run=_element("ops_bevel.loop_cut"),
             enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
             params=(Param("t", "position", 0.5, 0.05, low=0.0, high=1.0),),
         )
     )
@@ -1141,6 +1241,7 @@ def _register_defaults() -> None:
             modes=ELEMENT_MODES,
             run=_dissolve,
             enabled=has_elements,
+            reason=_has_elements_reason,
             separator_before=True,
         )
     )
@@ -1162,6 +1263,7 @@ def _register_defaults() -> None:
             modes=("face",),
             run=_element("ops_dissolve.dissolve_faces"),
             enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
         )
     )
     register(
@@ -1171,6 +1273,7 @@ def _register_defaults() -> None:
             modes=("edge", "face"),
             run=_element("ops_topo.collapse"),
             enabled=in_mode("edge", "face"),
+            reason=_in_mode_reason("edge", "face"),
         )
     )
     register(
@@ -1180,6 +1283,7 @@ def _register_defaults() -> None:
             modes=("vertex",),
             run=_element("ops_topo.weld"),
             enabled=in_mode("vertex"),
+            reason=_in_mode_reason("vertex"),
             params=(Param("eps", "distance (m)", 1e-4, 1e-4, low=1e-9),),
         )
     )
@@ -1190,6 +1294,7 @@ def _register_defaults() -> None:
             modes=("edge",),
             run=_element("ops_topo.fill_hole"),
             enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
         )
     )
     register(
@@ -1199,6 +1304,7 @@ def _register_defaults() -> None:
             modes=("face",),
             run=_element("ops_topo.flip_normals"),
             enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
             separator_before=True,
         )
     )
@@ -1209,6 +1315,7 @@ def _register_defaults() -> None:
             modes=("face",),
             run=_element("ops_subdiv.subdivide"),
             enabled=in_mode("face"),
+            reason=_in_mode_reason("face"),
         )
     )
     register(
@@ -1218,6 +1325,7 @@ def _register_defaults() -> None:
             modes=ALL_MODES,
             run=_smooth,
             enabled=lambda doc: bool(doc.selection),
+            reason=_selection_reason,
             params=(
                 Param(
                     "levels",
@@ -1248,6 +1356,7 @@ def _register_defaults() -> None:
             modes=ALL_MODES,
             run=_delete,
             enabled=lambda doc: bool(doc.selection),
+            reason=_selection_reason,
             key="Del",
             separator_before=True,
         )

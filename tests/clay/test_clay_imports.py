@@ -47,6 +47,13 @@ OUTWARD_IMPORTS = {
     ("drag.py", "warlock.studio.viewer"),
     ("document.py", "warlock.studio.viewer"),
     ("edits.py", "warlock.studio.undo"),
+    # Added deliberately on 2026-09-06 (the audit's clay-01): deleting or
+    # duplicating a multi-object selection pushed one step per object, so one
+    # ``Delete`` took three ``Ctrl+Z`` presses and the first landed on a state
+    # the user had never made. Bundling the gesture needs ``CompoundEdit``, from
+    # the same shared history engine ``document.py`` and ``edits.py`` already
+    # reach for -- not a fourth private notion of what one step is.
+    ("selection.py", "warlock.studio.undo"),
     ("glbimport.py", "warlock.studio.viewer"),
     # H01: the declared-count preflight reads a GLB's JSON chunk before
     # ``gltf.load`` decodes anything, and ``glbio.split_glb`` is the one

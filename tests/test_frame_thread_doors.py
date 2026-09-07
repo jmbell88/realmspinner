@@ -274,6 +274,64 @@ def test_a_recovered_clay_model_that_will_not_parse_says_so(tmp_path):
     assert clay_mode._load_recovery(path, {}) is None
 
 
+def test_clay_save_to_encodes_off_the_frame_thread(tmp_path, monkeypatch):
+    """clay-03 (2026-09-06 audit): ``save_to`` called ``serialize.wblk_bytes``
+    -- the zip-and-PNG encode this module's own docstring says never runs on
+    the frame thread -- directly on the calling thread, before ``ctx.submit``
+    was ever reached; only ``atomic.write_bytes`` was inside the submitted
+    closure. Same shape as ``test_a_packwright_save_encodes_its_pngs_on_the_task``
+    above, for the sibling that already does this split correctly.
+    """
+    ctx = _ClayCtx()
+    tab = clay_tab(ctx)
+    threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
+    out = tmp_path / "scene.wblk"
+
+    clay_mode.save_to(ctx, tab, out)
+    assert ctx.submitted == [f"clay-save:{tab.uid}"]
+    assert threads == [WORKER]
+    assert clay_serialize.read_wblk(out.read_bytes()).objects[0].name == "Box"
+
+
+def test_clay_save_as_encodes_off_the_frame_thread(tmp_path, monkeypatch):
+    """The picker half of clay-03: ``save_as`` built the snapshot on the frame
+    thread (correctly, for the reason its own docstring gives -- the picker is
+    unbounded and modal) but then encoded it there too, before handing the
+    result to the picker's own task closure."""
+    ctx = _ClayCtx()
+    tab = clay_tab(ctx)
+    out = tmp_path / "scene.wblk"
+    monkeypatch.setattr(clay_mode.dialogs, "save_file", lambda *a, **k: out)
+    threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
+
+    clay_mode.save_as(ctx, tab)
+    assert ctx.submitted == [f"clay-saveas:{tab.uid}"]
+    assert threads == [WORKER]
+    assert clay_serialize.read_wblk(out.read_bytes()).objects[0].name == "Box"
+
+
+def test_clay_export_asset_encodes_off_the_frame_thread(svc, monkeypatch):
+    """The other half of clay-03: ``export_asset`` also built its GLB
+    (``glbwrite.write_glb``) on the calling thread, ahead of ``wblk_bytes``.
+    Both encodes now run inside ``run()``, against a real service so the job
+    it mints and the sidecar it writes are checked as well as the thread."""
+    from warlock.service import files as svc_files
+    from warlock.studio.viewer import glbwrite
+
+    ctx = _ClayCtx()
+    ctx.svc = svc
+    tab = clay_tab(ctx)
+    glb_threads = _spy(monkeypatch, glbwrite, "write_glb")
+    wblk_threads = _spy(monkeypatch, clay_serialize, "snapshot_bytes")
+
+    clay_mode.export_asset(ctx, tab)
+    assert ctx.submitted == [f"clay-export:{tab.uid}"]
+    assert glb_threads == [WORKER]
+    assert wblk_threads == [WORKER]
+    job_id = ctx.result["job_id"]
+    assert svc_files.clay_source_status(svc, job_id)["exists"] is True
+
+
 def test_the_clay_uid_counter_survives_a_reserve_from_a_task_thread():
     """``reserve_uid`` swaps the counter out from under ``new_uid``; both hold
     the lock now, and a burst from both sides mints no duplicate."""

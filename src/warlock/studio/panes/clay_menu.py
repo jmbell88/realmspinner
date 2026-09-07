@@ -67,7 +67,15 @@ def _rows(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
     for op in clay_ops.menu(doc.element_mode):
         if op.separator_before:
             controls.menu_separator()
-        clicked, _ = controls.menu_item(op.label, op.key, False, op.enabled(doc) and not tab.saving)
+        enabled = op.enabled(doc) and not tab.saving
+        # A saving document greys everything for one shared reason (the
+        # "Saving..." row above); an op's own reason only applies once that
+        # gate has already passed. clay-07 (2026-09-06 audit): this row used to
+        # grey out with no reason at all, for every op that refuses -- Merge
+        # Objects needing two visible objects, Bridge Loops needing edge mode,
+        # every bevel/inset/weld needing an element selection.
+        reason = "" if tab.saving else clay_ops.reason_for(op, doc)
+        clicked, _ = controls.menu_item(op.label, op.key, False, enabled, reason=reason)
         if not clicked:
             continue
         if op.params:

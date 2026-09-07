@@ -21,6 +21,41 @@ the release you are actually running.
 The slow parts got faster without a line of C, and the sprite ceiling came
 back.
 
+- **Clay's undo stopped lying about what one keystroke did.** Deleting or
+  duplicating a multi-object selection pushed one history step *per object*, so
+  three boxes and one `Delete` took three `Ctrl+Z` presses to undo -- and the
+  first press landed on a two-deleted state the user had never created. Both
+  now push one compound step, as the figure-insert path already did. Renaming
+  was worse in the other direction: the outliner's name field, the properties
+  panel's, and a material slot's each pushed a step *per keystroke*, so a
+  four-letter name cost four steps out of a 64-entry stack and one `Ctrl+Z`
+  took back a single character. All three now commit on leaving the field,
+  which is what `widgets.input_text`'s `commit` flag was added for.
+- **Saving a Clay document no longer stalls the window.** `clay_mode.py` has
+  said at the top of the file since it was written that no encode runs on the
+  frame thread; `save_to`, `save_as` and `export_asset` each built the entire
+  `.wblk` zip -- every mesh, every texture PNG -- before handing the task the
+  disk write. 25.8 ms for forty spheres with no textures at all, and a textured
+  document is worse. The encode now runs where the docstring always said it did.
+- **A greyed Clay op says why.** Merge Objects, Union Objects, Bridge Loops,
+  Bevel, Inset and Weld all greyed out in silence, leaving the manual as the
+  only place their rule was written down. Each now names the gate that refused
+  it, derived from the same predicate that greys the row so the sentence cannot
+  drift from the truth.
+- **A torus stopped accepting a tube wider than its own radius.** The generator
+  said the properties panel clamped the pair; the panel said the generator
+  raised on it; neither did, and the self-intersecting shape was one keystroke
+  away. The related half is that generators clamp their floors internally and
+  the panel stored the number the user *typed*, so a `.wblk` could save a
+  segment count the geometry had never used and a rebuild from it did nothing.
+  Both close on one function, `primitives.clamp_params`, applied before the
+  build.
+- **A corrupt GLB can no longer wear the wrong colour.** A primitive declaring
+  a negative material index wrapped onto the *last* entry in the palette rather
+  than falling back to the default -- no error, no log line. An out-of-range
+  texture, image or bufferView index raised a bare `IndexError` where every
+  other boundary in that loader raises a named refusal. Both are refused now,
+  negative indices included.
 - **Packwright packs 4096 sprites again.** 0.0.31 cut the ceiling to 1024
   because one pack of 4096 took 190 seconds. The cost was the free-rectangle
   prune re-checking every pair per placement when, after any prune, no

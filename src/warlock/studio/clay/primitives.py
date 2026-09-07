@@ -60,11 +60,17 @@ job -- it reverses the loops to keep the winding honest, which a generator
 handed a negative number cannot do on the caller's behalf.
 
 Every face comes back **flat-shaded on material zero**. Flat rather than smooth
-on the curved shapes deliberately: ``smooth`` is per-face and a shading tool
-sets it later, and until there is one, faceted geometry that tells the truth
-about the mesh it is about to export beats a rounded lie about a sixteen-sided
-cylinder. Axes are glTF's -- Y up, right-handed -- because that is the space
-the viewer, the exporter and everything downstream of Clay already speak.
+on the curved shapes deliberately: ``smooth`` is per-face, and shading a curved
+primitive on the caller's behalf would be a guess about a decision that
+belongs to the person about to make it explicitly, with Shade Smooth, Shade
+Flat or auto-smooth-by-angle (``clay_ops.py``). A generator that guessed wrong
+would look identical to one that guessed right until the object was exported,
+so faceted geometry that tells the truth about the mesh as placed is the
+honest default to hand over -- not a stand-in for a tool that does not exist,
+but the one starting point that never disagrees with what a properties panel
+or an export actually contains. Axes are glTF's -- Y up, right-handed --
+because that is the space the viewer, the exporter and everything downstream
+of Clay already speak.
 """
 
 from __future__ import annotations
@@ -97,6 +103,65 @@ MIN_DIVISIONS = 1
 # undo stack holds two meshes per step, so an unbounded integer field is one
 # keystroke away from a multi-second stall on a control that is being *typed*.
 MAX_SUBDIVISIONS = 5
+
+
+def _clamp_segments(value: Any) -> int:
+    """The floor every ring-and-cap generator applies to its own count."""
+    return max(int(value), MIN_SEGMENTS)
+
+
+def _clamp_rings(value: Any) -> int:
+    """The floor ``uv_sphere`` and ``capsule`` apply to their latitude bands."""
+    return max(int(value), MIN_RINGS)
+
+
+def _clamp_divisions(value: Any) -> int:
+    """``grid``'s own floor -- one, not :data:`MIN_SEGMENTS`; see its constant."""
+    return max(int(value), MIN_DIVISIONS)
+
+
+def _clamp_subdivisions(value: Any) -> int:
+    """``icosphere``'s own floor and ceiling."""
+    return min(max(int(value), 0), MAX_SUBDIVISIONS)
+
+
+# Which key names the properties panel must clamp before calling a generator,
+# and how -- see clamp_params. Keyed on parameter name rather than generator,
+# because each of these floors is the same operation wherever the name
+# appears (``torus`` clamps both its ``segments`` and its ``sides`` this way),
+# not a property of any one shape.
+_KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
+    "segments": _clamp_segments,
+    "sides": _clamp_segments,
+    "rings": _clamp_rings,
+    "divisions": _clamp_divisions,
+    "subdivisions": _clamp_subdivisions,
+}
+
+
+def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
+    """The values ``GENERATORS[generator][1]`` will actually build from ``params``.
+
+    The 2026-09-06 audit's clay-05 finding: every generator clamps its own low
+    end internally (a segment count of zero is raised to :data:`MIN_SEGMENTS`
+    before a single vertex is placed) without reporting it back, so the
+    properties panel was saving the number the user *typed* rather than the
+    one the mesh was built from -- a saved document's params could disagree
+    with its own geometry. This mirrors those floors so a caller can match
+    them before the build, not discover them after it.
+
+    It also carries ``torus``'s relational clamp -- clay-04: a ``tube`` wider
+    than its ``radius`` self-intersects, which the generator's own docstring
+    says is "the properties panel's business (a soft clamp on the tube
+    slider)" and which, until this function, no code anywhere actually did.
+    """
+    out = dict(params)
+    for key, clamp in _KEY_CLAMPS.items():
+        if key in out:
+            out[key] = clamp(out[key])
+    if generator == "torus" and "tube" in out and "radius" in out:
+        out["tube"] = min(abs(float(out["tube"])), abs(float(out["radius"])))
+    return out
 
 
 def _mesh(
@@ -243,7 +308,7 @@ def plane(size: Sequence[float] = (1.0, 1.0)) -> Mesh:
 
 def cylinder(radius: float = 0.5, height: float = 1.0, segments: int = 16) -> Mesh:
     """A tube with an n-gon cap at each end, axis along Y."""
-    n = max(int(segments), MIN_SEGMENTS)
+    n = _clamp_segments(segments)
     r, h = abs(float(radius)), abs(float(height)) * 0.5
     positions = np.concatenate([_ring(r, -h, n), _ring(r, +h, n)])
     faces = _side_quads(0, n, n)
@@ -271,7 +336,7 @@ def cone(radius: float = 0.5, height: float = 1.0, segments: int = 16) -> Mesh:
     every face is flat-shaded anyway -- ``render_arrays`` splits a flat face's
     corners on the way to the GPU regardless.
     """
-    n = max(int(segments), MIN_SEGMENTS)
+    n = _clamp_segments(segments)
     r, h = abs(float(radius)), abs(float(height)) * 0.5
     positions = np.concatenate([_ring(r, -h, n), [[0.0, +h, 0.0]]])
     apex = n
@@ -298,8 +363,8 @@ def uv_sphere(radius: float = 0.5, segments: int = 16, rings: int = 8) -> Mesh:
     coincident corners -- a degenerate quad survives ``validate`` and then
     produces a zero-area triangle in every consumer downstream of it.
     """
-    n = max(int(segments), MIN_SEGMENTS)
-    m = max(int(rings), MIN_RINGS)
+    n = _clamp_segments(segments)
+    m = _clamp_rings(rings)
     r = abs(float(radius))
 
     top, bottom = 0, 1 + (m - 1) * n
@@ -361,12 +426,16 @@ def torus(
     here.** The mesh stays valid, closed and outward-wound -- the tube simply
     passes through its own axis -- so there is no geometric rule to enforce, and
     the two are legitimately independent right up to the point where they are
-    not. Keeping the pair sane is the properties panel's business (a soft clamp
-    on the tube slider), which is the same division of labour as ``segments``:
-    the generator refuses only what it cannot represent.
+    not. Keeping the pair sane is :func:`clamp_params`' business, which every
+    caller that stores what a user typed applies *before* ``build``: this
+    docstring used to send that job to the properties panel, and the panel used
+    to say the generator raised on the pair, so the clamp existed in neither
+    place and a self-intersecting torus was one keystroke away (the 2026-09-06
+    audit, finding clay-04). The generator itself still refuses only what it
+    cannot represent, which is the same division of labour as ``segments``.
     """
-    n = max(int(segments), MIN_SEGMENTS)
-    k = max(int(sides), MIN_SEGMENTS)
+    n = _clamp_segments(segments)
+    k = _clamp_segments(sides)
     R, r = abs(float(radius)), abs(float(tube))
 
     theta = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)[:, None]
@@ -427,7 +496,7 @@ def grid(size: Sequence[float] = (1.0, 1.0), divisions: int = 4) -> Mesh:
     faces it happens to be made of.
     """
     hx, hz = (abs(float(s)) * 0.5 for s in size)
-    n = max(int(divisions), MIN_DIVISIONS)
+    n = _clamp_divisions(divisions)
     xs = np.linspace(-hx, +hx, n + 1)
     zs = np.linspace(+hz, -hz, n + 1)
     positions = np.array(
@@ -489,8 +558,8 @@ def capsule(
     a tenth of the square. ``u`` runs to exactly 1 on the last column, per
     corner, for the reason the cylinder's does.
     """
-    n = max(int(segments), MIN_SEGMENTS)
-    m = max(int(rings), MIN_RINGS)
+    n = _clamp_segments(segments)
+    m = _clamp_rings(rings)
     r, h = abs(float(radius)), abs(float(height)) * 0.5
 
     # The profile, north to south, as (ring radius, y). The two poles are the
@@ -675,7 +744,7 @@ def icosphere(radius: float = 0.5, subdivisions: int = 2) -> Mesh:
     there. Zero is the bare icosahedron, which is a legitimate shape to place.
     """
     r = abs(float(radius))
-    depth = min(max(int(subdivisions), 0), MAX_SUBDIVISIONS)
+    depth = _clamp_subdivisions(subdivisions)
     verts = [np.asarray(v, dtype="f8") / np.linalg.norm(v) for v in _ICO_VERTS]
     faces = [tuple(f) for f in _ICO_FACES]
     for _ in range(depth):
@@ -717,7 +786,7 @@ def pyramid(base: float = 1.0, height: float = 1.0, sides: int = 4) -> Mesh:
     to lie about. The two generators ship separately because the shapes are
     different objects to a modeller, not because the code could not be shared.
     """
-    n = max(int(sides), MIN_SEGMENTS)
+    n = _clamp_segments(sides)
     # ``base`` is the flat-to-flat width, so the circumradius is the apothem
     # over ``cos(pi / n)``. At n = 4 that is the half-diagonal of the square.
     half = abs(float(base)) * 0.5
@@ -784,7 +853,7 @@ def arch(
     raised to it. ``thickness`` is likewise held inside the head's radius: a
     wall as thick as the arch is wide has no opening left to be an arch of.
     """
-    n = max(int(segments), MIN_SEGMENTS)
+    n = _clamp_segments(segments)
     r_out = abs(float(width)) * 0.5
     # The head is a semicircle of the full half-width, so the crown is at
     # ``springline + r_out``: a height below the radius has no leg to stand on
@@ -916,7 +985,7 @@ def column(
     would accept every bit of it -- the inside-out failure a negative height
     causes, arriving here through two perfectly positive numbers.
     """
-    n = max(int(segments), MIN_SEGMENTS)
+    n = _clamp_segments(segments)
     r = abs(float(radius))
     h = abs(float(height))
     half = h * 0.5

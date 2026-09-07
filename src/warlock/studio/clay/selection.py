@@ -76,12 +76,35 @@ def delete_selected(doc: Any) -> list[str]:
     misreading of one keystroke -- the more so because the object selection in
     an element mode is derived from the element selection, so every object with
     anything selected inside it would go.
+
+    The object-mode branch pushes one ``CompoundEdit`` for the whole selection
+    rather than one ``ObjectRemoveEdit`` per ``remove_object`` call, the same
+    shape :meth:`~.document.ClayDoc.join_objects` already uses -- the
+    2026-09-06 audit (finding clay-01) found that selecting three objects and
+    pressing Delete once took three presses of Ctrl+Z to undo, landing on a
+    two-deleted/one-restored state the user never produced. The removals are
+    recorded in *descending* index order for ``join_objects``'s own reason: a
+    ``CompoundEdit`` undoes in reverse, which re-inserts them ascending, which
+    is the only order in which every recorded index is still correct.
     """
     from . import ops_topo
+    from .edits import ObjectRemoveEdit
 
     if doc.element_mode == "object":
-        for uid in list(doc.selection):
-            doc.remove_object(uid)
+        from ..undo import CompoundEdit
+
+        doomed = sorted({int(u) for u in doc.selection}, key=doc.index_of, reverse=True)
+        if not doomed:
+            return []
+        edits: list[Any] = []
+        for uid in doomed:
+            index = doc.index_of(uid)
+            obj = doc.objects.pop(index)
+            doc.selection.discard(uid)
+            doc.element_sel.pop(uid, None)
+            edits.append(ObjectRemoveEdit(index, obj))
+        doc.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
+        doc.touch()
         return []
     refusals: list[str] = []
     for uid in list(doc.element_sel):
@@ -103,17 +126,23 @@ def duplicate_selected(doc: Any) -> list[int]:
 
     ``taken`` grows as it goes so two copies of one name in a single press do
     not both land on ``Box.001``.
+
+    Built and inserted through :meth:`~.document.ClayDoc.add_objects` rather
+    than one ``add_object`` call per copy, for ``add_objects``'s own reason:
+    the 2026-09-06 audit (finding clay-01) found that duplicating three
+    selected objects pushed three ``ObjectAddEdit`` steps, so one Ctrl+Z
+    undid only one of the three copies the single keypress had just made.
+    ``add_objects`` already selects everything it inserts and is a no-op on
+    an empty list, so an empty selection here pushes nothing.
     """
     from . import document as bd
     from . import ops
 
     taken = [obj.name for obj in doc.objects]
-    fresh = []
+    copies = []
     for uid in list(doc.selection):
         copy = ops.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
         taken.append(copy.name)
-        doc.add_object(copy)
-        fresh.append(copy.uid)
-    if fresh:
-        doc.select(fresh)
-    return fresh
+        copies.append(copy)
+    doc.add_objects(copies)
+    return [copy.uid for copy in copies]

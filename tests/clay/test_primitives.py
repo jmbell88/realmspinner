@@ -749,3 +749,38 @@ def test_every_generated_mesh_starts_flat_shaded_on_material_zero() -> None:
         mesh = _default(name)
         assert not mesh.smooth.any()
         assert not mesh.material.any()
+
+
+# --- clamp_params: what the properties panel stores -------------------------
+#
+# The 2026-09-06 audit's clay-04 and clay-05 findings, both about the gap
+# between what the properties panel *saves* and what the generator actually
+# *built*. ``torus``'s own docstring says a self-intersecting tube-vs-radius
+# pair is "the properties panel's business (a soft clamp on the tube slider)"
+# -- clay-04 found no such clamp anywhere. And every generator clamps its own
+# low end internally (``n = max(int(segments), MIN_SEGMENTS)``) without
+# reporting it back, so the panel saved the number the user typed rather than
+# the one the mesh was built from -- clay-05. ``clamp_params`` is the one
+# place both are fixed: it is what the panel now calls before ``build`` and
+# before ``set_generator_params``.
+
+
+def test_the_torus_tube_field_is_clamped_against_its_radius() -> None:
+    clamped = bp.clamp_params(
+        "torus", {"radius": 0.35, "tube": 1.5, "segments": 24, "sides": 12}
+    )
+    assert clamped["tube"] <= clamped["radius"]
+
+
+def test_a_clamped_generator_value_is_stored_as_the_value_that_was_built() -> None:
+    raw = {"radius": 0.35, "tube": 0.15, "segments": 0, "sides": 0}
+    clamped = bp.clamp_params("torus", raw)
+    assert clamped["segments"] == bp.MIN_SEGMENTS
+    assert clamped["sides"] == bp.MIN_SEGMENTS
+    # The clamp is not cosmetic: building from the clamped numbers must be the
+    # same mesh ``torus`` already silently builds from the raw ones, or the
+    # panel would be saving a description of a *different* shape.
+    from_raw = bp.torus(**raw)
+    from_clamped = bp.torus(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)

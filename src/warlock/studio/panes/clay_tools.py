@@ -290,10 +290,19 @@ def _actions(ctx: Any, state: Any, doc: Any) -> None:
             # click drew a live red button that did nothing -- and this is the
             # one button where "nothing happened" is hardest to tell apart from
             # "something irreversible happened".
-            if widgets.destructive_button(f"{icons.TRASH} {label}", enabled=enabled):
+            if _destructive_button(
+                f"{icons.TRASH} {label}", enabled, clay_ops.reason_for(op, doc)
+            ):
                 clay_ops.run(ctx, doc, op)
             continue
-        if widgets.disabled_button(f"{label}##clayop{op.name}", enabled):
+        # clay-07 (2026-09-06 audit): a greyed row here used to say nothing
+        # about why -- ``op.hint`` describes what the op does, not why it is
+        # currently refused, and it is the only sentence a disabled action
+        # used to carry. ``reason_for`` is derived from the same ``enabled``
+        # predicate this row already greys on, so it cannot drift from it.
+        if widgets.disabled_button(
+            f"{label}##clayop{op.name}", enabled, reason=clay_ops.reason_for(op, doc)
+        ):
             _invoke(ctx, doc, op)
         # The key *and* the sentence. ``Op.hint`` was written for the dialog a
         # parameterised op opens, which means the explanation of what an op is
@@ -306,6 +315,28 @@ def _actions(ctx: Any, state: Any, doc: Any) -> None:
             imgui.same_line()
         else:
             imgui.new_line()
+
+
+def _destructive_button(label: str, enabled: bool, reason: str) -> bool:
+    """``widgets.destructive_button``, with a reason shown while it is grey.
+
+    ``destructive_button`` takes no ``reason`` argument the way
+    ``disabled_button`` does -- and ``widgets.py`` carries the user's own
+    uncommitted work as of the 2026-09-06 audit, so clay-07's fix for the
+    Delete button is drawn here instead of adding a parameter there. The
+    hover has to be asked for with ``allow_when_disabled``, the same reason
+    ``disabled_button`` asks for it that way: imgui swallows hover on a
+    disabled item, which is exactly the state whose explanation matters.
+    """
+    clicked = widgets.destructive_button(label, enabled=enabled)
+    if not enabled and reason:
+        try:
+            hovered = imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value)
+        except (AttributeError, RuntimeError, TypeError):
+            hovered = False
+        if hovered:
+            imgui.set_tooltip(reason)
+    return clicked
 
 
 def _invoke(ctx: Any, doc: Any, op: Any) -> None:
