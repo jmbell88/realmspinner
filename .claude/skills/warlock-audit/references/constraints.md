@@ -2,6 +2,13 @@
 
 These rules are not advice. Each one is a recorded incident in this repository.
 
+- **There is one orchestrator and you are not it.** Do not spawn subagents, do not use the
+  Agent tool, do not start another audit or another fix pass. Several explorers are reading
+  this tree at the same time as you; a second layer of them would duplicate the reading,
+  hide the coverage and put two writers in one file. You return records or a fix and nothing
+  else: the audit file, `TODO.md`, `docs/INVARIANTS.md`, `CHANGELOG.md`, the manual and the
+  commit belong to the session that launched you. A defect outside the files you were given
+  is still worth reporting — point `where` at the real file and let the merge decide.
 - **Git is read-only for you.** Never run `git stash`, `git checkout`, `git reset`,
   `git restore`, `git clean`, `git add` or `git commit`. On 2026-09-04 a fixer ran
   `git stash` to compare pre-fix behaviour and reverted nine other agents' edits and the

@@ -13,9 +13,10 @@ before the next installer build").
 **N findings: C Critical, H High, M Medium, L Low; K human-only.**
 
 Audited: version **X.Y.Z**, working tree at **`<short hash>`**. Dirty at start:
-`<git status --short output, or "clean">`. Scope: `<scope arg>` → slices
-`<list>`. `uv run ruff check .`: `<result>`. The suite was not run by this audit; findings
-are from reading and from the offline probes below.
+`<git status --short output, or "clean">`. Scope: `<scope arg>` → slices `<list>`, split
+into `<N>` segments and one explorer each (`<slice>`: `<segment keys>`).
+`uv run ruff check .`: `<result>`. The suite was not run by this audit; findings are from
+reading and from the offline probes below.
 
 **Vocabulary.** *Critical*: crash, data loss, or corrupts a document. *High*: a wrong
 result the user will hit, or a promise in the docs the code breaks. *Medium*: a defect
@@ -27,7 +28,7 @@ a demonstrated failure.
 
 **Second-look.** Every Critical and High below was re-read by the orchestrator against
 the working tree. Dropped or downgraded during merge: `<ids and one reason each, or
-"none">`.
+"none">`. Merged from two segments that saw one defect from two sides: `<ids, or "none">`.
 
 ## Critical
 
@@ -57,8 +58,11 @@ to `TODO.md` in the fix phase and are not counted as open here.
 
 ## Coverage
 
-- Slices run: `<list>`; slices skipped: `<list and why>`.
-- Explorers that failed or timed out, and the files that left uncovered: `<or none>`.
+- Slices and segments run: `<slice: every segment key, for each slice>`; slices or segments
+  skipped: `<list and why>`. A segment that was never launched is named here.
+- Explorers that failed or timed out, and the segment and files that left uncovered:
+  `<or none>`.
+- Files a segment owned but did not open, and why: `<or none>`.
 - Checklist items not evaluable in this scope: `<or none>`.
 - Not done by this audit: no interactive pass, no fresh install, no GPU inference, no
   third-party editor validation, no dependency-advisory scan. A passing suite does not
