@@ -77,6 +77,45 @@ def test_the_polling_reader_does_not_deadlock_a_native_import():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the deadlock is a Win32 one")
+def test_lines_from_caps_a_single_read_at_the_pipes_reported_size(monkeypatch):
+    """pipelines-04 (2026-09-07 audit): ``PeekNamedPipe``'s byte count went
+    straight into ``os.read`` with nothing bounding it -- the one uncapped
+    read in a module whose whole purpose is controlling how stdin is read.
+    A byte count far past any request line this protocol actually sends must
+    not be requested from the OS in a single call.
+    """
+    from warlock.pipelines import _workerio as workerio
+
+    class _FakeStdin:
+        def fileno(self):
+            return 0
+
+    calls = {"n": 0}
+    sizes: list[int] = []
+
+    def fake_peek(_handle):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return 50_000_000  # far larger than any real request line
+        return -1  # parent closed after the one line is read
+
+    def fake_read(_fd, size):
+        sizes.append(size)
+        return b"cancel\n"
+
+    monkeypatch.setattr(workerio, "peek_stdin", fake_peek)
+    monkeypatch.setattr(workerio.os, "read", fake_read)
+
+    lines = list(workerio.lines_from(_FakeStdin()))
+
+    assert lines == ["cancel\n"]
+    assert sizes[0] <= workerio.MAX_STDIN_CHUNK, (
+        f"os.read was asked for {sizes[0]} bytes in one call, "
+        f"above the {workerio.MAX_STDIN_CHUNK} cap"
+    )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the deadlock is a Win32 one")
 def test_the_naive_blocking_reader_still_reproduces_the_deadlock():
     """The guard above is only meaningful while the thing it guards is real.
 

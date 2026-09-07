@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from ... import rigging
+from ...pipelines import charsheet
 from .. import forms, tokens, troupe_mode, verbs, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -293,14 +294,21 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
 
     busy = ctx.busy("troupe-start")
     count = cell_count(form)
-    ready = bool(form["prompt"].strip()) and 0 < count <= 512
+    # The 2026-09-07 audit (troupe-05) found these ladders restated as bare
+    # numbers -- ``charsheet.MAX_CELLS``/``WARN_CELLS`` are the door's own
+    # limits, and a pane that quotes them from memory is a pane that goes
+    # stale the day the door's number moves.
+    ready = bool(form["prompt"].strip()) and 0 < count <= charsheet.MAX_CELLS
     if busy:
         widgets.busy("Drawing the reference")
     if widgets.disabled_button(
         "Draw the reference",
         not busy and ready,
         (-1, 0),
-        reason="Describe the character and select a layout of at most 512 cells."
+        reason=(
+            f"Describe the character and select a layout of at most "
+            f"{charsheet.MAX_CELLS} cells."
+        )
         if not ready
         else "A reference is already being queued.",
     ):
@@ -309,5 +317,7 @@ def _submit(ctx: Any, form: dict[str, Any]) -> None:
         f"One image, and then it stops. After approval, the mesh, rig, and "
         f"{count} rendered cells follow."
     )
-    if count > 256:
-        widgets.muted("Large sheet: over 256 cells can take substantially longer.")
+    if count > charsheet.WARN_CELLS:
+        widgets.muted(
+            f"Large sheet: over {charsheet.WARN_CELLS} cells can take substantially longer."
+        )

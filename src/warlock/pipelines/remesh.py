@@ -123,5 +123,10 @@ def report_line(report: Any) -> str | None:
     tail = f", baked at {size} px" if size else ""
     verdict = report.get("tiercheck") or {}
     if verdict.get("ok") is False:
-        tail += "; lost: " + ", ".join(verdict.get("failures") or ()) or "; lost something"
+        # The 2026-09-07 audit found this unparenthesised: `+` binds tighter
+        # than `or`, so "; lost: " + "".join(()) was the non-empty string
+        # "; lost: " and the "or" fallback could never fire, even with an
+        # empty or missing failures list. *Reproduced* (test_remesh.py).
+        failures = verdict.get("failures") or ()
+        tail += ("; lost: " + ", ".join(failures)) if failures else "; lost something"
     return head + tail

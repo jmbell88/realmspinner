@@ -116,6 +116,25 @@ def heights(
     # share slot's own floor first when the two cannot both be met: the
     # alternative is a pane with a heading and nothing under it.
     fill_floors = sum(sp(slot.floor, scale) for slot in fills)
+    # **A share's own floor is reserved against the shares after it, the way
+    # the fill's floor is reserved against every share above it.** Before
+    # this, only the *current* share's floor and the fill's floor bounded a
+    # share's ``want``, so a second floored share was invisible to the first
+    # one's headroom -- the 2026-09-07 audit's shell-04: at avail=200,
+    # Inker's Tools (floor 124) and Tiles (floor 140) each won their own
+    # ``max(floor, ...)`` in turn and the column returned ``[124, 140, 0]``,
+    # 264 px into a 200 px column, with Save/Export's Generation pane and
+    # everything below it drawn past the column's actual bottom edge.
+    # ``share_floor_total`` is what every share will demand at minimum;
+    # ``share_scale`` shrinks every floor proportionally, and only when the
+    # floors alone cannot fit the room, so the ordinary case (floors that fit)
+    # is untouched. A share's floor still outranks the fill's -- "a pane with
+    # a heading and nothing under it" -- so the fill's reservation gives way
+    # first, down to zero, before any share floor is shrunk.
+    share_floor_total = sum(sp(slot.floor, scale) for slot in slots if slot.sizing == SHARE)
+    share_scale = min(1.0, room / share_floor_total) if share_floor_total > 0 else 1.0
+    fill_floor_reserve = min(fill_floors, max(0.0, room - share_floor_total))
+    remaining_share_floor = share_floor_total * share_scale
     # **A share's default is an even division of the column, not a flat half.**
     # It was 0.5 whatever the column held, which is exactly right for the one
     # shape it was written against -- one share over one fill -- and wrong for
@@ -139,9 +158,13 @@ def heights(
             out.append(sp(slot.height, scale))
             continue
         if slot.sizing == SHARE:
+            own_floor = sp(slot.floor, scale) * share_scale
+            # What is left for every SHARE not yet visited, so this one
+            # cannot spend room a later floor already owns.
+            remaining_share_floor -= own_floor
             want = room * float(shares.get(slot.share_key, default))
-            headroom = max(0.0, room - taken - fill_floors)
-            want = max(sp(slot.floor, scale), min(want, headroom))
+            headroom = max(0.0, room - taken - fill_floor_reserve - remaining_share_floor)
+            want = max(own_floor, min(want, headroom))
             taken += want
             out.append(want)
             continue

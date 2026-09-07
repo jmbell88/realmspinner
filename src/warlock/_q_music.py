@@ -110,6 +110,18 @@ def _task_kwargs(params: dict[str, Any], job_dir: Any) -> dict[str, Any]:
         # window to the whole duration itself for this task, so sending one
         # here would be a second, disagreeing spelling of the same thing.
         out["retake_variance"] = float(params.get("retake_variance", 0.5))
+        # The 2026-09-07 audit found this branch sent only the variance and
+        # never the stored ``retake_seed``: at the default 0.5 variance
+        # roughly 70% of the blended noise was unseeded, so no retake could be
+        # reproduced and ``derive_music_job``'s seed walk plus ``rerun_job``'s
+        # re-roll of it (INVARIANTS.md's Muse paragraph) were dead weight.
+        # Upstream takes a *list* (``retake_seeds``, one entry per batch
+        # member) the same way ``MusicClient.generate`` turns a bare ``seed``
+        # into ``manual_seeds`` -- absent when the row predates this fix, so
+        # ``set_seeds`` draws fresh exactly as it always has.
+        retake_seed = params.get("retake_seed")
+        if retake_seed is not None:
+            out["retake_seeds"] = [int(retake_seed)]
         return out
 
     out["src_audio_path"] = str(source)

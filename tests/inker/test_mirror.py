@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import mirror
+from warlock.studio.inker import composite, mirror
 
 
 def _sprite(size: int = 16) -> np.ndarray:
@@ -111,6 +111,35 @@ def test_translate_within_clips_rather_than_wrapping():
     weight[0, 3] = 255
     out = mirror.translate_within(plane, weight, 1, 0)
     assert out[..., 3].sum() == 0
+
+
+def test_translate_within_composites_a_feathered_lift_the_way_the_rest_of_the_package_does():
+    """The 2026-09-07 audit (inker-04): a feathered lift crossed-faded all four
+    channels linearly instead of folding the weight into alpha and letting
+    ``composite.over`` do the compositing, so shifting a feathered selection
+    onto a non-empty (here, partially transparent) pixel baked the wrong
+    colour into the result. The expected pixel is computed from the package's
+    own rule -- ``composite.over`` on the two straight-alpha pixels involved,
+    the destination untouched and the lift with only its alpha scaled by the
+    weight -- not from a hand-derived number. Reproduced against the unfixed
+    code: got ``(192, 0, 63, 224)`` where this computation gives
+    ``(219, 0, 36, 224)``."""
+    plane = np.zeros((4, 4, 4), np.uint8)
+    plane[0, 0] = (255, 0, 0, 255)  # the source pixel, opaque red
+    plane[0, 1] = (0, 0, 255, 128)  # the destination, non-empty and half-transparent
+    weight = np.zeros((4, 4), np.uint8)
+    weight[0, 0] = 192  # a feathered selection, not an all-or-nothing one
+
+    out = mirror.translate_within(plane, weight, 1, 0)
+
+    fade = 192 / 255.0
+    lifted_alpha = round(255 * fade)
+    backdrop = np.array([[[0, 0, 255, 128]]], dtype=np.uint8)  # the destination, untouched
+    source = np.array([[[255, 0, 0, lifted_alpha]]], dtype=np.uint8)  # the lift, alpha-only fade
+    expected = composite.to_uint8(
+        composite.over(composite.to_float(backdrop), composite.to_float(source))
+    )[0, 0]
+    assert tuple(out[0, 1]) == tuple(expected)
 
 
 def test_shapes_are_checked_by_name():

@@ -143,3 +143,55 @@ def test_the_editor_offers_no_reordering():
     source = inspect.getsource(plotter_tileset_editor)
     assert "move_tileset" not in source
     assert "reorder" not in source.lower().split('"""')[2]
+
+
+# --- one gesture, one undo step (the 2026-09-07 audit, plotter-01) ----------
+
+
+def test_tileset_editor_tile_class_and_duration_and_wang_name_typing_is_one_undo_step():
+    """``set_tile_meta``/``set_wang_colour`` push an unconditional
+    ``history.push``, so a field drawn with no ``fold_undo`` between it and the
+    write pushes one undo step per keystroke instead of one per gesture.
+
+    Three fields had that shape: the per-tile Class field and the animation
+    frame's duration in ``_tiles_tab``/``_animation_tab``, and the Wang colour
+    Name field in ``_wang_colours`` -- which already folded its hue-bar drag
+    and its Probability field but not the Name text box beside them. The
+    palette's own copy of Class/Probability (``plotter_tileset.py``) carried a
+    comment claiming this editor's copy "already does" fold, which was false
+    until this fix. Positional, like the popup-door scan in
+    ``tests/test_undo_gesture_doors.py``: draw, fold, act.
+    """
+    import inspect
+
+    from warlock.studio.panes import plotter_tileset_editor as editor
+
+    # Each check is bounded to the gap between one field and the *next* one
+    # drawn (or the shared write, for the last field in a group) -- not merely
+    # "a fold exists somewhere before the write", which a neighbour's own fold
+    # would satisfy for free and prove nothing about the field in question.
+    tiles_source = inspect.getsource(editor._tiles_tab)
+    after_class = tiles_source.split('"##ts-class"', 1)[1]
+    before_probability = after_class.split('"Probability"', 1)[0]
+    assert "controls.fold_undo(" in before_probability, (
+        "Class field is not folded before the Probability field is drawn"
+    )
+    after_probability = tiles_source.split('"Probability"', 1)[1]
+    before_write = after_probability.split("tab.doc.set_tile_meta(", 1)[0]
+    assert "controls.fold_undo(" in before_write, (
+        "Probability field writes before it is folded"
+    )
+
+    animation_source = inspect.getsource(editor._animation_tab)
+    after_duration = animation_source.split('"ms"', 1)[1]
+    before_write = after_duration.split("write(edited)", 1)[0]
+    assert "controls.fold_undo(" in before_write, (
+        "frame duration writes before it is folded"
+    )
+
+    wang_source = inspect.getsource(editor._wang_colours)
+    after_name = wang_source.split('"##name"', 1)[1]
+    before_swatch = after_name.split("controls.color_edit4(", 1)[0]
+    assert "controls.fold_undo(" in before_swatch, (
+        "Wang colour Name field is not folded before the swatch is drawn"
+    )

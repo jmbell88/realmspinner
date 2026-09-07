@@ -8,6 +8,7 @@ a clip library.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -339,6 +340,28 @@ def test_a_build_that_fails_halfway_takes_its_directory_with_it(svc, blender, mo
     assert svc.store.list(limit=50) == []
 
 
+def test_create_character_leaves_no_orphaned_row_when_send_to_troupe_fails(
+    svc, blender, monkeypatch
+):
+    """troupe-01 (2026-09-07 audit): the door's own docstring claims "the mesh
+    is built only once nothing left can refuse it", but ``send_to_troupe`` was
+    called after the mesh row was already committed with no cleanup around it
+    -- a failure there left a permanently orphaned "done" mesh row with no rig
+    and no sheet. This must cost the request exactly as an earlier refusal
+    does: no row, no directory.
+    """
+    monkeypatch.setattr(
+        svc_troupe,
+        "send_to_troupe",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rig door exploded")),
+    )
+    before = sorted(p.name for p in svc.config.data_dir.iterdir())
+    with pytest.raises(RuntimeError, match="rig door exploded"):
+        svc_characters.create_character(svc, _recipe("human"))
+    assert svc.store.list(limit=50) == [], "the mesh row was left orphaned"
+    assert sorted(p.name for p in svc.config.data_dir.iterdir()) == before
+
+
 def test_without_blender_a_character_is_refused_in_the_rig_segments_words(svc, monkeypatch):
     """One wording for "this needs Blender", wherever the app meets it -- and
     the refusal lands *before* the mesh, because a body whose skeleton can never
@@ -424,6 +447,50 @@ def test_a_preview_is_a_temp_glb_and_never_a_row(svc):
     assert svc_characters.preview_character(svc, _recipe("ooze")) != path
     # And no scratch directory left behind beside them.
     assert all(p.is_file() and p.suffix == ".glb" for p in path.parent.iterdir())
+
+
+def test_preview_character_lands_atomically_even_when_a_concurrent_build_won_the_race(
+    svc, monkeypatch
+):
+    """service-02 (2026-09-07 audit): ``shutil.move`` onto a destination that
+    already exists degrades to non-atomic ``copy2`` on Windows -- exactly the
+    concurrent-build hazard the surrounding comment claimed was handled. Two
+    previews racing the same recipe both pass the ``dest.exists()`` check
+    before either has built anything, so the second one's final placement
+    lands on a destination the first one already created; that placement has
+    to be ``os.replace``, atomic there, and never ``shutil.move``.
+    """
+    import pathlib
+
+    recipe = _recipe("slime")
+    spec = svc_characters._recipe(recipe)
+    digest = hashlib.sha256(
+        json.dumps(spec.as_dict(), sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    dest = svc.config.data_dir / "tmp" / f"character-preview-{digest}.glb"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"the earlier racer's build")
+
+    # The exact race window: this preview's own ``dest.exists()`` check ran
+    # before the other build landed (the read that lost the race), but by the
+    # time it is ready to place its own file, a destination is already there.
+    real_exists = pathlib.Path.exists
+    monkeypatch.setattr(
+        pathlib.Path,
+        "exists",
+        lambda self: False if self == dest else real_exists(self),
+    )
+    monkeypatch.setattr(
+        svc_characters.shutil,
+        "move",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("shutil.move is not atomic once the destination exists")
+        ),
+    )
+
+    result = svc_characters.preview_character(svc, recipe)
+    assert result == dest
+    assert dest.read_bytes() != b"the earlier racer's build"
 
 
 def test_the_estimate_grows_with_the_cells_and_is_never_zero(svc):

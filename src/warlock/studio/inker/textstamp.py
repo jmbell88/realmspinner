@@ -84,12 +84,14 @@ def text_stamp(
 
     ``None`` -- never an exception and never a blank array -- for every way this
     can decline: a font file that is missing, unreadable or not a font, a size
-    outside :data:`MIN_SIZE`..:data:`MAX_SIZE`, and text that produces no ink at
-    all (empty, or nothing but whitespace and newlines). One answer, because
-    every one of them is the same thing from the caller's side -- there is
-    nothing to float -- and the pane turns it into one toast. Raising instead
-    would put a font the user picked from a system directory, which may be a
-    broken file they have never opened, on the frame thread's exception path.
+    outside :data:`MIN_SIZE`..:data:`MAX_SIZE`, text that produces no ink at
+    all (empty, or nothing but whitespace and newlines), and a measured box
+    -- an ordinary paragraph at a large point size, not just a mistyped size --
+    past ``pixelguard``'s decode ceiling. One answer, because every one of them
+    is the same thing from the caller's side -- there is nothing to float --
+    and the pane turns it into one toast. Raising instead would put a font the
+    user picked from a system directory, which may be a broken file they have
+    never opened, on the frame thread's exception path.
 
     The RGB is written across the whole array rather than only under the ink, so
     the transparent margin carries the ink's own colour: compositing straight
@@ -129,7 +131,18 @@ def text_stamp(
     # nothing between the two and ``Image.new``. The same ceiling every other
     # allocation in this package answers to -- and a refusal by name, since
     # this one is reachable by typing rather than by opening a hostile file.
-    pixelguard.check(width, height, "this text at this size")
+    #
+    # **Caught, not let through.** The 2026-09-07 audit found an ordinary
+    # paragraph at a large point size reaching this line uncaught: this
+    # module's docstring promises ``None``, "never an exception", and
+    # ``pixelguard.check`` raises past the ceiling exactly like the font-load
+    # and bbox failures above -- a size-too-large decline the caller
+    # (``inker_mode.stamp_text``) has no ``except`` for, so it rode the frame
+    # thread's own exception path down to the native "had to close" dialog.
+    try:
+        pixelguard.check(width, height, "this text at this size")
+    except ValueError:
+        return None
 
     # Mode "1" is the whole of the ``antialias=False`` implementation: Pillow
     # sets ``ImageDraw.fontmode`` from the image it is drawing into, and "1"

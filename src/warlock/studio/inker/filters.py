@@ -827,14 +827,24 @@ def convolve(
     kernel = np.array(
         [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]], dtype=np.float32
     )
-    total = float(kernel.sum())
-    if total:
-        kernel = kernel / total
-    if kernel[1, 1] == 1.0 and not kernel.sum() - 1.0:
+    # **Checked against the raw kernel, before normalising, and against the
+    # exact identity matrix -- not the centre weight and the sum.** The
+    # 2026-09-07 audit (inker-05) found the old pair (centre == 1.0, sum == 1.0
+    # after normalising) misdetecting any kernel whose off-diagonals cancel
+    # while the centre sits at its default of 1.0: ``m01=5, m21=-5`` sums to
+    # 1.0 raw, so normalising divided by that same 1.0 and left both checks
+    # reading exactly as they would for the identity, though the kernel is an
+    # edge-detect-shaped one that changes every pixel with any gradient in it.
+    identity = np.zeros((3, 3), dtype=np.float32)
+    identity[1, 1] = 1.0
+    if np.array_equal(kernel, identity):
         # The identity, returned untouched rather than convolved with itself:
         # ``FILTERS``' rule is that a filter at its defaults changes no pixel,
         # and a 3x3 pass over premultiplied colour rounds where it should not.
         return pixels.copy()
+    total = float(kernel.sum())
+    if total:
+        kernel = kernel / total
     padded = np.pad(rgb, ((1, 1), (1, 1), (0, 0)), mode="edge")
     out = np.zeros_like(rgb)
     for dy in range(3):

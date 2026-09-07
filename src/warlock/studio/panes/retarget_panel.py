@@ -80,20 +80,27 @@ def draw(ctx: Any, job: Any) -> None:
         widgets.muted("Only the engine's own output is available: gltfpack is not installed.")
     # Form.help_text renders widgets.help_marker beside the owning label.
     #
-    # **The field id is the refusal's address.** ``optimize_job`` raises
-    # ``field="remesh_profile"`` and ``field="custom_faces"``, which is what
-    # ``remesh_panel`` -- the other pane over the same service call -- already
-    # names its two fields. This one called them ``profile`` and
-    # ``custom_triangles``, so even with ``errors`` wired the ring would have
-    # had nothing to land on. The *form dict* keys are unchanged: they are the
-    # door's parameter names, which are a different vocabulary and stay.
+    # **The field id is the refusal's address.** ``optimize_job`` (via
+    # ``resolve_profile``, ``service/_jobs_create.py``) raises
+    # ``field="profile"`` for both an unusable tier and an unusable custom
+    # count -- ``remesh_job``'s own door, not this one, is what raises
+    # ``field="remesh_profile"``/``field="custom_faces"``. This panel used to
+    # borrow that pair on the theory that it named "the other pane over the
+    # same service call", which was wrong on two counts: the calls are
+    # different (``optimize_job`` here, ``remesh_job`` there) and neither
+    # spelling is what this door actually raises -- so even with ``errors``
+    # wired the ring had nothing to land on, the defect this panel's own prior
+    # comment claimed to have fixed (the 2026-09-07 audit, finding create-04).
+    # ``profile`` and ``custom_triangles`` below are the door's own field
+    # names, and also its parameter names, so the form dict keys need no
+    # second vocabulary.
     with forms.Form(
         "retarget-settings",
         errors=ctx.state.field_errors,
         on_edit=ctx.state.clear_field_error,
     ) as form_ui:
         _changed, form["profile"] = form_ui.combo(
-            "remesh_profile",
+            "profile",
             "Budget",
             form["profile"],
             options,
@@ -106,7 +113,7 @@ def draw(ctx: Any, job: Any) -> None:
 
         if form["profile"] == "custom":
             changed, value = form_ui.number(
-                "custom_faces",
+                "custom_triangles",
                 "Triangles",
                 int(form["custom_triangles"]),
                 helper=f"{optimize.CUSTOM_MIN:,} to {optimize.CUSTOM_MAX:,}",

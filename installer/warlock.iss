@@ -73,10 +73,20 @@ Type: filesandordirs; Name: "{app}\python"
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataPath: String;
+  HomeOverride: String;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    DataPath := AddBackslash(GetEnv('USERPROFILE')) + '.warlock';
+    // The 2026-09-07 audit found this always naming %USERPROFILE%\.warlock,
+    // ignoring WARLOCK_HOME -- so a user who relocated their data root was
+    // told it survived at a path it had never lived at. Mirrors
+    // config._home()'s precedence (WARLOCK_HOME wins when set); that
+    // function is the one to read if the precedence ever changes, not this.
+    HomeOverride := GetEnv('WARLOCK_HOME');
+    if HomeOverride <> '' then
+      DataPath := HomeOverride
+    else
+      DataPath := AddBackslash(GetEnv('USERPROFILE')) + '.warlock';
     MsgBox(
       'Warlock Studio was removed. Your assets and downloaded models remain at ' + DataPath + '.',
       mbInformation,

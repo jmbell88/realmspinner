@@ -45,7 +45,13 @@ OUTWARD_IMPORTS = {
     # The kill-on-close job object, because ``run_worker`` spawns Blender. The
     # stdlib ``queue`` and ``subprocess`` imports are not ``warlock.queue`` --
     # the AST records the bare names, which is why this set stays empty of them.
-    "rigging.py": {"warlock.winjob"},
+    # ``poselib`` joined it 2026-09-07 (poser-05): ``parse_clip_library`` shares
+    # ``poselib.validate_root_translation`` rather than restating its finite
+    # and magnitude checks, and the import is function-level inside that one
+    # function because ``poselib`` imports this module back at its own top --
+    # both sides have finished their own module-level init by the time either
+    # calls the other, so nothing here actually cycles.
+    "rigging.py": {"warlock.winjob", "warlock.poselib"},
     # The editor: rotations and mirroring from the storage half, matrices and
     # the node graph from the viewer's own.
     "studio/viewer/pose.py": {

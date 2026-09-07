@@ -81,9 +81,10 @@ Two limits come with it, both about where the offset shows up:
 
 - Applying a library pose to an asset previews the **rotations only**. The offset is real, but it
   appears in the baked GLB and in sprite sheet rows rather than in the inspector's preview.
-- An animated sheet clip cannot interpolate a root offset yet. A clip whose endpoint poses carry one
-  is refused by name rather than rendered subtly wrong — see
-  [Sprite sheets](27-sprite-sheets.md).
+- An animated sheet clip interpolates a root offset the same way it interpolates a rotation: frame 0
+  sits at the start pose's own offset, and later frames climb toward the end pose's without reaching
+  it, so a clip whose endpoint poses carry one plays as a vertical bob rather than being refused —
+  see [Sprite sheets](27-sprite-sheets.md).
 
 ## The pose library
 

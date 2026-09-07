@@ -34,6 +34,17 @@ interrupts -- while being long enough that an idle child costs nothing.
 
 _STD_INPUT_HANDLE = -10
 
+MAX_STDIN_CHUNK = 1 << 20
+"""Ceiling on a single ``os.read`` in :func:`lines_from`.
+
+The 2026-09-07 audit found this the one uncapped read in a module whose whole
+purpose is controlling how stdin is read: ``PeekNamedPipe``'s byte count was
+handed straight to ``os.read`` with nothing checking it first. Every request
+line this protocol sends is a small JSON command, so 1 MiB is far above
+anything real; a byte count above it just means one more poll iteration,
+never a dropped byte -- ``buf`` still accumulates across reads.
+"""
+
 
 def peek_stdin(handle: Any) -> int:
     """Bytes already readable on the stdin pipe, or -1 if it is finished."""
@@ -100,7 +111,7 @@ def lines_from(stdin: Any) -> Any:
             time.sleep(STDIN_POLL_SECONDS)
             continue
         try:
-            chunk = os.read(0, available)
+            chunk = os.read(0, min(available, MAX_STDIN_CHUNK))
         except OSError:
             return
         if not chunk:

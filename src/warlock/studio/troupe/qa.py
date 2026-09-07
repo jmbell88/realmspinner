@@ -271,7 +271,16 @@ def score_sheet(
                 )
                 metrics["foot_jitter"] = abs(here.foot - prev.foot)
                 metrics["palette_flicker"] = _flicker(prev, here)
-            elif len(cells) > 1 and loops.get(animation, True):
+            elif len(cells) > 1 and loops.get(animation, False):
+                # ``loops.get(animation, True)`` used to default an *unknown*
+                # movement to cyclic -- one that names no entry in
+                # ``layout["movements"]`` at all, not one that is a documented
+                # one-shot -- which fabricated a seam score against a frame
+                # that is not actually the run's wraparound neighbour. The
+                # 2026-09-07 audit (troupe-03) found this against INVARIANTS's
+                # cyclic/one-shot rule: a one-shot whose name mismatches the
+                # movement table must be left unscored, not scored as if it
+                # looped.
                 last = measured[cells[-1]]
                 metrics["seam_delta"] = _shape_delta(last, here)
             scores[index] = (animation, direction, offset, metrics, flags)

@@ -233,6 +233,49 @@ def test_the_pygame_snippet_is_valid_python_and_builds_the_animation():
     assert anim.done
 
 
+def test_the_pygame_snippet_reads_a_wrapped_multi_row_sheet_correctly():
+    """The 2026-09-07 audit (inker-07): the Pygame snippet hard-coded a
+    single-row strip (``n * frame_width, 0``) while the per-tag export wraps
+    into more rows once a row would cross ``engines._MAX_ATLAS_PX`` -- so a
+    long effect's pasted snippet read the wrong frames. 10 frames of 1000px
+    wraps at 8 columns (8000px is the last width under the ceiling that still
+    divides evenly into frames left of it), giving 2 rows; frame 9 is the
+    second frame of row 2."""
+    info = engines.describe(
+        name="long burn",
+        image="long_burn.png",
+        frame_width=1000,
+        frame_height=50,
+        frames=10,
+        fps=12,
+        loop=True,
+        origin=(500, 25),
+    )
+    assert (info["columns"], info["rows"]) == (8, 2)
+    text = engines.snippet("pygame-ce", info)
+    ast.parse(text)
+
+    class _Surface:
+        def convert_alpha(self):
+            return self
+
+        def subsurface(self, rect):
+            return rect
+
+    stub = type("pygame", (), {})()
+    stub.image = type("image", (), {"load": staticmethod(lambda path: _Surface())})()
+    namespace: dict = {"pygame": stub}
+    exec(text.replace("import pygame\n", ""), namespace)  # noqa: S102 -- the snippet under test
+    anim = namespace["long_burn"]
+    assert len(anim.frames) == 10
+    # Row 0 (columns 0..7): x walks across, y stays 0.
+    assert anim.frames[0] == (0, 0, 1000, 50)
+    assert anim.frames[7] == (7000, 0, 1000, 50)
+    # Row 1 (columns 8..9): the wrap this test exists for.
+    assert anim.frames[8] == (0, 50, 1000, 50)
+    assert anim.frames[9] == (1000, 50, 1000, 50)
+
+
 def test_identifiers_are_safe():
     assert engines._ident("Ice nova!") == "ice_nova"  # noqa: SLF001
     assert engines._ident("2 fast") == "fx_2_fast"  # noqa: SLF001

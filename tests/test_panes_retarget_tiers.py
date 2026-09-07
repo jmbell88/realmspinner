@@ -16,10 +16,44 @@ comes from Config and a vendored binary does not arrive while the app runs.
 
 from __future__ import annotations
 
+import inspect
+import re
 from types import SimpleNamespace
 
 from warlock.pipelines import optimize
 from warlock.studio.panes import retarget_panel
+
+# --- the field ids ------------------------------------------------------------
+
+
+def test_the_budget_field_id_is_what_optimize_job_actually_raises():
+    """The 2026-09-07 audit, finding create-04: ``resolve_profile``
+    (``service/_jobs_create.py``, called by ``optimize_job``) raises
+    ``field="profile"`` for an unusable tier -- not ``field="remesh_profile"``,
+    which is ``remesh_job``'s own, unrelated door's field. With the wrong id
+    wired, ``errors=ctx.state.field_errors`` had nothing to match and a
+    genuine refusal rang no control, the defect this panel's own prior
+    comment claimed to have fixed.
+    """
+    source = inspect.getsource(retarget_panel.draw)
+    call = re.search(r'form_ui\.combo\(\s*"([^"]+)"', source)
+    assert call is not None, "retarget_panel.draw no longer draws the budget combo"
+    assert call.group(1) == "profile", (
+        "the budget combo's field id must match what optimize_job raises "
+        f"(field='profile'), not {call.group(1)!r}"
+    )
+
+
+def test_the_custom_triangles_field_id_names_no_other_doors_control():
+    """Companion to the above: ``custom_faces`` is ``remesh_job``'s own field
+    for its unrelated custom quad count, so borrowing it here left a second
+    control with no address a real refusal could land on either."""
+    source = inspect.getsource(retarget_panel.draw)
+    call = re.search(r'form_ui\.number\(\s*"([^"]+)"', source)
+    assert call is not None, "retarget_panel.draw no longer draws the custom-triangles field"
+    assert call.group(1) == "custom_triangles"
+    assert call.group(1) != "custom_faces"
+
 
 # --- the tier list ------------------------------------------------------------
 

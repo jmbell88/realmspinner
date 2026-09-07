@@ -188,6 +188,28 @@ def test_every_document_edit_re_arms_the_pack():
     assert tab.pack_dirty
 
 
+def test_the_source_index_is_cached_on_the_tab_and_rebuilt_only_on_repack():
+    """packwright-07: the preview and items panes rebuilt a full ``key -> uid``
+    index over every source on every single frame they drew, though
+    ``pack_generation`` already exists as the memo key every consumer of it
+    agrees on -- the index only has to describe whichever layout is actually
+    on screen, and that only changes when a repack lands."""
+    ctx = FakeCtx()
+    tab = _tab(ctx, sources=3)
+    _pack(ctx, tab)
+
+    first = packwright_mode.source_index(tab)
+    assert packwright_mode.source_index(tab) is first, "not rebuilt: no repack happened"
+
+    tab.doc.add_source(_sprite("extra"))
+    tab.pack_dirty = True
+    _pack(ctx, tab)
+
+    second = packwright_mode.source_index(tab)
+    assert second is not first, "rebuilt: pack_generation moved"
+    assert second["extra"] == tab.doc.sources[-1].uid
+
+
 def test_a_pack_that_cannot_fit_carries_the_engines_remedy(monkeypatch):
     """``layout`` raises with the number *and* what to do about it, and only a
     ``ServiceError``'s text survives the task classifier -- so an unframed
@@ -783,6 +805,38 @@ def test_dropping_several_files_adds_every_one(tmp_path):
 
     assert [s.key for s in tab.doc.sprites()] == [file_key(p) for p in paths]
     assert not any(str(tmp_path) in s.key for s in tab.doc.sprites())
+
+
+def test_a_rendered_sheet_handoff_is_not_silently_dropped_while_a_manual_tileset_pick_is_open(
+    tmp_path, monkeypatch
+):
+    """packwright-02: ``ask_add_tileset`` and ``add_rendered_sheet`` used to
+    submit under the identical bare key ``packwright-tileset:{uid}``, and
+    neither call site inspects ``ctx.submit``'s return -- so a Troupe handoff
+    landing while the manual picker's OS dialog task was still "in flight"
+    under that key was refused, silently: manual submit True, handoff False,
+    no toast. Reproduced with ``_DedupingCtx``, the only fake here that can
+    see a refusal at all."""
+    from PIL import Image
+
+    from warlock.studio import dialogs
+
+    png = tmp_path / "sheet.png"
+    Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(png)
+    monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: png)
+    monkeypatch.setattr(
+        "warlock.service.sheets.get_sheet", lambda svc, job_id, sheet_id: {"name": "walk"}
+    )
+    monkeypatch.setattr("warlock.service.sheets.sheet_png", lambda svc, job_id, sheet_id: png)
+    monkeypatch.setattr("warlock.studio.inker_mode.sheet_grid", lambda record: ((4, 4), 1))
+
+    ctx = _DedupingCtx()
+    packwright_mode.new_document(ctx)
+
+    packwright_mode.ask_add_tileset(ctx)  # the manual picker's task, still "in flight"
+    packwright_mode.add_rendered_sheet(ctx, "j1", "sheet1")  # the handoff
+
+    assert ctx.refused == [], "the handoff must not collide with the manual picker's key"
 
 
 def test_the_same_drop_twice_over_still_dedupes(tmp_path):

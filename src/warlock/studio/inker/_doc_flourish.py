@@ -310,13 +310,21 @@ class FlourishOps:
                 existing = anim.cels.get((track_uid, frame_uid))
                 fresh = None if pixels is None else _digest(pixels)
                 if existing is None:
+                    # **The digest is gated on the same condition as the cel
+                    # itself.** The 2026-09-07 audit (inker-09) found this
+                    # recording ``fresh`` whenever the render produced *any*
+                    # pixels, even the fully-transparent ones the block above
+                    # declines to turn into a cel -- 18 phantom digests from
+                    # one ordinary call, each judging a slot with no rendered
+                    # pixels in it against a digest that could never match a
+                    # hand-drawn edit made there later.
                     if pixels is not None and pixels[..., 3].any():
                         layer = Layer(pixels=pixels, name=name)
                         self._set_cel(track_uid, frame_uid, layer)
                         edits.append(CelSetEdit(track_uid, frame_uid, None, layer, pinned=True))
                         counts["taken"] += 1
-                    if fresh is not None:
-                        digests[(track_uid, frame_uid)] = fresh
+                        if fresh is not None:
+                            digests[(track_uid, frame_uid)] = fresh
                     continue
                 if pixels is None:
                     pixels = np.zeros_like(existing.pixels)

@@ -237,6 +237,21 @@ def test_pack_refuses_to_leave_a_hole(tmp_path):
         sheetlib.pack(layout, frames, tmp_path / "sheet.png")
 
 
+def test_pack_refuses_a_frame_path_that_is_a_directory(tmp_path):
+    """inker-11 (2026-09-07 audit): the refusal gated on ``path.exists()``,
+    which is also true of a directory -- a stale or malformed frames entry
+    pointing at one slipped past "no rendered frame" only to fail later
+    inside ``Image.open`` with no mention of which cell. ``is_file()`` is
+    what the docstring's refusal actually means.
+    """
+    layout = sheetlib.plan([], frame_size=64)
+    frames = _frames(tmp_path, layout)
+    frames[3].unlink()
+    frames[3].mkdir()
+    with pytest.raises(ValueError, match="cell 3"):
+        sheetlib.pack(layout, frames, tmp_path / "sheet.png")
+
+
 def test_untouched_cells_stay_transparent(tmp_path):
     layout = sheetlib.plan([], frame_size=64)
     frames = _frames(tmp_path, layout, colours={i: (0, 0, 0, 0) for i in range(8)})

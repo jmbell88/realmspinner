@@ -129,6 +129,32 @@ def test_the_loop_seam_is_measured_only_on_a_cycle():
     assert "seam" not in first.flags
 
 
+def test_a_run_naming_an_unknown_movement_gets_no_fabricated_seam_flag():
+    """troupe-03 (2026-09-07 audit): ``loops.get(animation, True)`` defaulted a
+    run whose ``movement`` names no entry in ``layout["movements"]`` to
+    cyclic, so a mismatched name still picked up a seam score against a
+    wraparound frame that ``movements`` never confirmed the run actually has
+    -- against INVARIANTS's cyclic/one-shot rule, which only ever promises a
+    seam for a *documented* cycle. ``preview_layout`` never checks the two
+    agree, so the fabricated flag was the only thing standing between the
+    user and a QA panel warning about a run that may not even loop.
+    """
+    layout = _layout([("walk", 4, ("front",), True)])
+    # A run for a movement this layout's own table says nothing about --
+    # the disagreement the finding is about.
+    layout["runs"].append({"movement": "ghost", "direction": "front", "start": 4, "end": 7})
+    layout["cell_count"] = 8
+
+    def paint(index, crop):
+        _figure(crop, shift=4 if index == 7 else 0)
+
+    score = _score(layout, paint)
+    by = score.lookup()
+    first = by[("ghost", "front", 0)]
+    assert "seam_delta" not in first.metrics
+    assert "seam" not in first.flags
+
+
 def test_a_recoloured_frame_flickers():
     layout = _layout([("walk", 3, ("front",), True)])
 

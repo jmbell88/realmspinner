@@ -529,6 +529,29 @@ def _pixel_sizes(frame_size: int) -> list[int]:
     ]
 
 
+# The 2026-09-07 audit, finding create-01: bare "strength" is also
+# ``texture_panel``'s id in ``ctx.state.field_errors`` -- one flat,
+# unnamespaced dict -- so a re-texture refusal about its restyle strength rang
+# this sheet's strength slider too, whenever the inspector drew both panels
+# together (which is routine). The control below is keyed by the prefixed
+# name, and ``_create_pixel_sheet`` relabels ``create_pixel_sheet``'s own
+# refusal to match before it ever reaches ``ctx.state.field_errors``.
+# ``logical_size`` names no other panel's control and stays as it is.
+_FIELD_PREFIX = {"strength": "sheet_pixel_strength"}
+
+
+def _create_pixel_sheet(svc: Any, job_id: str, sheet_id: str, **kwargs: Any) -> dict[str, Any]:
+    """``create_pixel_sheet``, with a colliding refusal's address renamed to
+    this panel's own control. See ``_FIELD_PREFIX`` above."""
+    try:
+        return svc_sheets.create_pixel_sheet(svc, job_id, sheet_id, **kwargs)
+    except Exception as exc:
+        renamed = _FIELD_PREFIX.get(getattr(exc, "field", None))
+        if renamed:
+            exc.field = renamed
+        raise
+
+
 def _pixelate(ctx: Any, job_id: str, sheet: Any) -> None:
     """The restyle controls for one rendered sheet.
 
@@ -563,10 +586,13 @@ def _pixelate(ctx: Any, job_id: str, sheet: Any) -> None:
             form["logical_size"] = sizes[-1]
         # ``field_error`` after each of the two controls a refusal can name --
         # ``create_pixel_sheet`` raises ``field="logical_size"`` and
-        # ``field="strength"``. This block is raw controls rather than a
-        # ``forms.Form``, so the ring is placed by hand the way ``settings_2d``
-        # places its own; the ``clear`` beside it is what the form's
-        # ``on_edit`` does for the section above.
+        # ``field="strength"``, the latter relabelled "sheet_pixel_strength"
+        # by ``_create_pixel_sheet`` above (the 2026-09-07 audit, finding
+        # create-01: bare "strength" is also ``texture_panel``'s id in the one
+        # flat ``ctx.state.field_errors`` dict). This block is raw controls
+        # rather than a ``forms.Form``, so the ring is placed by hand the way
+        # ``settings_2d`` places its own; the ``clear`` beside it is what the
+        # form's ``on_edit`` does for the section above.
         was = form["logical_size"]
         form["logical_size"] = int(
             widgets.labeled_combo(
@@ -591,10 +617,10 @@ def _pixelate(ctx: Any, job_id: str, sheet: Any) -> None:
             models.IMG2IMG_STRENGTH_MIN,
             models.IMG2IMG_STRENGTH_MAX,
         )
-        widgets.field_error(ctx.state, "strength")
+        widgets.field_error(ctx.state, "sheet_pixel_strength")
         if changed:
             form["strength"] = float(value)
-            ctx.state.clear_field_error("strength")
+            ctx.state.clear_field_error("sheet_pixel_strength")
         toggled, locked = controls.checkbox("Lock silhouettes", form["structure_lock"])
         if toggled:
             form["structure_lock"] = bool(locked)
@@ -625,7 +651,7 @@ def _pixelate(ctx: Any, job_id: str, sheet: Any) -> None:
             ctx.state.clear_field_errors()
             ctx.submit(
                 key,
-                svc_sheets.create_pixel_sheet,
+                _create_pixel_sheet,
                 ctx.svc,
                 job_id,
                 sheet_id,

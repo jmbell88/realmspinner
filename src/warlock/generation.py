@@ -17,6 +17,7 @@ import json
 import re
 import shutil
 import tempfile
+import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -542,7 +543,19 @@ def resolve_recipe(
         base = models.BASE_MODELS.get(key)
         if base is None:
             return None
-        candidate = next((r for r in candidates if r.base_model == key), None)
+        # The 2026-09-07 audit, finding create-03: this used to look the
+        # checkpoint up in ``candidates``, which is filtered on
+        # ``request.quality`` too -- but the Model combo folded Fast/Quality
+        # into itself with the promise that "nothing is lost by folding
+        # them" (``settings_2d.model_options``), and nothing sets
+        # ``quality="fast"`` any more. Picking the fast checkpoint (``sdxl``)
+        # through Advanced therefore never matched the curated
+        # ``quality="fast"`` recipe and always fell through to the synthetic
+        # ``Recipe`` below, silently losing its curated label and note.
+        # Advanced names a checkpoint, not a tier, so the lookup here is by
+        # ``base_model`` within this generation type only.
+        type_candidates = [r for r in RECIPES if request.generation_type in r.generation_types]
+        candidate = next((r for r in type_candidates if r.base_model == key), None)
         if candidate is None:
             candidate = Recipe(
                 f"advanced_{key}",
@@ -1245,6 +1258,18 @@ def lora_manifest_path(config: Any) -> Path:
 #: re-read and re-parsed ``manifests.json`` 180 times a second.
 _MANIFEST_CACHE: dict[Any, tuple[tuple[int, int] | None, list[LoraManifest]]] = {}
 
+#: Serialises every read-modify-write of ``manifests.json``. ``import_lora``
+#: and ``remove_imported_lora`` each read the whole file, change one entry in
+#: memory and write the whole file back; with nothing serialising the two,
+#: a pane import landing while a training job's completion callback
+#: (``_q_lora.py``'s ``_lora_train``, on the worker's thread pool) was
+#: mid-read-modify-write for the same file clobbered the loser's entry with
+#: no error -- the safetensors file behind it was left orphaned and
+#: unreachable (the 2026-09-07 audit, finding shell-01). One process-wide
+#: lock is enough because Warlock is single-process: every writer of this
+#: file lives inside it.
+_MANIFEST_LOCK = threading.Lock()
+
 
 def _forget_manifests(path: Path) -> None:
     """Drop the cached rows for ``path``: called after every rewrite so a
@@ -1326,35 +1351,36 @@ def remove_imported_lora(config: Any, key: str) -> bool:
     and is left alone. The manifest is rewritten first, so a crash between the
     two leaves an orphan file rather than a registered entry with no file.
     """
-    manifests = load_lora_manifests(config)
-    gone = next((m for m in manifests if m.key == key), None)
-    if gone is None:
-        return False
-    root = Path(config.t2i_model_root) / "loras"
-    root.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(
-        {"version": 1, "manifests": [asdict(x) for x in manifests if x.key != key]},
-        indent=2,
-        sort_keys=True,
-    )
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
-    ) as fh:
-        fh.write(payload)
-        temp = Path(fh.name)
-    temp.replace(lora_manifest_path(config))
-    _forget_manifests(lora_manifest_path(config))
-    # Resolved and re-checked against the directory before it is deleted, the
-    # rule ``service.palettes._path`` and ``fetch.removal_plan`` both follow.
-    # ``import_lora`` cannot write a filename with a separator in it, so today
-    # this refuses nothing -- but ``manifests.json`` is a file on disk that a
-    # user can edit and a restore can replace, and this is a call to ``unlink``.
-    # A file outside the directory is left where it is: the manifest entry is
-    # already gone, so the style has disappeared from the app either way, and
-    # an orphan is a much better outcome than an ``unlink`` somewhere else.
-    target = (root / gone.filename).resolve()
-    if target.parent == root.resolve():
-        target.unlink(missing_ok=True)
+    with _MANIFEST_LOCK:
+        manifests = load_lora_manifests(config)
+        gone = next((m for m in manifests if m.key == key), None)
+        if gone is None:
+            return False
+        root = Path(config.t2i_model_root) / "loras"
+        root.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"version": 1, "manifests": [asdict(x) for x in manifests if x.key != key]},
+            indent=2,
+            sort_keys=True,
+        )
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
+        ) as fh:
+            fh.write(payload)
+            temp = Path(fh.name)
+        temp.replace(lora_manifest_path(config))
+        _forget_manifests(lora_manifest_path(config))
+        # Resolved and re-checked against the directory before it is deleted, the
+        # rule ``service.palettes._path`` and ``fetch.removal_plan`` both follow.
+        # ``import_lora`` cannot write a filename with a separator in it, so today
+        # this refuses nothing -- but ``manifests.json`` is a file on disk that a
+        # user can edit and a restore can replace, and this is a call to ``unlink``.
+        # A file outside the directory is left where it is: the manifest entry is
+        # already gone, so the style has disappeared from the app either way, and
+        # an orphan is a much better outcome than an ``unlink`` somewhere else.
+        target = (root / gone.filename).resolve()
+        if target.parent == root.resolve():
+            target.unlink(missing_ok=True)
     with models.STYLE_LORAS_LOCK:
         models.STYLE_LORAS.pop(key, None)
     return True
@@ -1421,17 +1447,18 @@ def import_lora(
         filename,
     )
     path = lora_manifest_path(config)
-    manifests = [x for x in load_lora_manifests(config) if x.key != key]
-    manifests.append(manifest)
-    payload = json.dumps(
-        {"version": 1, "manifests": [asdict(x) for x in manifests]}, indent=2, sort_keys=True
-    )
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
-    ) as fh:
-        fh.write(payload)
-        temp = Path(fh.name)
-    temp.replace(path)
-    _forget_manifests(path)
+    with _MANIFEST_LOCK:
+        manifests = [x for x in load_lora_manifests(config) if x.key != key]
+        manifests.append(manifest)
+        payload = json.dumps(
+            {"version": 1, "manifests": [asdict(x) for x in manifests]}, indent=2, sort_keys=True
+        )
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
+        ) as fh:
+            fh.write(payload)
+            temp = Path(fh.name)
+        temp.replace(path)
+        _forget_manifests(path)
     register_imported_loras(config)
     return manifest

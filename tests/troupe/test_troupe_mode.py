@@ -894,6 +894,25 @@ def test_a_sheet_can_be_named_from_the_form(ctx, svc):
     assert "MAX_SHEET_NAME" in pane, "the field must cap at what the door accepts"
 
 
+def test_the_cell_caps_are_read_from_charsheet_not_restated(ctx, svc):
+    """troupe-05 (2026-09-07 audit): both panes wrote ``512``/``256`` as bare
+    numbers instead of reading ``charsheet.MAX_CELLS``/``WARN_CELLS`` -- the
+    door's own ladder, which ``troupe_sheets`` already imports ``charsheet``
+    for. A restated number goes stale the day the door's moves, because
+    nothing but the number itself would then disagree.
+    """
+    import inspect
+
+    from warlock.studio.panes import troupe_settings, troupe_sheets
+
+    for module in (troupe_settings, troupe_sheets):
+        source = inspect.getsource(module)
+        assert "<= 512" not in source, module.__name__
+        assert "> 256" not in source, module.__name__
+        assert "charsheet.MAX_CELLS" in source, module.__name__
+        assert "charsheet.WARN_CELLS" in source, module.__name__
+
+
 def test_the_send_door_still_carries_every_parameter_it_validates(ctx, svc):
     """``elevation`` and ``lighting`` have no control yet. The read stays, so
     adding one is a pane change -- which is the state ``name`` was in until its

@@ -164,6 +164,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Q / W / E / R | Select / move / rotate / scale |
 | 1 / 2 / 3 / 4 | Vertex / edge / face / object mode |
 | E | Extrude, in any element mode |
+| Alt+Z | Toggle X-ray, so an element behind the surface can be picked |
 | G / S | Move / scale the selection with no handle to grab — the drag follows the pointer |
 | L | Select everything joined to what is selected — two shapes welded into one mesh come apart |
 | Ctrl+= / Ctrl+- | Grow / shrink the selection by one ring |

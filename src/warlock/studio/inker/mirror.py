@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import transform
+from . import composite, transform
 
 __all__ = [
     "FACE_FRACTION",
@@ -143,10 +143,20 @@ def translate_within(
     if weight.shape != pixels.shape[:2]:
         raise ValueError("the weight must match the plane")
     dx, dy = int(dx), int(dy)
-    fade = weight.astype(np.float32)[..., None] / 255.0
-    lifted = pixels.astype(np.float32) * fade
-    remaining = pixels.astype(np.float32) * (1.0 - fade)
+    fade = weight.astype(np.float32) / 255.0
+    # **Folded into alpha only.** RGB is straight, unpremultiplied colour, and
+    # the 2026-09-07 audit (inker-04) found this cross-fading all four
+    # channels by ``fade`` -- which bakes the destination's colour into the
+    # lift at any weight short of 255, instead of two straight-alpha pixels
+    # (the lifted one and what was already there) compositing the way
+    # ``composite.over`` says every other weighted write in this package
+    # already does it.
+    alpha = pixels[..., 3].astype(np.float32)
+    lifted = pixels.copy()
+    lifted[..., 3] = np.clip(alpha * fade + 0.5, 0, 255).astype(np.uint8)
+    remaining = pixels.copy()
+    remaining[..., 3] = np.clip(alpha * (1.0 - fade) + 0.5, 0, 255).astype(np.uint8)
     moved = transform.translate(lifted, dx, dy)
-    moved_fade = transform.translate(fade, dx, dy)
-    out = remaining * (1.0 - moved_fade) + moved
-    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+    return composite.to_uint8(
+        composite.over(composite.to_float(remaining), composite.to_float(moved))
+    )

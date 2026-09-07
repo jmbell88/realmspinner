@@ -1168,6 +1168,180 @@ def test_run_worker_rejects_an_unknown_op(tmp_path):
         )
 
 
+# --- import-then-strip, without a live Blender -------------------------------
+#
+# The 2026-09-07 audit (poser-02) found _import_glb feeding _world_bounds
+# directly in op_remesh and _retexture_frame, skipping _strip_incoming_rig --
+# the same double Y-up -> Z-up bug that function exists to fix for op_rig.
+# Reproduced against real Blender as a supplied rigged mesh measuring
+# (0.505, 0.896, 1.458) against a true (1.138, 0.312, 1.507). These tests pin
+# the *order* of the two calls without needing mathutils or a live scene: a
+# fake matrix_world stands in for the still-parented mesh's, and a spy on
+# _world_bounds records whether the mesh had already been unparented by the
+# time it was measured.
+
+
+class _StopHere(Exception):
+    """Raised by a spy once it has recorded what the test needs -- the rest of
+    the op (real quadriflow/bake/export calls) is not this test's business."""
+
+
+def _fake_bpy_with_incoming_armature(scene_objects):
+    import types
+
+    return types.SimpleNamespace(
+        context=types.SimpleNamespace(scene=types.SimpleNamespace(objects=scene_objects)),
+        data=types.SimpleNamespace(
+            objects=types.SimpleNamespace(
+                remove=lambda obj, do_unlink=True: scene_objects.remove(obj)
+            )
+        ),
+        ops=types.SimpleNamespace(
+            wm=types.SimpleNamespace(read_factory_settings=lambda use_empty: None)
+        ),
+    )
+
+
+def test_op_remesh_measures_a_supplied_rigged_meshs_bounds_correctly(monkeypatch, tmp_path):
+    import types
+
+    from warlock.pipelines import blender_worker
+
+    armature = types.SimpleNamespace(type="ARMATURE", data=types.SimpleNamespace(bones=[1, 2, 3]))
+    mesh = types.SimpleNamespace(
+        type="MESH",
+        parent=armature,  # a supplied humanoid usually arrives skinned and parented
+        modifiers=[],
+        vertex_groups=[],
+        data=types.SimpleNamespace(polygons=[]),
+    )
+    bpy = _fake_bpy_with_incoming_armature([mesh, armature])
+
+    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
+
+    seen_parent = []
+
+    def spy_world_bounds(measured_mesh):
+        seen_parent.append(measured_mesh.parent)
+        raise _StopHere()
+
+    monkeypatch.setattr(blender_worker, "_world_bounds", spy_world_bounds)
+
+    source = tmp_path / "model.glb"
+    source.write_bytes(b"fake-glb")
+    spec = {
+        "source_glb": str(source),
+        "out_glb": str(tmp_path / "out.glb"),
+        "target_faces": 100,
+        "texture_size": 64,
+    }
+
+    with pytest.raises(_StopHere):
+        blender_worker.op_remesh(bpy, spec)
+
+    assert seen_parent == [None], (
+        "op_remesh measured a mesh that was still parented to its incoming "
+        "armature -- the same double-rotation bug _strip_incoming_rig fixes "
+        "for op_rig"
+    )
+
+
+def test_retexture_frame_measures_a_supplied_rigged_meshs_bounds_correctly(monkeypatch, tmp_path):
+    """The other caller poser-02 named: _retexture_frame, shared by op_views
+    and op_project."""
+    import types
+
+    from warlock.pipelines import blender_worker
+
+    armature = types.SimpleNamespace(type="ARMATURE", data=types.SimpleNamespace(bones=[1]))
+    mesh = types.SimpleNamespace(type="MESH", parent=armature, modifiers=[], vertex_groups=[])
+    bpy = _fake_bpy_with_incoming_armature([mesh, armature])
+
+    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
+
+    seen_parent = []
+
+    def spy_world_bounds(measured_mesh):
+        seen_parent.append(measured_mesh.parent)
+        raise _StopHere()
+
+    monkeypatch.setattr(blender_worker, "_world_bounds", spy_world_bounds)
+    monkeypatch.setattr(blender_worker, "_setup_render", lambda _bpy, _size: None)
+
+    source = tmp_path / "model.glb"
+    source.write_bytes(b"fake-glb")
+
+    with pytest.raises(_StopHere):
+        blender_worker._retexture_frame(bpy, source, 64)
+
+    assert seen_parent == [None], (
+        "_retexture_frame measured a mesh that was still parented to its "
+        "incoming armature -- the same double-rotation bug _strip_incoming_rig "
+        "fixes for op_rig"
+    )
+
+
+def test_op_rig_validate_joints_failure_falls_back_to_the_bbox_fit(monkeypatch, tmp_path):
+    """poser-04: validate_joints raises ValueError too (a jointfit measurement
+    that does not match a non-humanoid template's bone set), and it used to
+    sit in the try's ``else`` rather than the try itself -- so a clean
+    measurement that failed validation crashed the worker instead of falling
+    back, against the comment above it: 'Costs the measurement, never the
+    rig'."""
+    import types
+
+    from warlock.pipelines import blender_worker, jointfit
+
+    class _IdentityMatrix:
+        def __matmul__(self, other):
+            return other
+
+    mesh = types.SimpleNamespace(
+        type="MESH",
+        parent=None,
+        modifiers=[],
+        vertex_groups=[],
+        matrix_world=_IdentityMatrix(),
+        data=types.SimpleNamespace(vertices=[types.SimpleNamespace(co=(0.0, 0.0, 0.0))]),
+    )
+    bpy = _fake_bpy_with_incoming_armature([mesh])
+
+    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
+    monkeypatch.setattr(blender_worker, "_world_bounds", lambda _mesh: ([0.0] * 3, [1.0] * 3))
+    monkeypatch.setattr(jointfit, "payload", lambda _points: {"bones": []})
+
+    def rejecting_validate(_measured, _template):
+        raise ValueError("joints payload is missing bone(s)")
+
+    monkeypatch.setattr(rigging, "validate_joints", rejecting_validate)
+
+    seen_spec = {}
+
+    def spy_rig_bones(spec, _lo, _hi):
+        seen_spec["spec"] = spec
+        raise _StopHere()
+
+    monkeypatch.setattr(blender_worker, "_rig_bones", spy_rig_bones)
+
+    source = tmp_path / "model.glb"
+    source.write_bytes(b"fake-glb")
+    spec = {
+        "template": "humanoid",
+        "source_glb": str(source),
+        "out_glb": str(tmp_path / "rig.glb"),
+        "out_json": str(tmp_path / "rig.json"),
+        "joints": "measured",
+    }
+
+    with pytest.raises(_StopHere):
+        blender_worker.op_rig(bpy, spec)
+
+    assert "bones" not in seen_spec["spec"], (
+        "a measurement validate_joints rejected must never reach _rig_bones -- "
+        "the bbox fit is still a rig"
+    )
+
+
 # --- with Blender actually installed ----------------------------------------
 
 

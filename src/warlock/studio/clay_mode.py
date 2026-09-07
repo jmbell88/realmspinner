@@ -707,16 +707,16 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     why the pane will not call ``doc.step_history`` itself. ``plotter_mode``
     has the same three, for the same reason written out there.
 
-    A jump can undo the op the adjust card is offering to re-run, so the record
-    of it is dropped: the card's own guard is that the head has not moved, and
-    leaving a stale ``last_op`` behind would make Repeat replay an op against a
-    document that no longer has what it ran on.
+    ``ctx`` is taken and dropped: a jump used to also clear ``ClayState.
+    last_op``, the record an "adjust last operation" card would have re-run
+    from, but the 2026-09-07 audit's clay-10 removed that bookkeeping -- no
+    pane ever read it -- and the parameter stays so the sibling editors'
+    ``step_history(ctx, tab, index)`` and this one's one caller
+    (``panes/clay_bridge.py``) do not need a signature change over it.
     """
 
-    moved = tab.doc.step_history(index)
-    if moved:
-        ensure(ctx).last_op = None
-    return moved
+    del ctx
+    return tab.doc.step_history(index)
 
 
 
@@ -757,6 +757,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
     mods = event.mod
     ctrl = bool(mods & pygame.KMOD_CTRL)
     shift = bool(mods & pygame.KMOD_SHIFT)
+    alt = bool(mods & pygame.KMOD_ALT)
     name = pygame.key.name(event.key)
 
     # A live gizmo drag owns the bare keys, and it has to be asked *first*: the
@@ -784,6 +785,17 @@ def handle_key(ctx: Any, event: Any) -> bool:
     if ctrl:
         return _ctrl_key(ctx, state, tab, doc, name, shift=shift)
 
+    if alt and name == "z":
+        # The 2026-09-07 audit's clay-08: the X-ray button's own tooltip
+        # (``panes/clay_header.py``) has named "(Alt+Z)" since it was added,
+        # but nothing bound the chord and this handler simply consumed the
+        # press with no effect. Wired rather than the tooltip's claim
+        # dropped: the toggle it names already exists (``state.xray``, the
+        # same field the button flips) and is not gated on ``saving`` there
+        # either -- it is a viewport setting, not a document edit.
+        state.xray = not state.xray
+        return True
+
     if name in ELEMENT_KEYS and not shift:
         if not tab.saving:
             doc.set_element_mode(ELEMENT_KEYS[name])
@@ -799,7 +811,16 @@ def handle_key(ctx: Any, event: Any) -> bool:
         state.tool = TOOL_KEYS[name]
     elif event.key == pygame.K_DELETE:
         if not tab.saving:
-            _delete(ctx, doc)
+            # The 2026-09-07 audit's clay-02: this used to call
+            # ``selection.delete_selected`` directly, so a face selection
+            # spanning two objects pushed one ``set_mesh`` per object and one
+            # Ctrl+Z only undid the last one. ``clay_ops.run`` folds whatever
+            # an op pushes into a single step for every caller -- the menu's
+            # "Delete" row already went through it, so the keyboard path is
+            # the one being brought in line rather than a special case.
+            from . import clay_ops
+
+            clay_ops.run(ctx, doc, clay_ops.get("delete"))
     elif event.key == pygame.K_ESCAPE:
         _escape(state, tab, doc)
     return True
@@ -874,18 +895,6 @@ def _fire_op(ctx: Any, doc: Any, op: Any) -> bool:
         state.open_op_popup = True
         return True
     return clay_ops.run(ctx, doc, op)
-
-
-def _delete(ctx: Any, doc: Any) -> None:
-    """``clay.selection.delete_selected``, with its refusals shown as toasts.
-
-    The rule and the reasoning are that function's; what belongs to this layer
-    is turning a returned sentence into something the user sees.
-    """
-    from .clay import selection
-
-    for message in selection.delete_selected(doc):
-        _toast(ctx, message)
 
 
 def _escape(state: ClayState, tab: ClayTab, doc: Any) -> None:
@@ -1017,10 +1026,11 @@ GROW_KEYS = {
 }
 
 
-# The three below and ``_delete`` above are thin wrappers on
-# ``clay.selection``, kept at their old names and signatures because the panes
-# and the tests call them by those names. The behaviour and the reasoning are
-# in that module.
+# The two below are thin wrappers on ``clay.selection``, kept at their old
+# names and signatures because the panes and the tests call them by those
+# names. The behaviour and the reasoning are in that module. ``_duplicate_
+# selection`` below them used to be a third, but the 2026-09-07 audit's
+# clay-07 routed it through the op registry instead -- see its own docstring.
 
 
 def _select_all(doc: Any) -> None:
@@ -1038,15 +1048,27 @@ def _invert(doc: Any) -> None:
 
 
 def _duplicate_selection(ctx: Any, state: ClayState, doc: Any) -> None:
-    """``clay.selection.duplicate_selected``.
+    """Duplicate, run through the op registry rather than ``clay.selection``
+    directly.
 
-    ``ctx`` and ``state`` are taken and dropped: neither was ever read, and the
-    callers pass them, so the parameters stay rather than becoming a rename.
+    Both the Ctrl+J handler above and the outliner's context-menu "Duplicate"
+    row (``panes/clay_outliner.py``) call this by name. Before the 2026-09-07
+    audit's clay-07 it called ``selection.duplicate_selected`` straight, so
+    the edit landed in history under ``add_objects``'s generic "object add"
+    label instead of "Duplicate", and ``ClayState.last_op`` -- read by nothing
+    today, but written by every other op -- never learned Duplicate had run.
+    Routing both callers through this one function is what lets fixing it
+    here fix the outliner's row too without touching that pane.
+
+    ``state`` is taken and dropped: it was never read, and the callers pass
+    it, so the parameter stays rather than becoming a rename.
     """
-    from .clay import selection
+    from . import clay_ops
 
-    del ctx, state
-    selection.duplicate_selected(doc)
+    del state
+    op = clay_ops.get("duplicate")
+    if op.enabled(doc):
+        _fire_op(ctx, doc, op)
 
 
 # --- crash recovery (UX-05) ---------------------------------------------------

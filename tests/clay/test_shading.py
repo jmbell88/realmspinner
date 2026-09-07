@@ -80,6 +80,47 @@ def test_auto_smooth_is_byte_identical_to_the_old_inline_computation(build) -> N
     assert np.array_equal(got.smooth, expected)
 
 
+def test_auto_smooth_marks_a_flipped_normal_seam_sharp_rather_than_smooth() -> None:
+    """The 2026-09-07 audit's clay-03: ``auto_smooth`` only measured pairs
+    where ``twin >= 0``, so a flipped-normal pair -- two faces winding the
+    *same* direction around the edge they share, which is exactly what denies
+    them a twin -- read as a boundary with nothing to disagree with, and both
+    faces came out smooth across a seam that is a full 180 degrees off.
+    ``adjacency.py``'s own module docstring says importing a real-world GLB
+    routinely produces exactly this.
+
+    The mesh is ``test_adjacency.py``'s own flipped-pair reproduction (two
+    quads sharing the edge between vertices 1 and 4, the second one wound the
+    same way round it): ``Adjacency.flipped_pairs`` there is the corner pair
+    ``[[1, 7]]``, whose shared edge is that vertex pair -- the audit's finding
+    named the edge, not the corner ids. Before this fix both faces measured
+    smooth; the seam must come back sharp on both sides of it.
+    """
+    positions = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [2.0, 0.0, 1.0],
+        ],
+        dtype="f4",
+    )
+    flipped = bm.Mesh(
+        positions=positions,
+        loops=np.array([0, 1, 4, 3, 4, 5, 2, 1], dtype="i4"),
+        starts=np.array([0, 4, 8], dtype="i4"),
+        material=np.zeros(2, dtype="i4"),
+        smooth=np.zeros(2, dtype=bool),
+    )
+    bm.validate(flipped)
+    assert adjacency(flipped).flipped_pairs.tolist() == [[1, 7]]
+
+    result = shading.auto_smooth(flipped)
+    assert not result.smooth.any(), "both faces of the flipped seam must be sharp"
+
+
 def test_auto_smooth_returns_the_same_object_when_nothing_changes() -> None:
     """A box is already flat everywhere the rule would leave it, so applying
     the rule must not allocate a new ``Mesh`` -- which is what lets both

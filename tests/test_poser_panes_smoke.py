@@ -213,6 +213,20 @@ def _library() -> dict:
     }
 
 
+def test_update_key_reason_checks_posing_before_the_stale_frame():
+    """poser-07 (the 2026-09-07 audit): while the preview is still loading,
+    ``state.frame`` may still hold whatever in-between value it had before the
+    switch -- checking it first named that stale frame as the reason instead
+    of the real one, that posing had not started yet."""
+    from warlock.studio.panes.poser_clips import _update_key_reason
+
+    assert _update_key_reason(False, 3) == "The skeleton preview is still loading."
+    assert (
+        _update_key_reason(True, 3)
+        == "That is an in-between frame, not a key. Pick a key first."
+    )
+
+
 def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):
     from warlock.studio.panes import poser_clips
 

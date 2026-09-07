@@ -178,10 +178,64 @@ def test_a_non_image_array_is_refused() -> None:
 
 def test_the_threshold_carries_its_citation() -> None:
     """A copy at a second surface moves nothing: the same measurement document
-    governs both, and the value must stay in step with it."""
+    governs both, and the value must stay in step with it.
+
+    Re-pointed by the 2026-09-07 audit (docs-01) from ``SEAM_MAX`` to
+    ``SEAM_DOMINANCE_MAX``: the old assertion pinned the two *retired* ratio
+    constants to each other, which is a fact about a metric Inker's own live
+    indicator no longer decides by -- ``pipelines/seam.py`` moved its verdict
+    to dominance on 2026-08-30, and this file's job is to keep the copy this
+    package actually uses in step with the document that measured it.
+    """
     from warlock.pipelines import seam
 
-    assert tiling.SEAM_MAX == seam.SEAM_MAX
+    assert tiling.SEAM_DOMINANCE_MAX == seam.SEAM_DOMINANCE_MAX
+
+
+# --- seam_dominance -----------------------------------------------------
+
+
+def test_inker_seam_indicator_does_not_false_alarm_on_flat_cell_pixel_art() -> None:
+    """The 2026-09-07 audit (docs-01): a texture of flat cells parted by thin
+    hard lines -- exactly Inker's own content -- collapses ``seam_ratio``'s
+    *mean* interior step toward zero, so a genuinely periodic (seamless) tile
+    reads as seamed. This tile is built to be exactly periodic at period 8: a
+    hard line every 8th column, flat everywhere else. Wrapping it repeats the
+    same period-8 jump the interior already has every 8 columns, so the wrap
+    is not a seam at all -- ``seam_dominance``, normalised against the
+    interior's *worst* step instead of its mean, says so; ``seam_ratio``
+    false-alarms because the many flat (zero-diff) pairs dilute its mean.
+    """
+    width = 64
+    columns = np.arange(width, dtype=np.uint8)
+    on_a_line = columns % 8 == 0
+    values = np.where(on_a_line, 200, 100).astype(np.uint8)
+    tile = np.zeros((width, width, 4), dtype=np.uint8)
+    tile[..., :3] = values[None, :, None]
+    tile[..., 3] = 255
+
+    ratio_h, _ratio_v = tiling.seam_ratio(tile)
+    assert ratio_h > tiling.SEAM_MAX, "the false alarm this metric produces"
+
+    dominance_h, _dominance_v = tiling.seam_dominance(tile)
+    assert dominance_h <= tiling.SEAM_DOMINANCE_MAX
+
+
+def test_seam_dominance_is_the_numpy_port_of_the_pipelines_one() -> None:
+    """Same numbers as ``pipelines/seam.py``'s ``_dominance``, on the same
+    picture -- the copy this package keeps for headlessness must not drift
+    into a second answer to the question the citation already settled."""
+    from warlock.pipelines import seam as pipeline_seam
+
+    rng = np.random.default_rng(11)
+    tile = np.zeros((32, 32, 4), dtype=np.uint8)
+    tile[..., :3] = rng.integers(0, 256, (32, 32, 3), dtype=np.uint8)
+    tile[..., 3] = 255
+
+    horizontal, vertical = tiling.seam_dominance(tile)
+    expected_h, expected_v = pipeline_seam._dominance(tile[:, :, :3])
+    assert horizontal == pytest.approx(expected_h)
+    assert vertical == pytest.approx(expected_v)
 
 
 def test_offset_autovivifies_an_empty_animated_cel():

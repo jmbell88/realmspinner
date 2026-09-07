@@ -55,6 +55,37 @@ def test_loading_clamps_out_of_range_values():
     assert layer.opacity == 1.0
 
 
+def test_check_bake_cost_refuses_a_maxed_out_hand_edited_preset():
+    """The 2026-09-07 audit (inker-10): every field ``clamp`` narrows on load
+    is individually bounded, but their product is not, and a hand-edited
+    preset maxing all of them at once (1024x1024, supersample 8, 12 phases of
+    240 frames, 16 directions, 32 layers) asks ``bake()`` for about 1e14
+    pixels of frames with no cancel button behind it. ``clamp`` still lets
+    the preset load -- narrowing is its whole contract -- so the refusal has
+    to be a separate check made before the render is submitted."""
+    rec = flourish.clamp(
+        R.Recipe(
+            width=100000,
+            height=100000,
+            supersample=99,
+            directions=999,
+            phases=tuple(R.Phase(f"p{i}", 100000) for i in range(20)),
+            layers=tuple(R.Layer(uid=i, kind="core") for i in range(50)),
+        )
+    )
+    assert (rec.width, rec.height, rec.supersample) == (R.MAX_SIZE, R.MAX_SIZE, R.MAX_SUPERSAMPLE)
+    assert rec.directions == R.MAX_DIRECTIONS
+    assert len(rec.layers) == R.MAX_LAYERS
+    with pytest.raises(ValueError, match="pixels of frames"):
+        R.check_bake_cost(rec)
+
+
+def test_check_bake_cost_allows_an_ordinary_recipe():
+    rec = flourish.from_dict(FIREBALL)
+    R.check_bake_cost(rec)  # must not raise
+    assert R.bake_cost(rec) < R.MAX_BAKE_COST
+
+
 def test_an_unknown_primitive_kind_is_refused_not_kept():
     with pytest.raises(ValueError, match="not a primitive"):
         flourish.from_dict({"layers": [{"kind": "lensflare"}]})

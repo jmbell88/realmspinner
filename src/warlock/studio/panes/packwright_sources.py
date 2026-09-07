@@ -121,7 +121,6 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
 
     from .. import theme
     from ..packwright.layout import MAX_SPRITES
-    from ..packwright.sources import dedup_tiles, sprites_from_tileset, tileset_occupancy
     from ..tokens import sp
 
     if not imgui.begin_popup(TILESET_POPUP):
@@ -156,47 +155,29 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
     # occupancy grid the import slices by -- so what the popup promises and
     # what the import does cannot disagree.
     #
-    # **Recomputed only when one of its inputs changes**, not every frame the
-    # popup is drawn. The dedup branch below re-slices the sheet into up to
-    # ``MAX_SPRITES`` fresh ``Sprite`` copies and hashes all eight dihedral
-    # variants of each: measured at some hundreds of milliseconds on a full
-    # 8192-square sheet, which is a legal thing to drop on this picker and was
-    # about two frames a second for as long as the popup stayed up. The decode
-    # that produced ``pixels`` is already behind ``ctx.submit``; this was the
-    # half left on the frame thread.
-    key = (
-        id(pixels),
-        tuple(state.tileset_cell),
-        bool(state.tileset_dedup),
-        bool(state.tileset_dedup_flips),
+    # **Off the frame thread.** The 2026-09-07 audit's packwright-05: the
+    # dedup branch re-slices the sheet into up to ``MAX_SPRITES`` fresh
+    # ``Sprite`` copies and hashes all eight dihedral variants of each --
+    # measured at some hundreds of milliseconds on a full 8192-square sheet --
+    # and this used to run inline, on the frame thread, once per typed digit
+    # in either tile-size field. ``request_tileset_preview`` submits it and
+    # ``on_task_done`` adopts the answer into ``state.tileset_preview`` when it
+    # lands; until then this shows the last one it has, marked as pending
+    # rather than silently stale.
+    computing = state.tileset_preview_key != packwright_mode.tileset_preview_key(
+        pixels, state.tileset_cell, state.tileset_dedup, state.tileset_dedup_flips
     )
-    if state.tileset_preview_key != key:
-        occupied = tileset_occupancy(pixels, tile=state.tileset_cell)
-        rows, columns = occupied.shape
-        kept = int(occupied.sum())
-        dropped = rows * columns - kept
-        duplicates = 0
-        if state.tileset_dedup and kept and kept <= MAX_SPRITES:
-            # **The same call the import runs**, not a second count of its own:
-            # the popup-promise contract ``tileset_occupancy`` already enforces
-            # for emptiness, applied to the dedup it now also promises.
-            tile = state.tileset_cell
-            _kept, duplicates = dedup_tiles(
-                sprites_from_tileset(
-                    pixels, tile=tile, prefix=f"{path}@{tile[0]}x{tile[1]}", name=stem
-                ),
-                orientations=state.tileset_dedup_flips,
-            )
-            kept -= duplicates
-        state.tileset_preview_key = key
-        state.tileset_preview = (rows, columns, kept, dropped, duplicates)
+    packwright_mode.request_tileset_preview(ctx, state, path, stem, pixels)
     rows, columns, kept, dropped, duplicates = state.tileset_preview
     problem = ""
-    if kept == 0:
-        problem = "No occupied cells at that tile size."
-    elif kept > MAX_SPRITES:
-        problem = f"{kept} tiles; the packer's ceiling is {MAX_SPRITES}."
-    if problem:
+    if not computing:
+        if kept == 0:
+            problem = "No occupied cells at that tile size."
+        elif kept > MAX_SPRITES:
+            problem = f"{kept} tiles; the packer's ceiling is {MAX_SPRITES}."
+    if computing:
+        widgets.muted("Counting the tiles this would keep...")
+    elif problem:
         widgets.text_colored(theme.WARN, problem)
     elif duplicates:
         widgets.muted(
@@ -207,7 +188,7 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
         widgets.muted(f"{columns} x {rows} cells - {kept} tile(s), {dropped} empty dropped")
 
     imgui.dummy((0, sp(tokens.SP_1)))
-    imgui.begin_disabled(bool(problem))
+    imgui.begin_disabled(bool(problem) or computing)
     if controls.button("Import", (sp(90), 0)) and packwright_mode.import_tileset(ctx):
         imgui.close_current_popup()
     imgui.end_disabled()
@@ -305,7 +286,12 @@ def _row(ctx: Any, state: Any, tab: Any, source: Any, editable: bool) -> None:
         # instead, so the same gesture renamed in two lists and did nothing in
         # the third (2026-09-05).
         imgui.set_next_item_width(-1.0)
-        name = widgets.input_text("##rename", source.name, max_length=64)
+        # commit=True: the 2026-09-07 audit's packwright-03 found this field
+        # reporting a change on every keystroke, unlike the identical widget
+        # in ``clay_outliner.py`` -- so ``rename_source`` (an unconditional
+        # ``history.push``) fired once per letter typed, and typing "lead"
+        # then one Ctrl+Z left "lea" rather than undoing the rename.
+        name = widgets.input_text("##rename", source.name, max_length=64, commit=True)
         if name != source.name:
             # Through the mode, not onto the document: the mode is what re-arms
             # the pack, and a name that never reaches the layout is a name the

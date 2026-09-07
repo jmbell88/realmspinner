@@ -417,7 +417,10 @@ class MapObject:
     # nothing outside this run. ``0`` is "unassigned yet"; ``MapDoc`` mints a
     # real one from ``next_object_id`` at creation, monotone and never
     # reused, because an object-typed property may go on naming this id after
-    # the object it named is deleted. See ``PLOTTER_PLAN.md`` Milestone 2.
+    # the object it named is deleted -- the counter rule ``docs/INVARIANTS.md``
+    # states in full. (This used to cite the plotter's own retired plan
+    # document by name; the 2026-09-07 audit found the dead citation,
+    # plotter-04.)
     # Not in ``snapshot()``: an id is the object's identity, not a prop an
     # edit may rewrite -- add/remove edits hold the object, so it survives.
     id: int

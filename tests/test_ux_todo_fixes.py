@@ -138,6 +138,13 @@ RETIRED_PLANS = (
     # pointer rather than a stale plan.
     "PLOTTER_COMPAT" ".md",
     "ASEPRITE_INTEROP" ".md",
+    # Retired plan file, per ``docs/COMPAT.md``'s "The `M{n}` citations" section:
+    # deleted in ``09c64b4``, and its milestone numbers are no longer a citable
+    # API. ``_map_model.py:420`` still named it by spelled-out milestone
+    # ("Milestone 2") rather than the ``M{n}`` shorthand that section's own scan
+    # would have caught, which is how it survived both guards (the 2026-09-07
+    # audit, plotter-04).
+    "PLOTTER_PLAN" ".md",
 )
 
 

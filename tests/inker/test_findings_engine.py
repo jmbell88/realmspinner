@@ -425,17 +425,20 @@ def test_both_document_writers_stage_through_the_one_helper():
 def test_a_text_stamp_cannot_ask_for_an_unbounded_surface():
     """The surface is measured from the string in the field at the size in the
     field, and nothing stood between a 4000-point paste and ``Image.new``."""
-    import pytest
-
     from warlock.studio import fonts
     from warlock.studio.inker import textstamp
 
     font = str(fonts.FONT_DIR / "Inter-Regular.ttf")
     # ``MAX_SIZE`` caps the point size; the *string* was never capped, and at
     # the largest legal size a pasted paragraph is still a surface nothing
-    # measured before allocating it.
-    with pytest.raises(ValueError, match="past the"):
-        textstamp.text_stamp("M" * 40_000, font, textstamp.MAX_SIZE, (255, 255, 255, 255))
+    # measured before allocating it. The ceiling is unchanged and still
+    # refuses this -- but the 2026-09-07 audit (inker-01) found the refusal
+    # surfacing as an uncaught ``ValueError`` that reached
+    # ``inker_mode.stamp_text`` (no ``except`` there) and took the app down
+    # on an ordinary large paragraph, so it is now a decline like every other
+    # one this function makes: ``None``, not a raise.
+    huge = textstamp.text_stamp("M" * 40_000, font, textstamp.MAX_SIZE, (255, 255, 255, 255))
+    assert huge is None
 
     # And the ordinary case still draws.
     assert textstamp.text_stamp("Hi", font, 24, (255, 0, 0, 255)) is not None

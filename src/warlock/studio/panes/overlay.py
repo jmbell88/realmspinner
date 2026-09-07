@@ -77,22 +77,30 @@ def toolbar(ctx: Any) -> None:
     def _wrap(label: str) -> None:
         widgets.same_line_or_wrap(widgets.button_width(label))
 
-    if offers_inker(ctx, job):
-        # First, and only in 2D: the reference is the thing on screen, and the
-        # camera controls beside it do not apply to it at all.
-        if controls.button(f"{icons.BRUSH} Open in Inker"):
-            inker_mode.open_job_reference(ctx, job)
-        _wrap(f"Tiled {TILE_REPEAT}x{TILE_REPEAT}")
+    # First, and only in 2D: the reference is the thing on screen, and the
+    # camera controls beside it do not apply to it at all. ``and`` rather than
+    # a nested ``if`` so the button is still never drawn when the gate is shut:
+    # short-circuiting is what keeps that true.
+    if offers_inker(ctx, job) and controls.button(f"{icons.BRUSH} Open in Inker"):
+        inker_mode.open_job_reference(ctx, job)
+    # ``offers_inker`` is looser than ``shows_tiled`` -- it only asks whether
+    # this *is* the 2D reference toolbar, not whether the job is a tile -- so
+    # the Tiled toggle used to be reserved for under the wrong predicate. The
+    # 2026-09-07 audit's shell-08: with Open in Inker drawn but no Tiled
+    # toggle following it, the reservation was still sized for "Tiled 2x2",
+    # so the Frame button after it inherited a width meant for a label that
+    # was never drawn and wrapped the row when it would have fit.
     if shows_tiled(ctx, job):
         # Only for a tile, and only in 2D: it is the one asset for which
         # "repeated" is a true picture of the thing rather than a duplicate of
         # it. The label carries the count so the scale change is stated -- the
         # texture is drawn at half size, and a toggle that only said "Tiled"
         # would leave the user wondering why the image shrank.
+        _wrap(f"Tiled {TILE_REPEAT}x{TILE_REPEAT}")
         _changed, ctx.state.tile_preview = widgets.toggle(
             f"Tiled {TILE_REPEAT}x{TILE_REPEAT}", ctx.state.tile_preview, tag="tile_preview"
         )
-        _wrap(icons.MAXIMIZE)
+    _wrap(icons.MAXIMIZE)
     if widgets.icon_button(icons.MAXIMIZE, "Frame the model (F)"):
         viewer.frame()
     # The viewport's own way into its chapter. It had none: this toolbar was

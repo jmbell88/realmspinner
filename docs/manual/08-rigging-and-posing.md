@@ -40,15 +40,14 @@ T-pose with arms straight out, fitting that template runs the arm chain diagonal
 ribcage. Automatic weights then bind the arms to the chest, and every animation you play barely
 moves them.
 
-The symptom is "the arms are welded to the body". The fix is to stop using the template's guess:
+The symptom is "the arms are welded to the body". There is no "Measured joints" control here to
+reach for — fitting the arm and leg lines to a mesh's own vertex cloud, and, with the ViTPose
+weights installed, to the reference image's own landmarks, is something Troupe's Character pipeline
+does **automatically** for a T-posed reference, before the rig ever reaches this stage. It never
+appears as a button you press.
 
-- **Measured joints** fits the arm and leg lines to your mesh's own vertex cloud instead of assuming
-  proportions. This is the right answer most of the time.
-- **Adjust joints** lets you move joints by hand. Hand-corrected joints always win over both of the
-  above.
-
-With the ViTPose weights installed, humanoid joints can also be measured from the reference image's
-actual landmarks — all-or-nothing on confidence, so it either uses them or falls back cleanly.
+If you rigged the mesh directly in this stage and hit the trap anyway, the fix is **Adjust joints**:
+move joints by hand. A hand correction always wins over the template's guess.
 
 ## Posing one mesh
 

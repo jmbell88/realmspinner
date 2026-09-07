@@ -207,12 +207,24 @@ ERASE_STRENGTH = 0.5
 
 def roll_half(image: Any) -> Any:
     """The image rolled by half in both axes -- the wrap seam becomes a
-    visible cross through the centre. Its own inverse."""
+    visible cross through the centre. Its own inverse.
+
+    Requires even dimensions: the 2026-09-07 audit found that "its own
+    inverse" was only true when h and w are even. ``np.roll(arr, h // 2)``
+    applied twice returns to the original only if ``2 * (h // 2) == h``,
+    which fails by one for an odd h -- a defect that stayed latent because
+    every caller (``_q_tileset.py``) passes 1024, but it belongs to the
+    function's own contract, not to caller discipline.
+    """
     import numpy as np
     from PIL import Image
 
     arr = np.asarray(image)
     h, w = arr.shape[:2]
+    if h % 2 or w % 2:
+        raise ValueError(
+            f"roll_half needs even dimensions to be its own inverse; got {w}x{h}"
+        )
     return Image.fromarray(np.roll(np.roll(arr, h // 2, axis=0), w // 2, axis=1))
 
 

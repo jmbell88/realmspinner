@@ -183,7 +183,15 @@ def add_rendered_sheet(ctx: Any, job_id: str, sheet_id: str, *, pixel: bool = Fa
         name = str(record.get("name") or sheet_id)
         return {"tileset": (str(png), name, pixels), "cell": cell, "uid": uid}
 
-    ctx.submit(f"packwright-tileset:{uid}", run)
+    # Keyed on the request's own identity, not the bare tab uid
+    # ``ask_add_tileset`` submits under. The 2026-09-07 audit's packwright-02:
+    # both call sites shared ``packwright-tileset:{uid}`` and neither inspects
+    # ``ctx.submit``'s return, so a Troupe handoff landing while the manual
+    # picker's OS dialog was still open -- the same tab, same key, already in
+    # flight -- was refused with nothing to say so: manual submit ``True``,
+    # handoff ``False``, no toast. ``job_id``/``sheet_id`` make this handoff
+    # its own request, the ``add_job_source``/``add_source_paths`` shape.
+    ctx.submit(f"packwright-tileset:{uid}:{job_id}:{sheet_id}", run)
 
 
 def import_tileset(ctx: Any) -> bool:
@@ -217,6 +225,77 @@ def import_tileset(ctx: Any) -> bool:
     state.tileset_import_open = False
     ctx.toast(_added_sentence(*_add_sprites(ctx, tab, sprites), noun="tile"))
     return True
+
+
+def tileset_preview_key(
+    pixels: Any, cell: tuple[int, int], dedup: bool, dedup_flips: bool
+) -> tuple[Any, ...]:
+    """What the tile-set import popup's promised counts are a function of.
+
+    ``id(pixels)`` rather than the array's bytes: the decode is already behind
+    a task and this only has to change when a *different* sheet lands, not
+    hash a few megabytes on every frame the popup is open.
+    """
+    return (id(pixels), tuple(cell), bool(dedup), bool(dedup_flips))
+
+
+def request_tileset_preview(
+    ctx: Any, state: PackwrightState, path: str, stem: str, pixels: Any
+) -> None:
+    """Recompute the tile-set import popup's promised counts, off the frame
+    thread.
+
+    The 2026-09-07 audit's packwright-05: ``tileset_occupancy`` and, with
+    dedup on, ``dedup_tiles``/``sprites_from_tileset`` re-slicing the whole
+    sheet into fresh ``Sprite`` copies and hashing all eight dihedral variants
+    of each ran **synchronously on the frame thread** every time the popup
+    redrew with a changed key -- which is to say, once per typed digit in
+    either tile-size field. The module's own comment already measured this at
+    some hundreds of milliseconds on a full sheet; this submits it instead.
+
+    Safe to call every frame, the ``request_pack`` shape: when the key has not
+    moved this is one tuple comparison and nothing submitted, and while a
+    computation for the *current* key is already in flight the key-derived
+    task key makes the resubmit a no-op the runner refuses.
+    """
+    from .packwright.layout import MAX_SPRITES
+    from .packwright.sources import dedup_tiles, sprites_from_tileset, tileset_occupancy
+
+    key = tileset_preview_key(
+        pixels, state.tileset_cell, state.tileset_dedup, state.tileset_dedup_flips
+    )
+    if state.tileset_preview_key == key:
+        return
+
+    tile = tuple(int(v) for v in state.tileset_cell)
+    dedup = bool(state.tileset_dedup)
+    dedup_flips = bool(state.tileset_dedup_flips)
+
+    def run() -> dict[str, Any]:
+        occupied = tileset_occupancy(pixels, tile=tile)
+        rows, columns = occupied.shape
+        kept = int(occupied.sum())
+        dropped = rows * columns - kept
+        duplicates = 0
+        if dedup and kept and kept <= MAX_SPRITES:
+            # The same call the import runs, not a second count of its own:
+            # the popup-promise contract ``tileset_occupancy`` already
+            # enforces for emptiness, applied to the dedup it also promises.
+            _kept, duplicates = dedup_tiles(
+                sprites_from_tileset(
+                    pixels, tile=tile, prefix=f"{path}@{tile[0]}x{tile[1]}", name=stem
+                ),
+                orientations=dedup_flips,
+            )
+            kept -= duplicates
+        return {"key": key, "preview": (rows, columns, kept, dropped, duplicates)}
+
+    # Keyed on the inputs rather than the tab: this popup is not per-tab
+    # state (``PackwrightState.tileset_import``), and the key doubles as the
+    # runner's own in-flight dedupe, so a cell size typed and then un-typed
+    # inside one frame's worth of keystrokes submits at most once per distinct
+    # answer.
+    ctx.submit(f"packwright-tileset-preview:{abs(hash(key))}", run)
 
 
 def add_source_paths(ctx: Any, paths: list[Path]) -> None:
@@ -440,6 +519,28 @@ def set_settings(ctx: Any, tab: PackTab | None = None, **values: Any) -> None:
     tab.pack_dirty = True
 
 
+def source_index(tab: PackTab) -> dict[str, int]:
+    """``source.key -> uid`` for every source, cached on the tab.
+
+    The 2026-09-07 audit's packwright-07: the preview and items panes each
+    rebuilt this dict comprehension from scratch on every single frame they
+    drew, though every caller only ever maps a *packed* frame's key back to
+    its source -- and a packed frame's key set cannot change except when
+    ``pack_generation`` does, since that is the one counter ``adopt_pack``
+    bumps and the one place ``tab.layout`` (what a frame's key comes from)
+    is replaced. Stashed as a plain attribute on the tab -- a bare
+    ``@dataclass``, not slotted -- rather than growing ``PackTab`` a field
+    for it, the same reach ``packwright_textures`` makes into
+    ``ctx.state.preview`` for a texture cache keyed on the same counter.
+    """
+    cached = getattr(tab, "_pw_source_index", None)
+    if cached is not None and cached[0] == tab.pack_generation:
+        return cached[1]
+    index = {source.key: source.uid for source in tab.doc.sources}
+    tab._pw_source_index = (tab.pack_generation, index)
+    return index
+
+
 # --- packing ------------------------------------------------------------------
 
 
@@ -521,6 +622,25 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 title=result.get("title"),
             )
             set_mode(ctx.state, "packwright")
+        return
+
+    if name == "packwright-tileset-preview":
+        # Not tab-scoped -- the popup's counts live on ``PackwrightState``,
+        # not on a ``PackTab`` -- so this is handled before the generic
+        # tab lookup below, which a task key with no tab uid in it cannot
+        # satisfy. Adopted only if the result still describes the *current*
+        # inputs: the cell size may have changed again while this task was
+        # in flight, and a second, fresher submit could already be running
+        # under its own key -- landing first or last, whichever result no
+        # longer matches ``tileset_preview_key`` must lose.
+        if isinstance(result, dict) and state.tileset_import is not None:
+            pixels = state.tileset_import[2]
+            current = tileset_preview_key(
+                pixels, state.tileset_cell, state.tileset_dedup, state.tileset_dedup_flips
+            )
+            if result.get("key") == current:
+                state.tileset_preview_key = current
+                state.tileset_preview = result["preview"]
         return
 
     # ``split(":")[1]``, not ``split(":", 1)[1]``: an add carries a third

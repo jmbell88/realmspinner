@@ -202,6 +202,20 @@ def test_one_filename_listed_twice_is_refused():
         )
 
 
+def test_a_filename_wheel_dist_cannot_split_is_refused_at_parse_not_later():
+    """pipelines-03: ``parse_manifest`` checked that a filename ends in
+    ``.whl`` and is a bare name, but never that it has the
+    ``name-version-...`` shape ``wheel_dist`` requires. A hand-edited
+    ``packs.json`` naming a wheel with no ``-`` in its stem used to sail
+    through the parse and raise a bare ``ValueError`` out of ``conflicts``/
+    ``to_install`` later -- an unhandled exception where opening Settings ->
+    Packs promises the clean ``ManifestError`` this function's docstring
+    describes. Regression for the 2026-09-07 audit, pipelines-03 (reproduced).
+    """
+    with pytest.raises(packs.ManifestError):
+        manifest(wheel("noversion.whl", 1, packs_=("rig",)))
+
+
 def test_load_manifest_refuses_a_file_that_is_not_json(tmp_path):
     path = tmp_path / packs.MANIFEST_NAME
     path.write_text("not json", encoding="utf-8")

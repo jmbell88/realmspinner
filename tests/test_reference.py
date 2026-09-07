@@ -66,6 +66,22 @@ def test_two_objects_are_rejected():
     assert any("more than one object" in r for r in report.reasons)
 
 
+def test_measure_defers_to_has_alpha_instead_of_restating_it(monkeypatch):
+    """pipelines-05 (2026-09-07 audit): ``measure()`` used to recompute the
+    has-alpha condition inline instead of calling ``has_alpha()``, which
+    ``subject_mask()`` already relies on -- a copy that could drift from the
+    one definition ``matting.py``'s manifest string also depends on. Patching
+    ``has_alpha`` must move ``measure()``'s answer; an inline copy would not
+    see the patch at all.
+    """
+    monkeypatch.setattr(reference, "has_alpha", lambda image: True)
+    # A plain RGB image with no transparency: has_alpha's real condition
+    # would say False here, so a True report.alpha_source proves measure()
+    # called the (patched) function rather than repeating the condition.
+    report = reference.measure(_subject(mode="RGB"))
+    assert report.alpha_source is True
+
+
 def test_speckle_is_counted_but_is_not_a_second_subject():
     """The raw count and the subject count are two different numbers.
 

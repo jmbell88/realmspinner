@@ -213,14 +213,25 @@ def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
     if baseline is None:
         print("no 'auto' row to compare against -- rerun including it before changing anything.")
         return
-    if best is baseline:
+    margin = baseline["worst"] - best["worst"]
+    # The 2026-09-07 audit, finding create-05: ``best is baseline`` only caught
+    # a tie when 'auto' itself was the row ``min`` happened to keep -- ``min``
+    # keeps the *first* equal-scoring row, so a tied band that sorted before
+    # 'auto' compared unequal by identity while its margin was exactly zero.
+    # The noise check below is a strict ``<``, which is false at margin == 0
+    # whenever baseline's own score is 0.0 (a perfect, hole-free band) -- so a
+    # real tie fell through to "clearly better" and a human tuning hardware
+    # could hard-code a band with no measured benefit. Reproduced: two rows at
+    # worst=0.0 with the non-'auto' one sorting first printed "clearly better
+    # than 'auto' (0.0000)". A margin that is not positive is never an
+    # improvement, tie or not, so this is checked before the noise floor.
+    if margin <= 0:
         print("that is the exe's own heuristic: leave DEFAULT_TRELLIS_BAND = None.")
         return
     # One generation per band, so a narrow win is indistinguishable from run-to-run
     # noise -- the first sweep measured two runs of the *same* effective setting
     # disagreeing by 0.3% on face count. Overriding the exe's heuristic on that
     # basis would be picking a number out of the noise and calling it tuning.
-    margin = baseline["worst"] - best["worst"]
     if margin < baseline["worst"] * MEANINGFUL_MARGIN:
         print(
             f"but 'auto' measured {baseline['worst']:.4f} -- a "

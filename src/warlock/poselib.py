@@ -71,6 +71,35 @@ class RecordError(ValueError):
         self.field = field
 
 
+def validate_root_translation(raw: Any) -> list[float]:
+    """Normalize and range-check a root offset. Raises :class:`RecordError`.
+
+    Finite-checked *before* range-checked, because ``abs(nan) <= 2.0`` is
+    False and the range message would then blame a value that is not a
+    number. Shared rather than restated: the 2026-09-07 audit (poser-05)
+    found this same field handled by two other doors with a bare
+    ``float(v)`` and neither check -- ``rigging.parse_clip_library`` and the
+    clip editor's own shape check -- so ``[nan, 1e30, 0.0]`` round-tripped
+    through a clip's key poses when the identical field on a library pose
+    already refused it here.
+    """
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        raise RecordError("root_translation must be a 3-vector", field="root_translation")
+    try:
+        root = [float(v) for v in raw]
+    except (TypeError, ValueError):
+        raise RecordError("root_translation is not numeric", field="root_translation") from None
+    if not all(math.isfinite(v) for v in root):
+        raise RecordError("root_translation is not numeric", field="root_translation")
+    if any(abs(v) > MAX_ROOT_TRANSLATION for v in root):
+        raise RecordError(
+            f"root_translation components must be within "
+            f"+/-{MAX_ROOT_TRANSLATION} character heights",
+            field="root_translation",
+        )
+    return root
+
+
 # --- paths ------------------------------------------------------------------
 #
 # data_dir/poser/ sits beside the job directories. A collision with a job id is
@@ -179,28 +208,10 @@ def validate_record(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     raw = payload.get("root_translation")
-    if raw is None:
-        # Absent means "no offset", never an error: every record written before
-        # the field existed reads as zeros, and so does a pose that never
-        # touched the root.
-        root = [0.0, 0.0, 0.0]
-    else:
-        if not isinstance(raw, (list, tuple)) or len(raw) != 3:
-            raise RecordError("root_translation must be a 3-vector", field="root_translation")
-        try:
-            root = [float(v) for v in raw]
-        except (TypeError, ValueError):
-            raise RecordError(
-                "root_translation is not numeric", field="root_translation"
-            ) from None
-        if not all(math.isfinite(v) for v in root):
-            raise RecordError("root_translation is not numeric", field="root_translation")
-        if any(abs(v) > MAX_ROOT_TRANSLATION for v in root):
-            raise RecordError(
-                f"root_translation components must be within "
-                f"+/-{MAX_ROOT_TRANSLATION} character heights",
-                field="root_translation",
-            )
+    # Absent means "no offset", never an error: every record written before
+    # the field existed reads as zeros, and so does a pose that never touched
+    # the root.
+    root = [0.0, 0.0, 0.0] if raw is None else validate_root_translation(raw)
 
     return {
         "name": pose["name"],

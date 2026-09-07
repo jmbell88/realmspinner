@@ -21,7 +21,8 @@ from typing import Any
 
 import numpy as np
 
-from . import POSITION, Param, color, fbm_plane, stamp, val
+from .. import noise
+from . import POSITION, Param, color, stamp, val
 
 REPLACES_BELOW = False
 
@@ -49,9 +50,14 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
         return None
     flicker = val(layer, "flicker", ctx)
     if flicker > 0.0:
-        # One noise sample per frame: the whole stamp breathes together.
+        # One noise sample per frame: the whole stamp breathes together --
+        # and one *scalar*. This used to read ``fbm_plane(...)[0, 0]``, a
+        # full-frame noise field computed (a coarse grid, an fbm sum over
+        # it, an upsample-and-blur to raster size) to look at a single
+        # corner of it, against this package's own cost bar
+        # (``prims/__init__``'s docstring). The 2026-09-07 audit, inker-13.
         t = ctx.time * val(layer, "flicker_hz", ctx)
-        n = fbm_plane(ctx, ctx.lseed(), scale=8.0, dx=t, octaves=2)[0, 0]
+        n = noise.fbm(np.float32(t), np.float32(0.0), ctx.lseed(), octaves=2)
         alpha *= 1.0 - flicker * float(n)
     cx, cy = ctx.turn(val(layer, "x", ctx), val(layer, "y", ctx))
     angle = val(layer, "rotation", ctx) + val(layer, "spin", ctx) * ctx.time

@@ -776,6 +776,14 @@ class SpriteOps:
                 rigging.sprite_draft_path(source_dir, draft_id),
                 json.dumps(doc, indent=2),
             )
+            # The sidecar above is the completion marker, so a cancel arriving
+            # in the tail below must not have ``queue.py`` record this job
+            # cancelled and run ``_discard_artifacts`` on the served draft PNGs
+            # and sidecar it just published -- the 2026-09-07 audit found this
+            # kind was still deletable after publish because nothing committed
+            # the cancel here, unlike ``_pixel_sheet``.
+            if self._cancel is not None:
+                self._cancel.commit()
 
         log.info(
             "synthesised sprite draft %s for job %s: %s, %d cells at %dpx, "

@@ -80,6 +80,19 @@ def test_a_box_kernel_is_normalised_by_its_own_sum():
     assert int(out[2, 2, 0]) == 100
 
 
+def test_convolve_does_not_mistake_a_balanced_off_diagonal_kernel_for_the_identity():
+    """The 2026-09-07 audit (inker-05): the fast path checked only the centre
+    weight and the *normalised* sum, both of which read as the identity's
+    (1.0 and 1.0) whenever the off-diagonals cancel and the centre is left at
+    its default of 1.0 -- ``m01=5, m21=-5`` is exactly such a kernel, and the
+    raw sum is 1.0 too so normalising divided by 1.0 and changed nothing about
+    the check. Reproduced: this kernel left the input byte-identical before
+    the fix."""
+    pixels = np.random.default_rng(7).integers(0, 256, (6, 5, 4), dtype=np.uint8)
+    out = filters.convolve(pixels, m01=5.0, m21=-5.0)
+    assert not np.array_equal(out, pixels)
+
+
 def test_an_edge_detect_sums_to_zero_and_is_left_alone():
     """There the point is the difference rather than the level, so
     normalising would be dividing by nothing."""

@@ -128,6 +128,7 @@ def check(svc: WarlockService, *, timeout: float = CHECK_TIMEOUT) -> dict[str, A
         {"mode": "check"},
         on_progress=lambda _p, _l: None,
         timeout=timeout,
+        op="check",
     )
     current = installed_version()
     latest = result.get("latest")
@@ -164,6 +165,7 @@ def download(
         },
         on_progress=on_progress or (lambda _p, _l: None),
         timeout=timeout,
+        op="download",
     )
 
 
@@ -198,7 +200,7 @@ def _kill_and_reap(proc: subprocess.Popen[str]) -> None:
 
 
 def _run_worker(
-    spec: dict[str, Any], *, on_progress: Progress, timeout: float
+    spec: dict[str, Any], *, on_progress: Progress, timeout: float, op: str
 ) -> dict[str, Any]:
     """One child, one question. ``packs._run_worker``'s protocol exactly.
 
@@ -207,6 +209,12 @@ def _run_worker(
     result. stderr is drained from the start rather than read after exit,
     because a child whose stderr outgrows the OS pipe buffer blocks on its next
     write and never reaches the exit that read was waiting on.
+
+    ``op`` names the caller's operation ("check" or "download") for the
+    timeout message alone. Before the 2026-09-07 audit (service-05) it was a
+    literal "The update check timed out." here, so a two-hour installer
+    *download* that stalled reported itself as a check having timed out --
+    the wrong half of this module's two operations, to whoever read it.
     """
     with tempfile.TemporaryDirectory(prefix="warlock-update-") as scratch:
         result_path = Path(scratch) / "result.json"
@@ -300,7 +308,7 @@ def _run_worker(
             winjob.untrack(proc.pid)
         except subprocess.TimeoutExpired:
             _kill_and_reap(proc)
-            raise Invalid("The update check timed out.") from None
+            raise Invalid(f"The update {op} timed out.") from None
         except BaseException:
             _kill_and_reap(proc)
             raise

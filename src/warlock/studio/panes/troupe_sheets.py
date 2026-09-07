@@ -20,6 +20,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ...pipelines import charsheet
 from .. import controls, icons, theme, tokens, troupe_mode, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -77,8 +78,6 @@ def camera_line(record: dict[str, Any]) -> str:
     the preset's *label* comes from ``charsheet.CAMERA_PRESETS``, which is the
     one home for that table.
     """
-    from ...pipelines import charsheet
-
     camera = record.get("camera")
     if not isinstance(camera, dict):
         elevation = record.get("elevation")
@@ -302,7 +301,11 @@ def _rebuild(ctx: Any, state: Any) -> None:
     form = _form(ctx, state)
     key = f"troupe-sheet:{state.job_id}"
     count = troupe_settings.cell_count(form)
-    valid = 0 < count <= 512
+    # The 2026-09-07 audit (troupe-05) found these ladders restated as bare
+    # numbers instead of read off ``charsheet.MAX_CELLS``/``WARN_CELLS``, the
+    # door's own limits -- this module already imports ``charsheet`` for
+    # ``camera_line``'s labels, so the drift was never a missing import.
+    valid = 0 < count <= charsheet.MAX_CELLS
     if widgets.disabled_button(
         "Build another sheet",
         not ctx.busy(key) and valid,
@@ -310,7 +313,7 @@ def _rebuild(ctx: Any, state: Any) -> None:
         reason=(
             "A sheet is already being queued for this character."
             if ctx.busy(key)
-            else "Select a layout of at most 512 cells."
+            else f"Select a layout of at most {charsheet.MAX_CELLS} cells."
         ),
     ):
         troupe_mode.build_sheet(ctx, state.job_id, form)
@@ -318,5 +321,7 @@ def _rebuild(ctx: Any, state: Any) -> None:
         f"{count} rendered cells from the rig that already exists -- minutes of "
         "CPU, no GPU. The settings on the left are what it uses."
     )
-    if count > 256:
-        widgets.muted("Large sheet: over 256 cells can take substantially longer.")
+    if count > charsheet.WARN_CELLS:
+        widgets.muted(
+            f"Large sheet: over {charsheet.WARN_CELLS} cells can take substantially longer."
+        )

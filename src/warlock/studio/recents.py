@@ -18,8 +18,10 @@ would be a record of the library that the library could contradict.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # The settings key this module owns, and the four legacy per-mode keys it folds
@@ -132,6 +134,21 @@ def paths(settings: Any, kind: str) -> list[str]:
     return [e.path for e in entries(settings, kind)]
 
 
+def _key(path: str) -> str:
+    """The same normalisation :func:`docmodes.find_path` applies to a tab
+    lookup, here applied to dedupe.
+
+    **Without it, one file can occupy two of ten slots.** ``remember`` and
+    ``forget`` used to compare raw strings, so "Level.WMAP" and "level.wmap"
+    -- one file on a case-insensitive filesystem, which Windows' is -- were
+    two rows in the merged list instead of one, each fighting a *different*
+    kind's history for a slot the file only needed once. ``docmodes.find_path``
+    exists for exactly this shape of bug in tab lookup; the 2026-09-07 audit
+    (shell-07) found ``recents`` had never gained its fix.
+    """
+    return os.path.normcase(str(Path(path).resolve()))
+
+
 def remember(settings: Any, kind: str, path: Any, *, when: float | None = None) -> None:
     """Put ``path`` at the front of ``kind``'s history. ``None`` is a no-op.
 
@@ -145,7 +162,8 @@ def remember(settings: Any, kind: str, path: Any, *, when: float | None = None) 
     if not text:
         return
     stamp = time.time() if when is None else when
-    found = [e for e in _load(settings) if not (e.kind == kind and e.path == text)]
+    key = _key(text)
+    found = [e for e in _load(settings) if not (e.kind == kind and _key(e.path) == key)]
     found.insert(0, Entry(kind, text, stamp))
     kept: list[Entry] = []
     counts = dict.fromkeys(KINDS, 0)
@@ -166,7 +184,8 @@ def forget(settings: Any, kind: str, path: Any) -> None:
     if path is None:
         return
     text = str(path)
+    key = _key(text)
     found = _load(settings)
-    kept = [e for e in found if not (e.kind == kind and e.path == text)]
+    kept = [e for e in found if not (e.kind == kind and _key(e.path) == key)]
     if len(kept) != len(found):
         _write(settings, kept)

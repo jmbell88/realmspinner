@@ -238,3 +238,72 @@ def test_the_popup_preview_and_the_import_agree_on_the_dropped_count():
     packwright_mode.import_tileset(ctx)
     assert len(tab.doc.sources) == len(promised)
     assert dropped == 2
+
+
+# --- packwright-05: the popup's counts run off the frame thread ---------------
+
+
+def test_the_tileset_preview_goes_through_ctx_submit_not_inline():
+    """The 2026-09-07 audit's packwright-05: ``tileset_occupancy`` (and, with
+    dedup on, ``dedup_tiles``/``sprites_from_tileset``) used to run
+    synchronously on the frame thread every time the popup redrew with a
+    changed key -- the module's own comment measures that at some hundreds of
+    milliseconds on a full sheet. ``request_tileset_preview`` must submit a
+    task, and the counts must not change until that task's result lands."""
+    ctx = FakeCtx()
+    packwright_mode.new_document(ctx)
+    state = packwright_mode.ensure(ctx)
+    pixels = _sheet()
+    state.tileset_import = ("sheet.png", "sheet", pixels)
+    state.tileset_cell = (4, 4)
+
+    packwright_mode.request_tileset_preview(ctx, state, "sheet.png", "sheet", pixels)
+
+    assert ctx.submitted, "the counts must go through ctx.submit"
+    assert state.tileset_preview_key is None, "not applied until the task lands"
+    assert state.tileset_preview == (0, 0, 0, 0, 0)
+
+    packwright_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+
+    assert state.tileset_preview_key is not None
+    _rows, _columns, kept, dropped, _duplicates = state.tileset_preview
+    assert (kept, dropped) == (3, 1)
+
+
+def test_a_clean_key_does_not_resubmit_every_frame():
+    """The popup redraws every frame it is open; a memo key that never
+    matches would submit a fresh task that often."""
+    ctx = FakeCtx()
+    packwright_mode.new_document(ctx)
+    state = packwright_mode.ensure(ctx)
+    pixels = _sheet()
+    state.tileset_import = ("sheet.png", "sheet", pixels)
+    state.tileset_cell = (4, 4)
+
+    packwright_mode.request_tileset_preview(ctx, state, "sheet.png", "sheet", pixels)
+    packwright_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+    ctx.submitted.clear()
+
+    for _ in range(5):
+        packwright_mode.request_tileset_preview(ctx, state, "sheet.png", "sheet", pixels)
+    assert ctx.submitted == []
+
+
+def test_an_answer_for_a_superseded_cell_size_is_dropped_not_adopted():
+    """The cell size can change again while a computation for the old size is
+    still in flight -- typing a second digit before the first answer lands --
+    and that stale answer must not overwrite the newer request's key."""
+    ctx = FakeCtx()
+    packwright_mode.new_document(ctx)
+    state = packwright_mode.ensure(ctx)
+    pixels = _sheet()
+    state.tileset_import = ("sheet.png", "sheet", pixels)
+    state.tileset_cell = (4, 4)
+
+    packwright_mode.request_tileset_preview(ctx, state, "sheet.png", "sheet", pixels)
+    stale_key, stale_result = ctx.submitted[-1], ctx.result
+
+    state.tileset_cell = (2, 2)  # the user kept typing before the answer landed
+    packwright_mode.on_task_done(ctx, _Done(stale_key, stale_result))
+
+    assert state.tileset_preview_key is None, "the stale answer must not land"

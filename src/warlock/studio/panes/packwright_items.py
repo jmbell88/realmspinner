@@ -64,7 +64,11 @@ def draw(ctx: Any) -> None:
         widgets.busy("Repacking")
 
     imgui.dummy((0, sp(tokens.SP_2)))
-    by_key = {source.key: source for source in tab.doc.sources}
+    # ``packwright_mode.source_index``: the 2026-09-07 audit's packwright-07
+    # found this dict rebuilt from every source on every single frame this
+    # pane draws, though it only has to change when ``pack_generation`` does
+    # -- the same counter the preview's outline keys on.
+    by_key = packwright_mode.source_index(tab)
     # Clipped for ``packwright_sources``' reason: a packed atlas has one row per
     # sprite and a thousand-sprite atlas is ordinary, while the pane shows
     # twenty. Every row here *is* the same height, so this is the
@@ -81,8 +85,7 @@ def _item_row(state: Any, frame: Any, by_key: dict) -> None:
     """One packed frame's row. Lifted out of the loop so it can be clipped."""
     from imgui_bundle import imgui
 
-    source = by_key.get(frame.key)
-    uid = source.uid if source is not None else None
+    uid = by_key.get(frame.key)
     selected = uid is not None and state.selected == uid
     imgui.push_id(frame.key)
     if controls.selectable(f"{frame.name}##item", selected)[0] and uid is not None:

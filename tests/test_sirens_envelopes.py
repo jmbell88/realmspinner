@@ -242,6 +242,45 @@ def test_an_unknown_sequence_name_is_refused_rather_than_set():
     )
 
 
+def test_a_save_starting_mid_drag_still_folds_the_gesture():
+    """the 2026-09-07 audit, finding sirens-06: ``_input``'s
+    ``if tab.busy: return`` fired before the deactivation check, so a save
+    started mid-drag swallowed the frame that folds the gesture, leaving
+    every painted column its own undo step. Reproduced against the unfixed
+    code: the two edits below stay two undo steps and the gesture stays open
+    rather than folding into one when the tab goes busy.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    state = sirens_mode.ensure(ctx)
+    instrument = tab.doc.instruments[0]
+    depth_before = len(tab.doc.history)
+
+    sirens_mode.begin_envelope_drag(ctx, tab, "volume", "paint")
+    sirens_mode.set_sequence(ctx, tab, instrument.uid, "volume", inst.Sequence(values=(10,)))
+    sirens_mode.set_sequence(ctx, tab, instrument.uid, "volume", inst.Sequence(values=(11,)))
+    assert len(tab.doc.history) == depth_before + 2, "two edits, the gesture still open"
+
+    tab.saving = True  # a save started mid-drag
+    env._input(
+        ctx,
+        state,
+        tab,
+        instrument,
+        "volume",
+        tab.doc.instrument(instrument.uid).volume,
+        origin=None,
+        col_w=1.0,
+        height=1.0,
+        count=1,
+        low=0,
+        high=15,
+    )
+
+    assert state.env_field == "", "the gesture should have closed rather than stayed open"
+    assert len(tab.doc.history) == depth_before + 1, "the run should have folded into one step"
+
+
 # --- what release actually does -----------------------------------------------
 
 

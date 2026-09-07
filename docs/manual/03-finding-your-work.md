@@ -108,7 +108,7 @@ rename — it is the way an asset crosses into another part of the app:
 - **Open in Inker** to paint over a reference.
 - **Open in Clay** to edit a mesh. It imports `model.glb`, never `source.glb`, for the reason
   [Your first asset](02-your-first-asset.md#what-comes-back) gives.
-- **Add to Plotter as a tileset**, or **Add to a Packwright atlas**.
+- **Add to Plotter as a tileset**, or **Add to Packwright as an atlas source**.
 - **Copy settings to form** repopulates the Create forms from that job without submitting anything —
   the fastest way to make a variation on something that worked.
 - **Reroll** and **Remesh**, which the last chapter covered.

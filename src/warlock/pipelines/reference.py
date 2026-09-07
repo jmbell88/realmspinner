@@ -321,7 +321,11 @@ def measure(image: PILImage) -> Report:
     mask = subject_mask(image)
     area = float(w * h) or 1.0
     total = int(mask.sum())
-    alpha_source = image.mode in ("RGBA", "LA") or "transparency" in image.info
+    # The 2026-09-07 audit found this restating has_alpha()'s condition rather
+    # than calling it -- subject_mask() already relies on that one definition,
+    # and a copy here is exactly the drift has_alpha()'s own docstring warns
+    # matting.py's second caller against.
+    alpha_source = has_alpha(image)
 
     if total == 0:
         return Report(

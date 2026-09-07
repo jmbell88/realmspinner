@@ -266,15 +266,46 @@ def set_template(ctx: Any, template: str) -> None:
         state.template = template
         state.poses, state.presets = [], []
         state.preview_path, state.preview_template = None, ""
+        # The 2026-09-07 audit (poser-01): this reset used to leave the clip
+        # editor untouched, so "Save clips" afterwards wrote the *old*
+        # template's working copy under the *new* template's name -- and
+        # ``clips_pump``'s own ``clips_unsaved`` guard means a bare
+        # ``clips_refresh`` alone would not have re-read it even once the
+        # switch landed, so the stale fields have to be cleared here.
+        state.clips = {}
+        state.clip = ""
+        state.key_index = 0
+        state.frame = -1
+        state.frames = []
+        state.clips_error = ""
+        state.clips_unsaved = False
         viewer = viewer_of(ctx)
         if viewer is not None:
             # The old template's armature must not stay poseable under the new
             # template's library; sync_preview binds the new one when it lands.
             viewer.clear()
         refresh(ctx)
+        clips_refresh(ctx)
         request_preview(ctx)
 
-    guard(ctx, "switch skeletons", proceed)
+    def guarded() -> None:
+        guard(ctx, "switch skeletons", proceed)
+
+    # ``guard`` above only reads the *Poser viewer's* editor (the pose gizmo),
+    # which is the other half of poser-01: a switch with unsaved clip edits
+    # sailed through with no prompt at all, since nothing here ever asked
+    # about ``clips_unsaved``. Ask first, in ``revert_clips``'s own words, then
+    # fall through to the ordinary pose-gizmo guard.
+    if state.clips_unsaved:
+        ctx.confirms.ask(
+            dialogs.Confirm(
+                title="Discard unsaved changes?",
+                message="Unsaved clip changes will be lost if you switch skeletons.",
+                on_confirm=guarded,
+            )
+        )
+        return
+    guarded()
 
 
 # --- the preview -------------------------------------------------------------

@@ -1156,6 +1156,70 @@ def test_a_tour_whose_steps_went_away_stops_rather_than_raising(app_ctx, imgui_c
     assert not app_ctx.state.tour.running
 
 
+def test_pressing_enter_in_an_unrelated_text_field_does_not_advance_the_tour(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """tour-01 (2026-09-07 audit): the card read Enter/Left/Right
+    unconditionally every frame with no focus check, so an Enter confirming a
+    rename -- or any other control that is not the card -- also advanced the
+    tour. Simulated by making ``is_window_focused`` answer the way it would
+    if some other window, a rename field's say, currently owned the keyboard
+    instead of ``##tour-card``.
+    """
+    from warlock.studio.panes import tour as tour_pane
+    from warlock.studio.tour import TOURS
+
+    imgui, _renderer = imgui_ctx
+    tour_pane.start(app_ctx, TOURS[0].key)
+    assert app_ctx.state.tour.running
+    start_index = app_ctx.state.tour.index
+
+    monkeypatch.setattr(tour_pane.imgui, "is_window_focused", lambda *_a, **_kw: False)
+    monkeypatch.setattr(
+        tour_pane.imgui, "is_key_pressed", lambda key: key == imgui.Key.enter
+    )
+
+    _frame(imgui_ctx, lambda: tour_pane.draw(app_ctx))
+
+    assert app_ctx.state.tour.running, "an unrelated Enter must not complete the tour either"
+    assert app_ctx.state.tour.index == start_index, "an unrelated Enter must not advance the tour"
+    assert not tour_pane.has_focus()
+
+
+def test_the_tours_own_arrow_does_not_also_move_the_library_grid_underneath(
+    app_ctx, monkeypatch
+):
+    """tour-01 (2026-09-07 audit), the other direction: with the tour card
+    focused, ``App._shortcut`` still ran its own Left/Right/Enter handling for
+    whatever mode was underneath -- so the same press that stepped the tour
+    also moved the Library grid's cursor.
+    """
+    from types import SimpleNamespace
+
+    import pygame
+
+    from warlock.studio.main import App
+    from warlock.studio.panes import tour as tour_pane
+    from warlock.studio.tour import TOURS
+
+    app = App(app_ctx.runtime)
+    app.app_ctx = app_ctx
+
+    tour_pane.start(app_ctx, TOURS[0].key)
+    monkeypatch.setattr(tour_pane, "has_focus", lambda: True)
+
+    app_ctx.state.mode = "library"
+    _seeded(app_ctx)
+    _seeded(app_ctx)
+    order = [job["id"] for job in app_ctx.cache.visible(app_ctx.state.filters)]
+    app_ctx.state.select(order[0])
+
+    event = SimpleNamespace(type=pygame.KEYDOWN, key=pygame.K_RIGHT, mod=0)
+    app._shortcut(event)
+
+    assert app_ctx.state.selected == order[0], "the tour's own arrow must not also move the grid"
+
+
 def test_a_chapter_with_a_screenshot_uploads_and_draws_it(app_ctx, imgui_ctx):
     """The manual can show a control now, not only describe it.
 
@@ -5107,6 +5171,101 @@ def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):
     assert worst is not None
 
 
+def test_the_canvas_seam_indicator_decides_on_dominance_not_the_retired_ratio(app_ctx):
+    """The 2026-09-07 audit found this pane still reading
+    ``tiling.seam_ratio``/``SEAM_MAX`` after
+    ``docs/measurements/2026-08-30-seam-dominance.md`` moved the shipped
+    verdict to dominance for false-alarming on exactly this population --
+    flat cells parted by one thin hard line.
+
+    This image is built so the two statistics disagree: a wrap seam of 100
+    levels, against an interior that is flat except for one 255-level line.
+    The ratio divides by the interior *mean* (~19.7, most of the image being
+    identical columns), so it inflates to ~5.1 -- over the retired
+    ``SEAM_MAX`` of 3.5, a false alarm. Dominance divides by the interior
+    *maximum* (255, the line itself), landing at ~0.39 -- under
+    ``SEAM_DOMINANCE_MAX`` of 1.0, correctly quiet, because the line is a
+    harder join than the seam is.
+    """
+    from warlock.studio import inker_mode, theme
+    from warlock.studio.inker.document import Document as _Doc
+    from warlock.studio.panes import inker_canvas
+
+    state = inker_mode.ensure(app_ctx)
+    tab = inker_mode._adopt(app_ctx, state, _Doc.blank(32, 32), path=None, title="tile")
+    pixels = tab.doc.stack.active.pixels
+    pixels[..., :3] = 0
+    pixels[:, 15, :3] = 255  # the one thin hard line -- the interior's real maximum
+    pixels[:, 31, :3] = 100  # the seam step: col 0 (0) against col 31 (100)
+    pixels[..., 3] = 255
+    tab.doc.invalidate_all()
+    tab.tiled = "both"
+
+    seam = inker_canvas.seam_text(app_ctx, tab)
+    assert seam is not None
+    colour, text = seam
+    assert colour == theme.MUTED, (colour, text)
+    assert text == "seam x0.4", text
+
+
+def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
+    """The 2026-09-07 audit (inker-10): ``check_bake_cost`` existed in
+    ``inker.flourish.recipe`` with passing tests, but nothing called it
+    before ``submit_render``/``submit_insert`` handed the recipe to
+    ``ctx.submit`` -- so a hand-edited preset maxing every clamped field at
+    once could still freeze Regenerate or raise ``MemoryError``, since
+    ``TaskRunner`` has no cancel API. This pins that both submit points
+    refuse first, with a toast that names the action rather than forwarding
+    ``check_bake_cost``'s ``ValueError`` text.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import inker_flourish
+    from warlock.studio.inker import flourish
+    from warlock.studio.inker.flourish import recipe as R
+
+    maxed = flourish.clamp(
+        R.Recipe(
+            width=100000,
+            height=100000,
+            supersample=99,
+            directions=999,
+            phases=tuple(R.Phase(f"p{i}", 100000) for i in range(20)),
+            layers=tuple(R.Layer(uid=i, kind="core") for i in range(50)),
+        )
+    )
+    assert R.bake_cost(maxed) > R.MAX_BAKE_COST  # this is the fixture, not the claim
+
+    class _RefusingCtx:
+        def __init__(self) -> None:
+            self.toasts: list[tuple[str, str]] = []
+            self.submitted = False
+
+        def toast(self, text: str, level: str = "info", **_: object) -> None:
+            self.toasts.append((text, level))
+
+        def submit(self, key, fn, *a, **k) -> bool:
+            self.submitted = True
+            return True
+
+    tab = SimpleNamespace(uid="tab-1", doc=SimpleNamespace(flourish_state=lambda group: None))
+
+    ctx = _RefusingCtx()
+    assert inker_flourish.submit_render(ctx, tab, 1, maxed) is False
+    assert ctx.submitted is False
+    assert len(ctx.toasts) == 1
+    text, level = ctx.toasts[0]
+    assert level == "warn"
+    assert "MemoryError" not in text and "pixels of frames" not in text  # not the bare exc text
+    assert "too large to bake" in text
+
+    ctx2 = _RefusingCtx()
+    assert inker_flourish.submit_insert(ctx2, tab, maxed) is False
+    assert ctx2.submitted is False
+    assert len(ctx2.toasts) == 1
+    assert ctx2.toasts[0][1] == "warn"
+
+
 def test_a_rendered_sheet_offers_both_hand_offs(app_ctx, imgui_ctx):
     """The sheet used to dead-end at Save PNG, though everything needed to open
     it in either editor already existed."""
@@ -5973,3 +6132,55 @@ def test_the_clay_header_shading_pill_and_xray_render(app_ctx, imgui_ctx):
     state.xray = True
     _frame(imgui_ctx, lambda: clay_header.draw(app_ctx))
     state.xray = False
+
+
+def test_a_corrupt_job_database_reaches_run_locked_as_store_unreadable(svc, monkeypatch):
+    """shell-03 (2026-09-07 audit): ``App.run()``'s own catch-all used to
+    absorb every setup failure, ``StoreUnreadable`` included, before
+    ``_run_locked``'s own handler -- the one that offers to start over with an
+    empty index -- ever got a turn. Every corrupt-database launch showed the
+    generic "ran into a problem while starting" box instead of that offer.
+    ``StoreUnreadable`` is raised where the real one is: out of
+    ``_startup_with_splash``, before there is a window, which is why only that
+    method needs stubbing here.
+    """
+    from warlock.db import StoreUnreadable
+    from warlock.studio.main import App
+    from warlock.studio.runtime import Runtime
+
+    runtime = Runtime(svc.config)
+    app = App(runtime)
+    monkeypatch.setattr(app, "setup_window", lambda **_kw: None)
+
+    exc = StoreUnreadable(svc.config.db_path, RuntimeError("bad header"))
+
+    def _raise() -> bool:
+        raise exc
+
+    monkeypatch.setattr(app, "_startup_with_splash", _raise)
+
+    with pytest.raises(StoreUnreadable):
+        app.run()
+
+
+def test_a_failed_loop_search_clears_finding_instead_of_spinning_forever():
+    """muse-03 (2026-09-07 audit): ``main.py``'s task-failure dispatcher had no
+    ``muse-`` branch at all, so a failed loop search left ``finding`` set by
+    ``find_loops`` -- the only place that turns it on -- with nothing on the
+    failure path to turn it back off, and the strip's spinner ran forever
+    instead of just this one search.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import muse_mode
+    from warlock.studio.muse_state import Player as MusePlayer
+    from warlock.studio.state import AppState
+
+    ctx = SimpleNamespace(state=AppState())
+    state = muse_mode.ensure(ctx)
+    state.player = MusePlayer(job="abc", pcm=object(), rate=44100, finding=True)
+
+    done = SimpleNamespace(key=f"{muse_mode.muse_io.FIND_PREFIX}abc", result=None)
+    muse_mode.on_task_failed(ctx, done)
+
+    assert state.player.finding is False, "a failed search must not leave the spinner running"

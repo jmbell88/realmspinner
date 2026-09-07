@@ -182,7 +182,7 @@ a tick to take them too. It is off every time the dialog opens, and it is worth 
 under it before using: those pictures are what the quality judge and the tier checks are measured
 against, and the verdict rows survive with nothing behind them.
 
-## Teaching the judge
+## Teach the judge
 
 Under the sweep list are two labelling passes. They are a different kind of work from judging a
 mesh: an image takes about two seconds to answer and carries no reason, so the centre column becomes

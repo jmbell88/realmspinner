@@ -87,6 +87,27 @@ def test_auto_winning_outright_says_leave_it_alone(capsys):
     assert "leave DEFAULT_TRELLIS_BAND = None" in capsys.readouterr().out
 
 
+def test_a_tie_with_auto_is_not_recommended_even_when_it_sorts_first(capsys):
+    """The 2026-09-07 audit, finding create-05, reproduced: 'auto' and a
+    hard-coded band tied at worst=0.0 (both hole-free) -- the sweep's own
+    ``best is baseline`` was the only tie check, and ``min`` keeps the
+    *first* equal-scoring row, so a tied band whose row sorted before
+    'auto''s compared unequal by identity while its margin was exactly zero.
+    The noise-floor check below it is a strict ``<``, which is false at
+    margin == 0 whenever the baseline's own score is 0.0 -- so the tie fell
+    through and printed "clearly better than 'auto'", and a human tuning
+    hardware off this table would hard-code a band with no measured benefit.
+    """
+    rows = [
+        {"band": "4", "worst": 0.0, "mean": 0.0, "faces": 300_000, "seconds": 100.0},
+        {"band": "auto", "worst": 0.0, "mean": 0.0, "faces": 300_000, "seconds": 90.0},
+    ]
+    sweep.print_table(rows, 1024)
+    out = capsys.readouterr().out
+    assert "leave DEFAULT_TRELLIS_BAND = None" in out
+    assert "clearly better" not in out
+
+
 def test_a_failed_band_does_not_hide_the_others(capsys):
     rows = [
         {"band": "auto", "worst": 0.31, "mean": 0.19, "faces": 300_000, "seconds": 100.0},

@@ -184,19 +184,49 @@ def _function_source(module: Any, name: str) -> str:
 #: The stages that publish onto a served name, and the call that publishes it.
 #: Every one has to commit the cancel token: once the artifact is on the served
 #: name a cancel cannot take it back, so recording the row as "cancelled" is a
-#: lie about the file on disk -- and for the two sheet kinds it is worse than a
+#: lie about the file on disk -- and for the sheet kinds it is worse than a
 #: lie, because ``_discard_artifacts`` then deletes a sheet the user can see.
+#:
+#: **Hand-maintained, deliberately, not scanned out of the ``_q_*.py`` tree.**
+#: "Publishes onto a served name" is a semantic fact the source does not spell
+#: syntactically: several of these functions call ``os.replace``/
+#: ``_publish_text`` *more than once* -- ``_sheet`` renames its atlas onto the
+#: served PNG and only *then* writes the sidecar that is the actual completion
+#: marker, and ``_deform_qa`` (``_q_rig.py``), the model-promotion stage
+#: (``_q_generate.py``) and ``_remesh`` (``_q_mesh.py``) all rename onto a
+#: served name too, for reasons ranging from "this is the completion marker"
+#: to "this is a safe mid-job checkpoint a cancel may still unwind." Which
+#: call in a given function is the one after which a cancel can no longer be
+#: taken back is exactly the question this file's incident comments answer in
+#: prose, one function at a time -- a "last write onto ``self.config.job_dir``
+#: wins" heuristic would silently promote an unrelated checkpoint write in one
+#: function and silently ignore a real completion marker in another, which is
+#: a scan that fails open. A hand list reviewed by whoever adds a job kind is
+#: the honest version of that judgement; this row is what "adding a kind is a
+#: sweep of every stage-keyed table" (CLAUDE.md) means for this table.
 PUBLISHERS = [
     ("warlock._q_rig", "_rig", "finalize_rig"),
+    ("warlock._q_rig", "_sheet", "_publish_text"),
     ("warlock._q_sprite", "_pixel_sheet", "_publish_text"),
+    ("warlock._q_sprite", "_sprite_synthesis", "_publish_text"),
     ("warlock._q_sprite", "_retexture", "os.replace"),
+    ("warlock._q_tilesheet", "_tile_sheet", "_publish_text"),
+    ("warlock._q_tileset", "_tile_set", "_publish_text"),
     ("warlock._q_troupe", "_charsheet", "_publish_text"),
 ]
 
 
 @pytest.mark.parametrize("module,func,publish", PUBLISHERS, ids=lambda v: str(v))
 def test_every_served_publish_commits_the_cancel_token(module, func, publish):
-    """A scan, because two of these four had no commit and nothing said so.
+    """A scan, because two of the original four had no commit and nothing said
+    so -- and the 2026-09-07 audit (finding service-01) found that the list
+    itself was stale rather than merely incomplete: ``_sheet``,
+    ``_sprite_synthesis``, ``_tile_sheet`` and ``_tile_set`` published without
+    committing and were never in ``PUBLISHERS`` at all, so this scan never
+    looked at them. Six of these eight rows have shipped the bug this test
+    exists to catch; the list now names every publishing stage in the tree as
+    of this audit, and the comment above it is why it stays a list instead of
+    a scan of its own.
 
     ``_retexture`` in particular has no cheap end-to-end harness -- it wants a
     resident SDXL pipe, ten Blender renders and a texture bake -- and it is the

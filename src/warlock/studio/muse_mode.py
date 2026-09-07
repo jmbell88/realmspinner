@@ -319,6 +319,24 @@ def on_task_done(ctx: Any, done: Any) -> None:
                   "warn")
 
 
+def on_task_failed(ctx: Any, done: Any) -> None:
+    """Clear whatever a failed Muse task would otherwise leave stuck.
+
+    muse-03 (2026-09-07 audit): ``main.py``'s task-failure dispatcher had no
+    ``muse-`` branch at all -- every other mode's own tasks routed to an
+    ``on_task_failed`` here, and Muse's simply fell through to the generic
+    toast. A failed loop search left ``finding`` set by ``find_loops`` (the
+    only place that turns it on) with nothing left to turn it back off, so
+    the strip's spinner ran forever instead of just this one search.
+    """
+    key = done.key
+    if key.startswith(muse_io.FIND_PREFIX):
+        one = player(ctx)
+        if one is not None and one.job == key[len(muse_io.FIND_PREFIX) :]:
+            one.finding = False
+        return
+
+
 def stop(ctx: Any) -> None:
     """Stop whatever is auditioning. Safe when nothing is.
 

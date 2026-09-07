@@ -9,7 +9,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from . import controls, fonts, theme, tokens
+from . import controls, fonts, theme, tokens, widgets
 from .tokens import sp
 
 FORM_BREAKPOINT = 480.0
@@ -437,7 +437,12 @@ class Form:
     ) -> str | None:
         """Stable action footer with exactly one accent-filled action."""
 
-        imgui.separator()
+        # The 2026-09-07 audit (shell-10): a raw ``imgui.separator()`` here
+        # slipped past the AST guard that refuses one in a pane, because the
+        # guard scans only ``panes/*.py`` and ``forms.py`` sits one level up
+        # from it. ``widgets.divider()`` is the door every other rule between
+        # two groups goes through.
+        widgets.divider()
         clicked: str | None = None
         if reset is not None and controls.button(reset[0], role=controls.ButtonRole.GHOST):
             reset[1]()

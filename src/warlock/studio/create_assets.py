@@ -166,8 +166,15 @@ def persisted_intent(form: Any) -> dict[str, str]:
 def asset_type_from_params(params: Any, *, stage: str = "") -> str:
     """Read today's identity, with a conservative answer for legacy jobs."""
     if isinstance(params, dict) and "generation_type" in params:
+        # The 2026-09-07 audit, finding create-06: this branch used to return
+        # ``key`` raw whenever it was *any* key in ``ASSET_TYPES``, aliases
+        # included -- so a job whose ``generation_type`` was the retired
+        # "model_3d" spelling (``_ALIASES`` above) came back as "model_3d"
+        # instead of "3d_model", reintroducing a spelling ``sync_legacy_fields``
+        # exists to retire. The ``asset_type`` branch two lines down already
+        # normalises through ``.key``; this one now matches it.
         key = str(params.get("generation_type") or "")
-        return key if key in ASSET_TYPES else DEFAULT_ASSET_TYPE
+        return ASSET_TYPES.get(key, ASSET_TYPES[DEFAULT_ASSET_TYPE]).key
     if isinstance(params, dict) and "asset_type" in params:
         key = str(params.get("asset_type") or "")
         return ASSET_TYPES.get(key, ASSET_TYPES[DEFAULT_ASSET_TYPE]).key

@@ -320,17 +320,52 @@ def _doc_redo(ctx: Any) -> None:
     _step(ctx, "redo")
 
 
-def _mode_commands() -> list[Command]:
+def _mode_commands(ctx: Any) -> list[Command]:
     """One per switch segment, in the switch's order.
 
     Derived rather than listed -- see the module docstring. No hint: there is
     no per-mode key to advertise any more, and a hint naming Ctrl+K would be
     the palette telling you how to open the palette you are looking at.
+
+    **Consults ``model_gate.mode_gate``, the way the rail does.** A gated
+    mode's "Go to" row used to be drawn ``enabled`` with an empty ``why``: it
+    matched ``state.set_mode``'s own silent refusal on Enter -- no toast, no
+    explanation -- on exactly the fresh-install case ``model_gate`` exists
+    for, while the rail's matching item greyed out and routed to Settings.
+    The 2026-09-07 audit found the two surfaces disagreeing (shell-05). Wiring
+    ``enabled``/``why`` here is also the whole fix for the toast: the shared
+    ``_run`` in ``panes/palette.py`` already turns any disabled command's
+    ``why`` into a warning toast on Enter, so a correct ``why`` is all this
+    needed.
+
+    **An ungated mode keeps the dataclass default ``enabled``**, rather than
+    an equivalent always-true lambda of its own --
+    ``test_every_command_with_a_gate_says_why_it_is_shut`` tells the two apart
+    by identity against that default, so a fresh lambda here for every mode,
+    gated or not, would make every ungated "Go to" command look like a silent
+    gate with no ``why`` to show.
     """
-    return [
-        Command(key=f"go:{key}", label=f"Go to {label}", group="Go to", run=_go(key))
-        for key, label, _icon in modes.MODES
-    ]
+    from .panes import model_gate
+
+    out = []
+    for key, label, _icon in modes.MODES:
+        where, _blocked = model_gate.mode_gate(ctx, key)
+        if not where:
+            out.append(
+                Command(key=f"go:{key}", label=f"Go to {label}", group="Go to", run=_go(key))
+            )
+            continue
+        out.append(
+            Command(
+                key=f"go:{key}",
+                label=f"Go to {label}",
+                group="Go to",
+                run=_go(key),
+                enabled=lambda _ctx: False,
+                why=model_gate.mode_reason(ctx, key),
+            )
+        )
+    return out
 
 
 def commands(ctx: Any) -> list[Command]:
@@ -496,7 +531,7 @@ def commands(ctx: Any) -> list[Command]:
         ctx.state.shortcuts_requested = True
 
     return [
-        *_mode_commands(),
+        *_mode_commands(ctx),
         Command(
             key="generate",
             label="Generate / Make 3D",

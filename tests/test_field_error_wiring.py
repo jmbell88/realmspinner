@@ -414,3 +414,52 @@ def test_changing_the_rig_stage_skeleton_clears_its_field_error_ring():
         "settings_3d._rig has the identical gap: its rig_template combo never "
         "clears the ring either"
     )
+
+
+# --- Muse's recipe column: six bare controls, no forms.Form -------------------
+#
+# ``panes/muse_recipe.py`` draws its six refusable controls (``infer_step``,
+# ``guidance_scale``, ``scheduler_type``, ``cfg_type``, ``omega_scale``,
+# ``seed``) the way ``stage_rig._skeleton_picker`` draws its combo -- bare
+# ``widgets.labeled_*`` calls, not a ``forms.Form`` -- so ``FIELD_FORMS`` above,
+# which looks for ``forms.Form("...") as``, cannot see it. ``muse_brief``'s
+# ``_ring`` and ``muse_results``' bare ``widgets.field_error`` calls did the
+# same job for the bar and the derive popup; this pane, until the 2026-09-07
+# audit's finding muse-04, did neither, so a ``guidance_scale`` refusal from
+# ``create_music_job`` reached the user as a toast with nothing on the panel
+# pointing at the slider that caused it.
+
+#: The recipe column's own refusable fields -- every one of
+#: ``create_music_job``'s addresses that names a control this pane, rather than
+#: the bar or ``muse_results``, draws.
+MUSE_RECIPE_FIELDS = (
+    "infer_step",
+    "guidance_scale",
+    "scheduler_type",
+    "cfg_type",
+    "omega_scale",
+    "seed",
+)
+
+
+def test_the_muse_recipe_columns_six_controls_ring_and_clear_their_own_errors():
+    """The 2026-09-07 audit, finding muse-04."""
+    source = _source("panes/muse_recipe.py")
+    for field in MUSE_RECIPE_FIELDS:
+        assert f'clear_field_error("{field}")' in source, (
+            f"muse_recipe never clears {field!r}'s ring when its own control is edited"
+        )
+        assert f'field_error(ctx.state, "{field}")' in source, (
+            f"muse_recipe never rings {field!r} when create_music_job refuses it"
+        )
+
+
+def test_every_field_create_music_jobs_ranges_check_is_one_of_the_six():
+    """The reverse direction a source sweep cannot see on its own: a field
+    added to ``create_music_job``'s numeric bounds table with no matching
+    control here would refuse silently, same as a listed-but-gone form above.
+    """
+    from warlock.service._jobs_music import _RANGES
+
+    ranged = {field for field, _low, _high in _RANGES}
+    assert ranged <= set(MUSE_RECIPE_FIELDS)

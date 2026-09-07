@@ -561,11 +561,26 @@ def test_the_palette_offers_a_go_command_for_free():
     Which is why that derivation is a requirement rather than tidiness: a new
     mode is reachable from Ctrl+K the moment it is registered, with nothing
     added anywhere.
+
+    ``_mode_commands`` takes a ``ctx`` now (shell-05, the 2026-09-07 audit) to
+    consult ``model_gate.mode_gate``, so a ctx is needed here too -- and it has
+    to leave Muse genuinely ungated. A gated mode's command is still *listed*
+    (the palette's own rule: a disabled row is drawn, never hidden), so a
+    gated ctx would let ``"go:muse" in keys`` pass for the wrong reason and
+    stop this test from checking the derivation at all. ``model_rows=[]``
+    is the ordinary, well-documented reason a mode reads as ungated --
+    ``model_gate.missing``'s "no snapshot has landed yet" state, not a
+    fresh-install escape hatch -- so the command is also asserted ``enabled``,
+    which a gated ctx could never make true.
     """
+    from types import SimpleNamespace
+
     from warlock.studio import palette
 
-    keys = {cmd.key for cmd in palette._mode_commands()}
-    assert "go:muse" in keys
+    ctx = SimpleNamespace(model_rows=[], pack_rows=[], cache=SimpleNamespace(total=0))
+    commands = {cmd.key: cmd for cmd in palette._mode_commands(ctx)}
+    assert "go:muse" in commands
+    assert commands["go:muse"].enabled(ctx)
 
 
 # --- the 2026-09-05 workflow wins (W1-W4) ------------------------------------

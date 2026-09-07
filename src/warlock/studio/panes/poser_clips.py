@@ -35,6 +35,21 @@ from ..manual import render as manual_render
 from ..tokens import sp
 
 
+def _update_key_reason(posing: bool, frame: int) -> str:
+    """Why "Update key from pose" is disabled right now. -> the sentence.
+
+    ``posing`` checked first: the 2026-09-07 audit (poser-07) found this
+    tested ``frame`` first, so while the preview was still loading -- and
+    ``frame`` happened to hold a stale in-between value from before the
+    switch -- the button named "That is an in-between frame" when the real
+    cause was that posing had not started yet. A pure function so the order
+    is assertable without a GL context.
+    """
+    if not posing:
+        return "The skeleton preview is still loading."
+    return "That is an in-between frame, not a key. Pick a key first."
+
+
 def draw(ctx: Any) -> None:
     state = poser_mode.ensure(ctx)
     # A section, not a collapsing header: every other workspace's column pane
@@ -147,11 +162,7 @@ def _keys(ctx: Any, state: Any) -> None:
         "Update key from pose",
         posing and state.frame < 0,
         (-1, 0),
-        reason=(
-            "That is an in-between frame, not a key. Pick a key first."
-            if state.frame >= 0
-            else "The skeleton preview is still loading."
-        ),
+        reason=_update_key_reason(posing, state.frame),
         tooltip="Store the joints as they are now into the selected key.",
     ):
         poser_mode.capture_key(ctx)

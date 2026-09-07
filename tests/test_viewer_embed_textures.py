@@ -24,6 +24,20 @@ def viewer(gl):
     v.release()
 
 
+def test_the_dead_synchronous_compare_door_is_gone():
+    """The 2026-09-07 audit, finding create-07: ``Viewer.compare(path)`` loaded
+    and uploaded a comparison mesh synchronously on the frame thread, and had
+    no callers anywhere in the tree -- the library parses through
+    ``TaskRunner`` and calls ``adopt_compare`` instead, precisely because doing
+    both halves inline froze the frame on a large model (UX-04). Wiring a
+    button to the synchronous form back up would reopen that freeze, so it is
+    deleted rather than left reachable; ``adopt_compare``, the frame-thread
+    half every real caller uses, stays.
+    """
+    assert not hasattr(Viewer, "compare")
+    assert hasattr(Viewer, "adopt_compare")
+
+
 def test_the_outgoing_texture_is_forgotten_before_a_resize(viewer, monkeypatch) -> None:
     forgotten: list[Any] = []
     monkeypatch.setattr(viewer, "_forget", forgotten.append)

@@ -2,15 +2,19 @@
 
 Pure in the way ``studio/inker/``, ``studio/clay/`` and ``studio/plotter/`` are:
 no imgui, no moderngl, no pygame, no ``service``. It reaches outward exactly
-seven times: ``document.py`` for :mod:`warlock.studio.undo` (the shared history
-engine); ``layout.py`` for :mod:`warlock.pipelines.sheet` (the authority on the
-atlas ceiling and on what "trim" means); ``tsxout.py`` twice, for
-:mod:`warlock.studio.tilegrid.tileset` and :mod:`warlock.studio.plotter.tsx` (the
-one ``.tsx`` writer in the repo, and the type it writes); ``compose.py`` and
-``wpack.py`` for :mod:`warlock.studio.plotter.pngio` (the one RGBA-to-PNG
-encoder, which four byte-identical copies used to spell); and ``sources.py``
-for :mod:`warlock.studio.tilegrid.tileset` again, for ``frozen_rgba`` -- pinned
-exactly, and at that granularity, by
+eight times, across six modules: ``document.py`` for :mod:`warlock.studio.undo`
+(the shared history engine); ``layout.py`` for :mod:`warlock.pipelines.sheet`
+(the authority on the atlas ceiling and on what "trim" means); ``tsxout.py``
+twice, for :mod:`warlock.studio.tilegrid.tileset` and
+:mod:`warlock.studio.plotter.tsx` (the one ``.tsx`` writer in the repo, and the
+type it writes); ``compose.py`` and ``wpack.py`` for
+:mod:`warlock.studio.plotter.pngio` (the one RGBA-to-PNG encoder, which four
+byte-identical copies used to spell); ``sources.py`` for
+:mod:`warlock.studio.tilegrid.tileset` again, for ``frozen_rgba``; and
+``wpack.py`` for :mod:`warlock.studio.zipguard` (the shared bounded-zip reader
+four container doors now share, so the ``file_size`` ceiling a ``.wpack``'s own
+directory is checked against is not a fourth private copy of that bound). All
+eight are pinned exactly, and at that granularity, by
 ``tests/packwright/test_packwright_imports.py``.
 
 **The raster editor is deliberately not among them.** A clip's frames are read

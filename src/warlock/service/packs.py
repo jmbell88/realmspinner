@@ -440,6 +440,11 @@ def _run_worker(
     its next write and never reaches the exit that read was waiting on -- and
     pip is chattier than most.
     """
+    # Local import: pack_worker is a child-process entry point and this
+    # process only wants its two phase names, the same way ``worker_argv``
+    # names the module without importing its main.
+    from ..pipelines import pack_worker
+
     with tempfile.TemporaryDirectory(prefix="warlock-pack-") as scratch:
         result_path = Path(scratch) / "result.json"
         spec = dict(spec)
@@ -496,6 +501,13 @@ def _run_worker(
         threading.Thread(target=_pump, args=(proc.stdout,), daemon=True).start()
 
         deadline = time.monotonic() + timeout
+        # The last phase the worker announced (H02's two words), tracked so a
+        # timeout can ask the same question Cancel already does. The 2026-09-07
+        # audit found this ceiling force-killing the child regardless of phase
+        # (service-04): INVARIANTS.md's "killing mid-install leaves the site-
+        # packages the app is running out of half written" was honoured on the
+        # click-Cancel path (withdrawn once pip starts) and ignored on this one.
+        last_phase = ""
         try:
             while True:
                 remaining = deadline - time.monotonic()
@@ -528,16 +540,30 @@ def _run_worker(
                     percent = float(payload.get("percent") or 0.0)
                 except (TypeError, ValueError):
                     continue
-                on_progress(
-                    percent,
-                    str(payload.get("label") or ""),
-                    str(payload.get("phase") or ""),
-                )
+                phase = str(payload.get("phase") or "")
+                if phase:
+                    last_phase = phase
+                on_progress(percent, str(payload.get("label") or ""), phase)
             code = proc.wait(timeout=max(deadline - time.monotonic(), 1.0))
             winjob.untrack(proc.pid)
         except subprocess.TimeoutExpired:
-            _kill_and_reap(proc)
-            raise Invalid("The pack install timed out.") from None
+            if last_phase == pack_worker.PHASE_COMMIT:
+                # Refuse the force-kill INVARIANTS.md forbids here: pip is
+                # mid-write into this app's own site-packages, and the
+                # timeout can no longer be honoured without risking exactly
+                # the half-written install the child process exists to
+                # prevent. Wait it out instead, however long that takes.
+                log.warning(
+                    "pack install exceeded its %.0fs timeout during the "
+                    "commit phase; refusing to force-kill mid-install and "
+                    "waiting for it to finish on its own",
+                    timeout,
+                )
+                code = proc.wait()
+                winjob.untrack(proc.pid)
+            else:
+                _kill_and_reap(proc)
+                raise Invalid("The pack install timed out.") from None
         except BaseException:
             _kill_and_reap(proc)
             raise

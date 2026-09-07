@@ -83,6 +83,28 @@ def test_fast_names_the_hyper_sd_recipe_over_the_shared_sdxl_weights():
     assert spec.commercial
 
 
+def test_advanced_selection_of_the_fast_checkpoint_keeps_its_curated_note():
+    """The 2026-09-07 audit, finding create-03.
+
+    ``settings_2d.model_options`` folded the retired Fast/Quality switch into
+    the Model combo on the claim that "nothing is lost by folding them" --
+    picking the ``sdxl`` checkpoint through Advanced is supposed to be the
+    same act picking Fast used to be. But nothing sets ``quality="fast"``
+    any more, so a request built the way the pane actually builds one
+    (``model_mode="advanced"``, ``model_override="sdxl"``, ``quality`` left
+    at its default) must still resolve the curated ``image_fast`` recipe,
+    not the label-less synthetic one ``resolve_recipe`` falls back to when no
+    curated recipe matches.
+    """
+    request = _request(model_mode="advanced", model_override="sdxl")
+    assert request.quality == "quality"  # nothing in the pane sets "fast" any more
+    resolved = generation.resolve_recipe(request, None)
+    assert resolved is not None
+    assert resolved.recipe.key == "image_fast"
+    assert resolved.recipe.label == "Fast image"
+    assert resolved.recipe.note
+
+
 def test_both_tiers_say_what_they_trade():
     keyed = {r.key: r for r in generation.RECIPES}
     assert keyed["image_fast"].note and keyed["image_quality"].note

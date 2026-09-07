@@ -457,7 +457,13 @@ def rerender_charsheet(
     # Not inherited: they are the *previous* run's answers about its own output
     # and a fresh row must not wear them. ``DERIVED_PARAMS`` says the same thing
     # for a rerun; this door mints a new row, so it strips them itself.
-    for derived in ("cells", "rendered_cells", "pixel_report"):
+    #
+    # ``validation`` belongs in this tuple and the 2026-09-07 audit found it
+    # missing: it is the sheet's structural verdict -- clipped, blank or
+    # missing cells, and whether a wider-margin second render ran -- about
+    # *this* atlas, so a queued re-render otherwise carried a stale verdict,
+    # possibly an ``ok: true``, about frames it has not rendered yet.
+    for derived in ("cells", "rendered_cells", "pixel_report", "validation"):
         params.pop(derived, None)
 
     # A re-render is a new sheet and draws on the same pool -- ``create_charsheet``'s

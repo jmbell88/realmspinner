@@ -59,6 +59,23 @@ GRIP_W = 5.0
 #: field on the mode's state would imply otherwise.
 _grabbed: str = ""
 
+#: The *other* marker's value, snapshotted the frame the grab begins, or
+#: ``None`` between drags.
+#:
+#: **muse-02** (2026-09-07 audit): ``_input`` used to pass ``one.loop_end`` (or
+#: ``one.loop_start``) straight through to ``muse_mode.set_region`` every
+#: frame of the drag, reading it live off ``one`` rather than once. That is
+#: fine until the drag crosses the marker being held: ``set_region`` sorts the
+#: pair, so the untouched marker's value moves to the *other* field on
+#: ``one`` -- and the next frame's "live" read of what this code still thinks
+#: is the anchor is actually last frame's dragged position, not the marker the
+#: user never touched. Each frame's sort fed back in as the next frame's
+#: anchor, so the untouched marker drifted with every frame the drag spent on
+#: the far side of it. Snapshotting it once, at ``is_item_activated()``, is
+#: what makes it stay put regardless of how the drag reorders ``one`` in
+#: between.
+_anchor: float | None = None
+
 
 def should_draw(ctx: Any) -> bool:
     """Whether there is a take under the strip. -> False before the first play.
@@ -176,7 +193,7 @@ def _input(ctx: Any, one: Any, origin: Any, width: float) -> None:
     is a ~40 MB copy per frame. The playhead the user drags is drawn from the
     pending value; the sound catches up when they let go.
     """
-    global _grabbed
+    global _grabbed, _anchor
     if not (imgui.is_item_active() or imgui.is_item_deactivated()):
         return
     offset = imgui.get_io().mouse_pos.x - origin.x
@@ -184,11 +201,20 @@ def _input(ctx: Any, one: Any, origin: Any, width: float) -> None:
 
     if imgui.is_item_activated():
         _grabbed = _grip_at(one, offset, width)
+        # muse-02 (2026-09-07 audit): snapshot the marker this gesture is not
+        # holding, once, rather than reading it live off ``one`` every frame
+        # below -- see ``_anchor``'s docstring for why the live read drifts.
+        if _grabbed == "start":
+            _anchor = one.loop_end
+        elif _grabbed == "end":
+            _anchor = one.loop_start
+        else:
+            _anchor = None
 
     if _grabbed == "start":
-        muse_mode.set_region(ctx, seconds, one.loop_end)
+        muse_mode.set_region(ctx, seconds, _anchor)
     elif _grabbed == "end":
-        muse_mode.set_region(ctx, one.loop_start, seconds)
+        muse_mode.set_region(ctx, _anchor, seconds)
     elif imgui.is_item_deactivated():
         muse_mode.seek(ctx, seconds)
 
@@ -201,6 +227,7 @@ def _input(ctx: Any, one: Any, origin: Any, width: float) -> None:
             # that would turn the one blend the old code deferred into dozens.
             muse_mode.precompute_loop(ctx)
         _grabbed = ""
+        _anchor = None
 
 
 def _grip_at(one: Any, offset: float, width: float) -> str:

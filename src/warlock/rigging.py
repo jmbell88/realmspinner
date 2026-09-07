@@ -286,7 +286,17 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
             "bones": validate_bones(pose["bones"]),
         }
         if pose.get("root_translation"):
-            row["root_translation"] = [float(v) for v in pose["root_translation"]]
+            # Function-level: ``poselib`` imports this module, so a top-level
+            # import here would be circular. Shared rather than a bare
+            # ``float(v)`` -- the 2026-09-07 audit (poser-05) found this door
+            # (and ``service.clips._check_shape``) round-tripped
+            # ``[nan, 1e30, 0.0]`` with no finite or magnitude check, unlike
+            # the identical field on a library pose.
+            from . import poselib
+
+            row["root_translation"] = poselib.validate_root_translation(
+                pose["root_translation"]
+            )
         poses[row["name"]] = row
     # The frame every clip in this file is authored in. Per file and not per
     # clip: a library mixing the two would be one edit away from a clip that

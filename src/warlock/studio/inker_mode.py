@@ -1506,6 +1506,26 @@ def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
         # silent second way to open files, with none of the checks open_path
         # does.
         return False
+    from . import pixelguard
+
+    try:
+        # The 2026-09-07 audit (inker-08) found this door decoded whatever the
+        # OS clipboard held with no ceiling at all -- a twelfth door
+        # ``pixelguard``'s "eleven doors" docstring never learned about. A
+        # 9000x9000 image landed with zero ``pixelguard`` calls, and no test
+        # caught it because ``conftest.py`` patches ``grabclipboard`` to
+        # ``None`` everywhere. Checked before ``convert``, the rule every
+        # other door here follows: ``convert`` is the call that allocates.
+        pixelguard.check(grabbed.width, grabbed.height, "it")
+    except ValueError as exc:
+        # Framed rather than forwarded (``test_no_toast_forwards_a_bare_
+        # exception``'s reason): the person reading this pressed Ctrl+V and
+        # does not know what "past the N pixels this build will hold" is
+        # about on its own -- the sentence has to name the paste before it
+        # names the refusal, ``add_tilemap_layer``'s "The layer was not
+        # added: {exc}." shape.
+        ctx.toast(f"The image was not pasted: {exc}.", "warn")
+        return False
     tab.doc.put_clipboard(np.asarray(grabbed.convert("RGBA"), dtype=np.uint8).copy())
     return True
 

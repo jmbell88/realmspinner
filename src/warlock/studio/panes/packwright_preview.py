@@ -155,7 +155,10 @@ def _outlines(state: Any, tab: Any, draw_list: Any, origin) -> None:
     if tab.layout is None:
         return
     view = tab.view
-    by_key = {source.key: source.uid for source in tab.doc.sources}
+    # ``packwright_mode.source_index``: the 2026-09-07 audit's packwright-07
+    # found this rebuilt from every source on every single frame this pane
+    # draws, though it only has to change when ``pack_generation`` does.
+    by_key = packwright_mode.source_index(tab)
     faint = imgui.get_color_u32(theme.rgba(theme.EDGE, 0.7))
     accent = imgui.get_color_u32(theme.rgba(theme.ACCENT))
     for frame in tab.layout.frames:
@@ -217,7 +220,7 @@ def _events(state: Any, tab: Any, origin, hovered: bool, region) -> None:
     if hovered and imgui.is_mouse_clicked(0) and tab.layout is not None:
         mouse = imgui.get_mouse_pos()
         x, y = inker_state.to_image(view, origin, mouse.x, mouse.y)
-        by_key = {source.key: source.uid for source in tab.doc.sources}
+        by_key = packwright_mode.source_index(tab)
         # Reversed, so a sprite drawn over another is reachable -- the rule the
         # map canvas follows for overlapping objects.
         for frame in reversed(tab.layout.frames):

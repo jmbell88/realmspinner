@@ -224,6 +224,31 @@ def test_dropping_a_clip_troupe_needs_is_refused_by_name(svc):
     assert "walk" in caught.value.message
 
 
+def test_a_non_finite_root_translation_is_refused_not_round_tripped(svc):
+    """poser-05 (the 2026-09-07 audit): a key pose's ``root_translation`` was
+    converted with a bare ``float(v)`` here, with neither the finite nor the
+    magnitude check ``poselib.validate_record`` already applies to the
+    identical field on a library pose -- so ``[nan, 1e30, 0.0]`` round-tripped
+    straight into a saved clip library."""
+    payload = _as_payload(_shipped(svc))
+    payload["poses"][0]["root_translation"] = [float("nan"), 1e30, 0.0]
+    with pytest.raises(Invalid) as caught:
+        svc_clips.save(svc, TEMPLATE, payload)
+    assert caught.value.field == "poses"
+
+
+def test_a_malformed_root_translation_is_a_field_addressed_refusal(svc):
+    """poser-06: the same door let a malformed ``root_translation`` raise a
+    bare ``ValueError`` out of ``_check_shape`` instead of a field-addressed
+    ``Invalid``, so the UI could only show the generic "Something went
+    wrong" with no control to point at."""
+    payload = _as_payload(_shipped(svc))
+    payload["poses"][0]["root_translation"] = "not-a-vector"
+    with pytest.raises(Invalid) as caught:
+        svc_clips.save(svc, TEMPLATE, payload)
+    assert caught.value.field == "poses"
+
+
 # --- the property that matters most ------------------------------------------
 
 

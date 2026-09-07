@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -124,9 +125,11 @@ def test_run_worker_spawns_the_named_module_and_reads_its_marker(monkeypatch, tm
 # --- the import door --------------------------------------------------------------------
 
 
-def _adapter(tmp_path: Path, name: str = "mystyle.safetensors") -> Path:
+def _adapter(
+    tmp_path: Path, name: str = "mystyle.safetensors", content: bytes = b"\x00" * 64
+) -> Path:
     path = tmp_path / name
-    path.write_bytes(b"\x00" * 64)
+    path.write_bytes(content)
     return path
 
 
@@ -199,6 +202,59 @@ def test_the_service_registers_imported_adapters_at_startup(svc, tmp_path):
 
     WarlockService(svc.config, svc.store)
     assert out["key"] in models.STYLE_LORAS
+
+
+def test_import_lora_and_a_concurrent_train_completion_do_not_drop_a_manifest_entry(
+    tmp_path, monkeypatch
+):
+    """``import_lora``/``remove_imported_lora`` each read the whole of
+    ``loras/manifests.json``, change one entry in memory, and write the whole
+    file back. Before the 2026-09-07 audit's shell-01 fix added a lock shared
+    by every writer, nothing serialised two callers doing that at once: the
+    Settings pane's import door and ``_q_lora``'s training-completion
+    callback (``generation.import_lora`` again, called from the worker's
+    thread pool) can both be mid read-modify-write for the same file. The
+    loser's entry -- and the safetensors file behind it -- vanished from the
+    registry with no error. This forces the interleaving with a
+    monkeypatched delay so the race is deterministic rather than a
+    one-run-in-N flake.
+    """
+    config = Config(t2i_model_root=tmp_path)
+    real_load = generation.load_lora_manifests
+    slow = threading.Event()
+
+    def delayed_load(cfg):
+        rows = real_load(cfg)
+        if slow.is_set():
+            time.sleep(0.3)
+        return rows
+
+    monkeypatch.setattr(generation, "load_lora_manifests", delayed_load)
+
+    def train_completion() -> None:
+        slow.set()
+        try:
+            generation.import_lora(
+                config,
+                _adapter(tmp_path, "trained.safetensors", b"\x01" * 64),
+                label="Trained style",
+            )
+        finally:
+            slow.clear()
+
+    trainer = threading.Thread(target=train_completion)
+    trainer.start()
+    time.sleep(0.05)  # let the trainer's read start before the pane's import runs
+    generation.import_lora(
+        config,
+        _adapter(tmp_path, "imported.safetensors", b"\x02" * 64),
+        label="Imported style",
+    )
+    trainer.join(timeout=5)
+    assert not trainer.is_alive()
+
+    labels = {m.label for m in generation.load_lora_manifests(config)}
+    assert labels == {"Trained style", "Imported style"}
 
 
 def test_concurrent_register_and_iterate_does_not_raise(tmp_path):

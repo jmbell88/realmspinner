@@ -42,8 +42,10 @@ Three controls matter for a first run, and everything else has a sensible defaul
 
 **Asset type.** Leave it on *3D Model*. This one choice quietly sets several things at once, which
 is why it is a single combo rather than three: what the job produces, how the prompt is composed,
-and which follow-up work is offered. The other four entries make plain images, seamless materials,
-tilesets and sprite sheets.
+and which follow-up work is offered. The other five entries make plain images, seamless materials,
+tilesets and sprite sheets — and Character, the one entry that needs no GPU at all: it builds, rigs
+and renders a mesh straight from the character registry rather than going through SDXL and
+reconstruction (see [A character sprite sheet](11-a-character-sprite-sheet.md)).
 
 **Description.** The prompt. Write a subject, not a scene:
 

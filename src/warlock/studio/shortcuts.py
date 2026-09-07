@@ -107,6 +107,11 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ),
             ("1 / 2 / 3 / 4", "Vertex / edge / face / object mode"),
             ("E", "Extrude (with faces selected)"),
+            # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
+            # tooltip has named this chord since it was added, and nothing
+            # bound it -- including here, where the popup and the manual are
+            # the only record a user has of what a keyboard-only toggle does.
+            ("Alt+Z", "X-ray, so an element behind the surface can be picked"),
             # The keyboard's half of a drag. G and S rather than G, R and S:
             # R is the Scale tool's letter and E is Rotate's, both taken long
             # before this, so rotate is reached mid-drag instead.

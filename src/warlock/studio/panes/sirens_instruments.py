@@ -28,8 +28,60 @@ from typing import Any
 
 from .. import anchors, controls, icons, sirens_mode, tokens, widgets
 from ..manual import render as manual_render
+from ..sirens import document as D
 from ..sirens import instruments as inst
 from ..tokens import sp
+
+_BUSY_WHY = "This song is being written; the buttons come back when it lands."
+
+
+def instrument_room(doc: Any, editable: bool) -> tuple[bool, str]:
+    """Whether "Add" can fire, and why not if not.
+
+    Pulled out as a pure function so the 2026-09-07 audit's finding sirens-03
+    has something a test can call with no imgui frame: the button used to call
+    ``add_instrument`` with no cap check and no try/except, so filling a song
+    to its own documented ``MAX_INSTRUMENTS`` ceiling raised a bare
+    ``ValueError`` out of ``draw()`` -- and ``guard.py`` replaces the whole
+    pane after three of those in a row.
+    """
+    if not editable:
+        return False, _BUSY_WHY
+    if len(doc.instruments) >= D.MAX_INSTRUMENTS:
+        return False, f"A song holds {D.MAX_INSTRUMENTS} instruments."
+    return True, ""
+
+
+def delete_reason(editable: bool, selected: bool) -> str:
+    """Why the instrument Delete button is disabled, or "" while it is live.
+
+    Pulled out as a pure function so the 2026-09-07 audit's finding sirens-04
+    has something a test can call with no imgui frame: the inline ternary this
+    replaced tested ``editable`` inverted, so a busy song showed "No
+    instrument is selected" and an idle one with nothing picked showed the
+    busy sentence -- each state naming the other's reason.
+    """
+    if not editable:
+        return _BUSY_WHY
+    if not selected:
+        return "No instrument is selected."
+    return ""
+
+
+def sample_delete_reason(editable: bool, held: bool) -> str:
+    """Why the sample Delete button is disabled, or "" while it is live.
+
+    Pulled out as a pure function so the 2026-09-07 audit's finding sirens-05
+    has something a test can call with no imgui frame: the inline ternary this
+    replaced fell through to the empty string while the song was saving,
+    which is the exact silent failure ``disabled_button``'s ``reason``
+    parameter exists to prevent, at the moment it most needs explaining.
+    """
+    if not editable:
+        return _BUSY_WHY
+    if not held:
+        return "This instrument has no sample."
+    return ""
 
 
 def draw(ctx: Any) -> None:
@@ -46,10 +98,10 @@ def draw(ctx: Any) -> None:
 
     doc = tab.doc
     editable = not tab.busy
-    busy_why = "This song is being written; the buttons come back when it lands."
 
     width = widgets.grid_width(2)
-    if widgets.disabled_button(f"{icons.PLUS} Add", editable, (width, 0), reason=busy_why):
+    addable, add_why = instrument_room(doc, editable)
+    if widgets.disabled_button(f"{icons.PLUS} Add", addable, (width, 0), reason=add_why):
         instrument = doc.add_instrument()
         state.instrument = instrument.uid
         sirens_mode.request_rerender(ctx, tab)
@@ -58,7 +110,7 @@ def draw(ctx: Any) -> None:
         f"{icons.TRASH} Delete",
         editable and state.instrument is not None,
         (width, 0),
-        reason=busy_why if editable else "No instrument is selected.",
+        reason=delete_reason(editable, state.instrument is not None),
     ):
         if doc.remove_instrument(state.instrument):
             sirens_mode.request_rerender(ctx, tab)
@@ -146,7 +198,7 @@ def _sample(ctx: Any, tab: Any, selected: Any) -> None:
         f"{icons.UPLOAD} Import...",
         editable,
         (width, 0),
-        reason="This song is being written; the buttons come back when it lands.",
+        reason=_BUSY_WHY,
     ):
         sirens_mode.ask_sample(ctx, tab, selected.uid)
     imgui.same_line()
@@ -155,7 +207,7 @@ def _sample(ctx: Any, tab: Any, selected: Any) -> None:
         f"{icons.TRASH} Delete",
         editable and bool(held),
         (width, 0),
-        reason="This instrument has no sample." if editable else "",
+        reason=sample_delete_reason(editable, bool(held)),
     ):
         sirens_mode.remove_sample(ctx, tab, held)
 

@@ -649,9 +649,139 @@ def test_a_click_takes_the_column_it_landed_on_including_the_gap_after_it():
     assert sirens_patterns.column_at(9999.0, widths, 6.0) == 4
 
 
+def test_caret_span_rings_a_nibble_only_on_two_digit_columns():
+    """the 2026-09-07 audit, finding sirens-07: ``_caret_span`` -- which picks
+    the characters the caret rings for a two-digit column -- had no direct
+    test, unlike its pulled-out neighbours ``first_channel``/``column_at``.
+    An evidence gap rather than a reproduced defect, so this is coverage
+    only: at the time of writing the function already does the right thing.
+    """
+    # A single-keystroke column (NOTE) always ranges the whole cell, whatever
+    # ``digit`` says -- there is no sub-position to point a nibble caret at.
+    assert sirens_patterns._caret_span(D.NOTE, 0, "C-4") == (0, 3)
+    assert sirens_patterns._caret_span(D.NOTE, 1, "C-4") == (0, 3)
+
+    # A two-digit column (INSTRUMENT, PARAM) rings one nibble while a digit is
+    # mid-entry ...
+    assert sirens_patterns._caret_span(D.INSTRUMENT, 0, "3F") == (0, 1)
+    assert sirens_patterns._caret_span(D.INSTRUMENT, 1, "3F") == (1, 1)
+    assert sirens_patterns._caret_span(D.PARAM, 0, "0A") == (0, 1)
+    assert sirens_patterns._caret_span(D.PARAM, 1, "0A") == (1, 1)
+
+    # ... and falls back to the whole cell once ``digit`` is not a position
+    # inside it -- no half-typed entry in flight to narrow the caret to.
+    assert sirens_patterns._caret_span(D.INSTRUMENT, -1, "3F") == (0, 2)
+    assert sirens_patterns._caret_span(D.INSTRUMENT, 2, "3F") == (0, 2)
+
+    # A one-digit column (VOLUME) and a zero-digit one (EFFECT) are both
+    # ``COLUMN_DIGITS <= 1``, so neither ever narrows to a nibble.
+    assert sirens_patterns._caret_span(D.VOLUME, 0, "F") == (0, 1)
+    assert sirens_patterns._caret_span(D.EFFECT, 0, "A") == (0, 1)
+
+
 def test_the_loop_point_follows_an_entry_that_moves_under_it():
     """``sirens_orders.moved_loop``, the order list's own pure half."""
     from warlock.studio.panes import sirens_orders
 
     assert sirens_orders.moved_loop(2, 2, 0) == 0
     assert sirens_orders.moved_loop(0, 2, 0) == 1
+
+
+# --- Order and Instruments: the ceilings, and the reasons a row is dead -------
+
+
+def test_add_pattern_button_refuses_gracefully_at_max_patterns():
+    """the 2026-09-07 audit, finding sirens-03: "Add a pattern" and
+    "Duplicate" called the document with no cap check and no try/except, so
+    filling a song to its own documented ceiling raised a bare ``ValueError``
+    out of ``draw()`` -- and ``guard.py`` replaces the whole pane after three
+    presses. Reproduced against the unfixed code: ``sirens_orders`` has no
+    ``pattern_room`` at all, so this fails with an ``AttributeError`` rather
+    than the greyed button the fix provides."""
+    from warlock.studio.panes import sirens_orders
+
+    doc = D.new_song()
+    while len(doc.patterns) < D.MAX_PATTERNS:
+        doc.add_pattern()
+    assert len(doc.patterns) == D.MAX_PATTERNS
+
+    addable, reason = sirens_orders.pattern_room(doc, editable=True)
+    assert not addable
+    assert str(D.MAX_PATTERNS) in reason
+
+    # Duplicate shares the same ceiling check -- one function, two call sites.
+    assert sirens_orders.pattern_room(doc, editable=True) == (False, reason)
+
+    # A song under the ceiling is not refused, and a busy one names the save
+    # rather than the ceiling.
+    under = D.new_song()
+    assert sirens_orders.pattern_room(under, editable=True) == (True, "")
+    assert sirens_orders.pattern_room(under, editable=False) == (
+        False,
+        sirens_orders._BUSY_WHY,
+    )
+
+
+def test_add_instrument_button_refuses_gracefully_at_max_instruments():
+    """the 2026-09-07 audit, finding sirens-03: "Add" (instruments) called
+    ``add_instrument`` with no cap check and no try/except, the same defect as
+    the pattern buttons. Reproduced against the unfixed code: ``instrument_room``
+    does not exist there."""
+    from warlock.studio.panes import sirens_instruments
+
+    doc = D.new_song()
+    while len(doc.instruments) < D.MAX_INSTRUMENTS:
+        doc.add_instrument()
+    assert len(doc.instruments) == D.MAX_INSTRUMENTS
+
+    addable, reason = sirens_instruments.instrument_room(doc, editable=True)
+    assert not addable
+    assert str(D.MAX_INSTRUMENTS) in reason
+
+    under = D.new_song()
+    assert sirens_instruments.instrument_room(under, editable=True) == (True, "")
+    assert sirens_instruments.instrument_room(under, editable=False) == (
+        False,
+        sirens_instruments._BUSY_WHY,
+    )
+
+
+def test_delete_reasons_name_the_state_that_is_actually_true():
+    """the 2026-09-07 audit, finding sirens-04: the disabled-reason ternary in
+    ``sirens_effects.py`` and ``sirens_instruments.py`` tested ``editable``
+    inverted, so a busy song showed "nothing selected" and an idle one with
+    nothing selected showed the busy sentence -- each state naming the
+    other's. Reproduced against the unfixed code: the busy case answered "No
+    sound effect is selected." instead of the busy sentence."""
+    from warlock.studio.panes import sirens_effects, sirens_instruments
+
+    assert sirens_effects.delete_reason(True, False) == "No sound effect is selected."
+    assert sirens_effects.delete_reason(False, False) == sirens_effects._BUSY_WHY
+    assert sirens_effects.delete_reason(False, True) == sirens_effects._BUSY_WHY
+    assert sirens_effects.delete_reason(True, True) == ""
+
+    assert sirens_instruments.delete_reason(True, False) == "No instrument is selected."
+    assert sirens_instruments.delete_reason(False, False) == sirens_instruments._BUSY_WHY
+    assert sirens_instruments.delete_reason(False, True) == sirens_instruments._BUSY_WHY
+    assert sirens_instruments.delete_reason(True, True) == ""
+
+
+def test_the_sample_delete_reason_is_never_the_empty_string_while_busy():
+    """the 2026-09-07 audit, finding sirens-05: the sample Delete button's
+    reason fell through to "" while the song was saving -- the exact failure
+    ``disabled_button``'s docstring exists to prevent, at the moment it most
+    needs explaining. Reproduced against the unfixed code: the busy case
+    answers "" rather than a sentence."""
+    from warlock.studio.panes import sirens_instruments
+
+    assert sirens_instruments.sample_delete_reason(False, False) == (
+        sirens_instruments._BUSY_WHY
+    )
+    assert sirens_instruments.sample_delete_reason(False, True) == (
+        sirens_instruments._BUSY_WHY
+    )
+    assert (
+        sirens_instruments.sample_delete_reason(True, False)
+        == "This instrument has no sample."
+    )
+    assert sirens_instruments.sample_delete_reason(True, True) == ""

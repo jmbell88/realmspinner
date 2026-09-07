@@ -1546,3 +1546,32 @@ def test_switching_tabs_stops_the_song_that_was_playing(monkeypatch):
     state.activate(first.uid)
     assert stopped, "the device is silenced on the way out"
     assert first.sounding is None and second.sounding is None
+
+
+def test_space_starts_the_song_while_a_pattern_audition_is_still_sounding(monkeypatch):
+    """the 2026-09-07 audit, finding sirens-02: ``toggle_play`` read the
+    tag-blind ``sirens_audio.playing()`` instead of asking whether *the song*
+    was sounding, so Space during a note preview or pattern audition just
+    silenced it -- with preview on by default this was an everyday
+    two-presses-to-play bug. Against the unfixed code, ``play()`` is never
+    called and ``stop()`` is.
+    """
+    from warlock.studio import sirens_audio
+
+    stopped: list[bool] = []
+    played: list[bool] = []
+    monkeypatch.setattr(sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_audio, "playing", lambda: True)
+    # A pattern audition's tag, per ``PATTERN_PREFIX``'s own arm -- not the
+    # tab's uid, which is what only the song itself is tagged with.
+    monkeypatch.setattr(sirens_audio, "tag", lambda: "pattern:1")
+    monkeypatch.setattr(sirens_audio, "stop", lambda: stopped.append(True))
+    monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: played.append(True) or True)
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    _render(ctx, tab)
+
+    assert sirens_mode.toggle_play(ctx, tab)
+    assert played, "the song should have started, not been treated as sounding"
+    assert not stopped, "a pattern audition on the channel is not the song"

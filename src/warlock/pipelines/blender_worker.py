@@ -351,6 +351,25 @@ def _strip_incoming_rig(bpy: Any, mesh: Any) -> int:
     return removed
 
 
+def _import_measured(bpy: Any, path: Path) -> Any:
+    """``_import_glb`` then ``_strip_incoming_rig``, for every caller that goes
+    on to call ``_world_bounds``.
+
+    The 2026-09-07 audit (poser-02) found ``op_remesh`` and ``_retexture_frame``
+    (shared by ``op_views``/``op_project``) calling ``_world_bounds`` on a
+    freshly imported mesh without stripping first -- exactly the double
+    Y-up -> Z-up bug ``_strip_incoming_rig``'s docstring describes for
+    ``op_rig``, which alone had been fixed. Reproduced against real Blender: a
+    supplied rigged mesh measured as extent ``(0.505, 0.896, 1.458)`` against a
+    true ``(1.138, 0.312, 1.507)``. One helper used everywhere ``_import_glb``
+    feeds ``_world_bounds`` is what keeps a fourth caller from reintroducing it
+    by hand.
+    """
+    mesh = _import_glb(bpy, path)
+    _strip_incoming_rig(bpy, mesh)
+    return mesh
+
+
 def _has_weights(mesh: Any) -> bool:
     if not mesh.vertex_groups:
         return False
@@ -1068,8 +1087,7 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.05, "Loading mesh")
     _reset_scene(bpy)
-    mesh = _import_glb(bpy, source)
-    _strip_incoming_rig(bpy, mesh)
+    mesh = _import_measured(bpy, source)
 
     progress(0.25, "Fitting skeleton")
     lo, hi = _world_bounds(mesh)
@@ -1084,13 +1102,21 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
         try:
             measured = jointfit.payload([tuple(v) for v in verts])
+            # validate_joints raises ValueError too -- e.g. a non-humanoid
+            # template's bone set not matching what jointfit measured -- and
+            # the 2026-09-07 audit (poser-04) found it living *after* this
+            # try's except, so that ValueError reached ``main`` unguarded and
+            # crashed the worker instead of falling back. It belongs in the
+            # same try as the measurement it validates: both failures mean
+            # the same thing, "costs the measurement, never the rig".
+            validated = rigging.validate_joints(measured, template)
         except ValueError as exc:
             # Costs the measurement, never the rig: the bbox fit is still a
             # rig, and a mesh this cannot read is exactly the mesh whose
             # measurements would be worth least.
             print(f"joint measurement failed, using the template fit: {exc}", flush=True)
         else:
-            spec = {**spec, "bones": rigging.validate_joints(measured, template)}
+            spec = {**spec, "bones": validated}
     bones, fit = _rig_bones(spec, lo, hi)
     arm_obj = _build_armature(bpy, bones)
 
@@ -1526,7 +1552,7 @@ def _retexture_frame(bpy: Any, source: Path, size: int):
     why. -> (mesh, centre, extent, distance)
     """
     _reset_scene(bpy)
-    mesh = _import_glb(bpy, source)
+    mesh = _import_measured(bpy, source)
     lo, hi = _world_bounds(mesh)
     centre = [(a + b) / 2.0 for a, b in zip(lo, hi, strict=True)]
     span = [b - a for a, b in zip(lo, hi, strict=True)]
@@ -1966,7 +1992,7 @@ def op_remesh(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.02, "Loading model")
     _reset_scene(bpy)
-    source = _import_glb(bpy, source_path)
+    source = _import_measured(bpy, source_path)
     faces_before, _ = _face_stats(source)
     lo, hi = _world_bounds(source)
     diagonal = max(math.dist(lo, hi), 1e-6)

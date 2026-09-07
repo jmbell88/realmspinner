@@ -609,6 +609,10 @@ def map_settings_popup(ctx: Any, state: Any, tab: Any) -> None:
     class_name = widgets.input_text(
         "##map-class", doc.class_name, max_length=64, hint="map class"
     )
+    # One gesture, one step: this dialog's Resize/Offset/Tile-size accordions
+    # already stage behind an Apply button for the same reason -- typing here
+    # pushed a step per keystroke instead (the 2026-09-07 audit, plotter-03).
+    controls.fold_undo(doc.history)
     if class_name != doc.class_name:
         doc.set_map_settings(class_name=class_name)
     background = widgets.input_text(
@@ -617,6 +621,7 @@ def map_settings_popup(ctx: Any, state: Any, tab: Any) -> None:
         max_length=9,
         hint="#RRGGBB or #AARRGGBB",
     )
+    controls.fold_undo(doc.history)
     if background != (doc.backgroundcolor or ""):
         try:
             doc.set_map_settings(backgroundcolor=background or None)
@@ -639,12 +644,16 @@ def map_settings_popup(ctx: Any, state: Any, tab: Any) -> None:
     changed, origin = controls.input_float2(
         "Parallax origin", [float(value) for value in doc.parallax_origin]
     )
+    # One gesture, one step (the 2026-09-07 audit, plotter-03).
+    controls.fold_undo(doc.history)
     if changed:
         doc.set_map_settings(parallax_origin=(float(origin[0]), float(origin[1])))
     if doc.projection == project.OBLIQUE:
         changed, skew = controls.input_float2(
             "Skew", [float(doc.skew_x), float(doc.skew_y)]
         )
+        # One gesture, one step (the 2026-09-07 audit, plotter-03).
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_map_settings(skew_x=int(skew[0]), skew_y=int(skew[1]))
     if doc.projection in (project.STAGGERED, project.HEXAGONAL):
@@ -669,6 +678,8 @@ def map_settings_popup(ctx: Any, state: Any, tab: Any) -> None:
             doc.set_map_settings(stagger_index=index)
     if doc.projection == project.HEXAGONAL:
         changed, side = controls.input_int("Hex side", int(doc.hex_side))
+        # One gesture, one step (the 2026-09-07 audit, plotter-03).
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_map_settings(hex_side=max(0, int(side)))
             # It changes ``pixel_width``, so the fit is stale: a map that

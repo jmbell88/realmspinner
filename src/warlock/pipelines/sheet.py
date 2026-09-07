@@ -648,7 +648,11 @@ def pack(
             if wanted is not None and cell.index not in wanted:
                 continue
             path = frames.get(cell.index)
-            if path is None or not path.exists():
+            # is_file(), not exists(): the 2026-09-07 audit found exists()
+            # here, which is also true of a directory and would let a stale
+            # or malformed frames entry slip past this refusal only to fail
+            # later inside Image.open with no mention of which cell.
+            if path is None or not path.is_file():
                 raise ValueError(f"no rendered frame for cell {cell.index}")
             with Image.open(path) as frame:
                 frame = frame.convert("RGBA")

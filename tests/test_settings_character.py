@@ -136,6 +136,28 @@ def test_a_field_the_new_brief_says_nothing_about_goes_back_to_its_default():
     assert form["character_actions"] == AppState().form_2d["character_actions"]
 
 
+def test_a_species_change_via_the_prompt_drops_a_touched_appearance_slider():
+    """troupe-02 (2026-09-07 audit): only the manual combo in ``_family()``
+    cleared a touched appearance slider on a species change -- a species named
+    by a *prompt* edit left ``character_body`` in the override list, so
+    ``_fill`` skipped the reset and an ogre's ``bulk: 1.0`` rode onto the elf
+    that replaced it. Contradicts this module's own invariant about not
+    accumulating a character out of two briefs the user never wrote together.
+    """
+    form = _form("an ogre")
+    settings_character.sync_from_prompt(form)
+    assert form["character_family"] == "ogre"
+
+    settings_character.set_channel(form, "bulk", 1.0)
+    settings_character.touched(form, "character_body")
+    assert "character_body" in settings_character.overrides_of(form)
+
+    form["prompt"] = "an elf"
+    assert settings_character.sync_from_prompt(form) is True
+    assert form["character_family"] == "elf"
+    assert form["character_body"] == "{}", "the ogre's slider rode onto the elf"
+
+
 def test_the_scan_runs_on_a_prompt_change_and_on_nothing_else():
     """The cache is what makes calling this from a draw affordable."""
     form = _form("a fire ogre")

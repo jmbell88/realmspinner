@@ -150,10 +150,19 @@ def _transform(doc: Any, obj: Any) -> None:
     was = tuple(v.copy() for v in obj.trs())
     changed = False
     edited, translation = controls.input_float3("position##bt", list(obj.translation))
+    # The 2026-09-07 audit's clay-01: these three fields fired ``set_transform``
+    # -- an unconditional ``history.push`` -- on every keystroke, same as the
+    # material sliders below already fold. ``InputFloat3``/``InputFloat4`` fire
+    # per keystroke like any imgui text field, so typing a multi-digit number
+    # into Position pushed one undo step per digit and a lone Ctrl+Z only took
+    # the last character back rather than the whole edit.
+    controls.fold_undo(doc.history)
     changed |= edited
     edited, scale = controls.input_float3("scale##bs", list(obj.scale))
+    controls.fold_undo(doc.history)
     changed |= edited
     edited, rotation = controls.input_float4("rotation##br", list(obj.rotation))
+    controls.fold_undo(doc.history)
     widgets.help_marker(
         "A quaternion, XYZW -- the same order the viewer and the pose files "
         "use. Typing one is for a value you already have; the gizmo is the "
@@ -224,6 +233,14 @@ def _generator(doc: Any, obj: Any) -> None:
     changed = False
     for key, default in defaults.items():
         was, changed_here = _widget(key, params.get(key, default), default)
+        # The 2026-09-07 audit's clay-01: a generator field fired
+        # ``set_generator_params`` -- also an unconditional ``history.push`` --
+        # per keystroke, for the same reason the transform fields above needed
+        # ``fold_undo``. Folded here, before ``set_generator_params`` runs
+        # below, so the invariant every other door in this file follows
+        # (draw, fold, act) holds for every field in the loop, not only the
+        # one the user happened to stop typing in.
+        controls.fold_undo(doc.history)
         if changed_here:
             edited[key] = was
             changed = True

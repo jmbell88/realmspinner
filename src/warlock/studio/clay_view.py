@@ -219,6 +219,16 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
         # Redraw bookkeeping (B13), the shape Viewer.render uses (B12).
         self._render_dirty = True
         self._last_render_key: Any = None
+        # The document the key above was drawn against, pinned for the reason
+        # every other identity-keyed cache in this class already states
+        # (``_screens``, ``_world_cache``): an id is only sound while its
+        # object is alive. The 2026-09-07 audit's clay-09 found this one bare
+        # -- ``id(doc)`` with nothing holding the document itself -- so a
+        # closed tab's ``ClayDoc`` could be collected and a *new* document
+        # minted at the same address, with ``rev`` starting at 0 the way it
+        # does for every fresh document, and this cache handed back the closed
+        # tab's stale texture.
+        self._last_doc: Any = None
         # Per-object world matrices, keyed on the identity of the three
         # transform arrays -- sound because every transform write *rebinds*
         # them (the documented gizmo rule) rather than mutating in place (B26).
@@ -268,6 +278,10 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
         every edit, selection and visibility change; ``handle_event`` marks a
         redraw for hover, marquee and drags; the camera answers for itself;
         and the tool decides which gizmo is on screen, so it is in the key.
+        ``doc`` itself rides in ``self._last_doc`` alongside the key's
+        ``id(doc)`` -- the 2026-09-07 audit's clay-09 -- so a closed
+        document cannot be collected and a new one minted at the same
+        address while this cache still trusts that id.
         """
         self._rect = rect
         width, height = int(max(rect[2], 1)), int(max(rect[3], 1))
@@ -287,6 +301,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
         ):
             return self.viewport.texture
         self._last_render_key = key
+        self._last_doc = doc
         self._render_dirty = False
         self._resize(width, height)
         self.camera.update(dt)

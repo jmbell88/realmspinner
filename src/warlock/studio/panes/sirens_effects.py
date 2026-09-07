@@ -43,6 +43,24 @@ from ..tokens import sp
 #: without scrolling.
 NEW_ROWS = 8
 
+_BUSY_WHY = "This song is being written; the buttons come back when it lands."
+
+
+def delete_reason(editable: bool, selected: bool) -> str:
+    """Why the Delete button is disabled, or "" while it is live.
+
+    Pulled out as a pure function so the 2026-09-07 audit's finding sirens-04
+    has something a test can call with no imgui frame: the inline ternary this
+    replaced tested ``editable`` inverted, so a busy song showed "No sound
+    effect is selected" and an idle one with nothing picked showed the busy
+    sentence -- each state naming the other's reason.
+    """
+    if not editable:
+        return _BUSY_WHY
+    if not selected:
+        return "No sound effect is selected."
+    return ""
+
 
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
@@ -58,17 +76,16 @@ def draw(ctx: Any) -> None:
 
     doc = tab.doc
     editable = not tab.busy
-    busy_why = "This song is being written; the buttons come back when it lands."
 
     width = widgets.grid_width(2)
-    if widgets.disabled_button(f"{icons.PLUS} Add", editable, (width, 0), reason=busy_why):
+    if widgets.disabled_button(f"{icons.PLUS} Add", editable, (width, 0), reason=_BUSY_WHY):
         _add(ctx, state, tab)
     imgui.same_line()
     if widgets.disabled_button(
         f"{icons.TRASH} Delete",
         editable and state.oneshot is not None,
         (width, 0),
-        reason=busy_why if editable else "No sound effect is selected.",
+        reason=delete_reason(editable, state.oneshot is not None),
     ):
         _remove(ctx, state, tab)
 

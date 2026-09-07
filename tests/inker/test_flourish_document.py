@@ -12,6 +12,9 @@ from warlock.studio import inker
 from warlock.studio.inker import _doc_flourish, flourish, ora
 from warlock.studio.inker.flourish import bake as B
 from warlock.studio.inker.flourish import presets
+from warlock.studio.inker.flourish.bake import Bake, Facing
+from warlock.studio.inker.flourish.recipe import Layer as RecipeLayer
+from warlock.studio.inker.flourish.recipe import Phase, Recipe
 
 _PUFF = presets.load("smoke_puff")
 
@@ -27,6 +30,72 @@ def _small_layer_recipe():
     """A two-layer painterly recipe whose geometry fits a 32px canvas."""
     rec = presets.load("sword_impact")
     return dataclasses.replace(rec, width=32, height=32, supersample=2)
+
+
+def _hand_recipe(*, with_layer: bool) -> Recipe:
+    layers = (RecipeLayer(uid=1, kind="fill", name="A"),) if with_layer else ()
+    return Recipe(
+        name="Hand",
+        width=4,
+        height=4,
+        phases=(Phase("main", 2, False),),
+        layers=layers,
+    )
+
+
+def _hand_bake(frame1_content: np.ndarray | None) -> Bake:
+    """A bake built by hand rather than rendered, so the second frame's
+    pixels are exactly whatever the caller hands it -- fully transparent, in
+    particular, which no shipped preset can be relied on to line up on
+    demand. ``None`` omits the layer from the recipe entirely, which is the
+    bake ``insert_flourish`` gets first, so the track this test cares about
+    is *added* by the regenerate rather than already present with a cel in
+    it -- the ``existing is None`` branch the audit found the bug in.
+
+    Frame 0 is always opaque paint; frame 1 is ``frame1_content``.
+    """
+    opaque = np.zeros((4, 4, 4), np.uint8)
+    opaque[..., :3] = (200, 40, 40)
+    opaque[..., 3] = 255
+    if frame1_content is None:
+        recipe = _hand_recipe(with_layer=False)
+        facing = Facing(name="E", degrees=0.0, composites={"main": [opaque, opaque]}, layers={})
+    else:
+        recipe = _hand_recipe(with_layer=True)
+        facing = Facing(
+            name="E",
+            degrees=0.0,
+            composites={"main": [opaque, frame1_content]},
+            layers={"main": {1: [opaque, frame1_content]}},
+        )
+    return Bake(recipe=recipe, facings=[facing], palette=None, palette_source="none")
+
+
+def test_apply_flourish_records_no_digest_for_a_frame_it_wrote_nothing_to():
+    """The 2026-09-07 audit (inker-09): ``apply_flourish`` recorded a digest
+    for every rendered frame of a newly-added track, even the fully
+    transparent ones the cel-creation branch right above it declines to turn
+    into a cel -- 18 phantom entries from one ordinary call. A digest with no
+    cel behind it means a later hand-drawn edit on that blank frame is judged
+    against a digest that could never match real pixels."""
+    doc = inker.Document.blank(4, 4)
+    group = doc.insert_flourish(_hand_bake(None))
+    state = doc.flourish_state(group)
+    assert state.tracks == {}, "the layer was not in the first bake at all"
+
+    blank = np.zeros((4, 4, 4), np.uint8)  # fully transparent: no ink at all
+    counts = doc.apply_flourish(group, _hand_bake(blank), force=True)
+    assert counts.added == 1
+    state = doc.flourish_state(group)
+    track_uid = next(iter(state.tracks.values()))
+    frame_uids = [f.uid for f in doc.anim.frames[:2]]
+
+    # The blank frame got no cel -- and, the fix, no digest for it either.
+    assert doc.anim.cels.get((track_uid, frame_uids[1])) is None
+    assert (track_uid, frame_uids[1]) not in state.digests
+    # The opaque frame, which really was written, keeps its digest.
+    assert doc.anim.cels.get((track_uid, frame_uids[0])) is not None
+    assert (track_uid, frame_uids[0]) in state.digests
 
 
 def test_insert_makes_a_group_of_tracks_with_a_tag_per_phase_in_one_step():

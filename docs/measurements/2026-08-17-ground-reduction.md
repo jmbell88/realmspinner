@@ -15,11 +15,12 @@ before the run, in the shape [`2026-08-06-pixel-art-xl.md`](2026-08-06-pixel-art
 established; the Results section records what came back and which rule fired.
 
 This document exists because four constants the stored corpus is keyed on are
-changing at once, all under `GROUND_VERSION` (which goes 1 → 2 in the same
-change): the reduction sampler in `pipelines/ground.py:reduce_texture`, the
-subject clause appended by `texture_prompts`, the default negative prompt the
-service door applies, and — behind them — the phase-variant factor table and
-possibly the `colors` default.
+changing at once, all under what is now `pipelines/tilesheet.py`'s
+`TILE_SHEET_VERSION` (which goes 1 → 2 in the same change): the reduction
+sampler, now `tilesheet.py:reduce_cell`, the subject clause appended by
+`tilesheet.sheet_subject`, the default negative prompt the service door
+applies, and — behind them — the phase-variant factor table and possibly the
+`colors` default.
 
 ## The problem
 
@@ -35,7 +36,7 @@ averages.
 ## The arms
 
 Prompts: **A** = current subjects, empty negative. **B** = subjects with the new
-`DETAIL_CLAUSE` appended, plus `GROUND_NEGATIVE_PROMPT`. Both arms: the
+`DETAIL_CLAUSE` appended, plus `SHEET_NEGATIVE_PROMPT`. Both arms: the
 `test_ground_gpu.py` TERRAINS (stone/water), seed 42, `tile=True`, pixelxl @1.2,
 `sdxl_cfg`.
 

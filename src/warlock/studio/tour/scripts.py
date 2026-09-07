@@ -1,6 +1,6 @@
 """The tours themselves. Data, not code.
 
-Four of them, and each is chosen rather than convenient.
+Five of them, and each is chosen rather than convenient.
 
 ``first-hour`` orients someone who has just opened the app, and **every step of
 it runs on a machine with no GPU and no weights** -- the one step that could ask
@@ -19,6 +19,12 @@ is about a *sound*, and a machine with no audio device cannot make one. So no
 step of it waits on hearing anything. Every ``done`` condition here is a mode, a
 document, or notes the reader has written -- never a sound -- which is what
 lets somebody on a silent box finish the tour and still have written a bar.
+
+``muse-basics`` is the one tour that needs weights on disk -- about 8.3 GB of ACE-Step -- and it
+says so at the door rather than after a click that would refuse. It earns its place anyway: two
+takes at the same tags is the fastest way to see what the download actually buys, and the last step
+hands the result to Sirens for free, because Muse's 44.1 kHz WAV and Sirens' sample instrument
+already agree on the format.
 
 Each tour ends by handing the reader to the chapter that goes deeper. The link
 runs one way -- a step names a chapter, a chapter never names a step -- which is

@@ -44,6 +44,17 @@ _NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "M
 #:
 #: A JSON chunk declaring millions of nodes is a hang, not a scene.
 MAX_NODES = 100_000
+#: The 2026-09-05 audit, finding clay-05: ``load`` bounded ``nodes`` here but
+#: iterated ``materials`` and ``meshes`` with no ceiling of their own, and an
+#: *unreferenced* declaration -- a material array entry no mesh points at, a
+#: mesh whose primitives read no accessor -- never calls ``_charge``, so
+#: ``_spent`` (the byte budget below) never moves no matter how many of them
+#: there are. Reproduced: 500,000 material entries loaded in 3.7s with
+#: ``_spent`` staying at 0 throughout -- a hang with no bytes to refuse. Same
+#: value as ``MAX_NODES``: a material or a mesh is the same order of JSON cost
+#: as a node, and both are a hang before they are a scene.
+MAX_MATERIALS = 100_000
+MAX_MESHES = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -335,6 +346,21 @@ def load(path: Path | bytes) -> Model:
     declared = len(gltf.get("nodes", []))
     if declared > MAX_NODES:
         raise ValueError(f"this GLB declares {declared} nodes, more than this viewer will load")
+    # The 2026-09-05 audit, finding clay-05: these two used to be iterated with
+    # no ceiling of their own -- an *unreferenced* material or an
+    # accessor-less mesh never reaches ``_charge``, so the byte budget never
+    # trips no matter how many are declared. See ``MAX_MATERIALS`` above.
+    declared_materials = len(gltf.get("materials", []))
+    if declared_materials > MAX_MATERIALS:
+        raise ValueError(
+            f"this GLB declares {declared_materials} materials, more than this viewer will load"
+        )
+    declared_meshes = len(gltf.get("meshes", []))
+    if declared_meshes > MAX_MESHES:
+        raise ValueError(
+            f"this GLB declares {declared_meshes} meshes, "
+            "more than this viewer will load"
+        )
     reader = _Reader(gltf, buffer)
     materials = [reader.material(m) for m in gltf.get("materials", [])]
     meshes = [
@@ -431,8 +457,22 @@ class _Reader:
             # Nothing in this pipeline emits one, and silently dropping the
             # overrides would render a subtly wrong mesh rather than fail.
             raise ValueError("sparse accessors are not supported")
-        dtype = _COMPONENT[acc["componentType"]]
-        ncomp = _NCOMP[acc["type"]]
+        # The 2026-09-07 audit, finding create-09: an unrecognised
+        # ``componentType``/``type`` used to raise a bare ``KeyError`` from the
+        # dict lookup below -- an internal detail leaking out of a boundary
+        # every sibling refusal in this loader states as a named ``ValueError``
+        # (``sparse accessors are not supported``, the byte-budget refusal two
+        # lines down). A hand-supplied GLB can declare anything in its JSON
+        # chunk (``check_glb`` at the import door is structural-only), so this
+        # is reachable from ordinary use, not just a corrupt file.
+        component_type = acc["componentType"]
+        if component_type not in _COMPONENT:
+            raise ValueError(f"unsupported accessor componentType {component_type!r}")
+        accessor_type = acc["type"]
+        if accessor_type not in _NCOMP:
+            raise ValueError(f"unsupported accessor type {accessor_type!r}")
+        dtype = _COMPONENT[component_type]
+        ncomp = _NCOMP[accessor_type]
         count = int(acc["count"])
         # Before the branch and not inside it, so the bound is a property of
         # *reading an accessor* rather than a rule the zeros path below had to

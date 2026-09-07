@@ -267,6 +267,19 @@ def test_a_missing_frame_is_refused_by_index(tmp_path):
         pixelize.reduce_frames({4: tmp_path / "nope.png"}, 8, tmp_path / "out")
 
 
+def test_a_directory_at_a_frame_path_is_refused_not_opened(tmp_path):
+    """inker-11 (2026-09-07 audit): the refusal gated on ``path.exists()``,
+    which is also true of a directory -- a stale or malformed frames entry
+    pointing at one slipped past "no rendered frame" only to fail later
+    inside ``Image.open`` with no mention of which cell. ``is_file()`` is
+    what the refusal actually means.
+    """
+    bogus = tmp_path / "not_a_file"
+    bogus.mkdir()
+    with pytest.raises(ValueError, match="no rendered frame for cell 0"):
+        pixelize.reduce_frames({0: bogus}, 8, tmp_path / "out")
+
+
 def test_a_zero_reduction_target_is_refused(tmp_path):
     with pytest.raises(ValueError, match="at least 1 pixel"):
         pixelize.reduce_frames({}, 0, tmp_path / "out")

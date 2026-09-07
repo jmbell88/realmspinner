@@ -155,6 +155,22 @@ def test_a_sample_past_the_ceiling_is_refused_before_it_is_decoded(monkeypatch):
         wavout.read_wav(raw, 44100)
 
 
+def test_read_wav_refuses_a_zero_sample_rate_instead_of_crashing():
+    """the 2026-09-07 audit, finding sirens-01: a WAV declaring a 0 Hz rate hit
+    the resample branch's division by ``source_rate`` and raised an uncaught
+    ``ZeroDivisionError`` instead of the ``ValueError`` both call sites catch
+    and reframe -- so an otherwise-intact song failed to open with "Something
+    went wrong; see the log" and no field pointing at what was wrong."""
+    frames = 4
+    fmt = struct.pack("<HHIIHH", 1, 1, 0, 0, 2, 16)
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    raw = b"\x00\x00" * frames
+    body += b"data" + struct.pack("<I", len(raw)) + raw
+    wav = b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
+    with pytest.raises(ValueError, match="0 Hz"):
+        wavout.read_wav(wav, 44100)
+
+
 def test_writing_to_a_path_produces_the_same_bytes(tmp_path):
     pcm = np.zeros((16, 2), dtype=np.float32)
     target = tmp_path / "a.wav"

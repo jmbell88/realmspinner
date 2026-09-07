@@ -300,17 +300,15 @@ class Viewer(PoseOps):
 
     # -- compare -----------------------------------------------------------
 
-    def compare(self, path: Path) -> None:
-        """Load and show a comparison mesh, synchronously.
-
-        Kept for the callers that already hold a parsed model or genuinely want
-        the blocking form. The *library* no longer uses it: it parses through
-        ``TaskRunner`` and calls ``adopt_compare``, because doing both halves on
-        the frame thread froze the frame on a large model and had no error
-        boundary at all (UX-04).
-        """
-        self.adopt_compare(gltf.load(path))
-
+    # The 2026-09-07 audit, finding create-07: ``compare(path)`` -- load and
+    # upload a comparison mesh synchronously on the frame thread -- had no
+    # callers left anywhere in the tree. It survived the UX-04 split as "kept
+    # for callers that... genuinely want the blocking form", but no such
+    # caller ever arrived, and wiring a button to it today would reopen
+    # exactly the frame-freeze ``parse_model``/``adopt_compare`` exists to
+    # avoid: the library now parses through ``TaskRunner`` and hands the
+    # already-parsed model to ``adopt_compare`` below, which is the only
+    # entry point that stays.
     def adopt_compare(self, model: Any) -> None:
         """The frame-thread half: upload an already-parsed comparison model.
 

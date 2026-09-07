@@ -594,3 +594,72 @@ def test_muse_disabled_control_reasons_are_pure_and_testable():
     assert muse_brief._generate_reason(False) == ""
     missing = muse_brief._generate_reason(True)
     assert "not downloaded" in missing
+
+
+# --- the untouched marker's anchor (muse-02) ----------------------------------
+
+
+def test_dragging_a_grip_past_the_other_marker_keeps_the_untouched_one_fixed(
+    ctx, monkeypatch
+):
+    """muse-02 (2026-09-07 audit): ``_input`` used to read the *other* marker's
+    bound live off ``one`` every frame of a drag, rather than once at grab
+    time. That is fine until the drag crosses it: ``muse_mode.set_region``
+    sorts the pair, so the untouched marker's value moves onto the field the
+    dragged one used to occupy -- and the next frame's "live" read of that
+    field is actually last frame's *dragged* position, not the marker the user
+    never touched. Each frame's sort fed back in as the next frame's anchor,
+    so a drag that crossed the other marker and came back left it drifted
+    rather than restored.
+
+    Grabbing the start grip at 8.0s (region 8-12s), dragging out to 16.0s --
+    past the end marker at 12.0s, forcing ``set_region`` to sort the pair --
+    and back to the original grab point at 8.0s should leave the region
+    exactly where it started, (8.0, 12.0): the end marker was never touched.
+    Fails against the unfixed code, which reports (8.0, 16.0) instead --
+    the crossing frame's dragged value, 16.0, in place of the true anchor.
+    """
+    from imgui_bundle import imgui
+
+    from warlock.studio.muse import waveform
+    from warlock.studio.panes import muse_player
+
+    one = _loaded(ctx, seconds=20.0)
+    muse_mode.set_region(ctx, 8.0, 12.0)
+    width = 1000.0  # 50 px/s at a 20s take -- well past GRIP_W's 5 px reach.
+    origin = type("Origin", (), {"x": 0.0, "y": 0.0})()
+
+    previous = imgui.get_current_context()
+    gl_ctx = imgui.create_context()
+    try:
+        io = imgui.get_io()
+        io.set_ini_filename(None)
+
+        def _at(seconds: float, *, active: bool, activated: bool, deactivated: bool):
+            monkeypatch.setattr(imgui, "is_item_active", lambda: active)
+            monkeypatch.setattr(imgui, "is_item_activated", lambda: activated)
+            monkeypatch.setattr(imgui, "is_item_deactivated", lambda: deactivated)
+            io.mouse_pos = (waveform.at(seconds, one.duration, width), 0.0)
+
+        # Frame 1: press down exactly on the start grip. Grabs "start"; the
+        # region is unchanged because the pointer has not moved yet.
+        _at(8.0, active=True, activated=True, deactivated=False)
+        muse_player._input(ctx, one, origin, width)
+        assert (one.loop_start, one.loop_end) == (8.0, 12.0)
+
+        # Frame 2: drag past the end marker. This is the crossing frame: the
+        # pair gets sorted and the untouched marker's value (12.0) moves onto
+        # ``loop_start``, the field this drag keeps writing to.
+        _at(16.0, active=True, activated=False, deactivated=False)
+        muse_player._input(ctx, one, origin, width)
+        assert (one.loop_start, one.loop_end) == (12.0, 16.0)
+
+        # Frame 3: release back at the original grab point. A drag that ends
+        # where it began should leave the region exactly as it found it.
+        _at(8.0, active=False, activated=False, deactivated=True)
+        muse_player._input(ctx, one, origin, width)
+        assert (one.loop_start, one.loop_end) == (8.0, 12.0)
+    finally:
+        imgui.destroy_context(gl_ctx)
+        if previous is not None:
+            imgui.set_current_context(previous)

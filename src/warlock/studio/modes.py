@@ -144,8 +144,8 @@ RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
 #: for the same groups: the two loops have to agree or the selection pill lands
 #: a caption-height off the item it names.
 #:
-#: The grouping above is a *claim* ("these four are one pipeline;
-#: these seven are workspaces") and until these existed the only thing asserting
+#: The grouping above is a *claim* ("these three are one pipeline;
+#: these eight are workspaces") and until these existed the only thing asserting
 #: it was a gap, which at a glance reads as an accident of spacing.
 RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 

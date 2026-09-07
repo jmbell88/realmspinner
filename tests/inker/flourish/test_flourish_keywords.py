@@ -113,6 +113,25 @@ def test_apply_diff_refuses_garbage_without_raising():
     assert any("seed is not a number" in n for n in notes)
 
 
+def test_apply_diff_drops_a_malformed_curve_value_instead_of_raising():
+    """The 2026-09-07 audit (inker-06): a malformed curve from the local text
+    model -- a key missing its value -- raised ``IndexError`` out of
+    ``Curve.from_json`` past ``Param.clamp``'s except, which caught only
+    ``TypeError``/``ValueError``, and ``apply_diff`` has no guard of its own.
+    One bad curve therefore killed the whole request; the fix widens the
+    clamp's except so a bad value is dropped to the parameter's default and
+    every other change in the same diff still lands."""
+    before = _fireball()
+    rec, notes = keywords.apply_diff(
+        before,
+        {"layers": {"Core": {"radius": {"keys": [[0.5]]}, "intensity": 1.5}}},
+    )
+    core = _layer(rec, "core", "Core")
+    assert core.params["radius"] == prims.params_of("core")["radius"].default
+    assert core.params["intensity"] == 1.5
+    assert any("radius" in n for n in notes)
+
+
 def test_the_model_view_has_no_uids_and_names_every_range():
     view = keywords.describe_for_model(_fireball())
     assert "uid" not in str(view)

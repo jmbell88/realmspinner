@@ -652,8 +652,15 @@ def _read_chunk(state: _Parse, kind: int, payload: bytes, opacity_valid: bool) -
         state.ud_owner = ("slice", len(state.sprite.slices) - 1)
     elif kind == _TILESET:
         state.ud_owner = ("tileset", 0)
-    elif kind != _USER_DATA:
-        state.ud_owner = None
+    # Every other non-owner kind (``_CEL_EXTRA``, an old or new ``_PALETTE``,
+    # ``_COLOR_PROFILE``, ``_EXTERNAL_FILES``, ``_MASK``/``_PATH``, an unknown
+    # chunk) leaves ``ud_owner`` exactly as it was. The 2026-09-07 audit
+    # (inker-03) found this branch clearing it on *any* non-owner chunk,
+    # including ``_CEL_EXTRA`` -- which the spec writes straight after the
+    # ``_CEL`` it refines -- so a ``_USER_DATA`` chunk that followed a precise
+    # bounds chunk landed on ``owner is None`` and its note was dropped with
+    # "user data with no chunk before it was dropped" although a chunk was
+    # there.
 
 
 #: The ``0x2020`` chunk's three flags, in the spec's own order: a string, an

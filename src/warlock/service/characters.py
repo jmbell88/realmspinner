@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import uuid
 from collections.abc import Mapping
@@ -310,22 +311,35 @@ def create_character(
     #    that no other caller does: the species' own skeleton, stated exactly,
     #    which also withholds ``joints="measured"`` -- measuring reads joints
     #    off a reference image this character never had.
-    rig = svc_troupe.send_to_troupe(
-        svc,
-        job_id,
-        logical_size=spec.logical_size,
-        colors=spec.colors,
-        outline=spec.outline,
-        reduce_mode=spec.reduce_mode,
-        dither=spec.dither,
-        palette=spec.palette or None,
-        elevation=spec.elevation,
-        name=spec.name,
-        layout=spec.layout_dict(),
-        template=arch.template,
-        bones=joints,
-        character=block,
-    )
+    try:
+        rig = svc_troupe.send_to_troupe(
+            svc,
+            job_id,
+            logical_size=spec.logical_size,
+            colors=spec.colors,
+            outline=spec.outline,
+            reduce_mode=spec.reduce_mode,
+            dither=spec.dither,
+            palette=spec.palette or None,
+            elevation=spec.elevation,
+            name=spec.name,
+            layout=spec.layout_dict(),
+            template=arch.template,
+            bones=joints,
+            character=block,
+        )
+    except Exception:
+        # The 2026-09-07 audit (troupe-01) found a failure here left a
+        # permanently orphaned "done" mesh row with no rig and no sheet --
+        # this module's own docstring claims "the mesh is built only once
+        # nothing left can refuse it", which was untrue the moment this call
+        # could still fail after the row above was committed. Undo the row
+        # the same way a failed ``instantiate`` undoes its directory, so a
+        # refusal this late costs the request exactly as one raised earlier
+        # would have.
+        svc.store.delete(job_id)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
     return {"id": job_id, "rig": rig["id"], "kind": ASSET_TYPE}
 
 
@@ -384,9 +398,15 @@ def preview_character(svc: WarlockService, recipe: Mapping[str, Any]) -> Path:
         instance_dir = work
         instantiate_mod.instantiate(spec, instance_dir)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        # ``os.replace`` through ``shutil.move`` on the same volume: the name is
-        # served to a viewer that may already be reading the previous build.
-        shutil.move(str(instance_dir / instantiate_mod.MODEL_NAME), str(dest))
+        # ``os.replace``, never ``shutil.move``: the 2026-09-07 audit
+        # (service-02) found that ``shutil.move`` onto a destination that
+        # already exists degrades to non-atomic ``copy2`` on Windows -- two
+        # concurrent previews racing the same digest could tear a GLB a
+        # viewer is mid-read on, which is the exact hazard this comment used
+        # to claim was handled. ``os.replace`` is atomic on the same volume
+        # even when ``dest`` exists, which is the case ``dest.exists()``
+        # above did not already return early for.
+        os.replace(str(instance_dir / instantiate_mod.MODEL_NAME), str(dest))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return dest

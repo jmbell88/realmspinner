@@ -242,3 +242,47 @@ def test_the_deformation_sheet_is_offered_when_its_sidecar_exists(svc):
 
     (job_dir / "rig_qa.json").write_text("{}", "utf-8")
     assert inspector.deform_qa_path(svc, job) == job_dir / "rig_qa.png"
+
+
+# --- the tab's own panel list -------------------------------------------------
+
+
+def test_the_library_rig_and_pose_tab_offers_game_ready_remesh(svc, monkeypatch):
+    """create-02 (2026-09-07 audit): ``remesh_panel.draw`` was wired only into
+    Create's live "rig" stage list (``inspector._STAGE_SECTIONS``), never into
+    ``_rig_tab`` -- the Library's full-window Rig & Pose tab -- so the control
+    was unreachable for every mesh whose Create session had already ended,
+    though chapter 23 documents it with no such caveat.
+
+    Every other panel in the tab is stubbed out: they draw through imgui and
+    moderngl, and this test is only about *which panels the tab calls*, not
+    what any of them render.
+    """
+    from warlock.studio.panes import (
+        pose_panel,
+        remesh_panel,
+        retarget_panel,
+        sheet_panel,
+        texture_panel,
+    )
+
+    calls: list[str] = []
+    ctx = FakeCtx(svc)
+    job_id = _rigged(svc, weighting="automatic")
+    job = _job(svc, job_id)
+
+    monkeypatch.setattr(inspector, "_weighting", lambda *_a: calls.append("weighting"))
+    monkeypatch.setattr(inspector, "_bones", lambda *_a: calls.append("bones"))
+    monkeypatch.setattr(inspector, "_deform_qa", lambda *_a: calls.append("deform_qa"))
+    monkeypatch.setattr(retarget_panel, "draw", lambda *_a: calls.append("retarget"))
+    monkeypatch.setattr(remesh_panel, "draw", lambda *_a: calls.append("remesh"))
+    monkeypatch.setattr(texture_panel, "draw", lambda *_a: calls.append("retexture"))
+    monkeypatch.setattr(pose_panel, "draw", lambda *_a: calls.append("pose"))
+    monkeypatch.setattr(sheet_panel, "draw", lambda *_a: calls.append("sheet"))
+
+    inspector._rig_tab(ctx, job)
+
+    assert "remesh" in calls, "Game-ready remesh must be reachable from the Rig & Pose tab"
+    # The same order Create's own stage list draws it in: after retarget,
+    # before retexture.
+    assert calls.index("retarget") < calls.index("remesh") < calls.index("retexture")

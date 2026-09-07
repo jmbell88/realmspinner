@@ -166,6 +166,27 @@ def test_a_sprite_without_its_asset_renders_nothing_rather_than_a_placeholder():
     assert flourish.render_layers(rec, 2, 0.0, ASSETS) != {}
 
 
+def test_sprite_flicker_samples_one_lattice_point_not_a_full_frame_plane(monkeypatch):
+    """The 2026-09-07 audit (inker-13): ``sprite.render``'s ``flicker`` read
+    ``fbm_plane(...)[0, 0]`` -- a coarse grid, an fbm sum over it, an
+    upsample-and-blur to raster size -- to look at one scalar, against this
+    package's own cost bar (``prims/__init__``'s docstring: noise sampled at
+    logical resolution and upsampled *because it will be looked at*).
+    ``fbm_plane``'s only expensive step for a caller with no ``win`` is
+    ``prims.upsample``, so patching that to explode proves the fixed
+    primitive never builds the plane at all -- it still renders, and the
+    flicker still darkens the alpha."""
+    from warlock.studio.inker.flourish import prims as P
+
+    def _boom(*_a, **_k):
+        raise AssertionError("sprite.render must not upsample a full-frame plane for flicker")
+
+    monkeypatch.setattr(P, "upsample", _boom)
+    rec = flourish.from_dict(solo("sprite", flicker=0.6, flicker_hz=8.0))
+    frame = flourish.render_frame(rec, 2, 0.0, ASSETS)
+    assert frame is not None and frame.any()
+
+
 def test_textured_particles_stamp_the_texture():
     plain = flourish.from_dict(solo("particles", count=6))
     textured = flourish.from_dict(solo("particles", count=6, texture="tex", size=4.0))

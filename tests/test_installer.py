@@ -225,3 +225,18 @@ def test_inno_setup_is_per_user_relocatable_and_leaves_user_data_alone() -> None
     # GPL-3.0-or-later now, and for everyone who installs rather than clones
     # this page is the only place the terms appear at all.
     assert r"LicenseFile={#ProjectRoot}\LICENSE" in source
+
+
+def test_the_uninstaller_reads_warlock_home_before_the_userprofile_default() -> None:
+    """pipelines-08 (2026-09-07 audit): the post-uninstall message always
+    named %USERPROFILE%\\.warlock, ignoring WARLOCK_HOME -- so a user who
+    relocated their data root (config._home()'s WARLOCK_HOME override) was
+    told it survived at a path it never lived at. GetEnv('WARLOCK_HOME') must
+    be read, and read before the USERPROFILE fallback is ever built.
+    """
+    source = (INSTALLER / "warlock.iss").read_text(encoding="utf-8")
+    home_read = source.index("GetEnv('WARLOCK_HOME')")
+    fallback_built = source.index("GetEnv('USERPROFILE')")
+    assert home_read < fallback_built, (
+        "WARLOCK_HOME must be checked before the USERPROFILE default is built"
+    )

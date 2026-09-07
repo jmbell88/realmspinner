@@ -3484,3 +3484,191 @@ async def test_a_cancel_verdict_survives_a_transient_store_error(worker, monkeyp
     await worker.shutdown()
     assert worker.store.get(job_id)["status"] == "cancelled"
     assert calls["n"] >= 3
+
+
+# --- the 2026-09-07 audit, finding service-01 --------------------------------
+#
+# Four job kinds -- ``_sheet`` (_q_rig.py), ``_sprite_synthesis`` (_q_sprite.py),
+# ``_tile_sheet`` (_q_tilesheet.py) and ``_tile_set`` (_q_tileset.py, reached
+# through the "tile_sheet" kind's materials mode) -- published their completion
+# marker and then never called ``self._cancel.commit()``, unlike every sibling
+# stage. ``queue.py``'s ``finally`` clause treats an uncommitted cancel as "the
+# work never happened" and runs ``_set_cancelled`` + ``_discard_artifacts`` on
+# whatever the stage just published -- deleting a finished sheet, draft or
+# tileset the user can already see, and recording the row as cancelled when it
+# is not.
+
+
+def _sheet_kind_job(worker):
+    """A rig ``sheet`` job over an unrigged mesh, with the Blender render faked
+    the way ``test_sheet.py``'s ``_fake_render`` does."""
+    from pathlib import Path
+
+    from PIL import Image
+
+    from warlock import rigging
+
+    def fake_render(spec, *, on_progress=None, on_start=None, timeout=0.0):
+        frames_dir = Path(spec["frames_dir"])
+        for cell in spec["cells"]:
+            Image.new(
+                "RGBA", (spec["frame_size"],) * 2, (cell["index"], 0, 0, 255)
+            ).save(frames_dir / f"{cell['index']:04d}.png")
+        return {"ok": True}
+
+    def setup(monkeypatch):
+        monkeypatch.setattr(rigging, "run_worker", fake_render)
+        source = worker.store.create("text", "a knight", {"seed": 1})
+        source_dir = worker.config.job_dir(source)
+        source_dir.mkdir(parents=True, exist_ok=True)
+        (source_dir / "model.glb").write_bytes(b"fake-glb")
+        worker.store.set_status(source, "done")
+        sheet_id = rigging.new_id()
+        job_id = worker.store.create(
+            "sheet", None,
+            {"source_job": source, "sheet_id": sheet_id, "poses": [], "frame_size": 64},
+        )
+        artifacts = [
+            rigging.sheet_png_path(source_dir, sheet_id),
+            rigging.sheet_path(source_dir, sheet_id),
+        ]
+        return job_id, artifacts
+
+    return setup
+
+
+def _sprite_synthesis_kind_job(worker):
+    from PIL import Image
+
+    from warlock import rigging
+
+    def setup(monkeypatch):
+        source = worker.store.create(
+            "text", "a knight", {"seed": 1}, stage="reference"
+        )
+        source_dir = worker.config.job_dir(source)
+        source_dir.mkdir(parents=True, exist_ok=True)
+        image = Image.new("RGB", (256, 256), (220, 220, 220))
+        Image.Image.paste(
+            image, Image.new("RGB", (100, 160), (30, 40, 50)), (78, 60)
+        )
+        image.save(source_dir / "input.png")
+        worker.store.set_status(source, "done")
+        draft_id = rigging.new_id()
+        job_id = worker.store.create(
+            "sprite_synthesis", "a knight",
+            {
+                "source_job": source, "sheet_type": "turnaround",
+                "logical_size": 64, "colors": 16, "seed_a": 11, "seed_b": 22,
+                "draft_id": draft_id, "base_model": "sdxl_cfg",
+            },
+        )
+        artifacts = [rigging.sprite_draft_path(source_dir, draft_id)]
+        return job_id, artifacts
+
+    return setup
+
+
+def _tile_sheet_kind_job(worker):
+    def setup(monkeypatch):
+        from warlock import models
+        from warlock.pipelines import tilesheet
+
+        geom = tilesheet.geometry(16, "top_down")
+        params = {
+            "seed": 7, "base_model": "sdxl_cfg",
+            "style_lora": models.PIXEL_SHEET_LORA, "control": "canny",
+            "colors": 8, "negative_prompt": "",
+            "sheet": {
+                "version": 2, "tile_w": geom.tile_w, "tile_h": geom.tile_h,
+                "projection": geom.view, "columns": geom.columns,
+                "rows": geom.rows,
+            },
+        }
+        job_id = worker.store.create(
+            "tile_sheet", "a damp dungeon", params, stage="tilesheet"
+        )
+        artifacts = [worker.config.job_dir(job_id) / "sheet.json"]
+        return job_id, artifacts
+
+    return setup
+
+
+def _tile_set_kind_job(worker):
+    def setup(monkeypatch):
+        from warlock.pipelines import tileatlas
+
+        prompts = ("moss", "gravel", "water")
+        seed = 100
+        seeds = tileatlas.material_seeds(seed, len(prompts))
+        geom = tileatlas.material_geometry(32, "top_down", len(prompts))
+        params = {
+            "seed": seed, "base_model": "sdxl_cfg", "colors": 64,
+            "negative_prompt": "",
+            "sheet": {
+                "version": 3, "mode": "materials", "tile_w": geom.tile_w,
+                "tile_h": geom.tile_h, "projection": "top_down",
+                "columns": geom.columns, "rows": geom.rows, "layout": "grid",
+                "materials": [
+                    {"index": i, "prompt": p, "variant": 1, "seed": s}
+                    for i, (p, s) in enumerate(zip(prompts, seeds, strict=True))
+                ],
+                "variants": 1, "style_lock": False,
+            },
+        }
+        job_id = worker.store.create(
+            "tile_sheet", "a damp dungeon", params, stage="tilesheet"
+        )
+        artifacts = [worker.config.job_dir(job_id) / "sheet.json"]
+        return job_id, artifacts
+
+    return setup
+
+
+@pytest.mark.parametrize(
+    "make_setup",
+    [_sheet_kind_job, _sprite_synthesis_kind_job, _tile_sheet_kind_job, _tile_set_kind_job],
+    ids=["sheet", "sprite_synthesis", "tile_sheet", "tile_set"],
+)
+async def test_a_cancel_after_publish_does_not_discard_the_finished_sheet_draft_or_tileset(
+    worker, monkeypatch, make_setup
+):
+    import warlock.queue as queue_mod
+
+    setup = make_setup(worker)
+    job_id, artifacts = setup(monkeypatch)
+
+    # The cancel lands the instant the stage writes its completion marker --
+    # exactly the window ``_charsheet`` and ``_pixel_sheet`` already close with
+    # their own ``self._cancel.commit()`` call, and the four kinds above did
+    # not. ``_publish_text`` is the one function every one of them calls to
+    # write that marker, so patching it here reaches all four without knowing
+    # which kind is under test.
+    real_publish = queue_mod._publish_text
+    fired = {"done": False}
+
+    def fake_publish(path, text):
+        real_publish(path, text)
+        if not fired["done"]:
+            fired["done"] = True
+            if worker._cancel is not None:
+                worker._cancel.event.set()
+
+    monkeypatch.setattr(queue_mod, "_publish_text", fake_publish)
+
+    worker.start()
+    try:
+        await _wait_until(
+            lambda: worker.store.get(job_id)["status"] in ("done", "error", "cancelled")
+        )
+    finally:
+        await worker.shutdown()
+
+    assert fired["done"], "the completion marker was never published"
+    row = worker.store.get(job_id)
+    assert row["status"] == "done", (
+        f"a cancel that landed after publish must not un-finish the job "
+        f"(status={row['status']!r}, error={row['error']!r})"
+    )
+    for artifact in artifacts:
+        assert artifact.exists(), f"{artifact} was discarded after it was published"

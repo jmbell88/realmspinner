@@ -512,7 +512,16 @@ def derive_music_job(
         else:
             start, end = float(repaint_start), float(repaint_end)
             if start < 0.0 or end > parent_duration:
-                raise Invalid("that window is not inside the take", field="repaint_start")
+                # Named by which end is actually wrong, mirroring ``extend``'s
+                # ``field="extend_right" if right > parent_duration else
+                # "extend_left"`` a few lines up -- the 2026-09-07 audit found
+                # this refusal always rang ``repaint_start`` even when
+                # ``end > parent_duration`` was the only thing false, pointing
+                # the UI at a control that was never wrong.
+                raise Invalid(
+                    "that window is not inside the take",
+                    field="repaint_end" if end > parent_duration else "repaint_start",
+                )
             if end - start < MIN_WINDOW:
                 raise Invalid(
                     f"a repaint must cover at least {MIN_WINDOW:g} second",

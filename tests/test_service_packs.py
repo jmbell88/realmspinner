@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -404,3 +405,36 @@ def test_an_install_that_overruns_its_deadline_is_killed(manifest_at, svc, monke
     with pytest.raises(Invalid) as caught:
         svc_packs.install(svc, ["rig"], timeout=1.0)
     assert "timed out" in str(caught.value)
+
+
+def test_a_timeout_during_the_commit_phase_does_not_force_kill_the_child(
+    manifest_at, svc, monkeypatch
+):
+    """service-04: the timeout used to force-kill the child regardless of
+    phase, but INVARIANTS.md's pack-install paragraph forbids killing once
+    pip has started writing into the running app's own site-packages --
+    exactly what the worker's "commit" phase announces. Regression for the
+    2026-09-07 audit, service-04.
+
+    The stub announces commit and then keeps running past the timeout
+    before finishing on its own; a force-kill would raise ``Invalid`` well
+    before that sleep ends, so a successful, slow-to-return result is proof
+    the timeout was not honoured by killing.
+    """
+    manifest_at(wheel("bpy-5.2.0-cp313-cp313-win_amd64.whl", 10))
+    monkeypatch.setattr(svc_packs, "installed_versions", dict)
+    _stub(
+        monkeypatch,
+        """
+        import json, sys, time
+        spec = json.loads(sys.stdin.read())
+        print(json.dumps({"percent": 92.0, "label": "installing", "phase": "commit"}), flush=True)
+        time.sleep(1.5)
+        open(spec["result_path"], "w").write(json.dumps({"ok": True, "installed": ["bpy"]}))
+        """,
+    )
+    start = time.monotonic()
+    result = svc_packs.install(svc, ["rig"], timeout=0.3)
+    elapsed = time.monotonic() - start
+    assert result["installed"] == ["bpy"]
+    assert elapsed >= 1.0

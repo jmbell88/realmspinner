@@ -122,6 +122,16 @@ def _stage_body(ctx: Any, job: Any) -> None:
 def draw(ctx: Any) -> None:
     from .. import icons
 
+    global _last_job_id
+    # shell-02 (2026-09-07 audit): the selection change itself is the only
+    # place left that knows a job's header is about to stop being drawn, so
+    # it is the last chance to drain that job's still-refused edits before
+    # they are orphaned in ``_unsent`` for good.
+    selected = ctx.state.selected
+    if _last_job_id is not None and _last_job_id != selected:
+        flush_unsent_for(ctx, _last_job_id)
+    _last_job_id = selected
+
     if create_stages.at(ctx.state, "mesh"):
         # Above the header, and above the "select an asset" empty state, on
         # purpose: an undecided candidate group is a question being asked, and
@@ -342,10 +352,19 @@ def _details_tab(ctx: Any, job: Any) -> None:
 
 
 def _rig_tab(ctx: Any, job: Any) -> None:
+    # create-02 (2026-09-07 audit): Game-ready remesh was wired only into
+    # Create's live "rig" stage list (`_STAGE_SECTIONS`), never into the
+    # Library's Rig & Pose tab -- so it was unreachable for every mesh whose
+    # Create session had already ended, though chapter 23 documents the
+    # control with no such caveat. Same order Create draws it in: after
+    # retarget, before retexture.
+    from . import remesh_panel
+
     _weighting(ctx, job)
     _bones(ctx, job)
     _deform_qa(ctx, job)
     retarget_panel.draw(ctx, job)
+    remesh_panel.draw(ctx, job)
     texture_panel.draw(ctx, job)
     pose_panel.draw(ctx, job)
     sheet_panel.draw(ctx, job)
@@ -564,10 +583,18 @@ def _deform_qa(ctx: Any, job: Any) -> None:
 
 # --- pieces -----------------------------------------------------------------
 
-# Field text the queue refused, keyed by submit key. Frame thread only, and
-# cleared the moment a submit is accepted, so it holds at most one entry per
-# field being typed into right now. See ``_write_field``.
-_unsent: dict[str, str] = {}
+# Field text the queue refused, keyed by submit key, each entry carrying the
+# job id and payload transform it belongs to so a value can be resubmitted
+# without whoever is draining it knowing which field it is. Frame thread only,
+# and cleared the moment a submit is accepted, so it holds at most one entry
+# per field being typed into right now. See ``_write_field`` and
+# ``flush_unsent_for``.
+_unsent: dict[str, tuple[str, Any, str]] = {}
+
+# The job ``draw()`` drew the header for last frame, so a selection change can
+# be recognised and the outgoing job's pending edits drained before nothing is
+# left drawing them. See ``flush_unsent_for``. Frame thread only.
+_last_job_id: str | None = None
 
 
 def _write_field(ctx: Any, key: str, job_id: str, payload: Any, typed: str, current: str) -> None:
@@ -583,12 +610,32 @@ def _write_field(ctx: Any, key: str, job_id: str, payload: Any, typed: str, curr
     is accepted, which is also what clears it.
     """
     if typed != current:
-        _unsent[key] = typed
-    pending = _unsent.get(key)
-    if pending is None:
+        _unsent[key] = (job_id, payload, typed)
+    entry = _unsent.get(key)
+    if entry is None:
         return
-    if ctx.submit(key, svc_jobs.update_job, ctx.svc, job_id, payload(pending)):
+    _, stored_payload, pending = entry
+    if ctx.submit(key, svc_jobs.update_job, ctx.svc, job_id, stored_payload(pending)):
         _unsent.pop(key, None)
+
+
+def flush_unsent_for(ctx: Any, job_id: str) -> None:
+    """Submit whatever is still parked in ``_unsent`` for ``job_id``.
+
+    The 2026-09-07 audit (shell-02) found a rename or retag silently lost if
+    you clicked a different asset before the queue accepted the edit:
+    ``_write_field`` only retries a refused write while that job's own header
+    is still being drawn, and ``draw()`` stops drawing it the instant the
+    selection moves to another job -- so the retry that would have landed it
+    simply never ran again, and the field reverted with no toast and no
+    error. ``draw()`` calls this for the outgoing job on the frame the
+    selection changes, which is the last chance to submit it.
+    """
+    for key, (jid, payload, pending) in list(_unsent.items()):
+        if jid != job_id:
+            continue
+        if ctx.submit(key, svc_jobs.update_job, ctx.svc, job_id, payload(pending)):
+            _unsent.pop(key, None)
 
 
 def _header(ctx: Any, job: Any) -> None:

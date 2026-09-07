@@ -200,13 +200,27 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
             ",".join(actions) if actions else str(defaults["character_actions"])
         ),
     }
+    # The species this frame is actually landing on: the form's own value when
+    # ``character_family`` is overridden (the prompt cannot move it), the
+    # prompt's answer otherwise.
+    previous_family = str(form.get("character_family") or "")
+    resolved_family = (
+        previous_family if "character_family" in overrides else values["character_family"]
+    )
     for key, value in values.items():
         if key not in overrides:
             form[key] = value
     # The sliders belong to the species, so a change of species drops them --
     # a quadruped has no ``tusk`` channel, and an appearance block carrying one
-    # is a request ``Recipe.from_dict`` refuses by name.
-    if "character_body" not in overrides:
+    # is a request ``Recipe.from_dict`` refuses by name. Unconditional on an
+    # actual species change, the same as the manual combo in ``_family()``:
+    # the 2026-09-07 audit (troupe-02) found a slider touched under one
+    # species (an ogre's ``bulk: 1.0``) survive onto a different one named by
+    # a later prompt edit, because being in ``character_overrides`` was enough
+    # to skip this reset even though the species underneath it had just
+    # changed -- contradicting this function's own claim about accumulating a
+    # character out of two briefs.
+    if resolved_family != previous_family or "character_body" not in overrides:
         form["character_body"] = "{}"
 
 

@@ -433,8 +433,19 @@ def stop(ctx: Any) -> None:
 
 
 def toggle_play(ctx: Any, tab: SongTab | None = None) -> bool:
-    """What Space does: stop if sounding, start if not."""
-    if sirens_audio.playing():
+    """What Space does: stop if sounding, start if not.
+
+    **Asks whether the song is sounding, not merely whether anything is (the
+    2026-09-07 audit, finding sirens-02).** ``sirens_audio.playing()`` is
+    tag-blind, so with a note preview or a pattern audition still ringing on
+    the one mixer channel, Space used to stop the audition rather than start
+    the song -- a two-presses-to-play bug on every ordinary edit, since
+    preview is on by default. ``tag() == tab.uid`` is :func:`playhead_mark`'s
+    own test for "is this the song": nothing else on the channel is tagged
+    with the tab's uid.
+    """
+    tab = tab or active(ctx)
+    if tab is not None and sirens_audio.tag() == tab.uid:
         stop(ctx)
         return True
     return play(ctx, tab)

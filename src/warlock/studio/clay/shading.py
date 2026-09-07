@@ -77,7 +77,8 @@ def auto_smooth(mesh: Mesh, angle: float = DEFAULT_ANGLE) -> Mesh:
     normals = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 1e-12)
     counts = np.diff(np.asarray(mesh.starts, dtype="i8"))
     face_of = np.repeat(np.arange(faces, dtype="i8"), counts)
-    twin = np.asarray(adjacency(mesh).twin, dtype="i8")
+    adj = adjacency(mesh)
+    twin = np.asarray(adj.twin, dtype="i8")
 
     paired = np.flatnonzero(twin >= 0)
     smooth = np.ones(faces, dtype=bool)
@@ -86,6 +87,20 @@ def auto_smooth(mesh: Mesh, angle: float = DEFAULT_ANGLE) -> Mesh:
         sharp = np.einsum("ij,ij->i", normals[left], normals[right]) < limit
         smooth[left[sharp]] = False
         smooth[right[sharp]] = False
+    # The 2026-09-07 audit's clay-03: a flipped-normal pair -- two corners
+    # sharing an edge that wind the *same* direction, which is what leaves
+    # ``twin`` at -1 for both rather than pointing at each other -- is a 180
+    # degree disagreement, not merely an untested one. Before this, ``twin >=
+    # 0`` skipped these corners entirely and both faces came out smooth across
+    # a seam the winding itself says is broken. Unconditional, not gated on
+    # ``limit``: there is no angle at which two faces facing opposite ways
+    # should blend, and ``adjacency.py``'s own docstring says an imported GLB
+    # routinely has exactly this.
+    flipped = np.asarray(adj.flipped_pairs, dtype="i8")
+    if len(flipped):
+        left, right = face_of[flipped[:, 0]], face_of[flipped[:, 1]]
+        smooth[left] = False
+        smooth[right] = False
     if np.array_equal(smooth, mesh.smooth):
         return mesh
     return replace(mesh, smooth=smooth)

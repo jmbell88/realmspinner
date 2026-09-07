@@ -73,3 +73,23 @@ def test_nothing_is_held_for_a_field_nobody_edited() -> None:
     _write(ctx, "chest", "chest")
     assert ctx.sent == []
     assert inspector._unsent == {}
+
+
+def test_an_unsent_edit_is_not_lost_when_the_selection_changes_before_it_lands() -> None:
+    """shell-02 (2026-09-07 audit): a rename refused by the queue was retried
+    only inside ``_write_field``, which stops running the instant the header
+    switches to another job -- so clicking a second asset before the first
+    edit landed silently reverted the field, with no toast and no error.
+    ``flush_unsent_for`` is the selection change's last chance to submit it.
+    """
+    ctx = _Ctx()
+    _write(ctx, "che", "")  # accepted; now in flight
+    _write(ctx, "chest", "")  # refused, parked in _unsent for job "abc"
+
+    assert inspector._unsent, "the refused edit must still be parked"
+
+    ctx.inflight.clear()  # the in-flight write lands elsewhere, key now free
+    inspector.flush_unsent_for(ctx, "abc")  # the selection just moved away from "abc"
+
+    assert ctx.sent[-1] == ("name:abc", {"name": "chest"})
+    assert inspector._unsent == {}, "the outgoing job's pending edit must be drained, not dropped"

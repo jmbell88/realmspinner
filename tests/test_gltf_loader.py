@@ -480,6 +480,39 @@ def test_an_accessor_reading_past_the_chunk_is_refused():
         gltf.load(data)
 
 
+def test_an_accessor_with_an_unrecognised_component_type_is_refused_with_a_value_error_not_a_key_error():  # noqa: E501
+    """The 2026-09-07 audit, finding create-09: an accessor whose
+    ``componentType`` is not one of the six the glTF spec defines used to
+    raise a bare ``KeyError`` from the ``_COMPONENT`` dict lookup -- an
+    internal detail leaking out of a boundary every sibling refusal in this
+    loader states as a named ``ValueError`` (the sparse-accessor refusal, the
+    byte-budget refusal, both right beside this one). A hand-supplied GLB can
+    declare anything in its JSON chunk; ``check_glb`` at the import door is
+    structural-only.
+    """
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 9999, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="componentType"):
+        gltf.load(data)
+
+
+def test_an_accessor_with_an_unrecognised_type_is_refused_with_a_value_error_not_a_key_error():
+    """Same finding, the other lookup: ``type`` (SCALAR/VEC3/...) feeding
+    ``_NCOMP`` raised a bare ``KeyError`` too."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC5"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+    )
+    with pytest.raises(ValueError, match="accessor type"):
+        gltf.load(data)
+
+
 def test_a_required_extension_this_loader_does_not_implement_is_refused():
     """KHR_mesh_quantization is the one that arrives first -- gltfpack -c
     writes it, and gltfpack is the binary this project is about to vendor. A
@@ -821,6 +854,31 @@ def test_a_node_count_over_the_ceiling_is_refused_at_load(monkeypatch):
     monkeypatch.setattr(gltf, "MAX_NODES", 2)
     with pytest.raises(ValueError, match="more than this viewer will load"):
         gltf.load(_graph([{}, {}, {}], [0]))
+
+
+def test_a_material_count_over_the_ceiling_is_refused_at_load(monkeypatch):
+    """The 2026-09-07 audit, finding clay-05: ``load`` bounded ``nodes`` but
+    iterated ``materials`` with no ceiling of its own, and an *unreferenced*
+    material entry never reaches ``_charge`` -- reproduced with 500,000
+    material entries loading in 3.7s while ``_spent`` (the byte budget) never
+    moved. A material array this large is a hang before it is a scene.
+    """
+    monkeypatch.setattr(gltf, "MAX_MATERIALS", 2)
+    doc = {"asset": {"version": "2.0"}, "materials": [{}, {}, {}]}
+    with pytest.raises(ValueError, match="more than this viewer will load"):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_mesh_count_over_the_ceiling_is_refused_at_load(monkeypatch):
+    """Same finding, the other unbounded array: a mesh with no primitives (or
+    primitives that read no accessor) also never reaches ``_charge``."""
+    monkeypatch.setattr(gltf, "MAX_MESHES", 2)
+    doc = {
+        "asset": {"version": "2.0"},
+        "meshes": [{"primitives": []}, {"primitives": []}, {"primitives": []}],
+    }
+    with pytest.raises(ValueError, match="more than this viewer will load"):
+        gltf.load(_glb(doc, b""))
 
 
 def test_an_oversized_texture_costs_the_texture_and_not_the_model(monkeypatch, caplog):

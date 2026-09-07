@@ -208,7 +208,11 @@ class ReviewPanes:
         # spellings of "there is nothing on screen to judge" would read as
         # three different problems. The ``_VIEWPORT_WHY`` pattern.
         no_row = "There is nothing left to label in this pass."
-        if widgets.primary_button("Good (A)", enabled=row is not None):
+        # The 2026-09-07 audit (shell-09): this button shares the gate with
+        # "Bad (R)" and "Skip (S)" beside it, per the sentence above, but drew
+        # with no ``reason`` -- so it greyed out with no explanation while its
+        # two neighbours, disabled for the identical cause, said why.
+        if widgets.primary_button("Good (A)", enabled=row is not None, reason=no_row):
             review_mode.record_label(ctx, "accept")
         imgui.same_line()
         if widgets.disabled_button("Bad (R)", row is not None, reason=no_row):

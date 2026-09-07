@@ -25,10 +25,29 @@ from typing import Any
 
 from .. import anchors, controls, icons, sirens_mode, tokens, widgets
 from ..manual import render as manual_render
+from ..sirens import document as D
 from ..tokens import sp
 
 _BUSY_WHY = "This song is being written; the buttons come back when it lands."
 _ROW_WHY = "This entry is already at the end it would move to."
+_FULL_WHY = f"A song holds {D.MAX_PATTERNS} patterns."
+
+
+def pattern_room(doc: Any, editable: bool) -> tuple[bool, str]:
+    """Whether "Add a pattern" or "Duplicate" can fire, and why not if not.
+
+    Pulled out as a pure function so the 2026-09-07 audit's finding sirens-03
+    has something a test can call with no imgui frame: both buttons used to
+    call ``add_pattern``/``duplicate_pattern`` with no cap check and no
+    try/except, so filling a song to its own documented ``MAX_PATTERNS``
+    ceiling raised a bare ``ValueError`` out of ``draw()`` -- and ``guard.py``
+    replaces the whole pane after three of those in a row.
+    """
+    if not editable:
+        return False, _BUSY_WHY
+    if len(doc.patterns) >= D.MAX_PATTERNS:
+        return False, _FULL_WHY
+    return True, ""
 
 
 def draw(ctx: Any) -> None:
@@ -47,8 +66,9 @@ def draw(ctx: Any) -> None:
     editable = not tab.busy
 
     width = widgets.grid_width(2)
+    addable_pattern, pattern_why = pattern_room(doc, editable)
     if widgets.disabled_button(
-        f"{icons.PLUS} Add a pattern", editable, (width, 0), reason=_BUSY_WHY
+        f"{icons.PLUS} Add a pattern", addable_pattern, (width, 0), reason=pattern_why
     ):
         pattern = doc.add_pattern()
         sirens_mode.request_rerender(ctx, tab)
@@ -276,11 +296,12 @@ def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
             sirens_mode.request_rerender(ctx, tab)
             sirens_mode.clamp_caret(ctx, tab)
         width = widgets.grid_width(2)
+        duplicatable, duplicate_why = pattern_room(doc, editable)
         if widgets.disabled_button(
             f"{icons.COPY} Duplicate###sirens-pattern-copy-{pattern.uid}",
-            editable,
+            duplicatable,
             (width, 0),
-            reason=_BUSY_WHY,
+            reason=duplicate_why,
         ):
             copy = doc.duplicate_pattern(pattern.uid)
             sirens_mode.set_caret(ctx, pattern=copy.uid)

@@ -979,12 +979,15 @@ def dispatch_shortfall_message(
     tail = remedies(
         params, exclusive=exclusive, extra=("close other GPU applications and try again",)
     )
-    # headroom_gib is the budget computed at submission time and free_gib a
-    # fresh reading at dispatch; on a card that gained room in between (another
-    # process exited, or the WDDM figure moved) free_gib can exceed headroom_gib,
-    # and an unclamped subtraction would print a negative "in models Warlock
-    # already holds" -- a phrase that must never go negative regardless of what
-    # the two readings did.
+    # headroom_gib and free_gib are both dispatch-time readings, not a
+    # submission-time budget: the 2026-09-07 audit (service-08) found this
+    # comment calling headroom_gib that, when its one caller
+    # (queue.Worker._check_resources) passes device.free_gib plus whatever
+    # resident VRAM the job's own estimate already credits back (trellis,
+    # a loaded text2image pipe). headroom_gib can still exceed free_gib --
+    # the credit is what makes it larger -- and an unclamped subtraction
+    # would print a negative "in models Warlock already holds" -- a phrase
+    # that must never go negative regardless of what the two readings did.
     held = max(0.0, headroom_gib - free_gib)
     return (
         f"this job needs about {need_gib:.1f} GiB of VRAM and only "

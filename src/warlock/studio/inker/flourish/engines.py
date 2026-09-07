@@ -13,6 +13,31 @@ from typing import Any
 
 ENGINES = ("pygame-ce", "godot", "unity", "phaser")
 
+# ``pipelines.sheet.MAX_ATLAS_PX``, restated rather than imported: this
+# package's import pin (``tests/inker/flourish/test_flourish_imports.py``)
+# allows ``warlock.pipelines`` only from ``bake.py``, the way ``curves.py``
+# restates the easing table rather than reaching into ``pipelines.sheet`` for
+# it. The per-tag export (``sheetout.arrange`` with no ``arrange`` chosen,
+# which is the default a Flourish export uses) wraps a strip of frames into
+# more rows once one row would cross this width -- see ``_grid`` below.
+_MAX_ATLAS_PX = 8192
+
+
+def _grid(frame_width: int, frames: int) -> tuple[int, int]:
+    """``(columns, rows)`` for ``frames`` cells of ``frame_width``, matching
+    ``sheetout.arrange``'s default row-wrap exactly -- the layout the per-tag
+    export actually writes when nobody picks a different ``arrange``.
+
+    The 2026-09-07 audit (inker-07) found the Pygame and Godot snippets
+    hard-coded a single-row strip (``n * frame_width, 0``) while this wrap is
+    what the exported PNG really uses past ``_MAX_ATLAS_PX`` -- so a long
+    effect's pasted snippet either read the wrong frames or threw slicing off
+    the edge of the image.
+    """
+    columns = max(1, min(frames, _MAX_ATLAS_PX // max(1, frame_width)))
+    rows = -(-frames // columns)  # ceil
+    return columns, rows
+
 
 def describe(
     *,
@@ -26,7 +51,8 @@ def describe(
     origin: tuple[int, int],
 ) -> dict[str, Any]:
     """The mapping every snippet reads. One shape, so a caller cannot hand
-    Godot a different frame count than Pygame."""
+    Godot a different frame count -- or a different grid -- than Pygame."""
+    columns, rows = _grid(int(frame_width), int(frames))
     return {
         "name": str(name),
         "image": str(image),
@@ -36,6 +62,8 @@ def describe(
         "fps": int(fps),
         "loop": bool(loop),
         "origin": [int(origin[0]), int(origin[1])],
+        "columns": columns,
+        "rows": rows,
     }
 
 
@@ -48,14 +76,21 @@ def snippet(engine: str, info: dict[str, Any]) -> str:
 def _pygame(i: dict[str, Any]) -> str:
     ident = _ident(i["name"])
     head = f'{i["frames"]} frames of {i["frame_width"]}x{i["frame_height"]} at {i["fps"]} fps'
+    columns = i["columns"]
     return f'''# {i["name"]}: {head}
 import pygame
 
 class Animation:
-    def __init__(self, spritesheet, frame_size, frame_count, fps, loop, origin):
+    def __init__(self, spritesheet, frame_size, frame_count, fps, loop, origin, columns):
         sheet = pygame.image.load(spritesheet).convert_alpha()
         w, h = frame_size
-        self.frames = [sheet.subsurface((n * w, 0, w, h)) for n in range(frame_count)]
+        # The sheet wraps into more rows once one row would cross the atlas
+        # width ceiling (the 2026-09-07 audit, inker-07) -- ``columns`` is the
+        # per-tag export's own row-wrap, not always every frame in one row.
+        self.frames = [
+            sheet.subsurface(((n % columns) * w, (n // columns) * h, w, h))
+            for n in range(frame_count)
+        ]
         self.fps, self.loop, self.origin = fps, loop, origin
         self.time = 0.0
 
@@ -79,6 +114,7 @@ class Animation:
     fps={i["fps"]},
     loop={i["loop"]},
     origin=({i["origin"][0]}, {i["origin"][1]}),
+    columns={columns},
 )
 '''
 
@@ -87,6 +123,7 @@ def _godot(i: dict[str, Any]) -> str:
     ident = _ident(i["name"])
     fw, fh = i["frame_width"], i["frame_height"]
     ox, oy = fw / 2 - i["origin"][0], fh / 2 - i["origin"][1]
+    columns = i["columns"]
     return f'''# {i["name"]}: build SpriteFrames from the sheet at runtime (Godot 4)
 var {ident} := SpriteFrames.new()
 
@@ -95,10 +132,13 @@ func _ready() -> void:
     {ident}.add_animation("{i["name"]}")
     {ident}.set_animation_speed("{i["name"]}", {i["fps"]})
     {ident}.set_animation_loop("{i["name"]}", {"true" if i["loop"] else "false"})
+    # The sheet wraps into more rows once one row would cross the atlas width
+    # ceiling (the 2026-09-07 audit, inker-07) -- {columns} is the per-tag
+    # export's own row-wrap, not always every frame in one row.
     for n in {i["frames"]}:
         var atlas := AtlasTexture.new()
         atlas.atlas = sheet
-        atlas.region = Rect2(n * {fw}, 0, {fw}, {fh})
+        atlas.region = Rect2((n % {columns}) * {fw}, (n / {columns}) * {fh}, {fw}, {fh})
         {ident}.add_frame("{i["name"]}", atlas)
     $AnimatedSprite2D.sprite_frames = {ident}
     $AnimatedSprite2D.offset = Vector2({ox}, {oy})

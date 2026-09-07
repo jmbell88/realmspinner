@@ -780,6 +780,10 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
             "them by uid.",
         )
         name = widgets.input_text("##layer-name", layer.name, max_length=64)
+        # One gesture, one step: typing a name pushed a step per keystroke,
+        # the same defect Opacity below was already folded for (the
+        # 2026-09-07 audit, plotter-02).
+        controls.fold_undo(doc.history)
         if name != layer.name:
             doc.set_layer_props(layer.uid, name=name)
 
@@ -792,6 +796,8 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
         class_name = widgets.input_text(
             "##layer-class", layer.class_name, max_length=64, hint="Optional class"
         )
+        # One gesture, one step (the 2026-09-07 audit, plotter-02).
+        controls.fold_undo(doc.history)
         if class_name != layer.class_name:
             doc.set_layer_props(layer.uid, class_name=class_name)
 
@@ -846,6 +852,8 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
         changed, offset = controls.input_float2(
             "##layer-offset", [float(layer.offset_x), float(layer.offset_y)]
         )
+        # One gesture, one step (the 2026-09-07 audit, plotter-02).
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_layer_props(
                 layer.uid, offset_x=float(offset[0]), offset_y=float(offset[1])
@@ -859,6 +867,8 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
         changed, parallax = controls.input_float2(
             "##layer-parallax", [float(layer.parallax_x), float(layer.parallax_y)]
         )
+        # One gesture, one step (the 2026-09-07 audit, plotter-02).
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_layer_props(
                 layer.uid,

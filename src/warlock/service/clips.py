@@ -143,6 +143,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
             field="poses",
         )
     names: list[str] = []
+    validated_poses: list[dict[str, Any]] = []
     for pose in poses:
         name = str(pose.get("name") or "").strip()
         if not name:
@@ -152,6 +153,22 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(pose.get("bones"), dict) or not pose["bones"]:
             raise Invalid(f'the key pose "{name}" has no bones', field="poses")
         names.append(name)
+        entry: dict[str, Any] = {"name": name, "bones": pose["bones"]}
+        if pose.get("root_translation"):
+            # The 2026-09-07 audit: poser-05 found this was a bare
+            # ``float(v)`` with no finite or magnitude check -- shared here
+            # with ``poselib.validate_record``'s, which already refuses the
+            # identical field on a library pose -- and poser-06 found the
+            # bare ``ValueError`` that let through surfaced as the generic
+            # "Something went wrong" instead of a field-addressed refusal
+            # like every other check in this loop.
+            try:
+                entry["root_translation"] = poselib.validate_root_translation(
+                    pose["root_translation"]
+                )
+            except poselib.RecordError as exc:
+                raise Invalid(str(exc), field="poses") from exc
+        validated_poses.append(entry)
 
     if not clips:
         raise Invalid("a clip library needs at least one clip", field="clips")
@@ -224,18 +241,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         "version": 2,
         "template": str(payload.get("template") or ""),
         "space": space,
-        "poses": [
-            {
-                "name": str(p["name"]).strip(),
-                "bones": p["bones"],
-                **(
-                    {"root_translation": [float(v) for v in p["root_translation"]]}
-                    if p.get("root_translation")
-                    else {}
-                ),
-            }
-            for p in poses
-        ],
+        "poses": validated_poses,
         "clips": [
             {
                 "name": str(c["name"]).strip(),

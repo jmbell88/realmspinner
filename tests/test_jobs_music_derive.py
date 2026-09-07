@@ -155,7 +155,12 @@ def test_an_edit_takes_the_new_words_as_the_rows_prompt(svc, parent):
         ({"task": "extend"}, "extend_right"),
         ({"task": "extend", "extend_right": 0.1}, "extend_right"),
         ({"task": "repaint", "repaint_start": -1.0, "repaint_end": 10.0}, "repaint_start"),
-        ({"task": "repaint", "repaint_start": 0.0, "repaint_end": 999.0}, "repaint_start"),
+        # Amended for the 2026-09-07 audit, finding muse-05: this row is an
+        # out-of-range *end* (999.0 > the parent's 60s), and the door used to
+        # name ``repaint_start`` here regardless -- the control that was never
+        # wrong. ``repaint_end`` is the fix; ``extend`` four cases up already
+        # named the right side of its own pair.
+        ({"task": "repaint", "repaint_start": 0.0, "repaint_end": 999.0}, "repaint_end"),
         ({"task": "repaint", "repaint_start": 5.0, "repaint_end": 5.2}, "repaint_end"),
         # Repainting the whole take is what a retake is, and the sampler agrees.
         ({"task": "repaint", "repaint_start": 0.0, "repaint_end": 60.0}, "repaint_start"),

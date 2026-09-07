@@ -1,8 +1,13 @@
 """Stem separation: the registry, the door, and the names on disk.
 
-No card, no weights and no child process. What is asserted is everything that
-decides *whether* a separation runs and *where its files land* -- the two halves
-that are wrong silently. The model itself is the gpu lane's job.
+No card, no weights and no child process, with one exception: the exit-code
+contract between ``separation_worker`` and ``rigging.run_worker`` is only real
+with a real subprocess, so that one test below spawns one -- CPU-only and
+weight-free, since it exercises the *failure* path.
+
+What is asserted otherwise is everything that decides *whether* a separation
+runs and *where its files land* -- the two halves that are wrong silently. The
+model itself is the gpu lane's job.
 
 The recurring theme is that four separate places name the same four stems, and
 nothing but this file makes them agree: ``SeparationModel.sources`` (the model's
@@ -15,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import _q_music, fetch, models, vram
+from warlock import _q_music, fetch, models, rigging, vram
 from warlock.service import _jobs_rework as rework
 from warlock.service import files
 from warlock.service.errors import Conflict, Invalid
@@ -206,6 +211,49 @@ def test_a_zero_length_checkpoint_is_reported_as_suspect(tmp_path):
     (tmp_path / spec.dir_name).mkdir(parents=True)
     (tmp_path / spec.dir_name / spec.probe[0]).write_bytes(b"")
     assert fetch.suspect_files(_Config(), "separation", spec)
+
+
+# --- the worker's exit-code contract -----------------------------------------
+
+
+def test_a_failed_separation_surfaces_the_workers_own_error_message_not_just_an_exit_code(
+    tmp_path,
+):
+    """A handled failure must reach the caller as the worker's own sentence.
+
+    ``separation_worker.main()`` used to write its caught exception into
+    ``result_path`` and then exit 1 -- exactly the shape ``rigging.run_worker``
+    treats as a crash, so it deleted that file and raised
+    "Stem separation exited with code 1" before ever reading the sentence the
+    worker had just written into it. That made ``_q_music.py``'s
+    ``result.get("error")`` handler unreachable dead code (the 2026-09-07
+    audit, pipelines-01). ``service/downloads.py``'s own runner does not make
+    this mistake: a handled failure there is still an exit 0 with the reason
+    on disk.
+
+    No weights needed: a missing checkpoint fails inside ``torch.load``, which
+    is the earliest ``separate()`` can fail and still be *this* bug -- a crash
+    before the spec is even read (a bad JSON, no torch installed) legitimately
+    has no result file for ``run_worker`` to read, and is not what this test is
+    about.
+    """
+    spec = {
+        "source": str(tmp_path / "missing-take.wav"),
+        "out_dir": str(tmp_path / "stems"),
+        "model_dir": str(tmp_path / "no-such-model-dir"),
+        "sources": list(models.SEPARATION_MODELS[models.DEFAULT_SEPARATION].sources),
+        "segment_seconds": 10.0,
+        "result_path": str(tmp_path / "separate.json"),
+    }
+    result = rigging.run_worker(
+        spec,
+        timeout=120,
+        module="warlock.pipelines.separation_worker",
+        marker="separate",
+        name="Stem separation",
+    )
+    assert result["ok"] is False
+    assert "no-such-model-dir" in result["error"]
 
 
 # --- admission ---------------------------------------------------------------

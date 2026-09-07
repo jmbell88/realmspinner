@@ -156,7 +156,13 @@ def _tiles_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
     class_name = widgets.input_text(
         "##ts-class", meta.class_name, max_length=64, hint="class"
     )
+    # One gesture, one step: typing pushed a step per keystroke, exactly what
+    # the palette's copy of this field (``plotter_tileset.py``) was already
+    # fixed for -- this copy's own comment claimed it "already does" fold,
+    # which was false (the 2026-09-07 audit, plotter-01).
+    controls.fold_undo(tab.doc.history)
     changed, probability = controls.input_float("Probability", float(meta.probability))
+    controls.fold_undo(tab.doc.history)
     if class_name != meta.class_name or changed:
         tab.doc.set_tile_meta(
             index,
@@ -586,6 +592,9 @@ def _animation_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None
         imgui.push_id(at)
         imgui.set_next_item_width(sp(90))
         changed, duration = controls.input_int("ms", int(frame.duration_ms))
+        # One gesture, one step: typing a duration pushed a step per
+        # keystroke (the 2026-09-07 audit, plotter-01).
+        controls.fold_undo(tab.doc.history)
         if changed:
             edited = list(frames)
             edited[at] = TileFrame(local_id=frame.local_id, duration_ms=max(1, duration))
@@ -1021,6 +1030,10 @@ def _wang_colours(
             state.tileset_wang_colour = slot + 1
         imgui.same_line()
         name = widgets.input_text("##name", colour.name, max_length=64, hint="name")
+        # One gesture, one step: typing a colour name pushed a step per
+        # keystroke, missed when the hue-bar drag and probability field below
+        # were folded (the 2026-09-07 audit, plotter-01).
+        controls.fold_undo(tab.doc.history)
         moved, value = controls.color_edit4(
             "##swatch",
             imgui.ImVec4(fill[0], fill[1], fill[2], 1.0),

@@ -135,9 +135,16 @@ def boolean(objs: Sequence[Obj], kind: str = "union") -> bm.Mesh:
         verb = {"union": "union", "difference": "subtract", "intersection": "intersect"}
         raise OpError(f"Select at least two objects to {verb[kind]}.")
     target = objs[0]
+    # The 2026-09-07 audit's clay-06: this used to transform every selected
+    # mesh into the target's frame *before* checking the triangle budget, so a
+    # refused boolean still paid the full ``bm.transformed`` allocation over
+    # every input. ``_refuse_complexity`` only reads ``mesh.loops`` and
+    # ``face_count(mesh)`` -- topology, untouched by a transform -- so the
+    # count is exactly the same read off the untransformed meshes, and reading
+    # it there is what lets the refusal skip the allocation it is refusing.
+    raw_meshes = [target.mesh] + [o.mesh for o in objs[1:]]
+    _refuse_complexity(raw_meshes, kind)
     meshes = [target.mesh] + [bm.transformed(o.mesh, _into(target, o)) for o in objs[1:]]
-
-    _refuse_complexity(meshes, kind)
     result = _run(meshes, [o.name for o in objs], kind)
     return _to_csr(result, target.mesh, kind)
 

@@ -350,6 +350,13 @@ class TileSheetOps:
         await asyncio.to_thread(
             queue_mod._publish_text, job_dir / "sheet.json", json.dumps(doc, indent=2)
         )
+        # The sidecar above is the completion marker, so a cancel arriving
+        # after this line must not have ``queue.py`` record this job cancelled
+        # and run ``_discard_artifacts`` on the served sheet it just
+        # published -- the 2026-09-07 audit found this kind was still
+        # deletable after publish because nothing committed the cancel here.
+        if self._cancel is not None:
+            self._cancel.commit()
         # On the row as well, so the library can say what it drew without
         # opening a file. Derived, so DERIVED_PARAMS carries it.
         await asyncio.to_thread(

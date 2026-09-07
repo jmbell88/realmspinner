@@ -502,6 +502,14 @@ class RigOps:
             rigging.sheet_path(source_dir, sheet_id),
             json.dumps(meta, indent=2),
         )
+        # The sidecar above is the completion marker, so a cancel arriving in
+        # the tail below must not have ``queue.py`` record this job cancelled
+        # and run ``_discard_artifacts`` on the served sheet_path/sheet_png_path
+        # pair the user can already see -- the 2026-09-07 audit found this sheet
+        # kind was still deletable after publish because nothing committed the
+        # cancel here, unlike ``_charsheet`` and ``_pixel_sheet``.
+        if self._cancel is not None:
+            self._cancel.commit()
         params["sheet_id"] = sheet_id
         params["cells"] = len(cells)
         await asyncio.to_thread(self.store.set_params, job_id, params)

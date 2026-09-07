@@ -26,7 +26,7 @@ does not sit there failing every time you look at it.
 
 ## Sources
 
-Four ways in.
+Five ways in.
 
 **Add an image...** takes one file. Dropping images on the window adds them too — several at once,
 and one that is already in the atlas is skipped rather than refusing the whole batch.
@@ -50,8 +50,12 @@ because a repack should be faithful unless you ask otherwise.
 a still one contributes one sprite per layer. A packed frame is pixel-identical to what the timeline
 plays, because it goes through the same flatten the playback and the onion skin use.
 
-**From the library** — right-click any reference card and choose **Add to a Packwright atlas**. If
-no atlas is open, one is started for you.
+**From the library** — right-click any reference card and choose **Add to Packwright as an atlas
+source**. If no atlas is open, one is started for you.
+
+**From Troupe** is the door a rendered character sheet uses: **Add to Packwright** on the sheet's
+own export bar contributes one sprite per cell to whatever atlas is open, alongside everything else
+being packed. See [Troupe](33-troupe.md).
 
 Each source keeps a stable identity derived from where it came from, not from what it is called. So
 renaming a sprite changes what the sidecar calls it and nothing else: two layers legitimately called

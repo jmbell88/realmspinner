@@ -163,6 +163,30 @@ def test_a_failing_child_is_a_refusal_carrying_its_own_words(svc, monkeypatch):
     assert "the release feed did not answer" in str(caught.value)
 
 
+def test_a_stalled_download_says_download_not_check(svc, monkeypatch):
+    """service-05: the shared runner's timeout message was hardcoded to "The
+    update check timed out." even when it was the two-hour installer
+    *download* that stalled. Regression for the 2026-09-07 audit, service-05.
+    """
+    _stub(
+        monkeypatch,
+        """
+        import time
+        time.sleep(60)
+        """,
+    )
+    info = {
+        "installer_url": "https://example.invalid/x.exe",
+        "installer_name": "x.exe",
+        "size_bytes": 100,
+        "sha256": "a" * 64,
+    }
+    with pytest.raises(Invalid) as caught:
+        svc_updates.download(svc, info, timeout=0.2)
+    assert "download" in str(caught.value)
+    assert "check" not in str(caught.value)
+
+
 # --- what counts as ready ------------------------------------------------------
 
 

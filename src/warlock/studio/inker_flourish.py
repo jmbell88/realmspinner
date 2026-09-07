@@ -157,10 +157,28 @@ def in_flight(ctx: Any, tab: Any, group_uid: int) -> bool:
 # -- tasks --------------------------------------------------------------------------
 
 
+#: The 2026-09-07 audit found every recipe field clamped individually but
+#: nothing bounding their *product* before ``bake()``, and ``TaskRunner`` has
+#: no cancel API -- so a hand-edited preset could freeze Regenerate
+#: indefinitely or raise ``MemoryError``. ``flourish.recipe.check_bake_cost``
+#: existed already; nothing called it ahead of either submit point.
+BAKE_TOO_COSTLY = (
+    "This effect is too large to bake at once -- lower the size, "
+    "supersampling, frame count, directions or layers."
+)
+
+
 def submit_render(ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: bool = False) -> bool:
     """Bake ``recipe`` off-thread for ``group_uid``. -> whether it was accepted.
     The group's textures go with it, read once here on the frame thread."""
     from .inker.flourish import bake as flourish_bake
+    from .inker.flourish import recipe as flourish_recipe
+
+    try:
+        flourish_recipe.check_bake_cost(recipe)
+    except ValueError:
+        ctx.toast(BAKE_TOO_COSTLY, "warn")
+        return False
 
     key = render_key(tab, group_uid)
     tab_uid = tab.uid
@@ -180,6 +198,13 @@ def submit_render(ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: boo
 
 def submit_insert(ctx: Any, tab: Any, recipe: Any) -> bool:
     from .inker.flourish import bake as flourish_bake
+    from .inker.flourish import recipe as flourish_recipe
+
+    try:
+        flourish_recipe.check_bake_cost(recipe)
+    except ValueError:
+        ctx.toast(BAKE_TOO_COSTLY, "warn")
+        return False
 
     key = insert_key(tab)
     tab_uid = tab.uid

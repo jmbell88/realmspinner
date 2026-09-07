@@ -210,6 +210,54 @@ def clamp(recipe: Recipe) -> Recipe:
     )
 
 
+# -- bake cost --------------------------------------------------------------------------------
+
+#: A supersampled-pixel-frame budget for one bake. Not a corpus-keyed
+#: constant like ``trellis_band`` or ``SEAM_MAX`` -- a safety rail derived
+#: from ``prims/__init__``'s own measured baseline (a 128px frame at 4x
+#: supersample, 262,144px, cost about a second over nine layers, i.e.
+#: roughly 2.36M of these units per second) times ninety seconds of
+#: patience. ``clamp`` bounds every field this cost multiplies *individually*
+#: and none of them *together*, so a hand-edited preset maxing all of
+#: ``width``/``height`` (1024), ``supersample`` (8), every phase's frames
+#: (2880 total), ``directions`` (16) and ``layers`` (32) asks for roughly
+#: 1e14 of these units with no cancel button behind it -- ``TaskRunner`` has
+#: none. The 2026-09-07 audit, inker-10.
+MAX_BAKE_COST = 212_000_000
+
+
+def bake_cost(recipe: Recipe, directions: int | None = None) -> int:
+    """The rough supersampled-pixel-frame cost of baking ``recipe``.
+
+    An upper bound, not a simulation: a layer inactive in every phase still
+    counts, the way every individually clamped field already bounds a worst
+    case instead of predicting the actual render. ``directions`` mirrors
+    ``bake()``'s own override of the recipe's count.
+    """
+    count = int(directions) if directions is not None else int(recipe.directions)
+    return (
+        int(recipe.width)
+        * int(recipe.height)
+        * int(recipe.supersample) ** 2
+        * int(recipe.frame_count)
+        * max(1, count)
+        * max(1, len(recipe.layers))
+    )
+
+
+def check_bake_cost(recipe: Recipe, directions: int | None = None) -> None:
+    """Refuse a bake before it is submitted, rather than let it freeze
+    Regenerate indefinitely or raise ``MemoryError`` partway through with no
+    way to cancel. See :data:`MAX_BAKE_COST`."""
+    cost = bake_cost(recipe, directions)
+    if cost > MAX_BAKE_COST:
+        raise ValueError(
+            f"this effect would render about {cost:,} pixels of frames, past "
+            f"the {MAX_BAKE_COST:,} this build will bake in one request -- "
+            "lower the size, supersampling, frame count, directions or layers"
+        )
+
+
 # -- codec ----------------------------------------------------------------------
 
 

@@ -194,3 +194,24 @@ def test_a_tiny_image_is_refused_rather_than_measured(tmp_path):
     Image.new("RGB", (2, 2)).save(path)
     with pytest.raises(ValueError):
         seam.report(path)
+
+
+def test_roll_half_refuses_odd_dimensions_instead_of_breaking_its_own_inverse():
+    """pipelines-07 (2026-09-07 audit): roll_half is documented and relied on
+    as its own inverse, but ``np.roll(arr, h // 2)`` applied twice only
+    returns to the original when h is even -- for an odd h, 2 * (h // 2) is
+    h - 1, one short of a full period, so a second roll_half landed one pixel
+    off. *Reproduced*: latent today because every caller (``_q_tileset.py``)
+    passes 1024, both sides even; refusing odd dimensions here keeps it that
+    way instead of trusting caller discipline. ``SEAM_MAX`` and
+    ``SEAM_DOMINANCE_MAX`` are untouched by this -- it moves no constant.
+    """
+    arr = np.arange(15 * 15 * 3, dtype=np.uint8).reshape(15, 15, 3)
+    im = Image.fromarray(arr)
+    with pytest.raises(ValueError, match="even"):
+        seam.roll_half(im)
+    # Even dimensions still round-trip -- the fix refuses the broken case,
+    # it does not touch the working one.
+    even = np.arange(16 * 16 * 3, dtype=np.uint8).reshape(16, 16, 3)
+    im_even = Image.fromarray(even)
+    assert np.array_equal(np.asarray(seam.roll_half(seam.roll_half(im_even))), even)

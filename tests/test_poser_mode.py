@@ -237,6 +237,35 @@ def test_a_clean_editor_switches_immediately(svc):
     assert ctx.confirms.asked == []
 
 
+def test_switching_template_refreshes_the_clip_library_and_guards_unsaved_clip_edits(svc):
+    """poser-01 (the 2026-09-07 audit): ``set_template``'s ``proceed()`` reset
+    the pose library but never touched ``state.clips``/``clips_unsaved`` and
+    never called ``clips_refresh`` -- so "Save clips" after a switch wrote the
+    *old* template's working copy under the *new* template's name, with no
+    prompt at all, since the pose-gizmo guard never reads ``clips_unsaved``.
+    """
+    ctx = FakeCtx(svc)
+    state = poser_mode.ensure(ctx)
+    state.clips = {
+        "space": "node",
+        "poses": [{"name": "a", "bones": {"hips": [0.0, 0.0, 0.0, 1.0]}}],
+        "clips": [{"name": "walk", "keys": ["a", "a"], "segments": [4]}],
+    }
+    state.clip = "walk"
+    state.clips_unsaved = True
+
+    poser_mode.set_template(ctx, "fish")
+    assert state.template == "humanoid", "nothing moved before the answer"
+    assert len(ctx.confirms.asked) == 1, "an unsaved clip edit must be asked about too"
+
+    ctx.confirms.asked[0].on_confirm()
+    assert state.template == "fish"
+    assert state.clips == {}, "the old template's clip library must not survive the switch"
+    assert state.clip == ""
+    assert state.clips_unsaved is False
+    assert poser_mode.CLIPS_KEY in ctx.submitted, "the new template's clips must be re-read"
+
+
 # --- applying ----------------------------------------------------------------
 
 

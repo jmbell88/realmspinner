@@ -260,6 +260,43 @@ def test_an_archive_claiming_more_than_the_ceiling_is_refused_before_it_is_read(
         ser.read_wblk(ser.wblk_bytes(_doc()))
 
 
+def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeypatch) -> None:
+    """The 2026-09-07 audit's clay-04: the byte ceiling above bounds
+    *decompressed bytes*, but a scene of many small objects is cheap in bytes
+    and expensive in what opening it does next -- one Python ``Obj`` and one
+    mesh read per entry. ``glbimport`` refuses this shape of file with
+    ``MAX_OBJECTS``/``MAX_TRIANGLES`` and this door had no equivalent: 20,000
+    objects (4.9x ``MAX_OBJECTS``, 4% of the byte ceiling) opened in 8.9s with
+    no warning -- and crash recovery takes this path with no user to ask.
+
+    The object count is free (the length of a list already parsed out of
+    ``scene``), so the ceiling here is monkeypatched low rather than the test
+    building a 4,096-object archive to cross the real one.
+    """
+    from warlock.studio.clay import glbimport
+
+    monkeypatch.setattr(glbimport, "MAX_OBJECTS", 2)
+    data = ser.wblk_bytes(_doc())  # three objects
+
+    with pytest.raises(ValueError, match="3 objects, past the 2"):
+        ser.read_wblk(data)
+
+
+def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monkeypatch) -> None:
+    """The triangle half of clay-04: unlike the object count, a triangle count
+    is not knowable without reading a mesh, so it is checked as the loop over
+    objects goes rather than before it starts -- the first object over the
+    ceiling stops the read rather than every remaining one still being
+    decompressed first."""
+    from warlock.studio.clay import glbimport
+
+    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
+    data = ser.wblk_bytes(_doc())  # a 12-segment cylinder alone is well past 4
+
+    with pytest.raises(ValueError, match="more than 4.*triangles"):
+        ser.read_wblk(data)
+
+
 def test_an_object_with_no_uid_is_refused_as_a_document_problem() -> None:
     """A bare ``KeyError`` out of here reaches the mode layer as a crash rather
     than as "this file is broken", which is what the user can act on."""

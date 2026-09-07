@@ -332,7 +332,13 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
             from .panes import candidates_panel
 
             candidates_panel.keep(ctx, group, job_id)
-        imgui.same_line()
+        # No ``same_line()`` here (the 2026-09-07 audit, finding create-08):
+        # five actions do not divide into rows of two, and pairing Keep with
+        # Rerun was what pushed the *next* button -- Make 3D, the primary
+        # thing a candidate card is for -- onto a row of its own with its
+        # other half left blank. Keep is the one left alone instead: Rerun and
+        # Make 3D always pair below, on a candidate card and a finished result
+        # alike.
 
     # **Rerun is live on a failure.** ``rerun_job`` needs only the brief and the
     # reference the row already has, and the library card has always offered
@@ -343,8 +349,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         f"Rerun##result-rerun-{job_id}", can_rerun, half, reason=not_ready
     ):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
-    if group is None:
-        imgui.same_line()
+    imgui.same_line()
     is_reference = job.get("stage") == "reference" and "input.png" in (job.get("files") or [])
     if widgets.disabled_button(
         f"Make 3D##result-3d-{job_id}",

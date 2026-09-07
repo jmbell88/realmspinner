@@ -134,6 +134,34 @@ def test_going_somewhere_records_where_it_came_from():
     assert ctx.state.previous_mode == "create"
 
 
+def test_go_to_a_gated_mode_is_greyed_in_the_palette_rather_than_silently_refusing():
+    """Shell-05, the 2026-09-07 audit: a gated mode's ``go:`` command used to
+    draw ``enabled=True`` with an empty ``why``, so Enter matched
+    ``state.set_mode``'s own silent refusal -- no toast, no explanation -- on
+    exactly the fresh-install case ``model_gate`` exists for, while the rail's
+    matching item for the same mode greyed out and routed to Settings."""
+    from warlock.studio import state as state_mod
+    from warlock.studio.panes import model_gate
+
+    ctx = _ctx("home")
+    ctx.model_rows = [
+        {"row_key": "engine:trellis_gguf", "present": False, "size_gib": 8.0},
+        {"row_key": "base:sdxl_cfg", "present": False, "size_gib": 6.0},
+    ]
+    command = next(c for c in palette.commands(ctx) if c.key == "go:create")
+    assert command.enabled(ctx) is False
+    assert command.why != ""
+
+    # The same gate the rail installs at startup (main.py's ``set_mode_gate``
+    # call): with it wired, Enter on the greyed row must still not move.
+    state_mod.set_mode_gate(lambda key: not model_gate.mode_gate(ctx, key)[0])
+    try:
+        command.run(ctx)
+    finally:
+        state_mod.set_mode_gate(None)
+    assert ctx.state.mode == "home"
+
+
 def test_the_manual_is_a_command_rather_than_a_destination():
     """It stopped being a mode in the UI redesign, wave 3, so ``_mode_commands`` no
     longer derives an entry -- and a reference reachable only by a function key

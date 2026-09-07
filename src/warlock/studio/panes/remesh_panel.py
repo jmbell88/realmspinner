@@ -35,6 +35,28 @@ TEXTURES: tuple[tuple[str, str], ...] = (("", "Match the mesh"),) + tuple(
 )
 
 
+# The 2026-09-07 audit, finding create-01: bare "texture_size" is also
+# ``texture_panel``'s id in ``ctx.state.field_errors`` -- one flat,
+# unnamespaced dict -- so a re-texture refusal about its atlas size rang this
+# panel's bake-size control too, whenever the inspector drew both together
+# (which is routine). The widget below is keyed by the prefixed name, and
+# ``_remesh_job`` relabels ``remesh_job``'s own refusal to match before it
+# ever reaches ``ctx.state.field_errors``.
+_FIELD_PREFIX = {"texture_size": "remesh_texture_size"}
+
+
+def _remesh_job(svc: Any, job_id: str, **kwargs: Any) -> dict[str, Any]:
+    """``remesh_job``, with a colliding refusal's address renamed to this
+    panel's own control. See ``_FIELD_PREFIX`` above."""
+    try:
+        return svc_jobs.remesh_job(svc, job_id, **kwargs)
+    except Exception as exc:
+        renamed = _FIELD_PREFIX.get(getattr(exc, "field", None))
+        if renamed:
+            exc.field = renamed
+        raise
+
+
 def draw(ctx: Any, job: Any) -> None:
     files = job.get("files") or []
     if "model.glb" not in files:
@@ -76,7 +98,7 @@ def draw(ctx: Any, job: Any) -> None:
             if changed:
                 form["custom_faces"] = value
         _changed, form["texture_size"] = form_ui.combo(
-            "texture_size",
+            "remesh_texture_size",
             "Bake at",
             form["texture_size"],
             TEXTURES,
@@ -200,4 +222,4 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
     ):
         # Last time's rings first: a new submit is judged on its own.
         ctx.state.clear_field_errors()
-        ctx.submit(key, svc_jobs.remesh_job, ctx.svc, job_id, **submit_kwargs(form))
+        ctx.submit(key, _remesh_job, ctx.svc, job_id, **submit_kwargs(form))

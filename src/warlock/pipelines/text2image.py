@@ -952,6 +952,18 @@ class Text2Image:
         tilesheet: bool = False,
         size: tuple[int, int] | None = None,
     ) -> Path:
+        if tile and (sheet or tilesheet):
+            # The 2026-09-07 audit found nothing refused this combination
+            # (pipelines-02): ``tile`` patches every Conv2d to circular
+            # padding for the whole call, and ``sheet``/``tilesheet`` are
+            # documented below as needing the opposite -- a contact sheet's
+            # or a tile grid's outer border must not wrap, or its first
+            # column bleeds into its last. Only caller discipline enforced
+            # it before this check existed.
+            raise RuntimeError(
+                "tile cannot be combined with sheet or tilesheet; "
+                "a contact sheet's edges must not wrap"
+            )
         self.load(on_state)
         assert self._pipe is not None
         # load()/download() have no interruption point of their own; check

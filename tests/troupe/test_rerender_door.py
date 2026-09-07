@@ -91,7 +91,15 @@ def test_the_pixel_settings_are_copied_rather_than_accepted(svc):
 
 def test_the_previous_runs_answers_about_its_own_output_are_stripped(svc):
     """A fresh row must not wear the last run's report -- ``DERIVED_PARAMS``'
-    rule, applied by the door that mints rather than by the rerun path."""
+    rule, applied by the door that mints rather than by the rerun path.
+
+    ``validation`` joined this case for the 2026-09-07 audit, finding
+    troupe-04: it is the sheet's structural verdict (clipped/blank/missing
+    cells, whether a wider-margin second render ran) about *this* atlas, and
+    the door used to hand-strip only three of ``DERIVED_PARAMS``' four
+    relevant keys -- so a queued re-render carried a stale verdict, possibly
+    an ``ok: true``, about frames it had not rendered yet.
+    """
     job_id = _rigged_mesh(svc)
     row_id, sheet_id = _published(svc, job_id)
     svc.store.set_params(
@@ -101,13 +109,14 @@ def test_the_previous_runs_answers_about_its_own_output_are_stripped(svc):
             "cells": 256,
             "rendered_cells": 12,
             "pixel_report": {"palette": "derived"},
+            "validation": {"ok": True},
         },
     )
 
     made = svc_troupe.rerender_charsheet(svc, job_id, sheet_id=sheet_id, subset=_runs(1))
     params = svc.store.get(made["id"])["params"]
 
-    for derived in ("cells", "rendered_cells", "pixel_report"):
+    for derived in ("cells", "rendered_cells", "pixel_report", "validation"):
         assert derived not in params, derived
 
 

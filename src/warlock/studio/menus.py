@@ -47,6 +47,12 @@ _COMMAND_PATHS: dict[str, tuple[str, ...]] = {
     "undo": ("Edit",),
     "redo": ("Edit",),
     "delete": ("Edit",),
+    # The 2026-09-07 audit found ``reroll`` missing here (shell-06): with no
+    # entry it fell into the mode-specific contextual menu instead, so it was
+    # absent from Home and Library -- where selecting an asset and rerolling
+    # it actually happens -- and turned up in nine unrelated workspace modes.
+    # Chapter 38 states the menu bar and the palette carry the same commands.
+    "reroll": ("Edit",),
     "frame": ("View",),
     "wireframe": ("View",),
     "turntable": ("View",),
@@ -78,11 +84,12 @@ def _checked(ctx: Any, key: str) -> bool:
     }.get(key, False)
 
 
-def _command_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
-    from . import modes, palette
+def _command_specs(
+    ctx: Any, commands: list[Any], *, evaluate: bool = True
+) -> list[MenuSpec]:
+    from . import modes
 
     out: list[MenuSpec] = []
-    commands = palette.commands(ctx)
     for index, command in enumerate(commands):
         path = ("Workspace",) if command.key.startswith("go:") else _COMMAND_PATHS.get(command.key)
         if path is None:
@@ -158,7 +165,9 @@ def _inker_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
     return out
 
 
-def _inker_export_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
+def _inker_export_specs(
+    ctx: Any, commands: list[Any], *, evaluate: bool = True
+) -> list[MenuSpec]:
     """Inker's five exports as File rows.
 
     They were toolbar buttons on the timeline's second row and nowhere else --
@@ -171,18 +180,23 @@ def _inker_export_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
     :func:`inker_export.door_state`, the same call Inker's bridge makes, so the
     menu row and the button cannot disagree about whether a door is open or
     about why it is not.
+
+    Takes ``commands`` rather than calling ``palette.commands(ctx)`` itself --
+    the 2026-09-07 audit's shell-11: with both this and ``_command_specs``
+    each rebuilding the ~30-command list, and ``specs`` itself called twice a
+    frame (once for the bar's shape, once for whichever menu is open), the
+    same list was rebuilt up to four times a frame. ``specs`` builds it once
+    and hands it down.
     """
     if ctx.state.mode != "inker":
         return []
-    from . import inker_export, inker_mode, palette
+    from . import inker_export, inker_mode
 
     tab = inker_mode.ensure(ctx).active
     # The same order as the File menu's own ``export`` row, so the five land
     # beside it rather than under Quit: ``sorted`` is stable and these rows are
     # appended after the command rows, so a tie puts them immediately after it.
-    base = next(
-        (i for i, one in enumerate(palette.commands(ctx)) if one.key == "export"), 0
-    )
+    base = next((i for i, one in enumerate(commands) if one.key == "export"), 0)
     out = []
     for index, door in enumerate(inker_export.doors()):
         enabled, reason = (
@@ -220,10 +234,13 @@ def specs(ctx: Any, layout: Any = None, *, evaluate: bool = True) -> list[MenuSp
     has always promised.
     """
 
+    from . import palette
+
+    commands = palette.commands(ctx)
     rows = (
-        _command_specs(ctx, evaluate=evaluate)
+        _command_specs(ctx, commands, evaluate=evaluate)
         + _inker_specs(ctx, evaluate=evaluate)
-        + _inker_export_specs(ctx, evaluate=evaluate)
+        + _inker_export_specs(ctx, commands, evaluate=evaluate)
     )
     if layout is not None:
         rows.append(

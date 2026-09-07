@@ -353,6 +353,17 @@ def parse_manifest(payload: Any) -> Manifest:
             raise ManifestError(f"wheel filename is not a wheel: {filename!r}")
         if "/" in filename or "\\" in filename or filename != Path(filename).name:
             raise ManifestError(f"wheel filename is not a bare name: {filename!r}")
+        try:
+            # ``wheel_dist`` is what every downstream reader of this filename
+            # calls (``conflicts``, ``to_install``), and it raises a bare
+            # ``ValueError`` on a name with too few ``-``-separated fields to
+            # carry a name and a version. The 2026-09-07 audit (pipelines-03,
+            # reproduced) found that shape unchecked here, so a hand-edited
+            # manifest turned opening Settings -> Packs into that ValueError
+            # escaping instead of the ManifestError this function promises.
+            wheel_dist(filename)
+        except ValueError as exc:
+            raise ManifestError(f"{filename}: {exc}") from exc
         if filename in seen:
             raise ManifestError(f"pack manifest lists {filename} twice")
         seen.add(filename)

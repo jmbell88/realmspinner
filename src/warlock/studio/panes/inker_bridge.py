@@ -783,6 +783,18 @@ def land_inpaint(ctx: Any, pending: dict[str, Any], pixels: Any) -> bool:
     if pixels is None:
         ctx.toast("The regeneration produced no picture.", "warn")
         return False
+    if tab.busy:
+        # The 2026-09-07 audit found a regeneration landing during a save
+        # writes into the layer stack the encoder is walking -- the same
+        # hazard ``_done_tileset_import`` (inker_mode.py) already guards for
+        # ``add_tileset``: both push an undo step into a stack an encode may
+        # be reading right now, and both are unbounded waits (a native
+        # picker there, an image job here) so the tab can easily go busy
+        # while one is open. Refused rather than silently dropped, because
+        # a picture the user asked for vanishing with no toast reads as the
+        # regeneration having failed rather than having landed nowhere.
+        ctx.toast("Regeneration refused: the document is busy.", "warn")
+        return False
     ok = tab.doc.apply_pixels(
         int(pending["layer_uid"]), tuple(pending["box"]), pixels, pending.get("weight")
     )

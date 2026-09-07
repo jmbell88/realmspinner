@@ -186,6 +186,24 @@ def test_a_corrupt_job_asset_type_is_also_authoritative_over_legacy_shape():
     ) == create_assets.DEFAULT_ASSET_TYPE
 
 
+def test_a_legacy_generation_type_alias_normalises_like_asset_type_does():
+    """The 2026-09-07 audit, finding create-06: the ``generation_type`` branch
+    used to return the raw stored value whenever it was any key in
+    ``ASSET_TYPES`` -- aliases included -- so a job whose ``generation_type``
+    was the retired "model_3d" spelling (see ``test_the_two_registries_agree_
+    on_every_sdxl_backed_key``) came back as "model_3d" again instead of
+    "3d_model", reintroducing the spelling ``_ALIASES`` exists to retire. The
+    ``asset_type`` branch already normalised through ``.key``; this is the
+    same check on the other branch. Masked in practice by an immediate
+    ``sync_legacy_fields`` call, which is why this reads the pure function
+    directly rather than through a job row.
+    """
+    assert (
+        create_assets.asset_type_from_params({"generation_type": "model_3d"})
+        == "3d_model"
+    )
+
+
 def test_the_visible_model_default_is_the_model_that_will_run():
     assert default_form_2d()["base_model"] == models.DEFAULT_BASE_MODEL
 

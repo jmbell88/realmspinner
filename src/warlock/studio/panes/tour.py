@@ -67,6 +67,29 @@ _was_open = [False]
 #: card is drawn after the scrim either way.
 _card_rect: list[tuple[float, float, float, float] | None] = [None]
 
+#: Whether ``##tour-card`` had keyboard focus as of the last frame it drew.
+#: One frame stale, for ``_viewport_hovered``'s reason (``main.py``): the
+#: card's own Enter/Left/Right read gates on ``imgui.is_window_focused()``
+#: fresh, in the same frame, because it runs *after* the window is drawn --
+#: but ``App._shortcut`` runs on the raw pygame event, *before* this frame's
+#: imgui pass, so last frame's answer is the only one available to it, and a
+#: one-frame lag on "did the reader just click away from the card" is not a
+#: window anyone can feel. See :func:`has_focus`.
+_card_focused: list[bool] = [False]
+
+
+def has_focus() -> bool:
+    """Whether the tour card currently owns the keyboard. -> ``main.py``.
+
+    The 2026-09-07 audit, finding tour-01: the card reads Enter/Left/Right
+    unconditionally, and so did ``App._shortcut`` underneath it -- an arrow
+    that stepped the tour also moved the Library grid's cursor, and an Enter
+    that confirmed a rename also advanced the tour. The card's own read is
+    gated on this same question (see ``_card``); this is the other half, so
+    the mode below can refuse the keys the card already claimed.
+    """
+    return _card_focused[0]
+
 
 # -- what a step is waiting for -------------------------------------------
 #
@@ -212,6 +235,7 @@ def start(ctx: Any, key: str) -> None:
 def stop(ctx: Any) -> None:
     ctx.state.tour.stop()
     _card_rect[0] = None
+    _card_focused[0] = False
 
 
 def advance(ctx: Any, delta: int = 1) -> None:
@@ -432,18 +456,27 @@ def _card(
         widgets.window_shadow("overlay", radius=radius)
         if frosted:
             widgets.window_backdrop(radius=radius)
-        _card_body(ctx, tour, step, state)
+        # tour-01 (2026-09-07 audit): computed while ``##tour-card`` is still
+        # the current window, which is the only place ``is_window_focused()``
+        # can answer for *this* window rather than whichever one imgui last
+        # gave focus to. Stashed for ``has_focus()`` before anything below can
+        # change it.
+        focused = imgui.is_window_focused()
+        _card_focused[0] = focused
+        _card_body(ctx, tour, step, state, focused)
         pos = imgui.get_window_pos()
         size = imgui.get_window_size()
         # Padded, so the shadow under the card is not the one thing the scrim
         # still darkens -- a bright card with a dimmed halo reads as a seam.
         pad = sp(HOLE_PAD)
         _card_rect[0] = (pos.x - pad, pos.y - pad, size.x + pad * 2, size.y + pad * 2)
+    else:
+        _card_focused[0] = False
     imgui.end()
     imgui.pop_style_var()
 
 
-def _card_body(ctx: Any, tour: Any, step: Any, state: Any) -> None:
+def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> None:
     widgets.secondary(f"{tour.title} - {state.index + 1} of {len(tour)}")
     imgui.same_line()
     close_w = imgui.get_frame_height()
@@ -469,9 +502,17 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any) -> None:
     # the keyboard. Read through imgui rather than as a pygame binding, for
     # ``panes/palette.py``'s reason: this is a floating surface and the keys
     # belong to it rather than to the mode behind it.
-    back = imgui.is_key_pressed(imgui.Key.left_arrow)
-    forward = imgui.is_key_pressed(imgui.Key.right_arrow) or imgui.is_key_pressed(
-        imgui.Key.enter
+    #
+    # Gated on ``focused``: the 2026-09-07 audit (tour-01) found these reads
+    # unconditional, so an Enter confirming an unrelated rename, or an arrow
+    # moving a text caret somewhere else on screen, also advanced -- or
+    # completed -- the tour. imgui's key state is global, not scoped to the
+    # window that is current when it is read, so the card has to ask
+    # ``is_window_focused()`` itself rather than assume nothing else wants
+    # the same press.
+    back = focused and imgui.is_key_pressed(imgui.Key.left_arrow)
+    forward = focused and (
+        imgui.is_key_pressed(imgui.Key.right_arrow) or imgui.is_key_pressed(imgui.Key.enter)
     )
     if state.index > 0 and back:
         advance(ctx, -1)

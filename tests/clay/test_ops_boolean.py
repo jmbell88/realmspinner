@@ -344,6 +344,33 @@ def test_the_kernel_never_runs_past_the_triangle_budget(monkeypatch):
         ops_boolean.union([first, second])
 
 
+def test_a_refused_boolean_never_transforms_any_mesh(monkeypatch):
+    """The 2026-09-07 audit's clay-06: ``boolean()`` used to build
+    ``bm.transformed`` copies of every object after the target *before*
+    checking the triangle budget, so a refused op still paid the full
+    allocation it was about to refuse. ``_refuse_complexity`` reads only
+    ``mesh.loops`` and ``face_count(mesh)`` -- topology, unaffected by a
+    transform -- so the same count comes off the untransformed inputs, and
+    checking it there is what lets the refusal skip the allocation. Proven by
+    making ``bm.transformed`` itself raise if it is ever called: a refusal
+    that still reaches it is the bug this pins.
+    """
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise AssertionError("bm.transformed ran before the refusal")
+
+    monkeypatch.setattr(ops_boolean.bm, "transformed", _boom)
+    monkeypatch.setattr(ops_boolean, "MAX_BOOLEAN_TRIANGLES", 20)
+
+    first = bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box())
+    second = bd.Obj(
+        uid=bd.new_uid(), name="b", mesh=bp.box(), translation=np.array([0.5, 0.0, 0.0])
+    )
+
+    with pytest.raises(OpError, match="union"):
+        ops_boolean.union([first, second])
+
+
 def test_the_budget_is_the_sum_of_every_input_not_the_largest(monkeypatch):
     """A budget read off one mesh would pass three boxes that together exceed
     it, since no single input does."""

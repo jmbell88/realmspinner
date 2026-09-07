@@ -39,7 +39,7 @@ from .. import (
 )
 from ..inker import STAMP_MODES
 from ..inker.indexed import shade_ramp
-from ..inker.tiling import SEAM_MAX, axes_of, canonical, seam_ratio, tile_offset
+from ..inker.tiling import SEAM_DOMINANCE_MAX, axes_of, canonical, seam_dominance, tile_offset
 
 #: The four pure helpers this module used to define. They live in
 #: ``inker_state`` now (no imgui, no document, no side effects) and are named
@@ -265,7 +265,7 @@ def _status(tab: Any) -> tuple[int, str] | None:
 
 
 def seam_text(ctx: Any, tab: Any) -> tuple[int, str] | None:
-    """The worst wrap-seam ratio for this document, as a coloured word.
+    """The worst wrap-seam dominance for this document, as a coloured word.
 
     ``None`` when the tab is not tiled -- there is no seam to report on a
     drawing nobody is wrapping.
@@ -275,6 +275,13 @@ def seam_text(ctx: Any, tab: Any) -> tuple[int, str] | None:
     one per frame is exactly the frame-thread stall the whole task layer exists
     to avoid; the answer cannot change unless the document has, and the serial
     is what says so.
+
+    **Decides on dominance, not the retired ratio.** The 2026-09-07 audit found
+    this indicator still reading ``tiling.seam_ratio``/``SEAM_MAX`` after
+    ``docs/measurements/2026-08-30-seam-dominance.md`` replaced that statistic
+    in ``pipelines/seam.py`` for false-alarming on exactly the flat-cell pixel
+    art this editor produces (up to 20 of 24 seamless tiles misflagged); this
+    surface had never been switched over.
     """
     if tab.tiled == "off":
         return None
@@ -283,13 +290,13 @@ def seam_text(ctx: Any, tab: Any) -> tuple[int, str] | None:
     cached = ctx.state.preview.get(key)
     if cached is None or cached[0] != serial:
         try:
-            worst = max(seam_ratio(tab.doc.flatten(matte=False)))
+            worst = max(seam_dominance(tab.doc.flatten(matte=False)))
         except ValueError:
             return None
         cached = (serial, worst)
         ctx.state.preview[key] = cached
     worst = cached[1]
-    colour = theme.WARN if worst > SEAM_MAX else theme.MUTED
+    colour = theme.WARN if worst > SEAM_DOMINANCE_MAX else theme.MUTED
     return (colour, f"seam x{worst:.1f}")
 
 
@@ -871,8 +878,10 @@ def _status_bar(ctx: Any, state: Any, tab: Any, origin: Any, hovered: bool) -> N
         widgets.text_colored(seam[0], seam[1])
         if imgui.is_item_hovered():
             imgui.set_tooltip(
-                "How hard the wrap join is against the picture's own grain. "
-                f"Above {SEAM_MAX:.1f} it reads as a visible edge.\n"
+                "Whether the wrap join is the biggest discontinuity in the "
+                "picture. At 1.0 the seam ties the picture's own worst "
+                "interior join; above it, the seam is the largest step in "
+                "the image and reads as a visible edge.\n"
                 "View > Roll the seam to the middle puts it where you can paint."
             )
     status = _status(tab)

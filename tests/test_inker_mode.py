@@ -2231,3 +2231,60 @@ def test_no_two_commands_answer_to_one_chord():
         where = (op.context, op.key)
         assert where not in seen, f"{op.name} and {seen[where]} both take {op.key}"
         seen[where] = op.name
+
+
+# --- pasting from the OS clipboard (Q-h) -------------------------------------
+
+
+class _PasteCtx:
+    def __init__(self) -> None:
+        self.toasts: list[tuple[str, str]] = []
+
+    def toast(self, message: str, level: str = "info") -> None:
+        self.toasts.append((message, level))
+
+
+def test_paste_from_os_refuses_an_oversized_clipboard_image(monkeypatch):
+    """The 2026-09-07 audit (inker-08): ``paste_from_os`` decoded whatever the
+    OS clipboard held on the frame thread with no ceiling at all -- a twelfth
+    door ``pixelguard``'s "eleven doors" docstring never learned about. A
+    9000x9000 image landed with zero ``pixelguard`` calls, reproduced there
+    with the real ceiling; here the ceiling is lowered instead of allocating a
+    324 MB image, the way ``test_the_pixel_ceiling_is_asked_before_convert``
+    (``tests/test_untrusted_input.py``) already does for every other door.
+
+    ``conftest.py`` patches ``ImageGrab.grabclipboard`` to ``None`` for every
+    test (``_empty_system_clipboard``), which is why nothing caught this: a
+    test wanting a populated clipboard has to patch it back itself, applied
+    after the autouse fixture.
+    """
+    from PIL import Image, ImageGrab
+
+    from warlock.studio import pixelguard
+
+    monkeypatch.setattr(ImageGrab, "grabclipboard", lambda: Image.new("RGBA", (64, 64)))
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 1024)
+    tab = _tab()
+    ctx = _PasteCtx()
+
+    ok = inker_mode.paste_from_os(ctx, tab)
+
+    assert ok is False
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+    assert tab.doc.clipboard.take() is None, "the oversized image must not reach the clipboard"
+
+
+def test_paste_from_os_still_lands_an_ordinary_image(monkeypatch):
+    """The ceiling must refuse only what is actually too big -- the ordinary
+    clipboard paste this door exists for still has to work."""
+    from PIL import Image, ImageGrab
+
+    monkeypatch.setattr(ImageGrab, "grabclipboard", lambda: Image.new("RGBA", (4, 4)))
+    tab = _tab()
+    ctx = _PasteCtx()
+
+    ok = inker_mode.paste_from_os(ctx, tab)
+
+    assert ok is True
+    taken = tab.doc.clipboard.take()
+    assert taken is not None and taken[0].shape == (4, 4, 4)

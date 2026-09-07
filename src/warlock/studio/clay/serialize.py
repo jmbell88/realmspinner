@@ -564,9 +564,31 @@ def read_wblk(data: bytes) -> ClayDoc:
                 f"(format {version}, this build reads {VERSION})"
             )
 
+        # The 2026-09-07 audit's clay-04: ``claimed`` above bounds the archive's
+        # *decompressed bytes*, but a scene of many small objects is cheap in
+        # bytes and expensive in what opening it does next -- ``glbimport`` has
+        # ``MAX_OBJECTS``/``MAX_TRIANGLES`` for exactly this shape of file and
+        # this door had no equivalent. 20,000 objects (4.9x ``MAX_OBJECTS``, 4%
+        # of the byte ceiling) opened in 8.9s with no warning, which crash
+        # recovery hits with no user to ask first. The object count is free --
+        # it is the length of a list already parsed out of ``scene`` -- so it
+        # is checked before a single mesh member is read; the triangle count
+        # is not knowable without reading every mesh, so it is checked as the
+        # loop goes, the same way ``_declared_budget`` lets a GLB's own claim
+        # stand in for one where it can.
+        from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
+
+        declared = scene.get("objects", [])
+        if len(declared) > MAX_OBJECTS:
+            raise ValueError(
+                f"this clay document places {len(declared):,} objects, past "
+                f"the {MAX_OBJECTS:,} Clay holds"
+            )
+
         textures = _read_textures(zf, scene)
         objects = []
-        for entry in scene.get("objects", []):
+        triangles = 0
+        for entry in declared:
             # The uid is the one field with no defensible default -- it names the
             # mesh member and it is what undo addresses -- so a missing or
             # non-numeric one is a refusal rather than the bare ``KeyError`` or
@@ -578,11 +600,18 @@ def read_wblk(data: bytes) -> ClayDoc:
                     "an object in this clay document has no usable uid"
                 ) from exc
             reserve_uid(uid)
+            mesh = _read_mesh(zf, uid)
+            triangles += max(len(mesh.starts) - 1, 0)
+            if triangles > MAX_TRIANGLES:
+                raise ValueError(
+                    f"this clay document has more than {MAX_TRIANGLES:,} "
+                    "triangles, the most Clay can edit"
+                )
             objects.append(
                 Obj(
                     uid=uid,
                     name=str(entry.get("name", "")),
-                    mesh=_read_mesh(zf, uid),
+                    mesh=mesh,
                     translation=_vector(entry, "translation", (0.0, 0.0, 0.0)),
                     rotation=_vector(entry, "rotation", (0.0, 0.0, 0.0, 1.0)),
                     scale=_vector(entry, "scale", (1.0, 1.0, 1.0)),

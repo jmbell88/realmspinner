@@ -1,10 +1,14 @@
 """What ``studio/packwright/`` is allowed to reach for, pinned exactly.
 
-Four outward imports, and every one of them is the same argument: reach for the
-module that *owns* a definition rather than restating it. ``pipelines.sheet``
-owns the atlas ceiling and what "trim" means; ``plotter.tsx`` owns the ``.tsx``
-format and ``tilegrid.tileset`` the type it is written from; ``studio.undo`` owns
-history. Restating any of those is how two answers to one question appear and
+Eight outward imports across six modules (the set below, and the 2026-09-07
+audit's packwright-06 is the reason that count is spelled out rather than left
+for a reader to total the set), and every one of them is the same argument:
+reach for the module that *owns* a definition rather than restating it.
+``pipelines.sheet`` owns the atlas ceiling and what "trim" means;
+``plotter.tsx`` owns the ``.tsx`` format and ``tilegrid.tileset`` the type it
+is written from; ``studio.undo`` owns history; ``zipguard`` owns the bounded
+zip read four container doors share, this package's own ``.wpack`` among
+them. Restating any of those is how two answers to one question appear and
 then drift.
 
 ``studio.inker`` is pointedly *not* one of them, and the test below says so from
@@ -124,6 +128,18 @@ def test_the_only_outward_imports_are_the_ones_written_down():
         if name.split(".")[0] == "warlock"
     }
     assert found == OUTWARD_IMPORTS
+
+
+def test_the_docstrings_count_eight_reaches_not_seven_or_four():
+    """packwright-06: the package docstring said seven outward reaches, this
+    file's own docstring said four, and ``docs/INVARIANTS.md:203`` said six --
+    while ``OUTWARD_IMPORTS`` has always had eight, because ``wpack.py``'s
+    ``from .. import zipguard`` was in none of the three counts."""
+    assert len(OUTWARD_IMPORTS) == 8
+    assert "eight" in packwright.__doc__
+    assert "seven times" not in packwright.__doc__
+    assert "Eight outward imports" in __doc__
+    assert "Four outward imports" not in __doc__
 
 
 def test_only_layout_reaches_into_pipelines_and_only_for_the_sheet_module():

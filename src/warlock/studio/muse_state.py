@@ -171,14 +171,6 @@ class MuseState:
     #: settings" is a copy rather than a merge of two halves.
     form: dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_FORM))
 
-    #: How near the model stays to a song composed from Sirens -- the reference
-    #: door's ``ref_audio_strength``, drawn as *Closeness* beside the Compose
-    #: button in ``panes/sirens_bridge.py`` (W1, 2026-09-05). It used to be the
-    #: literal ``0.5`` written into the params by the door, with the manual
-    #: sending the reader to *Make more -> Something like this* to find it --
-    #: a control that governs a different job entirely. Defaulted *from*
-    #: :data:`DEFAULT_DERIVE` rather than to a second ``0.5``, so the two
-    #: spellings of the same knob cannot drift apart.
     #: ``{job id: (loop_start, loop_end, xfade_ms)}`` for takes audition
     #: previously, most recent last, capped at :data:`LOOP_MEMORY` entries
     #: (oldest evicted). Restored when a take is loaded again (W4,
@@ -197,6 +189,21 @@ class MuseState:
         default_factory=dict
     )
 
+    #: How near the model stays to a song composed from Sirens -- the reference
+    #: door's ``ref_audio_strength``, drawn as *Closeness* beside the Compose
+    #: button in ``panes/sirens_bridge.py`` (W1, 2026-09-05). It used to be the
+    #: literal ``0.5`` written into the params by the door, with the manual
+    #: sending the reader to *Make more -> Something like this* to find it --
+    #: a control that governs a different job entirely. Defaulted *from*
+    #: :data:`DEFAULT_DERIVE` rather than to a second ``0.5``, so the two
+    #: spellings of the same knob cannot drift apart.
+    #:
+    #: **muse-06** (2026-09-07 audit): this doc comment used to be attached to
+    #: :attr:`loop_memory` above it -- one ``#:`` block running straight from
+    #: this paragraph into that field's, with nothing to say where the split
+    #: was -- so a reader of ``loop_memory`` got a paragraph about a different
+    #: field first. Split at the paragraph boundary, onto the field it
+    #: actually describes.
     compose_strength: float = field(
         default_factory=lambda: float(DEFAULT_DERIVE["ref_audio_strength"])
     )

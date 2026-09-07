@@ -60,8 +60,34 @@ def test_audio2audio_never_sends_a_src_audio_path():
 
 
 def test_a_retake_sends_no_source_because_it_re_runs_from_the_seed():
+    """Amended for the 2026-09-07 audit, finding muse-01: the old assertion
+    (``out == {"task": "retake", "retake_variance": 0.2}``) pinned the very
+    bug the finding reports -- no ``retake_seed`` in the input meant nothing to
+    forward, which this case still covers, but the identical dict shape also
+    passed when a stored ``retake_seed`` was silently dropped. This case is
+    now only about the no-seed row (one minted before ``retake_seed`` existed,
+    or a task_kwargs call with none supplied); the seed being forwarded is
+    ``test_a_retake_forwards_its_stored_retake_seed_to_the_sampler`` below.
+    """
     out = q._task_kwargs({"task": "retake", "retake_variance": 0.2}, _dir())
     assert out == {"task": "retake", "retake_variance": 0.2}
+    assert "retake_seeds" not in out
+
+
+def test_a_retake_forwards_its_stored_retake_seed_to_the_sampler():
+    """the 2026-09-07 audit, finding muse-01: ``derive_music_job`` draws a
+    fresh ``retake_seed`` for every retake row (the seed-walk INVARIANTS.md's
+    Muse paragraph describes), but the retake branch here sent only
+    ``retake_variance`` -- so at the default variance roughly 70% of the
+    blended noise was unseeded and no retake could ever be reproduced."""
+    out = q._task_kwargs(
+        {"task": "retake", "retake_variance": 0.2, "retake_seed": 777}, _dir()
+    )
+    assert out == {
+        "task": "retake",
+        "retake_variance": 0.2,
+        "retake_seeds": [777],
+    }
 
 
 def test_an_extend_is_encoded_as_a_negative_repaint_window():

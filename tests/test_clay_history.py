@@ -18,7 +18,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from warlock.studio import clay_ops, undo
 from warlock.studio.clay import document as bd
@@ -282,53 +281,15 @@ def test_an_edit_with_no_label_still_reads_as_its_class_name():
 
 
 # --- what was run last -------------------------------------------------------
-
-
-def test_running_an_op_records_what_it_ran_against():
-    doc, uids = _doc(2)
-    _faces(doc, uids)
-    depth = len(doc.history)
-    ctx = _Ctx()
-
-    clay_ops.run(ctx, doc, clay_ops.get("inset"), thickness=0.25)
-
-    last = ctx.state.clay.last_op
-    assert last is not None
-    assert last.name == "inset"
-    # The clamped, defaulted values rather than the ones passed: what the card
-    # must re-run with is what actually ran, and ``run`` fills and clamps.
-    assert last.params["thickness"] == pytest.approx(0.25)
-    assert "depth" in last.params, "an unpassed parameter is recorded at its default"
-    assert last.depth_before == depth
-    assert last.head_after == doc.history.head, "the guard the card re-runs behind"
-
-
-def test_the_recorded_selection_is_the_one_the_op_ran_against():
-    """Extrude leaves the *new* faces selected, so re-running from the current
-    selection would extrude the extrusion. The card has to put back what the op
-    started from."""
-    doc, uids = _doc(1)
-    _faces(doc, uids)
-    started_from = doc.element_sel_of(uids[0])
-    ctx = _Ctx()
-
-    clay_ops.run(ctx, doc, clay_ops.get("extrude"))
-
-    recorded = ctx.state.clay.last_op.element_sel[uids[0]]
-    assert recorded.same_as(started_from)
-    assert ctx.state.clay.last_op.element_mode == "face"
-
-
-def test_a_refused_op_records_nothing():
-    """A card offering to adjust an op that never ran would re-run it on the
-    press of a slider -- which is a refusal turned into an action."""
-    doc, uids = _doc(1)
-    doc.element_mode = "face"
-    doc.set_element_sel(uids[0], el.ElementSel())
-    ctx = _Ctx()
-
-    assert not clay_ops.run(ctx, doc, clay_ops.get("extrude"))
-    assert ctx.state.clay.last_op is None
+#
+# Three tests lived here pinning ``ClayState.last_op`` -- what an op had run
+# against, for an "adjust last operation" card and a Repeat command. The
+# 2026-09-07 audit's clay-10 found the record written by every op and read by
+# no pane: the card and the command were never built. The bookkeeping and
+# these tests were removed together, since a passing test whose claim is about
+# machinery with no reader and no behaviour behind it proves nothing. The one
+# below survives because its claim -- ``run`` does not raise for a ctx with no
+# Clay state -- was never about ``last_op`` at all.
 
 
 def test_a_ctx_with_no_clay_state_records_nothing_and_does_not_raise():
@@ -381,29 +342,8 @@ def test_a_jump_drops_an_element_selection_it_invalidated():
     assert not doc.element_sel
 
 
-def test_the_mode_door_forgets_the_last_op_when_it_moves():
-    """A jump can undo the very op the adjust card is offering to re-run."""
-    from warlock.studio import clay_mode
-
-    doc, uids = _doc(1)
-    _faces(doc, uids)
-    ctx = _Ctx()
-    tab = SimpleNamespace(doc=doc)
-    clay_ops.run(ctx, doc, clay_ops.get("extrude"))
-    assert ctx.state.clay.last_op is not None
-
-    assert clay_mode.step_history(ctx, tab, 0)
-    assert ctx.state.clay.last_op is None
-
-
-def test_a_jump_that_moves_nothing_leaves_the_last_op_alone():
-    from warlock.studio import clay_mode
-
-    doc, uids = _doc(1)
-    _faces(doc, uids)
-    ctx = _Ctx()
-    tab = SimpleNamespace(doc=doc)
-    clay_ops.run(ctx, doc, clay_ops.get("extrude"))
-
-    assert not clay_mode.step_history(ctx, tab, len(doc.history))
-    assert ctx.state.clay.last_op is not None
+# Two tests lived here, pinning that ``clay_mode.step_history`` cleared
+# ``ClayState.last_op`` on a jump that moved the document and left it alone on
+# one that did not. Removed together with the bookkeeping itself by the
+# 2026-09-07 audit's clay-10 -- see the note above ``test_a_ctx_with_no_clay_
+# state_records_nothing_and_does_not_raise`` for why.

@@ -59,8 +59,17 @@ class Param:
         """The stored form of ``raw``, inside this parameter's range."""
         if self.kind in ("curve", "life"):
             try:
+                # The 2026-09-07 audit (inker-06) found a malformed curve from
+                # the local text model -- a key missing its value
+                # (``[[0.5]]``) or shaped as a mapping instead of a pair
+                # (``[{"t": 0.5}]``) -- raises ``IndexError``/``KeyError`` out
+                # of ``Curve.from_json`` past this clamp, which caught only
+                # ``TypeError``/``ValueError``. Uncaught here it climbed all
+                # the way through ``Layer.with_param`` into ``apply_diff``
+                # with no guard of its own, so one bad value in a diff killed
+                # every other change the diff carried.
                 curve = Curve.from_json(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, IndexError, KeyError):
                 curve = Curve.from_json(self.default)
             return curve.clamped(self.lo, self.hi).to_json()
         if self.kind == "float":

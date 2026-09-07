@@ -1382,6 +1382,36 @@ def test_a_warning_is_one_line_per_kind_however_many_times_it_happens():
     assert sum("precise bounds" in line for line in warnings) == 1
 
 
+def test_a_cels_user_data_survives_a_precise_bounds_chunk_between_them():
+    """The 2026-09-07 audit (inker-03): ``_read_chunk`` cleared ``ud_owner`` on
+    *any* non-owner chunk, and a cel-extra (0x2006) chunk -- the precise
+    sub-pixel bounds the spec writes straight after a ``CEL`` -- is exactly
+    such a chunk. So a ``USER_DATA`` chunk that followed one landed on
+    ``ud_owner is None`` and its note was dropped with "no chunk before it",
+    though the cel was right there. Frame 0 carries the bounds chunk between
+    the cel and its note; frame 1 does not, as the negative control the
+    original report already needed to show the second frame's note survives
+    unaffected."""
+    art = _rgba(1, 1, (1, 1, 1, 255))
+    extra = _chunk(0x2006, b"\0" * 16)
+    note0 = _chunk(0x2020, struct.pack("<I", 1) + _string("frame 0's note"))
+    note1 = _chunk(0x2020, struct.pack("<I", 1) + _string("frame 1's note"))
+    data = _file(
+        _header(2, 1, 1),
+        [
+            _frame([_layer("Art"), _cel(0, art, 1, 1), extra, note0]),
+            _frame([_cel(0, art, 1, 1), note1]),
+        ],
+    )
+    doc, warnings = asein.document_from_aseprite(data)
+    anim = doc.anim
+    assert anim is not None
+    track, frames = anim.tracks[0].uid, anim.frames
+    assert anim.cel_note(track, frames[0].uid).text == "frame 0's note"
+    assert anim.cel_note(track, frames[1].uid).text == "frame 1's note"
+    assert not any("no chunk before it" in line for line in warnings)
+
+
 # --- tilemaps: Wave 3 chunk 3.5 -----------------------------------------------
 
 

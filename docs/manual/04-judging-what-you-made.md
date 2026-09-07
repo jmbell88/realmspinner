@@ -97,7 +97,7 @@ It never hides, filters or auto-rejects anything. Sorting by score puts the prom
 it does not remove the others. That restraint is on purpose: a scorer that filtered its own training
 input would spend its life confirming its first guess.
 
-**Teaching the judge** opens a labelling pass — a faster loop over *images* rather than meshes, two
+**Teach the judge** opens a labelling pass — a faster loop over *images* rather than meshes, two
 keys, about two seconds each, answering "is this a good 2D asset" and "will this reconstruct". Those
 labels are what the scorer learns from. It is the highest-value few minutes in the app if you intend
 to generate at volume.

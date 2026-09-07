@@ -20,10 +20,16 @@ log = logging.getLogger(__name__)
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
-    kind        TEXT NOT NULL,              -- 'text' | 'image' | 'rig' | 'sheet'
+    kind        TEXT NOT NULL,              -- illustrative, not enforced -- SQLite has no
+                                            --   CHECK here and the service writes thirteen:
+                                            --   'text' | 'image' | 'rig' | 'sheet'
                                             --   | 'pixel_sheet' | 'sprite_synthesis'
                                             --   | 'retexture' | 'tile_sheet' | 'remesh'
-                                            --   | 'lora_train'
+                                            --   | 'lora_train' | 'charsheet' | 'music'
+                                            --   | 'separate'. Kept illustrative rather than
+                                            --   exhaustively maintained after the 2026-09-07
+                                            --   audit (service-07) found it listing ten while
+                                            --   the service already wrote thirteen.
     status      TEXT NOT NULL,              -- queued | running | done | error | cancelled
     prompt      TEXT,
     params      TEXT NOT NULL DEFAULT '{}', -- JSON: seed, resolution, ...
@@ -576,6 +582,22 @@ class JobStore:
         """Whether *this* thread is inside a ``deferred_commits`` block."""
         return getattr(self._defer, "depth", 0) > 0
 
+    def _commit(self) -> None:
+        """Commit, unless a ``transaction()``/``deferred_commits()`` savepoint
+        from this thread is still open.
+
+        Every ordinary write method calls this rather than
+        ``self._conn.commit()`` directly. Before the 2026-09-07 audit
+        (service-09) only ``create()`` made this check, so any other write
+        issued inside a ``transaction()`` block would call the bare
+        ``self._conn.commit()`` its own method already had -- which, over a
+        nested ``SAVEPOINT``, commits the *underlying* transaction early and
+        collapses the batch the savepoint exists to make atomic, before the
+        block's own ``RELEASE`` ever runs. Caller still holds ``self._lock``.
+        """
+        if not self._defer_commits:
+            self._conn.commit()
+
     @contextlib.contextmanager
     def deferred_commits(self):
         """Batch several ``create`` calls into one commit.
@@ -696,14 +718,13 @@ class JobStore:
                     int(candidate_index),
                 ),
             )
-            if not self._defer_commits:
-                self._conn.commit()
+            self._commit()
         return job_id
 
     def set_stage(self, job_id: str, stage: str) -> None:
         with self._lock:
             self._conn.execute("UPDATE jobs SET stage = ? WHERE id = ?", (stage, job_id))
-            self._conn.commit()
+            self._commit()
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -833,7 +854,7 @@ class JobStore:
         args.append(job_id)
         with self._lock:
             self._conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id = ?", args)
-            self._conn.commit()
+            self._commit()
 
     def set_params(self, job_id: str, params: dict[str, Any]) -> None:
         """Replace the params blob. Used by the worker to record derived values
@@ -843,7 +864,7 @@ class JobStore:
             self._conn.execute(
                 "UPDATE jobs SET params = ? WHERE id = ?", (json.dumps(params), job_id)
             )
-            self._conn.commit()
+            self._commit()
 
     def merge_params(
         self,
@@ -877,7 +898,7 @@ class JobStore:
             self._conn.execute(
                 "UPDATE jobs SET params = ? WHERE id = ?", (json.dumps(params), job_id)
             )
-            self._conn.commit()
+            self._commit()
         return params
 
     def merge_param_entry(
@@ -911,7 +932,7 @@ class JobStore:
             self._conn.execute(
                 "UPDATE jobs SET params = ? WHERE id = ?", (json.dumps(params), job_id)
             )
-            self._conn.commit()
+            self._commit()
         return params
 
     def set_meta(
@@ -944,7 +965,7 @@ class JobStore:
             cur = self._conn.execute(
                 f"UPDATE jobs SET {', '.join(sets)} WHERE id = ?", args
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def claim(self, job_id: str) -> bool:
@@ -958,7 +979,7 @@ class JobStore:
                 " WHERE id = ? AND status = 'queued'",
                 (now, job_id),
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def cancel(self, job_id: str) -> bool:
@@ -973,7 +994,7 @@ class JobStore:
                 " WHERE id = ? AND status IN ('queued', 'running')",
                 (now, job_id),
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def finish(self, job_id: str, status: str, error: str | None = None) -> bool:
@@ -994,7 +1015,7 @@ class JobStore:
                 f"UPDATE jobs SET {', '.join(sets)} WHERE id = ? AND status = 'running'",
                 args,
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def reconcile_startup(self) -> None:
@@ -1007,7 +1028,7 @@ class JobStore:
                 " WHERE status = 'running'",
                 ("interrupted by shutdown", now),
             )
-            self._conn.commit()
+            self._commit()
 
     def next_queued(self) -> dict[str, Any] | None:
         """The oldest queued job. ``id`` is a secondary sort key for the reason
@@ -1026,7 +1047,7 @@ class JobStore:
     def delete(self, job_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-            self._conn.commit()
+            self._commit()
 
     def set_deleted_if_not_running(self, job_id: str, when: float | None) -> bool:
         """Move a job into or out of the trash (J91). -> whether a row changed.
@@ -1043,7 +1064,7 @@ class JobStore:
                 "UPDATE jobs SET deleted_at = ? WHERE id = ? AND status != 'running'",
                 (when, job_id),
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def trashed(self) -> list[dict[str, Any]]:
@@ -1073,7 +1094,7 @@ class JobStore:
             cur = self._conn.execute(
                 "DELETE FROM jobs WHERE id = ? AND status != 'running'", (job_id,)
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount > 0
 
     def active_jobs(self) -> list[dict[str, Any]]:
@@ -1101,7 +1122,7 @@ class JobStore:
                 " VALUES (?, ?, ?, ?, ?)",
                 (sweep_id, label, prompt, json.dumps(spec), time.time()),
             )
-            self._conn.commit()
+            self._commit()
         return sweep_id
 
     def list_sweeps(self) -> list[dict[str, Any]]:
@@ -1161,7 +1182,7 @@ class JobStore:
         config-vector snapshot, which is the whole point of denormalizing it."""
         with self._lock:
             self._conn.execute("DELETE FROM sweeps WHERE id = ?", (sweep_id,))
-            self._conn.commit()
+            self._commit()
 
     # --- candidates -----------------------------------------------------------
 
@@ -1196,7 +1217,7 @@ class JobStore:
             cur = self._conn.execute(
                 "UPDATE jobs SET candidate_group = NULL WHERE candidate_group = ?", (group,)
             )
-            self._conn.commit()
+            self._commit()
             return cur.rowcount
 
     # --- verdicts -------------------------------------------------------------
@@ -1255,7 +1276,7 @@ class JobStore:
                     grade,
                 ),
             )
-            self._conn.commit()
+            self._commit()
             return int(cur.lastrowid or 0)
 
     def latest_verdicts(self) -> list[dict[str, Any]]:
@@ -1431,7 +1452,7 @@ class JobStore:
                     time.time(),
                 ),
             )
-            self._conn.commit()
+            self._commit()
             return int(cur.lastrowid or 0)
 
     def latest_observations(self) -> list[dict[str, Any]]:

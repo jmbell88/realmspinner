@@ -152,6 +152,14 @@ def read_wav(data: bytes, rate: int) -> np.ndarray:
                     f"this sample is {frames} frames, past the"
                     f" {MAX_SAMPLE_FRAMES} this build will load"
                 )
+            # The 2026-09-07 audit found sirens-01: a WAV declaring a 0 Hz rate
+            # sailed through here and hit the resample branch's division by
+            # ``source_rate`` below, raising an uncaught ``ZeroDivisionError``
+            # instead of the ``ValueError`` both call sites (sample import,
+            # the Open-in-Sirens bridge) catch and reframe -- so an otherwise
+            # intact song failed to open with no field to point at.
+            if source_rate <= 0:
+                raise ValueError(f"this WAV declares a {source_rate} Hz rate")
             raw = handle.readframes(frames)
     except wave.Error as exc:
         raise ValueError(f"this is not a WAV file this build reads: {exc}") from exc

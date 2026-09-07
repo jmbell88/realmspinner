@@ -29,8 +29,10 @@ LABELS = {
 #:
 #: Every kind here mints its row with its *source's* prompt, so without a noun
 #: the toast said "fire guardian finished." twice for one character and named
-#: neither half. Six entries, because six kinds carry ``params["source_job"]``
-#: -- the same list :mod:`warlock.studio.asset_open` routes.
+#: neither half. Seven entries, because seven kinds carry
+#: ``params["source_job"]`` -- the same list :mod:`warlock.studio.asset_open`
+#: routes. (Was "Six" until the 2026-09-07 audit, service-06: ``remesh`` was
+#: added here without updating the count.)
 PRODUCTS = {
     "rig": "Rig",
     "sheet": "Sprite sheet",

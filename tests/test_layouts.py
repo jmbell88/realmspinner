@@ -139,6 +139,34 @@ def test_the_heights_sum_to_the_room():
     assert sum(tall) == pytest.approx(700.0)
 
 
+def test_two_floored_share_slots_can_push_the_columns_total_past_its_room():
+    """Shell-04, the 2026-09-07 audit. Only the *current* share's own floor
+    and the fill's floor bounded a share's ``want``, so a second floored share
+    was invisible to the first one's headroom: each of Inker's Tools (floor
+    124) and Tiles (floor 140) won its own ``max(floor, ...)`` in turn and a
+    200 px column returned ``[124, 140, 0]`` -- 264 px of height for 200 px of
+    room, with Generation (Save/Export) and everything below it drawn past
+    the column's actual bottom edge. The existing
+    ``test_no_pane_of_any_workspace_is_allocated_nothing`` only ever asks at a
+    comfortable 900 px, where neither floor is squeezed.
+
+    The fix shrinks both floors proportionally rather than letting the second
+    one win its floor for free -- the column still gives every share as much
+    of its floor as the room can hold, split fairly, and never overflows.
+    """
+    slots = [
+        _slot("inker-tools", skeleton.SHARE, share="inker-tools", floor=124.0),
+        _slot("inker-tiles", skeleton.SHARE, share="inker-tiles", floor=140.0),
+        _slot("inker-generate", floor=360.0),
+    ]
+    tall = skeleton.heights(slots, 200.0, {})
+    assert sum(tall) == pytest.approx(200.0)
+    # Neither floor wins outright over the other any more: both shrink by the
+    # same ratio, in proportion to what they originally asked for.
+    assert tall[0] == pytest.approx(200.0 * 124.0 / 264.0)
+    assert tall[1] == pytest.approx(200.0 * 140.0 / 264.0)
+
+
 # --- reconciliation ---------------------------------------------------------
 
 
@@ -661,6 +689,16 @@ def test_a_fill_floor_reserves_room_out_of_the_shares_above_it():
     division: the division is what a column does with nobody's drag recorded,
     and the floor is what protects the fill once somebody has dragged a share
     wide. Both were added on 2026-09-01 and neither makes the other redundant.
+
+    **Amended for the 2026-09-07 audit's shell-04.** The old assertion
+    (``got[0] == 750.0``) came from a headroom that reserved only the fill's
+    floor and not sibling share ``b``'s: share ``a`` gave way to the 150 px
+    under it but not to ``b``'s own 120 px floor, so ``b`` still won its floor
+    for free afterwards and the fill -- the pane this very test is about
+    protecting -- was left only 30 px, well under its stated 150. Reserving
+    every floor below a share the way the fill's is reserved fixes that: ``a``
+    now gives way to *both* floors beneath it, landing at 630, and the fill
+    gets the 150 it was always owed.
     """
     slots = [
         _slot("a", skeleton.SHARE, share="a", floor=160.0),
@@ -673,7 +711,9 @@ def test_a_fill_floor_reserves_room_out_of_the_shares_above_it():
     got = skeleton.heights(slots, 900.0, {"a": 0.95})
 
     assert sum(got) == 900.0
-    assert got[0] == 750.0, "the share gave way to what is under it"
+    assert got[0] == 630.0, "the share gave way to every floor under it"
+    assert got[1] == 120.0
+    assert got[2] == 150.0, "the fill's own floor is finally honoured too"
     assert got[0] < 900.0 * 0.95
 
 

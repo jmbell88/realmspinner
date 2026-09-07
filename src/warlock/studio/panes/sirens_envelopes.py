@@ -346,9 +346,17 @@ def _input(
     """
     from imgui_bundle import imgui
 
-    if tab.busy:
-        return
     mine = state.env_field == field
+    if tab.busy:
+        # The 2026-09-07 audit found sirens-06: returning here before the
+        # deactivation check let a save that started mid-drag swallow the
+        # frame that folds the gesture -- ``is_item_deactivated`` was never
+        # asked, so the run never collapsed and every painted column stayed
+        # its own undo step. Closing the gesture we own first keeps the fold
+        # even when the mouse release lands on a frame the tab is busy.
+        if mine:
+            sirens_mode.end_envelope_drag(ctx, tab)
+        return
     if imgui.is_item_activated():
         offset = imgui.get_mouse_pos().x - origin.x
         grip = grabbed(sequence, offset, col_w, sp(GRIP_W))

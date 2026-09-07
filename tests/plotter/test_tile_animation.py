@@ -197,6 +197,13 @@ class Controls:
     def input_int(self, _label, value, *_a, **_k):
         return False, value
 
+    def fold_undo(self, _history) -> None:
+        # ``_animation_tab`` folds the duration field's typing into one undo
+        # step (the 2026-09-07 audit, plotter-01); this fake has no imgui
+        # item state to fold against, so it is a no-op rather than a real
+        # gesture door.
+        return None
+
 
 @pytest.fixture
 def tab_scene(monkeypatch):

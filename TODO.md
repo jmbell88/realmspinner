@@ -793,7 +793,7 @@ answers, and it may well close as *proven, proven, repair, proven*.
    movements, **seed locked** — the same seed across the whole sitting, so a
    difference between two sheets is the thing you changed.
 2. **Each body slider at both bounds, three seeds.** Six channels for humanoid,
-   quadruped and winged, five for amorphous (`family.ARCHETYPES[key].channels`
+   quadruped and winged, five for amorphous (`family.get_archetype(key).channels`
    is the list; every range is −1 to +1 and every default 0). That is the
    generator's actual span, and the failure it is looking for is a bound that
    produces a body the rig no longer fits — an arm inside the ribcage at
@@ -1059,6 +1059,86 @@ the choice is missing.
 **Expected outcome:** items 5 to 7 answered in a sentence each, which unblocks
 the code; items 1 to 4 answered as art direction, against renders rather than
 against this file.
+
+## P35. Settle Muse's Steps guidance, and measure it
+
+**Why it is yours:** the manual and the slider disagree about where Steps stops
+paying, and neither number has a measurement behind it, so there is nothing in
+the repository that says which is right. The 2026-09-07 audit (finding docs-06)
+found the disagreement and deliberately did not pick a winner: choosing one
+would have written a figure into the manual on no more authority than the one
+already there, and this repository's rule is that a constant the corpus is keyed
+on gets a dated document *before* it changes.
+
+**Where it stands.** `docs/manual/16-generating-a-soundtrack.md:59` and
+`docs/manual/35-muse.md:57` both say "below about 30 the output audibly falls
+apart; above about 80 you are paying for time". The slider's own tooltip in
+`studio/panes/muse_recipe.py:68` says "past about 60, not better". Two different
+ceilings, and only the manual warns about a floor at all. No
+`docs/measurements/` document is keyed on either figure.
+
+**Do:**
+
+1. Generate the same prompt and seed at a spread of step counts — 20, 30, 40,
+   60, 80, 120 is enough — holding everything else fixed, and listen.
+2. Decide where quality stops improving and where it starts falling apart, and
+   write both into a dated `docs/measurements/` note with the clips or their
+   parameters named, in that directory's format.
+3. Make the manual and the tooltip quote that document's numbers, and cite it
+   from both.
+
+**Expected outcome:** one figure for the ceiling and one for the floor, recorded
+once and referenced twice, so the next person to touch either sentence can see
+what it rests on.
+
+## P36. Decide whether Clay gets an "adjust last operation" card
+
+**Why it is yours:** a design decision about whether the mode wants the control
+at all. `ClayState.last_op` was written by every op and read by no pane; the
+2026-09-07 audit (finding clay-10) found the bookkeeping had no reader anywhere
+in the shipped UI and was not on this list either. The audit removed it rather
+than leaving dead machinery behind, which is the reversible half of the choice —
+the record of *what* an op ran against is a dozen lines to reinstate, and the
+git history has them.
+
+**Where it stands.** `LastOp`, `ClayState.last_op`, `clay_ops._remember` and
+`_op_context` were removed on 2026-09-07, with explanatory comments left at
+`clay_mode.py:711`, `clay_mode.py:1058` and `clay_state.py:44` saying where they
+went. `tests/clay/test_clay_last_op_removed.py` pins the removal so nothing
+half-reintroduces it.
+
+**Do:** decide whether Clay should offer a card that re-runs the last operation
+against the current selection with its parameters adjustable — the thing the
+bookkeeping existed to feed. If yes, it is a pane plus the record, and the
+record's old shape is in the history. If no, say so here and this entry is
+deleted.
+
+**Expected outcome:** one sentence either way.
+
+## P37. Audit the three other stages that rename onto a served name
+
+**Why it is yours:** it needs judgement about each stage's intent, not a rule
+that can be written down. Widening the publish/commit scan on 2026-09-07
+(finding service-01) turned up three further call sites that rename onto served
+names and are not in `PUBLISHERS`: `_deform_qa` (`_q_rig.py`), the
+model-promotion stage in `_q_generate.py`, and `_remesh` (`_q_mesh.py`). Only
+the comments beside each call distinguish a *completion marker* — which must
+commit the cancel token, or a late cancel deletes finished work — from an
+intermediate checkpoint a cancel may still legitimately unwind. That is why the
+table stayed hand-written rather than derived: a "last write wins" heuristic
+promotes the wrong call in some of these functions and misses the real one in
+others, which fails open, silently.
+
+**Where it stands.** `PUBLISHERS` in `tests/test_job_durability.py` now covers
+eight stages and all eight pass. The three above were left untouched as out of
+scope, and nothing yet says whether they are correct.
+
+**Do:** read each of the three, decide whether its rename is a completion marker
+or a checkpoint, and say which in a comment beside it. Add a `PUBLISHERS` row
+for every one that is a completion marker, and confirm it commits.
+
+**Expected outcome:** three stages classified, however many rows that adds, and
+no remaining rename onto a served name whose status is unstated.
 
 ## Open findings
 

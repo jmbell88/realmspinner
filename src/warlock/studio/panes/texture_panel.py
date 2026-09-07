@@ -35,6 +35,29 @@ from ...service.validation import MAX_PROMPT
 from .. import controls, forms, theme, widgets
 from ..manual import render as manual_render
 
+# The 2026-09-07 audit, finding create-01: ``ctx.state.field_errors`` is one
+# flat, unnamespaced dict, and this panel's "strength" and "texture_size"
+# controls are also ``sheet_panel``'s and ``remesh_panel``'s bare ids for
+# their own, unrelated fields -- so a refusal from either sibling door rang
+# this panel's control too, whenever the inspector drew them together (which
+# is routine). The widgets below are keyed by the prefixed names, and
+# ``_retexture_job`` relabels ``retexture_job``'s own refusal to match before
+# it ever reaches ``ctx.state.field_errors`` -- the door itself is shared with
+# the retired HTTP API and is not this panel's name to change.
+_FIELD_PREFIX = {"strength": "retexture_strength", "texture_size": "retexture_texture_size"}
+
+
+def _retexture_job(svc: Any, job_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:
+    """``retexture_job``, with a colliding refusal's address renamed to this
+    panel's own control. See ``_FIELD_PREFIX`` above."""
+    try:
+        return svc_jobs.retexture_job(svc, job_id, prompt, **kwargs)
+    except Exception as exc:
+        renamed = _FIELD_PREFIX.get(getattr(exc, "field", None))
+        if renamed:
+            exc.field = renamed
+        raise
+
 
 def draw(ctx: Any, job: Any) -> None:
     files = job.get("files") or []
@@ -72,7 +95,7 @@ def draw(ctx: Any, job: Any) -> None:
         # ``widgets.labeled_slider_float`` does), so the scaling is done here
         # by hand and undone on the way back out.
         _changed, shown = form_ui.slider(
-            "strength",
+            "retexture_strength",
             "Restyle strength",
             float(form["strength"]) * 100.0,
             models.RETEXTURE_STRENGTH_MIN * 100.0,
@@ -110,7 +133,7 @@ def draw(ctx: Any, job: Any) -> None:
                 ),
             )
         _changed, form["texture_size"] = form_ui.combo(
-            "texture_size",
+            "retexture_texture_size",
             "Atlas size",
             form["texture_size"],
             [("", "Match the mesh")]
@@ -254,7 +277,7 @@ def _submit(ctx: Any, job_id: str, form: dict[str, Any]) -> None:
         ctx.state.clear_field_errors()
         ctx.submit(
             key,
-            svc_jobs.retexture_job,
+            _retexture_job,
             ctx.svc,
             job_id,
             form["prompt"].strip(),

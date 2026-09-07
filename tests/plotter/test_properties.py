@@ -154,6 +154,53 @@ def test_every_addable_property_type_has_a_blank_value():
         assert blank is not None or kind == "string"
 
 
+# --- one gesture, one undo step (the 2026-09-07 audit, plotter-02) ----------
+
+
+def test_layer_properties_name_class_offset_parallax_typing_is_one_undo_step():
+    """``doc.set_layer_props`` pushes an unconditional ``history.push``, and
+    Name, Class, Offset and Parallax each called it straight from a field with
+    no ``fold_undo`` between the two -- one undo step per keystroke instead of
+    one per gesture. Opacity and Tint in the same function already folded, and
+    the comment beside them says why; these four had no such comment because
+    they had no such fold.
+
+    Each check is bounded to the gap between one field and the next one the
+    function draws, rather than "a fold exists somewhere before the write" --
+    which a neighbouring field's own fold would satisfy for free and prove
+    nothing about the field actually being checked.
+    """
+    import inspect
+
+    from warlock.studio.panes import plotter_layers
+
+    table = inspect.getsource(plotter_layers._layer_table)
+
+    after_name = table.split('"##layer-name"', 1)[1]
+    before_class = after_name.split('"##layer-class"', 1)[0]
+    assert "controls.fold_undo(" in before_class, (
+        "Name field is not folded before the Class field is drawn"
+    )
+
+    after_class = table.split('"##layer-class"', 1)[1]
+    before_opacity = after_class.split('"##layer-opacity"', 1)[0]
+    assert "controls.fold_undo(" in before_opacity, (
+        "Class field is not folded before the Opacity field is drawn"
+    )
+
+    after_offset = table.split('"##layer-offset"', 1)[1]
+    before_parallax = after_offset.split('"##layer-parallax"', 1)[0]
+    assert "controls.fold_undo(" in before_parallax, (
+        "Offset field is not folded before the Parallax field is drawn"
+    )
+
+    after_parallax = table.split('"##layer-parallax"', 1)[1]
+    before_write = after_parallax.split("doc.set_layer_props(", 1)[0]
+    assert "controls.fold_undo(" in before_write, (
+        "Parallax field writes before it is folded"
+    )
+
+
 @pytest.mark.parametrize("kind", ["class", "list"])
 def test_a_container_property_summarises_rather_than_showing_nothing(kind):
     """A class arriving from Tiled used to look like an empty string until the

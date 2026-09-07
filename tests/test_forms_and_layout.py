@@ -392,3 +392,29 @@ def test_every_dense_pane_explains_at_least_one_of_its_controls(name):
     of them."""
     source = (PANES / name).read_text(encoding="utf-8")
     assert any(token in source for token in EXPLAINS)
+
+
+def test_forms_footer_does_not_bypass_the_divider_door():
+    """Shell-10, the 2026-09-07 audit.
+
+    ``tests/test_studio_controls.py::test_panes_do_not_bypass_the_presentational_control_layer``
+    is the AST guard that refuses a raw ``imgui.separator()`` in a pane, and it
+    scans only ``panes/*.py`` -- ``forms.py`` sits one directory up from there,
+    outside its walk, so ``Form.footer()``'s own bare ``imgui.separator()``
+    call had nothing to catch it. ``widgets.divider()`` is the one door every
+    other rule between two groups goes through (2026-09-05).
+    """
+    from warlock.studio import forms
+
+    source = Path(inspect.getfile(forms)).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    found = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "separator"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "imgui"
+    ]
+    assert not found, f"raw imgui.separator() in forms.py at line(s) {found}"

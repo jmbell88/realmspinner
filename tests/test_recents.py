@@ -83,6 +83,26 @@ def test_forget_drops_a_path_that_no_longer_opens():
     assert recents.paths(s, "clay") == ["here.wblk"]
 
 
+def test_a_path_that_differs_only_by_case_is_one_slot_not_two():
+    """Shell-07, the 2026-09-07 audit: dedupe compared raw strings with no
+    ``normcase``/``resolve``, unlike ``docmodes.find_path`` which exists
+    because "Level.WMAP" and "level.wmap" are one file on Windows -- so the
+    same map could occupy two of Plotter's ten slots instead of one."""
+    s = FakeSettings({recents.SETTING: []})
+    recents.remember(s, "plotter", "Level.WMAP", when=100.0)
+    recents.remember(s, "plotter", "level.wmap", when=200.0)
+    assert len(recents.paths(s, "plotter")) == 1
+    # The reopened spelling moves the row to the front, same as any repeat.
+    assert recents.paths(s, "plotter") == ["level.wmap"]
+
+
+def test_forget_matches_the_same_normalised_key_remember_does():
+    s = FakeSettings({recents.SETTING: []})
+    recents.remember(s, "plotter", "Level.WMAP", when=100.0)
+    recents.forget(s, "plotter", "level.wmap")
+    assert recents.paths(s, "plotter") == []
+
+
 def test_none_is_a_no_op_rather_than_a_row():
     s = FakeSettings({recents.SETTING: []})
     recents.remember(s, "clay", None)

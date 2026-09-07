@@ -70,6 +70,25 @@ def test_a_failed_tiercheck_is_said_out_loud():
     assert "lost: uv_primitives" in line
 
 
+def test_a_failed_tiercheck_with_no_failures_list_still_says_something():
+    """pipelines-06 (2026-09-07 audit): ``+`` binds tighter than ``or`` in
+    report_line's fallback, so ``"; lost: " + ", ".join(())`` is the non-empty
+    string ``"; lost: "`` and the ``or "; lost something"`` half could never
+    fire -- a failed tiercheck with an empty/missing failures list produced a
+    dangling "; lost: " with nothing after it.
+    """
+    line = remesh.report_line(
+        {"faces": 100, "quads": 1.0, "method": "quadriflow",
+         "tiercheck": {"ok": False, "failures": []}}
+    )
+    assert "lost something" in line
+    line_missing = remesh.report_line(
+        {"faces": 100, "quads": 1.0, "method": "quadriflow",
+         "tiercheck": {"ok": False}}
+    )
+    assert "lost something" in line_missing
+
+
 def test_the_worker_side_constants_match_the_host_side():
     # The bpy side may not import the host package, so the numbers are restated.
     assert blender_worker.VOXEL_FRACTION == remesh.VOXEL_FRACTION

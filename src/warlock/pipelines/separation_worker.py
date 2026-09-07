@@ -176,7 +176,14 @@ def main() -> int:
         tmp.replace(result_path)
     finally:
         tmp.unlink(missing_ok=True)
-    return 0 if result.get("ok") else 1
+    # The 2026-09-07 audit (pipelines-01) found this returned 1 on a *handled*
+    # failure -- exactly what rigging.run_worker treats as a crash, so it
+    # deleted result_path and raised "exited with code 1" before ever reading
+    # the sentence just written into it, making _q_music.py's own
+    # result.get("error") handler unreachable dead code. The failure is on
+    # disk either way; exit 0 like matting_worker's main() does and let the
+    # caller read "ok".
+    return 0
 
 
 if __name__ == "__main__":

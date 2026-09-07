@@ -336,9 +336,9 @@ def _tile_form(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
     class_name = widgets.input_text(
         "##tile-class", meta.class_name, max_length=64, hint="class"
     )
-    # One gesture, one step, as the tileset editor's copy of this field
-    # already does: the drag reports on every frame and ``set_tile_meta``
-    # pushed a step per report (2026-09-05 consistency pass).
+    # One gesture, one step: the drag reports on every frame and
+    # ``set_tile_meta`` pushed a step per report until ``fold_undo`` below
+    # folded them into one (2026-09-05 consistency pass).
     controls.fold_undo(tab.doc.history)
     changed, probability = controls.input_float("Probability", float(meta.probability))
     controls.fold_undo(tab.doc.history)

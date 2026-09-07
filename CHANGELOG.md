@@ -23,6 +23,78 @@ the release you are actually running.
 The slow parts got faster without a line of C, and the sprite ceiling came
 back.
 
+A full audit of every subsystem followed, and closed 110 findings.
+
+- **A cancel arriving a moment too late no longer deletes finished work.** Four
+  job kinds — the sprite sheet, the sprite-synthesis draft, the AI tile sheet
+  and the tile set — wrote their completion marker and then never told the
+  cancel machinery the work was already published. A Stop pressed in that
+  window ran the ordinary discard path over the finished artifact and recorded
+  the row as cancelled, so minutes of GPU or Blender output disappeared while
+  the library said the job had never happened. Two sibling stages had always
+  done this correctly; the rule was written down and there was even a scan
+  enforcing it, but the scan's list of publishers was hand-maintained and none
+  of the four was on it. It now covers all eight, and adding a job kind means
+  adding its row.
+- **Packwright stopped writing atlases it could not reopen.** The 16-megapixel
+  source ceiling was enforced when reading a `.wpack` and nowhere when writing
+  one, so a 4096x4096 sprite was accepted, saved into a 76 KB file, and then
+  refused the next time that file was opened. The ceiling is now checked at the
+  door the sprite arrives through, against the same constant.
+- **Switching a Poser skeleton no longer overwrites the new one's clips with
+  the old one's.** Changing template reset the pose library but left the clip
+  editor pointing at the previous skeleton, so the next "Save clips" wrote the
+  old skeleton's animation under the new one's name — and because the clip
+  loader declines to re-read while there are unsaved edits, nothing would have
+  caught it up. The switch now clears the clip state and asks before discarding
+  unsaved clip work, the way it already asked about the pose gizmo.
+- **The Text tool stopped taking the app down.** An ordinary paragraph at a
+  large point size measured past the decode ceiling, which raised where the
+  caller had no handler at all, so the window closed with the native "had to
+  close" dialog. It declines now, like every other thing that tool refuses.
+- **A regeneration that lands mid-save is refused instead of corrupting the
+  document.** Masked regenerate wrote into the layer stack while the encoder
+  was walking it, which could leave a saved `stack.xml` disagreeing with its
+  own PNG members. The neighbouring tileset import had guarded this for the
+  same reason; this door now does too.
+- **A trained style can no longer vanish from the library.** Importing a LoRA
+  and finishing a training run both rewrote the whole manifest file, and the
+  two run on different threads: whichever wrote second silently discarded the
+  other's entry, orphaning the adapter file. Every write to that file is now
+  serialised.
+- **A rename or retag survives clicking away from the asset.** An edit the
+  queue refused was parked and retried only while that asset's header was still
+  being drawn, so selecting another asset dropped it with no toast and no
+  error — the field simply reverted. The pending edit is now flushed when the
+  selection moves.
+- **Typing in a field is one undo step again, in six more places.** Clay's
+  transform and generator fields, Plotter's tileset editor, layer properties
+  and map settings, and Packwright's sprite rename each pushed one history step
+  per keystroke, so a single Ctrl+Z left a half-typed word behind. Each had a
+  correctly-folded sibling field a few lines away.
+- **The guided tour no longer steals the app's keys, or drives itself with
+  them.** The tour card read Enter and the arrows every frame with no check
+  that it owned them, so an Enter confirming a rename advanced the tour and an
+  arrow meant for the tour also moved the Library grid underneath. Both
+  directions are now scoped to whichever has focus.
+- **Two workers stopped hiding why they failed.** A stem separation reported
+  "exited with code 1" and a progress line instead of the sentence the worker
+  had already written down, because the caller deleted that file before reading
+  it. Rigged meshes handed to remesh, re-texture and the view renderers were
+  measured while still parented to their incoming skeleton, silently
+  mis-scaling weld tolerance, decimate budget and camera framing by the same
+  double-rotation bug that had been fixed for rigging alone.
+- **Smaller corrections throughout.** Aseprite cel notes surviving a bounds
+  chunk; a convolution kernel whose off-diagonals cancel no longer read as the
+  identity and silently doing nothing; feathered ranged shifts compositing the
+  way the rest of the package does; clipboard paste going through the size
+  ceiling it had never been connected to; Sirens' Space key starting the song
+  rather than silencing a preview, and its Add buttons greying at their
+  ceilings rather than replacing the pane; Muse retakes actually forwarding
+  their seed; a Troupe character failure no longer leaving an orphaned row; and
+  Inker's live seam indicator finally using the metric that was measured to
+  replace the one it had.
+
 - **Clay's figures stopped reading as strings of beads.** A capsule loses its
   cylindrical section when the bone inside it is shorter than twice its own
   radius, so it becomes an exact sphere — and that was true of every humanoid

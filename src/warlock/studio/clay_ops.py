@@ -237,10 +237,8 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     for param in op.params:
         value = min(max(float(values[param.name]), param.low), param.high)
         values[param.name] = int(value) if param.integer else value
-    depth = len(doc.history)
     head = doc.history.head
     mark = doc.history.mark()
-    before = _op_context(doc)
     try:
         result = op.run(ctx, doc, **values)
     except OpError as error:
@@ -254,23 +252,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
         doc.history.collapse_since(mark)
         return False
     _one_step(doc, op, mark, head)
-    _remember(ctx, doc, op, values, depth, before)
     return True
-
-
-def _op_context(doc: Any) -> tuple[str, dict, set]:
-    """What the op is about to run against, snapshotted before it runs.
-
-    Shallow copies, which is enough because both an ``ElementSel`` and a uid
-    are immutable -- what changes is which of them the document is holding, and
-    that is exactly what the copies pin.
-    """
-
-    return (
-        str(getattr(doc, "element_mode", "object")),
-        dict(getattr(doc, "element_sel", {})),
-        set(getattr(doc, "selection", ())),
-    )
 
 
 def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
@@ -308,35 +290,6 @@ def _one_step(doc: Any, op: Op, mark: int, head: int) -> None:
     # name would be a lie in the one place a user goes to read what happened.
     if top is not None and history.head != head:
         top.label = op.label.rstrip(".")
-
-
-def _remember(
-    ctx: Any, doc: Any, op: Op, values: dict, depth: int, before: tuple
-) -> None:
-    """Record the run, for the adjust card and for Repeat.
-
-    Reached through ``getattr`` rather than by importing ``clay_mode``: this
-    module is the one every surface funnels through and it must not depend on
-    any of them. A ctx with no Clay state -- a test's fake, a headless call --
-    simply records nothing, which is the right answer rather than a guard the
-    caller has to write.
-    """
-
-    from .clay_state import LastOp
-
-    state = getattr(getattr(ctx, "state", None), "clay", None)
-    if state is None:
-        return
-    mode, element_sel, selection = before
-    state.last_op = LastOp(
-        name=op.name,
-        params=dict(values),
-        depth_before=depth,
-        head_after=getattr(doc.history, "head", 0),
-        element_mode=mode,
-        element_sel=element_sel,
-        selection=selection,
-    )
 
 
 def run_mesh_op(

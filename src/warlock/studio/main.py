@@ -1054,7 +1054,19 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                 # Closed during the splash. The load was waited out rather
                 # than abandoned, so teardown unwinds a whole runtime.
                 log.info("closed during startup")
-        except Exception:
+        except Exception as exc:
+            from ..db import StoreUnreadable
+
+            if isinstance(exc, StoreUnreadable):
+                # shell-03 (2026-09-07 audit): this catch-all used to absorb
+                # every setup failure, including a corrupt job database, so
+                # ``_run_locked``'s own ``except StoreUnreadable`` -- which
+                # offers to start over with an empty index -- never got a
+                # turn, and the generic "could not start" dialog fired
+                # instead. ``teardown()`` below still runs from ``finally``;
+                # re-raising past this handler is what lets the offer be
+                # reached.
+                raise
             rc = 1
             crashed = True
             if in_setup:
@@ -1533,6 +1545,15 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                     # clear ``rendering`` and record why, or the transport
                     # shows a dead Play button with nothing beside it.
                     sirens_mode.on_task_failed(ctx, done)
+                elif done.key.startswith("muse-"):
+                    from . import muse_mode
+
+                    # muse-03 (2026-09-07 audit): this chain had no branch for
+                    # Muse at all, so a failed loop search left ``finding``
+                    # set from ``find_loops`` -- the only place that turns it
+                    # on -- and the strip spun forever, since only a
+                    # *successful* ``on_task_done`` ever turned it back off.
+                    muse_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("troupe-"):
                     from . import troupe_mode
 
@@ -2895,6 +2916,26 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
 
             tour_pane.stop(ctx)
             return
+        # And the same keys the card reads for its own Back/Next/Finish
+        # (tour-01, the 2026-09-07 audit, the other half of the fix beside
+        # ``panes/tour.py``'s own focus gate): without this, the mode
+        # dispatch below saw the identical press and acted on it too -- an
+        # arrow that stepped the tour also moved the Library grid's cursor
+        # underneath it. Gated on the card's own focus, not merely on the
+        # tour running, so the same press still reaches the mode once the
+        # reader has clicked away from the card (into a rename field, say);
+        # ``has_focus()`` is one frame stale for the reason ``_viewport_hovered``
+        # is, which is not a window a person can feel.
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_RETURN, pygame.K_KP_ENTER)
+            and getattr(ctx.state, "tour", None)
+            and ctx.state.tour.running
+        ):
+            from .panes import tour as tour_pane
+
+            if tour_pane.has_focus():
+                return
         # Above the landing and Inker returns below: the frame rate is a
         # property of the loop, not of whichever pane happens to be on screen,
         # and the chooser is exactly where a slow startup would show.

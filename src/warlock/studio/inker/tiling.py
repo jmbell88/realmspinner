@@ -285,3 +285,57 @@ def seam_ratio(pixels: np.ndarray) -> tuple[float, float]:
             float(np.abs(np.diff(rgb, axis=0)).mean()),
         ),
     )
+
+
+#: Above this the wrap seam is a visible edge rather than part of the texture,
+#: measured against the picture's own *worst* interior join rather than its
+#: mean one (:func:`seam_dominance`, not :func:`seam_ratio` above).
+#:
+#: Copied from ``pipelines/seam.py`` with its citation:
+#: ``docs/measurements/2026-08-30-seam-dominance.md``. Dividing by the interior
+#: *mean* (``SEAM_MAX`` above) inflates on a texture of flat cells parted by
+#: thin hard lines -- pixel art, ceramic grout, riveted panels -- because the
+#: mean collapses toward zero on exactly that population while the seam does
+#: not; on a held-out corpus it called 18 of 72 confirmed-seamless tiles
+#: seamed, 15 of them under the pixel-art LoRA this app ships, against 0 of 72
+#: for the interior *maximum*. The 2026-09-07 audit found Inker's own live
+#: indicator still on the ratio -- false-alarming on exactly the flat-cell
+#: pixel art this editor produces -- while ``pipelines/seam.py`` had already
+#: moved to dominance on 2026-08-30. A copy at a second surface moves nothing
+#: -- **the same document governs both** -- for the reason ``SEAM_MAX``
+#: above already is a copy rather than an import.
+SEAM_DOMINANCE_MAX = 1.0
+
+
+def seam_dominance(pixels: np.ndarray) -> tuple[float, float]:
+    """``(horizontal, vertical)`` -- the wrap seam against the picture's own
+    *worst* interior join, rather than its mean one.
+
+    A numpy port of ``pipelines/seam.py::_dominance``, kept as a copy for the
+    reason :func:`seam_ratio` above already is: this package is headless and
+    pinned against reaching into ``pipelines`` (PIL at module scope). Same
+    numerator as :func:`seam_ratio`; the denominator is the *largest* of the
+    interior's adjacent-column steps rather than their mean, which is what
+    stops a texture of flat cells parted by thin hard lines reading as seamed
+    just because its *average* join happens to be small.
+
+    The flat-image and empty-interior arms are :func:`seam_ratio`'s and
+    reachable for the same reason: a maximum of zero means every adjacent pair
+    is identical, which makes the first column equal to the last.
+    """
+    array = np.asarray(pixels)
+    if array.ndim != 3 or array.shape[2] not in (3, 4):
+        raise ValueError("a seam is measured on (H, W, 3|4)")
+    if min(array.shape[:2]) < SEAM_MIN_SIDE:
+        return (0.0, 0.0)
+    rgb = array[:, :, :3].astype(np.float64)
+
+    def axis_dominance(a: np.ndarray) -> float:
+        edge = float(np.abs(a[:, 0] - a[:, -1]).mean())
+        pairs = np.abs(np.diff(a, axis=1)).mean(axis=(0, 2))
+        interior = float(pairs.max()) if pairs.size else 0.0
+        if interior <= 0.0:
+            return 0.0 if edge <= 0.0 else float("inf")
+        return edge / interior
+
+    return (axis_dominance(rgb), axis_dominance(rgb.transpose(1, 0, 2)))

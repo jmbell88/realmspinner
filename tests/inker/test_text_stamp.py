@@ -136,6 +136,20 @@ def test_it_answers_none_rather_than_raising(text, font, size):
     assert text_stamp(text, font, size, RED) is None
 
 
+def test_text_stamp_declines_rather_than_crashing_past_the_pixel_ceiling():
+    """The 2026-09-07 audit (inker-01): an ordinary paragraph at a large point
+    size measures a box past ``pixelguard``'s 8192**2 ceiling, and
+    ``pixelguard.check`` raises ``ValueError`` there uncaught -- past this
+    module's own promise of ``None``, "never an exception", and past
+    ``inker_mode.stamp_text``'s only ``except`` (``pixels is None``), all the
+    way to the frame thread and the native "had to close" dialog. A paragraph
+    of many long wrapped lines at the top of the size range is exactly the
+    "ordinary paragraph, large point size" the docstring says never happens."""
+    line = "A paragraph that goes on for quite a while, wrapping many words. " * 3
+    paragraph = (line + "\n") * 12
+    assert text_stamp(paragraph, FONT, MAX_SIZE, RED) is None
+
+
 # --- delivery through the floating buffer -----------------------------------
 
 

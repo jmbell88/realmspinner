@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import inspect
 
+import pytest
+
 import warlock.db as db_mod
 from warlock.db import JobStore
 
@@ -48,6 +50,29 @@ def test_delete(store):
     store.delete(job_id)
     assert store.get(job_id) is None
     assert store.list() == []
+
+
+def test_a_write_other_than_create_inside_a_transaction_does_not_collapse_it(store):
+    """service-09: ``transaction()``'s guard against a partial batch relied on
+    every write inside it checking ``_defer_commits`` before committing, but
+    only ``create()`` did. ``set_stage`` (any non-``create`` write stood in
+    for it) called a bare commit that ended the underlying transaction early,
+    so the savepoint's own ``ROLLBACK TO`` on the exception below had nothing
+    left to undo -- the job created earlier in the batch survived it.
+    Regression for the 2026-09-07 audit, service-09.
+    """
+    second_id = None
+
+    class _Abort(Exception):
+        pass
+
+    with pytest.raises(_Abort), store.transaction():
+        second_id = store.create("text", "q", {})
+        store.set_stage(second_id, "tile")
+        raise _Abort("abort the whole batch")
+
+    assert second_id is not None
+    assert store.get(second_id) is None
 
 
 def test_claim_succeeds_on_queued_job(tmp_path):

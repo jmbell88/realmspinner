@@ -49,6 +49,31 @@ def new_uid() -> int:
     return next(_uids)
 
 
+def _refuse_oversized(sprite: Sprite) -> None:
+    """Refuse a sprite past ``wpack.MAX_SOURCE_PIXELS`` at the door it arrives.
+
+    The 2026-09-07 audit's packwright-01: ``read_wpack``'s ``_pixels_from`` was
+    the only place this ceiling was enforced, so a 4096x4096 sprite (past the
+    16,000,000-pixel limit by a hair) was accepted here, written to a
+    ``.wpack``, and refused the moment Warlock tried to reopen the file it had
+    just written -- a document Warlock itself authored that Warlock itself
+    could never read back, breaking the reopenable-exports contract.
+
+    Imported lazily rather than at module scope: ``wpack.py`` is the module
+    that imports *this* one for ``PackDoc``/``Source``/``new_uid``, and a
+    top-level import here would be circular. By the time a document exists to
+    call ``add_source`` on, both modules have finished importing.
+    """
+    from .wpack import MAX_SOURCE_PIXELS
+
+    if sprite.width * sprite.height > MAX_SOURCE_PIXELS:
+        raise ValueError(
+            f"this sprite is {sprite.width}x{sprite.height} "
+            f"({sprite.width * sprite.height} pixels); the atlas format's "
+            f"limit is {MAX_SOURCE_PIXELS} pixels"
+        )
+
+
 @dataclass
 class Source:
     """One sprite in the document, plus whatever the user renamed it to.
@@ -238,7 +263,9 @@ class PackDoc:
     # -- mutation ------------------------------------------------------------
 
     def add_source(self, sprite: Sprite, *, index: int | None = None) -> Source:
-        """Add one sprite to the document. Refuses a duplicate key and a full pack.
+        """Add one sprite to the document. Refuses a duplicate key, a full
+        pack, and a sprite past ``wpack.MAX_SOURCE_PIXELS`` -- the reopen
+        ceiling, asked at the door for the reason ``_refuse_oversized`` states.
 
         **The count is asked here as well as at pack time**, and the two are not
         the same question asked twice. ``build_layout`` refuses past
@@ -250,6 +277,7 @@ class PackDoc:
         Refusing at the door means the sprite that would not fit is the one
         named, while the user still has it in front of them.
         """
+        _refuse_oversized(sprite)
         if self.has_key(sprite.key):
             raise ValueError(
                 f"this pack already holds {sprite.key!r} -- two sprites under one "
@@ -294,6 +322,7 @@ class PackDoc:
                 f"{sprite.key!r} is not {source.key!r} -- a replacement is a new "
                 "reading of one source, not a different one"
             )
+        _refuse_oversized(sprite)
         before = source.sprite
         if before.pixels.shape == sprite.pixels.shape and np.array_equal(
             before.pixels, sprite.pixels

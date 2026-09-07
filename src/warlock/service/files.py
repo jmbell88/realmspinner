@@ -562,14 +562,22 @@ def save_edited_image(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
     _check_pixels(data)
 
     original = dest.parent / ORIGINAL
-    if not original.exists():
-        # Once, and never clobbered: a second save must not make the *first*
-        # edit the thing "Revert to original" restores.
-        shutil.copyfile(dest, original)
-    # Staged: promote_to_model and remesh copy input.png with a bare copyfile,
-    # so a direct write_bytes onto a served name is a torn read waiting to
-    # happen.
-    _staged_write(dest, data)
+    # Locked like the sibling doors in service/derive.py lock a derived
+    # artifact: the 2026-09-07 audit (service-03) found this check-then-copy
+    # -then-write unguarded, so two concurrent saves could each see "no
+    # backup yet", and whichever copied *second* copied the other save's
+    # already-edited dest -- turning input.orig.png, undo's only anchor to
+    # the generated pixels, into a copy of an edit. revert_reference takes
+    # the same lock so a save and a revert cannot interleave either.
+    with svc.convert_lock(job_id, ORIGINAL):
+        if not original.exists():
+            # Once, and never clobbered: a second save must not make the
+            # *first* edit the thing "Revert to original" restores.
+            shutil.copyfile(dest, original)
+        # Staged: promote_to_model and remesh copy input.png with a bare
+        # copyfile, so a direct write_bytes onto a served name is a torn
+        # read waiting to happen.
+        _staged_write(dest, data)
     _remeasure(svc, job_id, dest, hand_edited=True, stage=job["stage"])
     return {"ok": True}
 
@@ -578,18 +586,22 @@ def revert_reference(svc: Any, job_id: str) -> dict[str, Any]:
     """Put the untouched generated image back, consuming the backup."""
     job, dest = _editable_image(svc, job_id)
     original = dest.parent / ORIGINAL
-    if not original.exists():
-        raise Conflict("this reference has no unedited original")
-    os.replace(original, dest)
-    # Touched, because a restore is the one write here that would otherwise
-    # arrive wearing an *older* timestamp than the pixels it replaces: the
-    # backup was copied when the first edit was made, and shutil.copyfile does
-    # not preserve mtimes, so the restored file carries that moment rather than
-    # this one. fresh_2d compares every derived export against this mtime, so
-    # without the touch a revert would leave the exports of the edit looking
-    # current -- the exact staleness the comparison exists to catch, in the
-    # only direction where the content changes and the clock goes backwards.
-    os.utime(dest)
+    # Same lock as save_edited_image (service-03): a revert reads and
+    # consumes the same backup a concurrent save would check and replace.
+    with svc.convert_lock(job_id, ORIGINAL):
+        if not original.exists():
+            raise Conflict("this reference has no unedited original")
+        os.replace(original, dest)
+        # Touched, because a restore is the one write here that would
+        # otherwise arrive wearing an *older* timestamp than the pixels it
+        # replaces: the backup was copied when the first edit was made, and
+        # shutil.copyfile does not preserve mtimes, so the restored file
+        # carries that moment rather than this one. fresh_2d compares every
+        # derived export against this mtime, so without the touch a revert
+        # would leave the exports of the edit looking current -- the exact
+        # staleness the comparison exists to catch, in the only direction
+        # where the content changes and the clock goes backwards.
+        os.utime(dest)
     _remeasure(svc, job_id, dest, hand_edited=False, stage=job["stage"])
     return {"ok": True}
 

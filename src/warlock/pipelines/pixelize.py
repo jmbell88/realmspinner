@@ -344,7 +344,11 @@ def reduce_frames(
     reduced: dict[int, Any] = {}
     for index, path in frames.items():
         source = Path(path)
-        if not source.exists():
+        # is_file(), not exists(): the 2026-09-07 audit found exists() here,
+        # which is also true of a directory and would let a stale or
+        # malformed frames entry slip past this refusal only to fail later
+        # inside Image.open with no mention of which cell.
+        if not source.is_file():
             raise ValueError(f"no rendered frame for cell {index}")
         with Image.open(source) as frame:
             small = reduce(frame, (int(size), int(size)), mode=mode)

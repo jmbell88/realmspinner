@@ -85,6 +85,38 @@ def test_the_result_actions_are_two_per_row():
     assert source.count("imgui.same_line()") >= 2
 
 
+def test_make_3d_always_pairs_with_a_neighbour_on_a_candidate_card():
+    """The 2026-09-07 audit, finding create-08: on a candidate card (``group``
+    is not None) "Make 3D" used to follow Rerun with ``same_line()`` fired
+    only ``if group is None`` -- so on the one card shape where a "Keep"
+    button also exists, nothing joined Make 3D to the row above it and it sat
+    alone at half width with its other half blank, against this very
+    function's own "two per row" design one comment up. Rerun and Make 3D are
+    joined unconditionally now; the button left without a same-row partner
+    when five actions cannot divide evenly by two is Keep instead.
+    """
+    import inspect
+
+    from warlock.studio import generation_workspace as gw
+
+    source = inspect.getsource(gw._result_card)
+
+    # The bug, named literally: the join fired only in the absence of Keep.
+    assert "if group is None:\n        imgui.same_line()" not in source
+
+    # Keep no longer claims a same_line(): nothing between its button call and
+    # the Rerun comment block joins it to what follows.
+    before_rerun, _, _ = source.partition("# **Rerun is live on a failure.**")
+    keep_onward = before_rerun[before_rerun.index("Keep##result-keep") :]
+    assert "imgui.same_line()" not in keep_onward
+
+    # Rerun and Make 3D are joined unconditionally, in that order.
+    after_rerun = source[source.index('"Rerun##result-rerun-{job_id}"') :]
+    same_line_pos = after_rerun.index("imgui.same_line()")
+    make3d_pos = after_rerun.index('"Make 3D##result-3d-{job_id}"')
+    assert same_line_pos < make3d_pos
+
+
 def test_the_candidate_grid_scrolls_rather_than_truncating():
     """A count of 8 means eight candidates and choosing between them is the
     whole purpose, so this grid cannot be trimmed to a row the way the results
