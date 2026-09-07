@@ -22,6 +22,24 @@ from .. import anchors, icons, sirens_mode, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 
+#: What this pane refuses to shrink past, in design pixels: the document
+#: header's two button rows, the path and status lines, the undo/redo row, and
+#: far enough into Export to reach its primary button.
+#:
+#: ``plotter_bridge.BRIDGE_FLOOR`` and ``clay_bridge.BRIDGE_FLOOR``'s reasoning,
+#: read for a FILL slot under three SHARE panes instead of one or two: the
+#: fill's own floor is what ``layout_skeleton.heights`` reserves out of the
+#: shares above it before any of them see room, and before ``Layout.saved_share``
+#: existed at all this pane -- along with Sound effects, the SHARE pane above
+#: it -- was drawn at zero height on every launch nobody had dragged a splitter
+#: on (the 0.0.39 ``screenshots/dark-sirens.png``, before that release's own
+#: fix refreshed it: a 15 px sliver of "Song file" and
+#: nothing more). The Closeness slider, the wrapped export summary and the
+#: Compose-in-Muse button below the Export button are past this floor and
+#: scroll rather than being counted in it, the way ``layout.pane`` lets any
+#: pane's tail do.
+BRIDGE_FLOOR = 190.0
+
 
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui

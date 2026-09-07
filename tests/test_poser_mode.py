@@ -47,6 +47,11 @@ class FakeCtx:
         self.rigging_available = True
         self.viewer = None  # the shared viewer, for pose_panel.guard
         self.poser_viewer = None
+        # ``ctx.job``'s live window -- what :func:`poser_mode.pump_rerig`
+        # polls to notice a queued rig job reach "done". Keyed by job id, set
+        # by hand in a test the way the real ``JobsCache`` would land it after
+        # a poll -- no cadence to fake, only the state it produces.
+        self.jobs: dict[str, dict] = {}
 
     def submit(self, key, fn, *args, **kwargs) -> bool:
         self.submitted.append(key)
@@ -63,6 +68,9 @@ class FakeCtx:
 
     def job_dir(self, job_id):
         return self.svc.job_dir(job_id)
+
+    def job(self, job_id):
+        return self.jobs.get(job_id)
 
 
 class FakeViewer:
@@ -410,6 +418,186 @@ def test_reframe_frames_the_real_mesh_when_an_asset_is_bound(svc):
     assert viewer.framed == "whole-model"
 
 
+# --- re-rigging an already-open asset -----------------------------------------
+#
+# The 2026-09-07 finding: with an asset bound, the Skeleton combo becomes a
+# bare fact ("... from this asset's rig") and there was no way back to a
+# different skeleton short of closing the session, finding the source job in
+# the Library, and choosing Rig from there. ``rerig`` queues the same job the
+# Library's own Rig action does, reachable from the session that is already
+# open.
+
+
+def _opened_asset(svc, monkeypatch, **rig_meta):
+    """A Poser session bound to a real rigged asset, with the viewer already
+    showing it -- the state every test below starts from."""
+    _fake_blender(monkeypatch)
+    job_id = _rigged_job(svc, **rig_meta)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = viewer = FakeViewer()
+    poser_mode.open_asset(ctx, {"id": job_id, "name": "Prop"})
+    poser_mode.sync_asset(ctx, viewer)
+    return ctx, viewer, job_id
+
+
+def test_rerig_submits_under_a_poser_key_not_the_shared_pose_key(svc, monkeypatch):
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    assert key in ctx.submitted
+    # "poser-", not "pose-": main.py's generic "pose-" dispatch clears the
+    # *shared* viewer's dirty flag, and this has to land on Poser's own.
+    assert key.startswith("poser-")
+    assert not any(k.startswith("pose-") and not k.startswith("poser-") for k in ctx.submitted)
+
+
+def test_a_refused_rerig_submit_is_toasted_not_silent(svc, monkeypatch):
+    """``TaskRunner.submit`` returning False (a live key) is the whole
+    concurrency guard the plan asks for -- this pins that a refusal is still
+    answered with a sentence, the same rule ``_mutate`` follows for the
+    library, rather than a press that does nothing."""
+    _fake_blender(monkeypatch)
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc, accept=False)
+    ctx.poser_viewer = viewer = FakeViewer()
+    poser_mode.open_asset(ctx, {"id": job_id})
+    poser_mode.sync_asset(ctx, viewer)
+
+    poser_mode.rerig(ctx, "humanoid")
+    assert any("re-rig" in msg.lower() for msg, _level in ctx.toasts)
+    # Nothing to watch for: the submit never landed.
+    assert poser_mode.ensure(ctx).rerig_job_id == ""
+
+
+def test_rerig_is_guarded_by_unsaved_pose_edits(svc, monkeypatch):
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    viewer.editor.dirty = True
+
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    assert len(ctx.confirms.asked) == 1
+    assert key not in ctx.submitted, "nothing queued before the answer"
+
+    ctx.confirms.asked[0].on_confirm()
+    assert key in ctx.submitted
+
+
+def test_pump_rerig_rebinds_once_the_queued_job_lands(svc, monkeypatch):
+    """The whole point: ``sync_asset`` short-circuits on ``viewer.pose_mode
+    and viewer.pose_job_id == job_id``, both still true after a same-job
+    re-rig, so unfixed this is a silent no-op -- the button appears to work
+    and the viewport never changes, because nothing here is told when the
+    queue actually finishes writing the new rig.glb."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    assert viewer.pose_mode is True and viewer.pose_job_id == job_id
+
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    result = ctx.results[key]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
+    state = poser_mode.ensure(ctx)
+    assert state.rerig_job_id == result["id"]
+
+    # The queue has not gotten to it yet: nothing rebinds.
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "queued"}
+    poser_mode.pump_rerig(ctx)
+    assert viewer.pose_mode is True, "still the old session until the job lands"
+    assert state.rerig_job_id == result["id"]
+
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "done"}
+    poser_mode.pump_rerig(ctx)
+    assert viewer.pose_mode is False, "sync_asset's same-job short-circuit is defeated"
+    assert state.rerig_job_id == ""
+
+    # And genuinely rebindable, not just knocked out of pose mode.
+    assert poser_mode.sync_asset(ctx, viewer) is True
+    assert len(viewer.loaded) == 2, "sync_asset reloads rig.glb a second time"
+
+
+def test_pump_rerig_ignores_a_failed_job(svc, monkeypatch):
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    result = ctx.results[key]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
+
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "error"}
+    poser_mode.pump_rerig(ctx)
+    assert poser_mode.ensure(ctx).rerig_job_id == ""
+    assert viewer.pose_mode is True, "the old session survives a failed re-rig"
+
+
+def test_pump_rerig_does_nothing_once_the_session_has_moved_on(svc, monkeypatch):
+    """The user can close this asset (or open a different one) while the
+    queue is still working; landing the stale re-rig onto whatever is bound
+    now would rebind the wrong session."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    result = ctx.results[key]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
+
+    poser_mode.close_asset(ctx)
+    cleared = viewer.cleared
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "done"}
+    poser_mode.pump_rerig(ctx)
+    assert viewer.cleared == cleared, "no further rebind for a session that already closed"
+
+
+def test_rerig_landing_with_a_new_template_runs_the_switching_template_reset(svc, monkeypatch):
+    """poser-01's reset (:func:`poser_mode._reset_for_template`), reused for a
+    third door: a re-rig that lands under a different skeleton than the one
+    being browsed must not leave the clip editor pointed at the old
+    template's working copy."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    state = poser_mode.ensure(ctx)
+    state.clips = {"clips": [{"name": "walk"}]}
+    state.clip = "walk"
+    state.key_index = 2
+    state.frame = 5
+    state.frames = [{"x": 1}]
+    state.clips_error = "boom"
+    state.clips_unsaved = True
+
+    poser_mode.rerig(ctx, "quadruped")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    result = ctx.results[key]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
+
+    # The queue "finishes": the mesh's rig.json now names the new template.
+    (svc.job_dir(job_id) / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "quadruped", "bones": []}), "utf-8"
+    )
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "done"}
+    poser_mode.pump_rerig(ctx)
+
+    assert state.template == "quadruped"
+    assert state.clips == {}
+    assert state.clip == ""
+    assert state.key_index == 0
+    assert state.frame == -1
+    assert state.frames == []
+    assert state.clips_error == ""
+    assert state.clips_unsaved is False
+
+
+def test_rerig_control_is_gated_by_the_pane_s_own_blender_check():
+    """Requirement: refuse with a reason when Blender is unavailable, never a
+    greyed button with none. ``draw`` already returns before the ``job_id``
+    branch (and so before ``_rerig``) once ``ctx.rigging_available`` is
+    false; this pins that the control never grew a second, silent gate."""
+    import inspect
+
+    from warlock.studio.panes import poser_library
+
+    source = inspect.getsource(poser_library.draw)
+    assert "_rerig(ctx, state)" in source, "the control must actually be wired in"
+    reason = source.index("Posing needs Blender")
+    branch = source.index("if state.job_id:")
+    assert reason < branch, "the availability refusal must guard the whole branch"
+
+
 # --- applying ----------------------------------------------------------------
 
 
@@ -616,6 +804,7 @@ def test_every_poser_task_key_is_prefixed_poser():
         poser_mode.DUPLICATE_KEY,
         poser_mode.RENAME_KEY,
         poser_mode.PREVIEW_KEY_PREFIX,
+        poser_mode.ASSET_RERIG_KEY_PREFIX,
     ]
     assert all(k.startswith("poser-") for k in keys), keys
 

@@ -127,15 +127,18 @@ def draw(ctx: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
     doc = tab.doc
     editable = not tab.busy
-    imgui.set_next_item_width(-1)
-    changed, value = controls.slider_int(
+    # Through ``widgets.labeled_slider_int`` rather than a bare
+    # ``controls.slider_int`` (the 2026-09-07 audit): imgui draws a slider's
+    # label outside the widget, to its right, and both of these are set to
+    # width -1, so "Tempo" and "Speed" were never drawn -- the user was left in
+    # front of two bare numbers with nothing saying which was which.
+    changed, value = widgets.labeled_slider_int(
         "Tempo", doc.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable
     )
     controls.fold_undo(doc.history)
     if changed and doc.set_song(tempo=int(value)):
         sirens_mode.request_rerender(ctx, tab)
-    imgui.set_next_item_width(-1)
-    changed, value = controls.slider_int(
+    changed, value = widgets.labeled_slider_int(
         "Speed", doc.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable
     )
     controls.fold_undo(doc.history)

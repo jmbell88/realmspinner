@@ -20,6 +20,69 @@ the release you are actually running.
 
 ## 0.0.39 — 2026-09-07
 
+- **Sirens' Sound effects pane was never drawn, and the reason was every
+  workspace's.** Sirens' right sidebar declares four panes — Instruments,
+  Envelopes, Sound effects, Song file — and shipped showing two and a sliver;
+  the shipped screenshot `screenshots/dark-sirens.png` is the evidence. The
+  cause was not in Sirens. `Layout.share` is written to always answer a number,
+  because a splitter drag needs one every frame, so `layout.column` built the
+  proportions dict by asking it once per pane and every undragged pane came back
+  wanting 55% of the column. Two such panes already overflow it; three leave
+  nothing for whatever is under them, and a pane allocated no height is skipped
+  outright — no heading, no error, and nothing a test that draws that pane in
+  isolation could ever see. `Layout.saved_share` now reports "nobody has dragged
+  this" as `None`, so an untouched split reaches the even division that was
+  always meant to handle it, and a saved drag still wins. Sound effects and Song
+  file also gained floors of their own, and Envelopes' came down from 300 px so
+  the three fit together on a short window. One regression came with the fix and
+  went with it: a drag now starts from the height a pane is actually drawn at,
+  not from the 55% `share` still answers, or the first nudge of any untouched
+  handle would have jumped the pane to over half the column.
+
+- **Sirens' sliders say what they are.** imgui draws a slider's name *outside*
+  the widget, to its right, so a full-width slider has nowhere to put one and
+  simply does not draw it — which left Tempo and Speed, in both the transport
+  and the sound-effect editor, as two bare numbers with nothing on screen saying
+  which was which, and the Name fields in Instruments and Sound effects with no
+  label at all. Both now draw the small-caps name above the control, the way the
+  Kind and Sample combos a few lines below them already did. The envelope
+  header's Loop and Tail buttons wrap instead of running off the edge when the
+  column narrows or the UI is scaled up.
+
+- **The Library converts audio and images.** A new **Convert...** entry on a
+  card's menu and on the bulk bar writes a finished take as **WAV**, **FLAC**,
+  **AIFF**, **MP3** or **OGG**, and a reference, tile or tile sheet as **WebP**
+  or **JPEG**. No new dependency and no converter to install: the audio library
+  already in the app is libsndfile, which encodes all five itself, and Pillow
+  writes the other two. A JPEG asked for a picture with transparency is
+  *refused* rather than quietly flattened onto black — WebP is offered instead,
+  which is lossless and keeps the alpha. The WAV is copied rather than
+  re-encoded, because putting 16-bit audio through a second quantisation to
+  arrive back where it started only loses a little of it. Opus is deliberately
+  absent: the library writes it only at 8/12/16/24/48 kHz and a take is 44.1, so
+  offering it would mean resampling behind your back to make the format fit.
+
+- **Inker generates nine-slices instead of only storing them.** Inker has
+  modelled a slice's stretchable centre for a long time and gave you one way to
+  set it: a checkbox that dropped a rectangle a third in from each edge, four
+  handles, and your own eye. **Auto-fit** now infers the centre from the art —
+  the widest run of interior columns and rows identical to their neighbour — and
+  refuses honestly, rather than guessing, when the picture has no flat interior
+  to stretch. A preview beside it shows the panel at several sizes before you
+  commit, and the export writes panels stretched to a size you choose, or as an
+  Android `.9.png`. The stretch **repeats** pixels rather than resampling them,
+  because a smooth stretch puts a half-intensity seam exactly where a pixel
+  artist drew a hard one; the corners come out untouched.
+
+- **Poser can re-rig the model it already has open.** With an asset bound, the
+  skeleton was shown as a fact and was a dead end — the only way to a different
+  one was closing the session, finding the source mesh in the Library and
+  rigging it from there. **Re-rig...** queues the same job from where you are.
+  It asks before discarding an unsaved pose, and when the new rig lands the
+  viewport rebinds to it: the new rig overwrites the same file in the same job
+  directory, so without that step the button would have appeared to work and
+  nothing on screen would have changed.
+
 - **Poser can open a rigged asset's own mesh, not just a bare skeleton.**
   Until now Poser authored poses against a meshless armature preview only —
   the same generic humanoid, quadruped, bird or blob skeleton, with no way to

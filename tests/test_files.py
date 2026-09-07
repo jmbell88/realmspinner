@@ -113,3 +113,53 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
     # edit -- not either racing save's colour, which is what an unlocked
     # check-then-copy-then-write produces.
     assert anchor_pixel == (200, 30, 30, 255)
+
+
+# -- DERIVED_AUDIO / DERIVED_IMAGE: the allowlist rule, both directions ------
+#
+# MEDIA is what keeps a caller-supplied name off the filesystem (the module
+# docstring's own claim); a format list that named something MEDIA does not
+# carry would be underivable and unserveable, and a MEDIA row nothing else
+# will ever offer is dead weight nobody notices. Both halves are worth
+# pinning independently, the way ``test_derive_2d.py``'s
+# ``test_every_2d_artifact_is_in_the_media_allowlist`` already pins one half
+# of DERIVED_2D.
+
+
+def test_every_derived_audio_name_is_in_the_media_allowlist():
+    for name in svc_files.DERIVED_AUDIO:
+        assert name in svc_files.MEDIA, name
+
+
+def test_every_derived_image_name_is_in_the_media_allowlist():
+    for name in svc_files.DERIVED_IMAGE:
+        assert name in svc_files.MEDIA, name
+
+
+def test_track_wav_is_a_member_of_its_own_derived_audio_list():
+    # pipelines.audioout.convert's docstring explains why: it lets the
+    # Library's Convert door and the Downloads grid offer WAV beside
+    # FLAC/MP3/OGG/AIFF as one uniform list under one lock, rather than a
+    # WAV-shaped special case in both.
+    assert "track.wav" in svc_files.DERIVED_AUDIO
+
+
+def test_derived_image_is_exactly_the_web_reencodings_of_input_png():
+    # A name added here and nowhere else (pipelines.imageout.FORMATS,
+    # artifacts.ARTIFACTS_2D/TILE/TILESHEET) is a button that would answer
+    # NotReady forever -- the same argument test_every_2d_artifact_has_a_
+    # derivation makes for DERIVED_2D.
+    from warlock.pipelines import imageout
+
+    assert set(svc_files.DERIVED_IMAGE) == set(imageout.FORMATS)
+
+
+def test_asking_whether_track_wav_is_ready_does_not_recurse_forever():
+    # track.wav is now a member of DERIVED_AUDIO (see its docstring), and
+    # ``ready``'s ``name in DERIVED_AUDIO`` branch recurses into
+    # ``ready(job, job_dir, "track.wav")`` for every other name in that tuple.
+    # Without track.wav's own branch checked *first*, asking about track.wav
+    # itself would recurse into that same branch forever.
+    job = {"status": "done"}
+    job_dir = Path("nonexistent-job-dir")
+    assert svc_files.ready(job, job_dir, "track.wav") is False

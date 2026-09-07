@@ -1377,6 +1377,107 @@ register(
 )
 
 
+def _nineslice_selected(state: Any, tab: Any) -> Any:
+    """The slice the tools panel has selected, or ``None``.
+
+    Both new ops act on it rather than on "every slice", because a centre is
+    inferred and previewed one panel at a time in ``_slice_options`` -- the
+    same rectangle the Auto-fit button and the live preview beside it are
+    already looking at, so the menu row and the button cannot disagree about
+    which slice "it" means.
+    """
+    if tab is None:
+        return None
+    return tab.doc.slice_by_uid(state.slice_uid)
+
+
+def _can_nineslice_fit(state: Any, tab: Any) -> bool:
+    entry = _nineslice_selected(state, tab)
+    if entry is None or not ready(state, tab):
+        return False
+    from .inker import nineslice
+
+    return nineslice.fit(tab.doc.flatten(), entry.at(tab.frame_uid).bounds) is not None
+
+
+def _nineslice_fit_reason(state: Any, tab: Any) -> str:
+    if not ready(state, tab):
+        return BUSY
+    if _nineslice_selected(state, tab) is None:
+        return "Select a slice in the tools panel first."
+    return (
+        "This slice's interior has no run of columns or rows that repeat -- "
+        "there is nothing to infer a centre from. Drag one by hand instead."
+    )
+
+
+def _run_nineslice_fit(ctx: Any, tab: Any, **_: Any) -> Any:
+    from .inker import nineslice
+
+    state = ctx.state.inker
+    entry = _nineslice_selected(state, tab)
+    if entry is None:
+        return False
+    center = nineslice.fit(tab.doc.flatten(), entry.at(tab.frame_uid).bounds)
+    if center is None:
+        return False
+    return tab.doc.set_slice(entry.uid, center=center)
+
+
+def _has_nineslice(state: Any, tab: Any) -> bool:
+    return tab is not None and any(entry.center is not None for entry in tab.doc.slices)
+
+
+def _nineslice_export_reason(state: Any, tab: Any) -> str:
+    if not ready(state, tab):
+        return BUSY
+    return (
+        "No slice has a nine-slice centre yet -- turn one on for a slice, or "
+        "run Auto-fit, first."
+    )
+
+
+register(
+    Op(
+        "nineslice_fit",
+        "Auto-fit nine-slice centre",
+        _run_nineslice_fit,
+        menu="Sprite",
+        separator_before=True,
+        enabled=_can_nineslice_fit,
+        reason=_nineslice_fit_reason,
+        hint=(
+            "Infers the stretchable middle of the selected slice from the art "
+            "itself: the widest band of columns, and of rows, that repeat "
+            "their neighbour unchanged. Refuses rather than guessing when "
+            "nothing repeats -- a gradient, a photo, hand-painted noise."
+        ),
+    )
+)
+register(
+    Op(
+        "nineslice_export",
+        "Export nine-slice panels...",
+        _mode("export_slices"),
+        menu="Sprite",
+        enabled=lambda state, tab: ready(state, tab) and _has_nineslice(state, tab),
+        reason=_nineslice_export_reason,
+        params=(
+            Param("width", "Width", 128, 1, 8192),
+            Param("height", "Height", 128, 1, 8192),
+        ),
+        hint=(
+            "Every slice with a nine-slice centre is written stretched to "
+            "this size -- corners keep their pixels, edges and middle repeat. "
+            "A slice with no centre exports at its own size, unchanged. Type "
+            "or pick an Android .9.png name in the dialog to write the guide "
+            "format instead; Android stretches that itself, so width and "
+            "height are ignored for it."
+        ),
+    )
+)
+
+
 # --- Layer ------------------------------------------------------------------
 
 register(

@@ -70,6 +70,16 @@ CLIPS_SAVE_KEY = "poser-clips-save"
 ASSET_POSES_KEY_PREFIX = "poser-asset-poses:"
 ASSET_SAVE_KEY_PREFIX = "poser-asset-save:"
 ASSET_DELETE_KEY_PREFIX = "poser-asset-delete:"
+# The 2026-09-07 finding: with an asset bound, the Skeleton combo was replaced
+# by a bare fact ("(from this asset's rig)") and there was no way back to a
+# different skeleton short of closing the session and finding the source job
+# in the Library. This is the key the queued re-rig is submitted under --
+# "poser-" for the reason the three above are: main.py's generic "pose-"
+# dispatch would clear the *shared* viewer's dirty flag, and the re-rig has to
+# land on Poser's own (:func:`on_task_done`). It is a per-job key, matching
+# ``stage_rig.rig_key``, so a double press within the same frame is refused by
+# ``TaskRunner.submit`` alone -- see :func:`rerig`.
+ASSET_RERIG_KEY_PREFIX = "poser-asset-rerig:"
 
 # What pose_job_id carries in a *template* authoring session. Can never equal
 # a 12-hex job id (a colon fails is_valid_id) -- but an *asset* session
@@ -168,6 +178,30 @@ class PoserState:
     #: GLB with no skin). Cleared only by :func:`retry_asset`, so a broken rig
     #: is not retried every frame.
     asset_error: str = ""
+    #: The id of a rig job queued by :func:`rerig`, while it is still
+    #: ``queued``/``running``. ``svc_rig.create_rig`` only asks the serial
+    #: queue to build a new rig.glb; the write itself lands minutes later, out
+    #: of process, on the ``warlock-loop`` thread's own schedule -- so this is
+    #: what :func:`pump_rerig` watches to notice the job actually finish.
+    #: Empty once it has landed (or failed), so a stale id is never polled
+    #: forever.
+    rerig_job_id: str = ""
+    #: Which asset ``rerig_job_id`` was queued for, captured at submit time
+    #: from ``create_rig``'s own ``source_job``. The user can close this
+    #: session and open a different asset while the queue is still working;
+    #: comparing against this rather than the live ``job_id`` is what stops a
+    #: re-rig queued for job A landing on whatever job B happens to be open
+    #: when it finishes.
+    rerig_source_job: str = ""
+    #: Whether the Re-rig picker is expanded, and which skeleton is chosen in
+    #: it. Here rather than in ``ctx.state.preview`` -- the pane-scratch dict
+    #: the rest of the app uses for this -- because that dict outlives the
+    #: session: leaving an asset with the picker open and opening another one
+    #: reopened it, on the new asset, still showing the old asset's skeleton.
+    #: :func:`close_asset` clears these with the rest of the session, which is
+    #: the whole reason they live on the session's own state.
+    rerig_open: bool = False
+    rerig_choice: str = ""
 
     def find_asset_pose(self, pose_id: Any) -> dict[str, Any] | None:
         return next((p for p in self.asset_poses if p.get("id") == pose_id), None)
@@ -311,6 +345,32 @@ def request_preview(ctx: Any) -> None:
         state.building = False
 
 
+def _reset_for_template(state: PoserState, template: str) -> None:
+    """Clear every field a skeleton switch invalidates -- the poser-01 reset.
+
+    Extracted 2026-09-07 for a third caller: :func:`set_template`'s own
+    switch, :func:`open_asset` binding to a rig cut from a different template
+    than the one already being browsed, and a re-rig landing
+    (:func:`_land_rerig`) that changed the bound asset's own template. All
+    three are the same fact -- the clip editor's working copy is keyed by
+    template -- and the 2026-09-07 audit (poser-01) found ``set_template``
+    left it untouched, so "Save clips" afterwards wrote the *old* template's
+    working copy under the *new* template's name, with no prompt at all
+    (``clips_pump``'s own ``clips_unsaved`` guard means a bare
+    ``clips_refresh`` would not even have re-read it once the switch landed).
+    ``state.template`` is part of the reset rather than a separate assignment
+    at each call site, so there is exactly one place the two can drift.
+    """
+    state.template = template
+    state.clips = {}
+    state.clip = ""
+    state.key_index = 0
+    state.frame = -1
+    state.frames = []
+    state.clips_error = ""
+    state.clips_unsaved = False
+
+
 def set_template(ctx: Any, template: str) -> None:
     """Switch skeletons, behind the guard: the editor holds one template's
     pose, and a switch discards it."""
@@ -319,22 +379,9 @@ def set_template(ctx: Any, template: str) -> None:
         return
 
     def proceed() -> None:
-        state.template = template
+        _reset_for_template(state, template)
         state.poses, state.presets = [], []
         state.preview_path, state.preview_template = None, ""
-        # The 2026-09-07 audit (poser-01): this reset used to leave the clip
-        # editor untouched, so "Save clips" afterwards wrote the *old*
-        # template's working copy under the *new* template's name -- and
-        # ``clips_pump``'s own ``clips_unsaved`` guard means a bare
-        # ``clips_refresh`` alone would not have re-read it even once the
-        # switch landed, so the stale fields have to be cleared here.
-        state.clips = {}
-        state.clip = ""
-        state.key_index = 0
-        state.frame = -1
-        state.frames = []
-        state.clips_error = ""
-        state.clips_unsaved = False
         viewer = viewer_of(ctx)
         if viewer is not None:
             # The old template's armature must not stay poseable under the new
@@ -391,17 +438,9 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
 
     def proceed() -> None:
         if switching_template:
-            # The poser-01 reset, restated: every field a template switch
-            # discards needs clearing here too, since this can also change
-            # which skeleton's clip library is open.
-            state.template = template
-            state.clips = {}
-            state.clip = ""
-            state.key_index = 0
-            state.frame = -1
-            state.frames = []
-            state.clips_error = ""
-            state.clips_unsaved = False
+            # Opening an asset can also change which skeleton's clip library
+            # is open -- ``_reset_for_template``'s reset applies here too.
+            _reset_for_template(state, template)
         state.job_id = job_id
         state.asset_label = str(job.get("name") or job.get("prompt") or job_id)
         state.asset_rig = rig
@@ -445,6 +484,8 @@ def close_asset(ctx: Any) -> None:
         state.asset_rig = None
         state.asset_poses = []
         state.asset_error = ""
+        state.rerig_open = False
+        state.rerig_choice = ""
         viewer = viewer_of(ctx)
         if viewer is not None:
             viewer.exit_pose_mode()
@@ -537,6 +578,117 @@ def delete_asset_pose(ctx: Any, pose_id: str, name: str) -> None:
             pose_id,
         ),
     )
+
+
+def rerig(ctx: Any, template: str) -> None:
+    """Re-rig the bound asset under ``template``, behind the guard.
+
+    The 2026-09-07 finding: once an asset is bound, the Skeleton combo above
+    it is replaced by the fact "(from this asset's rig)" -- correct, but a
+    dead end, since the only route to a different skeleton was closing the
+    session, finding the source job in the Library, and choosing Rig from
+    there. This queues the same job the Library's own Rig action does
+    (``svc_rig.create_rig``, ``service/rig.py:56``, which already refuses to
+    rig a rig job and takes ``state.job_id`` -- the *mesh* job, since a rig's
+    artifacts land beside the mesh, never in the rig job's own directory) --
+    just reachable from the session that already has the asset open.
+
+    Guarded because a re-rig means a fresh session once it lands
+    (:func:`_land_rerig`), and any pose being edited on the old rig is lost
+    with it -- exactly the hazard every other destructive door here asks
+    about. Submitted under a per-job key (``ASSET_RERIG_KEY_PREFIX``,
+    matching ``stage_rig.rig_key``'s shape): ``TaskRunner.submit`` refuses a
+    second press while the first is still in flight, which is the whole
+    concurrency guard the plan asks for here -- the same shallow, already-
+    accepted protection the ordinary "Rig this mesh again" button relies on.
+    """
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    if not state.job_id:
+        return
+    job_id = state.job_id
+
+    def proceed() -> None:
+        key = f"{ASSET_RERIG_KEY_PREFIX}{job_id}"
+        if not ctx.submit(key, svc_rig.create_rig, ctx.svc, job_id, template=template):
+            ctx.toast("Still re-rigging this asset.", "info")
+
+    guard(ctx, "re-rig this asset", proceed)
+
+
+def pump_rerig(ctx: Any) -> None:
+    """Notice a queued re-rig reaching a terminal status, every frame.
+
+    Called from ``poser_library.draw`` beside :func:`pump`, its own per-frame
+    heartbeat. ``svc_rig.create_rig`` only enqueues the rig job -- the actual
+    Blender solve and the ``rig.glb`` write happen minutes later, out of
+    process, on the serial queue's own schedule -- so nothing about the
+    *submit* landing (:func:`on_task_done`) can tell whether the new rig
+    exists yet. This is what does: a couple of dict lookups against
+    ``ctx.job``, which is already kept live every frame for every other mode
+    (the same cache ``ctx.cache.tick`` refreshes in ``main.py``).
+    """
+    state = ensure(ctx)
+    if not state.rerig_job_id:
+        return
+    job = ctx.job(state.rerig_job_id)
+    if job is None:
+        # Not yet in the loaded window, or a stale id from a session that has
+        # since moved on -- either way there is nothing to act on this frame.
+        return
+    status = job.get("status")
+    if status == "done":
+        source = state.rerig_source_job
+        state.rerig_job_id = ""
+        state.rerig_source_job = ""
+        if state.job_id == source:
+            _land_rerig(ctx)
+    elif status in ("error", "cancelled"):
+        # The generic job-transition toast (``main.py``'s ``_refresh``)
+        # already says why; nothing here is worth watching any further.
+        state.rerig_job_id = ""
+        state.rerig_source_job = ""
+
+
+def _land_rerig(ctx: Any) -> None:
+    """A queued re-rig has actually finished: rebind onto the new rig.glb.
+
+    **The sharp edge this exists for.** The new rig writes over the *same*
+    ``rig.glb`` in the *same* job directory ``state.job_id`` already names --
+    a rig belongs to its source mesh, not to the rig job that produced it
+    (``_q_rig.py``'s own docstring). ``sync_asset`` short-circuits on
+    ``viewer.pose_mode and viewer.pose_job_id == job_id``, both still true
+    after a same-job re-rig, so without this a re-rig would be a silent
+    no-op: the button would appear to work and the viewport would never
+    change. Defeating that short-circuit is ``open_asset``'s own proceed
+    path, reused rather than restated -- exit pose mode, clear the viewer, and
+    re-read the rig -- with the poser-01 template reset folded in for a rig
+    that landed under a different skeleton than the one being browsed.
+    """
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    job_id = state.job_id
+    if not job_id:
+        return
+    rig = None
+    with contextlib.suppress(Exception):
+        rig = svc_rig.get_rig(ctx.svc, job_id)
+    template = str((rig or {}).get("template") or "") or state.template
+    if template != state.template:
+        _reset_for_template(state, template)
+    state.asset_rig = rig
+    state.asset_error = ""
+    viewer = viewer_of(ctx)
+    if viewer is not None:
+        # Whatever the viewer is showing is the *old* rig's pose session;
+        # sync_asset binds the new one once the viewport next draws.
+        viewer.exit_pose_mode()
+        viewer.clear()
+    refresh(ctx)
+    clips_refresh(ctx)
+    refresh_asset_poses(ctx)
 
 
 # --- the preview -------------------------------------------------------------
@@ -1031,6 +1183,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
             viewer.editor.current = None
         if job_id == state.job_id:
             refresh_asset_poses(ctx)
+        return
+    if key.startswith(ASSET_RERIG_KEY_PREFIX):
+        # Only the queue job's id and which asset it belongs to -- the rig
+        # itself is not on disk yet. :func:`pump_rerig` is what notices the
+        # actual write, once the queue gets around to it.
+        if isinstance(done.result, dict) and done.result.get("id"):
+            state.rerig_job_id = str(done.result["id"])
+            state.rerig_source_job = str(done.result.get("source_job") or "")
         return
 
 

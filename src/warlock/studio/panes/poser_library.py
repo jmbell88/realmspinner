@@ -22,6 +22,9 @@ def draw(ctx: Any) -> None:
     # The pane is Poser's per-frame heartbeat, so the refresh flag is pumped
     # here -- the findings_dirty idiom; ``refresh`` only raises the flag.
     poser_mode.pump(ctx)
+    # Same idiom, for the re-rig this pane may have queued: the write lands
+    # minutes later, out of process, and nothing else here is told when.
+    poser_mode.pump_rerig(ctx)
     widgets.section("Pose library")
     manual_render.help_button(ctx, "poser-library")
     if not ctx.rigging_available:
@@ -30,15 +33,21 @@ def draw(ctx: Any) -> None:
         return
 
     if state.job_id:
-        # The skeleton follows the bound asset's own rig; changing it makes no
-        # sense until the asset session is closed, so the combo is replaced
-        # with a fact rather than shown disabled with no way to act on it.
+        # The skeleton follows the bound asset's own rig -- shown as a fact,
+        # not a combo, because changing it here does not edit anything in
+        # place. It queues a *new* rig job, the same as the Library's own Rig
+        # action, which is what ``_rerig`` below offers directly from the
+        # session that already has the asset open (the 2026-09-07 finding:
+        # this used to be a dead end, closing the session and finding the
+        # source job in the Library the only way back to a different
+        # skeleton).
         label = next(
             (e["label"] for e in rigging.catalog() if e["key"] == state.template),
             state.template,
         )
         widgets.field_label("Skeleton")
         widgets.muted(f"{label} (from this asset's rig)")
+        _rerig(ctx, state)
     else:
         widgets.field_label("Skeleton")
         chosen = widgets.combo(
@@ -57,6 +66,50 @@ def draw(ctx: Any) -> None:
         _asset_poses(ctx, state)
     _library(ctx, state)
     _presets(ctx, state)
+
+
+def _rerig(ctx: Any, state: Any) -> None:
+    """The "Re-rig..." control under the asset-bound skeleton fact.
+
+    Drawn only from :func:`draw`'s ``state.job_id`` branch, which itself only
+    runs once the pane's own top-of-draw refusal ("Posing needs Blender,
+    which is not installed.") has already returned -- so this never has to
+    ask the question again or gate itself a second, silent way. Collapsed by
+    default: a picker sitting open under a fact nobody asked to change would
+    read as the combo the fact just replaced.
+
+    The open flag and the chosen key live on ``PoserState`` rather than in
+    ``ctx.state.preview``, which is where the rest of the app keeps this kind
+    of pane scratch -- see those fields' own note: that dict outlives the
+    session, and this picker must not.
+    """
+    if not state.rerig_open:
+        if controls.button("Re-rig...", (-1, 0)):
+            # Defaults to the asset's own template, not the last thing picked
+            # in the unbound browser -- reopening the picker after a change of
+            # mind should not silently default to switching skeletons.
+            state.rerig_open = True
+            state.rerig_choice = state.template
+        return
+    state.rerig_choice = widgets.combo(
+        "##poser-rerig-template",
+        state.rerig_choice or state.template,
+        [(entry["key"], entry["label"]) for entry in rigging.catalog()],
+    )
+    # Both buttons full width, stacked: a bare ``disabled_button`` sizes itself
+    # to its label, so Confirm and Cancel came out different widths under each
+    # other and read as unrelated controls.
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{state.job_id}"
+    if widgets.disabled_button(
+        "Confirm re-rig",
+        not ctx.busy(key),
+        (-1, 0),
+        reason="Already re-rigging this asset.",
+    ):
+        poser_mode.rerig(ctx, state.rerig_choice or state.template)
+        state.rerig_open = False
+    if controls.button("Cancel", (-1, 0)):
+        state.rerig_open = False
 
 
 def _asset_poses(ctx: Any, state: Any) -> None:

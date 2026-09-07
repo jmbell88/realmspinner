@@ -152,6 +152,13 @@ def get_file(
         # The same lazy derivation as the mesh exports above, from the other
         # source. No freshness test: nothing rewrites ``track.wav`` after the
         # run, so existence is the whole question -- see ``DERIVED_AUDIO``.
+        # (For name == "track.wav" itself this is unreachable in practice:
+        # ``files.ready`` already required the file to exist before this point
+        # was reached, so ``not path.exists()`` is already False. It stays
+        # here rather than being special-cased away because
+        # ``audioout.convert`` still needs to do the right thing under a
+        # concurrent-delete race, and the branch shape is the same one every
+        # other derivation in this function takes.)
         from ..pipelines import audioout
 
         with svc.convert_lock(job_id, name):
@@ -161,6 +168,33 @@ def get_file(
                     name,
                     lambda tmp: audioout.convert(job_dir / "track.wav", tmp, name),
                 )
+
+    if name in files.DERIVED_IMAGE and not (path.exists() and files.fresh_2d(job_dir, name)):
+        # Existence *and* freshness, unlike the audio arm just above: this is
+        # derived from input.png, which -- unlike track.wav -- has three
+        # writers (see files.DERIVED_IMAGE's docstring), so a WebP cut before
+        # the last hand edit is stale the same way a cached icon.png would be.
+        from ..pipelines import imageout
+
+        source = job_dir / "input.png"
+        with svc.convert_lock(job_id, name):
+            # Re-checked inside the lock, for the reason every other
+            # derivation here gives: whoever waited here was waiting for
+            # exactly this file.
+            if not (path.exists() and files.fresh_2d(job_dir, name)):
+                try:
+                    _staged(
+                        job_dir,
+                        name,
+                        lambda tmp: imageout.convert(source, tmp, name),
+                    )
+                except imageout.AlphaUnsupported as exc:
+                    # Translated at the layer boundary rather than raised as an
+                    # ``Invalid`` from inside ``pipelines``, which imports
+                    # nothing from ``service``. The message is already a whole
+                    # sentence written for the user, so it is passed through
+                    # rather than wrapped by ``invalid_from``'s context prefix.
+                    raise Invalid(str(exc), field=imageout.AlphaUnsupported.field) from exc
 
     # Freshness rather than existence: a hand edit or a revert rewrites
     # input.png in place, and an artifact older than it is a picture of pixels
@@ -202,6 +236,19 @@ def derivable_audio(name: str) -> bool:
     knows the mesh tuple, so every row it drew was permanently blocked.
     """
     return name in files.DERIVED_AUDIO
+
+
+def derivable_image(name: str) -> bool:
+    """Whether ``name`` can be produced from *this job's* input.png on demand.
+
+    ``derivable_audio``'s shape exactly, and its own function for the same
+    reason: a mesh job's grid must never light this button, and unlike
+    ``derivable_2d`` there is no stage argument, because unlike the cutouts
+    and the wrapped view the two names here are offered on every 2D-producing
+    stage rather than a stage-dependent half of the set -- see
+    ``files.DERIVED_IMAGE``'s docstring.
+    """
+    return name in files.DERIVED_IMAGE
 
 
 def derivable_2d(name: str, stage: str | None) -> bool:

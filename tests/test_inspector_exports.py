@@ -79,6 +79,8 @@ def test_a_tile_offers_the_texture_itself_its_wrapped_view_and_its_material():
     names = [n for n, _label in widgets.artifacts_for(_job(stage="tile"))]
     assert names == [
         "input.png",
+        "input.webp",
+        "input.jpg",
         "wrap_preview.png",
         "material.zip",
         "material_normal.png",
@@ -117,14 +119,22 @@ def test_the_grid_offers_exactly_what_each_stage_can_derive():
         offered = {n for n, _label in widgets.artifacts_for(_job(stage=stage))}
         # input.png is the source image every job may take away, and is served
         # rather than derived -- so it is the one name in the grid that is not
-        # in the derivable set.
+        # in the derivable set. DERIVED_IMAGE joins derived_2d_for(stage) in
+        # the comparison, not because a name added to REFERENCE_2D/TILE_2D and
+        # not here should stay silent -- it is the other tuple entirely (see
+        # DERIVED_IMAGE's own docstring for why it is not folded into either)
+        # -- but because it is offered on every one of these three stages, so
+        # it belongs on both sides of this loop rather than in a second one.
         assert "input.png" in offered
-        assert offered - {"input.png"} == set(svc_files.derived_2d_for(stage))
+        assert offered - {"input.png"} == set(svc_files.derived_2d_for(stage)) | set(
+            svc_files.DERIVED_IMAGE
+        )
     # A music job's own row, on the same footing rather than skipped: its
-    # source is track.wav instead of input.png, and (see ARTIFACTS_MUSIC's
-    # comment) that source is deliberately not itself a grid row, so nothing
-    # is subtracted before the comparison. The 2026-09-05 audit (muse-01)
-    # found the branch this asserts against missing entirely.
+    # source is track.wav, which -- unlike input.png -- *is* itself a grid row
+    # now (ARTIFACTS_MUSIC's comment explains why the WAV row that used to be
+    # deliberately absent no longer is), so nothing is subtracted before the
+    # comparison. The 2026-09-05 audit (muse-01) found the branch this asserts
+    # against missing entirely.
     offered = {n for n, _label in widgets.artifacts_for(_job(stage="music"))}
     assert offered == set(svc_files.DERIVED_AUDIO)
 

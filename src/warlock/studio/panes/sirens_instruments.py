@@ -135,9 +135,14 @@ def draw(ctx: Any) -> None:
     if selected is None:
         return
     imgui.dummy((0, sp(tokens.SP_2)))
+    # ``##``-hidden with the name drawn above, the same rule the Kind combo a
+    # few lines down already follows: imgui draws a field's label to its
+    # *right*, and this field is set to width -1, so a visible "Name" here
+    # would land past the content region and simply not be drawn.
+    widgets.field_label("Name")
     imgui.set_next_item_width(-1)
     name = widgets.input_text(
-        "Name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
+        "##sirens-inst-name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
     )
     if name != selected.name and doc.update_instrument(selected.uid, name=name):
         sirens_mode.request_rerender(ctx, tab)

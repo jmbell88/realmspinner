@@ -603,9 +603,16 @@ def test_the_export_rail_segment_does_not_import_imgui_to_answer():
 
     assert "widgets" not in inspect.getsource(create_stages._reached_export)
     assert artifacts.artifacts_for({"stage": "reference"})
-    assert artifacts.artifacts_for({"stage": "tilesheet"}) == (
-        ("input.png", "Tile sheet PNG"),
-    )
+    # A tilesheet answers with its own list and never falls through to the mesh
+    # default -- which is the property this line is here for, the stage
+    # dispatch being the half of ``artifacts_for`` the rail depends on. What is
+    # *in* that list is pinned once, in ``test_inspector_exports.py``, against
+    # what the service can actually derive; restating the tuple here made this
+    # test fail for a reason it is not about the day the list grew its image
+    # re-encodings.
+    sheet = artifacts.artifacts_for({"stage": "tilesheet"})
+    assert sheet[0] == ("input.png", "Tile sheet PNG")
+    assert sheet != artifacts.ARTIFACTS
 
 
 def test_the_two_public_names_the_tray_and_the_footer_share():

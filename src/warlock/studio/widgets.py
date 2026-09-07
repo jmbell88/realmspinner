@@ -2947,7 +2947,14 @@ def labeled_combo(
 
 
 def labeled_slider_int(
-    label: str, value: int, low: int, high: int, *, help_text: str | None = None
+    label: str,
+    value: int,
+    low: int,
+    high: int,
+    *,
+    help_text: str | None = None,
+    enabled: bool = True,
+    reason: str = "",
 ) -> tuple[bool, int]:
     """A full-width slider that keeps saying what it is. -> (changed, value)
 
@@ -2963,12 +2970,18 @@ def labeled_slider_int(
     -- since the typed-entry clamp landed -- no bound on what Ctrl+click can
     type into it. ``test_probe.RAW_IMGUI_CONTROLS``' own docstring says to
     lower the pin when a control is migrated, which is this.
+
+    ``enabled``/``reason`` forward straight to ``controls.slider_int``'s own
+    pair, added the day Sirens' Sound effects pane needed a Tempo and a Speed
+    slider that go inert while the song is being written the same way every
+    other control in the pane does -- a labelled slider that could not be
+    disabled was one this helper could not be used for at all.
     """
     from . import controls
 
     field_label(label, help_text)
     imgui.set_next_item_width(-1)
-    return controls.slider_int(f"##{label}", value, low, high)
+    return controls.slider_int(f"##{label}", value, low, high, enabled=enabled, reason=reason)
 
 
 def labeled_drag_int(
@@ -2980,6 +2993,8 @@ def labeled_drag_int(
     speed: float = 1.0,
     fmt: str = "%d",
     help_text: str | None = None,
+    enabled: bool = True,
+    reason: str = "",
 ) -> tuple[bool, int]:
     """``labeled_slider_int``'s rule for a value whose useful range is too
     wide for a track to be the right control -- a column count that is
@@ -2987,13 +3002,16 @@ def labeled_drag_int(
     still moves it in ``speed``-sized steps; ctrl-click still opens exact text
     entry, which is how a slider's own range would otherwise be typed around.
 
-    Through ``controls`` for the reasons ``labeled_slider_int`` gives.
+    Through ``controls`` for the reasons ``labeled_slider_int`` gives, and
+    carrying the same ``enabled``/``reason`` pair for the same reason.
     """
     from . import controls
 
     field_label(label, help_text)
     imgui.set_next_item_width(-1)
-    return controls.drag_int(f"##{label}", value, speed, low, high, fmt)
+    return controls.drag_int(
+        f"##{label}", value, speed, low, high, fmt, enabled=enabled, reason=reason
+    )
 
 
 def float_format(low: float, high: float, step: float | None = None) -> str:
@@ -3028,6 +3046,8 @@ def labeled_slider_float(
     fmt: str | None = None,
     percent: bool | None = None,
     help_text: str | None = None,
+    enabled: bool = True,
+    reason: str = "",
 ) -> tuple[bool, float]:
     """``labeled_slider_int`` for a float. See it for why this exists.
 
@@ -3045,6 +3065,10 @@ def labeled_slider_float(
     a range cannot know about (``"%.2fx"`` for a scale factor). Otherwise
     :func:`float_format` picks one from the range, which is what stops a
     degrees-of-rotation slider reading ``45.000``.
+
+    ``enabled``/``reason``, the pair ``labeled_slider_int`` grew for Sirens'
+    two busy-song sliders, kept here so the int and float halves of the family
+    do not drift into offering different contracts.
     """
     from . import controls
 
@@ -3054,10 +3078,24 @@ def labeled_slider_float(
         percent = low == 0.0 and high == 1.0
     if percent:
         changed, shown = controls.slider_float(
-            f"##{label}", value * 100.0, low * 100.0, high * 100.0, fmt or "%.0f%%"
+            f"##{label}",
+            value * 100.0,
+            low * 100.0,
+            high * 100.0,
+            fmt or "%.0f%%",
+            enabled=enabled,
+            reason=reason,
         )
         return changed, shown / 100.0
-    return controls.slider_float(f"##{label}", value, low, high, fmt or float_format(low, high))
+    return controls.slider_float(
+        f"##{label}",
+        value,
+        low,
+        high,
+        fmt or float_format(low, high),
+        enabled=enabled,
+        reason=reason,
+    )
 
 
 def primary_button(

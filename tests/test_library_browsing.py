@@ -456,3 +456,120 @@ def test_opening_a_missing_folder_still_toasts_inline():
 
     assert not ctx.submitted
     assert ctx.toasts and "not on disk" in ctx.toasts[0][0]
+
+
+# --- Convert...: the format picker reached from a card and from the bulk bar --
+#
+# The popup itself needs an imgui context to draw (``_draw_convert_popup``,
+# ``_convert_popup_body``), so what is tested here is the half that does not:
+# which kinds offer a format list at all, and that both doors -- the card's
+# overflow menu and the bulk bar -- route into the one function that decides
+# it, the way ``test_bulk_delete_uses_the_batch_helper_for_one_toast_one_undo``
+# above pins the delete door onto ``delete_assets`` rather than a restated loop.
+
+
+def test_convert_formats_are_offered_only_for_the_kinds_that_have_any():
+    from warlock.service import files as svc_files
+
+    for kind in ("music", "reference", "tile", "tilesheet"):
+        names = {n for n, _label in library._CONVERT_FORMATS[kind]}
+        assert names, kind
+        for name in names:
+            assert name in svc_files.MEDIA, (kind, name)
+    # A mesh, a rig, a character sheet -- nothing here has a "native format"
+    # the way a take or a picture does, so none of them gets a row at all.
+    for kind in ("model", "rig", "sheet", "sprite"):
+        assert kind not in library._CONVERT_FORMATS
+
+
+def test_convert_formats_pulls_only_the_reencodings_out_of_the_export_grid():
+    """``ARTIFACTS_MUSIC``/``ARTIFACTS_2D`` carry rows -- WAV itself, the
+    manifest, the source PNG -- that are not format *conversions*; the
+    Convert picker must not offer a button for one of those."""
+    music_names = {n for n, _label in library._CONVERT_FORMATS["music"]}
+    assert "manifest.json" not in music_names
+    ref_names = {n for n, _label in library._CONVERT_FORMATS["reference"]}
+    assert "input.png" not in ref_names
+    assert "manifest.json" not in ref_names
+    assert "icon.png" not in ref_names
+
+
+def test_the_overflow_menu_offers_a_convert_entry_when_the_card_can():
+    source = inspect.getsource(library._overflow)
+    assert "_convert_formats(job)" in source
+    assert "_start_convert(ctx, [job_id])" in source
+
+
+def test_the_bulk_bar_routes_convert_through_start_convert():
+    source = inspect.getsource(library._bulk_action)
+    body = source.split('key == "convert"', 1)[1]
+    assert "_start_convert(ctx, picked)" in body
+
+
+class _ConvertCtx:
+    def __init__(self, jobs):
+        from types import SimpleNamespace
+
+        self.cache = SimpleNamespace(get={j["id"]: j for j in jobs}.get)
+        self.toasts: list[tuple[str, str]] = []
+        self.submitted: list[tuple[str, Any]] = []
+
+    def toast(self, text, level="info", action=None):
+        self.toasts.append((text, level))
+
+    def submit(self, key, fn, *args, **kwargs):
+        self.submitted.append((key, fn))
+        return True
+
+
+def test_start_convert_toasts_rather_than_opening_a_picker_with_nothing_in_it():
+    ctx = _ConvertCtx([job(id="m1", stage="model")])
+    library._start_convert(ctx, ["m1"])
+    assert not ctx.submitted
+    assert ctx.toasts and "convert" in ctx.toasts[0][0].lower()
+
+
+def test_start_convert_refuses_a_mixed_kind_selection():
+    """A picker whose buttons only work for some of what is ticked is worse
+    than no picker -- refused with a toast instead of shown half-broken."""
+    ctx = _ConvertCtx(
+        [job(id="t1", kind="music", stage="music"), job(id="r1", stage="reference")]
+    )
+    library._start_convert(ctx, ["t1", "r1"])
+    assert not ctx.submitted
+    assert ctx.toasts
+
+
+def test_start_convert_submits_a_per_job_key_for_a_single_asset():
+    """Distinct from the bulk key, and job-scoped: two cards' Convert menus
+    opened in the same frame must not collide on one task key the way two
+    concurrent saves of the same artifact are meant to (``TaskRunner.submit``
+    refuses a key already in flight -- a shared key here would silently drop
+    the second click)."""
+    ctx = _ConvertCtx([job(id="t1", kind="music", stage="music")])
+    library._start_convert(ctx, ["t1"])
+    assert len(ctx.submitted) == 1
+    assert ctx.submitted[0][0] == "convert:t1"
+
+
+def test_start_convert_submits_the_export_prefix_for_several_assets():
+    """``export-``: the same prefix ``_export_zip``/``_export_folder`` submit
+    under, so ``main.py``'s existing "Exported to <path>" toast fires with no
+    change there -- see ``_run_convert``'s own comment."""
+    ctx = _ConvertCtx(
+        [job(id="t1", kind="music", stage="music"), job(id="t2", kind="music", stage="music")]
+    )
+    library._start_convert(ctx, ["t1", "t2"])
+    assert len(ctx.submitted) == 1
+    assert ctx.submitted[0][0] == "export-convert"
+
+
+def test_dialogs_offers_a_filter_for_every_new_convert_suffix():
+    """Before this, saving any of these fell through to ``["All files", "*"]``
+    -- no extension offered, none appended -- because ``ARTIFACT_FILTERS`` had
+    no audio or web-image rows at all."""
+    from warlock.studio import dialogs
+
+    for suffix in (".wav", ".flac", ".mp3", ".ogg", ".aiff", ".webp", ".jpg"):
+        assert suffix in dialogs.ARTIFACT_FILTERS, suffix
+        assert dialogs.ARTIFACT_FILTERS[suffix][1] == f"*{suffix}", suffix

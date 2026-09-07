@@ -39,6 +39,7 @@ MEDIA = {
     "track.flac": "audio/flac",
     "track.mp3": "audio/mpeg",
     "track.ogg": "audio/ogg",
+    "track.aiff": "audio/aiff",
     # The four stems, as *literal* keys rather than a ``stems/{name}.wav``
     # pattern -- the reason the pixel sizes are literals. MEDIA is the allowlist
     # that keeps a caller-supplied string off the filesystem, and a pattern is
@@ -100,6 +101,14 @@ MEDIA = {
     "material_roughness.png": "image/png",
     "material.zip": "application/zip",
     "manifest.json": "application/json",
+    # The web re-encodings of input.png itself -- WebP and JPEG, mirroring
+    # ``track.flac``/``track.mp3``/``track.ogg`` from ``pipelines/audioout``
+    # exactly, but for the reference or tile's own picture rather than the
+    # cutouts made from it. Literal names for the allowlist's own reason:
+    # sharing input.png's basename says what they are re-encodings *of*
+    # without opening a ``{name}.{ext}`` pattern a caller could point anywhere.
+    "input.webp": "image/webp",
+    "input.jpg": "image/jpeg",
     # The traceback errors.write_error_log already writes per job. The DB only
     # ever holds the one-line friendly sentence, so without this the actual
     # failure is on disk and unreachable from the UI.
@@ -695,7 +704,39 @@ STEMS_DIR = "stems"
 #: **No staleness rule**, deliberately, and it is stated rather than left out:
 #: ``input.png`` has three writers, which is what ``fresh_2d`` exists for, and
 #: ``track.wav`` has one that never touches it again. Existence is the test.
-DERIVED_AUDIO = ("track.flac", "track.mp3", "track.ogg")
+#:
+#: **``track.wav`` is a member of its own format list**, which reads oddly
+#: until ``pipelines.audioout.convert``'s docstring: it is served directly
+#: whenever it exists (``ready``'s own ``track.wav`` branch, checked before
+#: this tuple is even consulted), and belongs here anyway so the Library's
+#: Convert door and the Downloads grid can offer WAV beside FLAC/MP3/OGG/AIFF
+#: as one uniform list under one lock, instead of a WAV-shaped special case in
+#: both. The fallback path -- a plain file copy, for the vanishingly rare race
+#: where this is reached with the file not yet on disk -- exists for the same
+#: robustness reason ``model.fbx``'s and ``animated.glb``'s branches do.
+DERIVED_AUDIO = ("track.wav", "track.flac", "track.mp3", "track.ogg", "track.aiff")
+
+#: The web re-encodings of a reference or tile's own ``input.png`` --
+#: ``pipelines/imageout``'s whole format list, named here for the reason
+#: ``DERIVED_AUDIO`` gives ``pipelines/audioout``'s: which source an artifact
+#: is derived *from* is what ``ready``/``unready_reason`` branch on, so a
+#: format list belongs beside the tuple naming its source rather than folded
+#: into ``DERIVED_2D``.
+#:
+#: **Not folded into REFERENCE_2D/TILE_2D even though the source is the same
+#: input.png**, because the *set* is not stage-dependent the way theirs is: a
+#: reference has the cutouts and a tile has the wrapped view and neither has
+#: the other's, but every 2D-producing stage has the same one picture to
+#: re-encode, so the same two names are offered everywhere ``DERIVED_2D``'s
+#: stage split would otherwise have to repeat.
+#:
+#: **Shares DERIVED_2D's staleness rule, not DERIVED_AUDIO's.** input.png has
+#: the three writers ``fresh_2d`` exists for -- a hand edit or a revert
+#: rewrites it in place -- and a WebP derived from the pixels *before* that
+#: edit is exactly as stale as an icon would be. ``fresh_2d`` is taught these
+#: two names for that reason rather than this tuple inventing a second
+#: mtime comparison that says the same thing.
+DERIVED_IMAGE = ("input.webp", "input.jpg")
 
 #: Derived from ``rig.glb``, not from ``model.glb``.
 #:
@@ -843,8 +884,17 @@ def fresh_2d(job_dir: Path, name: str) -> bool:
     freshness rule and not an existence check, so any caller may ask it of any
     name -- but for a 2D artifact "does not exist" and "is stale" are the same
     answer, which is what lets ``get_file`` treat both as "derive it".
+
+    ``DERIVED_IMAGE`` is checked here too, alongside ``DERIVED_2D`` -- not a
+    scope creep, because the question this function answers ("is this file at
+    least as new as input.png") is *identical* for ``input.webp``/``input.jpg``
+    and for ``icon.png``: same source, same three writers, same mtime
+    comparison. ``DERIVED_IMAGE`` stays its own tuple elsewhere (``ready`` and
+    ``derive.get_file`` treat it as a re-encoding rather than a cutout, the way
+    ``pipelines.imageout`` differs from ``asset2d``/``matting``), but there is
+    only one staleness rule for "derived from input.png" and this is it.
     """
-    if name not in DERIVED_2D:
+    if name not in DERIVED_2D and name not in DERIVED_IMAGE:
         return True
     path = job_dir / name
     source = job_dir / "input.png"
@@ -931,20 +981,37 @@ def ready(job: dict[str, Any], job_dir: Path, name: str) -> bool:
             and job.get("status") == "done"
             and (job_dir / "input.png").exists()
         )
+    if name in DERIVED_IMAGE:
+        # The web re-encodings of input.png, gated on the same three stages
+        # DERIVED_2D's own comment argues for: a mesh job's input.png is the
+        # picture it was reconstructed *from*, and a WebP of it would quietly
+        # claim to be an export of the mesh the way a stray icon would. Unlike
+        # DERIVED_2D there is no further per-name split within those stages --
+        # both names are offered on all three, so this checks the stage
+        # directly rather than through a ``derived_2d_for``-shaped filter.
+        return (
+            job.get("stage") in ("reference", "tile", "tilesheet")
+            and job.get("status") == "done"
+            and (job_dir / "input.png").exists()
+        )
     if name in STEM_FILES:
         # Gated on the sidecar for ``rig.glb``'s reason: the stems land in this
         # job's directory but are written by a *different* job, one at a time,
         # so existence alone can hand a reader three of four. ``stems.json`` is
         # written last as the completion gate.
         return (job_dir / STEMS_DIR / "stems.json").exists() and path.exists()
-    if name in DERIVED_AUDIO:
-        # Derivable, not present -- ``DERIVED``'s arm on the other source.
-        return ready(job, job_dir, "track.wav")
     if name == "track.wav":
         # Gated on status for model.glb's reason: the worker writes the file
         # through the vendored pipeline and the row is marked done afterwards,
-        # so existence alone can hand a reader a half-encoded take.
+        # so existence alone can hand a reader a half-encoded take. Checked
+        # *before* the ``DERIVED_AUDIO`` branch below on purpose: track.wav is
+        # now a member of that tuple too (see its docstring), and the generic
+        # "derivable, not present" branch recursing into ``ready(..., "track.
+        # wav")`` for name == "track.wav" itself would be infinite recursion.
         return job.get("status") == "done" and path.exists()
+    if name in DERIVED_AUDIO:
+        # Derivable, not present -- ``DERIVED``'s arm on the other source.
+        return ready(job, job_dir, "track.wav")
     if name in DERIVED_RIG:
         # Derivable, not present -- ``DERIVED``'s arm on the other source --
         # and only for a rig whose skeleton has clips authored for it.
@@ -980,6 +1047,7 @@ def unready_reason(job: dict[str, Any], job_dir: Path, name: str) -> str:
         name in ("model.glb", "source.glb", "track.wav")
         or name in DERIVED
         or name in DERIVED_2D
+        or name in DERIVED_IMAGE
         or name in DERIVED_AUDIO
         or name in DERIVED_RIG
     )
@@ -999,6 +1067,10 @@ def unready_reason(job: dict[str, Any], job_dir: Path, name: str) -> str:
         return f"{name} is only offered for a reference or a tile, not for a mesh."
     if name in DERIVED_2D and not (job_dir / "input.png").exists():
         return f"{name} is derived from the reference image, which is not on disk."
+    if name in DERIVED_IMAGE and job.get("stage") not in ("reference", "tile", "tilesheet"):
+        return f"{name} is only offered for a reference, a tile or a tile sheet, not for a mesh."
+    if name in DERIVED_IMAGE and not (job_dir / "input.png").exists():
+        return f"{name} is derived from the reference image, which is not on disk."
     if name in DERIVED_RIG and not (job_dir / "rig.json").exists():
         return "This asset has not been rigged yet."
     if name in DERIVED_RIG and not _rig_has_clips(job_dir):
@@ -1010,7 +1082,10 @@ def unready_reason(job: dict[str, Any], job_dir: Path, name: str) -> str:
         )
     if name in DERIVED and not (job_dir / "model.glb").exists():
         return f"{name} is derived from the mesh, which is not on disk."
-    if name in DERIVED_AUDIO and not (job_dir / "track.wav").exists():
+    # ``name != "track.wav"``: it is a member of DERIVED_AUDIO itself (see the
+    # tuple's docstring), and without the guard this would tell the reader
+    # track.wav is derived from track.wav.
+    if name in DERIVED_AUDIO and name != "track.wav" and not (job_dir / "track.wav").exists():
         return f"{name} is derived from the track, which is not on disk."
     if name in STEM_FILES:
         return "This take has not been split into stems yet."

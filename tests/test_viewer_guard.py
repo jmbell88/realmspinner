@@ -178,3 +178,19 @@ def test_the_poser_link_leaves_the_shared_viewer_behind():
     pose_panel.open_in_poser(ctx, {"id": "a" * 12})
     assert ctx.state.mode == "poser"
     assert ctx.viewer.pose_mode is False
+
+
+# --- re-rigging an already-open asset -----------------------------------------
+
+
+def test_rerig_goes_through_poser_mode_s_own_guard():
+    """A re-rig discards unsaved edits in Poser's *own* session -- it must ask
+    through ``poser_mode.guard``, never ``pose_panel``'s, for the same reason
+    every other Poser door does: the two guards read different viewers, and
+    reading the wrong one would let a re-rig sail past a dirty Poser session
+    because the shared (inspector) viewer happened to be clean."""
+    import inspect
+
+    source = inspect.getsource(poser_mode.rerig)
+    assert 'guard(ctx, "re-rig this asset"' in source
+    assert "pose_panel" not in source

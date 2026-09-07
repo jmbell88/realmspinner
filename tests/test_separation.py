@@ -120,18 +120,37 @@ def test_a_derived_format_of_a_take_with_no_audio_names_the_track(tmp_path):
 
 
 def test_every_derived_format_has_a_media_type_and_an_encoder():
+    """Both directions, minus the one name that is deliberately not encoded.
+
+    ``track.wav`` joined ``DERIVED_AUDIO`` when the Library grew a Convert
+    door, so that all five formats are offered from one menu under one lock --
+    but it is a staged *copy*, not a ``FORMATS`` row, because re-encoding
+    16-bit PCM through float32 and back is a second quantisation for nothing.
+    So the two tables are not equal and must not be asserted equal; what has
+    to hold is that everything derived is either encodable or that one copy,
+    and that all of it is in the ``MEDIA`` allowlist.
+    """
     from warlock.pipelines import audioout
 
-    assert set(files.DERIVED_AUDIO) == set(audioout.FORMATS)
+    assert set(audioout.FORMATS) <= set(files.DERIVED_AUDIO)
+    assert set(files.DERIVED_AUDIO) - set(audioout.FORMATS) == {"track.wav"}
     for name in files.DERIVED_AUDIO:
         assert name in files.MEDIA
 
 
 def test_the_encoder_refuses_a_name_it_does_not_write(tmp_path):
+    """The allowlist rule: a name that is not a row may not become a path.
+
+    Asked with ``track.opus`` rather than ``track.aiff`` -- AIFF is a real row
+    now, and Opus is the one libsndfile here advertises but cannot be given:
+    it accepts only 8/12/16/24/48 kHz, and a take is 44.1, so it would need a
+    resample to be offered at all.
+    """
     from warlock.pipelines import audioout
 
+    assert "track.opus" not in audioout.FORMATS
     with pytest.raises(ValueError, match="not a format"):
-        audioout.convert(tmp_path / "a.wav", tmp_path / "b", "track.aiff")
+        audioout.convert(tmp_path / "a.wav", tmp_path / "b", "track.opus")
 
 
 def test_a_take_round_trips_through_every_format(tmp_path):

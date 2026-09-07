@@ -491,6 +491,7 @@ def sirens(ctx: Any) -> dict[str, Column]:
                 edge=_edge("left"),
                 sizing=SHARE,
                 share_key="sirens-effects",
+                floor=sirens_effects.EFFECTS_FLOOR,
             ),
             Slot(
                 "sirens-bridge",
@@ -499,6 +500,7 @@ def sirens(ctx: Any) -> dict[str, Column]:
                 role=_role("inspector"),
                 edge=_edge("left"),
                 sizing=FILL,
+                floor=sirens_bridge.BRIDGE_FLOOR,
             ),
         ),
     )

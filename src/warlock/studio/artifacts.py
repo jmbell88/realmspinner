@@ -45,6 +45,11 @@ ARTIFACTS_2D = (
     ("pixel_64.png", "Pixel 64"),
     ("pixel_128.png", "Pixel 128"),
     ("manifest.json", "Manifest"),
+    # The web re-encodings of the source picture itself (pipelines/imageout),
+    # beside the row that hands the PNG over rather than beside the cutouts --
+    # they are the same image, not a lifted subject.
+    ("input.webp", "WebP"),
+    ("input.jpg", "JPEG"),
     ("input.png", "Source image"),
 )
 
@@ -54,6 +59,11 @@ ARTIFACTS_2D = (
 # because for a tile input.png is the asset and not the input to one.
 ARTIFACTS_TILE = (
     ("input.png", "Tile PNG"),
+    # The web re-encodings of that same texture (pipelines/imageout), grouped
+    # with it rather than at the end: they are the one picture, not a
+    # different derivation the way the wrapped view and the material set are.
+    ("input.webp", "WebP"),
+    ("input.jpg", "JPEG"),
     ("wrap_preview.png", "Wrapped view"),
     # The zip leads the material group because it is what somebody taking this
     # into an engine wants: all four images plus a glTF material fragment in
@@ -79,21 +89,35 @@ ARTIFACTS_TILE = (
 # real operation and deliberately is not here: it belongs to Packwright's
 # tileset import, which takes the sheet as a file and asks what size the tiles
 # are.
-ARTIFACTS_TILESHEET = (("input.png", "Tile sheet PNG"),)
+ARTIFACTS_TILESHEET = (
+    ("input.png", "Tile sheet PNG"),
+    # Same re-encodings, same reason as ARTIFACTS_TILE's: one picture, offered
+    # in whatever format an engine wants it in.
+    ("input.webp", "WebP"),
+    ("input.jpg", "JPEG"),
+)
 
-# What a finished *take* can hand over: the three compressed/lossless
-# re-encodings of track.wav, lazily derived exactly the way the mesh exports
-# derive from model.glb (``service.derive.get_file``, the DERIVED_AUDIO arm).
+# What a finished *take* can hand over: WAV alongside the compressed/lossless
+# re-encodings of it, lazily derived exactly the way the mesh exports derive
+# from model.glb (``service.derive.get_file``, the DERIVED_AUDIO arm).
 #
-# track.wav itself is deliberately not a fourth row here. Every other list
-# above ends with (or leads with) the artifact its derivations came from --
-# model.glb/source.glb, input.png -- but a take's WAV already has a save
-# dialog of its own, Muse's own player's "Export the track"
-# (studio/muse_io.py), which writes the identical bytes. A second button
-# here would be a second door to the same file rather than the door the
-# 2026-09-05 audit (finding muse-01) found missing.
+# track.wav **used to be** deliberately absent from this list -- every other
+# list above ends with (or leads with) the artifact its derivations came from,
+# but a take's WAV already had a save dialog of its own, Muse's own player's
+# "Export the track" (studio/muse_io.py), which writes the identical bytes,
+# and a second button here would have been a second door to the same file.
+# That argument held exactly as long as this grid was the *only* other door.
+# It is not any more: the Library's Convert menu (panes/library.py) opens onto
+# this same list from a card the Muse player is never reachable from, so a
+# take sitting in the Library with no player open had no way to leave as a
+# WAV at all. The asymmetry the old comment described is what closes here --
+# WAV is a row like any other, one lock and one code path for all five
+# formats (see ``pipelines.audioout.convert``'s docstring for why WAV's own
+# "derivation" is a plain file copy).
 ARTIFACTS_MUSIC = (
+    ("track.wav", "WAV"),
     ("track.flac", "FLAC"),
+    ("track.aiff", "AIFF"),
     ("track.mp3", "MP3"),
     ("track.ogg", "OGG"),
 )
@@ -107,8 +131,11 @@ def artifacts_for(job: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     would hide exactly the exports that have not been produced yet -- which is
     all of them, the first time.
 
-    The two image stages' lists are labels for exactly what
-    ``service.files.derived_2d_for`` says each can produce, plus the source
+    The three image-stage lists are labels for exactly what
+    ``service.files.derived_2d_for`` says each stage can produce, plus
+    ``DERIVED_IMAGE``'s two web re-encodings -- offered on all three rather
+    than split by stage, since unlike the cutouts and the wrapped view they
+    apply to the one picture every 2D-producing stage has -- plus the source
     image every job may take away. They are literals rather than a lookup
     because the *order* is a UI decision the service has no opinion about --
     a tile leads with its own PNG, a reference ends with the image it was

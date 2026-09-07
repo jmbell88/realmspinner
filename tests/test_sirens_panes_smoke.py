@@ -55,6 +55,12 @@ PANES = (
 #: pixels and the centre column is the rest of the window.
 WINDOW = (760.0, 900.0)
 
+#: A single sidebar at its own design width (``skeletons.COLUMN_W``), used by
+#: the narrow-window case below. Every right-column pane draws inside exactly
+#: this width in the running app, so a control that only fits at 760 px was
+#: never actually exercised at the size it is really drawn at.
+NARROW_WINDOW = (300.0, 900.0)
+
 
 @pytest.fixture
 def frames():
@@ -78,9 +84,9 @@ def frames():
     io.backend_flags |= imgui.BackendFlags_.renderer_has_textures.value
     theme.apply(imgui)
 
-    def draw(build: Any) -> None:
+    def draw(build: Any, size: tuple[float, float] = WINDOW) -> None:
         imgui.new_frame()
-        imgui.set_next_window_size(WINDOW)
+        imgui.set_next_window_size(size)
         imgui.begin("smoke")
         try:
             build()
@@ -146,6 +152,56 @@ def test_every_pane_draws_with_nothing_open(name, pane, frames):
     """The empty state is a frame too, and it is the first one a user sees."""
     ctx = FakeCtx()
     frames(lambda: pane.draw(ctx))
+
+
+@pytest.mark.parametrize("name,pane", PANES, ids=[name for name, _ in PANES])
+def test_every_pane_draws_in_a_narrow_sidebar(name, pane, frames):
+    """K97's window, for Sirens (the 2026-09-07 audit).
+
+    Every right-column pane in the running app draws inside a 300 px sidebar,
+    not the 760 px this file otherwise uses -- so a label row built out of an
+    unmeasured run of ``same_line`` calls (the envelope header's two small
+    buttons, before ``same_line_or_wrap``) could clip past the right edge on
+    every real launch and this suite would still be green, because nothing
+    here ever asked imgui to lay the row out at the width it is actually drawn
+    at. This does not read pixels back -- imgui gives no headless way to do
+    that -- but it does run the same wrapping arithmetic
+    ``same_line_or_wrap``/``button_width`` exercise at the narrow width,
+    which a 760 px frame never reaches.
+    """
+    ctx = FakeCtx()
+    _loaded(ctx)
+    frames(lambda: pane.draw(ctx), size=NARROW_WINDOW)
+
+
+@pytest.mark.parametrize("name,pane", PANES, ids=[name for name, _ in PANES])
+def test_every_pane_draws_at_a_larger_ui_scale(name, pane, frames):
+    """The other half of K97's reasoning: a hardcoded pixel size is invisible
+    at the one scale this suite otherwise runs at (1.0) and wrong at every
+    other. ``grid_width``, ``button_width`` and ``same_line_or_wrap`` all ask
+    ``tokens.sp``/the live imgui style rather than a literal, which is exactly
+    what stops a wider frame padding at 1.6x from pushing a row's last button
+    past the content region the way a bare ``same_line()`` used to.
+    """
+    from imgui_bundle import imgui
+
+    from warlock.studio import theme, tokens
+
+    ctx = FakeCtx()
+    _loaded(ctx)
+    tokens.set_scale(1.6)
+    # ``theme.apply`` bakes ``item_spacing``/``frame_padding`` into the style
+    # at call time (its own docstring: "Called once, after the context and
+    # fonts exist") -- ``grid_width`` and ``button_width`` read those from the
+    # *style*, not from ``tokens.SCALE`` directly, so a bare ``set_scale``
+    # with no second ``apply`` would leave them at 1.0x and this test would
+    # exercise nothing a 1.0x frame does not already.
+    theme.apply(imgui)
+    try:
+        frames(lambda: pane.draw(ctx))
+    finally:
+        tokens.set_scale(1.0)
+        theme.apply(imgui)
 
 
 def test_the_grid_draws_its_caret(frames):

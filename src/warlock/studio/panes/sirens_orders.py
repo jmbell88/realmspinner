@@ -238,8 +238,11 @@ def _order(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
             "is the point of the choice."
         )
         return
-    imgui.set_next_item_width(-1)
-    changed, value = controls.slider_int(
+    # Through ``widgets.labeled_slider_int`` rather than a bare
+    # ``controls.slider_int`` (the 2026-09-07 audit): the -1-width rule leaves
+    # a bare imgui label undrawn, and "Loop from" was one of the sliders it
+    # was happening to.
+    changed, value = widgets.labeled_slider_int(
         "Loop from", doc.loop_order, 0, max(0, len(order) - 1), enabled=editable
     )
     controls.fold_undo(doc.history)
@@ -301,17 +304,23 @@ def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
             sirens_mode.set_caret(ctx, pattern=pattern.uid)
         if not selected:
             continue
+        # ``##``-hidden with the name drawn above (the 2026-09-07 audit):
+        # ``"Name###sirens-pattern-name-{uid}"`` at width -1 kept "Name" as
+        # visible text and only overrode the id, so imgui drew that visible
+        # text to the right of a field with no room for it -- the same
+        # not-drawn-at-all defect a plain ``##`` prefix avoids, and every other
+        # field in this pane already uses.
+        widgets.field_label("Name")
         imgui.set_next_item_width(-1)
         changed, name = controls.input_text(
-            f"Name###sirens-pattern-name-{pattern.uid}",
+            f"##sirens-pattern-name-{pattern.uid}",
             pattern.name,
             enabled=editable,
             commit=True,
         )
         if changed:
             doc.rename_pattern(pattern.uid, name)
-        imgui.set_next_item_width(-1)
-        changed, value = controls.slider_int(
+        changed, value = widgets.labeled_slider_int(
             "Rows", pattern.rows, 1, 256, enabled=editable
         )
         controls.fold_undo(doc.history)

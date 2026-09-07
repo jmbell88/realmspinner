@@ -120,7 +120,24 @@ def _slice_filenames(entries: list[Any]) -> list[str]:
     return out
 
 
-def export_slices(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False) -> None:
+#: The filter row for Android's own nine-patch interchange format, offered
+#: alongside plain PNG in :func:`export_slices`'s save dialog -- the one new
+#: row in ``dialogs.ARTIFACT_FILTERS``. ``.9.png`` is a
+#: double suffix, so it is matched by *name* rather than through
+#: ``Path.suffix`` everywhere below: ``Path("panel.9.png").suffix`` is
+#: ``".png"`` alone, which would make the guide format unreachable by typing
+#: or picking the very name the format is called by.
+NINEPATCH_FILTER = dialogs.ARTIFACT_FILTERS[".9.png"]
+
+
+def export_slices(
+    ctx: Any,
+    tab: InkerDoc | None = None,
+    *,
+    repeat: bool = False,
+    width: int = 0,
+    height: int = 0,
+) -> None:
     """Every slice as its own PNG, cropped from the current frame's flatten.
 
     Each slice resolves ``at(current_frame_uid)`` -- so a keyed slice exports
@@ -129,11 +146,32 @@ def export_slices(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False
     per frame is a different export and stays out of scope here; it is
     Packwright's job.
 
+    **Two things a slice with a nine-slice centre can additionally become,**
+    from the one save dialog, the way :func:`~.inker_mode.save_as` picks
+    between ``.ora`` and ``.aseprite`` from the suffix typed or chosen there --
+    a plain crop, unless one of these applies:
+
+    * ``width``/``height`` positive (Sprite ▸ Export nine-slice panels..., whose
+      params popup is the only caller that ever passes them): every slice with
+      a centre is rebuilt at that size through ``nineslice.stretch`` --
+      corners kept, edges and middle repeated. A slice with no centre still
+      exports its plain crop; there is no centre to stretch it by.
+    * the destination the user typed or picked ends in ``.9.png``: every slice
+      with a centre is written through ``nineslice.ninepatch`` instead --
+      Android's own guide-bordered format, always at the slice's *own* size,
+      because Android stretches a nine-patch itself at whatever size the
+      widget ends up being. ``width``/``height`` are ignored in this branch on
+      purpose: pre-stretching a file that format promises to stretch again
+      would double the very thing it exists to do once.
+
+    A slice with no centre is unaffected by either -- it is not a nine-slice,
+    so it is exactly the crop this function always wrote.
+
     Not spread through the stepper the animated exports use: this reads one
     flatten, not one per frame, so there is nothing to spend across app frames.
-    The geometry -- names and bounds -- is resolved here, on the frame thread,
-    for ``_submit_export``'s reason about ``slices_snapshot``: the tab is
-    locked (``saving``) for the rest of the call, so "now" and "inside the
+    The geometry -- names, bounds and centres -- is resolved here, on the frame
+    thread, for ``_submit_export``'s reason about ``slices_snapshot``: the tab
+    is locked (``saving``) for the rest of the call, so "now" and "inside the
     task" would answer the same question, and every other read in this
     function already happens here.
     """
@@ -148,46 +186,85 @@ def export_slices(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False
     state = ctx.state.inker
     scale = max(1, int(getattr(state, "export_scale", 1) or 1))
     frame_uid = tab.frame_uid
+    target_w, target_h = int(width), int(height)
+    # **A repeat has no params to carry the size in.** ``repeat_export`` calls
+    # this with only ``repeat=True`` (``REPEATABLE`` above) -- the params popup
+    # is exactly what a repeat exists to skip -- so a Ctrl+Shift+X after a
+    # stretched export arrived here with width and height at zero and silently
+    # wrote plain crops over the same filenames, at a different size than the
+    # export it claimed to be repeating. ``tab.export_nineslice`` is where that
+    # size is remembered, for the reason its own docstring gives: the
+    # destination path carries everything else about a slice export and cannot
+    # carry this. The ``.9.png`` branch never needed it -- it is driven by
+    # ``dest``'s suffix, and ``dest`` is what ``export_dest`` already holds.
+    #
     # Both halves of Repeat Last Export, which this runner had neither of: it
     # never recorded ``dest``/``export_kind``, so ``REPEATABLE``'s "slices" row
     # could not be reached, and it ignored ``repeat``, so reaching it would
     # have opened the dialog anyway (the review's theme T5).
+    if repeat and not (target_w and target_h):
+        target_w, target_h = getattr(tab, "export_nineslice", (0, 0))
     recorded = tab.export_dest if repeat else None
     names = _slice_filenames(doc.slices)
-    crops = [
-        (name, entry.at(frame_uid).bounds)
-        for name, entry in zip(names, doc.slices, strict=True)
-    ]
+    # The whole key, not just its bounds -- ``center`` decides, per slice,
+    # which of the three writers below runs, and reading it here rather than
+    # inside the task is the same "resolved on the frame thread" rule the
+    # bounds already followed.
+    keys = [entry.at(frame_uid) for entry in doc.slices]
 
     def run() -> dict[str, Any] | None:
         from PIL import Image
 
+        from ..service.errors import invalid_from
+        from .inker import nineslice
         from .inker.transform import upscale
 
         dest = recorded or dialogs.save_file(
             "Export slices as PNGs",
             _suggested_dialog_name(tab, suggested, ".png"),
-            inker_mode.PNG_FILTER,
+            inker_mode.PNG_FILTER + NINEPATCH_FILTER,
         )
         if dest is None:
             return None
         dest.parent.mkdir(parents=True, exist_ok=True)
+        nine_patch = dest.name.lower().endswith(".9.png")
         # Read here, inside the task, for ``_write``'s reason: the encoders only
         # read, and the frame thread only ever appends to a layer's pixels in
         # place, so the worst this catches is a stroke that was mid-flight.
         flat = doc.flatten()
         first = None
-        for name, (x0, y0, x1, y1) in crops:
-            crop = upscale(flat[y0:y1, x0:x1], scale)
-            out = dest.parent / f"{name}.png"
-            atomic.save_image(out, Image.fromarray(crop, "RGBA"), "PNG")
+        for name, key in zip(names, keys, strict=True):
+            x0, y0, x1, y1 = key.bounds
+            if nine_patch and key.center is not None:
+                pixels = nineslice.ninepatch(flat, key.bounds, key.center)
+                suffix = ".9.png"
+            elif target_w and target_h and key.center is not None:
+                try:
+                    pixels = nineslice.stretch(
+                        flat, key.bounds, key.center, target_w, target_h
+                    )
+                except ValueError as exc:
+                    raise invalid_from(
+                        exc, f'"{name}" could not be exported at {target_w}x{target_h}'
+                    ) from exc
+                suffix = ".png"
+            else:
+                pixels = upscale(flat[y0:y1, x0:x1], scale)
+                suffix = ".png"
+            out = dest.parent / f"{name}{suffix}"
+            atomic.save_image(out, Image.fromarray(pixels, "RGBA"), "PNG")
             if first is None:
                 first = out
         # ``dest`` and ``export_kind`` for the same reason ``export_png``
         # records them: a repeat writes where this wrote, and the crops are
         # named from the slices rather than from the path, so the path the user
         # picked is the whole of what has to be remembered.
-        return {"exported": first, "dest": dest, "export_kind": "slices"}
+        return {
+            "exported": first,
+            "dest": dest,
+            "export_kind": "slices",
+            "export_nineslice": (target_w, target_h),
+        }
 
     inker_mode._start(ctx, tab, f"inker-export:{tab.uid}", run)
 

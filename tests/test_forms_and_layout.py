@@ -34,6 +34,19 @@ SP_SWEPT = (
     "inker_colors.py",
     # Joined 2026-08-19: THUMB and INDENT were used as raw physical pixels, so
     # thumbnails and group indents stayed put while the monitor scaled.
+    # Sirens' seven panes, joined by the 2026-09-07 audit alongside the label
+    # fix that made them worth scanning: a pane whose control widths were
+    # already right (``grid_width``, ``sp(GRAPH_H)``...) but whose labels were
+    # simply not drawn is exactly the class this scan cannot see and a
+    # screenshot would not either -- so both fixes land together, and the scan
+    # now covers the files the screenshot missed.
+    "sirens_instruments.py",
+    "sirens_effects.py",
+    "sirens_envelopes.py",
+    "sirens_transport.py",
+    "sirens_orders.py",
+    "sirens_bridge.py",
+    "sirens_patterns.py",
 )
 
 

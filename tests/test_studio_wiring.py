@@ -513,7 +513,12 @@ def test_a_picker_filter_is_label_pattern_pairs(name, entry):
         # is unsupported by the very picker that would have opened it;
         # advertising fewer is the same drift running the other way. A label
         # that names none ("Images") is deliberate and says nothing to break.
-        advertised = set(re.findall(r"\*\.[A-Za-z0-9]+", label))
+        # ``(?:\.ext)+`` rather than one ``.ext``: Android's nine-patch is
+        # ``*.9.png``, a genuinely two-part extension, and a single-segment
+        # pattern read it as ``*.9`` -- so the row was reported as advertising
+        # a format it did not filter for, when the row was right and this line
+        # was wrong.
+        advertised = set(re.findall(r"\*(?:\.[A-Za-z0-9]+)+", label))
         if advertised:
             assert advertised == set(globs), f"{name}[{index}] says {advertised}, filters {globs}"
 

@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock.studio import layout as layout_mod
 from warlock.studio import layout_skeleton as skeleton
 from warlock.studio import layouts
 
@@ -649,6 +650,25 @@ def test_a_saved_drag_still_wins_over_the_even_division():
     assert sum(got) == 900.0
 
 
+def _column_shares(lay: layout_mod.Layout, slots: list) -> dict[str, float]:
+    """The exact dict ``layout.column`` builds for one column, restated here.
+
+    ``layout.column`` (layout.py, just above its ``skeleton.heights`` call)
+    reads ``{slot.share_key: value for slot in live if slot.share_key and
+    (value := lay.saved_share(slot.share_key)) is not None}``. Restated by hand
+    rather than imported, because the whole point of this helper is to notice
+    if the call site ever stops building the dict this way -- importing the
+    comprehension itself would let that regression through silently, which is
+    exactly how the defect this file is about went unnoticed for as long as it
+    did.
+    """
+    return {
+        slot.share_key: value
+        for slot in slots
+        if slot.share_key and (value := lay.saved_share(slot.share_key)) is not None
+    }
+
+
 @pytest.mark.parametrize("workspace", ["clay", "inker", "plotter", "sirens"])
 def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
     """The property the flat default broke, asserted where it can be seen.
@@ -662,6 +682,23 @@ def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
 
     900 px is about what a sidebar column gets at the app's default 1600x950
     once the menu strip and the status row are taken off.
+
+    **Rewritten for the 2026-09-07 audit.** The ``{}`` this test used to hand
+    ``heights`` directly is not a dict ``layout.column`` can ever produce on the
+    path the running app takes: ``Layout.share`` never answers "unset" -- it
+    falls back through ``SHARE_DEFAULTS`` to ``settings_share`` -- so the old
+    ``column`` read 0.55 for every declared key and built ``{key: 0.55, ...}``,
+    never ``{}``. That dict is what actually reached ``heights``, and against
+    it Sirens' three SHARE columns (Instruments, Envelopes, Sound effects) each
+    claimed 0.55 of the room, leaving nothing for Sound effects or the Song file
+    FILL pane under it -- while this test, handed the one dict that could never
+    happen, kept passing. Building the dict from a real ``Layout`` through
+    ``_column_shares`` (``Layout.saved_share``, not ``Layout.share``) closes
+    that gap: a fresh ``Layout`` with nothing dragged now answers ``{}`` for
+    these keys for the *right* reason -- because ``saved_share`` reports
+    "nobody has touched this" rather than borrowing ``share``'s always-answer
+    fallback -- and ``heights``' own even-division default is what is actually
+    exercised.
     """
     from types import SimpleNamespace
 
@@ -670,11 +707,12 @@ def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
     ctx = SimpleNamespace(
         state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
     )
+    lay = layout_mod.Layout(_Settings())
     for column in skeletons.BUILDERS[workspace](ctx).values():
         slots = list(column.slots)
         if not slots:
             continue
-        got = skeleton.heights(slots, 900.0, {})
+        got = skeleton.heights(slots, 900.0, _column_shares(lay, slots))
         empty = [
             slot.id
             for slot, height in zip(slots, got, strict=True)
@@ -682,6 +720,56 @@ def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
         ]
         assert not empty, f"{workspace}/{column.id}: {empty} drawn at no height"
         assert sum(got) == pytest.approx(900.0)
+
+
+def test_sirens_right_column_gives_every_pane_room_at_a_realistic_width():
+    """Sirens-specific: all four right-column slots, through the real
+    ``skeletons.sirens`` table and a real ``Layout``, at 900 px -- about what a
+    sidebar gets at the app's default 1600x950 once the menu strip and status
+    row are taken off. All four must be visible, which is the property a
+    screenshot found missing -- the ``screenshots/dark-sirens.png`` that shipped
+    with 0.0.39 shows Instruments, Envelopes and a sliver of Song file, and no
+    Sound effects at all. That image has been refreshed since, which is exactly
+    why the claim belongs in an assertion: this asks the arithmetic directly, and
+    goes on being checkable after the evidence has been overwritten.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import skeletons
+
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
+    )
+    slots = list(skeletons.BUILDERS["sirens"](ctx)["right"].slots)
+    lay = layout_mod.Layout(_Settings())
+    got = skeleton.heights(slots, 900.0, _column_shares(lay, slots))
+    for slot, height in zip(slots, got, strict=True):
+        assert height >= 1.0, f"{slot.id} drawn at no height"
+    assert sum(got) == pytest.approx(900.0)
+
+
+def test_sirens_right_column_gives_every_pane_room_at_a_short_window():
+    """The tight case: a 600 px column, short enough that the three floors in
+    this column (``sirens_envelopes.ENVELOPES_FLOOR``,
+    ``sirens_effects.EFFECTS_FLOOR``, ``sirens_bridge.BRIDGE_FLOOR``) actually
+    compete for room rather than sitting under everyone's natural share. The
+    three are sized together, not independently, for exactly this reason -- see
+    each constant's own docstring for what it gives up here so the others stay
+    on screen.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import skeletons
+
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
+    )
+    slots = list(skeletons.BUILDERS["sirens"](ctx)["right"].slots)
+    lay = layout_mod.Layout(_Settings())
+    got = skeleton.heights(slots, 600.0, _column_shares(lay, slots))
+    for slot, height in zip(slots, got, strict=True):
+        assert height >= 1.0, f"{slot.id} drawn at no height"
+    assert sum(got) == pytest.approx(600.0)
 
 
 def test_a_fill_floor_reserves_room_out_of_the_shares_above_it():
@@ -831,3 +919,129 @@ def test_an_unreadable_layout_is_never_rewritten_by_either_reset():
     library.set_width_seed(360.0)
 
     assert settings.get(layouts.LAYOUTS_KEY)["default"] == {"v": 999, "mystery": 1}
+
+
+def test_an_untouched_splitter_starts_its_drag_where_the_pane_is_drawn():
+    """The regression the shares fix could have introduced and did not.
+
+    ``layout.column`` now hands ``heights`` only the shares somebody has
+    actually dragged, so an untouched splitter's panes are drawn at ``heights``'
+    even division -- while ``Layout.share`` still answers ``settings_share`` for
+    that same key, because a drag needs a number. Seeding a drag from ``share``
+    therefore snapped the pane from its quarter of the column to 0.55 of it on
+    the first nudge, in every workspace, before the drag distance was even
+    added. ``drag_seed`` is the rule; this is the claim.
+
+    Sirens' right column because it is the one with three SHARE slots, where the
+    gap between the even division and ``settings_share`` is widest.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import skeletons
+
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
+    )
+    slots = list(skeletons.BUILDERS["sirens"](ctx)["right"].slots)
+    lay = layout_mod.Layout(_Settings())
+    avail = 900.0
+    got = skeleton.heights(slots, avail, _column_shares(lay, slots))
+
+    checked = 0
+    for slot, height in zip(slots, got, strict=True):
+        if not slot.share_key:
+            continue
+        assert lay.saved_share(slot.share_key) is None, (
+            f"{slot.id} is already saved in a fresh Layout, so this test would "
+            "not be about an untouched key at all"
+        )
+        seed = layout_mod.drag_seed(lay, slot.share_key, height, avail)
+        assert seed == pytest.approx(height / avail), (
+            f"{slot.id}: the drag would start somewhere the pane is not drawn"
+        )
+        assert seed != pytest.approx(lay.share(slot.share_key)), (
+            f"{slot.id}: the drawn fraction happens to equal share()'s "
+            "fallback, so this column cannot tell the two seeds apart"
+        )
+        checked += 1
+    assert checked == 3, f"expected three SHARE slots to check, saw {checked}"
+
+
+def test_a_dragged_splitter_starts_from_the_value_that_was_saved():
+    """``drag_seed``'s other half: once a key is saved, that value is the seed
+    and the drawn height is irrelevant -- otherwise a floored pane would rewrite
+    the user's own drag to the floor the moment they touched the handle again.
+    """
+    lay = layout_mod.Layout(_Settings())
+    lay.set_share("sirens-instruments", 0.42)
+    assert layout_mod.drag_seed(lay, "sirens-instruments", 10.0, 900.0) == pytest.approx(0.42)
+
+
+def test_a_drag_seed_on_a_column_with_no_room_is_not_a_division_by_zero():
+    """``avail`` reaches zero for a frame while a workspace is being composed;
+    the drag is inert then, and this must not raise on the way to being inert.
+    """
+    lay = layout_mod.Layout(_Settings())
+    assert layout_mod.drag_seed(lay, "sirens-effects", 0.0, 0.0) == 0.0
+
+
+def test_an_untouched_share_key_is_absent_rather_than_borrowing_settings_share():
+    """``saved_share`` pinned on its own, because the floors can hide it.
+
+    The Sirens tests above pass with *either* half of the 2026-09-07 fix in
+    place: three floors sized to fit together already keep every pane off zero
+    at 900 px, even while every key is still answering ``settings_share``. So
+    those tests prove the symptom is gone and say nothing about the root cause
+    being fixed -- and the root cause is the half that matters everywhere else,
+    since the next column to gain a third SHARE slot inherits the bug with no
+    floors written yet.
+
+    What is asserted here is the distinction ``share`` cannot make: an
+    untouched key has no saved proportion, a dragged one does, and only the
+    second belongs in the dict ``heights`` is handed.
+    """
+    lay = layout_mod.Layout(_Settings())
+    assert lay.saved_share("sirens-effects") is None
+    # ``share`` still answers, and must -- a splitter drag needs a number every
+    # frame. The two disagreeing is the whole point.
+    assert lay.share("sirens-effects") == pytest.approx(lay.settings_share)
+
+    lay.set_share("sirens-effects", 0.31)
+    assert lay.saved_share("sirens-effects") == pytest.approx(0.31)
+
+    # A key with a hard-coded starting point is "saved" for this purpose: it is
+    # a deliberate proportion for that split rather than a sidebar default
+    # borrowed from somewhere else.
+    assert lay.saved_share("inker-timeline") == pytest.approx(
+        layout_mod.SHARE_DEFAULTS["inker-timeline"]
+    )
+
+
+def test_heights_divides_evenly_once_the_borrowed_share_is_out_of_the_way():
+    """The other end of the same claim: what ``heights`` does with the dict.
+
+    Three SHARE slots over one FILL and **no floors**, which is the shape every
+    column starts in before anybody has sized one -- and the shape Sirens' right
+    column was in when the defect shipped. With every key present at 0.55 the
+    first two take the room and the last two get nothing; with them absent the
+    column divides four ways and everybody draws.
+
+    Built from bare slots rather than from ``skeletons.sirens`` deliberately.
+    That column has floors now, and floors rescue the division from 0.55 all on
+    their own -- which is exactly what would let this regression back in
+    unnoticed on the next column somebody adds a third share to.
+    """
+    slots = [
+        _slot("a", skeleton.SHARE, share="a"),
+        _slot("b", skeleton.SHARE, share="b"),
+        _slot("c", skeleton.SHARE, share="c"),
+        _slot("d", skeleton.FILL),
+    ]
+    keys = ["a", "b", "c"]
+
+    borrowed = skeleton.heights(slots, 900.0, dict.fromkeys(keys, 0.55))
+    assert min(borrowed) == 0.0, "0.55 per key must still starve someone"
+
+    even = skeleton.heights(slots, 900.0, {})
+    assert min(even) > 0.0
+    assert sum(even) == pytest.approx(900.0)

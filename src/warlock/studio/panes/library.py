@@ -19,11 +19,15 @@ from typing import Any
 from imgui_bundle import imgui
 
 from ... import followups
+from ...service import derive as svc_derive
 from ...service import export as svc_export
 from ...service import jobs as svc_jobs
 from ...service import rig as svc_rig
+from ...service.errors import ServiceError
 from .. import (
     app_ctx,
+    artifacts,
+    atomic,
     controls,
     dialogs,
     icons,
@@ -155,6 +159,7 @@ def draw(ctx: Any) -> None:
     # popup or child window the rest of this frame opened, exactly as
     # ``troupe_send``'s modal does from the overlay.
     _draw_export_popup(ctx)
+    _draw_convert_popup(ctx)
 
 
 # What the footer below the list actually took, last frame (K98). The
@@ -960,6 +965,13 @@ def _overflow(ctx: Any, job: Any) -> None:
         ):
             exit_.open(ctx, job)
 
+    # A format re-encoding of the take or the picture -- the same list the
+    # Export tab's grid draws its FLAC/MP3/OGG/WAV/AIFF or WebP/JPEG rows
+    # from, offered here because before this the grid was the *only* door
+    # onto it and a card with no inspector open had no way to leave as
+    # anything but its native format.
+    if _convert_formats(job) and controls.menu_item("Convert...", "", False)[0]:
+        _start_convert(ctx, [job_id])
     if "model.glb" in files:
         # The baseline is captured *before* the menu ran, not read after it.
         # Right-clicking a card selects it first (see ``_context_menu`` -- a
@@ -1506,6 +1518,13 @@ def _bulk(ctx: Any, jobs: list[Any]) -> None:
                 toolbar.Item("retry", f"Try again ({len(failed)})", icons.REFRESH)
             )
         items.append(toolbar.Item("zip", "Export zip...", icons.DOWNLOAD, priority=1))
+        # Offered unconditionally, the "zip"/"folder" rows' own shape: a
+        # selection with nothing convertible in it (a mix of kinds, or none
+        # ticked that has a format list at all) is refused with a toast by
+        # ``_start_convert`` rather than by this row disappearing, which would
+        # have to re-derive the same kind-agreement question on every frame
+        # the bar is drawn.
+        items.append(toolbar.Item("convert", "Convert...", icons.SHUFFLE, priority=1))
         if ctx.export_dir:
             # Only when one is configured: the feature is off unless
             # WARLOCK_EXPORT_DIR is set, and a button that can only fail is
@@ -1551,6 +1570,8 @@ def _bulk_action(ctx: Any, key: str, picked: list[str], hidden: int) -> None:
                 run_action(ctx, job, "retry")
     elif key == "zip":
         _export_zip(ctx, picked)
+    elif key == "convert":
+        _start_convert(ctx, picked)
     elif key == "folder":
         # Always ``["model.glb"]`` -- unlike the zip's ``_export_names``, "Save
         # to project" has only ever put meshes into a game project, and that
@@ -1834,6 +1855,203 @@ def _export_popup_body(ctx: Any, popup: _ExportPopup) -> None:
         imgui.close_current_popup()
         popup.decisions.put("cancel")
         ctx.state._library_export = None
+
+
+# --- the "which format" popup (Convert...) ------------------------------
+#
+# The Export tab's grid (``artifacts.artifacts_for``) has always been able to
+# derive a take's FLAC/MP3/OGG/WAV/AIFF or a tile's WebP/JPEG -- but only from
+# an open inspector, which a card in the Library grid is not. This is the same
+# derivation (``service.derive.get_file``) reached from the card's own overflow
+# menu and from the bulk bar, and it needs to ask one thing the grid's buttons
+# never had to: *which* format, since a card offers several and a click on
+# "Convert..." has not chosen one yet.
+#
+# That question can only be drawn by the frame thread (it is an imgui modal),
+# while the id(s) it applies to are already committed to a submitted task --
+# so this follows ``_ExportPopup``'s handshake exactly rather than inventing a
+# second one: the task thread publishes onto ``ctx.state._library_convert``
+# and blocks on ``popup.decisions`` until a frame answers it, because nothing
+# in this tree lets a pane's own task result reach the pane that submitted it
+# (``main.py`` dispatches by a fixed table of key prefixes -- see
+# ``_run_export``'s comment, which applies here without change).
+
+#: What each card kind's "Convert..." offers, filtered down from the same
+#: label tuples the Export tab draws (``artifacts.ARTIFACTS_MUSIC`` and
+#: friends) to the names the service will actually derive
+#: (``derive.derivable_audio``/``derivable_image``) -- so ``input.png``,
+#: ``manifest.json`` and every other row that is a source or a cutout rather
+#: than a format conversion drops out on its own, and a name added to one of
+#: those tuples that is not a re-encoding never grows a Convert button.
+_CONVERT_FORMATS: dict[str, tuple[tuple[str, str], ...]] = {
+    "music": tuple(
+        (n, label) for n, label in artifacts.ARTIFACTS_MUSIC if svc_derive.derivable_audio(n)
+    ),
+    "reference": tuple(
+        (n, label) for n, label in artifacts.ARTIFACTS_2D if svc_derive.derivable_image(n)
+    ),
+    "tile": tuple(
+        (n, label) for n, label in artifacts.ARTIFACTS_TILE if svc_derive.derivable_image(n)
+    ),
+    "tilesheet": tuple(
+        (n, label)
+        for n, label in artifacts.ARTIFACTS_TILESHEET
+        if svc_derive.derivable_image(n)
+    ),
+}
+
+
+def _convert_formats(job: Any) -> tuple[tuple[str, str], ...]:
+    """What ``job``'s card may convert to, keyed on ``card_kind`` the way
+    ``_EXPORT_NAMES`` already is. Empty for every kind with no format list --
+    a mesh, a rig, a sheet -- rather than falling back to some default, the
+    same refusal-by-absence ``_EXPORT_NAMES.get(..., _EXPORT_DEFAULT)`` takes
+    the opposite side of: there, an unlisted kind takes the mesh's own
+    artifact; here, an unlisted kind converts to nothing, because "the mesh
+    format" is not a thing model.glb has.
+    """
+    return _CONVERT_FORMATS.get(card_kind(job), ())
+
+
+@dataclass
+class _ConvertPopup:
+    """The format choice on screen, and the channel a press writes its answer
+    to. ``_ExportPopup``'s shape, verbatim, for the reason given above."""
+
+    title: str
+    ids: list[str]
+    formats: tuple[tuple[str, str], ...]
+    #: the chosen artifact name, or "cancel" -- written by the frame thread,
+    #: read by the task thread parked in ``_run_convert``.
+    decisions: queue.Queue[str]
+    _open: bool = False
+
+
+def _start_convert(ctx: Any, ids: list[str]) -> None:
+    """Work out what this selection can become, and open the picker if
+    anything can. Runs on the frame thread -- the click that triggered it."""
+    jobs = [ctx.cache.get(job_id) for job_id in ids]
+    kinds = {card_kind(job) for job in jobs if job is not None}
+    # A mixed-kind bulk selection (a reference ticked beside a take) has no
+    # single format list to offer, so it is refused here rather than showing
+    # a picker whose buttons would only ever work for some of what is ticked.
+    formats = _CONVERT_FORMATS.get(next(iter(kinds)), ()) if len(kinds) == 1 else ()
+    if not formats:
+        ctx.toast("Nothing selected can be converted to another format.", "warn")
+        return
+    title = "Convert" if len(ids) == 1 else f"Convert {len(ids)} assets"
+    key = f"convert:{ids[0]}" if len(ids) == 1 else "export-convert"
+
+    def run():
+        return _run_convert(ctx, title, ids, formats)
+
+    ctx.submit(key, run)
+
+
+def _run_convert(
+    ctx: Any, title: str, ids: list[str], formats: tuple[tuple[str, str], ...]
+) -> Any:
+    """Runs entirely on the task thread ``ctx.submit`` gave it. ``_run_export``'s
+    shape: publish the choice, block for the answer, then act on it.
+    """
+    popup = _ConvertPopup(title=title, ids=ids, formats=formats, decisions=queue.Queue())
+    ctx.state._library_convert = popup
+    try:
+        name = popup.decisions.get()
+        if name == "cancel":
+            return None
+        if len(ids) == 1:
+            # A single asset already has ``save_artifact``'s own destination
+            # dialog and its own "Saved to <path>" toast (the ``save:`` key
+            # prefix ``main.py`` already handles) -- reused rather than a
+            # second one built here. This outer task ends here with nothing
+            # to report; the inner one it just started is what the user sees
+            # finish.
+            ctx.save_artifact(ids[0], name)
+            return None
+        # Several ids: there is no single destination file to ask for the way
+        # a save dialog asks, so this takes ``_export_folder``'s door instead
+        # -- a folder, and one converted file per id inside it.
+        dest = dialogs.select_folder("Convert selection", "")
+        if dest is None:
+            return None
+        for job_id in ids:
+            try:
+                source = svc_derive.get_file(ctx.svc, job_id, name)
+            except ServiceError:
+                # Not every ticked row can produce this name -- one job never
+                # finished, or the format's own refusal (a JPEG asked of an
+                # RGBA picture) applies to this id and not another. Skipped
+                # rather than failing the whole batch, the way
+                # ``export.collect`` already treats a not-ready artifact in a
+                # bulk export.
+                continue
+            target = dest / f"{job_id}_{name}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            atomic.write_bytes(target, source.read_bytes())
+        return dest
+    finally:
+        ctx.state._library_convert = None
+
+
+def _draw_convert_popup(ctx: Any) -> None:
+    """The format picker, drawn beside the export modal (W2.2's own reason):
+    the task that owns it has no imgui context of its own to open a popup
+    from."""
+    popup = getattr(ctx.state, "_library_convert", None)
+    if popup is None:
+        return
+    appearing = not popup._open
+    if appearing:
+        imgui.open_popup(popup.title)
+        popup._open = True
+    alpha, rise = widgets.popover_enter("library-convert", appearing)
+    frosted = widgets.frosted()
+    if frosted:
+        imgui.set_next_window_bg_alpha(0.0)
+    imgui.push_style_var(imgui.StyleVar_.alpha.value, alpha)
+    radius = widgets.push_surface_rounding()
+    widgets.modal_bounds(sp(320.0))
+    opened, _ = imgui.begin_popup_modal(
+        popup.title, None, imgui.WindowFlags_.always_auto_resize.value
+    )
+    widgets.pop_surface_rounding()
+    if not opened:
+        # Escape, or a click outside -- the task is still parked on
+        # ``popup.decisions``.
+        imgui.pop_style_var()
+        popup.decisions.put("cancel")
+        ctx.state._library_convert = None
+        return
+    widgets.window_shadow("overlay", radius=radius)
+    if frosted:
+        widgets.window_backdrop(radius=radius)
+    if rise > 0.0:
+        imgui.dummy((0, rise))
+    _convert_popup_body(ctx, popup)
+    imgui.end_popup()
+    imgui.pop_style_var()
+
+
+def _convert_popup_body(ctx: Any, popup: _ConvertPopup) -> None:
+    with widgets.modal_body("library-convert-body"):
+        imgui.text_wrapped(
+            "Convert to:" if len(popup.ids) == 1 else f"Convert {len(popup.ids)} assets to:"
+        )
+        imgui.dummy((0, sp(tokens.SP_1)))
+        for name, label in popup.formats:
+            if controls.button(f"{label}##convert-{name}", (sp(150), 0)):
+                imgui.close_current_popup()
+                popup.decisions.put(name)
+                ctx.state._library_convert = None
+                return
+            imgui.same_line()
+        imgui.new_line()
+    imgui.dummy((0, sp(tokens.SP_1)))
+    if controls.button("Cancel", (sp(110), 0)):
+        imgui.close_current_popup()
+        popup.decisions.put("cancel")
+        ctx.state._library_convert = None
 
 
 def _storage(ctx: Any, jobs: list[Any]) -> None:

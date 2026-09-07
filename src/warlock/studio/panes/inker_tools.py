@@ -12,7 +12,20 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import anchors, controls, icons, inker, inker_mode, inker_state, theme, tokens, widgets
+from .. import (
+    anchors,
+    controls,
+    docmodes,
+    icons,
+    inker,
+    inker_mode,
+    inker_ops,
+    inker_state,
+    theme,
+    tokens,
+    widgets,
+)
+from ..inker import nineslice
 from ..inker_state import (
     PAINT_TOOLS,
     PATTERN_TOOLS,
@@ -668,6 +681,8 @@ def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
         "The stretchable middle of a panel. The four corners stay their own "
         "size and the edges repeat, which is how a UI frame scales."
     )
+    _nineslice_fit_button(ctx, state, tab)
+    _nineslice_preview(ctx, tab, entry, key)
 
     if frame_uid is not None:
         keyed = frame_uid in entry.keys
@@ -685,6 +700,121 @@ def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
             doc.set_slice_key(entry.uid, frame_uid, clear=keyed)
     if controls.button(f"Delete##slice{entry.uid}", (-1, 0)):
         doc.remove_slice(entry.uid)
+
+
+def _nineslice_fit_button(ctx: Any, state: Any, tab: Any) -> None:
+    """The op button, not a second copy of what it decides.
+
+    The panel reads ``inker_ops``'s own ``enabled``/``reason``/``hint`` for
+    ``nineslice_fit`` rather than re-deriving "is there a constant run" here --
+    two answers to that question is how a menu row and a button end up
+    disagreeing about whether the button should be grey. Runs through
+    ``inker_ops.run``, so this is the only line in the whole nine-slice panel
+    that can change the document: the button asks, the op writes.
+    """
+    op = inker_ops.get("nineslice_fit")
+    enabled = op.enabled(state, tab)
+    reason = "" if enabled else inker_ops.reason_for(op, state, tab)
+    if controls.button(
+        "Auto-fit centre##nineslice", enabled=enabled, reason=reason, tooltip=op.hint
+    ):
+        inker_ops.run(ctx, op)
+
+
+#: How many sizes the live preview draws, and by what factor of the slice's
+#: own size -- 1x so a reader can compare the stretch against the original,
+#: then two enlargements, which is the case a nine-slice panel actually exists
+#: for (a dialog box is rarely drawn at its own pixel size in the game it ships
+#: in).
+_PREVIEW_FACTORS = (1.0, 1.5, 2.0)
+
+#: The widest a preview swatch may draw, in design px. Three across a ~300px
+#: tools sidebar at this width still leaves room for their gaps; wider and the
+#: row wraps, which reads as a layout bug rather than as three previews.
+_PREVIEW_MAX_W = 84.0
+
+
+def _nineslice_texture(
+    ctx: Any, tab: Any, entry: Any, index: int, target: tuple[int, int], pixels: Any
+) -> Any:
+    """One preview size, uploaded on first ask and re-uploaded when it moves.
+
+    ``inker_textures.walk_texture``'s shape, copied rather than imported: that
+    function's slot is named ``"walk{index}"``, and a nine-slice preview living
+    under that name would sit in the walk-cycle's own texture namespace and
+    read as one to the next person who greps it. The staleness stamp is
+    ``(doc.rev, target)`` rather than the pixel array's identity (that
+    function's own rule) because :func:`nineslice.stretch` is pure and returns
+    a fresh array every call -- an identity check would call every frame
+    "changed" and re-upload a swatch nobody touched. ``doc.rev`` already moves
+    on exactly the edits that could change what this preview shows, and
+    ``target`` catches a slice resize changing the size without a doc edit in
+    between.
+
+    Keyed under this tab's ``inker_tex:`` prefix, so ``inker_textures.release_doc``
+    frees it with everything else on close -- the same sweep every other Inker
+    texture already relies on, unaffected by this file not importing that
+    module's private cache.
+    """
+    if ctx.viewer is None:
+        return None
+    key = f"inker_tex:{tab.uid}:nineslice{entry.uid}:{index}"
+    stamp_key = f"{key}:stamp"
+    stamp = (tab.doc.rev, target)
+    texture = ctx.state.preview.get(key)
+    if texture is not None and ctx.state.preview.get(stamp_key) != stamp:
+        docmodes.forget_texture(texture)
+        ctx.state.preview.pop(key, None)
+        ctx.state.preview.pop(stamp_key, None)
+        texture = None
+    if texture is None:
+        texture = ctx.viewer.ctx.texture(target, 4, pixels.tobytes())
+        nearest = ctx.viewer.ctx.NEAREST
+        texture.filter = (nearest, nearest)
+        ctx.state.preview[key] = texture
+        ctx.state.preview[stamp_key] = stamp
+    return texture
+
+
+def _nineslice_preview(ctx: Any, tab: Any, entry: Any, key: Any) -> None:
+    """The frame this slice's centre would stretch to, at a few sizes.
+
+    Read-only, on purpose: this is how a centre is *judged* before it is ever
+    exported, so nothing here may call ``doc.set_slice`` -- the rule
+    ``inker_flourish``'s own preview follows, restated for this panel.
+    Skips a size ``nineslice.stretch`` refuses (a target smaller than the
+    fixed corners) rather than raising through a paint frame -- the refusal
+    belongs to the export door, which is the one place a user asked for an
+    exact size rather than "roughly how this looks bigger".
+    """
+    if key.center is None:
+        return
+    x0, y0, x1, y1 = key.bounds
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return
+    widgets.muted("Preview")
+    flat = tab.doc.flatten()
+    drawn_any = False
+    for index, factor in enumerate(_PREVIEW_FACTORS):
+        target = (max(1, round(w * factor)), max(1, round(h * factor)))
+        try:
+            pixels = nineslice.stretch(flat, key.bounds, key.center, *target)
+        except ValueError:
+            continue
+        if drawn_any:
+            imgui.same_line()
+        drawn_any = True
+        texture = _nineslice_texture(ctx, tab, entry, index, target, pixels)
+        draw_w = min(sp(_PREVIEW_MAX_W), float(target[0]))
+        draw_h = draw_w * target[1] / target[0]
+        if texture is None:
+            # No GL context: the headless smoke suite and every state-only
+            # test. A placeholder keeps the geometry identical, so a
+            # screenshot pass still exercises the layout around it.
+            widgets.thumb_placeholder(draw_w, icons.IMAGE, draw_h)
+        else:
+            imgui.image(widgets.texture_ref(texture), (draw_w, draw_h))
 
 
 def _shading(state: Any, doc: Any) -> None:

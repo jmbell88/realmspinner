@@ -1236,6 +1236,13 @@ def on_task_done(ctx: Any, done: Any) -> None:
             kind = result.get("export_kind")
             if kind:
                 tab.export_kind = str(kind)
+            # The size a nine-slice export stretched to, so a repeat writes the
+            # same file rather than a plain crop under the same name. Recorded
+            # unconditionally for the kinds that report it, so going back to a
+            # crop export clears it rather than leaving the old size armed.
+            size = result.get("export_nineslice")
+            if isinstance(size, tuple) and len(size) == 2:
+                tab.export_nineslice = (int(size[0]), int(size[1]))
         options = result.get("options")
         if isinstance(options, dict):
             tab.export_options = dict(options)

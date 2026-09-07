@@ -166,7 +166,15 @@ def _scripted_field(
 
 def _scripted_slider(monkeypatch: pytest.MonkeyPatch, item: _Item, label: str, values: list):
     """The real slider, with its answer overridden for one label while the
-    scripted drag is on -- there is no pointer in a headless frame."""
+    scripted drag is on -- there is no pointer in a headless frame.
+
+    ``label`` is the control's **id**, not always the name beside it: a slider
+    drawn through ``widgets.labeled_slider_int`` hands this an ``##``-hidden
+    id, because imgui draws a slider's label outside the widget to its right
+    and a ``-1``-width slider has nowhere to put one. The Sirens callers below
+    pass ``"##Tempo"`` and friends for that reason; the picker's channels pass
+    their own ids unchanged.
+    """
     _scripted_field(monkeypatch, item, "slider_int", label, values)
 
 
@@ -188,7 +196,7 @@ def test_transport_tempo_and_speed_drags_are_one_step_each(
     tab = _loaded(ctx)
     before = len(tab.doc.history)
     item = _Item(monkeypatch, begin=1, end=1 + len(values))
-    _scripted_slider(monkeypatch, item, label, values)
+    _scripted_slider(monkeypatch, item, f"##{label}", values)
     _drag(frames, lambda: sirens_transport.draw(ctx), item)
     assert getattr(tab.doc, attr) == values[-1]
     assert len(tab.doc.history) == before + 1
@@ -204,7 +212,7 @@ def test_order_list_rows_drag_is_one_step(monkeypatch, frames):
     before = len(tab.doc.history)
     values = [60, 56, 50, 44, 40]
     item = _Item(monkeypatch, begin=1, end=1 + len(values))
-    _scripted_slider(monkeypatch, item, "Rows", values)
+    _scripted_slider(monkeypatch, item, "##Rows", values)
     _drag(frames, lambda: sirens_orders.draw(ctx), item)
     assert pattern.rows == values[-1]
     assert len(tab.doc.history) == before + 1
@@ -221,7 +229,7 @@ def test_effect_tempo_and_speed_drags_are_one_step_each(monkeypatch, frames, lab
     effect = tab.doc.oneshot(state.oneshot)
     before = len(tab.doc.history)
     item = _Item(monkeypatch, begin=1, end=1 + len(values))
-    _scripted_slider(monkeypatch, item, label, values)
+    _scripted_slider(monkeypatch, item, f"##{label}", values)
     _drag(frames, lambda: sirens_effects.draw(ctx), item)
     assert getattr(tab.doc.oneshot(effect.uid), attr) == values[-1]
     assert len(tab.doc.history) == before + 1
@@ -347,10 +355,24 @@ def test_a_typed_name_is_reported_once_when_the_field_is_left(monkeypatch):
     assert seen == ["old", "old", "old", "old", "lead"]
 
 
-@pytest.mark.parametrize("pane", [sirens_effects, sirens_instruments])
-def test_the_sirens_name_fields_commit_on_release(pane):
+@pytest.mark.parametrize(
+    "pane,field_id",
+    [
+        (sirens_effects, '"##sirens-fx-name"'),
+        (sirens_instruments, '"##sirens-inst-name"'),
+    ],
+    ids=["effects", "instruments"],
+)
+def test_the_sirens_name_fields_commit_on_release(pane, field_id):
+    """The id, not the label, since 2026-09-07: both fields are ``##``-hidden
+    with the name drawn above them by ``widgets.field_label``, because a
+    ``-1``-width field draws no label at all and "Name" was simply not on
+    screen. What is pinned here is unchanged -- a typed name is one rename and
+    not six undo steps.
+    """
     source = inspect.getsource(pane)
-    field = source.split('widgets.input_text(\n        "Name"', 1)[1].split(")", 1)[0]
+    opener = "widgets.input_text(" + chr(10) + "        " + field_id
+    field = source.split(opener, 1)[1].split(")", 1)[0]
     assert "commit=True" in field
 
 

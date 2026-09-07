@@ -981,6 +981,15 @@ is still worse than it should be.
 Whichever is taken, `scripts/exercise_mode.py inker` reports the clipped count,
 so the result is measurable rather than a matter of opinion about a screenshot.
 
+**Re-measure before choosing.** The 2026-09-07 layout-share fix changed what an
+undragged column starts at: `layout.column` now passes `heights` only the
+proportions somebody has actually dragged, so an untouched split gets the even
+division instead of the flat 0.55 every key used to borrow. Inker's right column
+is exactly such a column, so the `clipped: 5` figure above was measured under
+starting heights this build no longer uses. The choice between the four options
+is unchanged and still art direction; the number it is being made against is
+stale, and re-running the harness is a minute's work.
+
 ## P34. Judge Clay's twelve shapes and eight figures, and settle two defaults
 
 **Why it is yours:** art direction and two design decisions. Every item here was
@@ -1168,6 +1177,37 @@ ignores duration is, and both are code changes this file cannot make for you.
 
 **Expected outcome:** one dated measurement, and a settled answer to the
 question this change made and could not itself answer.
+
+## P39. Reproduce the one faulthandler dump, or let it expire
+
+**Why it is yours:** it is one dump with no second occurrence, and nothing in
+the log says what the user was doing. `crash.log` carries exactly one
+faulthandler traceback, under the `=== session 2026-09-07T17:32:00 pid=18052
+warlock=0.0.39 ===` header: `Windows fatal exception: code 0x80010012`
+(`RPC_E_SERVER_DIED_DNE`, a COM/RPC teardown code), with both
+`pipelines/trellis.py:_pump` and `pipelines/matting.py:_pump` live on their own
+threads at the time. Separately, `warlock.log` records one unclean shutdown
+(pid 10176, session 2026-09-07T02:19Z, 0.0.38) -- the warning
+`_setup_logging`'s session marker exists to raise.
+
+Neither is diagnosable from what was written down. faulthandler dumps some
+non-fatal SEH codes and execution continues, so the dump is not by itself proof
+of a crash, and the unclean shutdown is from a different session and a different
+build. The one thing that would settle it is a second occurrence with a known
+sequence in front of it.
+
+**Do:** run a trellis reconstruction with matting in the same session, three or
+four times, closing the window while a job is still in flight on at least one of
+them -- that is the shape both threads were in. Watch `crash.log` for a second
+`0x80010012`. If one appears, note what was on screen and whether the app
+survived it; if none does after a handful of runs, strike this item out. Windows
+event 2004 is worth reading either way; `_setup_logging`'s own warning points
+there.
+
+**Expected outcome:** either a reproduction with a sequence attached -- at which
+point it becomes ordinary code work -- or a struck-out line saying it did not
+recur across N runs of the shape that produced it. A single dump with no
+reproduction is not something this file should carry indefinitely.
 
 ## Open findings
 

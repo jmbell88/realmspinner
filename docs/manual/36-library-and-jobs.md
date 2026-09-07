@@ -142,7 +142,8 @@ because a filter over a window is not a search of everything. Once the window ha
 
 Ticking cards enables the bulk bar: **Export zip...** writes the selected meshes to a single archive,
 **Save to project** copies them into a configured export folder (shown only when one is configured),
-and **Delete** removes them after a confirm.
+**Convert...** re-encodes a selection of takes or pictures into another format (below), and
+**Delete** removes them after a confirm.
 
 Both export actions open a plan before they write anything: the files they are about to produce,
 each one marked when something is already at that destination, the destination path itself with
@@ -152,6 +153,18 @@ exporting by the same number (`-2`, then `-3`, and so on), never some files at `
 alone, so a second export of the same selection never leaves you guessing which file in a folder is
 which run. Nothing is written until **Export** (or **Save**) is pressed; **Cancel**, or dismissing the
 popup, leaves the destination exactly as it was.
+
+**Convert...** is also on a single card's overflow menu, for a take or a picture and not for a mesh —
+a mesh has no second "native format" to leave as. It offers a card's own list of re-encodings: a
+finished take can become **WAV**, **FLAC**, **AIFF**, **MP3** or **OGG**, and a reference, a tile or a
+tile sheet's own picture can become **WebP** (lossless, alpha kept) or **JPEG**. Choosing one behaves
+exactly like a Downloads button in the inspector's Export tab — the same lazily-derived file, the same
+save dialog — because it is the same door, reached from a card with no inspector open. A **JPEG** of a
+cutout with transparency (an icon, a hand-edited reference with an erased background) is refused rather
+than silently flattened onto black; pick **WebP** instead. Converting several cards at once asks for a
+destination *folder* instead of one file, and skips whichever ticked rows cannot produce the chosen
+format rather than failing the rest of the batch — a mixed selection of different kinds is refused
+outright, since there is no one format list that would apply to all of it.
 
 **Ticks survive a filter change**, on purpose — ticking a few meshes, switching to references and
 ticking a few more is a normal way to build up a selection. The count says so when it happens: it

@@ -1232,7 +1232,19 @@ gives the selected one a name, two switches and a Delete.
   slices, the first one with a pivot is the one an exported sheet uses.
 - **Nine-slice** marks the stretchable middle of a panel: the four corners keep their own size and
   the edges repeat, which is how a UI frame scales to any size. It draws as a dashed rectangle
-  inside the slice, with its own corner handles.
+  inside the slice, with its own corner handles. Switching it on seeds a plain thirds rectangle you
+  then drag by eye — **Auto-fit centre**, beside the switch, infers it instead: the widest band of
+  columns, and of rows, that repeat their neighbour unchanged. It refuses rather than guessing on
+  art with no constant interior (a gradient, a photo, hand-painted noise), and says so on the
+  button. A live preview underneath shows the panel stretched to a few sizes, so a centre can be
+  judged before anything is exported.
+
+  **Sprite ▸ Export nine-slice panels...** writes every slice that has a centre stretched to one
+  chosen size — corners kept, edges and the middle repeated — while a slice with no centre exports
+  at its own size, unchanged. Type or pick a name ending **`.9.png`** in that dialog and Inker
+  writes Android's own nine-patch format instead: the source pixels ringed by a 1px guide border
+  with the stretch region marked on the top and left edges. Android stretches that file itself at
+  whatever size a widget ends up being, so the chosen width and height are ignored for it.
 
 On an animated document a slice is the same rectangle on every frame until you key it — see
 [Slices on an animated document](29-inker-animation.md#slices-on-an-animated-document).

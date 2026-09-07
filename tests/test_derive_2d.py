@@ -742,6 +742,94 @@ def test_a_failed_material_derivation_leaves_no_staging_file_behind(svc, monkeyp
     assert not list(svc.job_dir(job_id).glob(".*.tmp"))
 
 
+# -- the web re-encodings (pipelines/imageout) -------------------------------
+#
+# input.webp/input.jpg share DERIVED_2D's staleness rule (fresh_2d checks both
+# tuples), not DERIVED_AUDIO's -- see files.DERIVED_IMAGE's docstring -- so
+# these tests reuse this file's own ``_reference``/``_hand_edit`` fixtures
+# rather than living beside the audio-copy tests in test_music_format.py.
+
+
+def test_a_webp_is_derived_on_first_request(svc):
+    job_id = _reference(svc)
+    path = svc_derive.get_file(svc, job_id, "input.webp")
+    assert path.exists()
+    with Image.open(path) as im:
+        assert im.format == "WEBP"
+
+
+def test_a_jpeg_is_derived_on_first_request(svc):
+    job_id = _reference(svc)
+    path = svc_derive.get_file(svc, job_id, "input.jpg")
+    assert path.exists()
+    with Image.open(path) as im:
+        assert im.format == "JPEG"
+
+
+def test_an_image_conversion_is_re_derived_after_a_hand_edit(svc):
+    # The staleness rule DERIVED_2D's other exports follow: a hand edit or a
+    # revert rewrites input.png in place, and a WebP older than it is a
+    # picture of pixels that are gone.
+    job_id = _reference(svc)
+    before = svc_derive.get_file(svc, job_id, "input.webp").read_bytes()
+    _hand_edit(svc, job_id, box=(8, 8, 40, 40))
+    after = svc_derive.get_file(svc, job_id, "input.webp")
+    assert after.read_bytes() != before
+
+
+def _rgba_reference(svc, colour=(200, 30, 30, 255)):
+    job_id = svc.store.create("text", "a barrel", {"seed": 1}, stage="reference", status="done")
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    im = Image.new("RGBA", (64, 64), colour)
+    ImageDraw.Draw(im).rectangle((8, 8, 40, 40), fill=(0, 0, 0, 0))
+    im.save(job_dir / "input.png")
+    return job_id
+
+
+def test_a_webp_derived_from_an_rgba_picture_still_has_alpha(svc):
+    job_id = _rgba_reference(svc)
+    path = svc_derive.get_file(svc, job_id, "input.webp")
+    with Image.open(path) as im:
+        assert im.mode == "RGBA"
+        assert im.getpixel((20, 20))[3] == 0
+
+
+def test_a_jpeg_asked_for_an_rgba_picture_is_refused_not_flattened(svc):
+    # JPEG cannot carry alpha, and silently flattening onto black would be a
+    # quiet lie about the pixels the user asked for -- Invalid, field=format,
+    # so the UI can point at the format control instead of a bare toast.
+    job_id = _rgba_reference(svc)
+    with pytest.raises(Invalid) as caught:
+        svc_derive.get_file(svc, job_id, "input.jpg")
+    assert caught.value.field == "format"
+    assert not (svc.job_dir(job_id) / "input.jpg").exists()
+
+
+def test_a_jpeg_from_an_opaque_picture_is_written_fine(svc):
+    job_id = _reference(svc)
+    path = svc_derive.get_file(svc, job_id, "input.jpg")
+    with Image.open(path) as im:
+        assert im.mode == "RGB"
+
+
+def test_a_mesh_job_cannot_derive_an_image_conversion(svc):
+    # The DERIVED_2D precedent, from the other source: a mesh job's input.png
+    # is the picture it was reconstructed *from*, so a WebP of it would
+    # quietly claim to be an export of the mesh.
+    job_id = _reference(svc, stage="model")
+    with pytest.raises(NotReady):
+        svc_derive.get_file(svc, job_id, "input.webp")
+
+
+def test_a_tile_can_derive_an_image_conversion_of_its_own_texture(svc):
+    # Unlike the cutouts, DERIVED_IMAGE is offered on every 2D-producing
+    # stage -- a tile has one picture too.
+    job_id = _reference(svc, stage="tile")
+    path = svc_derive.get_file(svc, job_id, "input.webp")
+    assert path.exists()
+
+
 def test_a_failed_zip_leaves_neither_its_own_staging_file_nor_a_maps(svc, monkeypatch):
     # The zip stages the maps *beside* its own tmp, so a failure part way
     # through has two kinds of leftover to clean up rather than one.

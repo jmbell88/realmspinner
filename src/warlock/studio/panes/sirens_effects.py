@@ -43,6 +43,24 @@ from ..tokens import sp
 #: without scrolling.
 NEW_ROWS = 8
 
+#: What this pane refuses to shrink past, in design pixels: the Add/Delete row,
+#: one effect row, and the selected effect's Name/Tempo/Speed block.
+#:
+#: It had none while this was Sirens' third of three ordinary SHARE columns --
+#: ``layout.column`` handed every declared share key ``Layout.share``'s
+#: always-answer 0.55, so ``layout_skeleton.heights`` saw three slots each
+#: wanting 0.55 of the room and gave every one of them exactly that, with
+#: nothing left for this pane or the Song file FILL pane under it. Fixed at the
+#: root by ``Layout.saved_share`` (only a *saved* proportion reaches
+#: ``heights`` now, so an untouched key gets its even-division default instead
+#: of a borrowed 0.55) -- but a floor still has to say what "even division"
+#: must never shrink below, the same way ``sirens_envelopes.ENVELOPES_FLOOR``
+#: and ``BRIDGE_FLOOR`` do for their own panes. This is the pane the shipped
+#: 0.0.39 ``screenshots/dark-sirens.png`` caught missing outright -- that image
+#: has since been refreshed, so the evidence is the release rather than the
+#: file as it stands now.
+EFFECTS_FLOOR = 210.0
+
 _BUSY_WHY = "This song is being written; the buttons come back when it lands."
 
 
@@ -210,22 +228,30 @@ def _fields(state: Any, tab: Any, selected: Any, editable: bool) -> None:
     from imgui_bundle import imgui
 
     doc = tab.doc
+    # ``##``-hidden with the name drawn above, the same rule the instrument
+    # list's own Name field follows (``sirens_instruments.py``): imgui draws a
+    # field's label to its *right*, and this field is set to width -1, so a
+    # visible "Name" here would land past the content region and simply not be
+    # drawn.
+    widgets.field_label("Name")
     imgui.set_next_item_width(-1)
     name = widgets.input_text(
-        "Name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
+        "##sirens-fx-name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
     )
     if name != selected.name:
         doc.update_oneshot(selected.uid, name=name)
 
-    imgui.set_next_item_width(-1)
-    changed, value = controls.slider_int(
+    # Through ``widgets.labeled_slider_int`` rather than a bare
+    # ``controls.slider_int`` (the 2026-09-07 audit): the same -1-width rule
+    # the Name field above states left Tempo and Speed's own names undrawn --
+    # two bare numbers with nothing on screen saying which was which.
+    changed, value = widgets.labeled_slider_int(
         "Tempo", selected.tempo, D.MIN_TEMPO, D.MAX_TEMPO, enabled=editable
     )
     controls.fold_undo(doc.history)
     if changed:
         doc.update_oneshot(selected.uid, tempo=int(value))
-    imgui.set_next_item_width(-1)
-    changed, value = controls.slider_int(
+    changed, value = widgets.labeled_slider_int(
         "Speed", selected.speed, D.MIN_SPEED, D.MAX_SPEED, enabled=editable
     )
     controls.fold_undo(doc.history)

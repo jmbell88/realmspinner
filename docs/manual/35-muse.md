@@ -265,12 +265,22 @@ holding what the separation model pulled out of a finished mixdown. Same word, d
 
 ## Export formats
 
-Beyond the WAV, a finished take can be downloaded as **FLAC**, **MP3** or **OGG**. They are produced
-on first request and cached beside the track, the same way the mesh exports work — so every take
-already on disk gains them without being regenerated.
+A finished take can be downloaded as **WAV**, **FLAC**, **AIFF**, **MP3** or **OGG**. All but the
+WAV are produced on first request and cached beside the track, the same way the mesh exports work —
+so every take already on disk gains them without being regenerated. The WAV is the take itself and
+is copied rather than re-encoded, because putting 16-bit audio through a second quantisation to
+arrive back where it started would only lose a little of it.
+
+The same five are on the Library's **Convert…** menu, on the card and on the bulk bar, so a take can
+be converted without opening it.
 
 No extra download is involved and there is no converter to install: the audio library this app
-already uses encodes all four itself. This is worth saying because everyone assumes otherwise.
+already uses encodes every one of them itself. This is worth saying because everyone assumes
+otherwise.
+
+Opus is the one format deliberately missing. The library can write it, but only at 8, 12, 16, 24 or
+48 kHz, and a take is 44.1 — offering it would mean resampling the audio behind your back to make
+the format fit, which is not a conversion anyone asked for.
 
 ## What it does not do
 

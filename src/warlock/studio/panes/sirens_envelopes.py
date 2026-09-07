@@ -89,9 +89,26 @@ GRAPH_H = 52.0
 #: enough of the graph that painting near a marker becomes impossible.
 GRIP_W = 5.0
 
-#: What the column needs before its graphs stop being lines. Four graphs, four
-#: headers and the caption.
-ENVELOPES_FLOOR = 300.0
+#: What the column needs before its graphs stop being lines.
+#:
+#: Originally 300 -- four graphs, four headers and the caption, with room to
+#: spare -- and the only floor in this column for as long as it was the only
+#: one that had ever been added. That let it win every collision by default:
+#: at a 600 px column (about what is left of a laptop sidebar once other
+#: chrome is taken out), 300 plus the two new floors below --
+#: ``sirens_effects.EFFECTS_FLOOR`` and ``sirens_bridge.BRIDGE_FLOOR``, added
+#: the same day this column's real defect (Sound effects and Song file drawn at
+#: zero height, in the ``screenshots/dark-sirens.png`` that shipped with 0.0.39)
+#: was traced to
+#: ``layout.column`` handing every share key a borrowed 0.55 -- left nothing
+#: for Instruments, the one pane in this column with no floor of its own at
+#: all. Lowered so the three floors fit together in the room a short window
+#: actually has, which is the same room a screenshot could no longer hide a
+#: starved pane in. At the app's ordinary window width none of the three floors
+#: bind -- the even division past them all still lands well above this number
+#: -- so this only ever costs the graphs anything on a window already too short
+#: for four stacked panes to be comfortable.
+ENVELOPES_FLOOR = 180.0
 
 
 def _baseline(low: int, high: int, height: float) -> float:
@@ -304,8 +321,15 @@ def _header(
         )
     for grip, name in (("loop", "Loop"), ("release", "Tail")):
         index = int(getattr(sequence, grip))
-        imgui.same_line()
         shown = f"{name} {index}" if index >= 0 else name
+        # ``same_line_or_wrap`` rather than a bare ``same_line`` (the
+        # 2026-09-07 audit): the row above is a label, a fixed-width drag int
+        # and two *variable*-width buttons ("Loop 8" is wider than "Loop") on
+        # one unmeasured run, which fits at the design 300 px column and clips
+        # past the right edge the moment UI scale grows or the column
+        # narrows -- ``button_width`` asks the style what this button will
+        # actually draw at instead of guessing.
+        widgets.same_line_or_wrap(widgets.button_width(shown))
         if controls.small_button(
             f"{shown}##sirens-env-{grip}-{field}",
             selected=index >= 0,

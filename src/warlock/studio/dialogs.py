@@ -56,6 +56,22 @@ ARTIFACT_FILTERS = {
     ".fbx": ["Filmbox (*.fbx)", "*.fbx"],
     ".png": PNG_FILTER,
     ".log": ["Text (*.txt *.log)", "*.txt *.log"],
+    ".9.png": ["Android nine-patch (*.9.png)", "*.9.png"],
+    # The audio re-encodings (pipelines/audioout) and the web image ones
+    # (pipelines/imageout) -- absent until the Library's Convert door existed,
+    # since a save through the Export tab's grid was the only way to reach one
+    # and every one of these fell through to ["All files", "*"], which offers
+    # no extension and appends none. Each its own list object: the sweep in
+    # test_studio_wiring.py dedupes filters by identity, and aliasing two of
+    # these would read as one filter reused rather than two coincidentally
+    # equal ones.
+    ".wav": ["Waveform audio (*.wav)", "*.wav"],
+    ".flac": ["FLAC audio (*.flac)", "*.flac"],
+    ".mp3": ["MP3 audio (*.mp3)", "*.mp3"],
+    ".ogg": ["OGG Vorbis audio (*.ogg)", "*.ogg"],
+    ".aiff": ["AIFF audio (*.aiff)", "*.aiff"],
+    ".webp": ["WebP image (*.webp)", "*.webp"],
+    ".jpg": ["JPEG image (*.jpg)", "*.jpg"],
 }
 
 

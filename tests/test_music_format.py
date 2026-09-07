@@ -111,6 +111,75 @@ def test_a_written_take_is_44100_hz_16_bit_stereo(tmp_path):
         assert handle.getnchannels() == 2
 
 
+# -- pipelines/audioout: the re-encodings a finished take can become --------
+#
+# A plain ``wave`` write rather than ``_saved_bytes``'s vendored pipeline: the
+# module docstring's whole point is that these three are cheap, and pulling in
+# torch/torchaudio for a format-conversion test would undo that for no reason
+# -- ``pipelines/audioout`` never imports either.
+
+
+def _silent_wav(tmp_path, seconds=0.05, rate=44100) -> Path:
+    import wave
+
+    path = tmp_path / "track.wav"
+    frames = np.zeros((int(seconds * rate), 2), dtype="<i2")
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(2)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(frames.tobytes())
+    return path
+
+
+def test_track_wav_is_a_byte_identical_copy_not_a_re_encode(tmp_path, monkeypatch):
+    # Decoding 16-bit PCM to float32 and writing it back as 16-bit PCM is a
+    # second quantisation for no change a listener would ever hear -- see
+    # audioout.convert's docstring.
+    #
+    # **A byte comparison alone does not pin this**, which was measured rather
+    # than assumed: a 16-bit round trip through float32 is lossless, so the
+    # bytes match whether the WAV was copied or re-encoded, and this test
+    # passed unchanged against a deliberately re-encoding version. Both halves
+    # are asserted -- the bytes, because that is the property the user has, and
+    # that soundfile is never reached, because that is the one the name claims.
+    import soundfile as sf
+
+    from warlock.pipelines import audioout
+
+    source = _silent_wav(tmp_path)
+    out = tmp_path / "out.wav"
+
+    def refuse(*a, **k):  # pragma: no cover - the point is that it never runs
+        raise AssertionError("track.wav went through soundfile instead of a copy")
+
+    monkeypatch.setattr(sf, "write", refuse)
+    audioout.convert(source, out, "track.wav")
+    assert out.read_bytes() == source.read_bytes()
+
+
+def test_track_aiff_decodes_back_to_the_same_samples(tmp_path):
+    sf = pytest.importorskip("soundfile")
+    from warlock.pipelines import audioout
+
+    source = _silent_wav(tmp_path)
+    out = tmp_path / "track.aiff"
+    audioout.convert(source, out, "track.aiff")
+
+    wav_data, wav_rate = sf.read(str(source), dtype="int16", always_2d=True)
+    aiff_data, aiff_rate = sf.read(str(out), dtype="int16", always_2d=True)
+    assert aiff_rate == wav_rate
+    assert (aiff_data == wav_data).all()
+
+
+def test_convert_refuses_a_name_outside_its_format_table(tmp_path):
+    from warlock.pipelines import audioout
+
+    source = _silent_wav(tmp_path)
+    with pytest.raises(ValueError):
+        audioout.convert(source, tmp_path / "out.opus", "track.opus")
+
+
 def test_the_tracker_can_read_a_written_take(tmp_path):
     """The assertion "Open in Sirens" needs and nothing else made.
 

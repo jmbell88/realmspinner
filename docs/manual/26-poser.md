@@ -93,6 +93,32 @@ Two limits come with it, both about where the offset shows up:
   it, so a clip whose endpoint poses carry one plays as a vertical bob rather than being refused —
   see [Sprite sheets](27-sprite-sheets.md).
 
+## Posing a real asset directly
+
+The inspector's Pose panel can open a rigged asset's actual mesh here instead of the bare template
+armature — its own **Open in Poser** link (see [Posing](25-rigging-and-posing.md#posing)) — so you
+can use the Poser's own view controls and clip editor against the real thing rather than the
+template preview. While a session is bound to an asset this way:
+
+- The skeleton picker above the library is replaced by a fact — the template's name followed by
+  **"(from this asset's rig)"**, for example "Humanoid (from this asset's rig)" — because the
+  skeleton is not a free choice here: it is whichever template this mesh was rigged with, and that
+  is what decides the library beneath it too.
+- A **This asset's poses** section appears above the shared library, listing what you have saved
+  onto this asset specifically. It is separate from the shared, skeleton-keyed library below it —
+  `Ctrl+S` saves to the asset, `Ctrl+Shift+S` always saves to the shared library, in either kind of
+  session.
+- **Re-rig...** sits under the skeleton fact. It opens a skeleton picker and, on confirmation, queues
+  a fresh rig for this same mesh — the same job the Library's own **Rig** action starts — without
+  leaving the session or hunting the source job down in the Library. Over unsaved pose edits it asks
+  first, the same as every other destructive action here.
+
+Rigging is queued work, out of process, behind whatever else the queue is already doing, so a re-rig
+can take a while; the session stays open and usable meanwhile. Once the new rig lands, the viewport
+rebinds to it on its own — no further action needed — and if you picked a different skeleton than the
+one you had, the clip editor and the shared library beneath it switch to match the new one, exactly
+as they do when you change skeletons in an unbound session.
+
 ## The pose library
 
 **Save** writes over the pose you are editing; **Save as** asks for a name and adds a new one. Both

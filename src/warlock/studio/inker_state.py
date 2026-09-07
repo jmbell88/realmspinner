@@ -1663,6 +1663,17 @@ class InkerDoc:
     #: Session-scoped like the destination beside it, and set only when an
     #: export *lands* -- a cancelled file dialog is not an export to repeat.
     export_kind: str = ""
+    #: The width and height a nine-slice export was last stretched to, or
+    #: ``(0, 0)`` for the plain crop. Session-scoped and set only when an
+    #: export lands, exactly like the two fields above.
+    #:
+    #: It exists because the *size* is the one thing about a slice export that
+    #: the destination path cannot carry: ``.9.png`` is decided by ``dest``'s
+    #: own suffix, and the crop names come from the slices, but "stretched to
+    #: 240x96" lives nowhere else -- so Ctrl+Shift+X after a stretched export
+    #: silently repeated it as a plain crop, writing a differently-sized file
+    #: over the same names.
+    export_nineslice: tuple[int, int] = (0, 0)
     export_options: dict[str, Any] = field(default_factory=dict)
 
     @property

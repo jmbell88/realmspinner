@@ -418,6 +418,39 @@ class Layout:
             )
         return self.shares.get(key, self._default_share(key))
 
+    def saved_share(self, key: str) -> float | None:
+        """What ``key`` has actually been set to, or ``None`` if nobody has.
+
+        Distinct from :meth:`share`, which always answers *something* -- every
+        slot must draw at *some* height, so it falls back through
+        ``SHARE_DEFAULTS`` to ``settings_share`` and never returns empty-handed.
+        That is exactly why ``layout.column`` could not use it to build the
+        ``shares`` dict it hands to :func:`layout_skeleton.heights`: ``heights``
+        has its own even-division default for a key nobody has touched
+        (``default = 1.0 / portions``), and a dict that answers 0.55 for every
+        key drowns that default before it is ever reached. Sirens' Instruments,
+        Envelopes and Sound effects panes are all SHARE slots, so all three came
+        back 0.55 from :meth:`share` with nothing dragged, and the column that
+        divides 900 px three ways at 0.55 each has nothing left for Sound effects
+        or the FILL pane under it -- which is the incident this method exists to
+        stop reproducing (see docs/INVARIANTS.md).
+
+        The order matches :meth:`share`'s own priority, minus the one rung that
+        cannot be told apart from "nothing saved": the workspace-bound override
+        if the active layout actually recorded one for this workspace, else the
+        pre-workspace global ``self.shares`` (what an old profile saved before
+        splits moved per-workspace), else the one hard-coded starting point in
+        ``SHARE_DEFAULTS``, else ``None`` -- which is the caller's cue to leave
+        the key out of the dict entirely and let ``heights`` decide.
+        """
+        if self._workspace_library is not None and self._workspace:
+            override = self._workspace_library.arrangement(self._workspace).shares.get(key)
+            if override is not None:
+                return min(max(float(override), SHARE_MIN), SHARE_MAX)
+        if key in self.shares:
+            return self.shares[key]
+        return SHARE_DEFAULTS.get(key)
+
     def _default_share(self, key: str) -> float:
         return SHARE_DEFAULTS.get(key, self.settings_share)
 
@@ -797,6 +830,32 @@ def begin_frame(editing: bool = False) -> None:
     _EDITING = bool(editing)
 
 
+def drag_seed(lay: Layout, key: str, height: float, avail: float) -> float:
+    """The fraction a splitter drag on ``key`` starts from. -> 0..1
+
+    **Seeded from what was drawn, not from what ``share`` would answer.**
+    ``column`` hands :func:`layout_skeleton.heights` only the shares somebody
+    has actually dragged, so an untouched splitter's panes are drawn at
+    ``heights``' own even division. :meth:`Layout.share` still answers
+    ``settings_share`` for that same key -- it has to, a drag needs a number --
+    so seeding from it snapped the pane from its quarter of the column to 0.55
+    of it on the first nudge, in every workspace, before the drag distance was
+    even added. That is a regression the shares fix would have introduced and
+    this is where it does not.
+
+    ``height`` is what the pane actually occupies this frame, floors already
+    applied, so a drag starts where the user is holding it. A function rather
+    than three lines inline because the rule is the thing worth pinning, and an
+    inline expression inside a frame loop is not reachable from a test.
+    """
+    saved = lay.saved_share(key)
+    if saved is not None:
+        return saved
+    if avail <= 0.0:
+        return 0.0
+    return height / avail
+
+
 def column(
     ctx: Any,
     lay: Any,
@@ -844,7 +903,22 @@ def column(
     )
     if handles:
         avail_y = max(0.0, avail_y - handles * (sp(GRIP) + imgui.get_style().item_spacing.y * 2.0))
-    shares = {slot.share_key: lay.share(slot.share_key) for slot in live if slot.share_key}
+    # **Only what has actually been saved, or ``heights`` never reaches its own
+    # default.** ``lay.share`` always answers something -- that is what a
+    # splitter drag needs -- so building this dict from it used to hand
+    # ``heights`` a 0.55 for every key nobody had touched, which is not "the
+    # split's own default", it is ``settings_share`` read through
+    # ``SHARE_DEFAULTS``'s fallback. ``heights`` already divides evenly among
+    # keys this dict leaves out (``default = 1.0 / portions``); a key that
+    # nobody has dragged belongs out of the dict, not in it with a borrowed
+    # value, which is what starved Sirens' Sound effects and Song file panes
+    # down to zero height for every user who never touched a splitter (see
+    # docs/INVARIANTS.md).
+    shares = {
+        slot.share_key: value
+        for slot in live
+        if slot.share_key and (value := lay.saved_share(slot.share_key)) is not None
+    }
     tall = skeleton.heights(live, avail_y, shares, tokens.SCALE)
     for index, (slot, height) in enumerate(zip(live, tall, strict=True)):
         if height <= 0.0 and slot.sizing != FILL_SIZING:
@@ -871,7 +945,18 @@ def column(
                 f"{slot.share_key}-share", vertical=False, length=handle_length or width
             )
             if drag and avail_y > 0:
-                before = lay.share(slot.share_key)
+                # **Seeded from what was drawn, not from what ``share`` would
+                # answer.** Since the shares dict above carries only saved
+                # keys, an untouched splitter's panes are drawn at
+                # ``heights``' even division -- while ``lay.share`` still
+                # answers ``settings_share``. Seeding the drag from ``share``
+                # therefore made the first nudge of any never-dragged handle
+                # snap the pane from its quarter of the column to 0.55 of it,
+                # in every workspace, before the drag distance was even added.
+                # ``height`` is what this pane actually occupies this frame
+                # (floors already applied), so a drag starts where the user is
+                # holding it.
+                before = drag_seed(lay, slot.share_key, height, avail_y)
                 lay.set_share(slot.share_key, before + drag * tokens.SCALE / avail_y)
                 if lay.share(slot.share_key) != before:
                     lay.save()

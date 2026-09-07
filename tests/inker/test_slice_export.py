@@ -90,12 +90,15 @@ def test_each_slice_becomes_its_own_png_cropped_to_its_bounds(monkeypatch, tmp_p
     assert red_png.shape == (8, 8, 4)
     assert tuple(red_png[0, 0]) == RED
     assert tuple(blue_png[0, 0]) == BLUE
-    # ``dest`` and ``export_kind`` beside the first file written: Repeat Last
-    # Export has to know where this went and which runner to run again.
+    # ``dest``, ``export_kind`` and the stretch size beside the first file
+    # written: Repeat Last Export has to know where this went, which runner to
+    # run again, and -- since a repeat gets no params popup to ask in -- what
+    # size the stretch was. ``(0, 0)`` is the plain crop this test performs.
     assert result == {
         "exported": tmp_path / "red.png",
         "dest": tmp_path / "sprite.png",
         "export_kind": "slices",
+        "export_nineslice": (0, 0),
     }
 
 
@@ -266,3 +269,58 @@ def test_the_split_refusal_survives_a_template_that_erases_the_difference():
 
     with pytest.raises(ValueError, match="would both be called"):
         inker_mode._split_stems("sheet", ["walk", "run"], kind="tag", template="{title}")
+
+
+def test_a_repeat_of_a_stretched_export_stretches_again_rather_than_cropping(
+    monkeypatch, tmp_path
+):
+    """The gap Repeat Last Export left open on the one export that has a size.
+
+    ``repeat_export`` calls ``export_slices(ctx, tab, repeat=True)`` and nothing
+    else -- skipping the params popup is the whole point of a repeat -- so the
+    width and height arrive as zero. Without ``tab.export_nineslice`` to read
+    them back from, Ctrl+Shift+X after a 24x24 stretch silently wrote 8x8 crops
+    over the same filenames: the same paths, a different picture, and no toast
+    saying so. The destination cannot carry this the way it carries ``.9.png``,
+    because the size is not in the name.
+    """
+    doc = inker.Document.blank(16, 16)
+    _paint(doc, (0, 0, 8, 8), RED)
+    doc.add_slice((0, 0, 8, 8), name="panel")
+    doc.set_slice(doc.slices[0].uid, center=(2, 2, 6, 6))
+    ctx, _state, tab = _open(doc)
+    _saved(monkeypatch, tmp_path / "sprite.png")
+
+    inker_mode.export_slices(ctx, tab, width=24, height=24)
+    result = ctx.run()
+    assert result["export_nineslice"] == (24, 24)
+    assert np.asarray(Image.open(tmp_path / "panel.png")).shape == (24, 24, 4)
+    tab.export_nineslice = result["export_nineslice"]
+    tab.export_dest = result["dest"]
+
+    (tmp_path / "panel.png").unlink()
+    ctx.run = None
+    # ``start_save`` set this and only the result handler clears it; the test
+    # runs the closure directly, so the second export would refuse as busy.
+    tab.saving = False
+    inker_mode.export_slices(ctx, tab, repeat=True)
+    ctx.run()
+    assert np.asarray(Image.open(tmp_path / "panel.png")).shape == (24, 24, 4)
+
+
+def test_a_repeat_of_a_plain_crop_stays_a_plain_crop(monkeypatch, tmp_path):
+    """The other direction, so the remembered size cannot leak into an export
+    that never asked for one: ``(0, 0)`` is a real answer meaning "crop", not a
+    missing one to be filled in from whatever was exported before.
+    """
+    doc = inker.Document.blank(16, 16)
+    _paint(doc, (0, 0, 8, 8), RED)
+    doc.add_slice((0, 0, 8, 8), name="panel")
+    ctx, _state, tab = _open(doc)
+    _saved(monkeypatch, tmp_path / "sprite.png")
+    tab.export_nineslice = (0, 0)
+    tab.export_dest = tmp_path / "sprite.png"
+
+    inker_mode.export_slices(ctx, tab, repeat=True)
+    ctx.run()
+    assert np.asarray(Image.open(tmp_path / "panel.png")).shape == (8, 8, 4)
