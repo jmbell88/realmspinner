@@ -551,8 +551,13 @@ def test_the_character_column_draws_none_of_the_sdxl_recipe(ctx):
     assert "settings_2d._seed_row" in block
     draw = inspect.getsource(settings_2d.draw)
     assert "settings_character.draw_block" in draw
-    assert "_reset_row(ctx)" in draw
     assert "_plan_footer(ctx, form)" in draw
+    # Reset used to be asserted here as a third shared half. It is not in this
+    # column at all since 2026-09-07 -- it moved to Create's command bar, which
+    # draws it for the character arm and the SDXL arm alike, so the character
+    # form still has its way back and this file is no longer the thing that
+    # says so.
+    assert "_reset_row" not in draw
 
 
 def test_the_form_checks_that_do_not_apply_are_skipped_for_a_character(ctx):

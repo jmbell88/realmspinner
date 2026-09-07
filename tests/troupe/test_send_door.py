@@ -17,8 +17,8 @@ import pytest
 
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid
-from warlock.studio import troupe_mode
-from warlock.studio.panes import inspector, library, troupe_send
+from warlock.studio import asset_exits, troupe_mode
+from warlock.studio.panes import troupe_send
 
 
 class _Ctx:
@@ -74,17 +74,26 @@ def test_the_library_door_asks_before_it_spends_a_rig(ctx, svc):
     assert troupe_send.ask(ctx, job)
     assert troupe_send.is_open(ctx)
     assert ctx.submitted == []
-    source = inspect.getsource(library._send_to_troupe_item)
+    # ``asset_exits._troupe_in`` rather than the library's own item: the two
+    # doors are one builder now (2026-09-07), which is what the next test
+    # asserts. The claim is unchanged -- the press opens the question.
+    source = inspect.getsource(asset_exits._troupe_in)
     assert "troupe_send.ask" in source
     assert "troupe_mode.send_to_troupe" not in source
 
 
 def test_both_doors_ask_the_same_question():
-    for source in (
-        inspect.getsource(library._send_to_troupe_item),
-        inspect.getsource(inspector),
-    ):
-        assert "troupe_send.ask(ctx, job)" in source
+    """They cannot disagree, because there is one of them.
+
+    This used to read two sources and assert they said the same thing. The
+    library's menu and the inspector's button are both drawn from
+    ``asset_exits.exits_for`` now, so the guarantee is structural rather than
+    a pair of greps that could both be edited -- and the grep that remains is
+    on the single builder they share.
+    """
+    source = inspect.getsource(asset_exits._troupe_in)
+    assert "troupe_send.ask(ctx, job)" in source
+    assert asset_exits._troupe_in in asset_exits._BUILDERS
 
 
 def test_a_size_chosen_at_the_door_reaches_the_job_row(ctx, svc):
@@ -224,9 +233,6 @@ def test_a_door_that_asks_first_says_so():
     """The ellipsis convention, on the two labels that gained a dialog."""
     from warlock.studio import verbs
 
-    for source in (
-        inspect.getsource(library._send_to_troupe_item),
-        inspect.getsource(inspector),
-    ):
-        assert "verbs.send_to('troupe')}..." in source
+    source = inspect.getsource(asset_exits._troupe_in)
+    assert "verbs.send_to('troupe')}..." in source
     assert verbs.send_to("troupe") == "Send to Troupe"

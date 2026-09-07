@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import inspect
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from imgui_bundle import imgui
 
-from warlock.studio import create_brief, create_stages
-from warlock.studio.state import default_form_2d
+from warlock.studio import create_brief, create_stages, layout, probe, widgets
+from warlock.studio.state import AppState, default_form_2d
 
 
 def _body(fn) -> str:
@@ -39,6 +41,87 @@ def _state(stage="reference", mode="create", **kw):
         clear_field_error=lambda _f: None,
         **kw,
     )
+
+
+def _real_ctx(*, stage: str = "reference") -> Any:
+    """A real ``AppState`` rather than a ``SimpleNamespace`` stub, for the
+    tests below that draw ``create_brief.draw`` for real: it goes through
+    ``focus.pump``/``begin``/``item`` and ``settings_2d.problems_for``, both of
+    which read fields (``focus_order``, ``focus_key``, ``focus_moved``,
+    ``problems_cache``, ``frame_index``) a hand-rolled stub would have to grow
+    one at a time. ``test_muse_panes_smoke.py`` sets the same precedent.
+    """
+    return SimpleNamespace(
+        state=AppState(mode="create", create_stage=stage),
+        svc=SimpleNamespace(config=None),
+        busy=lambda _key: False,
+        confirms=SimpleNamespace(ask=lambda _dialog: None),
+    )
+
+
+def _synthetic_rail_items() -> list[tuple[str, str, str, str | None]]:
+    """The rail's five entries with no job behind them -- for the tests below
+    that need *a* rail to draw, not the real ``App._stage_rail`` (which reads
+    a job and, for Rig, a filesystem-cached read this test file has no
+    business standing up)."""
+    return [
+        (stage, create_stages.LABELS[stage], create_stages.ICONS[stage], None)
+        for stage in create_stages.STAGES
+    ]
+
+
+def _synthetic_rail(
+    ctx: Any, *, max_width: float | None = None, row_height: float | None = None
+) -> None:
+    """A stand-in for ``App._stage_rail``, real enough to draw and measure --
+    unblocked, nothing done, which is a legitimate (if uninteresting) rail
+    state and costs no job lookup."""
+    widgets.stage_rail(
+        "create-stages",
+        _synthetic_rail_items(),
+        ctx.state.create_stage,
+        max_width=max_width,
+        row_height=row_height,
+    )
+
+
+@pytest.fixture
+def frames():
+    """A bare imgui context, built and destroyed around this file --
+    ``test_muse_panes_smoke.py``'s fixture of the same name and the same
+    reason: at most one imgui context may exist at a time, and a file that
+    wants one builds and destroys it rather than relying on collection order.
+    No GL and no renderer: ``renderer_has_textures`` is what lets imgui finish
+    a frame without a backend claiming its font atlas, and every widget call,
+    draw-list call and layout pass still runs for real.
+    """
+    from warlock.studio import theme
+
+    previous = imgui.get_current_context()
+    ctx = imgui.create_context()
+    io = imgui.get_io()
+    io.set_ini_filename(None)
+    io.display_size = (1600, 950)
+    io.delta_time = 1 / 60
+    io.fonts.add_font_default()
+    io.backend_flags |= imgui.BackendFlags_.renderer_has_textures.value
+    theme.apply(imgui)
+
+    def draw(build: Any, size: tuple[float, float] = (1200.0, 900.0)) -> None:
+        imgui.new_frame()
+        imgui.set_next_window_size(size)
+        imgui.begin("smoke")
+        try:
+            build()
+        finally:
+            imgui.end()
+            imgui.end_frame()
+            imgui.render()
+
+    yield draw
+    imgui.destroy_context(ctx)
+    if previous is not None:
+        imgui.set_current_context(previous)
 
 
 # --- where it draws ---------------------------------------------------------
@@ -151,21 +234,71 @@ def test_a_sheet_hides_the_count_rather_than_offering_refusals(asset_type):
 
 
 def test_the_row_gives_way_in_a_stated_order():
-    """The prompt shrinks, then the count is dropped, and the type and Generate
-    never give way -- because Generate is the control the bar exists to keep
-    visible, and ``same_line`` past the pane edge draws a control nowhere.
+    """The prompt shrinks, then the count is dropped, then the rail shortens,
+    then Reset goes icon-only -- and the type and Generate never give way,
+    because Generate is the control the bar exists to keep visible and
+    ``same_line`` past the pane edge draws a control nowhere.
 
-    The width is measured after the type combo's ``same_line``, so
-    ``get_content_region_avail`` has already taken the combo off; subtracting
-    ``TYPE_W`` again double-counted it and the floor underneath turned the
-    shortfall into a clipped Generate at the resize floor.
+    ``TYPE_W`` is now legitimately in this function's body (2026-09-07): the
+    rail sits ahead of the type combo on the row, so ``_row_widths`` has to
+    decide the rail's width *before* the combo has drawn, which means nothing
+    has narrowed ``avail`` yet and ``TYPE_W`` has to be taken off explicitly,
+    once. See :func:`create_brief._row_widths`'s own docstring for why that is
+    not the double-count bug this test used to guard against -- the mechanism
+    moved; the "count everything exactly once" rule it protects did not.
     """
     body = _body(create_brief._row_widths)
-    assert "TYPE_W" not in body, "the combo is already off the avail"
-    assert "GENERATE_W" in body and "COUNT_W" in body
+    assert "sp(TYPE_W)" in body, "the rail is ahead of the combo now, so this must reserve it"
+    assert "GENERATE_W" in body
     assert "PROMPT_MIN_W" in body
-    # The count is the one that goes, and only after the prompt has bottomed.
-    assert "count = 0.0" in body
+    assert "rail_full_w" in body and "rail_floor_w" in body
+    # The count is the one that goes first, and only after the prompt bottoms.
+    assert "show_count = False" in body
+    assert "reset_compact = True" in body
+
+
+def test_the_four_rung_ladder_gives_way_at_decreasing_widths(frames):
+    """``_row_widths`` walked at real, decreasing window widths -- a real
+    frame feeding it real ``imgui.get_style()``/``get_content_region_avail()``
+    numbers rather than a source scan. No GL: this only needs the numbers
+    ``widgets.stage_rail_width`` and ``imgui.calc_text_size`` already produce
+    without a renderer.
+    """
+    items = _synthetic_rail_items()
+    seen: dict[float, tuple] = {}
+
+    def measure(width: float) -> None:
+        def build() -> None:
+            rail_full = widgets.stage_rail_width(items, "reference")
+            rail_floor = widgets.stage_rail_width(items, "reference", max_width=0.0)
+            seen[width] = create_brief._row_widths(False, rail_full, rail_floor)
+
+        frames(build, (width, 700.0))
+
+    for width in (1400.0, 700.0, 500.0, 320.0):
+        measure(width)
+
+    widths = sorted(seen)
+    rail_w = [seen[w][0] for w in widths]
+    prompt_w = [seen[w][1] for w in widths]
+    show_count = [seen[w][2] for w in widths]
+    reset_compact = [seen[w][3] for w in widths]
+
+    # Nothing here gets *more* room as the window gets narrower.
+    assert rail_w == sorted(rail_w)
+    assert prompt_w == sorted(prompt_w)
+    # The count is shown only once there is room for it (False before True,
+    # narrow to wide) and never flips back as the window widens further.
+    assert show_count == sorted(show_count)
+    # Reset is icon-only only under pressure (True before False, narrow to
+    # wide) and never flips back either.
+    assert reset_compact == sorted(reset_compact, reverse=True)
+    # At the widest, everything is at its natural size.
+    assert show_count[-1] is True
+    assert reset_compact[-1] is False
+    # At the narrowest, the ladder has bottomed out on both ends.
+    assert prompt_w[0] == pytest.approx(create_brief.sp(create_brief.PROMPT_MIN_W))
+    assert reset_compact[0] is True
 
 
 # --- the anchors the guided tour points at ----------------------------------
@@ -214,17 +347,26 @@ def test_the_tours_still_name_anchors_something_marks():
 
 
 def test_the_bar_is_a_registered_pane_not_a_bare_row():
-    """``layout.pane`` is what puts it in ``FRAME_PANES``, which is what gives
-    it the role fill, the divider, ``guard``'s isolation and -- the reason that
-    matters downstream -- a slot for ``probe._pane_at``. Drawn bare, the bar's
-    four controls are censused against the empty-string pane, which reads as
-    four controls nobody owns."""
+    """``layout.pane`` is what gives the row the role fill, the divider,
+    ``guard``'s isolation and a real child-window name for ``probe`` to
+    attribute controls to -- drawn bare, the row's controls used to census
+    against the empty-string pane, which reads as controls nobody owns.
+
+    The pane opens unconditionally now (2026-09-07): the rail is a breadcrumb
+    for every stage, so ``create_brief.shows`` no longer gates whether
+    ``main.py`` opens the pane at all -- only ``create_brief.draw`` still asks
+    it, to decide how much of the row to fill in. ``main.py`` sizes the pane
+    from ``create_brief.bar_height`` instead.
+    """
     from warlock.studio import main
 
     source = inspect.getsource(main.App._build_ui)
-    assert 'layout_mod.pane(\n                            "brief",' in source
-    assert "create_brief.shows(ctx)" in source
-    assert "create_brief.draw(ctx)" in source
+    assert 'layout_mod.pane(\n                        "brief",' in source
+    assert "create_brief.bar_height(ctx)" in source
+    assert "create_brief.draw(ctx, self._stage_rail)" in source
+    # The gate moved *into* create_brief.draw, not away entirely.
+    assert "create_brief.shows(ctx)" not in source
+    assert "if not shows(ctx):" in inspect.getsource(create_brief.draw)
 
 
 # --- the disabled button's reason -------------------------------------------
@@ -262,3 +404,132 @@ def test_an_empty_prompt_leaves_the_bar_drawable():
     for problem in problems:
         assert isinstance(problem, str)
         assert str(problem)
+
+
+# --- the rail and the brief, drawn for real ----------------------------------
+
+
+def test_the_rail_callable_is_called_at_every_stage(frames):
+    """``draw`` calls whatever ``rail`` it is handed on all five stages, even
+    the four that draw no brief -- the pane always opens now, and the rail is
+    what it opens *for*."""
+    calls: list[str] = []
+
+    def rail_stub(ctx, *, max_width=None, row_height=None):
+        calls.append(ctx.state.create_stage)
+
+    for stage in create_stages.STAGES:
+        ctx = _real_ctx(stage=stage)
+        frames(lambda ctx=ctx: create_brief.draw(ctx, rail_stub))
+
+    assert calls == list(create_stages.STAGES)
+
+
+def test_the_brief_only_reaches_the_settings_door_on_reference(frames):
+    """``ctx.busy`` is read only inside the brief half of ``draw`` (to decide
+    whether Generate is enabled) -- a call on a non-Reference stage would mean
+    the four dead controls' plumbing still ran even though nothing draws."""
+    busy_calls: list[str] = []
+
+    def rail_stub(ctx, *, max_width=None, row_height=None):
+        return None
+
+    for stage in create_stages.STAGES:
+        ctx = _real_ctx(stage=stage)
+        ctx.busy = lambda key, stage=stage: busy_calls.append(stage) or False
+        frames(lambda ctx=ctx: create_brief.draw(ctx, rail_stub))
+
+    assert busy_calls == ["reference"]
+
+
+def test_the_bar_fits_the_height_it_declares(frames):
+    """``BAR_H`` and ``RAIL_ONLY_H`` are measured, not derived -- this is the
+    thing that measures them: a real frame draws the row (or, off Reference,
+    just the rail) into a bare ``imgui.begin("smoke")`` window, and the
+    content span plus the padding ``layout.pane`` would spend on top of it
+    (added back on both edges, since this window has none of its own) must
+    fit the pane height ``bar_height`` declares for that stage.
+
+    Muse's own ``BAR_H`` was wrong exactly this way before its own version of
+    this test existed -- 118 declared against ~142 dp actually drawn, because
+    neither figure ever charged for that padding and nothing drew the bar for
+    real to catch it.
+    """
+    for stage in create_stages.STAGES:
+        ctx = _real_ctx(stage=stage)
+        positions: dict[str, float] = {}
+
+        def build(ctx=ctx, positions=positions) -> None:
+            positions["before"] = imgui.get_cursor_pos_y()
+            create_brief.draw(ctx, _synthetic_rail)
+            positions["after"] = imgui.get_cursor_pos_y()
+
+        frames(build)
+
+        pad = imgui.get_style().window_padding.y
+        content_h = (positions["after"] - positions["before"]) + 2 * pad
+        declared = create_brief.bar_height(ctx)
+        assert content_h <= declared, (
+            f"stage={stage}: the row drew {content_h:.1f}px of content against "
+            f"a declared {declared:.1f}px ({'BAR_H' if stage == 'reference' else 'RAIL_ONLY_H'} "
+            f"= {create_brief.BAR_H if stage == 'reference' else create_brief.RAIL_ONLY_H})"
+        )
+
+
+def test_the_bar_fits_with_the_count_hidden_too(frames):
+    """The sheet/character arm draws three brief controls instead of four --
+    narrower, never taller -- but it is worth its own frame rather than an
+    inference from the case above, since ``_row_widths`` treats it as its own
+    branch."""
+    ctx = _real_ctx(stage="reference")
+    ctx.state.form_2d["asset_type"] = "tileset"
+    positions: dict[str, float] = {}
+
+    def build() -> None:
+        positions["before"] = imgui.get_cursor_pos_y()
+        create_brief.draw(ctx, _synthetic_rail)
+        positions["after"] = imgui.get_cursor_pos_y()
+
+    frames(build)
+
+    pad = imgui.get_style().window_padding.y
+    content_h = (positions["after"] - positions["before"]) + 2 * pad
+    assert content_h <= create_brief.bar_height(ctx)
+
+
+# --- Reset moved into the bar's own pane -------------------------------------
+
+
+def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
+    """``probe``'s per-frame census -- the mechanism ``scripts/exercise_mode.py``
+    drives every control through -- must attribute Reset to the bar's own
+    child window once it is drawn through ``layout.pane``, not to whatever
+    happened to be current when it was a bare row.
+    """
+    monkeypatch.setattr(probe, "ENABLED", True)
+    ctx = _real_ctx()
+
+    def build() -> None:
+        layout.begin_frame()
+        probe.begin_frame()
+        with layout.pane(
+            "brief", (900.0, create_brief.bar_height(ctx)), layout.PaneRole.CONTENT
+        ) as visible:
+            if visible:
+                create_brief.draw(ctx, _synthetic_rail)
+
+    frames(build)
+
+    census = probe.census()
+    reset = next(c for c in census if c.text.startswith("Reset"))
+    assert reset.where == "brief", census
+
+
+def test_reset_no_longer_draws_from_the_settings_column():
+    """The other half of the move: ``settings_2d`` must hold no copy of it --
+    one owner per control, per ``CLAUDE.md``."""
+    from warlock.studio.panes import settings_2d
+
+    source = inspect.getsource(settings_2d)
+    assert "_reset_row" not in source
+    assert "Reset..." not in source

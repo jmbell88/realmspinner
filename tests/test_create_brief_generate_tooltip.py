@@ -53,7 +53,14 @@ def test_the_generate_button_is_wired_to_the_computed_tooltip_not_a_literal():
 
 def test_generate_is_called_with_the_row_widths_own_show_count_answer():
     """``show_count`` must be ``_row_widths``' answer, not re-derived: a second
-    reading of "is the count visible" is exactly how the two could disagree."""
+    reading of "is the count visible" is exactly how the two could disagree.
+
+    ``_row_widths`` grew two more return values when the rail and Reset
+    joined the row (2026-09-07: ``rail_w`` and ``reset_compact``), so the
+    call site's exact left-hand side changed shape -- what still has to hold
+    is that ``show_count`` comes off that one call rather than being asked
+    again."""
     body = inspect.getsource(create_brief.draw)
-    assert "prompt_w, show_count = _row_widths(hide_count)" in body
+    assert "show_count, reset_compact = _row_widths(" in body
+    assert "hide_count, rail_full_w, rail_floor_w" in body
     assert "show_count=show_count" in body

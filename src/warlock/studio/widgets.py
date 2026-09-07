@@ -2098,6 +2098,48 @@ def grid_width(columns: int) -> float:
     return (imgui.get_content_region_avail().x - gap * (columns - 1)) / columns
 
 
+def stable_width(avail: float, scrollbar: float, has_bar: bool) -> float:
+    """Content width that does not change when a vertical scrollbar appears.
+
+    Pure arithmetic, split out for the reason ``inspector.reference_fit`` and
+    ``inspector.pixel_scale`` are: it decides what the user sees and should be
+    assertable without a GL context.
+
+    The incident this guards: ``layout.pane`` opens every scrolling child with
+    no ``no_scrollbar`` flag, and Dear ImGui decides a child's scrollbar from
+    the *previous* frame's content size, not this one's. A widget that sizes
+    an image off the pane's live ``avail`` therefore feeds its own drawn
+    height back into next frame's scrollbar decision -- no scrollbar -> wide
+    avail -> tall image -> content overflows the pane -> scrollbar appears ->
+    avail shrinks by ``scrollbar`` -> image narrows -> content fits again ->
+    scrollbar disappears -> repeat, forever, with no exception and nothing in
+    the log (rigging landing a new "what came of it" edge in the Mesh stage's
+    column is what pushes the height onto the threshold and starts the loop).
+    Sizing as if the scrollbar is always present breaks it: the width is
+    identical whether or not a scrollbar is actually drawn this frame, so
+    there is nothing left to feed back. The cost is ``scrollbar`` px of unused
+    width in the no-scrollbar case, which is the trade for a layout that
+    converges instead of oscillating every frame.
+    """
+    return avail if has_bar else max(avail - scrollbar, 1.0)
+
+
+def stable_content_width() -> float:
+    """:func:`stable_width` against the current window.
+
+    ``get_scroll_max_y() > 0`` is ``component_gallery``'s own reading of
+    "does this window scroll right now" (it uses the same call to drive
+    ``set_scroll_y``) -- the most direct honest answer imgui_bundle exposes,
+    short of reading the child's flags back out, which the binding does not
+    surface. ``get_style().scrollbar_size`` is the width to reserve.
+    """
+    return stable_width(
+        imgui.get_content_region_avail().x,
+        imgui.get_style().scrollbar_size,
+        imgui.get_scroll_max_y() > 0,
+    )
+
+
 # Grade buttons per row. Six, so the eleven-value scale lays out 6/5 rather
 # than leaving one button alone on a third line.
 GRADES_PER_ROW = 6
@@ -2399,6 +2441,97 @@ def segmented_control(
     return selected
 
 
+def _rail_keys(done: str | frozenset[str] | set[str] | None) -> frozenset[str]:
+    """``done`` folded to a set, the way :func:`stage_rail`'s own docstring
+    explains: a lone string is one caller's "just this one" and is not given
+    its own code path."""
+    if done is None:
+        return frozenset()
+    if isinstance(done, str):
+        return frozenset({done})
+    return frozenset(done)
+
+
+def _rail_fit(
+    items: list[tuple[str, str, str, str | None]],
+    current: str,
+    done: str | frozenset[str] | set[str] | None,
+    max_width: float | None,
+) -> tuple[list[str], list[float], dict[str, str], frozenset[str]]:
+    """The measure-and-degrade ladder shared by :func:`stage_rail` (which
+    draws it) and :func:`stage_rail_width` (which only wants the number).
+
+    Factored out rather than left inline, and rather than reimplemented at the
+    second call site: ``create_brief._row_widths`` needs to know how wide the
+    rail wants to be *before* the rail is drawn -- it is the row's leftmost
+    element now, sharing one line with the type combo, the prompt, the count
+    and Generate -- and a second copy of ``faces``/``measure`` is exactly how
+    the two numbers would drift the day either rung changes. Must run inside
+    ``fonts.label(imgui)``, as both callers already do: ``calc_text_size``
+    reads the currently pushed font.
+
+    -> ``(shown, widths, titles, done_keys)``, matching what :func:`stage_rail`
+    used to compute inline.
+    """
+    done_keys = _rail_keys(done)
+    pad_x = sp(12)
+
+    # What each segment actually reads as, before it is measured: a check is
+    # part of the width, which is why it is a rung of the ladder.
+    def faces(compact: bool, ticks: bool) -> list[str]:
+        out = []
+        for key, label, icon, _reason in items:
+            if compact:
+                out.append(icon)
+            elif ticks and key in done_keys and key != current:
+                out.append(f"{icons.CHECK} {label}")
+            else:
+                out.append(label)
+        return out
+
+    def measure(labels: list[str]) -> list[float]:
+        return [imgui.calc_text_size(text).x + pad_x * 2 for text in labels]
+
+    titles: dict[str, str] = {}
+    shown = faces(False, True)
+    widths = measure(shown)
+    for compact, ticks in ((False, False), (True, False)):
+        if max_width is None or sum(widths) <= max_width:
+            break
+        if compact:
+            titles = {key: label for key, label, _icon, _reason in items}
+        shown = faces(compact, ticks)
+        widths = measure(shown)
+    return shown, widths, titles, done_keys
+
+
+def stage_rail_width(
+    items: list[tuple[str, str, str, str | None]],
+    current: str = "",
+    *,
+    done: str | frozenset[str] | set[str] | None = None,
+    max_width: float | None = None,
+) -> float:
+    """What :func:`stage_rail` would measure for ``items`` at this budget --
+    without drawing anything.
+
+    ``create_brief._row_widths`` calls this to learn how much of the row the
+    rail wants before deciding how much of the row everyone else keeps: the
+    rail used to own the whole width of its own bar and could size itself with
+    no help from a caller, but sharing a row means something else now has to
+    ask. Sharing :func:`_rail_fit` with :func:`stage_rail` rather than
+    guessing a constant (304 was one, and wrong the moment a label changed) is
+    what keeps this answer and the one actually drawn from disagreeing.
+
+    Needs an active imgui context the way :func:`stage_rail` does --
+    ``calc_text_size`` inside ``fonts.label`` -- and nothing else: no GL, no
+    renderer, no draw list.
+    """
+    with fonts.label(imgui):
+        _shown, widths, _titles, _done = _rail_fit(items, current, done, max_width)
+    return sum(widths)
+
+
 def stage_rail(
     rail_id: str,
     items: list[tuple[str, str, str, str | None]],
@@ -2407,6 +2540,7 @@ def stage_rail(
     done: str | frozenset[str] | set[str] | None = None,
     optional: dict[str, str] | None = None,
     max_width: float | None = None,
+    row_height: float | None = None,
 ) -> str:
     """The Create mode's breadcrumb: where this asset is, and what is left.
 
@@ -2456,50 +2590,35 @@ def stage_rail(
        two ticks trades the whole rail for them. Done-ness survives as
        full-strength text against a not-yet-reached segment's 0.55.
     3. Icons, each keeping its label in a tooltip.
+
+    ``row_height``, added when the rail moved onto Create's command bar
+    (2026-09-07): the rail's own content is one line, ``get_text_line_height()
+    + 2 * sp(6)`` tall, roughly 25 dp at the default font -- short beside the
+    40 dp prompt and
+    Generate it now shares a line with. Handing a taller ``row_height`` does
+    **not** stretch the track to fill it (a pill rail the height of a text
+    field reads as broken, not tall); it centres the rail's own natural-height
+    content inside the reserved band instead, the same way a short glyph
+    button sits centred beside a full-height field. ``None`` (every other
+    caller) keeps the old behaviour: the reserved height *is* the content
+    height.
     """
     draw = imgui.get_window_draw_list()
-    pad_x, pad_y = sp(12), sp(6)
+    pad_y = sp(6)
     keys = [key for key, _label, _icon, _reason in items]
     order = {key: index for index, key in enumerate(keys)}
-    # A lone string is one caller's "just this one" -- folded into the set
-    # rather than given its own code path, so everything below asks one
-    # question (``key in done_keys``) regardless of how ``done`` arrived.
-    if done is None:
-        done_keys: frozenset[str] = frozenset()
-    elif isinstance(done, str):
-        done_keys = frozenset({done})
-    else:
-        done_keys = frozenset(done)
     optional = optional or {}
     with fonts.label(imgui):
-        # What each segment actually reads as, before it is measured: a check
-        # is part of the width, which is why it is a rung of the ladder.
-        def faces(compact: bool, ticks: bool) -> list[str]:
-            out = []
-            for key, label, icon, _reason in items:
-                if compact:
-                    out.append(icon)
-                elif ticks and key in done_keys and key != current:
-                    out.append(f"{icons.CHECK} {label}")
-                else:
-                    out.append(label)
-            return out
-
-        def measure(labels: list[str]) -> list[float]:
-            return [imgui.calc_text_size(text).x + pad_x * 2 for text in labels]
-
-        titles: dict[str, str] = {}
-        shown = faces(False, True)
-        widths = measure(shown)
-        for compact, ticks in ((False, False), (True, False)):
-            if max_width is None or sum(widths) <= max_width:
-                break
-            if compact:
-                titles = {key: label for key, label, _icon, _reason in items}
-            shown = faces(compact, ticks)
-            widths = measure(shown)
+        shown, widths, titles, done_keys = _rail_fit(items, current, done, max_width)
         height = imgui.get_text_line_height() + pad_y * 2
+        band = height if row_height is None else max(row_height, height)
         origin = imgui.get_cursor_screen_pos()
+        # Everything painted below reads off ``paint`` rather than ``origin``
+        # for its Y: ``origin`` is what the cursor is restored to and what the
+        # final ``dummy`` sizes against (``band``), so the *reserved* rect
+        # matches the row's height while the *drawn* pill floats centred
+        # inside it. X is untouched -- only the vertical centring is new.
+        paint = (origin.x, origin.y + (band - height) * 0.5)
         offsets: list[float] = []
         cursor = 0.0
         for width in widths:
@@ -2507,8 +2626,8 @@ def stage_rail(
             cursor += width
         total = cursor
         draw.add_rect_filled(
-            (origin.x, origin.y),
-            (origin.x + total, origin.y + height),
+            (paint[0], paint[1]),
+            (paint[0] + total, paint[1] + height),
             imgui.get_color_u32(theme.rgba(theme.ELEV_1)),
             height * 0.5,
         )
@@ -2520,8 +2639,8 @@ def stage_rail(
         x = motion.spring(f"{rail_id}/x", offsets[index], duration=tokens.DUR_BASE)
         w = motion.spring(f"{rail_id}/w", widths[index], duration=tokens.DUR_BASE)
         draw.add_rect_filled(
-            (origin.x + x + sp(2), origin.y + sp(2)),
-            (origin.x + x + w - sp(2), origin.y + height - sp(2)),
+            (paint[0] + x + sp(2), paint[1] + sp(2)),
+            (paint[0] + x + w - sp(2), paint[1] + height - sp(2)),
             imgui.get_color_u32(theme.rgba(theme.ELEV_2)),
             (height - sp(4)) * 0.5,
         )
@@ -2529,7 +2648,7 @@ def stage_rail(
         for (key, label, _icon, reason), text, width, offset in zip(
             items, shown, widths, offsets, strict=True
         ):
-            imgui.set_cursor_screen_pos((origin.x + offset, origin.y))
+            imgui.set_cursor_screen_pos((paint[0] + offset, paint[1]))
             # A blocked segment is still an *item*: it has to be hoverable to
             # carry its tooltip, so it is clicked and the click is dropped,
             # rather than not drawn as a button at all.
@@ -2565,14 +2684,14 @@ def stage_rail(
             size = imgui.calc_text_size(text)
             draw.add_text(
                 (
-                    origin.x + offset + (width - size.x) * 0.5,
-                    origin.y + (height - size.y) * 0.5,
+                    paint[0] + offset + (width - size.x) * 0.5,
+                    paint[1] + (height - size.y) * 0.5,
                 ),
                 imgui.get_color_u32(theme.rgba(theme.TEXT, alpha)),
                 text,
             )
         imgui.set_cursor_screen_pos((origin.x, origin.y))
-        imgui.dummy((total, height))
+        imgui.dummy((total, band))
     return picked
 
 

@@ -82,6 +82,34 @@ def test_neither_offers_it_for_something_that_cannot_be_edited(svc):
     assert inspector.offers_inker(ctx, job) is False
 
 
+def test_edit_actions_runs_ahead_of_the_stage_dispatch_at_every_host(svc):
+    """"Take it somewhere" used to be wired into ``_STAGE_SECTIONS`` at only
+    two of Create's five stages, and duplicated into ``_details_tab`` for the
+    Library -- so Rig, Pose and Export had no exit at all, and the Library
+    carried a second copy of the call. ``draw`` now calls ``_edit_actions``
+    once, unconditionally, before the branch that dispatches to either the
+    stage rail or the tab bar -- which is what puts it at all five stages and
+    above the Library's tabs in one move. Asserted on the source rather than
+    by driving five stages of a real window: ``draw`` needs imgui and a GL
+    context past this point, and the placement is the whole of what this
+    pins.
+    """
+    import inspect
+
+    source = inspect.getsource(inspector.draw)
+    edit_call = source.index("_edit_actions(ctx, job)")
+    dispatch = source.index("create_stages.in_create(ctx.state)")
+    assert edit_call < dispatch
+
+    # And it must not still be duplicated into a per-stage list or the
+    # Library's own tab body -- that would draw it twice at Reference and
+    # Mesh, and the Library's Details tab would show it a second time under
+    # its own tab bar.
+    for stage, sections in inspector._STAGE_SECTIONS.items():
+        assert "_edit_actions" not in sections, stage
+    assert "_edit_actions" not in inspect.getsource(inspector._details_tab)
+
+
 def test_the_toolbar_and_the_inspector_agree_about_which_of_them_it_is(svc):
     """The two conditions are complementary rather than merely different: for
     every mode, *exactly* one of them offers an editable reference. The

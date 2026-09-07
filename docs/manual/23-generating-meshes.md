@@ -335,6 +335,12 @@ job still completes: the GLB is already on disk, and a missing verdict is better
 
 ## Exports
 
+The **Rig**, **Pose** and **Export** stages each open with the same **Take it somewhere** section
+Reference and Mesh do — Clay, Poser and Troupe stay reachable for a rigged mesh however far through
+the pipeline you have taken it, rather than only from the Mesh stage it started on. See
+[The library and jobs](36-library-and-jobs.md) for what the list offers and how a destination one
+step away (a mesh with no rig yet, and so on) is shown rather than hidden.
+
 Standing on the Export stage, above the grid of buttons, is **Ready for an engine?** — a checklist
 built from measurements the app already took, so it costs nothing new to look at and nothing here is
 re-measured. It reads the mesh report (triangles against the budget, watertightness, UVs, base

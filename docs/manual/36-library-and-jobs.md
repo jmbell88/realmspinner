@@ -22,6 +22,15 @@ never loses a filter, and every card offers the same actions and the same right-
 Arrow keys walk the grid: left and right by one, up and down by a row. Enter opens the highlighted
 asset in the pane that made it.
 
+Selecting a finished asset puts a **"Take it somewhere"** section at the top of the inspector, above
+its tabs, so it is visible whichever one you have open. It lists every workspace this particular
+asset can go to next — Inker, Clay, Poser, Troupe, Plotter, Packwright, Sirens — worded as *Open in*,
+*Add to* or *Send to* depending on what pressing it does, with a one-line note under each button
+saying what it will do. A destination this asset is one step away from — a mesh with no rig yet, a
+reference that has not finished generating — appears dimmed rather than missing, with the reason
+under it; a workspace this kind of asset could never reach is left off the list entirely. The card's
+overflow menu offers exactly the same run, for when you would rather not select the card first.
+
 ## The job lifecycle
 
 A job moves through a small set of states, shown as a coloured pill on its card:

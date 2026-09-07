@@ -3,7 +3,7 @@
 A reference is the picture the mesh will be reconstructed from. Everything in this chapter lives in
 the **2D reference** mode's settings pane, in the left sidebar.
 
-![The Reference stage: the command bar, the recipe column, the preview and the library](img/22-reference.png)
+![The Reference stage: the rail and brief on one row, then the recipe column and the preview](img/22-reference.png)
 
 ## The prompt
 
@@ -28,7 +28,8 @@ promotion](36-library-and-jobs.md#rerun-and-promotion).
 Under **Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
 delete the text and the job runs with no negative prompt at all, which is a different request from
-the default rather than a way back to it. **Reset…** brings the default text back.
+the default rather than a way back to it. **Reset…**, beside Generate in the command bar, brings the
+default text back along with the rest of the form.
 
 ```text
 blurry, low quality, multiple objects, cropped, cut off,
@@ -52,11 +53,14 @@ longer conditioning sequence dilutes attention, so your prompt is best kept to a
 
 ## The screen at a glance
 
-Create's Reference stage is a **command bar** across the top and a **recipe column** down the left.
-The split is the whole design: the bar is *what to make*, the column is *how to make it*, and no
-control appears in both.
+Create's top row is a **command bar** and, under it, a **recipe column** down the left. The split is
+the whole design: the bar is *what to make*, the column is *how to make it*, and no control appears
+in both.
 
-The bar holds the four things a common visit touches, on one row that never scrolls:
+The command bar itself has two halves that share one line. On the left, the **stage rail** is the
+breadcrumb across Reference, Mesh, Rig, Pose and Export — it is on screen at every stage, including
+the four that draw no brief. On the Reference stage, the rest of the row is the brief: the five
+things a common visit touches, never scrolled.
 
 | Control | What it decides |
 | --- | --- |
@@ -64,12 +68,15 @@ The bar holds the four things a common visit touches, on one row that never scro
 | **Prompt** | The words. Required; everything else has a default. |
 | **Count** | How many alternatives one press draws — 1, 2, 4 or 8. |
 | **Generate** | The press. Its label names what you are making: *Create image*, *Generate reference*, *Create tileset*. |
+| **Reset…** | Puts the whole form back to its first-launch defaults, behind a confirm. See below. |
 
 At narrow widths the row gives way in a stated order: the prompt shrinks first, then the count is
-dropped — its value is restated in the plan block below — and the type and Generate never give way.
+dropped — its value is restated in Generate's tooltip — then the stage rail itself shortens (full
+labels, then labels alone, then icons — every stage stays clickable and tooltipped throughout), and
+last, Reset drops to a bare icon. The type and Generate never give way.
 
-The bar is drawn on the Reference stage only. Mesh, Rig, Pose and Export have no brief to state, so
-they draw no bar at all and their columns simply start higher.
+The stage rail draws at every stage; the rest of the bar is Reference only. Mesh, Rig, Pose and
+Export have no brief to state, so they draw the rail alone and their columns simply start higher.
 
 The column below holds **Recipe** (the model, the style LoRA and the seed), **Style strength** once
 a LoRA is chosen, **Negative prompt / Avoid** while the chosen recipe can use one, one section
@@ -112,9 +119,10 @@ rest) behind a "More options" reveal. It was retired on 2026-08-17: no taxonomy 
 a quality win, and your prompt is the brief. Assets generated under it are unaffected — rerolling
 or promoting one simply composes without the retired fragments.
 
-**Reset...**, at the foot of the column, puts the whole form back to its first-launch defaults after
-a confirm — the prompt, the negative prompt, the model and LoRA, the reference and the run controls,
-with a freshly rolled seed. It touches nothing outside this pane: the 3D form is left alone.
+**Reset...**, in the command bar beside Generate, puts the whole form back to its first-launch
+defaults after a confirm — the prompt, the negative prompt, the model and LoRA, the reference and the
+run controls, with a freshly rolled seed. It touches nothing outside this pane: the 3D form is left
+alone.
 
 ## Models and style LoRAs
 

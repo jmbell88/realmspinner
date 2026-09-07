@@ -328,12 +328,21 @@ def test_the_creation_decision_is_split_between_the_bar_and_the_column():
     from warlock.studio import create_brief
 
     bar = inspect.getsource(create_brief)
-    for call in ("_type", "_prompt", "_count", "_generate"):
+    # ``_reset`` joined the four on 2026-09-07, when the bar absorbed the stage
+    # rail and the row gained the width to carry it. It is the same rule this
+    # test already states, applied once more: Reset puts the *brief* back, so
+    # it belongs beside the brief rather than pinned under the recipe.
+    for call in ("_type", "_prompt", "_count", "_generate", "_reset"):
         assert f"{call}(ctx" in bar
 
     source = inspect.getsource(settings_2d.draw)
-    for call in ("_model", "_lora", "_seed_row", "_reset_row", "_references", "_negative"):
+    for call in ("_model", "_lora", "_seed_row", "_references", "_negative"):
         assert call in source
+    # And the column no longer draws it -- the other half of "neither draws the
+    # other's controls". ``settings_2d._reset`` (the form-clearing logic) stays
+    # and is called from the bar; only the *row* left.
+    assert "_reset_row" not in source
+    assert not hasattr(settings_2d, "_reset_row")
     # The disclosure, and the controls that left, are gone from the column.
     assert 'collapsing_header("Advanced controls##create")' not in source
     for gone in ("_asset_type(ctx", "_quality(ctx", "_run_controls(", "_submit("):

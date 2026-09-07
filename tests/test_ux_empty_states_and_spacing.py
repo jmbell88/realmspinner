@@ -44,4 +44,8 @@ def test_the_inspector_exits_share_the_bridges_heading():
     assert 'widgets.section("Take it somewhere")' in source
     # Heading only when there is something under it: an empty titled group is
     # a heading over nothing.
-    assert "if not any(exits):\n        return" in source
+    # ``not exits`` rather than ``not any(exits)`` since 2026-09-07: the
+    # four hand-written branches became a loop over
+    # ``asset_exits.exits_for``, so what is tested for emptiness is a list
+    # of destinations rather than a tuple of one bool per branch. Same claim.
+    assert "if not exits:\n        return" in source

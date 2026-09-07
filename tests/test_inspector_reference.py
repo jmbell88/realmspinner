@@ -8,7 +8,8 @@ need a GL context to assert.
 
 from __future__ import annotations
 
-from warlock.studio.panes import inspector
+from warlock.studio import widgets
+from warlock.studio.panes import inspector, sheet_panel
 from warlock.studio.tokens import sp
 
 # --- 9d: the reference fills the pane, and keeps its shape ------------------
@@ -113,6 +114,58 @@ def test_the_inspector_and_the_badge_cannot_disagree_about_watertightness():
 
 
 # --- 9e/9f: the post-generation affordances ---------------------------------
+
+
+# --- the scrollbar-feedback loop (rig-then-Mesh flicker) --------------------
+#
+# The claim: the drawn box is the same with and without a scrollbar. Dear
+# ImGui decides a child's scrollbar from *last* frame's content size, so a
+# width read straight off the live avail feeds this frame's image height back
+# into next frame's scrollbar decision -- and round it goes, forever, with no
+# exception anywhere in the log. Each of these tests would fail if the site it
+# names went back to sizing off ``imgui.get_content_region_avail().x``
+# directly instead of ``widgets.stable_content_width()``.
+
+
+def test_stable_width_reserves_the_scrollbar_when_none_is_drawn():
+    assert widgets.stable_width(276.0, 10.0, False) == 266.0
+
+
+def test_stable_width_is_unchanged_once_a_scrollbar_is_actually_up():
+    assert widgets.stable_width(266.0, 10.0, True) == 266.0
+
+
+def test_stable_width_never_returns_a_non_positive_box():
+    # A pane narrower than the scrollbar itself is a degenerate layout, not a
+    # licence to hand imgui.image a zero or negative width.
+    assert widgets.stable_width(4.0, 10.0, False) == 1.0
+
+
+def test_a_square_reference_is_the_same_size_whichever_way_the_scrollbar_goes():
+    # The reported site (inspector.py, _reference): a square 1024x1024 SDXL
+    # reference is width-bound in a 276dp pane (276/1024 < reference_max_height
+    # /1024), so its drawn height is exactly what oscillated.
+    bar = 10.0
+    without = inspector.reference_fit((1024, 1024), widgets.stable_width(276.0, bar, False))
+    with_bar = inspector.reference_fit((1024, 1024), widgets.stable_width(266.0, bar, True))
+    assert without == with_bar
+
+
+def test_a_portrait_reference_is_also_stable_across_the_scrollbar():
+    bar = 10.0
+    without = inspector.reference_fit((512, 2048), widgets.stable_width(276.0, bar, False))
+    with_bar = inspector.reference_fit((512, 2048), widgets.stable_width(266.0, bar, True))
+    assert without == with_bar
+
+
+def test_the_sheet_strip_is_the_same_size_whichever_way_the_scrollbar_goes():
+    # sheet_panel.py's direction-preview strip: no height cap at all, so this
+    # was the worst of the three sites -- every dp the width moved carried
+    # straight through to the height at the same ratio.
+    bar = 10.0
+    without = sheet_panel.strip_fit((512, 128), widgets.stable_width(276.0, bar, False))
+    with_bar = sheet_panel.strip_fit((512, 128), widgets.stable_width(266.0, bar, True))
+    assert without == with_bar
 
 
 def test_a_finished_mesh_can_be_opened_in_clay():

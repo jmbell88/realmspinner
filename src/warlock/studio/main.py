@@ -3837,38 +3837,25 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                     lay = self.layout
                     left_w = layout_mod.sidebar_width("left")
                     right_w = layout_mod.sidebar_width("right")
-                    # The rail first, above the columns it switches: it is a breadcrumb for
-                    # what is under it, and one drawn at the bottom would be a tab strip
-                    # that had lost its tabs.
-                    #
-                    # Spanning the whole content width rather than boxed inside the 300 dp
-                    # settings column, which is where it used to live. Five labelled
-                    # segments measure ~304 dp; a sidebar gives the widget ~276 dp, so the
-                    # fitting ladder in ``widgets.stage_rail`` was pinned to its last rung
-                    # -- five anonymous icons standing in for the app's central navigation
-                    # metaphor, at every realistic window size rather than only at small
-                    # ones. Full width, the same widget sits on rung 1 (labels and ticks)
-                    # and the ladder goes back to being a response to a narrow window.
-                    imgui.dummy((0, tokens.sp(tokens.SP_2)))
-                    pad = tokens.sp(layout_mod.PANE_PADDING)
-                    rail_w = imgui.get_content_region_avail().x - pad * 2
-                    imgui.indent(pad)
-                    self._stage_rail(ctx, max_width=rail_w)
-                    imgui.unindent(pad)
-                    # The brief, across the full content width under the rail
-                    # and above the columns. Drawn only where it has something
-                    # true to say -- the four other stages start their columns
-                    # here instead, rather than reserving an inert strip.
-                    if create_brief.shows(ctx):
-                        with layout_mod.pane(
-                            "brief",
-                            (0, tokens.sp(create_brief.BAR_H)),
-                            layout_mod.PaneRole.CONTENT,
-                            edge=layout_mod.PaneEdge.BOTTOM,
-                            title="The brief bar",
-                        ) as visible:
-                            if visible:
-                                create_brief.draw(ctx)
+                    # The rail and the brief share one row now (2026-09-07),
+                    # drawn through one pane rather than the rail bare above a
+                    # second one: two vertical strips (~90 dp together) for
+                    # what a common visit reads as one control bar -- where
+                    # this asset is, and what to make next. ``create_brief``'s
+                    # own module docstring carries the rest of the argument;
+                    # this is only the wiring, and ``create_brief.shows`` no
+                    # longer decides whether the pane opens -- the rail is a
+                    # breadcrumb for every stage, so it always does, and
+                    # ``create_brief.bar_height`` sizes it per stage instead.
+                    with layout_mod.pane(
+                        "brief",
+                        (0, create_brief.bar_height(ctx)),
+                        layout_mod.PaneRole.CONTENT,
+                        edge=layout_mod.PaneEdge.BOTTOM,
+                        title="The brief bar",
+                    ) as visible:
+                        if visible:
+                            create_brief.draw(ctx, self._stage_rail)
                     with layout_mod.pane(
                         "settings",
                         (left_w, 0),
@@ -3896,17 +3883,31 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         imgui.end()
         self._overlays(viewport)
 
-    def _stage_rail(self, ctx: Any, *, max_width: float | None = None) -> None:
+    def _stage_rail(
+        self,
+        ctx: Any,
+        *,
+        max_width: float | None = None,
+        row_height: float | None = None,
+    ) -> None:
         """Create's breadcrumb, over the three columns.
 
         The pane dispatch that follows it reads ``state.create_stage``, and
         this is the only control that writes one -- through
         ``create_stages.go``, which is what makes "switching stage may move the
         selection" a rule rather than a thing this happens to remember.
+
+        Handed to ``create_brief.draw`` as a callable (2026-09-07: the rail
+        and the brief now share one row, drawn through ``create_brief``) --
+        ``max_width`` and ``row_height`` are that row's own give-way ladder
+        and vertical alignment, computed there and passed straight through to
+        ``widgets.stage_rail``. This method still owns building ``items`` and
+        still owns the one call to ``create_stages.go``; nothing about *that*
+        moved.
         """
         from imgui_bundle import imgui
 
-        from . import create_stages, tokens, widgets
+        from . import create_stages, widgets
         from .panes import inspector
 
         job = ctx.job()
@@ -3939,11 +3940,11 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             done=create_stages.ticked(job, meta, poses),
             optional=create_stages.OPTIONAL_HINTS,
             max_width=(imgui.get_content_region_avail().x if max_width is None else max_width),
+            row_height=row_height,
         )
         anchors.mark("create/stages")
         if picked != ctx.state.create_stage:
             create_stages.go(ctx, picked)
-        imgui.dummy((0, tokens.sp(tokens.SP_2)))
 
     def _ensure_build_view(self) -> Any:
         """Clay's viewport, built on first use -- and mirrored onto the ctx,

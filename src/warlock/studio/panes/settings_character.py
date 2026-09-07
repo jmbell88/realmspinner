@@ -5,8 +5,11 @@ a character composes none of it: no checkpoint, no LoRA, no negative prompt, no
 conditioning image, no history of prompts that were sent to a text encoder. Put
 here rather than as a sixth branch inside that 2600-line module because the two
 have nothing in common except the column they are drawn in and the button they
-are refused by -- ``_reset_row`` and ``_plan_footer`` stay shared, and
-``settings_2d.draw`` calls :func:`draw_block` instead of the Recipe section.
+are refused by -- ``_plan_footer`` stays shared, and ``settings_2d.draw`` calls
+:func:`draw_block` instead of the Recipe section. ``_reset_row`` was the other
+shared half until 2026-09-07, when Reset moved onto Create's command bar; the
+bar draws it for both arms, so a character form still has its way back and this
+column simply no longer owns it.
 
 **The prompt fills the form; the form is never the prompt's prisoner.** Typing
 in the command bar re-resolves the brief and writes every field the user has not

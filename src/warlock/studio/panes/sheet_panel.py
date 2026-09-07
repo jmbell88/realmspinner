@@ -30,6 +30,22 @@ log = logging.getLogger(__name__)
 YAW_CHOICES = (4, 8, 16)
 
 
+def strip_fit(size: tuple[int, int], avail: float) -> tuple[float, float]:
+    """The box the direction-preview strip is drawn in: fill the width, keep
+    the shape.
+
+    Pure for the reason ``inspector.reference_fit`` is: the sizing decides
+    what the user sees and should be assertable without a GL context. No
+    height cap, unlike that function -- the strip is one row of cells, not up
+    to three stacked reference thumbnails, so there is nothing under it at
+    risk of being pushed off screen by a tall result.
+    """
+    width = float(max(size[0], 1))
+    height = float(max(size[1], 1))
+    scale = max(avail, 1.0) / width
+    return (width * scale, height * scale)
+
+
 def draw(ctx: Any, job: Any) -> None:
     if "model.glb" not in (job.get("files") or []):
         return
@@ -179,8 +195,15 @@ def _preview(ctx: Any, form: dict[str, Any]) -> None:
     if strip is not None:
         texture = _strip_texture(ctx, strip)
         if texture is not None:
-            width = imgui.get_content_region_avail().x
-            imgui.image(widgets.texture_ref(texture), (width, width * strip.height / strip.width))
+            # stable_content_width, not the live avail: with no height cap at
+            # all this was the worst of the three sites the scrollbar-feedback
+            # loop reached (widgets.stable_width's docstring has the chain) --
+            # every dp the width moved landed on the height at the same ratio,
+            # with nothing capping how far a tall strip could swing.
+            width = widgets.stable_content_width()
+            imgui.image(
+                widgets.texture_ref(texture), strip_fit((strip.width, strip.height), width)
+            )
 
 
 def release_strip_texture(ctx: Any) -> None:

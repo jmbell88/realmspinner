@@ -5,6 +5,12 @@ these tests are really about: both forms accumulate overrides across a session
 and only one of them offered a way out of that. So the pair is asserted
 together -- a reset that exists on one pane and not the other is exactly the
 state this file exists to catch coming back.
+
+The two now live in *different modules*: the 2D reset moved out of
+``settings_2d`` and onto Create's command bar when the bar absorbed the stage
+rail (2026-09-07), while the 3D one stayed in ``settings_3d``. That makes
+asserting them together more valuable than it was when they were siblings --
+there is no longer a shared file a reader would notice both in.
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from warlock.studio import dialogs
+from warlock.studio import create_brief, dialogs
 from warlock.studio.panes import settings_2d, settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D, default_form_2d
 
@@ -99,7 +105,7 @@ def test_both_resets_are_behind_a_confirm_dialog():
     seed is rerolled, so even retyping the prompt does not get you back), so
     neither button may act on the click that draws it.
     """
-    for source in (_row_source(settings_3d._reset_row), _row_source(settings_2d._reset_row)):
+    for source in (_row_source(settings_3d._reset_row), _row_source(create_brief._reset)):
         assert "dialogs.Confirm(" in source
         assert "on_confirm=" in source
         assert "_reset(ctx)" in source

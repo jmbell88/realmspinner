@@ -271,6 +271,61 @@ A full audit of every subsystem followed, and closed 110 findings.
   names with no antecedent; the installer's size is stated once instead of
   twice with two different roundings; and the contributing guide no longer
   claims an exact test count that was already 13% low.
+- **The library's overflow menu and the inspector's "Take it somewhere" section
+  no longer disagree about where an asset can go.** The two had grown
+  independent lists one bridge at a time: the overflow menu offered Poser and
+  the two reopen doors, the inspector did not, and a mesh selected in the
+  Library could reach Poser from its card menu but not from the pane six
+  inches to its right showing the same mesh. Both now draw from one function,
+  `asset_exits.exits_for`, which also widens what either surface offered on
+  its own -- Plotter and Packwright's "Add to... as a tileset/atlas source"
+  no longer require `asset_intent == "tileset"`, a restriction only the
+  inspector's copy carried and the library's never did. A destination this
+  asset is one step away from -- a mesh with no rig yet, a reference still
+  generating -- is now drawn dimmed with a reason instead of simply missing.
+  "Take it somewhere" also moved from two of Create's five stages into
+  `inspector.draw` itself, so it now appears at Rig, Pose and Export as well,
+  and above the Library's tab bar instead of buried inside its Details tab.
+- **Rigging a mesh and then looking back at it no longer flickers.** Three
+  panes -- the reference thumbnails and the deformation-QA thumbnail in the
+  inspector, and the direction-preview strip on the Pose stage and in the
+  Library's Details tab -- sized an image from the pane's own live content
+  width, and Dear ImGui decides a scrolling pane's scrollbar from *last*
+  frame's content size rather than this one's: no scrollbar draws the image
+  wide, the wide image overflows the pane, a scrollbar appears next frame,
+  the image narrows to fit the smaller width, the content fits again, the
+  scrollbar disappears, and the loop repeats every frame with no exception
+  anywhere in the log. Rigging only triggered it -- the finished rig adds a
+  line to the Mesh stage's column that happened to land right on the
+  threshold. All three now size against `widgets.stable_content_width`,
+  which reserves the scrollbar's width whether or not one is actually drawn,
+  at the cost of a few points of unused width when none is up. `panes/
+  overlay.py`'s viewport toolbar had a related wrap-point defect of its own
+  (audit finding shell-08, `docs/audit-2026-09-07.md:149`: a reservation
+  sized for a toggle that never draws) -- a different bug, already fixed
+  separately, not part of this pass.
+- **Create's stage rail and its command bar share one row.** They were two
+  full-width strips stacked on top of each other, each mostly empty
+  horizontally, and the rail was drawn bare into the content region rather
+  than through `layout.pane` -- so it had no `guard` isolation, no role fill
+  and no `probe._pane_at` slot to attribute its five segments to. One pane
+  holds both now: rail, type, prompt, count, Generate, and *Reset...*, which
+  moved out of the recipe column on the argument that already governs that
+  split -- Reset puts the *brief* back, so it belongs beside the brief.
+  `settings_2d._reset` still owns the clearing, because it owns `form_2d`.
+  The row gives way in a stated order, four rungs now rather than two: the
+  prompt shrinks to its floor, the count is dropped into Generate's tooltip,
+  the rail walks its own labels-then-icons ladder, and last Reset gives up
+  its label. The rail draws at every stage -- it is the navigation -- while
+  the brief's four controls still draw only at Reference, so the other four
+  stages get a rail-height row rather than an inert strip. Two constants were
+  wrong on the way: `BAR_H` claimed 62 against 96 dp of real content, because
+  neither it nor the arithmetic behind it charged for the padding
+  `layout.pane` spends or imgui's trailing `item_spacing` after the row's
+  last item; and `COUNT_W` reserved 124 for four pills that draw wider than
+  that, since `push_item_width` does nothing to a button. Both are measured
+  by a test that draws the row for real now, the way Muse's own `BAR_H` came
+  to be measured the same week.
 
 ## 0.0.37 — 2026-09-06
 

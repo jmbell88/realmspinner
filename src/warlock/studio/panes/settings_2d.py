@@ -116,12 +116,14 @@ def draw(ctx: Any) -> None:
                     # pick, no LoRA fitted to it, no negative branch to weight,
                     # no conditioning image and no prompt history worth reusing
                     # -- so every section in the ``else`` would be a control
-                    # whose only outcome is that it does nothing. ``_reset_row``
-                    # and ``_plan_footer`` stay shared, because both are about
-                    # the *form* rather than about SDXL. An ``if/else`` rather
-                    # than an early return: the block scope and the child both
-                    # have to close in order, and this file has already shipped
-                    # the frame-corrupting version of that once.
+                    # whose only outcome is that it does nothing. ``_plan_footer``
+                    # stays shared, because it is about the *form* rather than
+                    # about SDXL (Reset moved to ``create_brief`` with the rest
+                    # of the bar, 2026-09-07 -- it is about the form too, but
+                    # this pane no longer draws it). An ``if/else`` rather than
+                    # an early return: the block scope and the child both have
+                    # to close in order, and this file has already shipped the
+                    # frame-corrupting version of that once.
                     settings_character.draw_block(ctx, form, form_ui)
                 else:
                     widgets.section("Recipe")
@@ -171,7 +173,6 @@ def draw(ctx: Any) -> None:
                     )
                     if opened:
                         _references(ctx, form)
-                _reset_row(ctx)
         imgui.end_child()
         top = imgui.get_cursor_pos_y()
         _plan_footer(ctx, form)
@@ -1242,32 +1243,6 @@ def seamless_subject(form: dict[str, Any]) -> str | None:
         return tileatlaslib.material_subject(lines[0], index=0, total=len(lines))
     except (IndexError, ValueError):
         return None
-
-
-def _reset_row(ctx: Any) -> None:
-    """*Reset...*, which used to sit in the deleted Profiles block.
-
-    Kept when Profiles went, because it never belonged to Profiles: it is the
-    way back from a session's accumulated overrides, and ``settings_3d`` grew
-    its counterpart precisely because this pane had one and that one did not.
-
-    Above the submit rather than below it: a destructive control under the
-    primary action is one the hand reaches by accident.
-    """
-    if controls.button("Reset...", role=controls.ButtonRole.GHOST):
-        ctx.confirms.ask(
-            dialogs.Confirm(
-                title="Reset the image settings?",
-                message=(
-                    "The prompt, the negative prompt, the model, the LoRA, "
-                    "the reference and the run controls go back to their "
-                    "defaults. The 3D form is untouched."
-                ),
-                confirm_label="Reset",
-                cancel_label="Cancel",
-                on_confirm=lambda: _reset(ctx),
-            )
-        )
 
 
 def _reset(ctx: Any) -> None:

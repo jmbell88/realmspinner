@@ -32,7 +32,6 @@ from .. import (
     theme,
     tokens,
     toolbar,
-    verbs,
     widgets,
 )
 from ..manual import render as manual_render
@@ -939,28 +938,29 @@ def _overflow(ctx: Any, job: Any) -> None:
             ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
         if _remeshable(job) and controls.menu_item("Remesh", "", False)[0]:
             ctx.submit(f"remesh:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="remesh")
-    # The 2D half of the same pair as Open in Clay, and gated the same way: on
-    # a predicate the mode owns, answered from the cached row alone so the
-    # frame thread never stats anything. Above the mesh block because the two
-    # are mutually exclusive -- a reference has no ``model.glb`` -- and the
-    # loader reuses an already-open tab rather than forking a second one over
-    # the same file.
-    from .. import inker_mode
+    # Everywhere this asset can go, one list shared with the inspector's "Take
+    # it somewhere" section -- ``asset_exits`` exists because this menu and
+    # that section grew their own copies of this run and stopped agreeing
+    # about what was on it. A near-miss entry (``exit_.reason`` set) is drawn
+    # dimmed rather than left off, carrying its reason as the tooltip a
+    # disabled menu row shows on hover -- the same "not hidden" argument
+    # ``widgets.stage_rail``'s docstring makes about a blocked stage segment.
+    from .. import asset_exits
 
-    editable = inker_mode.can_edit_job(ctx, job)
-    if editable and controls.menu_item(verbs.open_in("inker"), "", False)[0]:
-        inker_mode.open_job_reference(ctx, job)
-    _map_and_atlas_items(ctx, job, files)
-    _troupe_item(ctx, job)
+    for exit_ in asset_exits.exits_for(ctx, job):
+        if (
+            controls.menu_item(
+                exit_.label,
+                "",
+                False,
+                not exit_.reason,
+                reason=exit_.reason,
+                tooltip=exit_.tooltip,
+            )[0]
+        ):
+            exit_.open(ctx, job)
+
     if "model.glb" in files:
-        # Clay prefers the ``build.wblk`` sidecar when the asset was authored
-        # here, and imports ``model.glb`` -- the optimized, grounded, served
-        # mesh -- when it was not. Never ``source.glb``: that is the raw
-        # reconstruction, and nothing downstream of the pipeline uses it.
-        if controls.menu_item(verbs.open_in("clay"), "", False)[0]:
-            from .. import clay_mode
-
-            clay_mode.edit_asset_in_clay(ctx, job)
         # The baseline is captured *before* the menu ran, not read after it.
         # Right-clicking a card selects it first (see ``_context_menu`` -- a
         # menu acting on a card other than the marked one is how the wrong
@@ -972,15 +972,6 @@ def _overflow(ctx: Any, job: Any) -> None:
             compare(ctx, job_id)
         if ctx.rigging_available and controls.menu_item("Rig", "", False)[0]:
             run_action(ctx, job, "rig")
-        # The Poser was reachable from the pipeline through exactly one button,
-        # inside the inspector's Rig & Pose tab -- so a user with six rigged
-        # props and a walk cycle to author had to already know the mode
-        # existed. Same gate the pose pane uses, answered from the cached row.
-        if "rig.glb" in files and controls.menu_item(verbs.open_in("poser"), "", False)[0]:
-            from . import pose_panel
-
-            pose_panel.open_in_poser(ctx, job)
-        _send_to_troupe_item(ctx, job)
     widgets.divider()
     if controls.menu_item("Delete", "Delete", False)[0]:
         # No confirm (J91): the trash *is* the confirmation, and it is a better
@@ -989,97 +980,6 @@ def _overflow(ctx: Any, job: Any) -> None:
         # irreversible delete has kept the question, in the trash.
         delete_asset(ctx, job_id)
     imgui.end_popup()
-
-
-def _send_to_troupe_item(ctx: Any, job: dict[str, Any]) -> None:
-    """Take this mesh into Troupe -- rigging it first if it is not rigged.
-
-    Kept separate from :func:`_troupe_item`, which goes the other way: that
-    one opens a finished *charsheet row* in the mode that plays it, and this
-    one sends a *mesh* in to have one made. Offered for an unrigged mesh
-    deliberately -- that is the case the door exists for -- so the label is
-    not enough on its own and the hint says the rig happens, because for an
-    unrigged mesh that is minutes of CPU behind a button not called "Rig".
-    """
-    from .. import troupe_mode
-    from . import troupe_send
-
-    if not troupe_mode.can_send_to_troupe(ctx, job):
-        return
-    rigged = "rig.glb" in (job.get("files") or [])
-    # Both branches name the humanoid requirement now. The unrigged one always
-    # did; the *rigged* one said only "render a character sheet", which is the
-    # case where the mesh may already be a quadruped -- Poser offers seven
-    # skeletons and Troupe's clip library carries clips for exactly one. The
-    # refusal is real, immediate and well worded, but a user who has to press
-    # the button to discover the rule has been told too late.
-    hint = (
-        "Render a character sheet from this mesh, on the skeleton it is "
-        "already rigged on. Asks for the sprite size first."
-        if rigged
-        else "Asks which skeleton to rig this mesh on and how big the sprites "
-        "are, then rigs it and renders a character sheet."
-    )
-    # The ellipsis is the convention (``tests/test_label_conventions``): this
-    # door asks before it spends a rig plus up to 512 EEVEE frames, and the
-    # label is read before the click.
-    if controls.menu_item(f"{verbs.send_to('troupe')}...", "", False, tooltip=hint)[0]:
-        troupe_send.ask(ctx, job)
-
-
-def _troupe_item(ctx: Any, job: dict[str, Any]) -> None:
-    """Back into Troupe from a finished sheet.
-
-    The route *out* of the library for a charsheet row, where
-    :func:`_send_to_troupe_item` above is the route in for a mesh.
-
-    Troupe's sheets *are* library assets -- a ``charsheet`` row, filed under
-    the "sheet" card kind -- and there was no way to get from one back to the
-    mode that plays it: the only doors were Home's tile and the rail. The row
-    carries both halves of the selection (``source_job`` and ``sheet_id``), so
-    this is answered from the cached row like every other item here.
-    """
-    if job.get("kind") != "charsheet" or job.get("status") != "done":
-        return
-    params = job.get("params") or {}
-    source = str(params.get("source_job") or "")
-    sheet_id = str(params.get("sheet_id") or "")
-    if not source:
-        return
-    if controls.menu_item(verbs.open_in("troupe"), "", False)[0]:
-        from .. import troupe_mode
-
-        # The same call a finished charsheet's "Show" toast makes, so the
-        # menu item and the toast cannot disagree about which sheet.
-        troupe_mode.open_sheet(ctx, source, sheet_id)
-
-
-def _map_and_atlas_items(ctx: Any, job: dict[str, Any], files: Any) -> None:
-    """The Plotter and Packwright half of the same pair as *Open in Clay*.
-
-    Two kinds of entry, and the difference matters. **Reopening** is offered
-    only when the asset carries an authored document beside it -- answered from
-    ``params["authored"]``, which the exporter set, rather than from a stat,
-    because this menu is built on the frame thread. Unlike *Open in Clay* there
-    is no fallback: a reference with no ``map.wmap`` cannot be reopened as a
-    map at all, so the item must not be offered rather than offered and refused.
-    **Consuming** an image is offered for any reference: a tileset or an atlas
-    source can be any picture, including one the pipeline generated, which is
-    most of why these entries are worth having.
-    """
-    from .. import packwright_mode, plotter_mode
-
-    authored = (job.get("params") or {}).get("authored")
-    if authored == "plotter" and controls.menu_item(verbs.open_in("plotter"), "", False)[0]:
-        plotter_mode.edit_asset_in_plotter(ctx, job)
-    if authored == "packwright" and controls.menu_item(verbs.open_in("packwright"), "", False)[0]:
-        packwright_mode.edit_asset_in_packwright(ctx, job)
-    if "input.png" not in files:
-        return
-    if controls.menu_item(verbs.add_to("plotter", "as a tileset"), "", False)[0]:
-        plotter_mode.use_as_tileset(ctx, job)
-    if controls.menu_item(verbs.add_to("packwright", "as an atlas source"), "", False)[0]:
-        packwright_mode.add_job_source(ctx, job)
 
 
 def _trash_menu(ctx: Any, job_id: str) -> None:

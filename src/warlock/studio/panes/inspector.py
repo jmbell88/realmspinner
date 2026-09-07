@@ -60,9 +60,16 @@ REFERENCE_MAX_THUMBS = 3
 #
 # The tab bar survives in every other host (the Library's full-window
 # inspector), because there is no rail there to drive it.
+#
+# ``_edit_actions`` is not in this table. It used to be wired into the
+# Reference and Mesh entries only, which is why "Take it somewhere" existed at
+# two of Create's five stages and nowhere at Rig, Pose or Export -- and why the
+# Library's Details tab carried a second copy of the call instead of a third
+# stage entry, since the Library draws no stage rail to hang one off. ``draw``
+# now calls it once, above every stage and every tab, which is what makes it
+# visible at all five stages and in the Library at once.
 _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
     "reference": (
-        "_edit_actions",
         "_lineage",
         "_settings",
         "_reference",
@@ -71,7 +78,6 @@ _STAGE_SECTIONS: dict[str, tuple[str, ...]] = {
         "_seam",
     ),
     "mesh": (
-        "_edit_actions",
         "_lineage",
         "_settings",
         "_reference",
@@ -100,7 +106,6 @@ def _stage_body(ctx: Any, job: Any) -> None:
     from . import remesh_panel, retarget_panel, sheet_panel, sprite_panel, texture_panel
 
     named = {
-        "_edit_actions": lambda: _edit_actions(ctx, job),
         "_lineage": lambda: _lineage(ctx, job),
         "_readiness": lambda: _readiness(ctx, job),
         "_settings": lambda: _settings(ctx, job),
@@ -167,6 +172,11 @@ def draw(ctx: Any) -> None:
     if job.get("status") == "error":
         _error(ctx, job)
     _followup_failures(job)
+    # Above the stage dispatch and above the tab bar, deliberately: this is
+    # what puts "Take it somewhere" at all five Create stages instead of two,
+    # and above the Library's tabs instead of buried inside Details -- see the
+    # comment on ``_STAGE_SECTIONS`` for the two copies this replaced.
+    _edit_actions(ctx, job)
 
     if create_stages.in_create(ctx.state):
         _stage_body(ctx, job)
@@ -227,81 +237,33 @@ def offers_inker(ctx: Any, job: Any) -> bool:
 def _edit_actions(ctx: Any, job: Any) -> None:
     """Take this asset somewhere it can be edited, from where it was made.
 
-    Both halves already existed and were reachable only from the library's
-    overflow menu -- which is the wrong place for the moment they are wanted,
-    the one straight after a generation finishes with the result still on
-    screen. Wiring only: the Inker gate and the Clay open are the functions
-    those two modes own, called verbatim, so the confirm Clay puts in front of
-    a 200k-triangle import still fires here.
+    One function, drawing :func:`asset_exits.exits_for` -- the module that
+    exists because this section and the library's overflow menu each grew
+    their own list of destinations and the two stopped agreeing about what was
+    on it. The gates and the doors live there now; this is wiring and layout
+    only, so the confirm Clay puts in front of a 200k-triangle import (and
+    every other mode's own question) still fires from here exactly as it did
+    before this loop replaced four hand-written branches.
     """
-    from .. import clay_mode, icons, inker_mode, troupe_mode
+    from .. import asset_exits
 
-    params = (
-        job.get("params")
-        if isinstance(job, dict) and isinstance(job.get("params"), dict)
-        else {}
-    )
-    is_tileset = params.get("asset_intent") == "tileset" and "input.png" in (
-        job.get("files") or []
-    )
-    exits = (
-        is_tileset,
-        offers_inker(ctx, job),
-        can_edit_in_clay(job),
-        troupe_mode.can_send_to_troupe(ctx, job),
-    )
-    if not any(exits):
+    exits = asset_exits.exits_for(ctx, job)
+    if not exits:
         return
     # The one heading every mode's exits are under -- Clay, Packwright and
     # Troupe's bridges say it over the same verbs, and this pane said nothing,
-    # so the same four buttons were a titled group in three places and a loose
-    # run of buttons in the fourth (2026-09-05).
+    # so the same buttons were a titled group in three places and a loose run
+    # of buttons in the fourth (2026-09-05).
     widgets.section("Take it somewhere")
-    if is_tileset:
-        from .. import packwright_mode, plotter_mode
-
-        if controls.button(verbs.add_to("plotter")):
-            plotter_mode.use_as_tileset(ctx, job)
-        if controls.button(verbs.add_to("packwright")):
-            packwright_mode.add_job_source(ctx, job)
-        widgets.hint_text("Use the generated grid as a map tileset or atlas source.")
-
-    if offers_inker(ctx, job):
-        if controls.button(f"{icons.BRUSH} {verbs.open_in('inker')}"):
-            inker_mode.open_job_reference(ctx, job)
-        widgets.hint_text("Paint over the reference; saving updates this asset.")
-    # Independent, not an else: the two gates are disjoint today (a reference
-    # has no mesh and a mesh has no editable reference), and an else would hide
-    # one of them without saying so if that ever stopped being true.
-    if can_edit_in_clay(job):
-        if controls.button(f"{icons.BOX} {verbs.open_in('clay')}"):
-            clay_mode.edit_asset_in_clay(ctx, job)
-        widgets.hint_text("Opens the authored document when there is one, else the mesh.")
-
-    if exits[3]:
-        from . import troupe_send
-
-        if controls.button(f"{icons.PERSON_STANDING} {verbs.send_to('troupe')}..."):
-            troupe_send.ask(ctx, job)
-        # The library's menu item has carried this since it existed and the
-        # button beside the mesh had nothing at all -- so the one surface where
-        # the user is *looking at the mesh* was the one that did not say a
-        # humanoid rig is required, or that an unrigged mesh buys minutes of
-        # CPU behind a button not called "Rig".
-        if imgui.is_item_hovered():
-            imgui.set_tooltip(
-                "Render a character sheet from this mesh, rigging it first if"
-                " it is not rigged yet. Asks for the sprite size -- and, for an"
-                " unrigged mesh, the skeleton -- before anything is queued."
-            )
-        # The hint has to say the rig happens: for an unrigged mesh this is
-        # minutes of CPU behind a button that is not called "Rig", and a user
-        # who is not told will read the quiet as a hang.
-        widgets.hint_text(
-            "Render a character sheet at a size you choose."
-            if "rig.glb" in (job.get("files") or [])
-            else "Rigs the mesh on a skeleton you choose, then renders a sheet."
-        )
+    for exit_ in exits:
+        icon = asset_exits.icon_for(exit_.mode)
+        label = f"{icon} {exit_.label}" if icon else exit_.label
+        if controls.button(
+            label, enabled=not exit_.reason, reason=exit_.reason, tooltip=exit_.tooltip
+        ):
+            exit_.open(ctx, job)
+        if exit_.hint:
+            widgets.hint_text(exit_.hint)
 
 
 def _label_of(job: Any) -> str:
@@ -387,7 +349,6 @@ def _readiness(ctx: Any, job: Any) -> None:
 
 
 def _details_tab(ctx: Any, job: Any) -> None:
-    _edit_actions(ctx, job)
     _settings(ctx, job)
     _reference(ctx, job)
     _pixel(ctx, job)
@@ -621,7 +582,13 @@ def _deform_qa(ctx: Any, job: Any) -> None:
     texture = ctx.textures.get(f"rigqa:{job['id']}", path)
     if texture is None:
         return
-    side = min(imgui.get_content_region_avail().x, float(sp(THUMB_SIZE * 2)))
+    # The 192dp cap wins while the sidebar is wide, so this looked stable --
+    # but it stops winning once ``layout.fit`` narrows the sidebar toward
+    # ``SIDEBAR_MIN`` at high UI scale, and a square image sized off the live
+    # avail is exactly the oscillation ``widgets.stable_width`` exists to
+    # break (see its docstring). Stable even though this box is square and the
+    # cap usually wins: the whole point is that "usually" is not "always".
+    side = min(widgets.stable_content_width(), float(sp(THUMB_SIZE * 2)))
     imgui.image(widgets.texture_ref(texture), (side, side))
     if imgui.is_item_hovered():
         imgui.set_tooltip(str(path))
@@ -915,11 +882,19 @@ def _reference(ctx: Any, job: Any) -> None:
             continue
         widgets.muted(name)
         # Measured per image rather than once: the label above each one costs a
-        # line, and a scrollbar appearing partway down the list changes what is
-        # left for the images under it.
+        # line, so the avail width genuinely differs image to image. But the
+        # avail fed in must not itself depend on *this frame's* scrollbar --
+        # imgui decides a child's scrollbar from last frame's content size, so
+        # a width read straight off ``get_content_region_avail`` feeds this
+        # image's own drawn height back into next frame's scrollbar decision
+        # and the pane oscillates between showing one and not, forever, with
+        # no exception (the reported bug: "rigging, then back to Mesh, and the
+        # right side flickers"). ``stable_content_width`` reserves the
+        # scrollbar's width whether or not one is up this frame, which breaks
+        # the loop; see its docstring for the feedback chain in full.
         imgui.image(
             widgets.texture_ref(texture),
-            reference_fit(texture.size, imgui.get_content_region_avail().x),
+            reference_fit(texture.size, widgets.stable_content_width()),
         )
 
 
