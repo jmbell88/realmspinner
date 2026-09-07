@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "synergy": {
+      "command": "D:/Projects/Synergy/.venv/Scripts/synergy-mcp.exe",
+      "args": ["--repo-root", "D:/Projects/Warlock"]
+    }
+  }
+}

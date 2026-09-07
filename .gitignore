@@ -28,6 +28,9 @@ __pycache__/
 /scratch/
 # `warlock sweep` output: measurement GLBs and logs, regenerable and large.
 /sweep/
+# Synergy MCP's code-knowledge-graph index for this repo: regenerable from a
+# scan, rebuilt continuously by its own file watcher, and machine-local.
+/.synergy/
 .idea/
 .pytest_cache/
 .ruff_cache/
