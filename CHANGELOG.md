@@ -25,6 +25,17 @@ back.
 
 A full audit of every subsystem followed, and closed 110 findings.
 
+- **Cancelling a music take no longer throws away the loaded model.** The
+  music worker attaches its vitals — including whether a checkpoint is
+  loaded — to every answer it sends back, except that the cancel reply was
+  built by hand and left them off. The app reads its own "is a model loaded"
+  flag from that field, so a missing one read as "nothing loaded": the
+  checkpoint was still sitting in the child, but the next take reloaded it
+  from scratch anyway, and admission mis-read the card's free VRAM in the
+  meantime. Cancellation is an event the sampler watches, rather than a kill,
+  precisely so the warm model survives it — which it now does. Found by the
+  GPU lane, which asserts exactly that and had been failing.
+
 - **A cancel arriving a moment too late no longer deletes finished work.** Four
   job kinds — the sprite sheet, the sprite-synthesis draft, the AI tile sheet
   and the tile set — wrote their completion marker and then never told the

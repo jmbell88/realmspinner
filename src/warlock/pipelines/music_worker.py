@@ -31,6 +31,10 @@ nothing upstream had to change to satisfy it.
       -> marker {"kind": "done", "path": ..., "recipe": {...}, ...}
       -> marker {"kind": "error", "error": ..., "cancelled": false}
 
+Every answer, a cancel and a failure included, carries the vitals
+(``loaded`` and the device readings): the parent sets its own ``loaded``
+from them, so an answer without them reads as "nothing loaded".
+
 ``cancel`` is the one op that arrives *while* another is being served, so stdin
 is drained by a reader thread rather than by the main loop -- and that thread
 must never leave a read pending, which is what ``_workerio.lines_from`` is for.
@@ -173,7 +177,7 @@ class _Server:
     def op_load(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
         emit({"kind": "state", "text": "load"})
         self.pipe().load_checkpoint(str(self.model_dir))
-        return {"kind": "done", **self._vitals()}
+        return {"kind": "done"}
 
     def op_generate(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
         pipe = self.pipe()
@@ -210,7 +214,6 @@ class _Server:
             "kind": "done",
             "path": str(output),
             "recipe": {"model": self.model_key, **kwargs},
-            **self._vitals(),
         }
 
     def op_trim(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
@@ -228,7 +231,7 @@ class _Server:
                     torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001 -- a hint must never fail a job
                 pass
-        return {"kind": "done", **self._vitals()}
+        return {"kind": "done"}
 
     def _vitals(self) -> dict[str, Any]:
         """The device readings the parent can no longer take for itself.
@@ -276,15 +279,25 @@ class _Server:
         op = str(req.get("op") or "")
         handler = self._OPS.get(op)
         if handler is None:
-            return {"kind": "error", "error": f"unknown op: {op!r}", "cancelled": False}
-        try:
-            return handler(self, req, emit)
-        except Exception as exc:  # noqa: BLE001 -- the whole point is to report it
-            return {
-                "kind": "error",
-                "error": f"{type(exc).__name__}: {exc}",
-                "cancelled": False,
-            }
+            resp = {"kind": "error", "error": f"unknown op: {op!r}", "cancelled": False}
+        else:
+            try:
+                resp = handler(self, req, emit)
+            except Exception as exc:  # noqa: BLE001 -- the point is to report it
+                resp = {
+                    "kind": "error",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "cancelled": False,
+                }
+        # The vitals ride on *every* answer, from here rather than from each
+        # handler's own return. They did not, and the one answer that omitted
+        # them was the cancel: ``music_client._publish`` sets ``_loaded`` from
+        # ``msg.get("loaded")``, so a missing key read as False and the parent
+        # forgot a pipeline the child was still holding. A cancel then cost
+        # the warm checkpoint it exists to preserve -- the next take paid a
+        # full reload, and admission read the VRAM wrong in between.
+        # Derived at the chokepoint so a future error path cannot forget.
+        return {**resp, **self._vitals()}
 
 
 def serve(server: _Server, stdin: Any, stdout: Any) -> int:

@@ -131,12 +131,19 @@ def test_a_cancel_stops_a_running_generation(client, tmp_path):
 
     ``ACEStepPipeline.__call__`` takes no cancel hook upstream; this is the one
     vendored modification the feature cannot work without, and its presence in
-    the source is not evidence that the event reaches the loop. The generation
-    is asked for at a step count that guarantees it is still running when the
-    flag is set.
+    the source is not evidence that the event reaches the loop.
+
+    The flag is set **from the sampler's own progress callback**, not from a
+    wall-clock timer. It was a ``threading.Timer(8.0)``, on the stated grounds
+    that the step count "guarantees it is still running when the flag is set"
+    -- which is not a guarantee but a race, and one this test loses whenever
+    the pipeline is already warm: run as a file, the preceding cases leave the
+    checkpoint loaded, sixty steps finish inside the eight seconds and nothing
+    is there to cancel (``DID NOT RAISE``). Run alone it passed, which is the
+    worst version of that. Firing on a step the generation has actually
+    reached makes the docstring's claim true by construction.
     """
     cancel = threading.Event()
-    threading.Timer(8.0, cancel.set).start()
     started = time.monotonic()
     with pytest.raises(MusicCancelled):
         client.generate(
@@ -145,6 +152,10 @@ def test_a_cancel_stops_a_running_generation(client, tmp_path):
             audio_duration=120.0,
             infer_step=60,
             cancel_event=cancel,
+            # Not step 0: the loop must be under way, so that what is proved
+            # is the event reaching a *running* sampler rather than one that
+            # checked its flag once before starting.
+            on_step=lambda step, _total: cancel.set() if step >= 3 else None,
         )
     # It returned because of the cancel, not because it finished: a full
     # 120 s / 60-step generation is minutes.

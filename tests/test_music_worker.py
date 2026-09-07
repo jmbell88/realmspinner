@@ -239,7 +239,47 @@ def test_a_cancelled_generate_is_reported_as_cancelled_not_as_a_failure(tmp_path
         raise WarlockCancelled
 
     msgs = _run([_req(tmp_path)], _StubPipe(on_call=_raise))
-    assert msgs[-1] == {"kind": "error", "error": "cancelled", "cancelled": True}
+    # The vitals ride along with every answer, so the comparison is on the
+    # three keys this test is about rather than on the whole message.
+    assert {k: msgs[-1][k] for k in ("kind", "error", "cancelled")} == {
+        "kind": "error",
+        "error": "cancelled",
+        "cancelled": True,
+    }
+
+
+def test_a_cancelled_generate_still_reports_the_pipeline_as_loaded(tmp_path):
+    """A cancel must not cost the warm checkpoint -- that is the whole reason
+    it is an event the pipeline watches rather than a kill.
+
+    The child kept the pipeline throughout; it was the *answer* that lost it.
+    ``music_client._publish`` sets ``_loaded`` from ``msg.get("loaded")``, and
+    the cancel was the one response that did not carry the vitals, so a
+    missing key read as False. The parent then believed nothing was loaded:
+    the next take paid a full reload, and admission read the card wrong in the
+    meantime. Proved on the GPU lane by
+    ``test_music_gpu.py::test_a_cancel_stops_a_running_generation``, which
+    asserted ``client.loaded is True`` and failed; this is the same claim
+    without a card.
+    """
+    from warlock.pipelines._workerio import WarlockCancelled
+
+    def _raise(**kw):
+        raise WarlockCancelled
+
+    msgs = _run([_req(tmp_path)], _StubPipe(on_call=_raise))
+    assert msgs[-1]["cancelled"] is True
+    assert msgs[-1]["loaded"] is True
+
+
+def test_every_answer_carries_the_vitals_including_the_refusals(tmp_path):
+    """Not only the happy paths. The vitals are merged once, in ``handle``,
+    so an error path added later cannot quietly omit them the way the cancel
+    did -- which is the shape of the bug rather than the bug itself.
+    """
+    pipe = _StubPipe()
+    msgs = _run([{"op": "nonsense"}, _req(tmp_path)], pipe)
+    assert all("loaded" in m for m in msgs if m.get("kind") in ("done", "error")), msgs
 
 
 def test_a_failing_generate_is_a_response_and_the_loop_survives_it(tmp_path):
