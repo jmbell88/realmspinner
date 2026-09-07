@@ -61,7 +61,40 @@ SOURCES = (
     ROOT / "TODO.md",
     ROOT / "docs" / "COMPAT.md",
     *sorted((ROOT / "docs" / "measurements").glob("*.md")),
+    # The 2026-09-06 docs audit, finding docs-10: the docs slice's own root
+    # sources stopped at the seven above, so INSTALL.md:124's citation of a
+    # manual chapter and THIRD-PARTY-NOTICES.md's links to docs/MODELS.md were
+    # never checked for a live target. Named here for the same reason every
+    # other entry is: a manual renumbering breaks these exactly the way it
+    # breaks README.md, and this file exists to catch that before a reader does.
+    ROOT / "INSTALL.md",
+    ROOT / "CONTRIBUTING.md",
+    ROOT / "SECURITY.md",
+    ROOT / "THIRD-PARTY-NOTICES.md",
+    ROOT / "CHANGELOG.md",
 )
+
+# ``CHANGELOG.md`` records what was true on a date, not what is true now --
+# the same reasoning ``tests/test_findings_followups.py`` already applies to it
+# under its own ``_HISTORIES``. Its old entries cite chapter numbers and
+# filenames as they stood *at the time*, including ones since renumbered or
+# deleted (``docs/manual/07-sprite-sheets.md``, ``FINDINGS.md``), so checking
+# those as live citations would fail on history rather than on drift. Declared
+# in SOURCES so ``test_every_declared_source_exists`` still watches the file
+# itself; skipped by the two walkers below so its past does not have to match
+# the present.
+_HISTORIES = {"CHANGELOG.md"}
+
+# A citation into the manual is only ever a chapter (``.md``, optionally with
+# an anchor) -- but the generic ``LINK`` regex used to pick up a manual *image*
+# too, since ``![alt](docs/manual/img/x.png)`` also contains ``[...](...)``
+# with ``manual/`` in the target. That was invisible until INSTALL.md (finding
+# docs-10) joined SOURCES with exactly such an image in its first-run
+# screenshot, and the image's parent directory then failed the "must be a
+# top-level chapter" assertion below for a reason that has nothing to do with
+# a stale citation. Filtering on the ``.md`` suffix here keeps this file
+# checking chapter links, not every asset the manual happens to hold.
+_MD_TARGET = re.compile(r"\.md(?:#[\w-]+)?$")
 
 # Two shapes, and the second is the one that caused this test to exist.
 #
@@ -109,7 +142,17 @@ MENTION = re.compile(r"`((?:\.\./|docs/)?manual/[0-9A-Za-z._/-]+\.md(?:#[\w-]+)?
 # citing that store, and there is nothing here to resolve it against.
 DEAD_CITE_MARKER = "deleted"
 EXTERNAL_STORE_MARKER = "memory"
-DOC_MENTION = re.compile(r"`((?:\.\./|\./|docs/)?[0-9A-Za-z._/-]+\.md)`")
+# The 2026-09-06 audit, finding docs-10 (second round): widening SOURCES to the
+# five root documents surfaced THIRD-PARTY-NOTICES.md:69 --
+# ``[`ATTRIBUTION.md`](tests/fixtures/humanoid/ATTRIBUTION.md)`` -- a link whose
+# href resolves. DOC_MENTION re-matched the backticked *label* inside it as a
+# second, bare citation of `ATTRIBUTION.md`, which does not exist at the repo
+# root, even though nothing here asks a reader to open the label on its own --
+# LINK already walks the href next to it. The negative lookbehind excludes
+# exactly that shape (a backtick opened immediately after ``[``, i.e. a link's
+# own label) without touching a real bare mention, which is never preceded by
+# ``[``.
+DOC_MENTION = re.compile(r"(?<!\[)`((?:\.\./|\./|docs/)?[0-9A-Za-z._/-]+\.md)`")
 
 
 def _doc_citations() -> list[tuple[Path, int, str]]:
@@ -117,7 +160,7 @@ def _doc_citations() -> list[tuple[Path, int, str]]:
     citation that is not a manual chapter and not marked as deleted."""
     found: list[tuple[Path, int, str]] = []
     for source in SOURCES:
-        if not source.exists():
+        if not source.exists() or source.name in _HISTORIES:
             continue
         for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
             lowered = line.lower()
@@ -130,6 +173,27 @@ def _doc_citations() -> list[tuple[Path, int, str]]:
                     continue  # the tests above own these
                 found.append((source, number, target))
     return found
+
+
+def test_doc_mention_does_not_double_count_a_resolving_links_own_label():
+    """Pins the docs-10 (second round) fix above: a backticked label inside a
+    markdown link -- ``[`x.md`](href)`` -- is the link's own label, not an
+    independent bare citation, so DOC_MENTION must not also match it. LINK
+    already walks ``href`` on its own, so nothing here loses coverage; the
+    label itself was the false positive on THIRD-PARTY-NOTICES.md:69.
+
+    A genuine bare mention -- backticked, no enclosing link -- must still be
+    caught, so this also guards against the lookbehind swallowing real cases.
+    """
+    linked = (
+        "That file's own [`ATTRIBUTION.md`](tests/fixtures/humanoid/ATTRIBUTION.md)"
+        " carries the terms."
+    )
+    assert DOC_MENTION.findall(linked) == []
+    assert LINK.findall(linked) == ["tests/fixtures/humanoid/ATTRIBUTION.md"]
+
+    bare = "The full table is in `docs/MODELS.md`."
+    assert DOC_MENTION.findall(bare) == ["docs/MODELS.md"]
 
 
 def test_the_document_citation_sweep_finds_something():
@@ -175,10 +239,10 @@ def _anchors(path: Path) -> set[str]:
 def _manual_links() -> list[tuple[Path, str]]:
     found: list[tuple[Path, str]] = []
     for source in SOURCES:
-        if not source.exists():
+        if not source.exists() or source.name in _HISTORIES:
             continue
         text = source.read_text(encoding="utf-8")
-        targets = [t for t in LINK.findall(text) if "manual/" in t]
+        targets = [t for t in LINK.findall(text) if "manual/" in t and _MD_TARGET.search(t)]
         # No rewriting: a mention resolves against its own file's parent, which
         # is what ``_resolve`` already does for a link. One rule for both shapes.
         targets.extend(MENTION.findall(text))
@@ -263,3 +327,30 @@ def test_a_link_into_the_manual_names_an_anchor_that_exists(source: Path, target
         f"{source.name} links to {target}, but {path.name} has no heading "
         f"slugging to '{anchor}'. Its headings slug to: {sorted(_anchors(path))}"
     )
+
+
+#: The five root documents finding docs-10 added to SOURCES. Named rather than
+#: derived from SOURCES itself -- a test that reads its own fixture back out of
+#: the thing it is meant to be checking would pass no matter how far SOURCES
+#: shrank.
+_DOCS_10_ROOT_SOURCES = {
+    "INSTALL.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "THIRD-PARTY-NOTICES.md",
+    "CHANGELOG.md",
+}
+
+
+def test_the_five_ungated_root_docs_are_swept_for_dead_citations():
+    """The 2026-09-06 audit, finding docs-10: SOURCES covered README.md,
+    CLAUDE.md, docs/INVARIANTS.md, docs/MODELS.md, TODO.md, docs/COMPAT.md and
+    docs/measurements/*.md, and omitted five of the docs slice's own root
+    sources -- so INSTALL.md:124's citation of a manual chapter and
+    THIRD-PARTY-NOTICES.md's links to docs/MODELS.md were never checked for a
+    live target. A manual renumbering would have broken them silently, which is
+    the exact failure this file exists to prevent for every other source.
+    """
+    names = {p.name for p in SOURCES}
+    missing = _DOCS_10_ROOT_SOURCES - names
+    assert not missing, f"SOURCES is still missing {sorted(missing)}"

@@ -51,7 +51,7 @@ inside the runtime tree the installer copies).
 
 Vendored rather than downloaded so that the application never executes Python it
 fetched at runtime. The pinned commit, the SHA-256 of every original file and a
-documented diff are in each directory's own `ATTRIBUTION.md`:
+documented diff are in each directory's own ATTRIBUTION.md file:
 [BiRefNet](src/warlock/pipelines/birefnet/ATTRIBUTION.md),
 [ACE-Step](src/warlock/pipelines/acestep/ATTRIBUTION.md).
 
@@ -104,7 +104,21 @@ their publishers, and two of them restrict commercial use of what you generate.
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 
-The application surfaces this per model: `warlock.models` carries a `license`
-field on every entry, the model picker and the download confirmation show it,
-and [`docs/MODELS.md`](docs/MODELS.md) lists it in full. If you intend to sell
-what you generate, read the row for the model you generated it with.
+The application surfaces this per model where the registry carries it. Of the
+ten registry dataclasses in `warlock.models` (one per `_table()`-built
+registry — `BaseModel`, `StyleLora`, `IPAdapter`, `ControlNet`, `EngineModel`,
+`MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`),
+three declare a `license` field — `BaseModel`, `MusicModel` and
+`SeparationModel` — and only for those does `service/downloads.py`'s `rows()`
+put a licence in the row, so only those show a licence line in the model
+picker and the download confirmation. `StyleLora`, `IPAdapter`, `ControlNet`,
+`EngineModel`, `MetricModel`, `PoseModel` and `MattingModel` carry no
+`license` field, so no licence line is shown for those entries in-app —
+including TRELLIS.2-4B (`EngineModel`) and BiRefNet (`MattingModel`), both MIT
+per the table above but shown there by hand, not read from the registry.
+[`docs/MODELS.md`](docs/MODELS.md) lists the licence for every model by hand,
+independent of which dataclass carries the field. If you intend to sell what
+you generate, read the row for the model you generated it with (the 2026-09-06
+audit, finding docs-03: this paragraph used to say the `license` field and the
+in-app licence line existed for every registry entry; seven of ten classes
+have neither).

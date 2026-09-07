@@ -10,7 +10,7 @@ skeleton, is the [Poser](26-poser.md).
 
 ## Templates
 
-Warlock Studio does not invent a skeleton for your mesh. It fits one of seven shipped **templates**:
+Warlock Studio does not invent a skeleton for your mesh. It fits one of eight shipped **templates**:
 
 | Template | For |
 | --- | --- |
@@ -21,6 +21,7 @@ Warlock Studio does not invent a skeleton for your mesh. It fits one of seven sh
 | insect | Six legs. |
 | serpent | A long chain of spine joints, no limbs. |
 | tailed biped | A humanoid with a tail. |
+| blob | No limbs — a body that bulges and sinks instead: slime, ooze, elemental, cloud. |
 
 Each template is a small JSON file listing named joints at normalised positions inside a unit
 bounding box. Fitting scales those positions onto the measured bounding box of your mesh — nothing

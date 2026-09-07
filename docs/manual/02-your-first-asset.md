@@ -61,9 +61,9 @@ because it was measured against the alternatives rather than chosen for speed. N
 yourself when you want a specific one; the four-step entries are for hunting, not for a picture you
 mean to reconstruct.
 
-Press **Create image** — the button in the bar, whose label names whatever you are making. The job appears in the
-library on the right, immediately, as a queued row with a
-progress bar. A few seconds later it is a picture.
+Press **Generate reference** — the button in the bar, whose label names whatever you are making.
+The job appears in the library on the right, immediately, as a queued row with a progress bar. A
+few seconds later it is a picture.
 
 ## Looking at it
 

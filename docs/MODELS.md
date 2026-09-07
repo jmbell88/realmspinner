@@ -279,7 +279,9 @@ that the *Stems* button refuses; everything else about a take is unaffected.
 See the licence note above before you use its output commercially — this is the one download in
 this document whose weights are non-commercial.
 
-
+**FLUX.1 is not offered; FLUX.2 klein is.** The two `FLUX.1` checkpoints — `dev` and `schnell` —
+are not in the registry above at all, for the two reasons below. FLUX.2 klein is a different
+architecture with neither problem, which is why it *is* an ordinary registry entry.
 
 Both `dev` and `schnell` are click-through gated on Hugging Face, and 12B parameters will not
 coexist with trellis on one card. To use a local FLUX copy anyway: download it yourself

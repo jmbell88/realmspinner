@@ -68,11 +68,13 @@ environment rather than from a default, which is the only part that diagnoses an
 whose behaviour disagrees with this table almost always disagrees because something in its
 environment says so.
 
-Five variables are deliberately absent from that list, because they are not settings the app holds
-— they are read once, where they are used, and nothing keeps them: `WARLOCK_LOG_LEVEL`,
-`WARLOCK_NATIVE`, `WARLOCK_NATIVE_DLL`, and the two that only mean anything during the one-time
-move described under [Data locations](#data-locations), `WARLOCK_NO_MIGRATE` and
-`WARLOCK_MIGRATE_KEEP`. `warlock doctor`'s **warlockc** row reports the native pair directly.
+One variable is deliberately absent from that list, because it is not a setting the app holds —
+it is read once, where it is used, and nothing keeps it: `WARLOCK_LOG_LEVEL`. The other four are
+reported: `effective()` appends `WARLOCK_NATIVE`, `WARLOCK_NATIVE_DLL`, and the two that only mean
+anything during the one-time move described under [Data locations](#data-locations),
+`WARLOCK_NO_MIGRATE` and `WARLOCK_MIGRATE_KEEP`, as a second, env-only table after the settings
+above, each row marked `from_env` the same way. `warlock doctor`'s **warlockc** row reports the
+native pair directly.
 
 The three timeouts are ceilings on hangs, not performance targets. Automatic weights on a
 300,000-face mesh are genuinely minutes of CPU, and a hung Blender holds the single-worker queue

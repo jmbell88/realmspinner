@@ -175,7 +175,7 @@ def _figures(ctx: Any, doc: Any) -> None:
     silhouette a reader has to guess at is worse than a word.
 
     One button per row rather than two: the labels carry the template's own
-    description ("Insect / spider (six-legged)"), which does not fit half a
+    description ("Serpent (limbless chain)"), which does not fit half a
     Clay sidebar at 1280x800, and eight rows in one column stay scannable.
     """
     from ..clay import presets

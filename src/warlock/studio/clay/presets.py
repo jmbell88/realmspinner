@@ -788,7 +788,11 @@ ASSEMBLIES: dict[str, tuple[str, Callable[[], tuple[Part, ...]]]] = {
     "quadruped": ("Quadruped", quadruped),
     "bird": ("Bird (winged biped)", bird),
     "serpent": ("Serpent (limbless chain)", serpent),
-    "insect": ("Insect / spider (six-legged)", insect),
+    # 2026-09-06 audit, finding docs-14: the label read "Insect / spider
+    # (six-legged)", promising an eight-legged spider the template does not
+    # build -- insect.json rigs a six-legged insect. Whether a genuine spider
+    # template is wanted stays a separate, open decision.
+    "insect": ("Insect", insect),
     "fish": ("Fish (swimmer)", fish),
     "blob": ("Blob (amorphous)", blob),
 }

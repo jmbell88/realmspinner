@@ -17,7 +17,8 @@ mean something.
 
 That is the whole discipline: unlock while hunting, lock while comparing.
 
-**How many** asks for several candidates at once from different seeds. Generating four and picking
+The segmented 1 / 2 / 4 / 8 row beside the seed field has no caption of its own — each value
+carries its own tooltip — and asks for several candidates at once from different seeds. Generating four and picking
 one is usually a better use of the same time than generating one and rerolling it four times,
 because you see the spread rather than a sequence.
 
@@ -83,8 +84,8 @@ not offered rather than being offered and disappointing.
 A finished mesh can be repainted. Describe the surface you want, and six sampling passes around two
 Blender renders produce a new texture on the same geometry.
 
-Two settings matter. **Strength** — from 0.30 to 0.85, defaulting to 0.65 — is how far it departs
-from what is there. And **Anchor to geometry**, which is **on by default and should stay on**: it
+Two settings matter. **Restyle strength** — from 0.30 to 0.85, defaulting to 0.65 — is how far it
+departs from what is there. And **Anchor to geometry (depth)**, which is **on by default and should stay on**: it
 depth-tests each texel so colour cannot smear through an overhang onto a surface that has no line of
 sight to it. Turning it off was measured as smearing colour into essentially every hidden region;
 with it on, almost none.

@@ -1,6 +1,6 @@
 {
   "key": "insect",
-  "label": "Insect / spider (six-legged)",
+  "label": "Insect",
   "root": "thorax",
   "comment": "Normalized landmark positions in a unit bounding box, Blender axes: +X is the subject's left, -Y is forward, +Z is up. x/y span -0.5..0.5, z spans 0 to 1.",
   "bones": [

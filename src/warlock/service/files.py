@@ -1017,10 +1017,12 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
 
     ``cache`` is an optional ``{job_id: (stamp, names)}`` the caller owns, and
     it exists because this is the frame loop's single largest syscall cost:
-    ``LISTED`` is eleven names and ``ready`` stats one or two files for each, so
-    a two-hundred row page costs upwards of two thousand ``stat`` calls -- twice
-    a second, on the thread that must not block, growing without limit as
-    "load more" widens the window.
+    ``LISTED`` is ``len(LISTED)`` names (fifteen, as of the ``track.wav``,
+    ``STEM_FILES`` and ``error.log`` additions -- the 2026-09-06 audit, finding
+    docs-23, found this docstring stuck at the original nine) and ``ready``
+    stats one or two files for each, so a two-hundred row page costs upwards of
+    two thousand ``stat`` calls -- twice a second, on the thread that must not
+    block, growing without limit as "load more" widens the window.
 
     The stamp is ``(status, the job directory's own mtime)``. Sound because
     every name here is answered by *existence*: a file appearing or being

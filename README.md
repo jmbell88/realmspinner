@@ -204,9 +204,10 @@ accepted by the CLI but only the last pattern takes effect, which fetches the
 safetensors and silently leaves out every `config.json` — producing a directory
 that looks downloaded and fails the `model_index.json` check.
 
-This one SDXL download powers four of the registered recipes — full CFG (the
-default), Hyper-SD, LCM and Lightning are the same weights run four ways, so the
-three faster ones cost only a small LoRA each. SDXL-Turbo is a separate 7 GB
+This one SDXL download powers five of the registered recipes — full CFG (the
+default), PAG, Hyper-SD, LCM and Lightning are the same weights run five ways: PAG is
+two training-free sampler tweaks over the default and costs nothing extra, and
+Hyper-SD, LCM and Lightning each cost only a small LoRA. SDXL-Turbo is a separate 7 GB
 checkpoint and is optional; its command is in [docs/MODELS.md](docs/MODELS.md).
 
 These downloads are the only network use a source checkout has — the packaged

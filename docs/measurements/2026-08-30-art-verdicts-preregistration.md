@@ -18,7 +18,7 @@ Three capability tracks shipped on 2026-08-30 — a game-ready remesh
 (`pipelines/remesh.py`), local style-LoRA training (`pipelines/lora_train.py`)
 and masked regeneration inside the Inker (`studio/inker/inpaint.py`) — and none
 of the three has run on a card. They join four art verdicts already owed
-(`TODO.md` P3, P4/P12, P15, P16) and a default mesh profile that is still `raw`
+(`TODO.md` P32, P4/P12, P15, P16) and a default mesh profile that is still `raw`
 because its tiers were never qualified (`config.py:238`).
 
 The tree is therefore accumulating unmeasured capability faster than it is

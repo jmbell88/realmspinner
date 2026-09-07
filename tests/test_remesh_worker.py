@@ -25,7 +25,7 @@ The subject is a UV sphere and not a reconstruction. That is the honest scope:
 this asks *whether the four stages run and produce a mesh with the maps they
 promise*, not whether a 300k-face trellis soup survives them. The second
 question needs a real reconstruction and a person looking at it, and it is
-`TODO.md` P3's session rather than a test.
+`TODO.md` P32's session rather than a test.
 
 Run with: uv run pytest tests/test_remesh_worker.py -n 0
 """

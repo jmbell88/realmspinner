@@ -124,7 +124,7 @@ signing was answered no for the closed beta; see Closed records) — though on
 install itself is no longer the question; a working download path and a card
 big enough to reconstruct on are.
 
-## P3. Re-examine the `trellis_tex_res = 512` pin
+## P32. Re-examine the `trellis_tex_res = 512` pin
 
 **Why it is yours:** a card and a judgement. The graded mesh run closed on
 2026-09-02 (props-v1 11 of 22 usable, fantasy-v1 10 of 20; see Closed
@@ -307,13 +307,17 @@ what has not earned its place.
   armature-only GLB, so there is nothing to pixelise. Either Poser learns to
   load a rigged asset for preview, or the pixel verdict stays in Troupe where
   the mesh is.
-- **`plotter-wave-2`.** The branch last moved 2026-08-14 and holds 52 unmerged
-  commits; master has moved several hundred since. Gated on P7's fixtures and
-  a whole-branch review. Three outcomes: rebase and finish it, cherry-pick what
-  still applies, or delete it. **A branch delete needs an explicit ask.**
+- **`plotter-wave-2`.** No branch of that name exists — it was converted to
+  `refs/tags/archive/plotter-wave-2` at `d1995fad` (2026-08-14), the same
+  commit its last move landed on, so recovering it means deriving a branch
+  from the tag first. It holds 52 commits unmerged against master, which has
+  moved several hundred since. Gated on P7's fixtures and a whole-tag review.
+  Two outcomes: derive a branch and rebase or cherry-pick what still applies,
+  or leave it archived.
 
 **Expected outcome:** two recorded decisions; the first turns into a buildable
-spec, the second into a branch operation.
+spec, the second into either a branch derived from the tag or the tag staying
+archived.
 
 ## P13. Troupe phases 7 and 8 — fully specified, deliberately unstarted
 
@@ -523,9 +527,12 @@ guides are art.
 front/left/right/back, with P8's brief. The loader, planner, door and form
 already take a four-direction kind.
 
-**The one step that is code, whichever way it goes:** while discovery finds a
-single count, show the eight-direction count as a label rather than a
-one-item combo, and let the combo reappear the day a second count ships.
+~~**The one step that is code, whichever way it goes:** while discovery finds
+a single count, show the eight-direction count as a label rather than a
+one-item combo, and let the combo reappear the day a second count ships.~~
+**Built 2026-09-04** (noticed in the 2026-09-06 audit, finding docs-17):
+`settings_2d.py:791-797` already branches `form_ui.readonly` under two
+discovered direction counts and `form_ui.segmented_choice` otherwise.
 
 **Expected outcome:** either six authored guides and a two-option control, or
 the count stated as a fact.
@@ -592,9 +599,11 @@ against itself (P7), no character sheet has been judged by an eye at sprite
 scale (P28), and Warlock-written `.aseprite` files have never been opened in Aseprite
 (P6). One more belongs here that is not a mode: on a base install, Create and
 Muse send you to Settings → **Models**, and the weights are only half of what
-they need — the matching **pack** is the other half, and nothing at the door
-says so (F4). An invitee who downloads 23 GB and still cannot generate has hit a
-known gap, not a broken build.
+they need — the matching **pack** is the other half. The door itself already
+says so (built 2026-09-05: `model_gate.mode_gate`/`mode_reason` sends a user
+with a missing pack to Packs first and names what is blocked,
+`tests/test_pack_gate.py`); what still isn't said anywhere is the invite text
+an invitee reads before they download at all.
 
 **Do:** name them, by mode, in whatever the invite is — a note beside the
 download. One sentence each: what runs, what has never been checked against the
@@ -836,7 +845,7 @@ in-process, Blender on the CPU for the rig and the render, and numpy for the
 reduction — which is what makes "run it again at both slider bounds" a
 reasonable instruction rather than an afternoon of GPU time.
 
-## P30. Judge the 2D walk cycle — an ogre and a humanoid
+## P33. Judge the 2D walk cycle — an ogre and a humanoid
 
 **Why it is yours:** art. The motion is *correct* and that is all a test can
 say: `tests/inker/walk/` pins that no limb ever changes length, that the stance
@@ -973,7 +982,7 @@ is still worse than it should be.
 Whichever is taken, `scripts/exercise_mode.py inker` reports the clipped count,
 so the result is measurable rather than a matter of opinion about a screenshot.
 
-## P31. Judge Clay's twelve shapes and eight figures, and settle two defaults
+## P34. Judge Clay's twelve shapes and eight figures, and settle two defaults
 
 **Why it is yours:** art direction and two design decisions. Every item here was
 raised by your own review of the generated geometry on 2026-09-06, and each one
@@ -1007,9 +1016,11 @@ the choice is missing.
     icon, several others borrow unrelated symbols, and the eight figures have
     labels with no preview. Recognisable silhouettes or rendered thumbnails
     would carry it.
-4. **"Insect / spider (six-legged)" is two animals in one label.** Renaming it
-    "Insect" is free; whether a genuine eight-legged spider template is wanted
-    is the actual question.
+4. ~~**"Insect / spider (six-legged)" is two animals in one label.** Renaming
+    it "Insect" is free;~~ **Built 2026-09-06** (audit finding docs-14): the
+    label is `"Insect"` in both `templates/insect.json` and
+    `clay/presets.py`. Whether a genuine eight-legged spider template is
+    wanted is the actual question, and stays open.
 
 **Do** — the three that are one decision each:
 
@@ -1121,7 +1132,8 @@ Both belong to P1 step 4 now rather than here.
   (`docs/measurements/2026-09-02-trellis-060-props.md`,
   `docs/measurements/2026-09-02-fantasy-v1.md`); the hole audit closed
   (`docs/measurements/2026-09-02-hole-audit-vs-grade.md`). The tex-res pin
-  survived as the new P3.
+  survived as P32 (2026-09-06 audit, finding docs-15: P3 is closed, so the
+  follow-on question keeps its own number rather than reusing this one).
 - **P5, the end-to-end `charsheet` run.** Struck 2026-09-05, absorbed into P28
   rather than answered. Its premise was "a card": the sheet job had never run on
   hardware and P4's mesh was what it was waiting for. Neither holds now — the

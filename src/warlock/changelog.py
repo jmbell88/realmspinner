@@ -6,10 +6,13 @@ an exception for every way of having nothing to say -- the file is absent, it is
 unreadable, it parses to nothing. Home draws this, and a screen the app opens on
 may not be the thing that fails to start.
 
-**Nothing here is derived from git.** Every commit subject in this repository is
-``Warlock vN.N.N`` and carries no detail at all, so a generated changelog would
-be a list of version numbers. The file is hand-written and this module only
-reads it.
+**Nothing here is derived from git.** Not because commit subjects lack detail --
+most name what changed and why -- but because a changelog derived from them
+would still be *commit-shaped*: one entry per change, in developer language,
+with no editorial judgment about what a player actually needs to know. These
+entries are written for whoever reads them next, which is usually not a
+developer (``CHANGELOG.md``'s own "A note on how this reads" says so). The
+file is hand-written and this module only reads it.
 
 The parse is deliberately forgiving in one direction and one direction only: a
 line that is neither a ``##`` heading nor a ``-`` bullet is *ignored* rather

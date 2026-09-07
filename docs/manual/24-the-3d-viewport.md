@@ -67,8 +67,7 @@ normal map reads.
 ## When the view is empty
 
 An empty viewport says what to do rather than sitting blank: it names the thing to select, or the
-shortcut that would make one. That placeholder is the only place in the app where `Ctrl+N` and
-`Ctrl+O` appear on screen.
+shortcut that would make one.
 
 ## Performance
 

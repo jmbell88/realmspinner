@@ -56,8 +56,9 @@ appears.
 
 ## Starting something
 
-One **New…** button, and a menu behind it with the seven things this app can begin from nothing: a
-2D image, a 3D model, a drawing, a Clay model, a tile map, a sprite atlas and a character. It used to
+One **New…** button, and a menu behind it with the eight things this app can begin from nothing: a
+2D image, a 3D model, a drawing, a Clay model, a tile map, a sprite atlas, a song and a
+character. It used to
 be six equally loud buttons in a 3-across grid, which is a menu insisting that all of them matter the same amount —
 above the thing most people came back for.
 

@@ -1,10 +1,12 @@
 # Changelog
 
-Hand-written, newest first. Nothing here is derived from git: the commit
-subjects are `Warlock vN.N.N` and carry no detail, so this file is the only
-record of what a version actually changed. The top heading's version must
-match `pyproject.toml` — a test asserts it, so a release bump cannot leave this
-file behind.
+Hand-written, newest first. Nothing here is derived from git: most commit
+subjects name what changed and why, but a changelog built from them would
+still be commit-shaped — one entry per change, in developer language, with no
+editorial judgment about what a player actually needs to know. This file is
+the curated record instead. The top heading's version must match
+`pyproject.toml` — a test asserts it, so a release bump cannot leave this file
+behind.
 
 **A note on how this reads.** These entries are written for whoever maintains
 this next, which means they name the measurement that made a default wrong, the
@@ -118,6 +120,45 @@ back.
   per cell. It is read once per gesture now.
 - Two closed audit reports are gone from `docs/`; their findings live in the
   regressions that fixed them.
+- **The manual describes the app that exists again.** A documentation pass
+  read every chapter against the pane that answers for it and found seven
+  places where the app had moved on. The first tutorial told a reader to press
+  *Create image* while standing in the state where the button reads *Generate
+  reference*. Inker's zoom section documented a 1000% ceiling and two
+  enumerated step lists, three days after the ceiling became 6400% and both
+  lists grew. Home's New... menu is eight things and the chapter counted
+  seven, missing the song. The rig templates table is eight and counted seven,
+  missing Blob. Packwright offered four sample images in `examples/`, a
+  directory purged and gitignored on 2026-09-03 because the assets in it could
+  not be redistributed. The configuration chapter named four environment
+  variables as deliberately unreported when `config.effective()` prints every
+  one of them -- the section that exists for diagnosing an install told you to
+  distrust the rows that diagnose it. And the 3D viewport chapter claimed its
+  empty-state placeholder was the only place in the app showing `Ctrl+N`,
+  which Inker, Plotter and Sirens have each said on screen for some time. Each
+  correction landed with a test that reads the value from the code, so the
+  chapter cannot drift from it silently again.
+- **The notices file no longer promises a licence it cannot show.**
+  `THIRD-PARTY-NOTICES.md` said `warlock.models` carries a `license` field on
+  every entry and that the picker and the download confirmation show it. Three
+  of the ten registry classes carry one; the other seven -- the reconstruction
+  engine, matting, the metrics, pose, and the three 2D adapters -- have no such
+  field, so the download confirmation showed nothing for them. The sentence now
+  says which three, and a test derives that list from the module rather than
+  restating it.
+- **A Clay figure stopped promising a spider.** The preset labelled *Insect /
+  spider (six-legged)* is now *Insect*: the template is a six-legged insect
+  skeleton and there is no spider in it. Whether one is wanted is still open.
+- **Five documents joined the dead-citation sweep.** `INSTALL.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `THIRD-PARTY-NOTICES.md` and this file were
+  outside the test that checks every relative link and backticked filename in
+  the documentation resolves, so a manual renumbering could have broken a
+  citation in any of them unnoticed. Along the way: the SDXL download powers
+  five recipes, not the four the README named; `docs/MODELS.md` got back the
+  lead sentence a FLUX paragraph had lost, which left it opening on two model
+  names with no antecedent; the installer's size is stated once instead of
+  twice with two different roundings; and the contributing guide no longer
+  claims an exact test count that was already 13% low.
 
 ## 0.0.37 — 2026-09-06
 

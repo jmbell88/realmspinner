@@ -17,7 +17,7 @@ Six doors, and they all produce the same kind of thing:
 - **From Inker** — one button per open document. An animated document contributes one sprite per
   frame, pixel-identical to the timeline; a still one contributes one sprite per layer, including
   hidden ones.
-- **From the library** — right-click a card, *Add to a Packwright atlas*.
+- **From the library** — right-click a card, *Add to Packwright as an atlas source*.
 - **From Troupe** — a rendered character sheet contributes one sprite per cell.
 
 A sprite's identity comes from where it came from, never from its display name, so renaming one is

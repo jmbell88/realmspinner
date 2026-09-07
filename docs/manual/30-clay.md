@@ -68,7 +68,7 @@ rather than taking sixteen presses through fourteen states in which the figure i
 step is named after the figure in the history panel.
 
 Where a figure lands is decided, not incidental. The six that walk — Humanoid, Biped with tail,
-Quadruped, Bird, Insect/spider and Blob — arrive standing exactly on the ground plane. The Serpent
+Quadruped, Bird, Insect and Blob — arrive standing exactly on the ground plane. The Serpent
 and the Fish are swimmers: they keep the height they were drawn at, above the grid, and are never
 dropped to it.
 

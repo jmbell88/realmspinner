@@ -1,5 +1,16 @@
 # Is a multi-view projection bake good enough? — 2026-08-08
 
+> **Superseded in part, and read this first.**
+> [`2026-08-20-retexture-weight-colorspace.md`](2026-08-20-retexture-weight-colorspace.md)
+> found that the `weight_NN.png` files the coverage table below was computed from
+> were sRGB-encoded, so `MIN_FACING = 0.15` behaved as **0.0196** instead of the
+> intended facing ratio — discarding views only past ~89° off-normal rather than
+> the intended ~81°, which is to say discarding almost nothing. That document
+> says in as many words to **treat the coverage figures below as describing the
+> old, sRGB-bent behaviour only**; a re-measurement on the fixed path is owed but
+> not yet run. The harness, the silhouette-mask reasoning and the
+> Clay-authored-mesh finding are unaffected.
+
 **Question.** Phase 5's Tier 2 gives a finished mesh a new surface by rendering it flat from six
 directions, restyling each render with SDXL img2img, projecting the restyled views back onto the
 mesh's own UV atlas and combining them by a facing-weighted mean. Tier 3 — a dedicated UV-space
