@@ -2,8 +2,8 @@ version = 1
 revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
-    "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'",
     "python_full_version == '3.14.*' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+    "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'",
     "python_full_version < '3.14' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
 ]
 
@@ -94,11 +94,11 @@ name = "bpy"
 version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cattrs", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "cython", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "numpy", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "requests", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "zstandard", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "cattrs" },
+    { name = "cython" },
+    { name = "numpy" },
+    { name = "requests" },
+    { name = "zstandard" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/3a/ebdfeedbefe18641ac541c44bbe433fa363d377fedbabf4fbabb571faf5e/bpy-5.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:6b5f9d4e02de90be7100494807a021b60c194c5d5315daef089213b2cdc8cd9d", size = 245126219, upload-time = "2026-07-14T12:14:33.631Z" },
@@ -121,8 +121,8 @@ name = "cattrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "attrs", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "typing-extensions", marker = "python_full_version != '3.14.*' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "attrs" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a0/ec/ba18945e7d6e55a58364d9fb2e46049c1c2998b3d805f19b703f14e81057/cattrs-26.1.0.tar.gz", hash = "sha256:fa239e0f0ec0715ba34852ce813986dfed1e12117e209b816ab87401271cdd40", size = 495672, upload-time = "2026-02-18T22:15:19.406Z" }
 wheels = [
@@ -1192,7 +1192,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/51/e123d997aa098c61d029f76663dedbfb9bc8dcf8c60cbd6adbe42f76d049/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:949452be657fa16687d0930933f032835951ef0892b37d2d53824d1a84dc97a8", size = 706758467, upload-time = "2025-06-06T21:54:08.597Z" },
@@ -1203,7 +1203,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/13/ee4e00f30e676b66ae65b4f08cb5bcbb8392c03f54f2d5413ea99a5d1c80/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4d2dd21ec0b88cf61b62e6b43564355e5222e4a3fb394cac0db101f2dd0d4f74", size = 193118695, upload-time = "2025-03-07T01:45:27.821Z" },
@@ -1230,9 +1230,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "nvidia-cusparse-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cusparse-cu12" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/48/9a13d2975803e8cf2777d5ed57b87a0b6ca2cc795f9a4f59796a910bfb80/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:4376c11ad263152bd50ea295c05370360776f8c3427b30991df774f9fb26c450", size = 267506905, upload-time = "2025-03-07T01:47:16.273Z" },
@@ -1243,7 +1243,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f5/e1854cb2f2bcd4280c44736c93550cc300ff4b8c95ebe370d0aa7d2b473d/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ec05d76bbbd8b61b06a80e1eaf8cf4959c3d4ce8e711b65ebd0443bb0ebb13b", size = 288216466, upload-time = "2025-03-07T01:48:13.779Z" },
@@ -1597,23 +1597,31 @@ wheels = [
 
 [[package]]
 name = "pygame-ce"
-version = "2.5.7"
+version = "2.5.8"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e9/0d/bb6a6fdf1b227c0bb9a44437a70962a3854bcc541533c261e5021a5ee691/pygame_ce-2.5.7.tar.gz", hash = "sha256:86beb797cd73c141299a29b56f7df2b0543fbdc81d428022458329ff694aaa51", size = 5935870, upload-time = "2026-03-02T09:26:59.005Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/26/2d/0f942ec31d558a6a1f2fd0df9965ff0055f165ed5b8d36f6509b1f3768a2/pygame_ce-2.5.8.tar.gz", hash = "sha256:3c8e69088ead310037972c391306ea58e74d7296b35d1890067749235fd554ba", size = 5300831, upload-time = "2026-08-09T11:39:49.226Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/96/d28381210ec2ed5d7a04f77cd8f6949a7734f75a7a7d9a95fe8ed60fe3ba/pygame_ce-2.5.7-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:8766985d802017e150fcfb9adc659967d8548a961d491b8974f0748412cc0427", size = 17203240, upload-time = "2026-03-02T09:26:10.975Z" },
-    { url = "https://files.pythonhosted.org/packages/b8/f0/a3e4d0ad2519d106d178652ae7ec692e8acadf3d2260493840c27f8eabb8/pygame_ce-2.5.7-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:58eabfc184dd28c682e5e6ccfce01224bb12653c6648babcd0bb9d9bd662d938", size = 12705532, upload-time = "2026-03-02T09:26:13.795Z" },
-    { url = "https://files.pythonhosted.org/packages/13/0d/6d6c29aa5ecf63a66983bdf04066dc019290e7412f64b0ae5133c5e53d47/pygame_ce-2.5.7-cp313-cp313-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:92d5732cd512c8ec0b47e9a3e6c683fb811bdf2090362580778ce698222a64ab", size = 13233559, upload-time = "2026-03-02T09:26:16.202Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/96/e400d3a2c6456e3a334d9fae1f8704d964027b60064935278028dd79293f/pygame_ce-2.5.7-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:48e9a4ece43b08adc8ffb0bbbe0fe183eef4bb501a7d31552ae7398592ec0a82", size = 12811409, upload-time = "2026-03-02T09:26:19.148Z" },
-    { url = "https://files.pythonhosted.org/packages/8f/ed/8e3c6f5d4ac763f6766c2043f842b2c52028b30a4ce2ce2f5dced5961354/pygame_ce-2.5.7-cp313-cp313-win32.whl", hash = "sha256:f6439100bdee81da96f5acffb280f20511c93dd67178d8a8cf29d6cfd1aa46dd", size = 9835553, upload-time = "2026-03-02T09:26:22.123Z" },
-    { url = "https://files.pythonhosted.org/packages/06/a0/7acd164b3a206327bf53df5e5399227a5baf858ae2944cba562a0ae77e0a/pygame_ce-2.5.7-cp313-cp313-win_amd64.whl", hash = "sha256:25047c97760fc640a6a8bbfdf3398c5825adfd55986a7523a65c95a1fb61d759", size = 10413012, upload-time = "2026-03-02T09:26:24.747Z" },
-    { url = "https://files.pythonhosted.org/packages/47/d5/e4419a340ae24bd0dde5a6861406c24114f59a543aad44f1d2f2ae4752d5/pygame_ce-2.5.7-cp313-cp313-win_arm64.whl", hash = "sha256:f5a7197096ef82d588539f13b0f7ade767f800c7b0b015a94e386f488e1039f6", size = 10856939, upload-time = "2026-03-02T09:26:27.107Z" },
-    { url = "https://files.pythonhosted.org/packages/26/08/9fe0003d69077ff8faff242a85260b8a192d3b7111c02332b8b2f515d40c/pygame_ce-2.5.7-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:addfbf7d119647eec157d611f463e5d572836fa74d0d222c59210294ed618b9d", size = 17211017, upload-time = "2026-03-02T09:26:30.243Z" },
-    { url = "https://files.pythonhosted.org/packages/40/c7/217c5430c8c612879162beb2d18cb10ad8b1b4db6ce03245289a3de6bc1b/pygame_ce-2.5.7-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1c92feb289e34ac323a7b62b91d230a4e32b44059c4d7fb95631e504b1d9b365", size = 12710845, upload-time = "2026-03-02T09:26:33.165Z" },
-    { url = "https://files.pythonhosted.org/packages/00/a4/6fb0054bfb2522c4ad3ff82ecbc9c1a3c6694c50d24f2451717121636a1d/pygame_ce-2.5.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5c1ed4100311015cc67d24fe4e4d7c2f4cb25c34e043545061271c1d018c02d4", size = 12812020, upload-time = "2026-03-02T09:26:35.953Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/9b/0e0996573a9dd4bb34874c10643224a72372818242e07486c9eb4a22eebb/pygame_ce-2.5.7-cp314-cp314-win32.whl", hash = "sha256:1b7e641af3aeac92bb7e4df1402d6802271f4bd09c747d2665f154ef9b07a4e6", size = 9968590, upload-time = "2026-03-02T09:26:38.517Z" },
-    { url = "https://files.pythonhosted.org/packages/96/96/c94d0e508954093e37a77b03101a3cf51a242e02cc0ec726edcb117f8885/pygame_ce-2.5.7-cp314-cp314-win_amd64.whl", hash = "sha256:595f4257c15fed11cd816ae0bfabad3d99f8f04a000d7d164a22c0f9afd6cb65", size = 10581240, upload-time = "2026-03-02T09:26:41.139Z" },
-    { url = "https://files.pythonhosted.org/packages/81/bb/93c5dadb66ac9733ca52952e063cce117a9312d6f97facd5dc4932f3d777/pygame_ce-2.5.7-cp314-cp314-win_arm64.whl", hash = "sha256:3e6ce74fd5a5f146f1bcf0224ae3e880c733917a9edbb53f790329d235520433", size = 11057480, upload-time = "2026-03-02T09:26:43.871Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/06/f2e2d9fe3eb2dc1fde30b90e250274e85ba355af729892ac71ba653924a1/pygame_ce-2.5.8-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:56441a9bb75c2461750dc0e6e4a46e3833b3cf6339bfbaf16f93ecac037510f3", size = 16562516, upload-time = "2026-08-09T11:38:42.311Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/fe/4be67df98bb05f7b024900f80fe4d07a72cec7022262d17c449b2a9f6034/pygame_ce-2.5.8-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e3183bc0d808e739ca2400df45a5bfae10704ccbcacab0f04f9adc9027e86427", size = 12045702, upload-time = "2026-08-09T11:38:44.903Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/8f/f7d283799aaa2208c1276f085d514f2ac37ce1bb5df940c7cbac7e6a6320/pygame_ce-2.5.8-cp313-cp313-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:841aecccb498419367936bea0b1b0c6e9d635dc81c41ef26ec1769158f1ab871", size = 12585829, upload-time = "2026-08-09T11:38:47.507Z" },
+    { url = "https://files.pythonhosted.org/packages/27/4d/03fd52c7f958b8e929757a118cada9aee16ae9d4fd84f2682ee0cbd3941d/pygame_ce-2.5.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5bb966b610e161a8f6d908b4c62ef3a1f3e922bc7bed73bd70a3e15dc780b90e", size = 12145623, upload-time = "2026-08-09T11:38:49.87Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/61/c02613190a3256a656258bb4f677aecc09c3cb1f5521490ce7d5fb6308dd/pygame_ce-2.5.8-cp313-cp313-win32.whl", hash = "sha256:cab944d76af71e707803856b4db984ca90d9d6453e470e89771ed963c11ed912", size = 9123635, upload-time = "2026-08-09T11:38:52.452Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/1b/da9186e5b88714c16fdb23bc4ba0bca4a75c21e3a5cf9607765773f68d22/pygame_ce-2.5.8-cp313-cp313-win_amd64.whl", hash = "sha256:f495b0eb7a5c54c59da58e964bc7f68073c3f43cf307729fd48309104a04c190", size = 9668342, upload-time = "2026-08-09T11:38:54.988Z" },
+    { url = "https://files.pythonhosted.org/packages/55/d3/78136bc51be25afbd7954c22488860e80f32d9a885f6667fed8aac7df0d6/pygame_ce-2.5.8-cp313-cp313-win_arm64.whl", hash = "sha256:dea22b4d4c418bbd0bd9853ae797ecfa882436d2684ceb6063ba8b520adc8500", size = 10211021, upload-time = "2026-08-09T11:38:57.529Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/e6/8e83904cf4184223419345a78c905e7c1ace10228befd87eb497ba015c8c/pygame_ce-2.5.8-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:7ec4efa6b57a194f5ad51b92211cc74b485320df951b0cc870235b2b889b9b6d", size = 16571019, upload-time = "2026-08-09T11:39:00.084Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/f3/4f90a0b5e86635d741111084eaa4d4c65fcab2f461edb8c9efa502e4c630/pygame_ce-2.5.8-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:bb91d0bb0b5e2a4da61910d752769d4580cacffb4b7338cee57c932351c67e7b", size = 12051251, upload-time = "2026-08-09T11:39:02.561Z" },
+    { url = "https://files.pythonhosted.org/packages/99/7e/b0c4f5d43261e8707353ef40cf6620d46d42f43a502c236e93ce6ea82e7b/pygame_ce-2.5.8-cp314-cp314-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:68bd9c4ac42bb2549c034d56399404f16c87c56714db721ed975a759798a3d16", size = 12585932, upload-time = "2026-08-09T11:39:04.989Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/62/06f0ceb7f5a154e0071a4ce81a16de47b9f3b85034fa391686d489d15be5/pygame_ce-2.5.8-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:0027bd2255cbb39789d9c7ff95a5f040f56d1cfeb09504497447c0ee06169a24", size = 12147357, upload-time = "2026-08-09T11:39:07.433Z" },
+    { url = "https://files.pythonhosted.org/packages/05/57/14d6b40318af71cf20e4c750866795424e018f79c5a5cf3a9a74a8717c4c/pygame_ce-2.5.8-cp314-cp314-win32.whl", hash = "sha256:c5285d444e4b789ef95522bbd2b90433163ad2b89e0ae4891236fde88a027fbd", size = 9255121, upload-time = "2026-08-09T11:39:09.723Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/31/92d32a9bf9b78e9ef10cec7224e2f00efc957757505822af8dc4225e9b41/pygame_ce-2.5.8-cp314-cp314-win_amd64.whl", hash = "sha256:b4c2e28c201240199356952e6bd0221969d2eb8a1a15c3454d77db209bad7891", size = 9833757, upload-time = "2026-08-09T11:39:11.989Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/26/4024483d4a3161ed8fb8d3f3f4957580af31d468e0c31df7e6038f45ccdc/pygame_ce-2.5.8-cp314-cp314-win_arm64.whl", hash = "sha256:b23034594412456504822d3088cf5f292f63bbe415eac29735340a59999e4116", size = 10410381, upload-time = "2026-08-09T11:39:14.417Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/11/0b47f80b261d6379c86b9cc3fa405af5bd62af10506de7e28c2275d67b86/pygame_ce-2.5.8-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:0a4e0804d53bae8d9aa5192fc2259b40dd084b48ea273dd7dd6e1c12b73303c4", size = 16571139, upload-time = "2026-08-09T11:39:16.979Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/95/694cd02641a0c0956b6c5919b56599af302524ac133551b654f550f28919/pygame_ce-2.5.8-cp315-cp315-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d7f03d38b3693c014dd47d4e281620b6756669129e545af1cd608a9484582846", size = 12051154, upload-time = "2026-08-09T11:39:19.873Z" },
+    { url = "https://files.pythonhosted.org/packages/da/5e/bed22b0d07d9e96bb9a448acc9da7a235f046280264c33476f0c0753d302/pygame_ce-2.5.8-cp315-cp315-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:d084b79535f3529aa157edd9401f4f33e5082f318d287029291d6596bb225105", size = 12585976, upload-time = "2026-08-09T11:39:22.555Z" },
+    { url = "https://files.pythonhosted.org/packages/21/ce/8c167ba5ba736e372730ae29ef0f8cb2e62a88580e647ae987bc112eb1cb/pygame_ce-2.5.8-cp315-cp315-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:d9cbf6e2648ae6d76aa8ece82187d240300cfd9f4c90860e1e466f78cf0ab14a", size = 12147466, upload-time = "2026-08-09T11:39:24.935Z" },
+    { url = "https://files.pythonhosted.org/packages/63/92/c99ed51479f2d2a5d7fc9d5aa3b880e4c0fcc87f30cb95ecf325f35dd2fd/pygame_ce-2.5.8-cp315-cp315-win32.whl", hash = "sha256:312a01ff5439a0bd2e55b56683518454da4cbe4cad493d0580e9c49f6aacc2d8", size = 9254928, upload-time = "2026-08-09T11:39:29.525Z" },
+    { url = "https://files.pythonhosted.org/packages/87/41/404836598d666ffe02681fd0c29f013daaa8baf18e5de5f7a5d4870b6105/pygame_ce-2.5.8-cp315-cp315-win_amd64.whl", hash = "sha256:5b789aa7e4239be025c9de8428c2c422f0811f0e3dd702b574d836fd9ae040eb", size = 9833657, upload-time = "2026-08-09T11:39:31.897Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/a2/7a844f772c6f0967e75d49cb10602fbb878b9daee1cc080d2b9597bcc873/pygame_ce-2.5.8-cp315-cp315-win_arm64.whl", hash = "sha256:28c4fed3870e3edf72ea7ea359bb5f64c55db0fb9cb3bdb26b4b674b4b4bcff4", size = 10410231, upload-time = "2026-08-09T11:39:34.184Z" },
 ]
 
 [[package]]
@@ -2368,7 +2376,7 @@ name = "triton"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "setuptools", marker = "python_full_version >= '3.15' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
+    { name = "setuptools" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/30/7b/0a685684ed5322d2af0bddefed7906674f67974aa88b0fae6e82e3b766f6/triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:00be2964616f4c619193cb0d1b29a99bd4b001d7dc333816073f92cf2a8ccdeb", size = 155569223, upload-time = "2025-07-30T19:58:44.017Z" },
@@ -2520,7 +2528,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0" },
     { name = "protobuf", marker = "extra == 'text2image'", specifier = ">=4.0" },
     { name = "py3langid", marker = "extra == 'music'", specifier = ">=0.2,<0.4" },
-    { name = "pygame-ce", marker = "extra == 'studio'", specifier = ">=2.5" },
+    { name = "pygame-ce", marker = "extra == 'studio'", specifier = ">=2.5.8" },
     { name = "pypinyin", marker = "extra == 'music'", specifier = ">=0.53" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "sentencepiece", marker = "extra == 'text2image'", specifier = ">=0.2" },

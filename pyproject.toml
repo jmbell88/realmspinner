@@ -134,7 +134,7 @@ music = [
 # only on the path that opens one.
 studio = [
     "moderngl>=5.10",
-    "pygame-ce>=2.5",
+    "pygame-ce>=2.5.8",
     "imgui-bundle>=1.6",
     # Reading zstd-compressed Tiled layer data. A wheel, not a download, so the
     # offline invariant is untouched -- and imported lazily at the one call
