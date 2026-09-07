@@ -61,6 +61,19 @@ from warlock.studio import modes as _modes  # noqa: E402
 MODES = _modes.KEYS
 
 
+#: The size every image in ``screenshots/`` is, and therefore the default.
+#:
+#: It has to be *stated* rather than left to the monitor. ``setup_window``
+#: samples the display when no override is given, so before this was a default
+#: the tree's dimensions were a property of whichever machine last ran the
+#: refresh -- and with ``_appharness.isolate_home`` now denying the run a saved
+#: window size to inherit, an unpinned capture would have started varying by
+#: monitor instead of merely by developer. A refresh that comes back a different
+#: shape is a 120-file diff in which nothing is comparable to what it replaced,
+#: which is most of why the 2026-09-07 pass was hard to review.
+SHIPPED_SIZE = (2560, 1369)
+
+
 def _size(value: str) -> tuple[int, int]:
     """Parse WIDTHxHEIGHT for deterministic minimum-size captures."""
     try:
@@ -375,11 +388,13 @@ def main() -> int:
     ap.add_argument(
         "--size",
         type=_size,
-        default=None,
+        default=SHIPPED_SIZE,
         metavar="WIDTHxHEIGHT",
         help=(
-            "capture at an exact window size, for example 1100x700; combine "
-            "with --scale to exercise narrow high-density layouts"
+            f"capture at an exact window size (default {SHIPPED_SIZE[0]}x"
+            f"{SHIPPED_SIZE[1]}, what screenshots/ holds); pass a smaller one "
+            "such as 1100x700, combined with --scale, to exercise narrow "
+            "high-density layouts"
         ),
     )
     args = ap.parse_args()

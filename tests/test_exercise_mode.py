@@ -197,3 +197,114 @@ def test_the_driver_reports_its_own_blind_spot(driver):
     from test_probe import RAW_IMGUI_CONTROLS
 
     assert driver.raw_imgui_controls() == RAW_IMGUI_CONTROLS
+
+
+# --- the throwaway home -------------------------------------------------------
+#
+# Driven through a subprocess rather than by importing the harness here. The
+# thing under test is what happens when ``WARLOCK_HOME`` is *unset*, and this
+# suite's own conftest pins it at a throwaway directory for every test in the
+# run -- so an in-process check would be asking the question with the answer
+# already supplied, which is exactly the shape of the defect it exists to catch.
+
+
+def _harness_env(env: dict[str, str]) -> dict[str, str]:
+    """Import ``_appharness`` in a clean interpreter and report the environment.
+
+    Returns the child's own view of the four things that decide where a harness
+    run writes, so the assertions below are about the process the scripts
+    actually get rather than about this one.
+    """
+    import json
+    import os
+    import subprocess
+
+    code = (
+        "import json, os, sys;"
+        f"sys.path.insert(0, {str(SCRIPTS)!r});"
+        "import _appharness;"
+        "from warlock.config import get_config;"
+        "c = get_config();"
+        "print(json.dumps({"
+        "'home': os.environ.get('WARLOCK_HOME'),"
+        "'no_migrate': os.environ.get('WARLOCK_NO_MIGRATE'),"
+        "'data_dir': str(c.data_dir),"
+        "'db': str(c.db_path),"
+        "'models': str(c.t2i_model_root),"
+        "'harness_home': str(_appharness.HARNESS_HOME) if _appharness.HARNESS_HOME else None,"
+        "}))"
+    )
+    base = {k: v for k, v in os.environ.items() if not k.startswith("WARLOCK_")}
+    base.pop("WARLOCK_HARNESS_REAL_HOME", None)
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        env={**base, **env},
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_a_harness_run_never_lands_on_the_real_warlock_home():
+    """The 2026-09-07 screenshot refresh, which nothing prevented.
+
+    ``screenshot_modes.py`` was run with ``WARLOCK_HOME`` unset, so every root
+    resolved under the developer's real ``~/.warlock`` and the captures came
+    back carrying that machine's GPU and free VRAM, a dozen real job cards with
+    their prompts, and two crash-recovery entries. The harness docstring had
+    said to use a throwaway home since the day it was extracted; saying it is
+    what this replaces.
+    """
+    from pathlib import Path
+
+    seen = _harness_env({})
+    assert seen["home"], "the harness left WARLOCK_HOME unset"
+    home = Path(seen["home"]).resolve()
+    assert home != (Path.home() / ".warlock").resolve()
+    assert seen["harness_home"] == str(Path(seen["home"]))
+
+
+def test_the_throwaway_home_takes_every_root_with_it():
+    """``WARLOCK_HOME`` alone is not enough, which is the harness docstring's
+    own warning: a per-root variable already in the environment carries that
+    one root back out of the throwaway home, and ``WARLOCK_DATA_DIR`` in
+    particular does not move the sqlite store with it.
+    """
+    from pathlib import Path
+
+    escaped = str(Path.home() / ".warlock" / "assets")
+    seen = _harness_env({"WARLOCK_DATA_DIR": escaped, "WARLOCK_T2I_ROOT": escaped})
+    home = Path(seen["home"]).resolve()
+    for key in ("data_dir", "db", "models"):
+        assert Path(seen[key]).resolve().is_relative_to(home), f"{key} escaped to {seen[key]}"
+
+
+def test_a_harness_run_never_migrates_a_checkouts_library():
+    """``migrate.run`` moves ``PROJECT_ROOT/assets``, ``bench``, ``palettes``
+    and ``models`` into ``config.home`` whenever the destination is empty --
+    which a fresh throwaway home always is. Unguarded, a checkout still holding
+    those directories would have them moved into a temp dir and then deleted by
+    the harness's own cleanup.
+    """
+    assert _harness_env({})["no_migrate"]
+
+
+def test_an_explicit_home_is_left_alone_and_so_is_an_opt_out(tmp_path):
+    """Pointing the harness at a prepared library stays a one-variable job, and
+    photographing your own work on purpose stays possible -- only the unset
+    default, the one nobody notices, is redirected.
+    """
+    from pathlib import Path
+
+    chosen = tmp_path / "prepared"
+    chosen.mkdir()
+    seen = _harness_env({"WARLOCK_HOME": str(chosen)})
+    assert Path(seen["home"]).resolve() == chosen.resolve()
+    assert seen["harness_home"] is None
+    assert seen["no_migrate"], "an explicit home still must not trigger a migration"
+
+    real = _harness_env({"WARLOCK_HARNESS_REAL_HOME": "1"})
+    assert real["home"] is None
+    assert real["harness_home"] is None

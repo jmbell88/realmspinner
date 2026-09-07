@@ -12,17 +12,104 @@ Two scripts each booting the app their own way is exactly the drift
 derives its mode list rather than writing it out.
 
 Every seeder writes into whatever data directory the process was pointed at, so
-run against a throwaway ``WARLOCK_HOME`` / ``WARLOCK_DATA_DIR`` / ``WARLOCK_DB``
---- all three, because ``WARLOCK_DATA_DIR`` alone does not move the sqlite
-store.
+a harness run needs a throwaway home --- and :func:`isolate_home` below now
+establishes one at import rather than leaving it as advice. That advice is what
+this paragraph used to be, and it was followed by nobody: the 2026-09-07
+screenshot refresh was captured against a real ``~/.warlock`` and put the
+machine into the pictures.
 """
 
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+#: Every root that resolves under ``_home()`` and can be aimed elsewhere by its
+#: own variable (``config.py``'s ``_env_path`` calls). They are **cleared**
+#: rather than repointed when this module makes a throwaway home: clearing lets
+#: each one derive under the new home the way ``config`` already knows how,
+#: where repointing would be this module restating five defaults it does not
+#: own. ``WARLOCK_EXPORT_DIR`` and ``WARLOCK_T2I_DIR`` are deliberately absent
+#: -- they default to ``PROJECT_ROOT``, not to home, so a throwaway home has no
+#: opinion about them.
+_ROOTS_UNDER_HOME = (
+    "WARLOCK_DATA_DIR",
+    "WARLOCK_DB",
+    "WARLOCK_BENCH_DIR",
+    "WARLOCK_PALETTE_DIR",
+    "WARLOCK_T2I_ROOT",
+)
+
+#: Set this to run against the real library on purpose -- photographing your own
+#: work, or reproducing a report that only happens with certain weights present.
+#: Named for what it does rather than as ``WARLOCK_*`` so it cannot be mistaken
+#: for one of the app's own settings; the app never reads it.
+REAL_HOME_ENV = "WARLOCK_HARNESS_REAL_HOME"
+
+
+def isolate_home() -> Path | None:
+    """Point this process at a throwaway ``WARLOCK_HOME``. -> the dir, or None.
+
+    **Called at import, because the alternative is advice.** This module's
+    docstring told callers to run against a throwaway home for as long as it
+    has existed, and the 2026-09-07 screenshot refresh is what that was worth:
+    ``screenshot_modes.py`` was run with the variable unset, so ``_home()``
+    resolved to the developer's real ``~/.warlock`` and the captures came back
+    carrying a GPU model with its free VRAM, a dozen real job cards with the
+    prompts that made them, and two crash-recovery entries -- none of which
+    belongs in a repository. The window size came from the same place, and with
+    it the modals: at the inherited size the New map dialog was photographed
+    mid-open, showing a title and an explainer where the whole form should be.
+
+    Import time rather than inside :func:`boot`, because ``get_config()`` is
+    not the only reader --- ``screenshot_modes.py`` imports ``warlock.studio``
+    at module scope, and a root resolved once is resolved for the process.
+    Both scripts import this module before any ``warlock`` import, which is
+    what makes that ordering hold.
+
+    **An explicit ``WARLOCK_HOME`` is left alone**, so pointing the harness at
+    a prepared library stays a one-variable job; only the unset case --- the
+    dangerous default, and the one nobody notices --- is redirected. Setting
+    :data:`REAL_HOME_ENV` opts out of even that.
+
+    ``WARLOCK_NO_MIGRATE`` goes on either way, and it is not belt-and-braces.
+    ``migrate.run`` treats ``PROJECT_ROOT/assets``, ``bench``, ``palettes`` and
+    ``models`` as legacy roots to be **moved** into ``config.home`` whenever the
+    destination is empty --- which a fresh throwaway home always is. Without the
+    guard, a checkout still carrying those directories would have its library
+    moved into a temp dir and then deleted by the cleanup below. It is the same
+    variable, for the same reason, that ``tests/conftest.py`` sets.
+    """
+    # Set before the first return so that every path out of here has it, and
+    # unconditionally so that an explicit WARLOCK_HOME is protected too.
+    os.environ.setdefault("WARLOCK_NO_MIGRATE", "1")
+    if os.environ.get(REAL_HOME_ENV):
+        return None
+    if os.environ.get("WARLOCK_HOME"):
+        return None
+    home = Path(tempfile.mkdtemp(prefix="warlock-harness-"))
+    os.environ["WARLOCK_HOME"] = str(home)
+    for name in _ROOTS_UNDER_HOME:
+        # Cleared, not left: a variable already in the environment would carry
+        # that one root back out of the throwaway home, which is the half of
+        # this that "set WARLOCK_HOME" alone has never covered.
+        os.environ.pop(name, None)
+    # ``ignore_errors`` because the app holds warlock.log and jobs.sqlite open
+    # for the life of the process on Windows, and a harness that raised on the
+    # way out would turn a successful capture run into a failed one.
+    atexit.register(shutil.rmtree, home, True)
+    return home
+
+
+#: The throwaway home this process is using, or ``None`` when it was told to use
+#: a real one. Read by the scripts so a run can say where it wrote.
+HARNESS_HOME = isolate_home()
 
 
 def boot(scale: float | None = None, size: tuple[int, int] | None = None):
