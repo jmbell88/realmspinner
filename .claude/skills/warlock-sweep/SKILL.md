@@ -160,10 +160,27 @@ repeated here. When the sweep and its gate are green, say so and name
 `/warlock-sweep job-kind --dry-run <existing kind>` walks the `job-kind` row's
 sites for a kind that **already exists**, read-only, and reports which of the
 fifteen sites that kind actually joined, using `git show HEAD:<path>` and
-ordinary reads rather than editing anything. This is how the skill's own
-walk is checked: `sprite_synthesis` should come back clean across all
-fifteen sites (it is the kind the "four edits" paragraph in INVARIANTS uses
-as its own worked example), and `charsheet` should independently rediscover
+ordinary reads rather than editing anything.
+
+**Grepping for the kind's name is not the check, and a walk that does that
+will report seven false holes.** Measured on 2026-09-07: `sprite_synthesis`
+appears by name at only eight of the fifteen sites, and most of the other
+seven are correct anyway because they do not dispatch on kind at all —
+`files.ready` keys on the *artifact name* (`model.glb`, `source.glb`) and
+`widgets.STAGE_BADGES` and `create_stages.IMAGE_STAGES` key on the *stage*,
+so a kind whose artifacts and stage are already covered needs no branch
+there and its absence is the right answer. `DERIVED_PARAMS` is the sharper
+case: `sprite_synthesis` has no entry because its worker records nothing
+about its own run that a rerun must strip — which is a real, checkable claim
+about that worker, and the only way to know it is to read the worker.
+
+So each site's verdict is **semantic, not textual**: read the site and answer
+whether this kind is handled correctly, by an explicit branch *or* by a
+default that is right for it, and say which of the two. A site reported
+"absent" must say what would break if that were wrong, or it is a grep
+result wearing a finding's clothes.
+
+`charsheet` should independently rediscover
 the `progress` miss the invariant records — `phases_for("charsheet")` falls
 back to `PHASES_IMAGE` in the tree as it stood when Troupe shipped, which is
 exactly the hole `tests/test_progress.py::test_the_multi_pass_kinds_have_their_own_contiguous_tables`
