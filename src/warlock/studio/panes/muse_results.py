@@ -198,23 +198,32 @@ DERIVE_ITEMS: tuple[tuple[str, str, str], ...] = (
 #: The bounds are the *door's*, restated as the widget's clamp. The door stays
 #: the gate; this only stops the user reaching a number that was always going to
 #: come back as a refusal.
-DERIVE_FIELDS: dict[str, tuple[str, float, float, str]] = {
+#:
+#: The four extend/repaint fields carry ``None`` for their upper bound rather
+#: than a number: they used to spell out ``240.0`` longhand, the one place in
+#: this table that wrote a door bound out by hand instead of importing it
+#: (contrast ``ref_audio_strength``'s companions, ``_max_lyrics`` and
+#: ``_max_count`` below, both a lazy import). ``None`` here means "ask
+#: :func:`_max_extend`", resolved at draw time in :func:`_derive_field` so the
+#: popup's slider and ``_jobs_music.MAX_EXTEND_DURATION`` cannot drift apart
+#: the way a second copy of the figure eventually would.
+DERIVE_FIELDS: dict[str, tuple[str, float, float | None, str]] = {
     "retake_variance": (
         "Variation",
         0.0,
         1.0,
         "0 is this take again; 1 is a fresh draw of the same brief.",
     ),
-    "extend_left": ("Add before", 0.0, 240.0, "Seconds of new music ahead of it."),
+    "extend_left": ("Add before", 0.0, None, "Seconds of new music ahead of it."),
     "extend_right": (
         "Add after",
         0.0,
-        240.0,
+        None,
         "Seconds of new music after it. Neither end may be longer than the"
         " take itself -- extend twice to go further.",
     ),
-    "repaint_start": ("From", 0.0, 240.0, "Where the window starts, in seconds."),
-    "repaint_end": ("To", 0.0, 240.0, "Where it ends. The rest is left alone."),
+    "repaint_start": ("From", 0.0, None, "Where the window starts, in seconds."),
+    "repaint_end": ("To", 0.0, None, "Where it ends. The rest is left alone."),
     "ref_audio_strength": (
         "Closeness",
         0.0,
@@ -327,6 +336,8 @@ def _derive_field(ctx: Any, derive: dict[str, Any], name: str, task: str) -> Non
         return
 
     title, low, high, help_text = DERIVE_FIELDS[name]
+    if high is None:
+        high = _max_extend()
     if task == "loop" and name == "repaint_end":
         # The loop task asks for a *span* -- how much of the joint to rewrite --
         # and the door reads it as a window it then centres on the roll. One
@@ -353,6 +364,21 @@ def _max_lyrics() -> int:
     from ...service._jobs_music import MAX_LYRICS
 
     return MAX_LYRICS
+
+
+def _max_extend() -> float:
+    """The extend/repaint ceiling, imported lazily as its siblings above are.
+
+    ``_jobs_music.MAX_EXTEND_DURATION`` -- four minutes, not ``MAX_DURATION``'s
+    ten -- because the vendored ACE-Step sampler hard-codes a 240 s pad length
+    on the extend path and silently trims past it rather than raising; see
+    that constant's own comment for the incident. Read here rather than
+    written again so the popup's slider and the door's refusal are stating the
+    same number.
+    """
+    from ...service._jobs_music import MAX_EXTEND_DURATION
+
+    return MAX_EXTEND_DURATION
 
 
 __all__ = [

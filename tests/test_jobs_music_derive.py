@@ -49,6 +49,23 @@ def parent(svc):
     return job_id
 
 
+@pytest.fixture
+def long_parent(svc):
+    """A finished 240 s take with a track on disk. -> its job id.
+
+    Long enough that a 120 s pad on each side (480 s total) clears the
+    per-pad check -- neither pad may exceed the parent's own length -- while
+    still tripping ``MAX_EXTEND_DURATION``'s 240 s ceiling on the total.
+    ``parent`` (60 s) cannot reach that branch at all: it caps each pad at
+    60 s, so the longest total an extend of it can ever ask for is 180 s.
+    """
+    made = door.create_music_job(svc, prompt="dark ambient, dungeon", duration=240.0)
+    job_id = made["id"]
+    (svc.config.job_dir(job_id) / "track.wav").write_bytes(_wav(240.0))
+    svc.store.set_status(job_id, "done")
+    return job_id
+
+
 def _derive(svc, parent, **kw):
     kw.setdefault("task", "retake")
     return door.derive_music_job(svc, parent, **kw)
@@ -109,6 +126,29 @@ def test_an_extend_lengthens_the_take_it_derives_from(svc, parent):
     params = svc.store.get(out["id"])["params"]
     assert params["duration"] == pytest.approx(75.0)
     assert params["parent_duration"] == pytest.approx(60.0)
+
+
+def test_an_extend_past_the_sampler_ceiling_is_refused_even_though_max_duration_allows_it(
+    svc, long_parent
+):
+    """Not a claim that fails against today's HEAD: at ``MAX_DURATION = 240``
+    this same request was already refused by the general ceiling, so the
+    unfixed *current* code already passes this. It fails against the *naive*
+    version of this change -- raising ``MAX_DURATION`` to 600 with no
+    ``MAX_EXTEND_DURATION`` alongside it -- which would let a 480 s extend
+    (a 240 s parent plus 120 s each side, comfortably inside the raised
+    ``MAX_DURATION`` and inside the per-pad check, since neither pad exceeds
+    the parent's own 240 s) clear this door and come back quietly trimmed to
+    four minutes by the vendored sampler's ``max_infer_fame_length`` -- a
+    wrong answer with no error attached, rather than a refusal naming the
+    control that fixes it.
+    """
+    with pytest.raises(Invalid) as caught:
+        door.derive_music_job(
+            svc, long_parent, task="extend", extend_left=120.0, extend_right=120.0
+        )
+    assert caught.value.field == "extend_right"
+    assert door.MAX_EXTEND_DURATION < door.MAX_DURATION
 
 
 def test_a_loop_centres_its_window_and_records_the_roll(svc, parent):

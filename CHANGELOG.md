@@ -25,6 +25,35 @@ back.
 
 A full audit of every subsystem followed, and closed 110 findings.
 
+- **Muse's brief bar names every control, opens wider for lyrics, and reaches
+  ten minutes.** Before this pass the two text fields relied on a tooltip that
+  only showed while they were empty, and the pills and the button carried no
+  name at all; **Tags**, **Lyrics**, **Length** and **Takes** now each carry
+  the small-caps label the rest of the app already draws above a field. The
+  lyric field opens at eight lines instead of four — a verse and its chorus,
+  the common case, rather than a verse alone — with Expand still there for
+  anything longer. **Length** keeps its four presets up to 240s and gains a
+  fifth, 10m, plus a **Custom** pill that reaches the whole range: 10 s to
+  600 s, because `_jobs_music.MAX_DURATION` moved from 240 to 600 — a
+  dungeon's whole ambient loop is now one take instead of three stitched
+  extends. Writing the manual entry for this sent us back to `vram.py` to
+  check what the ceiling was actually protecting, and the chapter's old claim
+  — that duration "drives the VRAM figure the app has to check" — turned out
+  to be false and is retracted rather than merely renumbered: the music branch
+  prices a job on the registry row plus a flat source term, and duration has
+  never entered that arithmetic. The ceiling was never a cap on a priced
+  figure; it is the only thing bounding a term admission cannot price at all,
+  which is the honest reason it exists. **Extending** a take keeps the old
+  four-minute ceiling under its own name, `MAX_EXTEND_DURATION`, because
+  ACE-Step's vendored `is_extend` branch hard-codes a maximum inference length
+  and silently trims the latent past it rather than raising — refusing by name
+  at our own door is safer than editing someone else's model on a guess.
+  `sirens.wavout.MAX_SAMPLE_FRAMES` moved from 240 s to 600 s in step, as the
+  two constants always do, so Open-in-Sirens still works at anything Muse can
+  write: the cost is about 212 MB per import at the new ceiling, over the
+  192 MiB undo budget and under the 768 MiB hard one, so a ten-minute import
+  is kept as the one step the stack guarantees while evicting the rest.
+
 - **Cancelling a music take no longer throws away the loaded model.** The
   music worker attaches its vitals — including whether a checkpoint is
   loaded — to every answer it sends back, except that the cancel reply was

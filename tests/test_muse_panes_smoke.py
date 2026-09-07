@@ -150,6 +150,65 @@ def test_the_brief_gives_the_count_away_before_it_clips_generate(frames, tmp_pat
     frames(lambda: muse_brief.draw(ctx), NARROW)
 
 
+def test_the_brief_still_draws_with_custom_open_at_the_narrow_width(frames, tmp_path):
+    """Custom's seconds field is fixed like Duration and Generate, never
+    dropped (2026-09-07) -- it is the last control that should vanish out from
+    under someone who just opened it to type an exact number. Fails against a
+    ``_row_widths`` that still takes no ``duration_custom`` argument at all,
+    and would fail again against one that folded Custom into the give-way
+    order instead of reserving its width up front.
+    """
+    ctx = _ctx(tmp_path)
+    muse_mode.ensure(ctx).duration_custom = True
+    frames(lambda: muse_brief.draw(ctx), NARROW)
+
+
+@pytest.mark.parametrize(
+    "duration_custom", [False, True], ids=["collapsed", "custom-open"]
+)
+def test_the_bar_fits_the_height_it_declares(frames, tmp_path, duration_custom):
+    """``BAR_H``'s own comment says it is provisional and that this test is
+    what confirms it, not a figure chosen by eye.
+
+    The ``frames`` fixture draws into a bare ``imgui.begin("smoke")`` window
+    rather than through ``layout.pane``, so the real pane's padding is not
+    present here -- ``imgui.get_style().window_padding.y`` is added back on
+    both edges so the claim is "this content fits a pane of that height," not
+    "it fits a window with no padding at all." Parametrised over the Custom
+    pill because opening it must not blow the budget either: the seconds
+    field beside the pills is fixed and never dropped, so it is always part of
+    what the bar has to fit.
+
+    **Finding, not just a check.** The bar was already over its declared
+    height before this pass -- 118 against roughly 142 dp of actual content --
+    because neither figure ever charged for the padding ``layout.pane`` spends
+    on top of every widget it draws, and nothing drew this bar for real to
+    catch it. This test is that thing; ``BAR_H`` was moved to 270 to match
+    what it measures.
+    """
+    from imgui_bundle import imgui
+
+    ctx = _ctx(tmp_path)
+    muse_mode.ensure(ctx).duration_custom = duration_custom
+    positions: dict[str, float] = {}
+
+    def build() -> None:
+        positions["before"] = imgui.get_cursor_pos_y()
+        muse_brief.draw(ctx)
+        positions["after"] = imgui.get_cursor_pos_y()
+
+    frames(build)
+
+    pad = imgui.get_style().window_padding.y
+    content_h = (positions["after"] - positions["before"]) + 2 * pad
+    declared = muse_brief.sp(muse_brief.BAR_H)
+    assert content_h <= declared, (
+        f"the bar drew {content_h:.1f}px of content against a declared "
+        f"{declared:.1f}px ({muse_brief.BAR_H} design px), duration_custom="
+        f"{duration_custom}"
+    )
+
+
 def test_a_playing_take_draws_as_stop(frames, tmp_path, monkeypatch):
     from warlock.studio import sirens_audio
 
@@ -240,6 +299,21 @@ def test_the_strip_is_absent_until_a_take_has_been_auditioned(tmp_path):
     there is something to put under them."""
     ctx = _ctx(tmp_path, [_take("a")])
     assert muse_player.should_draw(ctx) is False
+
+
+def test_every_bar_control_is_named():
+    """2026-09-07. Before this pass the two text fields relied on a tooltip
+    that showed only while they were empty, and the pills had no name on
+    screen at all -- so the manual named controls the bar itself never
+    named. A source scan in ``test_ux_consistency_pass2.py:442``'s idiom.
+    Fails against the unfixed code, whose ``_tags``/``_duration``/``_count``/
+    ``_lyrics`` draw no ``field_label`` at all.
+    """
+    from pathlib import Path
+
+    source = Path(muse_brief.__file__).read_text(encoding="utf-8")
+    for label in ("Tags", "Length", "Takes", "Lyrics"):
+        assert f'widgets.field_label("{label}")' in source, label
 
 
 def test_no_control_appears_in_both_the_bar_and_the_column():

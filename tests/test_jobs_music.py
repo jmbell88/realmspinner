@@ -148,12 +148,31 @@ def test_a_refused_brief_leaves_nothing_on_disk(svc):
 def test_duration_is_bounded_because_its_cost_is_unbounded():
     """The bound is the reason admission can refuse this kind at all.
 
-    Duration sets the length of what the sampler produces, so it drives both the
-    generation time and the figure ``vram.estimate`` has to price -- and an
-    unpriceable job is one the door cannot refuse before it OOMs.
+    Not for the reason this docstring used to give: duration does **not**
+    drive a figure ``vram.estimate_parts`` has to price -- grep ``duration`` in
+    ``vram.py`` and it is not there. The music branch (~350-385) prices a job
+    off the registry row (``spec.vram_gib``) plus a flat ``MUSIC_SOURCE_GIB``
+    when the task reads source audio, and never reads ``duration`` at all. So
+    this ceiling is not a cap layered on top of a priced figure -- it is the
+    only thing bounding a term admission has no way to price in the first
+    place, which is what ``MAX_DURATION``'s own comment says. Raised to 600
+    (2026-09-07) for a real use (a dungeon's whole ambient loop), so this
+    still has to hold at the new ceiling and not just the old one.
     """
     assert door.MIN_DURATION > 0
     assert door.MAX_DURATION <= 600
+
+
+def test_a_ten_minute_brief_is_admitted(svc):
+    """The raised ceiling has to be *reachable*, not just documented -- the
+    parametrised refusal table above already covers ``MAX_DURATION + 1``
+    relative to the constant, which says nothing about whether the new top of
+    the range, exactly 600, is one the door actually accepts. Fails against a
+    ``MAX_DURATION`` still at 240, which this door would refuse by name.
+    """
+    assert door.MAX_DURATION == 600.0
+    out = _make(svc, duration=600.0)
+    assert svc.store.get(out["id"])["params"]["duration"] == pytest.approx(600.0)
 
 
 def test_a_row_that_cannot_be_written_takes_its_directory_with_it(svc, monkeypatch):

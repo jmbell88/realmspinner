@@ -15,9 +15,10 @@ Settings → Models has a button that does it for you.
 
 ## Describing what you want
 
-Open **Muse** from the rail. Across the top is the brief: a tags field, a lyrics field, a duration,
-a count, and Generate. Everything else — steps, guidance, the scheduler, the seed — is in the recipe
-column on the right, and you can ignore all of it for now.
+Open **Muse** from the rail. Across the top is the brief, and every control on it now carries a
+small-caps label: **Tags**, the **Instrumental / With lyrics** choice, **Lyrics**, **Length**,
+**Takes**, and **Generate**. Everything else — steps, guidance, the scheduler, the seed — is in the
+recipe column on the right, and you can ignore all of it for now.
 
 The tags field is not a sentence. ACE-Step was trained on **comma-separated style tags**, and a
 paragraph describing a mood in prose gets you something noticeably vaguer than the same mood in
@@ -30,7 +31,7 @@ dark ambient, dungeon, low strings, slow, sparse percussion, minor key
 Leave the lyrics field empty. An empty lyric block means an instrumental, which is what game music
 almost always is, and it is the one field in this mode that is genuinely optional.
 
-Set **Duration** to 60s and **Count** to 2, then press **Generate** (or `Ctrl+Enter`).
+Set **Length** to 60s and **Takes** to 2, then press **Generate** (or `Ctrl+Enter`).
 
 Two rows appear in the tray below, one per take, each with its own seed. They queue behind whatever
 else the app is doing and run one at a time — a music job holds about the same amount of your card

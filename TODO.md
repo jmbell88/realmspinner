@@ -1140,6 +1140,36 @@ for every one that is a completion marker, and confirm it commits.
 **Expected outcome:** three stages classified, however many rows that adds, and
 no remaining rename onto a served name whose status is unstated.
 
+## P38. Run a ten-minute Muse take on the target card, and confirm the ceiling is honest
+
+**Why it is yours:** a card and a stopwatch. `_jobs_music.MAX_DURATION` moved
+from four minutes to ten on 2026-09-07 on the strength of an argument, not a
+run: `vram.estimate` prices a music job on the registry row
+(`models.MusicModel.vram_gib` / `host_peak_gib`, `src/warlock/models.py`
+~line 1511, still flagged there as conservative estimates "until the GPU lane
+publishes a `docs/measurements/` document for them") plus a flat source term,
+and never reads duration at all — so raising the ceiling widened a term
+admission cannot see, and nobody has generated anywhere near the new number to
+find out what that costs in practice.
+
+**Do:** on the target card, generate one take at 600 s from an ordinary
+style-tag brief, watching VRAM through the whole run rather than only at the
+end — peak is what `host_peak_gib` claims to bound, and that is a claim about
+the sample as a whole, not the loaded checkpoint. Confirm it neither OOMs nor
+exceeds `vram_gib` or `host_peak_gib`. Record the result — a clean pass, or the
+real figures if it is not one — in a dated `docs/measurements/` document; P23
+asks for the same document from a shorter take, and this is the long end of
+the same measurement if that entry is still open when this runs.
+
+**This is the item that decides whether `vram.estimate` needs a duration
+term.** If a 600 s take fits comfortably under the existing estimates, the
+argument that duration does not need pricing holds at ten minutes and not only
+at four. If it does not, either the estimates are wrong or the pricing that
+ignores duration is, and both are code changes this file cannot make for you.
+
+**Expected outcome:** one dated measurement, and a settled answer to the
+question this change made and could not itself answer.
+
 ## Open findings
 
 Code work a review or a real run turned up. Each is buildable and is struck out

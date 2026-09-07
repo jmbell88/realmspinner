@@ -878,7 +878,13 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
 
 def reset_form(ctx: Any) -> None:
     """Put the brief back to its defaults. The palette's Reset."""
-    ensure(ctx).form = dict(DEFAULT_FORM)
+    state = ensure(ctx)
+    state.form = dict(DEFAULT_FORM)
+    # Not part of the form -- see ``MuseState.duration_custom`` -- but still a
+    # view of the brief, so a Reset that left the duration control parked on
+    # Custom while the number underneath it snapped back to 60 would show two
+    # different answers to "how long".
+    state.duration_custom = False
 
 
 __all__ = [

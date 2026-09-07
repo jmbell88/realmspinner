@@ -40,17 +40,33 @@ what to make, the column is how.** No control appears in both.
 
 | Control | What it does |
 | --- | --- |
-| **Style tags** | The description. Comma-separated tags. |
+| **Tags** | The description. Comma-separated tags. |
 | **Instrumental / With lyrics** | Which of the two you're asking for. Instrumental greys the lyric field below and submits it empty — that is what leaving it blank has always meant, now said out loud instead of left to be guessed at. |
-| **Lyrics** | The lyric block, greyed out under *Instrumental*. **Expand** beside it grows the field to fill the rest of the bar, for a verse too long to see four lines at a time; **Collapse** puts it back. |
-| **Duration** | 30, 60, 120 or 240 seconds. The parameter that decides what the press costs. |
-| **Count** | How many takes one press queues, each with its own seed. |
+| **Lyrics** | The lyric block, greyed out under *Instrumental*. It opens at eight lines — a verse and its chorus, the common case — rather than the four it used to show. **Expand** beside it still grows the field to fill the rest of the bar, for a block too long to read eight lines at a time; **Collapse** puts it back. |
+| **Length** | Five presets — 30s, 60s, 120s, 240s, 10m — plus a sixth pill, **Custom**, which reveals a seconds field taking anything from 10 s to 600 s. The parameter that decides what the press costs. |
+| **Takes** | How many takes one press queues, each with its own seed. |
 | **Generate** | Queues them. `Ctrl+Enter` does the same from anywhere in the mode. |
 
-Duration is bounded rather than free because it is the one parameter whose cost is unbounded: it
-sets the length of what the model samples, so it drives both the generation time and the VRAM
-figure the app has to check *before* admitting the job. Four minutes is longer than any game loop
-needs.
+**Tags**, **Lyrics**, **Length** and **Takes** each carry the small-caps label the rest of the app
+puts above a field. Before this pass none of them did: the two text fields relied on a tooltip that
+showed only while they were empty, and the pills had no name drawn on the bar at all. The other two
+rows name themselves — a segmented choice reads as its own options, and a button reads as its own
+text.
+
+**Length** is bounded rather than free, and not for the reason you'd guess from the number moving.
+Duration sets how much the model samples, so it drives both the generation time and the peak VRAM
+a take costs — but `vram.estimate` does not price duration at all, and never did: the music branch
+prices a job on the registry row's `vram_gib` plus a flat term for a source recording when the task
+reads one, and duration never enters that arithmetic. So this ceiling is not a cap sitting on top of
+a number admission already checked; it is the only thing bounding a cost admission cannot see at
+all. Ten minutes is chosen for a real use — a dungeon's whole ambient loop, not a fifteen-second
+stinger — and still short enough that a mistyped value costs a wait rather than a wedged queue.
+
+**Extending** a take is a separate, lower ceiling — four minutes, not ten — and the reason is not
+this app's. ACE-Step's own sampler hard-codes a maximum length for the *extend* path alone and, past
+it, silently trims the latent rather than raising. That code is vendored; guessing at a change to
+someone else's model on no more than a hunch is worse than refusing here and naming the control. A
+fresh generation is untouched — only *Make more → Extend* (below) reads the lower number.
 
 ### The recipe
 
@@ -170,7 +186,7 @@ overwritten and you can always go back.
 | Choice | What it does |
 | --- | --- |
 | **Another like this** | Same brief, same underlying noise, nudged toward a fresh draw. **Variation** at 0 is this take again; at 1 it is a different piece to the same brief. This is the one to reach for first. |
-| **Extend** | More music before or after. Neither end may be longer than the take itself — extend twice to go further. It is the only way to make a track longer. |
+| **Extend** | More music before or after. Neither end may be longer than the take itself — extend twice to go further. It is the only way to make a track longer, and it is capped at four minutes even though **Length** on the brief now reaches ten — see [The brief](#the-brief) for why. |
 | **Repaint a section** | Regenerate one window and leave the rest alone. Good for a passage that wanders. |
 | **Make it loop** | Rewrite the joint between the end and the beginning. See [Looping a take](#looping-a-take). |
 | **Change the words or tags** | The same piece to a different brief. Leave a field empty to keep this take's. It has to change *something* — for another take of the same brief, use *Another like this*. |

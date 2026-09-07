@@ -50,13 +50,35 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 #: The longest track a single submit may ask for, in seconds.
 #:
-#: A bound and not a preference. Duration is the one parameter that is
-#: *unbounded in cost*: it sets the latent length, so it drives both the
-#: generation time and the figure ``vram.estimate`` has to price -- and an
-#: unpriceable job is one admission cannot refuse before it OOMs. Four minutes
-#: is longer than the loop any game needs and short enough that a mistyped
-#: value is a wait rather than a wedged queue.
-MAX_DURATION = 240.0
+#: A bound, and not a preference, for a reason narrower than it looks: duration
+#: sets the latent length, so it drives both generation time and peak VRAM --
+#: but ``vram.estimate_parts``'s music branch does not read it. That branch
+#: prices a music job off the registry row (``spec.vram_gib``, ~10 GiB) plus a
+#: flat ``MUSIC_SOURCE_GIB`` when the task reads source audio; ``duration``
+#: never appears in the arithmetic. So this ceiling is not a cap layered on top
+#: of a priced figure -- it is the only thing bounding a term admission has no
+#: way to price at all. Ten minutes is longer than the loop any game needs and
+#: short enough that a mistyped value is a wait rather than a wedged queue: a
+#: job that does not fit still fails cleanly, as a FAILED row carrying an OOM
+#: message, because ``_release_music`` (``_q_music.py``) unloads the client on
+#: every exit path, a failure's included, rather than leaving the queue stuck
+#: behind a resident pipe.
+MAX_DURATION = 600.0
+
+#: The longest an *extend* task may bring a track to -- a different, lower
+#: ceiling than ``MAX_DURATION``, not a smaller copy of it.
+#: ``pipelines/acestep/pipeline_ace_step.py``'s ``is_extend`` branch hard-codes
+#: ``max_infer_fame_length = int(240 * 44100 / 512 / 8)`` and, past it,
+#: silently trims the padded latent at both the left-pad and right-pad sites
+#: instead of raising. A fresh take is untouched -- that line only runs inside
+#: ``elif is_extend:`` -- but an extend asking for more than four minutes would
+#: clear this door and come back quietly truncated, which is a wrong answer
+#: with no error attached. That code is vendored upstream; guessing at a change
+#: to it is worse than refusing here and naming the control. Kept at four
+#: minutes, not ten, so a user who just generated a ten-minute take and then
+#: asks to extend it reads a *different* number, not a contradiction of the one
+#: they just used.
+MAX_EXTEND_DURATION = 240.0
 
 #: The shortest. Below this the model has no room to establish anything and
 #: the output is an artefact rather than a piece of music.
@@ -77,11 +99,16 @@ MAX_COUNT = 4
 #:
 #: A ceiling and not a preference, ``MAX_DURATION``'s argument on the other
 #: input: this arrives as bytes over a function call rather than as a file the
-#: user picked, so nothing else bounds it. Four minutes of 44.1 kHz 16-bit
-#: stereo is ~42 MB, and this is comfortably above that -- the duration check
-#: below is the one that actually decides, and this only stops a caller handing
-#: over something absurd before ``wave`` is asked to parse it.
-MAX_REFERENCE_BYTES = 128 * 1024 * 1024
+#: user picked, so nothing else bounds it. Ten minutes of 44.1 kHz 16-bit
+#: stereo is ~106 MB -- it would have fit under the old 128 MB limit, but with
+#: no margin left, and a legitimate 600 s reference at 48 kHz 24-bit stereo is
+#: ~172 MB, which the old ceiling would have refused *by size* when the honest
+#: answer is that its length is fine. A ceiling that refuses a valid file for
+#: the wrong reason is worse than a looser one, so this is raised rather than
+#: left where it was -- the duration check below is still the one that actually
+#: decides, and this only stops a caller handing over something absurd before
+#: ``wave`` is asked to parse it.
+MAX_REFERENCE_BYTES = 256 * 1024 * 1024
 
 #: The recipe knobs the mode exposes, each with its bound. Checked as a table
 #: rather than as five hand-written ``if``s so that adding a sixth is a row --
@@ -484,9 +511,13 @@ def derive_music_job(
                 field="extend_right" if right > parent_duration else "extend_left",
             )
         duration = parent_duration + left + right
-        if duration > MAX_DURATION:
+        if duration > MAX_EXTEND_DURATION:
             raise Invalid(
-                f"that would make a track longer than {MAX_DURATION:.0f} seconds",
+                "an extend tops out at "
+                f"{MAX_EXTEND_DURATION:.0f} seconds total -- a lower ceiling "
+                f"than a fresh take's {MAX_DURATION:.0f} seconds, because the "
+                "sampler's extend path silently trims anything past that "
+                "instead of refusing it",
                 field="extend_right",
             )
         block["extend_left"] = left

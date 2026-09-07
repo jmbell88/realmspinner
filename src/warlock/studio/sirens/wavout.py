@@ -30,16 +30,20 @@ LOOP_FORWARD = 0
 
 #: The ceiling on a sample file this build will decode: the longest thing this
 #: build will treat as a sample. It is sized by what Muse can hand it --
-#: ``service._jobs_music.MAX_DURATION`` is four minutes, and the Open-in-Sirens
+#: ``service._jobs_music.MAX_DURATION`` is ten minutes, and the Open-in-Sirens
 #: bridge lands a take through this same decoder, so a ceiling below that made
-#: the bridge work at Muse's default length and nowhere else.
+#: the bridge work at Muse's default length and nowhere else. The two
+#: constants move together.
 #:
-#: The cost is real and worth stating: four minutes of mono ``float32`` at the
-#: 44.1 kHz render rate is about 42 MB in the document, and a ``SampleEdit``
-#: copies both ends, so one such import charges roughly 84 MB against
-#: ``undo.UNDO_BYTES`` (192 MiB soft). That is inside budget, and it is the
-#: largest single undo step Sirens can make.
-MAX_SAMPLE_FRAMES = 48_000 * 240
+#: The cost is real and worth stating, not a footnote: ten minutes of mono
+#: ``float32`` at the 44.1 kHz render rate is about 106 MB in the document, and
+#: a ``SampleEdit`` copies both ends, so one such import charges roughly 212 MB
+#: against ``undo.UNDO_BYTES`` (192 MiB soft, ``UNDO_HARD_BYTES`` 768 MiB
+#: hard). That is now *over* the soft budget and under the hard ceiling, so it
+#: is kept as the one step the stack guarantees while evicting everything else
+#: -- ``undo.py`` states that contract as "one step, or under the ceiling,
+#: never both."
+MAX_SAMPLE_FRAMES = 48_000 * 600
 
 
 def to_int16(samples: np.ndarray) -> np.ndarray:

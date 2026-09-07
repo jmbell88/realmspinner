@@ -644,6 +644,122 @@ def test_the_lyric_field_can_expand():
     )
 
 
+def test_the_duration_pill_text_reads_seconds_below_five_minutes_and_minutes_at_ten():
+    """``_duration_label``'s cutover is at five minutes, not at sixty seconds,
+    so 240 -- the figure every existing screenshot and manual mention already
+    shows -- still reads "240s" rather than "4m". Checked against
+    ``_DURATIONS`` itself, so a preset added there is a claim this test
+    restates rather than misses. Fails against the unfixed code, which has no
+    ``_duration_label`` at all.
+    """
+    from warlock.studio import muse_brief
+
+    presets = muse_brief._DURATIONS
+    assert muse_brief._duration_label(presets[0]) == "30s"
+    assert muse_brief._duration_label(presets[1]) == "60s"
+    assert muse_brief._duration_label(presets[2]) == "120s"
+    assert muse_brief._duration_label(presets[3]) == "240s"
+    assert muse_brief._duration_label(presets[4]) == "10m"
+
+
+def test_clamp_duration_holds_a_typed_value_inside_the_doors_range():
+    """A typed seconds value must land inside ``_jobs_music``'s own bound,
+    never a copy of it written out here -- ``test_muse_bridge.py`` states why
+    for the Sirens ceilings, and the reason is the same one: raising the
+    door's range must fail this test before it fails a user's spinner. Fails
+    against the unfixed code, which has no ``_clamp_duration`` to hold
+    anything.
+    """
+    from warlock.service._jobs_music import MAX_DURATION, MIN_DURATION
+    from warlock.studio import muse_brief
+
+    assert muse_brief._clamp_duration(int(MIN_DURATION) - 5) == int(MIN_DURATION)
+    assert muse_brief._clamp_duration(int(MAX_DURATION) + 500) == int(MAX_DURATION)
+    assert muse_brief._clamp_duration(150) == 150, "an in-range number is left alone"
+
+
+def test_picking_a_preset_writes_the_number_and_custom_leaves_it_where_it_was():
+    """The bug this control fixes: an off-preset duration used to light the
+    "60s" pill while the form held something else, so there was no way to type
+    a number and have the control agree it had been typed. Fails against the
+    unfixed code, which has no ``_pick_duration`` and decided which pill lit
+    from ``duration``'s membership in ``_DURATIONS`` alone.
+    """
+    from warlock.studio import muse_brief, muse_state
+
+    state = muse_state.MuseState()
+    form = state.form
+    assert form["duration"] == pytest.approx(60.0)
+
+    muse_brief._pick_duration(state, form, "120")
+    assert form["duration"] == pytest.approx(120.0)
+    assert state.duration_custom is False
+    assert muse_brief._current_duration_key(state, form) == "120"
+
+    muse_brief._pick_duration(state, form, muse_brief._CUSTOM)
+    assert state.duration_custom is True
+    assert form["duration"] == pytest.approx(120.0), (
+        "Custom leaves the number exactly where it was"
+    )
+    assert muse_brief._current_duration_key(state, form) == muse_brief._CUSTOM
+
+
+def test_an_off_preset_duration_lights_custom_even_with_the_flag_unset():
+    """No pill lit at all is the one state worse than the lie this replaced:
+    a bar showing no selection does not say what a press is about to submit.
+    Fails against the unfixed code's ``str(current if current in _DURATIONS
+    else _DURATIONS[1])``, which drew "60s" as selected the instant
+    ``duration`` held anything else.
+    """
+    from warlock.studio import muse_brief, muse_state
+
+    state = muse_state.MuseState()
+    form = state.form
+    form["duration"] = 143.0
+    assert state.duration_custom is False
+    assert muse_brief._current_duration_key(state, form) == muse_brief._CUSTOM
+
+
+def test_step_walks_the_duration_options_and_wraps_onto_custom(monkeypatch):
+    """Retargeted at the option *keys* rather than a numeric values tuple:
+    duration grew a Custom pill that is not a number, and the old
+    ``values.index(int(...))`` shape had no way to land on it, which made
+    Custom the one pill Left/Right could never reach. Fails against the
+    unfixed ``_step``, which takes a numeric values tuple and has no way to
+    return ``_CUSTOM`` at all.
+
+    A fake stands in for ``imgui`` rather than the real module -- this file's
+    own rule, stated at its head, is that nothing here touches imgui -- so
+    only ``_step``'s own index arithmetic is exercised.
+    """
+    from warlock.studio import muse_brief
+
+    class _Key:
+        left_arrow = "left"
+        right_arrow = "right"
+
+    class _FakeImgui:
+        Key = _Key
+
+        def __init__(self, pressed):
+            self._pressed = pressed
+
+        def is_key_pressed(self, key):
+            return key == self._pressed
+
+    keys = tuple(key for key, _ in muse_brief._DURATION_OPTIONS)
+    assert keys[-1] == muse_brief._CUSTOM
+
+    monkeypatch.setattr(muse_brief, "imgui", _FakeImgui(_Key.right_arrow))
+    assert muse_brief._step(keys[-2], keys) == muse_brief._CUSTOM, (
+        "Custom must be reachable from the keyboard like any other pill"
+    )
+    assert muse_brief._step(keys[-1], keys) == keys[0], "wraps back to the first preset"
+
+    monkeypatch.setattr(muse_brief, "imgui", _FakeImgui(_Key.left_arrow))
+    assert muse_brief._step(keys[0], keys) == muse_brief._CUSTOM, "wraps left onto Custom too"
+
+
 def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):
     """2026-09-07. The playhead used to snap to 0:00 on every take switch --
     the same defect W4 already fixed for loop points, because

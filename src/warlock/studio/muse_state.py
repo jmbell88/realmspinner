@@ -251,6 +251,16 @@ class MuseState:
     #: it -- the same reasoning that keeps ``derive_form`` separate below.
     lyrics_expanded: bool = False
 
+    #: Whether the duration control is showing the typed-seconds field rather
+    #: than a lit preset (2026-09-07). A per-session view flag, not part of
+    #: the brief -- ``DEFAULT_FORM`` holds no key for it -- because
+    #: ``form["duration"]`` alone cannot tell "60 picked from a pill" from "60
+    #: typed into the field", and deriving the mode from membership in
+    #: ``muse_brief._DURATIONS`` would snap the control back out of Custom the
+    #: instant someone typed a round number, which is the same silent
+    #: fallback ``muse_brief._current_duration_key`` exists to stop.
+    duration_custom: bool = False
+
     #: The derive popup's own form. **Deliberately separate from ``form``**,
     #: which is the *brief* -- what the next Generate will ask for. A derivation
     #: is a statement about one finished take, so mixing the two would make
