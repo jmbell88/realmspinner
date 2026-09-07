@@ -8,6 +8,7 @@ them back.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -53,3 +54,66 @@ def test_the_good_button_explains_its_gate_like_its_two_neighbours(ui):
     assert not good.enabled and not bad.enabled and not skip.enabled
     assert bad.reason == "There is nothing left to label in this pass."
     assert good.reason == bad.reason == skip.reason
+
+
+def test_a_finding_can_open_its_supporting_examples(ui, svc, monkeypatch):
+    """A ranked vector states a conclusion drawn from specific jobs, but until
+    now there was no way from the pane to see which ones -- "Apply to forms"
+    reuses the vector, and nothing reused the sample.
+
+    "Show examples" has to open onto exactly the jobs the finding was drawn
+    from, not merely the library at large: those rows are graded sweep units,
+    which ``Filters.matches`` hides from the workshop by design (W3.5's whole
+    reason for existing), so landing anywhere but scoped to this set would
+    silently show nothing or the wrong thing.
+    """
+    from warlock.studio import widgets
+    from warlock.studio.state import AppState
+
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
+
+    bench = svc.config.bench_dir
+    bench.mkdir(parents=True, exist_ok=True)
+    (bench / "findings.json").write_text(
+        json.dumps(
+            {
+                "version": 4,
+                "params": {},
+                "vectors": [
+                    {
+                        "key": "abc123",
+                        "vector": {"lora_weight": 0.9},
+                        "n": 8,
+                        "accepts": 6,
+                        "accept_rate": 0.75,
+                        "wilson_low": 0.5,
+                        "jobs": ["job-a", "job-b", "job-c"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = AppState()
+    ctx = SimpleNamespace(svc=svc, state=state, toast=lambda *a, **kw: None)
+
+    probe.begin_frame()
+    ui.new_frame()
+    ui.set_next_window_size((900.0, 700.0))
+    ui.set_next_window_pos((0.0, 0.0))
+    ui.begin("##host")
+    review_panes.ReviewPanes()._review_findings(ctx)
+    ui.end()
+    ui.end_frame()
+
+    buttons = {c.text: c for c in probe.FRAME_CONTROLS if c.kind == "button"}
+    assert "Apply to forms" in buttons
+    assert "Show examples" in buttons
+    assert buttons["Show examples"].enabled
+
+    review_panes.open_examples(ctx, ["job-a", "job-b", "job-c"])
+
+    assert state.mode == "library"
+    assert state.library_scroll_to == "job-a"
+    assert state.filters.job_ids == frozenset({"job-a", "job-b", "job-c"})

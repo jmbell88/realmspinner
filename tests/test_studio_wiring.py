@@ -271,8 +271,13 @@ def test_an_unknown_stored_filter_key_is_dropped_rather_than_carried():
 
 def test_trash_is_the_stated_exception_and_the_list_is_reachable():
     """A name, not an inline literal at two call sites: excluding it on the way
-    out and forgetting to on the way in is the failure this replaces."""
-    assert state_mod.VOLATILE_FILTERS == ("trash",)
+    out and forgetting to on the way in is the failure this replaces.
+
+    ``job_ids`` (W3.5) joined it on the same grounds: a one-shot destination
+    for Review's "Show examples", not a standing way to browse, so a session
+    quitting mid-review must not reopen scoped to someone else's finding.
+    """
+    assert state_mod.VOLATILE_FILTERS == ("trash", "job_ids")
     for name in state_mod.VOLATILE_FILTERS:
         assert name in Filters.__annotations__
 

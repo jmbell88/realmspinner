@@ -343,6 +343,26 @@ def metrics_line(metrics: Any) -> str | None:
     return _measured(parts)
 
 
+def sample_jobs(entry: Any) -> list[str]:
+    """The job ids a ranked vector's verdicts were drawn from -- what Review's
+    "Show examples" opens the Library onto.
+
+    ``service.findings.aggregate`` has written ``jobs`` onto every vector
+    entry since the field existed; this is only the defensive read, to the
+    same rule every other accessor here follows -- the file crossed a disk, and
+    a v3 document written before the key existed, or a hand-edited one with
+    junk in the list, must hand back an empty list rather than raise on the
+    frame thread. A finding with no known samples disables the button rather
+    than opening the Library onto nothing.
+    """
+    if not isinstance(entry, dict):
+        return []
+    jobs = entry.get("jobs")
+    if not isinstance(jobs, list):
+        return []
+    return [j for j in jobs if isinstance(j, str) and j]
+
+
 def vector_line(entry: Any) -> str:
     """A ranked recipe's headline -- ``"usable 80% of 20 (61%+) · avg +2.6"``,
     or ``"80% of 20 (61%+)"`` on a file written before grades existed.

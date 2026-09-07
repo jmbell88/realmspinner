@@ -888,3 +888,27 @@ def test_every_action_the_ladder_returns_is_one_the_library_can_run():
     source = inspect.getsource(library.run_action)
     for action in sorted(_primary_action_returns()):
         assert f'"{action}"' in source, f"run_action has no arm for {action!r}"
+
+
+def test_showing_a_findings_examples_does_not_resurrect_a_trashed_one():
+    """``job_ids`` is Review's one-shot door onto the jobs a finding was drawn
+    from. It bypasses the sweep and candidate rules on purpose -- those hide
+    graded sweep units, which is exactly what a finding cites -- but it must
+    not bypass the trash equality, or "Show examples" puts deleted rows back
+    into the workshop view, which ``matches`` asks as one equality precisely
+    so that cannot happen.
+    """
+    cited = frozenset({"a", "b"})
+    live = {"id": "a", "sweep_id": "s1"}
+    trashed = {"id": "b", "sweep_id": "s1", "deleted_at": "2026-09-07T00:00:00Z"}
+
+    workshop = statelib.Filters(job_ids=cited)
+    # The sweep unit is reachable -- that is the whole point of the bypass.
+    assert workshop.matches(live)
+    # The trashed one is not, even though it is cited.
+    assert not workshop.matches(trashed)
+
+    # And in the trash view the pair swaps, never both showing or both hiding.
+    binned = statelib.Filters(job_ids=cited, trash=True)
+    assert binned.matches(trashed)
+    assert not binned.matches(live)

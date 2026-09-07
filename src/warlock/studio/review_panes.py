@@ -986,4 +986,41 @@ class ReviewPanes:
             if controls.button(f"Apply to forms##apply-{entry['key']}"):
                 review_mode.apply_vector(ctx.state, vector)
                 ctx.toast("Applied those settings to the 2D and 3D forms.")
+            imgui.same_line()
+            sample_ids = findings_lib.sample_jobs(entry)
+            if widgets.disabled_button(
+                f"Show examples##examples-{entry['key']}",
+                bool(sample_ids),
+                reason="This file predates recorded sample ids.",
+            ):
+                open_examples(ctx, sample_ids)
             imgui.separator()
+
+
+def open_examples(ctx: Any, job_ids: list[str]) -> None:
+    """What "Show examples" (W3.5) does: open the Library scoped to exactly
+    the jobs one finding was drawn from.
+
+    Module-level rather than a ``ReviewPanes`` method -- it touches no
+    drawing state, and a plain function is what lets this be asserted without
+    building a frame. **No new navigation path**: it is the two existing
+    mechanisms the work item names, composed. ``library_scroll_to`` (already
+    used by ``asset_open.open_asset`` and the command palette) lands the
+    cursor on the first id; ``Filters.job_ids`` (``state.py``) is the filters
+    model's own bypass for exactly this case, because the ordinary filters
+    hide sweep units on purpose (see its docstring) and a finding's samples
+    are sweep units by construction.
+
+    Silently does nothing on an empty list -- a finding with no recorded
+    samples disables the button before this is ever called, so an empty list
+    reaching here would only be a stale click racing a re-render, not a
+    situation worth a toast about.
+    """
+    from .state import set_mode
+
+    ids = [job_id for job_id in job_ids if job_id]
+    if not ids:
+        return
+    ctx.state.filters.job_ids = frozenset(ids)
+    ctx.state.library_scroll_to = ids[0]
+    set_mode(ctx.state, "library")
