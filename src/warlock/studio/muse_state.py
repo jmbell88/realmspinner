@@ -28,6 +28,11 @@ from typing import Any
 DEFAULT_FORM: dict[str, Any] = {
     "prompt": "",
     "lyrics": "",
+    # Instrumental is a choice now, not a lyric field left empty (2026-09-07):
+    # the segmented choice in ``muse_brief`` needs a value to show as picked,
+    # and the field it describes has always started empty, so ``True`` is the
+    # only default that does not contradict the form beside it.
+    "instrumental": True,
     "duration": 60.0,
     "count": 1,
     # The recipe half, drawn by the column rather than the bar. Their names are
@@ -238,6 +243,13 @@ class MuseState:
     #: construction: a popup per card would be six sets of controls on screen
     #: at once, all but one of them about a take the user is not looking at.
     derive_job: str = ""
+
+    #: Whether the lyric field is drawn tall (2026-09-07). A per-session
+    #: convenience, not part of the brief: a small "Expand" toggle in
+    #: ``muse_brief`` flips it, and it says nothing about what the next
+    #: Generate asks for, which is why it lives beside ``form`` rather than in
+    #: it -- the same reasoning that keeps ``derive_form`` separate below.
+    lyrics_expanded: bool = False
 
     #: The derive popup's own form. **Deliberately separate from ``form``**,
     #: which is the *brief* -- what the next Generate will ask for. A derivation

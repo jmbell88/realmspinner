@@ -295,6 +295,12 @@ def on_task_done(ctx: Any, done: Any) -> None:
     # The take being replaced keeps its markers (W4), so switching back to it
     # does not mean finding its loop points again.
     remember_loop(ctx)
+    # The playhead travels with the switch too, the same reason W4 gave the
+    # loop markers back: auditioning a second take mid-listen and switching
+    # to another used to snap the new one back to 0:00 even when the point
+    # being compared was thirty seconds in. Read before the player is
+    # replaced, since afterwards there is nothing left to read it from.
+    previous = state.player
     # **One take at a time.** ~42 MB for four minutes, so replaced rather than
     # cached per job -- see ``MuseState.player``.
     state.player = MusePlayer(
@@ -310,6 +316,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
         state.player.loop_start = start
         state.player.loop_end = end
         state.player.xfade_ms = float(fade)
+    if previous is not None:
+        # Clamped, not carried outright: a shorter take cannot hold a
+        # position the longer one reached.
+        state.player.play_offset = min(previous.play_offset, state.player.duration)
     # Tagged with the job id, which is what lets a card ask "am *I* the one
     # playing" rather than only "is anything playing".
     if sirens_audio.play(result["pcm"], result["rate"], tag=job_id):

@@ -25,9 +25,10 @@ tempo words, key, and production adjectives all work:
 dark ambient, dungeon, low strings, slow, sparse percussion, minor key
 ```
 
-**Lyrics.** A block marked up with `[verse]`, `[chorus]` and friends. Optional, and empty means an
-instrumental — which is what most game music is. Non-English lyrics work; the model carries its own
-language segmentation and pronunciation stack.
+**Lyrics.** A block marked up with `[verse]`, `[chorus]` and friends. The **Instrumental / With
+lyrics** choice above the field says which you're asking for — instrumental is what most game music
+is, and choosing it greys the field and sends nothing, whatever it still shows from before. Non-English
+lyrics work; the model carries its own language segmentation and pronunciation stack.
 
 ## The window
 
@@ -40,7 +41,8 @@ what to make, the column is how.** No control appears in both.
 | Control | What it does |
 | --- | --- |
 | **Style tags** | The description. Comma-separated tags. |
-| **Lyrics** | The lyric block, or empty for an instrumental. |
+| **Instrumental / With lyrics** | Which of the two you're asking for. Instrumental greys the lyric field below and submits it empty — that is what leaving it blank has always meant, now said out loud instead of left to be guessed at. |
+| **Lyrics** | The lyric block, greyed out under *Instrumental*. **Expand** beside it grows the field to fill the rest of the bar, for a verse too long to see four lines at a time; **Collapse** puts it back. |
 | **Duration** | 30, 60, 120 or 240 seconds. The parameter that decides what the press costs. |
 | **Count** | How many takes one press queues, each with its own seed. |
 | **Generate** | Queues them. `Ctrl+Enter` does the same from anywhere in the mode. |
@@ -123,7 +125,9 @@ rolls it back. The join is then something composed rather than a cut. What it do
 the first and last samples equal: ACE-Step has no cyclic objective and is not being asked for one.
 
 Loop points belong to the take, not to the player: audition another take and come back, and your
-region and crossfade are where you left them.
+region and crossfade are where you left them. The playhead travels with a switch too — auditioning a
+second take picks up from the same position the first was at, clamped to the new take's own length
+if it's the shorter of the two.
 
 **Find loop points** (on the player) is the other half. It searches the take for the two positions
 where the music most nearly repeats, judging each candidate on the moment itself, on the third of a

@@ -599,6 +599,90 @@ def test_the_take_count_stays_on_screen_when_its_control_is_dropped():
     assert muse_brief.generate_label(4) == "Generate 4 takes"
 
 
+def test_instrumental_is_a_choice_not_an_empty_field():
+    """2026-09-07. Choosing Instrumental used to mean nothing more than an
+    empty lyric field -- there was no control naming the choice, so a blank
+    field read as unfinished rather than decided. Fails against the unfixed
+    code: ``DEFAULT_FORM`` carries no ``"instrumental"`` key at all, and
+    ``muse_brief`` has no ``_set_instrumental`` to flip it and clear the
+    field it describes.
+    """
+    from warlock.studio import muse_brief, muse_state
+
+    assert muse_state.DEFAULT_FORM["instrumental"] is True, (
+        "empty lyrics has always meant instrumental -- the default form must say so"
+    )
+
+    form = dict(muse_state.DEFAULT_FORM)
+    form["lyrics"] = "[verse]\nsomething typed before switching back"
+    muse_brief._set_instrumental(form, True)
+    assert form["instrumental"] is True
+    assert form["lyrics"] == "", (
+        "instrumental submits empty lyrics -- exactly today's implicit semantics"
+    )
+
+    muse_brief._set_instrumental(form, False)
+    assert form["instrumental"] is False
+
+
+def test_the_lyric_field_can_expand():
+    """2026-09-07. A small toggle grows the lyric field to fill the brief
+    bar's remaining height. Fails against the unfixed code: ``MuseState`` has
+    no ``lyrics_expanded`` field and ``muse_brief`` has no ``_lyrics_height``,
+    so the field's height is the fixed ``LYRICS_H`` regardless of what space
+    is actually left.
+    """
+    from warlock.studio import muse_brief, muse_state
+
+    state = muse_state.MuseState()
+    assert state.lyrics_expanded is False
+    assert muse_brief._lyrics_height(state, 400.0) == muse_brief.sp(muse_brief.LYRICS_H)
+
+    state.lyrics_expanded = True
+    assert muse_brief._lyrics_height(state, 400.0) == 400.0, (
+        "expanded fills whatever height the bar actually has left"
+    )
+
+
+def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):
+    """2026-09-07. The playhead used to snap to 0:00 on every take switch --
+    the same defect W4 already fixed for loop points, because
+    ``on_task_done`` builds a brand new ``MusePlayer`` for every successful
+    load and nothing carried the old one's ``play_offset`` forward. Follows
+    the same pattern ``loop_memory`` restoration already does. Fails against
+    the unfixed code, whose new player's ``play_offset`` is always the
+    dataclass default, 0.0.
+    """
+    import numpy as np
+
+    from warlock.studio import muse_mode, sirens_audio
+
+    monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
+    state = muse_mode.ensure(ctx)
+
+    def load(job: str, duration: float = 10.0) -> None:
+        state.audition_job = job
+        done = type("_Done", (), {
+            "key": f"{muse_mode.LOAD_PREFIX}{job}",
+            "result": {
+                "pcm": np.zeros((1000, 2), dtype=np.int16),
+                "rate": 100,
+                "duration": duration,
+            },
+        })()
+        muse_mode.on_task_done(ctx, done)
+
+    load("a")
+    assert state.player.play_offset == 0.0, "nothing to carry forward on the first load"
+    state.player.play_offset = 7.0
+
+    load("b")
+    assert state.player.play_offset == 7.0, "the position travels with the switch"
+
+    load("c", duration=3.0)
+    assert state.player.play_offset == 3.0, "clamped to the shorter take's own length"
+
+
 def test_a_take_switch_gives_the_first_takes_loop_points_back(ctx, monkeypatch):
     """W4. ``Player`` holds one decoded take and ``on_task_done`` builds a
     fresh one per load, so auditioning a second take and coming back discarded

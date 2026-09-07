@@ -64,6 +64,15 @@ _COUNTS: tuple[int, ...] = (1, 2, 4)
 #: about them the door cares about.
 _DURATIONS: tuple[int, ...] = (30, 60, 120, 240)
 
+#: The instrumental choice's two options, key first. Not a checkbox: a
+#: checkbox reads as "add lyrics", which is not the choice being made -- the
+#: choice is which of two request shapes this is, and a segmented pair says so
+#: the same way ``_duration`` and ``_count`` already do.
+_LYRIC_MODES: tuple[tuple[str, str], ...] = (
+    ("instrumental", "Instrumental"),
+    ("lyrics", "With lyrics"),
+)
+
 
 def draw(ctx: Any) -> None:
     """The bar. Called from ``main._muse_workspace`` above the columns."""
@@ -154,21 +163,81 @@ def _lyrics(ctx: Any, form: dict[str, Any], width: float) -> None:
     not the recipe column, because it is part of what to make -- an instrumental
     and a song with a chorus are different requests, not the same request at a
     different setting.
+
+    **Instrumental is a choice, not an empty field (2026-09-07).** Leaving the
+    field blank always meant "no lyrics" -- that was never in question -- but
+    nothing on screen said so, so an empty field read as unfinished rather
+    than as decided. The segmented choice above it is the same claim made
+    explicit, and picking *Instrumental* clears the field and greys it: this
+    is still exactly today's implicit semantics, not a new one.
     """
+    state = muse_mode.ensure(ctx)
+    _lyric_mode(ctx, form)
+    imgui.same_line()
+    _expand(ctx, state)
+
+    instrumental = bool(form.get("instrumental"))
+    height = _lyrics_height(state, imgui.get_content_region_avail().y)
     before = form["lyrics"]
+    if instrumental:
+        imgui.begin_disabled()
     with focus.item(ctx.state, FOCUS_PANE, "lyrics"):
         form["lyrics"] = widgets.multiline(
-            "##muse-lyrics", before, sp(LYRICS_H), _max_lyrics(), width=width
+            "##muse-lyrics", before, height, _max_lyrics(), width=width
         )
         anchors.mark("muse/lyrics")
+    if instrumental:
+        imgui.end_disabled()
     if form["lyrics"] != before:
         ctx.state.clear_field_error("lyrics")
-    if imgui.is_item_hovered() and not str(form["lyrics"]).strip():
+    if imgui.is_item_hovered() and not instrumental and not str(form["lyrics"]).strip():
         imgui.set_tooltip(
             "Lyrics, with [verse] and [chorus] markers. Leave it empty for an "
             "instrumental."
         )
     _ring(ctx, "lyrics")
+
+
+def _lyric_mode(ctx: Any, form: dict[str, Any]) -> None:
+    """Instrumental, or with lyrics. See :func:`_lyrics`."""
+    current = "instrumental" if form.get("instrumental", True) else "lyrics"
+    with focus.item(ctx.state, FOCUS_PANE, "instrumental"):
+        changed, picked = controls.segmented_choice(
+            "muse-lyric-mode", _LYRIC_MODES, current, compact=True
+        )
+        if changed:
+            _set_instrumental(form, picked == "instrumental")
+            ctx.state.clear_field_error("lyrics")
+
+
+def _set_instrumental(form: dict[str, Any], instrumental: bool) -> None:
+    """Flip the choice. -> nothing; mutates ``form`` in place.
+
+    Choosing *Instrumental* clears the field along with greying it: a field
+    that still shows a verse while greyed out would say two different things
+    about what is about to be submitted.
+    """
+    form["instrumental"] = instrumental
+    if instrumental:
+        form["lyrics"] = ""
+
+
+def _expand(ctx: Any, state: Any) -> None:
+    """Grow the lyric field to fill the bar's remaining height, or don't."""
+    label = "Collapse" if state.lyrics_expanded else "Expand"
+    with focus.item(ctx.state, FOCUS_PANE, "expand"):
+        if controls.small_button(f"{label}##muse-lyrics-expand"):
+            state.lyrics_expanded = not state.lyrics_expanded
+
+
+def _lyrics_height(state: Any, avail_y: float) -> float:
+    """The lyric field's height: fixed, or whatever is left in the bar.
+
+    A pure function of ``state.lyrics_expanded`` and the space actually left,
+    so the claim -- expanding grows the field rather than merely relabelling
+    the toggle -- can be checked without an imgui frame.
+    """
+    return avail_y if state.lyrics_expanded else sp(LYRICS_H)
 
 
 def _duration(ctx: Any, form: dict[str, Any]) -> None:
