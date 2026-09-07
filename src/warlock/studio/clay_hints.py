@@ -165,6 +165,39 @@ def hint(mode: str, tool: str, *, dragging: bool = False, drag_kind: str = "") -
     return " . ".join(parts)
 
 
+#: The verb a drag kind reads as. Keyed rather than ``.capitalize()``d inline
+#: at every call site, and ``"Drag"`` is what an unrecognised kind falls back
+#: to -- the same fallback ``hint()`` uses for its own ``drag_kind``, so a
+#: caller that has not yet worked out which of move/rotate/scale is running
+#: still gets a word rather than an empty verb.
+_VERBS = {"move": "Move", "rotate": "Rotate", "scale": "Scale"}
+
+
+def drag_readout(kind: str, axis: str, space: str, amount: str) -> str:
+    """The live line for a G/R/S drag under way: what it is, the axis lock and
+    the frame that lock is read in, and the amount so far.
+
+    Replaces the fixed key legend ``hint()`` used to draw for the whole of a
+    drag: "X/Y/Z lock . type a number . Enter/LMB commit . Esc/RMB cancel"
+    told a modeller *how* to constrain a drag but never what the constraint
+    they had already applied amounted to -- so typing ``X`` then ``2`` gave no
+    way to confirm the 2 without looking away from the model at a number
+    nothing on screen showed. This is that number, on the line already read
+    for exactly this reason.
+
+    ``axis`` empty means the drag is unconstrained, in which case there is no
+    lock to name a space for and none is shown -- a bare "(global)" next to no
+    axis reads as a setting rather than as the fact that nothing is locked.
+    """
+
+    parts = [_VERBS.get(kind, "Drag")]
+    if axis:
+        parts.append(f"{axis.upper()} ({space})" if space else axis.upper())
+    if amount:
+        parts.append(amount)
+    return " · ".join(parts)
+
+
 def keys_named(text: str) -> set[str]:
     """Every key or chord the line mentions, for the parity test.
 

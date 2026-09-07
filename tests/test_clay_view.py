@@ -797,6 +797,56 @@ def test_a_typed_value_reaches_the_drag_and_the_hud_says_so(view) -> None:
     assert "[X]" in view.drag_hud and "2.000" in view.drag_hud
 
 
+def test_a_gizmo_drag_reports_axis_space_and_amount_in_the_hud(view) -> None:
+    """W1.6. The hint line under the viewport used to show a fixed key legend
+    for the whole of a G/R/S drag -- the same three words whether nothing was
+    locked yet or a modeller had already typed ``X 2``, so there was no way to
+    confirm the app had heard the 2 without looking away from the model.
+
+    ``ClayView.gizmo_drag`` is the one accessor that answers "what does this
+    drag amount to right now", and ``clay_hints.drag_readout`` is what turns
+    it into the line ``hint_line`` draws. Against the unfixed code this is red
+    on both counts: ``gizmo_drag`` does not exist, and ``drag_readout`` does
+    not exist.
+
+    Driven as a handle-grabbed drag (``_grab == "gizmo"``, no G/R/S press) on
+    purpose, not a keyboard one: ``_key_kind`` is empty for this kind of drag,
+    so the accessor's ``kind`` has to fall back to the selected tool the way
+    ``_end_gizmo_drag`` already does to label the undo step -- reading
+    ``_key_kind`` alone (what the pane used to do) would report nothing at all
+    for the drag a mouse-driven modeller actually runs most of the time.
+    """
+    from warlock.studio import clay_hints
+
+    doc = _doc(count=1)
+    obj = doc.objects[0]
+    doc.select([obj.uid])
+    view.app_ctx.state.clay.tool = "move"
+    view._rect = RECT
+
+    assert view.gizmo_drag is None, "no drag under way yet"
+
+    view._begin_gizmo_drag(doc)
+    view.drag_input.key("x")
+    view.drag_input.key("2")
+    view._narrow(
+        doc, view._drag_origin + np.array([9.0, 9.0, 9.0]), view.state, (0.0, 0.0)
+    )
+
+    drag = view.gizmo_drag
+    assert drag is not None
+    assert drag.kind == "move", "no G/R/S press, so this falls back to the tool"
+    assert drag.axis == "x"
+    assert drag.space == "global"
+    assert drag.amount == "2"
+
+    line = clay_hints.drag_readout(drag.kind, drag.axis, drag.space, drag.amount)
+    assert line == "Move · X (global) · 2"
+
+    view._grab = None
+    assert view.gizmo_drag is None, "gone the moment the grab ends"
+
+
 def test_the_drag_keyboard_is_ignored_when_no_drag_is_under_way(view) -> None:
     """The key handler asks ``dragging`` first, so a stray X outside a drag must
     not quietly arm a lock for the next one."""

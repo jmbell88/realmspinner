@@ -60,6 +60,7 @@ narrowing site, in ``_view_drag``) still holds of it.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -124,6 +125,25 @@ class _Composite:
 #: and the shading, and little enough that an edge on the far side is pickable
 #: through it -- which is the whole point of the mode.
 XRAY_ALPHA = 0.33
+
+
+@dataclass(frozen=True)
+class GizmoDragReadout:
+    """What a live G/R/S drag amounts to right now, for the HUD's one line.
+
+    ``kind`` is the verb ("move"/"rotate"/"scale"), ``axis`` the lock
+    ("x"/"y"/"z"/""), ``space`` the frame the lock is read in, and ``amount``
+    the typed buffer while one is being entered, else the drag's own live
+    readout. The one shape :meth:`ClayView.gizmo_drag` hands the pane, so
+    ``panes/clay_hud.py`` never has to reach past it at ``_key_kind`` or
+    ``drag_input`` directly -- see that property's docstring for why the old
+    read of ``_key_kind`` alone went blank for a handle-grabbed drag.
+    """
+
+    kind: str
+    axis: str
+    space: str
+    amount: str
 
 
 class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
@@ -425,6 +445,48 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
         """Clay's state, or None when the view is driven headlessly."""
         app_ctx = self.app_ctx
         return None if app_ctx is None else getattr(app_ctx.state, "clay", None)
+
+    @property
+    def gizmo_drag(self) -> GizmoDragReadout | None:
+        """The live G/R/S drag's axis lock, space and amount -- ``None``
+        between drags. The one door the pane has onto ``_key_kind`` and
+        ``drag_input``, so it stays private and the pane never reaches past it
+        (``clay_hud.hint_line`` used to read ``_key_kind`` directly, which is
+        set only by :meth:`_view_drag.DragOps.begin_keyboard_drag` -- so the
+        line went blank for a drag started by grabbing a handle rather than
+        pressing G/R/S. ``_key_kind or state.tool`` is the same fallback
+        ``_end_gizmo_drag`` already uses to label the undo step, applied here
+        so both agree on what a drag *is*.
+        """
+        if self._grab not in ("gizmo", "keydrag"):
+            return None
+        kind = self._key_kind or str(getattr(self.state, "tool", ""))
+        entry = self.drag_input
+        return GizmoDragReadout(
+            kind=kind,
+            axis=entry.axis,
+            # Clay has one transform frame today: every axis lock is a world
+            # axis (``clay.drag.constrain_translation`` et al build it from
+            # ``_unit(axis)`` in world space) -- ``panes/clay_header.py``
+            # notes the pivot/orientation menu is not built yet. This reports
+            # what is actually true rather than a toggle nothing sets.
+            space="global",
+            amount=self._drag_amount(),
+        )
+
+    def _drag_amount(self) -> str:
+        """The typed buffer if the user is typing one, else the drag's own
+        live readout with the redundant ``[AXIS]`` prefix stripped -- the
+        readout already names the axis and ``gizmo_drag`` says it again as
+        ``(space)``, so keeping both would repeat the lock in one line."""
+        typed = self.drag_input.typed
+        if typed:
+            return typed
+        body = self.drag_hud
+        if body.startswith("["):
+            _, _, body = body.partition("]")
+            body = body.strip()
+        return body
 
     def _ray(self, local: tuple[float, float]):
         return screen_ray(

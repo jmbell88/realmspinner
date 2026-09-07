@@ -165,18 +165,15 @@ def hint_line(ctx: Any) -> None:
     tab = state.active
     if tab is None:
         return
-    # Off the *view*, which is where a live drag actually lives. This read
-    # ``state.drag_kind``, a field nothing but a reset ever wrote, so the drag
-    # half of this line -- the axis locks, Enter, Esc, G/R/S -- could not render
-    # at all: the one thing on screen that says how to finish a drag only
-    # appeared in the test that set the field by hand.
+    # Off the *view*, which is where a live drag actually lives. ``gizmo_drag``
+    # is the one accessor ``ClayView`` exposes for it, so this never reaches
+    # past it at ``_key_kind`` or ``drag_input`` -- and it answers for a
+    # handle-grabbed drag as well as a keyboard one, which the old direct read
+    # of ``_key_kind`` did not (that field is set only by G/R/S).
     view = getattr(ctx, "clay_view", None)
-    dragging = bool(view is not None and getattr(view, "dragging", False))
-    widgets.muted(
-        clay_hints.hint(
-            tab.doc.element_mode,
-            state.tool,
-            dragging=dragging,
-            drag_kind=(getattr(view, "_key_kind", "") or "") if dragging else "",
-        )
-    )
+    drag = getattr(view, "gizmo_drag", None) if view is not None else None
+    if drag is not None:
+        line = clay_hints.drag_readout(drag.kind, drag.axis, drag.space, drag.amount)
+    else:
+        line = clay_hints.hint(tab.doc.element_mode, state.tool)
+    widgets.muted(line)
