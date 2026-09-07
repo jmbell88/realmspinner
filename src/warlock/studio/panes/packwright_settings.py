@@ -49,6 +49,14 @@ _SCHEMA_NOTES = {
     "name. Two sprites sharing a name refuse this schema rather than lose one.",
 }
 
+# The last explicit column count a tab's user set, keyed by ``tab.uid``, so
+# switching "Automatic" back off does not hand back a bare 1 -- see the
+# Columns block below for why ``PackDoc.settings.columns`` itself cannot hold
+# this (it goes back to ``None`` the moment Automatic is on). Pane-local and
+# lost on restart, same as every other unsaved widget-only memory here; the
+# document's own recovery does not need it.
+_last_columns: dict[str, int] = {}
+
 
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
@@ -86,20 +94,46 @@ def draw(ctx: Any) -> None:
 
     if settings.mode == "grid":
         imgui.dummy((0, sp(tokens.SP_2)))
+        automatic = settings.columns is None
+        # The checkbox *is* ``settings.columns is None`` -- there is no third
+        # state to track, so nothing here duplicates the document's own
+        # field. What the field's shape still cannot hold is what to hand
+        # back on the way out of Automatic, which is what ``_last_columns``
+        # is for.
+        changed_auto, automatic_new = widgets.toggle("Automatic", automatic)
+        if changed_auto and editable:
+            if automatic_new:
+                if settings.columns:
+                    _last_columns[tab.uid] = settings.columns
+                packwright_mode.set_settings(ctx, tab, columns=None)
+            else:
+                # The user's own last explicit count, or -- nobody has set one
+                # this session -- the column count Automatic just landed on,
+                # so the field starts at the picture already on screen rather
+                # than snapping to a fresh 1.
+                fallback = _last_columns.get(tab.uid) or (
+                    tab.layout.columns if tab.layout is not None else 0
+                )
+                packwright_mode.set_settings(ctx, tab, columns=max(1, fallback))
+
+        imgui.begin_disabled(automatic)
         changed, columns = widgets.labeled_drag_int(
-            "Columns", settings.columns or 0, 0, MAX_COLUMNS, speed=0.1
+            "Columns", settings.columns or 1, 1, MAX_COLUMNS, speed=0.1
         )
         # One gesture, one step: a drag reports on every frame the pointer
         # moves, and ``set_settings``'s unconditional push (document.py:410)
         # turns one drag into dozens without this (2026-09-05 audit).
         controls.fold_undo(tab.doc.history)
-        if changed and editable:
-            packwright_mode.set_settings(ctx, tab, columns=int(columns) or None)
+        if changed and editable and not automatic:
+            _last_columns[tab.uid] = int(columns)
+            packwright_mode.set_settings(ctx, tab, columns=int(columns))
+        imgui.end_disabled()
         widgets.muted_wrapped(
-            "Zero packs the near-square grid the sprite count fits best. Set "
-            "one to fix the column count for a tileset you index by it -- a "
-            "power-of-two atlas may then carry dead space past the last "
-            "column, and a .tsx export refuses rather than misread it."
+            "Automatic packs the near-square grid the sprite count fits "
+            "best. Turn it off to fix the column count for a tileset you "
+            "index by it -- a power-of-two atlas may then carry dead space "
+            "past the last column, and a .tsx export refuses rather than "
+            "misread it."
         )
 
     imgui.dummy((0, sp(tokens.SP_2)))

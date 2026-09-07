@@ -905,3 +905,112 @@ def test_the_settings_pane_offers_the_repack_r_already_did() -> None:
     )
     assert "Repack now" in source
     assert "packwright_mode.request_repack(" in source
+
+
+# --- W1.8: Automatic, not a magic zero ---------------------------------------
+
+
+def test_columns_offer_automatic_instead_of_a_magic_zero(monkeypatch):
+    """The Columns field used to store ``int(columns) or None``, so 0 meant
+    "auto" and nothing on screen said so. Now there is an Automatic checkbox:
+    on, the field is disabled and the document holds ``None``; off, the field
+    is live and starts at the user's own last explicit count -- or, nobody has
+    set one yet, at the count Automatic just landed on. The document field's
+    shape is unchanged (``PackSettings.columns: int | None``); only the
+    control moved. Pressed for real, through a real imgui frame, for the
+    reason ``test_context_controls`` gives: a control wired to nothing passes
+    every test that calls the setter directly."""
+    from _ui_context import imgui_context
+
+    from warlock.studio import probe, widgets
+    from warlock.studio.panes import packwright_settings
+
+    with imgui_context(monkeypatch) as ui:
+        ctx = FakeCtx()
+        tab = _tab(ctx)  # three sources, grid mode, columns still None
+        _pack(ctx, tab)
+        automatic_result = tab.layout.columns
+        assert automatic_result >= 1
+
+        real_toggle = widgets.toggle
+        captured: dict[str, tuple[float, float, float, float]] = {}
+
+        def spy_toggle(label, value, *, tag=None, tooltip=""):
+            # ``widgets.toggle`` draws through a raw ``invisible_button``, so
+            # it never reaches ``probe`` -- see ``probe``'s own module
+            # docstring. Its rect is still the last item the moment this
+            # returns, which is what the census gets for every other control.
+            changed, out = real_toggle(label, value, tag=tag, tooltip=tooltip)
+            if label == "Automatic":
+                low = ui.get_item_rect_min()
+                high = ui.get_item_rect_max()
+                captured["Automatic"] = (low.x, low.y, high.x - low.x, high.y - low.y)
+            return changed, out
+
+        monkeypatch.setattr(widgets, "toggle", spy_toggle)
+
+        def build():
+            packwright_settings.draw(ctx)
+
+        def frame(pos=(-100.0, -100.0), down=False):
+            io = ui.get_io()
+            io.add_mouse_pos_event(pos[0], pos[1])
+            io.add_mouse_button_event(0, down)
+            probe.begin_frame()
+            ui.new_frame()
+            ui.set_next_window_size((900.0, 900.0))
+            ui.set_next_window_pos((0.0, 0.0))
+            ui.begin("##host")
+            build()
+            ui.end()
+            ui.end_frame()
+            return list(probe.FRAME_CONTROLS)
+
+        def centre_of(rect_):
+            x, y, w, h = rect_
+            return (x + w * 0.5, y + h * 0.5)
+
+        def click(pos):
+            frame(pos, down=True)
+            frame(pos, down=False)
+
+        def columns_rect():
+            controls = frame()
+            found = [c for c in controls if c.label == "##Columns"]
+            assert found, [c.label for c in controls]
+            return found[0].rect
+
+        # Starts automatic: the document already defaults there.
+        assert tab.doc.settings.columns is None
+
+        # A real drag attempt on the disabled field must not move it.
+        cx, cy, cw, ch = columns_rect()
+        frame((cx + 4, cy + ch * 0.5), down=True)
+        frame((cx + cw * 0.75, cy + ch * 0.5), down=True)
+        frame((cx + cw * 0.75, cy + ch * 0.5), down=False)
+        assert tab.doc.settings.columns is None, "a disabled field must not accept a drag"
+
+        # Turn Automatic off: with nothing remembered, the field starts at the
+        # count Automatic itself just landed on.
+        click(centre_of(captured["Automatic"]))
+        assert tab.doc.settings.columns == automatic_result
+
+        # Drag the now-live field to some other explicit count.
+        cx, cy, cw, ch = columns_rect()
+        frame((cx + 4, cy + ch * 0.5), down=True)
+        frame((cx + cw, cy + ch * 0.5), down=True)
+        frame((cx + cw, cy + ch * 0.5), down=False)
+        explicit = tab.doc.settings.columns
+        assert explicit is not None and explicit != automatic_result, (
+            "the drag on the now-enabled field did not change anything"
+        )
+        assert packwright_settings._last_columns[tab.uid] == explicit
+
+        # Automatic back on: the document goes back to None...
+        click(centre_of(captured["Automatic"]))
+        assert tab.doc.settings.columns is None
+
+        # ...and off again hands back the user's own count, not the automatic
+        # result the field started at the first time.
+        click(centre_of(captured["Automatic"]))
+        assert tab.doc.settings.columns == explicit

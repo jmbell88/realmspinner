@@ -89,8 +89,10 @@ dropped — a blank frame in the middle of a clip is a real frame, it is the pau
 would renumber everything after it.
 
 **Columns** (grid mode only) fixes how many cells wide the grid is, for a tileset you index by column
-— an animation strip cut at a known width, say. Zero is auto: the packer searches for a near-square
-grid that fits the sprite count. An explicit count is honoured exactly, including through
+— an animation strip cut at a known width, say. **Automatic** is on by default: the packer searches
+for a near-square grid that fits the sprite count, and the Columns field is disabled while it is on.
+Turn Automatic off and the field starts at whatever explicit count you set last, or at the automatic
+result if you have not set one this session. An explicit count is honoured exactly, including through
 power-of-two rounding, if you turn that back on — the atlas may still round up, but the grid does
 not follow it there, so a rounded atlas can carry dead space past the last column rather than a
 column nothing placed. At the power-of-two default (off, for a grid pack) that never happens: the
