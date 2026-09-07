@@ -121,7 +121,7 @@ music = [
     "num2words>=0.5",
     "hangul-romanize>=0.1",
     "cutlet>=0.4",
-    "fugashi[unidic-lite]>=1.3",
+    "fugashi[unidic-lite]>=1.5.2",
     "spacy>=3.7",
 ]
 # The desktop app: one window, one GL context, no browser. imgui-bundle draws
