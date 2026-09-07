@@ -358,6 +358,26 @@ def test_resetting_a_window_that_never_grew_does_not_force_a_re_read(svc):
     assert cache._dirty is False
 
 
+def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
+    """W2.1: the cache only ever loads the newest page, so a search used to
+    find nothing for a job the pager had not reached yet -- "Load older" was
+    the only way in. ``widen_for_search`` merges a store-side match into the
+    window before ``Filters.matches`` runs, so the search reaches it directly.
+    """
+    old_id = svc.store.create("text", "a rusty iron lantern", {})
+    svc.store._conn.execute("UPDATE jobs SET created_at = 1.0 WHERE id = ?", (old_id,))
+    svc.store._conn.commit()
+    svc.store.create("text", "an unrelated crate", {})
+
+    cache = cache_mod.JobsCache(svc, limit=1)
+    cache.tick()
+    assert old_id not in cache.by_id  # the one-row window missed it
+
+    filters = Filters(text="lantern")
+    cache.widen_for_search(filters)
+    assert old_id in [j["id"] for j in cache.visible(filters)]
+
+
 def test_the_size_sort_notices_a_measurement_landing(svc):
     """The storage walk is deferred and lands on a task thread long after the
     list did; without its own generation the memo would never reorder."""

@@ -54,10 +54,14 @@ the right-hand column of Create.
 `stage:`, `id:`, `name:` — and clickable chips that insert them for you, so you can discover the
 syntax by using it rather than by reading about it.
 
-One thing about that box will bite you eventually, and the pane does say so: **the list is a window
-onto your history, not all of it.** It holds the newest N of M jobs, and a filter searches what is
-loaded. When a filter is active and there is more history behind it, the pane tells you, and
-**Load older** widens the window.
+The list itself is a window onto your history, not all of it — it holds the newest N of M jobs. A
+plain word you type reaches past that window on its own: it is matched against every job's name and
+prompt, not only the ones already loaded, so typing `lantern` finds a job named that from months ago
+without you having to scroll back to it first. What still only applies to the loaded window is
+everything else the box can do — the `tag:`/`status:`/`kind:`/`stage:`/`id:`/`name:` prefixes, and the
+kind/status/favourites controls beside it. When one of those is active and there is more history
+behind the window, the pane says so, and **Load older** is what widens it — the way back to the rest
+of your history for a filter that free text alone cannot reach into.
 
 **Sorting** offers newest, name, kind, duration, size on disk, and score. Under *newest* the list
 also grows date headings — Today, Yesterday, This week, then by month.

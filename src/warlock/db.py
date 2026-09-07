@@ -1112,6 +1112,39 @@ class JobStore:
             ).fetchall()
         return [self._to_dict(r) for r in rows]
 
+    def search_ids(self, text: str, *, limit: int) -> list[str]:
+        """Ids whose ``name`` or ``prompt`` contains ``text`` (case-insensitive,
+        prefix and substring), newest first.
+
+        Widens what the library's search can reach past whatever window
+        ``jobs_cache`` has already loaded -- it merges these ids in so a job
+        the pager has not scrolled back to yet is still found. The Python
+        predicate in ``Filters.matches`` still decides the final match; this
+        only widens the candidate set it is asked about.
+
+        **Only ``name`` and ``prompt``, never ``params``** -- the same rule
+        ``active_jobs`` states above: ``params`` is one JSON blob sqlite
+        cannot index into, and a LIKE scan of every row's params on every
+        keystroke is exactly the cost that method declined to pay, at a size
+        (a history of thousands) where it would not be free.
+
+        LIKE's own wildcards are escaped so a user typing a literal ``%`` or
+        ``_`` searches for that character rather than having it read back as
+        "any characters" or "any one character".
+        """
+        text = text.strip()
+        if not text:
+            return []
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM jobs WHERE (name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\')"
+                " ORDER BY created_at DESC, id DESC LIMIT ?",
+                (pattern, pattern, limit),
+            ).fetchall()
+        return [r[0] for r in rows]
+
     # --- sweeps ---------------------------------------------------------------
 
     def create_sweep(self, label: str, prompt: str, spec: dict[str, Any]) -> str:

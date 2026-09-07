@@ -347,6 +347,33 @@ def test_count_reports_every_job_not_just_a_page(store):
     assert len(store.list(3)) == 3
 
 
+# --- search_ids ---------------------------------------------------------
+#
+# The end-to-end claim -- that a job outside the loaded window is found by its
+# prompt -- is exercised at the ``JobsCache`` level in
+# ``tests/test_library_browsing.py`` (``test_a_job_outside_the_loaded_window_
+# is_found_by_its_prompt``), which is where the merge into the window happens.
+# ``search_ids`` itself is covered here: what it matches and what it refuses.
+
+
+def test_search_does_not_read_the_params_blob(store):
+    """The store's long-standing rule (``active_jobs``' docstring): params is
+    JSON sqlite cannot index into, and search only ever matches the ``name``
+    and ``prompt`` columns. A word that lives only in params must not match."""
+    job_id = store.create("text", "a plain barrel", {"prompt": "a hidden dragon motif"})
+    assert store.search_ids("dragon", limit=50) == []
+    assert store.search_ids("barrel", limit=50) == [job_id]
+
+
+def test_like_wildcards_in_the_query_are_literal(store):
+    """A user typing ``%`` or ``_`` means that literal character, not SQL
+    LIKE's "any characters" / "any one character"."""
+    literal_id = store.create("text", "50% off_sale", {})
+    store.create("text", "50X offXsale", {})
+    assert store.search_ids("%", limit=50) == [literal_id]
+    assert store.search_ids("_", limit=50) == [literal_id]
+
+
 def test_a_batch_of_jobs_dispatches_in_a_deterministic_order(store):
     """A sweep submits N rows in one loop, so ``time.time()`` genuinely ties
     across them. Correctness never depended on the order -- the worker restarts

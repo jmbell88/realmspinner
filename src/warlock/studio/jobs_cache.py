@@ -33,6 +33,11 @@ IDLE_REFRESH_SECONDS = 3.0
 # not full the count is exact for free (total == len(jobs)).
 COUNT_SECONDS = 5.0
 LIST_LIMIT = 200
+# How many ids a search widens the window by. Small on purpose: this runs on
+# the frame thread's tick alongside the ordinary list read, and it only needs
+# to find candidates the loaded window is missing, not to become a second
+# pager -- "Load older" still exists for that.
+SEARCH_LIMIT = 50
 #: The widest the window may get, whatever "Load older" is pressed. It is the
 #: service's own ``MAX_LIST_LIMIT``, read lazily below rather than imported so
 #: a test that lowers the ceiling lowers this too -- and it is a *local* cap
@@ -87,6 +92,10 @@ class JobsCache:
         # "load more" widened the window. Pruned to the page below, so it can
         # never outgrow what is being shown.
         self._files: dict[str, tuple[tuple[Any, int], list[str]]] = {}
+        # (generation, text) of the last search widen, so a search is not
+        # re-run every frame draw() calls it on -- only when the text changes
+        # or ``tick`` has replaced ``jobs`` and thrown the merge away.
+        self._search_key: tuple[int, str] | None = None
 
     def invalidate(self) -> None:
         """Refresh on the next tick. Called after anything the UI did that
@@ -285,6 +294,59 @@ class JobsCache:
 
     def get(self, job_id: str | None) -> dict[str, Any] | None:
         return None if job_id is None else self.by_id.get(job_id)
+
+    def widen_for_search(self, filters: Any) -> None:
+        """W2.1: pull in matches the loaded window does not cover.
+
+        Filtering only ever ran over ``self.jobs`` -- the newest page the
+        cache happened to have loaded -- so searching for a job the pager had
+        not reached yet found nothing, and "Load older" was the only way to
+        it. This asks the store for ids the *window itself* would never have
+        surfaced and merges their rows in; ``Filters.matches`` still decides
+        whether any of them actually match (kind, status, favourites, tag
+        prefixes) -- this only widens what it is asked about.
+
+        Skipped once per (list generation, search text): ``tick`` replaces
+        ``self.jobs`` wholesale on every refresh, which throws any previous
+        merge away, so a changed generation is exactly when this needs to run
+        again -- and unchanged, running it every frame ``draw`` calls this on
+        would be a LIKE scan per frame for nothing new.
+        """
+        text = (filters.text or "").strip()
+        if not text:
+            self._search_key = None
+            return
+        key = (self._generation, text)
+        if key == self._search_key:
+            return
+        self._search_key = key
+        if not self.can_load_more():
+            # The window already holds everything the store has -- there is
+            # nothing outside it left to widen with.
+            return
+        try:
+            ids = self.svc.store.search_ids(text, limit=SEARCH_LIMIT)
+        except Exception:
+            log.exception("could not search the job list")
+            return
+        missing = [i for i in ids if i not in self.by_id]
+        if not missing:
+            return
+        for job_id in missing:
+            try:
+                job = svc_jobs.get_job(self.svc, job_id)
+            except Exception:
+                log.exception("could not load search match %s", job_id)
+                continue
+            self.jobs.append(job)
+            self.by_id[job_id] = job
+        self.jobs.sort(key=lambda j: (j.get("created_at") or 0.0, j.get("id") or ""), reverse=True)
+        # The shape of ``self.jobs`` changed under whatever ``visible``/
+        # ``failures`` last memoized -- invalidate directly rather than
+        # bumping ``_generation``, which would immediately fail the ``key ==
+        # self._search_key`` check above and re-run this search next frame.
+        self._visible_memo = None
+        self._failures_memo = None
 
     def _filters_key(self, filters: Any) -> Any:
         """A hashable snapshot: the generation plus every filter field. The
