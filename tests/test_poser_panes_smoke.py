@@ -10,6 +10,9 @@ pointer.
 
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
 import pytest
 
 from warlock.studio.app_ctx import Ctx
@@ -323,3 +326,137 @@ def test_an_unsaved_editor_is_never_reloaded_underneath_the_user(app_ctx, imgui_
     _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
     assert state.clips_loading is False
     assert state.clips_dirty_flag is True, "still wanted, just not now"
+
+
+def test_a_failed_skeleton_build_offers_retry(app_ctx, imgui_ctx, gl, monkeypatch):
+    """A build that has already failed once must not strand the user on a
+    dead-end overlay -- the "Try again" button has to exist and it has to
+    reuse ``request_preview`` rather than a second copy of its logic."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import overlay
+    from warlock.studio.poser_viewport import PoserViewport
+
+    app_ctx.rigging_available = True
+    state = poser_mode.ensure(app_ctx)
+    state.template = "humanoid"
+    state.building = False
+    state.error = "Could not build the pose preview."
+
+    captured: dict[str, Any] = {}
+    real_centred_empty = overlay.centred_empty
+
+    def spy(icon, title, hint, *, action=None):
+        captured["action"] = action
+        return real_centred_empty(icon, title, hint, action=action)
+
+    monkeypatch.setattr(overlay, "centred_empty", spy)
+
+    class _App(PoserViewport):
+        def __init__(self, gl_ctx, ctx):
+            self.ctx = gl_ctx
+            self.app_ctx = ctx
+            self.poser_viewer = None
+            self._poser_hovered = False
+
+    app = _App(gl, app_ctx)
+    _frame(imgui_ctx, lambda: app._poser_viewport(app_ctx))
+
+    assert "action" in captured, "the failure overlay never drew"
+    action = captured["action"]
+    assert action is not None, "a failed build must offer a retry action"
+    label, on_click = action
+    assert label == "Try again"
+
+    # The button must call the same entry point every other preview request
+    # goes through, not a duplicate of its guts: reuse shows up as
+    # ``request_preview``'s own side effects -- the error cleared and the
+    # building flag set -- immediately after the button fires.
+    on_click()
+    assert state.error == ""
+    assert state.building is True
+
+
+# --- W1.7: numeric joint editing, the rest marker, the pending key ----------
+
+
+def test_a_selected_joint_can_be_rotated_by_number(app_ctx, imgui_ctx):
+    """The typed-degrees path must reach the same node the gizmo drags --
+    proven by going through the same undo step, not by a matching quaternion,
+    since a duplicate write path could match the number and still bypass
+    ``rotate_selected``."""
+    from warlock.studio.panes import poser_controls
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    viewer = app_ctx.poser_viewer
+    viewer.editor.selected = "hips"
+    viewer.selected_bone = "hips"
+
+    before = viewer.editor.model.get_rotation("hips").copy()
+    poser_controls._rotate_selected_to_euler(viewer, [90.0, 0.0, 0.0])
+    after = viewer.editor.model.get_rotation("hips")
+    assert not np.allclose(before, after)
+    degrees = poser_controls._quat_to_euler_degrees(after)
+    assert degrees[0] == pytest.approx(90.0, abs=1e-3)
+    assert degrees[1] == pytest.approx(0.0, abs=1e-3)
+    assert degrees[2] == pytest.approx(0.0, abs=1e-3)
+    assert viewer.editor.dirty is True
+
+    # Same write path as the gizmo drag: the edit is one undo step, and
+    # undoing it puts the bone back exactly where it started.
+    assert viewer.editor.undo() is True
+    assert np.allclose(viewer.editor.model.get_rotation("hips"), before, atol=1e-9)
+
+    # And the pane builds over the edited joint without raising.
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+
+def test_joints_changed_from_rest_are_marked(app_ctx, imgui_ctx):
+    from warlock.studio.panes import poser_controls
+    from warlock.studio.viewer import math3d as m3
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    viewer = app_ctx.poser_viewer
+    viewer.editor.selected = "hips"
+    viewer.selected_bone = "hips"
+
+    assert poser_controls._changed_from_rest(viewer, "hips") is False
+    viewer.editor.rotate_selected(m3.quat_from_axis_angle((0.0, 1.0, 0.0), 0.6))
+    assert poser_controls._changed_from_rest(viewer, "hips") is True
+
+    # Reset puts it back to rest, and the marker must follow.
+    viewer.editor.reset_bone("hips")
+    assert poser_controls._changed_from_rest(viewer, "hips") is False
+
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+
+def test_update_key_shows_pending_when_the_pose_drifted(app_ctx, imgui_ctx):
+    """``_key_pending`` is what draws the accent dot beside "Update key from
+    pose" -- true only once a key is loaded and the live pose has moved off
+    it, and false again while scrubbing an in-between frame."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_clips
+    from warlock.studio.viewer import math3d as m3
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    state = poser_mode.ensure(app_ctx)
+    state.clips_dirty_flag = False
+    poser_mode.adopt_clips(app_ctx, _library())
+    viewer = app_ctx.poser_viewer
+
+    assert poser_clips._key_pending(viewer, state.frame) is False, (
+        "a freshly adopted clip has nothing drifted yet"
+    )
+
+    viewer.editor.selected = "hips"
+    viewer.editor.rotate_selected(m3.quat_from_axis_angle((0.0, 1.0, 0.0), 0.4))
+    assert poser_clips._key_pending(viewer, state.frame) is True
+
+    # Scrubbing shows an in-between frame, which has nowhere to store an
+    # edit, so pending must not claim one even though ``dirty`` is still set.
+    assert poser_clips._key_pending(viewer, 2) is False
+
+    _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))

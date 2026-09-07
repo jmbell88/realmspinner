@@ -108,7 +108,10 @@ class PoserViewport:
                 )
             elif state.error:
                 overlay.centred_empty(
-                    icons.TRIANGLE_ALERT, "The skeleton did not build", state.error
+                    icons.TRIANGLE_ALERT,
+                    "The skeleton did not build",
+                    state.error,
+                    action=("Try again", lambda: poser_mode.request_preview(ctx)),
                 )
             else:
                 overlay.placeholder(ctx)

@@ -34,7 +34,12 @@ asks first.
 Posing works exactly the way the pose editor on an asset does:
 
 - **Click a joint** to select it. A rotation gizmo appears on it; drag to rotate. The panel names
-  the selected joint, or says "Click a joint to rotate it" when there is none.
+  the selected joint, or says "Click a joint to rotate it" when there is none. A joint whose
+  rotation has moved off its rest pose is marked with a trailing `*` — hover it for "Changed from
+  rest".
+- **Three rotation fields**, in degrees, beside the selected joint's name — Euler angles in the
+  rig's own XYZ order. Typing a value turns the joint the same way the gizmo does: it is the same
+  write underneath, so it undoes the same way too, one field edit to one `Ctrl+Z`.
 - **Reset joint** returns the selected joint to its rest rotation. It is disabled until you have
   selected one, and says why on hover.
 - **Reset all** returns every joint.
@@ -72,6 +77,8 @@ about unsaved changes.
 
 Select the root joint and tick **Move root** to swap its rotation gizmo for translation arrows.
 Dragging them offsets the whole pose — a crouch that actually lowers, a leap that leaves the ground.
+Three offset fields beside the joint controls do the same thing by number, in the same units the
+line below them reads back.
 
 The offset is stored **in character heights**, not in world units, which is what makes it portable
 the way the rotations are: a half-height offset lifts a gnome by half a gnome and a giant by half a
@@ -134,6 +141,9 @@ they could only be changed by hand-editing a file inside the app's own installat
 **The armature is the editor.** Picking a key in the list loads it onto the skeleton in the middle
 of the screen, and you pose it with exactly the controls on the right that you would use for a
 library pose. **Update key from pose** puts it back. There is no second posing surface to learn.
+Once the armature has moved off the loaded key, the button grows an accent dot — hover it for
+"Pose differs from this key" — so you can tell there is something to store before you move on to
+another key and lose it.
 
 Everything the clip adds on top of that is *timing*:
 

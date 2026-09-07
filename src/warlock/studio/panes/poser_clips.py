@@ -30,9 +30,28 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, forms, poser_mode, theme, tokens, widgets
+from .. import controls, forms, icons, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
+
+
+def _key_pending(viewer: Any, frame: int) -> bool:
+    """Whether the live pose differs from the selected key.
+
+    ``PoseEditor.dirty`` already means exactly this once a key is loaded:
+    ``apply_key`` clears it the moment a key lands on the armature, and every
+    mutation that follows -- a gizmo drag's ``rotate_selected``/``move_root``,
+    a numeric edit through the same calls, a mirror, a reset -- sets it back.
+    No second comparison is needed, only reading the flag at the right time:
+    never while scrubbing, where the armature holds an interpolated frame
+    rather than the selected key at all.
+    """
+    return bool(
+        viewer is not None
+        and viewer.pose_mode
+        and frame < 0
+        and viewer.editor.has_unsaved_edits()
+    )
 
 
 def _update_key_reason(posing: bool, frame: int) -> str:
@@ -158,6 +177,7 @@ def _keys(ctx: Any, state: Any) -> None:
 
     viewer = poser_mode.viewer_of(ctx)
     posing = viewer is not None and viewer.pose_mode
+    pending = _key_pending(viewer, state.frame)
     if widgets.disabled_button(
         "Update key from pose",
         posing and state.frame < 0,
@@ -166,6 +186,14 @@ def _keys(ctx: Any, state: Any) -> None:
         tooltip="Store the joints as they are now into the selected key.",
     ):
         poser_mode.capture_key(ctx)
+    if pending:
+        # An accent dot, not a second sentence beside the button's own
+        # tooltip: the button already says what it does, this says only that
+        # doing it now would change something.
+        imgui.same_line()
+        widgets.text_colored(theme.ACCENT, icons.CIRCLE)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Pose differs from this key")
     if widgets.disabled_button(
         "New key from pose...",
         posing,

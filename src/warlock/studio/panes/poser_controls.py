@@ -9,11 +9,65 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 from imgui_bundle import imgui
+from scipy.spatial.transform import Rotation
 
 from .. import controls, forms, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
+from ..viewer import math3d as m3
+
+# Blender's own default pose-bone Euler order -- ``blender_worker.py`` never
+# sets a per-bone ``rotation_mode`` other than QUATERNION for a rig bone, so
+# there is no per-rig order to read back; XYZ is what a fresh bone's would be,
+# and is the one order every rig in this app implicitly agrees on.
+_EULER_ORDER = "xyz"
+
+
+def _quat_to_euler_degrees(quat: Any) -> list[float]:
+    return [float(v) for v in Rotation.from_quat(quat).as_euler(_EULER_ORDER, degrees=True)]
+
+
+def _euler_degrees_to_quat(degrees: Any) -> list[float]:
+    return [float(v) for v in Rotation.from_euler(_EULER_ORDER, degrees, degrees=True).as_quat()]
+
+
+def _rotate_selected_to_euler(viewer: Any, degrees: Any) -> None:
+    """Turn the selected joint to an absolute Euler orientation, in degrees.
+
+    Goes through ``PoseEditor.rotate_selected`` -- the same post-multiplied
+    delta the gizmo drag in ``viewer_embed`` calls -- rather than a second
+    path straight onto the node: the delta between the current quaternion and
+    the one the typed degrees describe, wrapped in the editor's own
+    ``record()`` so a numeric edit is one undo step exactly like a drag is.
+    """
+    editor = viewer.editor
+    if editor.model is None or editor.selected is None:
+        return
+    current = editor.model.get_rotation(editor.selected)
+    if current is None:
+        current = m3.quat_identity()
+    target = _euler_degrees_to_quat(degrees)
+    delta = m3.quat_mul(m3.quat_conjugate(current), target)
+    with editor.record():
+        editor.rotate_selected(delta)
+
+
+def _changed_from_rest(viewer: Any, bone: str | None) -> bool:
+    """Whether ``bone``'s live rotation differs from its rest pose."""
+    if bone is None:
+        return False
+    editor = viewer.editor
+    if editor.model is None:
+        return False
+    current = editor.model.get_rotation(bone)
+    rest = editor.rest.get(bone)
+    if current is None or rest is None:
+        return False
+    # A quaternion and its negation describe the same rotation, so the
+    # comparison is on the dot product rather than component equality.
+    return not np.isclose(abs(float(np.dot(current, rest))), 1.0, atol=1e-6)
 
 
 def draw(ctx: Any) -> None:
@@ -47,7 +101,32 @@ def _banner(state: Any, viewer: Any) -> None:
 
 def _joint(ctx: Any, viewer: Any) -> None:
     selected = viewer.selected_bone
-    widgets.muted(selected or "Click a joint to rotate it.")
+    changed_from_rest = _changed_from_rest(viewer, selected)
+    label = (selected + " *") if changed_from_rest and selected else selected
+    widgets.muted(label or "Click a joint to rotate it.")
+    if changed_from_rest and imgui.is_item_hovered():
+        imgui.set_tooltip("Changed from rest")
+    if selected is not None and viewer.editor.model is not None:
+        current = viewer.editor.model.get_rotation(selected)
+        if current is None:
+            current = m3.quat_identity()
+        degrees = _quat_to_euler_degrees(current)
+        new_degrees = list(degrees)
+        edited = False
+        for axis, axis_label in enumerate(("Rotate X", "Rotate Y", "Rotate Z")):
+            # ``commit=True``: undoable, the gizmo-drag rule -- per-keystroke
+            # would push one undo step per digit typed.
+            settled, value = controls.input_float(
+                f"{axis_label}##poser-joint-rot-{axis}",
+                float(degrees[axis]),
+                commit=True,
+                tooltip=f"{axis_label.split()[-1]} rotation, in degrees, Euler XYZ.",
+            )
+            if settled:
+                new_degrees[axis] = value
+                edited = True
+        if edited:
+            _rotate_selected_to_euler(viewer, new_degrees)
     if selected is None:
         # The whole of what this pane said about itself was the line above.
         # Two more sentences, inline rather than in a tooltip: there is room,
@@ -124,6 +203,28 @@ def _root(viewer: Any) -> None:
                 "Drag the arrows to offset the whole pose. Units are character "
                 "heights; the bake scales them onto each asset's own rig."
             )
+    new_offset = list(offset)
+    edited = False
+    for axis, axis_label in enumerate(("Offset X", "Offset Y", "Offset Z")):
+        # ``commit=True`` for the joint fields' reason: undoable, so only the
+        # settled value should push a step.
+        settled, value = controls.input_float(
+            f"{axis_label}##poser-root-offset-{axis}",
+            float(offset[axis]),
+            commit=True,
+            tooltip="Character heights, Blender axes -- what the bake reads.",
+        )
+        if settled:
+            new_offset[axis] = value
+            edited = True
+    if edited:
+        # ``set_root_translation``: the entry point ``apply_key`` and
+        # ``mirror`` already use to place the root from a *value* rather
+        # than a live drag point -- ``move_root`` takes a model-space point
+        # off the gizmo's own drag math, which a typed number has no way to
+        # supply without recomputing that math a second time.
+        with editor.record():
+            editor.set_root_translation(new_offset)
     if any(offset):
         widgets.muted(
             f"root offset  x {offset[0]:+.2f}  y {offset[1]:+.2f}  z {offset[2]:+.2f}"
