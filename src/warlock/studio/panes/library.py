@@ -10,7 +10,9 @@ made the old library usable.
 from __future__ import annotations
 
 import logging
+import queue
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +22,21 @@ from ... import followups
 from ...service import export as svc_export
 from ...service import jobs as svc_jobs
 from ...service import rig as svc_rig
-from .. import controls, dialogs, icons, jobs_cache, motion, theme, tokens, toolbar, verbs, widgets
+from .. import (
+    app_ctx,
+    controls,
+    dialogs,
+    icons,
+    jobs_cache,
+    motion,
+    theme,
+    tokens,
+    toolbar,
+    verbs,
+    widgets,
+)
 from ..manual import render as manual_render
-from ..state import ACTIONS, QUERY_FIELDS, SORTS, card_kind, primary_action
+from ..state import ACTIONS, QUERY_FIELDS, SORTS, card_kind, parse_query, primary_action
 from ..tokens import sp
 from . import thumbs
 
@@ -91,6 +105,11 @@ def draw(ctx: Any) -> None:
     # Resolved before the filter row rather than after it, because the row's
     # select-all acts on exactly this list and computing it twice a frame to
     # keep the old order would be paying for the same filter pass twice.
+    #
+    # Widen first (W2.1): a search reaches past the loaded window by merging
+    # in matching ids the store has that the window does not, before the
+    # predicate below decides which of them actually match.
+    ctx.cache.widen_for_search(ctx.state.filters)
     jobs = ctx.cache.visible(ctx.state.filters)
     # Draws the (?) too, on the sort row that reserves the width for it --
     # ``render.help_button`` right-aligns with an unconditional ``same_line``,
@@ -132,6 +151,11 @@ def draw(ctx: Any) -> None:
     _bulk(ctx, jobs)
     _storage(ctx, jobs)
     _measure_footer(below)
+    # Top level, not nested in anything above: the popup's own
+    # ``imgui.open_popup``/``begin_popup_modal`` pair has to run outside any
+    # popup or child window the rest of this frame opened, exactly as
+    # ``troupe_send``'s modal does from the overlay.
+    _draw_export_popup(ctx)
 
 
 # What the footer below the list actually took, last frame (K98). The
@@ -294,23 +318,46 @@ def _clipper(ctx: Any, count: int):
     return skip
 
 
+def _narrows_the_window(filters: Any) -> bool:
+    """Whether a control active right now is one ``JobsCache.widen_for_search``
+    cannot reach past the loaded window (J88, revised for W2.1).
+
+    Plain free text is excluded on purpose: ``widen_for_search`` merges in
+    whatever the store finds by name or prompt from *outside* the window, so a
+    bare word already searches the whole history rather than only the page.
+    What still stops at the window's edge is everything that predicate does
+    not widen for -- the combos (kind, status, favourites) and a field term
+    inside the box itself (``tag:wood``, ``status:error``), which narrow
+    *within* whatever is loaded and nothing here reaches past that.
+    """
+    if filters.favorites_only or filters.status != "all" or filters.kind != "all":
+        return True
+    if filters.text:
+        _terms, fields = parse_query(filters.text)
+        if fields:
+            return True
+    return False
+
+
 def _load_more(ctx: Any) -> None:
-    """The window is the newest N of M -- and the filters above apply only to
-    that window, so a history longer than it needs to say so rather than let a
-    search quietly miss what it never loaded."""
+    """The window is the newest N of M. A plain-text search reaches past it --
+    see :meth:`~warlock.studio.jobs_cache.JobsCache.widen_for_search` -- but
+    every control that does not is still only ever answered from the loaded
+    page, so a history longer than it needs to say so rather than let one of
+    those quietly miss what it never loaded."""
     loaded = len(ctx.cache.jobs)
     total = ctx.cache.total
-    # J88, and it is the whole of that item: a filter applied to a window is
+    # J88, revised for W2.1: a combo or a field term applied to a window is
     # not a search, and the difference is invisible unless something says so at
-    # the exact moment it matters -- which is when a filter is on *and* the
-    # window is short of the history. "Load older" is right there, and pressing
-    # it is what turns the filter into a search of everything loaded.
-    if filtering(ctx.state.filters) and total > loaded:
+    # the exact moment it matters -- which is when one is on *and* the window
+    # is short of the history. "Load older" is right there, and pressing it is
+    # what turns it into a search of everything loaded.
+    if _narrows_the_window(ctx.state.filters) and total > loaded:
         widgets.text_colored(
             theme.WARN,
             f"Filtering the newest {loaded} of {total}.",
         )
-        widgets.muted("Older assets are not searched until they are loaded.")
+        widgets.muted("Load older to bring the rest of your history into these filters.")
     # O119. The window only ever grows, and after a few presses "newest N" is a
     # page nobody wants to scroll back through -- and the only way back was to
     # restart the app.
@@ -1605,9 +1652,10 @@ def _bulk_action(ctx: Any, key: str, picked: list[str], hidden: int) -> None:
     elif key == "zip":
         _export_zip(ctx, picked)
     elif key == "folder":
-        ctx.submit(
-            "export-folder", svc_export.export_to_folder, ctx.svc, picked, ["model.glb"]
-        )
+        # Always ``["model.glb"]`` -- unlike the zip's ``_export_names``, "Save
+        # to project" has only ever put meshes into a game project, and that
+        # is unchanged by W2.2.
+        _export_folder(ctx, picked)
     elif key == "delete":
         # The confirm stays here where the per-card one went (J91): a bulk
         # action's count is the thing worth checking, and "not shown" in that
@@ -1677,9 +1725,215 @@ def _export_zip(ctx: Any, ids: list[str]) -> None:
         dest = dialogs.save_file("Export selection", "warlock_export.zip", dialogs.ZIP_FILTER)
         if dest is None:
             return None
-        return svc_export.bulk_export(ctx.svc, ids, names, dest)
+        return _run_export(ctx, "Export zip", ids, names, dest, as_zip=True)
 
     ctx.submit("export-zip", run)
+
+
+def _export_folder(ctx: Any, ids: list[str]) -> None:
+    dest = Path(ctx.export_dir or "")
+
+    def run():
+        return _run_export(ctx, "Save to project", ids, ["model.glb"], dest, as_zip=False)
+
+    ctx.submit("export-folder", run)
+
+
+# --- the "what this will write" popup (W2.2) ---------------------------------
+#
+# ``bulk_export``/``export_to_folder`` used to be reached the moment a bulk
+# action was pressed, so what landed where -- and what got overwritten -- was
+# visible only afterwards. Both doors now go through ``_run_export`` instead:
+# a single task, held open across frames, that plans first (``plan_export``,
+# which never writes) and waits for a decision drawn from the plan before
+# either write function is ever reached. Held open rather than split into two
+# submits with a second key for the app to route home, because nothing in
+# this tree lets a pane's own task-done result reach the pane that submitted
+# it (``main.py`` dispatches by a fixed table of prefixes, and adding to it is
+# not a change ``panes/library.py`` can make on its own) -- so the decision
+# has to reach the *already-running* task instead of the task handing off and
+# ending. That is exactly the shape ``dialogs.save_file`` itself already is:
+# a worker-pool thread blocked until somebody clicks something, which is why
+# ``TaskRunner.shutdown`` already has a documented, bounded way to let one go.
+
+
+@dataclass
+class _ExportPopup:
+    """The plan on screen, and the channel a press writes its answer to."""
+
+    title: str
+    ids: list[str]
+    names: list[str]
+    as_zip: bool
+    dest: Path
+    plan: svc_export.ExportPlan
+    #: "browse" | "replace" | "keep_both" | "cancel", written by the frame
+    #: thread and read by the task thread parked in ``_run_export``. No
+    #: default: a fresh queue is passed at construction so a stray second
+    #: reference to a shared default never enters the picture (a plain
+    #: ``field(default_factory=...)`` would need ``field`` imported at module
+    #: level, which shadows the loop variable an unrelated function in this
+    #: file already uses that name for).
+    decisions: queue.Queue[str]
+    #: "replace" or "keep_both" -- the choice as currently drawn, read when
+    #: the action button is pressed. Kept even with nothing to conflict with,
+    #: because ``_run_export`` treats "replace" as "write the plan as it
+    #: stands", which is exactly right when nothing already exists.
+    mode: str = "replace"
+    # ``dialogs.Confirm._open``'s one-shot, and here for the same reason:
+    # ``imgui.open_popup`` must be called exactly once per appearance.
+    _open: bool = False
+
+
+def _run_export(
+    ctx: Any,
+    title: str,
+    ids: list[str],
+    names: list[str],
+    dest: Path,
+    *,
+    as_zip: bool,
+) -> dict[str, Any] | None:
+    """Runs entirely on the task thread ``ctx.submit`` gave it.
+
+    Publishes the plan, then blocks on ``popup.decisions`` -- a plain
+    attribute assignment to ``ctx.state`` is what makes the plan visible to
+    the frame thread at all, the same one-writer-one-reader shape
+    ``TaskRunner._progress`` already relies on. Returns exactly what
+    ``bulk_export``/``export_to_folder`` return (or ``None`` on Cancel), so
+    the existing ``key.startswith("export-")`` toast in ``main.py`` needs no
+    change to keep working.
+    """
+    job = svc_export.ExportJob(svc=ctx.svc, ids=ids, names_wanted=names, as_zip=as_zip)
+    popup = _ExportPopup(
+        title=title,
+        ids=ids,
+        names=names,
+        as_zip=as_zip,
+        dest=dest,
+        plan=svc_export.plan_export(job, dest),
+        decisions=queue.Queue(),
+    )
+    ctx.state._library_export = popup
+    try:
+        while True:
+            decision = popup.decisions.get()
+            if decision == "cancel":
+                return None
+            if decision == "browse":
+                picked = (
+                    dialogs.save_file("Export selection", dest.name, dialogs.ZIP_FILTER)
+                    if as_zip
+                    else dialogs.select_folder("Save to project", str(dest))
+                )
+                if picked is not None:
+                    dest = picked
+                    popup.dest = dest
+                    popup.plan = svc_export.plan_export(job, dest)
+                continue
+            break
+        plan = popup.plan if decision == "replace" else svc_export.keep_both(popup.plan)
+        if as_zip:
+            return svc_export.bulk_export(ctx.svc, ids, names, plan.files[0].dest)
+        if decision == "keep_both":
+            return svc_export.export_planned_to_folder(ctx.svc, ids, names, plan)
+        return svc_export.export_to_folder(ctx.svc, ids, names)
+    finally:
+        ctx.state._library_export = None
+
+
+def _draw_export_popup(ctx: Any) -> None:
+    """The plan modal, drawn at the top of :func:`draw` every frame -- the
+    task that owns it is not inside any imgui context, so it cannot open its
+    own popup and hands the plan over for this to draw instead."""
+    popup = getattr(ctx.state, "_library_export", None)
+    if popup is None:
+        return
+    appearing = not popup._open
+    if appearing:
+        imgui.open_popup(popup.title)
+        popup._open = True
+    alpha, rise = widgets.popover_enter("library-export", appearing)
+    frosted = widgets.frosted()
+    if frosted:
+        imgui.set_next_window_bg_alpha(0.0)
+    imgui.push_style_var(imgui.StyleVar_.alpha.value, alpha)
+    radius = widgets.push_surface_rounding()
+    widgets.modal_bounds(sp(460.0))
+    opened, _ = imgui.begin_popup_modal(
+        popup.title, None, imgui.WindowFlags_.always_auto_resize.value
+    )
+    widgets.pop_surface_rounding()
+    if not opened:
+        # Escape, or a click outside -- the modal closed without either
+        # button, and the task is still parked on ``popup.decisions``.
+        imgui.pop_style_var()
+        popup.decisions.put("cancel")
+        ctx.state._library_export = None
+        return
+    widgets.window_shadow("overlay", radius=radius)
+    if frosted:
+        widgets.window_backdrop(radius=radius)
+    if rise > 0.0:
+        imgui.dummy((0, rise))
+    _export_popup_body(ctx, popup)
+    imgui.end_popup()
+    imgui.pop_style_var()
+
+
+def _export_popup_body(ctx: Any, popup: _ExportPopup) -> None:
+    with widgets.modal_body("library-export-body"):
+        for f in popup.plan.files:
+            icon = icons.TRIANGLE_ALERT if f.exists else icons.CIRCLE_CHECK
+            note = "replaces an existing file" if f.exists else "new"
+            controls.selectable(
+                f"{icon}  {f.name}  --  {note}##export-file-{f.name}", enabled=False
+            )
+        imgui.dummy((0, sp(tokens.SP_2)))
+        widgets.field_label("Destination")
+        imgui.text_wrapped(str(popup.dest))
+        if controls.small_button("Browse...##export-browse"):
+            popup.decisions.put("browse")
+        imgui.same_line()
+        if controls.small_button(f"{icons.COPY} Copy path##export-copy"):
+            imgui.set_clipboard_text(str(popup.dest))
+        imgui.same_line()
+        # A folder export's destination always exists (it is
+        # ``ctx.export_dir``); a zip's does only once something has actually
+        # been written there before, which "Reveal" has no business claiming.
+        reveal_target = popup.dest if popup.dest.exists() else popup.dest.parent
+        if controls.small_button(
+            f"{icons.FOLDER_OPEN} Reveal in Explorer##export-reveal",
+            enabled=reveal_target.exists(),
+            reason="Nothing has been written here yet.",
+        ):
+            ctx.submit("open-log", app_ctx.reveal_in_explorer, str(reveal_target))
+        existing = popup.plan.existing
+        if existing:
+            imgui.dummy((0, sp(tokens.SP_2)))
+            widgets.text_colored(
+                theme.WARN,
+                f"{len(existing)} of {len(popup.plan.files)} file(s) already exist here.",
+            )
+            if controls.radio_button("Replace##export-mode-replace", popup.mode == "replace"):
+                popup.mode = "replace"
+            imgui.same_line()
+            if controls.radio_button(
+                "Keep both##export-mode-keep-both", popup.mode == "keep_both"
+            ):
+                popup.mode = "keep_both"
+    imgui.dummy((0, sp(tokens.SP_1)))
+    action_label = "Export" if popup.as_zip else "Save"
+    if controls.button(action_label, (sp(150), 0), role=controls.ButtonRole.PRIMARY):
+        imgui.close_current_popup()
+        popup.decisions.put(popup.mode)
+        ctx.state._library_export = None
+        return
+    imgui.same_line()
+    if controls.button("Cancel", (sp(110), 0)):
+        imgui.close_current_popup()
+        popup.decisions.put("cancel")
+        ctx.state._library_export = None
 
 
 def _storage(ctx: Any, jobs: list[Any]) -> None:

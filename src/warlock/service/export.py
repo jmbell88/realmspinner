@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -121,6 +122,147 @@ def export_to_folder(
         "dir": str(svc.config.export_dir),
         # Named rather than counted: "3 of 12 assets are degraded" is not
         # something a user can act on, and which ones is (ART-01).
+        "degraded": degraded_ids(svc, ids),
+    }
+
+
+@dataclass(frozen=True)
+class ExportJob:
+    """What an export has been asked to write, before any of it happens.
+
+    The same three arguments ``bulk_export``/``export_to_folder`` already take,
+    bundled so :func:`plan_export` can answer "what would this write" as one
+    pure call (W2.2) -- a pane shows the answer *before* either of those two
+    functions is ever reached, rather than after.
+    """
+
+    svc: WarlockService
+    ids: list[str]
+    names_wanted: list[str] | None
+    #: Whether the destination is a single zip file or a folder that receives
+    #: one entry per planned file. The two write functions differ on exactly
+    #: this, so the plan has to know it too.
+    as_zip: bool = True
+
+
+@dataclass(frozen=True)
+class PlannedFile:
+    """One file an export would write: its name, the path it would land at,
+    and whether that path already has something at it."""
+
+    name: str
+    dest: Path
+    exists: bool
+
+
+@dataclass(frozen=True)
+class ExportPlan:
+    """The answer to "what would this export write, and what would it clobber".
+
+    Pure data -- :func:`plan_export` is the only producer and never writes a
+    byte, which is what lets a pane show this *before* committing to anything
+    on disk.
+    """
+
+    files: tuple[PlannedFile, ...]
+
+    @property
+    def existing(self) -> tuple[PlannedFile, ...]:
+        """The subset already on disk -- what Replace would overwrite."""
+        return tuple(f for f in self.files if f.exists)
+
+
+def plan_export(job: ExportJob, dest: Path) -> ExportPlan:
+    """Which files ``job`` would write, and which destinations already exist.
+
+    Pure: the only disk access is ``Path.exists()`` on each destination (and,
+    through :func:`collect`, the source-readiness checks ``bulk_export``/
+    ``export_to_folder`` already do before writing) -- nothing is written or
+    copied. ``dest`` is the zip file's own path when ``job.as_zip``, or the
+    folder the export would land its files under otherwise.
+    """
+    names = export_names(job.names_wanted)
+    if job.as_zip:
+        return ExportPlan(files=(PlannedFile(dest.name, dest, dest.exists()),))
+    members = collect(job.svc, job.ids, names)
+    files = tuple(
+        PlannedFile(arcname, dest / arcname, (dest / arcname).exists())
+        for arcname, _path in members
+    )
+    return ExportPlan(files=files)
+
+
+def keep_both(plan: ExportPlan) -> ExportPlan:
+    """"Keep both", applied to a plan: every destination suffixed by the same
+    number, so the export never overwrites part of an existing set while
+    renaming the rest of it.
+
+    Picks the smallest N >= 2 for which *none* of the N-suffixed destinations
+    already exist -- an ``-2`` left by an earlier "Keep both" is not
+    overwritten either, the export lands on ``-3``. Pure: only stats the
+    candidate destinations.
+    """
+    n = 2
+    while True:
+        candidates = [_suffixed_path(f.dest, n) for f in plan.files]
+        if not any(c.exists() for c in candidates):
+            break
+        n += 1
+    return ExportPlan(
+        files=tuple(
+            PlannedFile(_suffixed_name(f.name, n), c, False)
+            for f, c in zip(plan.files, candidates, strict=True)
+        )
+    )
+
+
+def _suffixed_path(path: Path, n: int) -> Path:
+    return path.with_name(f"{path.stem}-{n}{path.suffix}")
+
+
+def _suffixed_name(name: str, n: int) -> str:
+    """:func:`keep_both`'s suffix, applied to a *name* rather than a real
+    filesystem path -- a folder export's name carries a ``job_id/`` head that
+    ``Path.with_name`` has no reason to know is a forward slash rather than
+    whatever separator the platform prefers."""
+    head, _, tail = name.rpartition("/")
+    stem, dot, ext = tail.rpartition(".")
+    suffixed = f"{stem}-{n}.{ext}" if dot else f"{tail}-{n}"
+    return f"{head}/{suffixed}" if head else suffixed
+
+
+def export_planned_to_folder(
+    svc: WarlockService,
+    ids: list[str],
+    names_wanted: list[str] | None,
+    plan: ExportPlan,
+) -> dict[str, Any]:
+    """``export_to_folder``'s body, generalised over *where* each file lands.
+
+    Additive rather than a change to ``export_to_folder``: that function's
+    ``export_dir / arcname`` destination is still exactly right for "Replace",
+    which keeps calling it unchanged. This is the door "Keep both" goes
+    through instead, writing to ``plan``'s (by then suffixed) destinations --
+    ``plan`` is expected to have come from :func:`plan_export` for the same
+    ``ids``/``names_wanted``, so ``collect`` returns the same members in the
+    same order and the zip below lines each source up with the planned
+    destination for its name.
+    """
+    if svc.config.export_dir is None:
+        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
+    names = export_names(names_wanted)
+    members = collect(svc, ids, names)
+    if not members:
+        raise NotFound("nothing to export")
+    pairs = [
+        (path, target.dest) for (_arcname, path), target in zip(members, plan.files, strict=True)
+    ]
+    for _source, dest in pairs:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    staged_copy_all(pairs)
+    return {
+        "copied": len(pairs),
+        "dir": str(svc.config.export_dir),
         "degraded": degraded_ids(svc, ids),
     }
 

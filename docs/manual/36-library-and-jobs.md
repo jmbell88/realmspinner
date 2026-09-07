@@ -135,6 +135,15 @@ Ticking cards enables the bulk bar: **Export zip...** writes the selected meshes
 **Save to project** copies them into a configured export folder (shown only when one is configured),
 and **Delete** removes them after a confirm.
 
+Both export actions open a plan before they write anything: the files they are about to produce,
+each one marked when something is already at that destination, the destination path itself with
+**Browse...**, **Copy path** and **Reveal in Explorer**, and — only when something would be
+overwritten — a **Replace** / **Keep both** choice. **Keep both** renames the *whole* set it is
+exporting by the same number (`-2`, then `-3`, and so on), never some files at `-2` and others left
+alone, so a second export of the same selection never leaves you guessing which file in a folder is
+which run. Nothing is written until **Export** (or **Save**) is pressed; **Cancel**, or dismissing the
+popup, leaves the destination exactly as it was.
+
 **Ticks survive a filter change**, on purpose — ticking a few meshes, switching to references and
 ticking a few more is a normal way to build up a selection. The count says so when it happens: it
 reads "12 selected (4 not shown)" once some of what is ticked has scrolled past the newest-N window

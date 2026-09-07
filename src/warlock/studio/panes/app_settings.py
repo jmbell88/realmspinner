@@ -2010,7 +2010,7 @@ def _update_result(ctx: Any, download_busy: bool) -> None:
             ctx.toast("The installer is opening. Close Warlock before it asks you to.")
         imgui.same_line()
         if controls.small_button("Show in Folder##update-show"):
-            ctx.submit("open-log", _reveal, str(ready))
+            ctx.submit("open-log", app_ctx.reveal_in_explorer, str(ready))
         return
     if download_busy:
         found = ctx.progress(app_ctx.UPDATE_DOWNLOAD_KEY)
@@ -2033,24 +2033,6 @@ def _open(target: str) -> None:
     import os
 
     os.startfile(target)  # noqa: S606 -- a verified installer, or a release URL
-
-
-def _reveal(path: str) -> None:
-    """Open Explorer with this file selected.
-
-    The comma is part of the switch (``/select,``) rather than a separator, so
-    the two are one argument -- Explorer ignores ``/select`` spelled any other
-    way and simply opens the drive root.
-
-    ``winjob.run`` rather than ``subprocess.run`` because every spawn in this
-    tree is in the kill-on-close job and the rule is stated rather than
-    reasoned about per call site (``tests/test_vram.py``'s spawn scan). It
-    costs nothing here: the process hands the request to the running Explorer
-    and exits immediately, so the window it opens is not its own.
-    """
-    from ... import winjob
-
-    winjob.run(["explorer", "/select,", path], check=False)  # noqa: S603, S607
 
 
 def _cancel_update(ctx: Any) -> None:

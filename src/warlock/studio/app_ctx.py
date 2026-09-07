@@ -107,6 +107,31 @@ def pack_key(key: str) -> str:
     return f"pack:{key}"
 
 
+def reveal_in_explorer(path: str) -> None:
+    """Open Explorer with this file selected.
+
+    Lifted out of ``panes/app_settings.py`` (where it backed only "Show in
+    Folder" on a staged update) so the Export plan popup (``panes/library.py``,
+    W2.2) can offer the same "Reveal in Explorer" action without a second copy
+    -- this module already carries the shell wrappers every pane reaches for
+    (``open_log`` above is the same shape, for a directory rather than a
+    selected file), and both call sites already import it.
+
+    The comma is part of the switch (``/select,``) rather than a separator, so
+    the two are one argument -- Explorer ignores ``/select`` spelled any other
+    way and simply opens the drive root.
+
+    ``winjob.run`` rather than ``subprocess.run`` because every spawn in this
+    tree is in the kill-on-close job and the rule is stated rather than
+    reasoned about per call site (``tests/test_vram.py``'s spawn scan). It
+    costs nothing here: the process hands the request to the running Explorer
+    and exits immediately, so the window it opens is not its own.
+    """
+    from .. import winjob
+
+    winjob.run(["explorer", "/select,", path], check=False)  # noqa: S603, S607
+
+
 #: The task keys for the two halves of the in-app update check.
 #:
 #: Plain constants rather than the per-row functions above, because there is
