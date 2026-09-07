@@ -402,6 +402,52 @@ def test_a_released_note_sounds_where_a_cut_one_is_silent():
     assert np.allclose(cut[: 4 * row - 441], released[: 4 * row - 441])
 
 
+# --- the panic key -------------------------------------------------------
+
+
+def test_shift_escape_stops_all_sound_from_any_focus(monkeypatch):
+    """W1.11. Plain Escape was already taken -- it drops the selection (see
+    ``test_a_stray_key_that_is_not_a_piano_key_says_nothing`` and friends
+    above for the other columns' keys, and the ``K_ESCAPE`` arm in
+    ``handle_key`` for the selection itself) -- so the panic key is the
+    shift-chord. It has to reach ``sirens_audio.stop()`` from *any* focus:
+    with no tab open at all, and mid a Ctrl-chord's territory, not only once a
+    document and a column are established the way every other key here needs.
+    """
+    import pygame
+
+    from warlock.studio import sirens_audio
+
+    calls: list[bool] = []
+    monkeypatch.setattr(sirens_audio, "stop", lambda: calls.append(True))
+
+    # No document open -- the emptiest focus this mode has.
+    ctx = FakeCtx()
+    assert sirens_mode.ensure(ctx).active is None
+    assert _press(ctx, "ESCAPE", pygame.KMOD_SHIFT)
+    assert calls == [True]
+
+    # And with a tab open and the caret deep in a column, same key, same
+    # effect -- it does not compete with the column dispatch below it.
+    calls.clear()
+    ctx2 = FakeCtx()
+    _tab(ctx2)
+    _at(ctx2, D.EFFECT)
+    assert _press(ctx2, "ESCAPE", pygame.KMOD_SHIFT)
+    assert calls == [True]
+
+    # Plain Escape, unshifted, is unaffected: it is still the selection's own
+    # key and does not also silence the device.
+    calls.clear()
+    ctx3 = FakeCtx()
+    _tab(ctx3)
+    state3 = sirens_mode.ensure(ctx3)
+    state3.anchor = (0, 0)
+    assert _press(ctx3, "ESCAPE")
+    assert state3.anchor is None
+    assert calls == []
+
+
 def test_a_tempo_effect_typed_through_the_keyboard_changes_the_song():
     """The round trip whose absence let the gap ship: keys in, audio out.
 

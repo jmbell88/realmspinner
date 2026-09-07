@@ -687,6 +687,60 @@ def test_the_loop_point_follows_an_entry_that_moves_under_it():
     assert sirens_orders.moved_loop(0, 2, 0) == 1
 
 
+def test_reused_patterns_are_counted_in_the_order_list():
+    """W1.11: an order row whose pattern appears more than once used to draw
+    identically to one that appears once -- nothing on screen said the chorus
+    at 00 and 03 was the same pattern rather than two coincidentally similar
+    ones. ``reuse_counts`` is the row's own arithmetic, pulled out pure the
+    way ``pattern_room`` and ``moved_loop`` beside it are."""
+    from warlock.studio.panes import sirens_orders
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    verse = doc.patterns[0].uid
+    chorus = doc.add_pattern().uid
+    assert doc.set_order([verse, chorus, verse, chorus, chorus])
+
+    counts = sirens_orders.reuse_counts(list(doc.order))
+    assert counts[verse] == 2
+    assert counts[chorus] == 3
+
+    # A pattern named once is not "reused" and the row draws no marker for it.
+    solo = doc.add_pattern().uid
+    assert doc.set_order([verse, chorus, verse, chorus, chorus, solo])
+    counts = sirens_orders.reuse_counts(list(doc.order))
+    assert counts[solo] == 1
+
+
+def test_an_effect_can_be_picked_by_name():
+    """W1.11: the fx-cell right-click popup's own verb. ``choose_effect`` is
+    what a click on one of ``synth.EFFECT_NAMES``' rows does -- point the
+    caret at the cell's effect column and let ``write_effect`` (the single
+    authority over which ids the engine has a handler for) write it -- pulled
+    out pure so this does not need a mouse to drive it, the
+    ``column_at``/``first_channel`` idiom this file already uses for the grid.
+    """
+    from warlock.studio.panes import sirens_patterns
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    assert sirens_patterns.choose_effect(ctx, row=2, channel=0, effect=synth.FX_TEMPO)
+    cells = tab.doc.pattern(sirens_mode.ensure(ctx).pattern).cells
+    assert cells[2, 0, D.EFFECT] == synth.FX_TEMPO
+    # And the caret followed the pick to the cell the popup was opened on --
+    # ``write_cell`` then steps the row the same way any other finished entry
+    # does, which is why only the channel and column are pinned here.
+    state = sirens_mode.ensure(ctx)
+    assert (state.channel, state.column) == (0, D.EFFECT)
+
+    # An id the engine has no handler for is refused, the same way an unknown
+    # letter typed by hand is.
+    unknown = max(synth.EFFECT_NAMES) + 1
+    assert not sirens_patterns.choose_effect(ctx, row=2, channel=0, effect=unknown)
+    assert cells[2, 0, D.EFFECT] == synth.FX_TEMPO
+
+
 # --- Order and Instruments: the ceilings, and the reasons a row is dead -------
 
 

@@ -75,6 +75,13 @@ _HEX: tuple[str, ...] = tuple(f"{value:02X}" for value in range(256))
 #: vocabulary; nothing here is user text.
 _ADVANCE: dict[tuple[str, float], float] = {}
 
+#: The cell the open (or most recently opened) effect popup targets, as a
+#: one-element box so it can be rebound without a ``global``. imgui owns
+#: whether the popup itself is showing; this only remembers *which* cell a
+#: pick should land on, since a popup drawn a frame after the click that
+#: opened it can no longer read the mouse position that chose the cell.
+_fx_popup_target: list[tuple[int, int] | None] = [None]
+
 
 def draw(ctx: Any) -> None:
 
@@ -372,6 +379,46 @@ def _advance(imgui: Any, text: str) -> float:
     return got
 
 
+def choose_effect(ctx: Any, row: int, channel: int, effect: int) -> bool:
+    """Pick an effect by id at ``(row, channel)``. -> whether it was written.
+
+    The right-click popup's own verb, pulled out so a test can drive it
+    without a mouse: point the caret at the cell's effect column and hand the
+    letter to ``sirens_edit.write_effect``, which is the single authority over
+    which ids the engine has a handler for (:func:`.sirens_edit.write_effect`
+    reads ``synth.EFFECT_NAMES`` rather than duplicating it). An id the table
+    does not have writes nothing, the same refusal typing an unknown letter
+    already gets.
+    """
+    from ..sirens import document as D
+    from ..sirens import synth
+
+    entry = synth.EFFECT_NAMES.get(effect)
+    if entry is None:
+        return False
+    sirens_mode.set_caret(ctx, row=row, channel=channel, column=D.EFFECT)
+    return sirens_mode.write_effect(ctx, entry[0])
+
+
+def _effect_popup(ctx: Any, name: str, row: int, channel: int) -> None:
+    """The list ``choose_effect`` is opened onto: every ``synth.EFFECT_NAMES``
+    id, its letter, and the one-line purpose beside it -- the same sentence
+    the reference table in the manual carries, read rather than retyped."""
+    from imgui_bundle import imgui
+
+    from ..sirens import synth
+
+    if not imgui.begin_popup(name):
+        return
+    for effect, (letter, purpose) in sorted(synth.EFFECT_NAMES.items()):
+        # Through the control layer, not imgui.selectable: the popup is a pane
+        # row like any other and test_panes_do_not_bypass_the_presentational_
+        # control_layer holds the whole panes/ directory to that.
+        if controls.selectable(f"{letter}  {purpose}###sirens-fx-choice-{effect}")[0]:
+            choose_effect(ctx, row, channel, effect)
+    imgui.end_popup()
+
+
 def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) -> None:
     from imgui_bundle import imgui
 
@@ -471,6 +518,28 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
                     sp(6),
                 )
             sirens_mode.set_caret(ctx, row=row, channel=channel, column=column)
+    fx_popup = "sirens-fx-popup"
+    if imgui.is_item_hovered() and imgui.is_mouse_clicked(1):
+        mouse = imgui.get_mouse_pos()
+        row = top + int((mouse.y - origin.y) // row_h)
+        channel = left + int((mouse.x - origin.x - gutter) // chan_w)
+        in_grid = 0 <= row < pattern.rows and 0 <= channel < pattern.channels
+        if mouse.x >= origin.x + gutter and in_grid:
+            column = column_at(
+                mouse.x - (origin.x + gutter + (channel - left) * chan_w),
+                [_advance(imgui, part) for part in _cell_text(cells, row, channel)],
+                sp(6),
+            )
+            # Only the fx cell opens a chooser: right-clicking a note or a hex
+            # byte has no "pick from a list" to offer, and a popup that opened
+            # everywhere would be a menu nobody could predict.
+            if column == D.EFFECT:
+                sirens_mode.set_caret(ctx, row=row, channel=channel, column=column)
+                _fx_popup_target[0] = (row, channel)
+                imgui.open_popup(fx_popup)
+    target = _fx_popup_target[0]
+    if target is not None:
+        _effect_popup(ctx, fx_popup, target[0], target[1])
 
 
 def _toolbar(ctx: Any, state: Any) -> None:

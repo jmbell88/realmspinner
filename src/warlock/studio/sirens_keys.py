@@ -24,7 +24,11 @@ from .sirens_state import SirensState, SongTab, ensure  # noqa: F401
 
 def release_all(ctx: Any) -> None:
     """Nothing to release but the device. No textures: the grid is imgui
-    primitives, which is why this mode registers none with the backend."""
+    primitives, which is why this mode registers none with the backend.
+
+    Also the panic key's verb -- ``Shift+Escape`` in :func:`handle_key` calls
+    this directly, since silencing the device is exactly what leaving the mode
+    already does."""
     sirens_audio.stop()
 
 
@@ -63,6 +67,17 @@ def handle_key(ctx: Any, event: Any) -> bool:
     ctrl = bool(mods & pygame.KMOD_CTRL)
     shift = bool(mods & pygame.KMOD_SHIFT)
     name = pygame.key.name(event.key).lower()
+
+    if event.key == pygame.K_ESCAPE and shift:
+        # The panic key. Plain Escape is already the selection's own drop (see
+        # below), so this is the shift-chord rather than a second meaning for
+        # the same press. Checked before ``ctrl``, before ``tab is None`` and
+        # before every other branch, because "silence right now" has to reach
+        # from any focus -- mid Ctrl-chord, with no tab open, wherever the
+        # caret is -- and every other key here only means something once a
+        # document and a column are established.
+        release_all(ctx)
+        return True
 
     if ctrl:
         if tab is not None and docmodes.blocked_while_writing(tab, name, _MUTATING_CTRL):

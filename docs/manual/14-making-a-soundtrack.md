@@ -64,6 +64,13 @@ Two keys worth having now:
   the end of a phrase.
 - `Shift+1` and `Shift+2` transpose a selection down and up a semitone. Hold `Shift` with the arrow
   keys to make one first, and `Esc` to drop it.
+- `Shift+Esc` is the panic key: it silences the device from anywhere in the mode, tab open or not.
+  Plain `Esc` was already spoken for -- it drops a selection -- which is why this one needs the
+  chord.
+
+You do not have to memorise an effect letter to write one. Right-click a cell in the **effect**
+column and a menu lists every effect the engine has, each with the one line the reference table
+gives it; pick one and it types the letter for you.
 
 ## A hat on the noise channel
 
@@ -109,7 +116,9 @@ One pattern is one bar of one idea. A song is several patterns in an order.
 In the **Order** panel, press **+ Add a pattern** for a second one, write something different into it,
 then press **+ Add to the order** to append it. The two lists are deliberately separate: adding a pattern does not
 put it in the order, and removing an order entry does not delete the pattern — which is what lets one
-pattern appear in the order three times.
+pattern appear in the order three times. When it does, every row naming that pattern gets a small
+`×N` beside its name, so a verse used twice reads as one pattern reused rather than as two rows that
+happen to say the same thing.
 
 Tick **Loop the song**. That is the difference between a track and a soundtrack: the render now
 carries loop points, and those loop points end up in the exported WAV's `smpl` chunk, so an engine

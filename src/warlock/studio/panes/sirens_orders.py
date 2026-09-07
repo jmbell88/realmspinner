@@ -114,6 +114,22 @@ def _name_of(doc: Any, uid: int) -> str:
     return pattern.name or f"Pattern {doc.patterns.index(pattern) + 1}"
 
 
+def reuse_counts(order: list[int]) -> dict[int, int]:
+    """Every pattern uid in ``order`` -> how many entries name it.
+
+    Pulled out pure so a test can call it with no imgui frame, the
+    ``pattern_room``/``moved_loop`` idiom this file already uses. A song where
+    the chorus is entries 02 and 05 used to draw two identical rows with
+    nothing on screen saying they were the same pattern -- reuse is the whole
+    point of an order list being a list of references rather than a list of
+    patterns, and it was invisible.
+    """
+    counts: dict[int, int] = {}
+    for uid in order:
+        counts[uid] = counts.get(uid, 0) + 1
+    return counts
+
+
 def moved_loop(loop: int, index: int, to: int) -> int:
     """Where a loop point ends up when the entry at ``index`` moves to ``to``.
 
@@ -162,6 +178,7 @@ def _order(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
         return
     order = list(doc.order)
     looping = doc.loop_order >= 0
+    counts = reuse_counts(order)
     for index, uid in enumerate(order):
         # The *entry*, not the pattern (S3): a chorus at 00 and 03 used to draw
         # both rows highlighted at once, because a uid cannot tell them apart.
@@ -171,6 +188,12 @@ def _order(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
             f"{index:02d}  {mark}{_name_of(doc, uid)}###sirens-order-{index}", selected
         )[0]:
             sirens_mode.set_caret(ctx, pattern=uid, order_index=index)
+        # A pattern used more than once in the order is not a coincidence
+        # worth reading two identical rows to spot -- "x2" says it once, on
+        # every row it is true of.
+        if counts[uid] > 1:
+            imgui.same_line()
+            widgets.muted(f"×{counts[uid]}")
         # The row's own verbs, in the order a person reaches for them: move it,
         # point it somewhere else, take it out. The loop below breaks after any
         # of them, because each rewrites the list being walked.
