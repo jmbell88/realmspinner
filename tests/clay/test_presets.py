@@ -171,7 +171,27 @@ def test_rotations_are_unit_quaternions(key: str):
     quaternion that is merely *nearly* unit scales the part it rotates."""
     for part in presets.ASSEMBLIES[key][1]():
         assert abs(float(np.linalg.norm(part.rotation)) - 1.0) < 1e-6, part.name
-        assert part.scale == (1.0, 1.0, 1.0), f"{part.name} bakes size into scale"
+
+
+@pytest.mark.parametrize("key", ASSEMBLY_KEYS)
+def test_scale_is_positive_on_every_axis(key: str):
+    """Not "scale is always identity" any more.
+
+    Before the 2026-09-06 audit's body-mass fix, every part's scale really was
+    ``(1.0, 1.0, 1.0)`` and this test asserted exactly that -- placement baked
+    no size into scale, ever. :func:`presets._mass` now deliberately does:
+    a pelvis or a snake's spine segment is an ellipsoid, non-uniformly
+    stretched in its own local frame, precisely so its size stops being a
+    function of the bone's length (see ``_mass``'s own docstring for why that
+    is the fix rather than a shortcut). What still has to hold, with the old
+    blanket check gone, is that no axis of that stretch is zero or negative --
+    either would flip or collapse the mesh silently, which ``math3d.compose``
+    has no way to catch on its own.
+    """
+    for part in presets.ASSEMBLIES[key][1]():
+        assert all(c > 0.0 for c in part.scale), (
+            f"{part.name} has a non-positive scale {part.scale}"
+        )
 
 
 #: The tolerance a grounded assembly's minimum Y may miss zero by. Not
@@ -188,12 +208,17 @@ GROUND_TOLERANCE = 1e-5
 #: added to ``SWIMMERS`` is exercised here automatically.
 TERRESTRIAL_KEYS = sorted(set(presets.ASSEMBLIES) - presets.SWIMMERS)
 
-#: The two swimmers' authored placement, measured by the 2026-09-06 audit
-#: before any fix: the serpent's spine sits at a constant template
-#: ``z = 0.30`` and the fish's at ``z = 0.50``, both deliberate suspensions
-#: rather than a miss -- see ``presets.SWIMMERS``'s docstring. Pinned here so
-#: a future edit that nudges either number has to do so on purpose.
-SWIMMER_PLACEMENT = {"serpent": 0.2200, "fish": 0.1663}
+#: The two swimmers' authored placement: the serpent's spine sits at a
+#: constant template ``z = 0.30`` and the fish's at ``z = 0.50``, both
+#: deliberate suspensions rather than a miss -- see ``presets.SWIMMERS``'s
+#: docstring. Pinned here so a future edit that nudges either number has to do
+#: so on purpose. The serpent's own number moved from the 2026-09-06 audit's
+#: clay-08 measurement (0.2200) to 0.2264 the same day, in the *later*
+#: body-mass pass: ``Spine 01``'s capsule became a wider :func:`_mass`
+#: ellipsoid, which reaches slightly lower at the neck end than the capsule it
+#: replaced -- a placement side effect of the proportion fix, not a second
+#: authoring miss, so it is re-pinned rather than re-derived.
+SWIMMER_PLACEMENT = {"serpent": 0.2264, "fish": 0.1663}
 
 
 def _assembly_min_y(parts: tuple[presets.Part, ...]) -> float:
@@ -257,3 +282,97 @@ def test_an_upright_figures_head_is_above_its_hips():
     span_y = abs(quad["Head"].translation[1] - quad["Hips"].translation[1])
     span_z = abs(quad["Head"].translation[2] - quad["Hips"].translation[2])
     assert span_z > span_y, "the quadruped is standing up; the axis swap is wrong"
+
+
+def _half_extents(part: presets.Part) -> np.ndarray:
+    """A part's world-space half-extent on each axis, from its *built* mesh.
+
+    Independent of ``presets._world_min_y`` for the same reason
+    ``_assembly_min_y`` above is: this file exists to catch ``presets.py``
+    being wrong, so it measures the geometry itself rather than trusting the
+    module under test to measure itself.
+    """
+    defaults, make = GENERATORS[part.generator]
+    local = make(**{**defaults, **part.params})
+    matrix = m3.compose(
+        np.asarray(part.translation, dtype="f8"),
+        np.asarray(part.rotation, dtype="f8"),
+        np.asarray(part.scale, dtype="f8"),
+    )
+    lo, hi = bounds(transformed(local, matrix))
+    return (np.asarray(hi, dtype="f8") - np.asarray(lo, dtype="f8")) / 2.0
+
+
+#: Each figure's torso or spine chain, named in body-axis order -- the three
+#: the 2026-09-06 audit's user complaint names directly: "Humanoid torsos,
+#: quadruped bodies, and serpents visibly read as overlapping beads."
+TORSO_CHAINS: dict[str, tuple[str, ...]] = {
+    "humanoid": ("Hips", "Spine", "Chest"),
+    "quadruped": ("Hips", "Spine", "Chest"),
+    "serpent": (
+        "Spine 01",
+        "Spine 02",
+        "Spine 03",
+        "Spine 04",
+        "Spine 05",
+        "Spine 06",
+        "Spine 07",
+    ),
+}
+
+
+@pytest.mark.parametrize("key", sorted(TORSO_CHAINS))
+def test_a_bodys_torso_is_one_form_rather_than_stacked_balls(key: str):
+    """The 2026-09-06 audit's diagnosis, made into a number.
+
+    ``_capsule``'s ``max(length - 2*radius, MIN_CAPSULE_SECTION)`` collapses
+    any bone shorter than twice its own radius to a plain sphere -- not an
+    approximation of one, an exact sphere. Before the body-mass fix this was
+    true of the humanoid's hips/spine/chest (0.07/0.12/0.11 template units
+    long, under radii 0.10/0.11/0.12), of the quadruped's whole barrel, and of
+    the serpent's first six spine segments: short bones wearing fat radii,
+    each one collapsing to a near-equal sphere in a row -- exactly what "reads
+    as overlapping beads" measures.
+
+    A chain of body masses sized by anatomy instead must, for every adjacent
+    pair: (a) overlap along the body's own axis, so the silhouette has no
+    waist-thin gap between them, and (b) never be *both* sphere-like (extent
+    within 15% across every axis) *and* near-equal in size (mean half-extent
+    within 10%) -- because a chain of round, same-sized balls is what beading
+    measures, however much the balls overlap.
+
+    Run against the pre-fix module (``git show
+    HEAD:src/warlock/studio/clay/presets.py``, i.e. before this file's own
+    edit), this fails on (b) for every pair in all three chains. For
+    humanoid Hips/Spine, concretely: both collapsed to spheres (a collapsed
+    capsule is spherical to float noise, so ``sphere_like`` is true for each),
+    and their radii -- 0.10 and 0.11 -- are 9% apart, inside the 10%
+    near-equal band this test refuses; pytest reports
+    ``AssertionError: humanoid: Hips and Spine are near-equal spheres --
+    the beading the 2026-09-06 audit's user complaint names``.
+    """
+    parts = {p.name: p for p in presets.ASSEMBLIES[key][1]()}
+    chain = [parts[name] for name in TORSO_CHAINS[key]]
+    for a, b in zip(chain, chain[1:], strict=False):
+        ea, eb = _half_extents(a), _half_extents(b)
+        # The dominant axis of separation between the two masses' own
+        # placements -- +Y for an upright torso, +Z for a body that runs
+        # horizontal after the axis swap (quadruped, serpent) -- rather than
+        # a hard-coded axis, so one test covers both body plans.
+        axis = int(np.argmax(np.abs(np.asarray(b.translation) - np.asarray(a.translation))))
+        a_lo, a_hi = a.translation[axis] - ea[axis], a.translation[axis] + ea[axis]
+        b_lo, b_hi = b.translation[axis] - eb[axis], b.translation[axis] + eb[axis]
+        overlap = min(a_hi, b_hi) - max(a_lo, b_lo)
+        assert overlap > 0.0, f"{key}: {a.name}/{b.name} do not overlap along the body axis"
+
+        def sphere_like(e: np.ndarray) -> bool:
+            return float(np.max(e) / np.min(e)) < 1.15
+
+        def size(e: np.ndarray) -> float:
+            return float(np.mean(e))
+
+        near_equal = abs(size(ea) - size(eb)) / max(size(ea), size(eb)) < 0.10
+        assert not (sphere_like(ea) and sphere_like(eb) and near_equal), (
+            f"{key}: {a.name} and {b.name} are near-equal spheres -- the "
+            "beading the 2026-09-06 audit's user complaint names"
+        )

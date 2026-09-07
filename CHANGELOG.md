@@ -21,6 +21,19 @@ the release you are actually running.
 The slow parts got faster without a line of C, and the sprite ceiling came
 back.
 
+- **Clay's figures stopped reading as strings of beads.** A capsule loses its
+  cylindrical section when the bone inside it is shorter than twice its own
+  radius, so it becomes an exact sphere — and that was true of every humanoid
+  and bird torso segment, the entire quadruped barrel, and most of the
+  serpent's spine. A humanoid's torso was three stacked balls of radius 0.10,
+  0.11 and 0.12, which is why the figures looked segmented rather than merely
+  simple. Torsos are now body masses sized by anatomy instead of by bone
+  length: broad, front-to-back flattened, unequal and overlapping, so a
+  silhouette reads as one form and a side view is visibly shallower than a
+  front view. Limbs were thickened to match. Costs between 96 and 192
+  triangles a figure — a humanoid is 3,056 — and no segment count moved. The
+  insect and the blob are deliberately untouched: the insect's one collapsed
+  part is not part of a chain, and the blob's stacked lobes are what a blob is.
 - **Clay inserts organic shapes smooth-shaded.** A sphere, capsule, torus or
   icosphere arrived faceted like everything else, because nothing but the
   manual "Shade Auto..." button ever ran the angle rule that decides shading.

@@ -75,6 +75,12 @@ dropped to it.
 A figure's parts are shaded by that same rule as they are placed: limbs, bodies and heads come in
 smooth, and the boxy parts — hands, feet, fins, a jaw — keep their hard edges.
 
+Torsos are shaped as body masses rather than as tubes around a bone: a pelvis is broad and shallow,
+a ribcage broader still, and each one overlaps its neighbour so the body reads as one form instead
+of a row of balls. That is why some parts arrive with a **scale** that is not 1 — the ellipsoid is
+a scaled sphere, and the scale is part of the shape rather than something left over. Change it
+freely; it is an ordinary object like any other.
+
 Every part is a normal generated object: it keeps its generator and parameters, so the properties
 panel offers a leg's radius exactly as it would for a cylinder you added yourself. A figure is a
 starting point that saves you the assembly, not a special kind of object — once placed, nothing

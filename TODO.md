@@ -988,11 +988,17 @@ the choice is missing.
 
 **Do** — the four that need eyes on renders:
 
-1. **Figure proportions read as overlapping beads.** Humanoid torsos, quadruped
-    bodies and serpents are built as capsules per bone, so a short bone gives a
-    capsule wider than it is long. Shaping body masses independently of bone
-    length — broader pelvis and chest, tapered limbs, smoother transitions —
-    would fix it, with the rig landmarks kept as alignment guides.
+1. ~~**Figure proportions read as overlapping beads.**~~ **Built 2026-09-06.**
+    The cause was mechanical: a capsule whose bone is shorter than twice its
+    radius collapses to an exact sphere, which was every torso segment on the
+    humanoid and bird, the whole quadruped barrel and most of the serpent.
+    `presets._mass` now places body masses as scaled ellipsoids sized by
+    anatomy rather than bone length — broad, flattened front-to-back, unequal
+    and overlapping — and limbs were thickened to match.
+    `test_a_bodys_torso_is_one_form_rather_than_stacked_balls` is the gate.
+    **Left alone deliberately:** `insect` (its one collapsed part is not part of
+    a chain) and `blob` (stacked lobes are the archetype). Judge those two on
+    renders if they still bother you.
 2. **Fish and bird silhouettes are weak.** The fish's dorsal fin reads as
     detached, and rectangular fins, wings and beaks hurt recognition. Wants
     attachment overlap, tapered wedges, and a deliberate wing outline and
