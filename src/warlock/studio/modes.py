@@ -42,7 +42,7 @@ from . import icons
 # the Reference stage and was then deleted outright -- a recipe is copied off a
 # finished result, not curated in a second store.
 MODES: list[tuple[str, str, str, str]] = [
-    ("home", "Home", icons.HOUSE, "Start here: recent work and what to make next."),
+    ("home", "Home", icons.HOUSE, "Recent work and starters."),
     # A real mode rather than a sub-view of Home. The Library and Review were
     # tiles on the chooser and a ``state.landing_view`` enum behind it, which
     # is what a destination looks like when there is nowhere to put it; Home
@@ -55,7 +55,7 @@ MODES: list[tuple[str, str, str, str]] = [
     # do I have, then make another one.
     (
         "library", "Library", icons.FOLDER_OPEN,
-        "Every asset made so far, searchable and filterable.",
+        "Every asset made so far.",
     ),
     # **One mode, not two** (the UI redesign, wave 5). "2D" and "3D" were the two
     # halves of a single journey -- you write a prompt, you get a picture, you
@@ -67,10 +67,10 @@ MODES: list[tuple[str, str, str, str]] = [
     # property of the asset in front of you rather than a place in the
     # navigation. The glyph is neither of the two it replaces, deliberately:
     # IMAGE and BOX went with the stages that kept their meanings.
-    ("create", "Create", icons.SPARKLES, "Prompt to reference image to 3D model."),
+    ("create", "Create", icons.SPARKLES, "Prompt to picture to mesh."),
     ("inker", "Inker", icons.PEN_TOOL, "Paint and animate pixel art."),
-    ("clay", "Clay", icons.RULER, "Assemble and edit meshes from primitives."),
-    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh and author animation clips."),
+    ("clay", "Clay", icons.RULER, "Build meshes from shapes."),
+    ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips."),
     # Troupe (the Troupe programme's own mode). A workspace of its own rather
     # than a panel in Create for the reason Poser is one: what happens here is
     # *watching* -- a walk cycle plays continuously and you judge it -- and
@@ -80,9 +80,9 @@ MODES: list[tuple[str, str, str, str]] = [
     # rail's default became icons (``layout.py``), so two adjacent rows drew
     # the same standing figure and were told apart only by hovering. FILM is
     # what this mode makes: frames of a character, played.
-    ("troupe", "Troupe", icons.FILM, "Render a 3D character to an animated sprite sheet."),
-    ("plotter", "Plotter", icons.GRID, "Paint tile maps and export them to Tiled."),
-    ("packwright", "Packwright", icons.LAYERS, "Pack loose sprites into an atlas."),
+    ("troupe", "Troupe", icons.FILM, "A 3D character to sprites."),
+    ("plotter", "Plotter", icons.GRID, "Paint maps, export to Tiled."),
+    ("packwright", "Packwright", icons.LAYERS, "Pack sprites into an atlas."),
     # Muse: the thirteenth mode, and the one whose output is a **job row**.
     #
     # Sirens' comment below justifies its own workspace status partly with
@@ -102,7 +102,7 @@ MODES: list[tuple[str, str, str, str]] = [
     #
     # The glyph is a *note* against Sirens' waveform, which reads as the right
     # distinction: a waveform is sound you build, a note is a song you ask for.
-    ("muse", "Muse", icons.MUSIC, "Generate a finished soundtrack from a description."),
+    ("muse", "Muse", icons.MUSIC, "Generate a soundtrack."),
     # Sirens: the twelfth mode, and the first thing in this app that makes a
     # sound. A workspace rather than a stage of Create for the reason Plotter
     # and Packwright are: it owns a document type (``.wsng``), it has its own
@@ -112,14 +112,14 @@ MODES: list[tuple[str, str, str, str]] = [
     # rest are not a pipeline. Muse arrived later and went *before* it all the
     # same, for the reason written against Muse: those two are a pair, and the
     # pair has an order the rest of the group does not.
-    ("sirens", "Sirens", icons.AUDIO_WAVEFORM, "Write chiptune music and sound effects."),
+    ("sirens", "Sirens", icons.AUDIO_WAVEFORM, "Chiptune music and effects."),
     # Review is footer matter, beside Settings, and shares its glyph history
     # with the Library above (both were Home tiles). It is the one place you
     # go to *judge* rather than to make, and it is entered rarely and left
     # again -- which is the same shape as Settings and not the shape of the
     # workspaces it used to sit among.
-    ("review", "Review", icons.CIRCLE_CHECK, "Judge and grade finished assets side by side."),
-    ("settings", "Settings", icons.SETTINGS, "Models, folders, appearance and hardware."),
+    ("review", "Review", icons.CIRCLE_CHECK, "Grade finished assets."),
+    ("settings", "Settings", icons.SETTINGS, "Models, folders, appearance."),
 ]
 
 # The rail's sections, hand-written. **Not derived**, and that is the reversal
