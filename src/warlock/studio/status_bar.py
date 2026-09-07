@@ -81,9 +81,35 @@ def items(ctx: Any) -> list[StatusItem]:
 
     jobs = list(getattr(getattr(ctx, "cache", None), "jobs", []) or [])
     queued = sum(1 for job in jobs if job.get("status") == "queued")
-    running = sum(1 for job in jobs if job.get("status") in ("running", "processing"))
+    running_jobs = [job for job in jobs if job.get("status") in ("running", "processing")]
+    running = len(running_jobs)
     if queued or running:
-        out.append(StatusItem("queue", f"Queue {running} active / {queued} waiting"))
+        # **What**, not just **how many**. "Queue 1 active" alone never said
+        # what the active job was doing.
+        #
+        # The name comes off the running job's own progress label -- the
+        # string the pipeline is already publishing ("Generating", "Starting
+        # 3D generation") -- and *not* from a stage. The row's ``stage`` is
+        # the record vocabulary (``model``), while ``create_stages.LABELS``
+        # is the UI one (``mesh``); ``create_stages`` keeps those two apart
+        # on purpose, so translating between them here would be the second
+        # representation that module exists to avoid. Progress already holds
+        # a sentence meant for a human, which is what this row wants.
+        #
+        # Left in its own case: lowercasing it turns "Starting 3D generation"
+        # into "3d". Falls back to the old wording whenever the running job
+        # publishes no label, which covers every job that is not the one the
+        # worker is currently on.
+        stage_text = ""
+        active = running_jobs[0] if running_jobs else None
+        if isinstance(active, dict):
+            progress = active.get("progress")
+            label = (progress or {}).get("label") if isinstance(progress, dict) else None
+            if label:
+                stage_text = f" ({label})"
+        out.append(
+            StatusItem("queue", f"Queue {running} active{stage_text} / {queued} waiting")
+        )
 
     checks = list(getattr(getattr(ctx, "runtime", None), "checks", []) or [])
     # Downloads not made yet are not issues. Counting them put "28 issue(s)"

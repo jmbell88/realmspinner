@@ -65,6 +65,42 @@ def test_status_reports_queue_and_health_without_permanent_ok_noise():
     assert any(item.key == "health" and item.warning for item in status_bar.items(app_ctx))
 
 
+def test_the_status_bar_names_what_the_running_job_is_doing():
+    """W3.7: "Queue 1 active" alone never said what that job was *doing*.
+
+    The name is the running job's own progress label, not a stage. A job row's
+    ``stage`` is the record vocabulary (``model``) while
+    ``create_stages.LABELS`` is the UI one (``mesh``), and ``create_stages``
+    keeps the two apart on purpose -- translating between them here would be
+    exactly the second representation of "how far along is this" that module
+    exists to prevent. Progress already publishes a sentence for a human.
+    """
+    from warlock.studio import status_bar
+
+    app_ctx = _ctx()
+    app_ctx.cache.jobs = [
+        {"status": "running", "stage": "model", "progress": {"label": "Generating"}},
+        {"status": "queued"},
+        {"status": "queued"},
+    ]
+    text = next(item.text for item in status_bar.items(app_ctx) if item.key == "queue")
+    assert text == "Queue 1 active (Generating) / 2 waiting"
+
+    # Its own case is kept: lowercasing mangles the labels that carry "3D".
+    app_ctx.cache.jobs = [
+        {"status": "running", "progress": {"label": "Starting 3D generation"}},
+        {"status": "queued"},
+    ]
+    text = next(item.text for item in status_bar.items(app_ctx) if item.key == "queue")
+    assert text == "Queue 1 active (Starting 3D generation) / 1 waiting"
+
+    # No progress on the running row -> the old wording, unchanged. A row
+    # carrying a stage but no live progress is not the job the worker is on.
+    app_ctx.cache.jobs = [{"status": "running", "stage": "model"}, {"status": "queued"}]
+    text = next(item.text for item in status_bar.items(app_ctx) if item.key == "queue")
+    assert text == "Queue 1 active / 1 waiting"
+
+
 def test_a_fresh_layout_prefers_the_44dp_icon_rail():
     from warlock.studio import layout, rail
 
