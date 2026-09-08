@@ -165,6 +165,22 @@ def test_the_pose_stage_needs_a_rig_and_says_so():
     assert create_stages.available("pose", rigged()) is None
 
 
+def test_available_for_rig_refuses_a_model_stage_job_that_is_not_done():
+    """The 2026-09-08 audit, finding create-04: a job whose mesh stage has
+    already written ``model.glb`` but whose overall ``status`` is still
+    ``"running"`` (a later step in flight) or has since become ``"error"``
+    used to predict the Rig/Pose segments open, because ``available`` only
+    checked ``_reached_mesh`` and the file list -- never ``status`` the way
+    ``service.rig.create_rig`` does (``source["status"] != "done"``,
+    service/rig.py:64-68). The rail's own docstring promises this wording is
+    the service's refusal *verbatim*, so a click through a segment the rail
+    called open must not land a refusal the rail did not predict."""
+    for status in ("running", "error"):
+        stalled = job(status=status)
+        assert create_stages.available("rig", stalled) == "job has no finished mesh to rig"
+        assert create_stages.available("pose", stalled) == "job has no finished mesh to rig"
+
+
 def test_without_blender_both_are_blocked_rather_than_hidden():
     """A missing segment is a feature the user concludes does not exist. The
     reason names Blender, which is the thing they can act on."""

@@ -534,11 +534,34 @@ class Viewer(PoseOps):
             return self._last_mouse
         return (pos[0] - self._rect[0], pos[1] - self._rect[1])
 
+    def _alt_held(self) -> bool:
+        """Whether Alt is down right now. Mirrors ``_view_drag.DragOps._mods``,
+        Clay's equivalent input handler, down to the headless fallback: a test
+        with no display driver can't ask pygame for modifier state at all.
+        """
+        try:
+            import pygame
+
+            return bool(pygame.key.get_mods() & pygame.KMOD_ALT)
+        except Exception:  # pragma: no cover - headless pygame without a display
+            return False
+
     def _press(self, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
         if button not in (1, 2, 3):
             return False
         if button == 1 and self.pose_mode and self.editor.bound:
+            if self._alt_held():
+                # The 2026-09-08 audit (finding create-01) found this method
+                # never read Alt before testing what was under the cursor, so
+                # an Alt+drag that started over a joint marker or a gizmo
+                # handle grabbed it instead of orbiting -- quietly moving a
+                # pose while the user was only trying to look around it, even
+                # though the comment below and shortcuts.py both promise
+                # Alt+drag orbits everywhere. Checked first and short-circuited,
+                # the same order ``_view_drag.DragOps._press`` uses for Clay.
+                self._grab = "orbit"
+                return True
             origin, direction = self._ray(local)
             gizmo = self._active_gizmo()
             axis = gizmo.hit(origin, direction) if self.editor.selected else None

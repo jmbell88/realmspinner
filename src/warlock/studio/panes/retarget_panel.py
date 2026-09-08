@@ -126,16 +126,26 @@ def draw(ctx: Any, job: Any) -> None:
 
 
 def _form(ctx: Any, job_id: str) -> dict[str, Any]:
-    """Kept on app state so it survives a frame, rebuilt per job so a budget
-    typed against one mesh is not submitted against another."""
-    form = ctx.state.preview.get("retarget_form")
-    if form is None or form.get("job_id") != job_id:
+    """Kept on app state, keyed by job id, so a budget typed against one mesh
+    is not submitted against another -- and, since ``remesh_panel``'s fix
+    (commit 89cb6412), so it survives a glance at another asset too.
+
+    The 2026-09-08 audit, finding create-02: this used to be one shared slot
+    compared by ``form.get("job_id") != job_id``, the pattern commit
+    89cb6412 fixed on ``remesh_panel``/``sheet_panel``/``sprite_panel`` but
+    left standing here -- so looking at a different card in the Library and
+    coming back silently reset a chosen custom triangle count to the default
+    tier, with no undo.
+    """
+    forms_by_job = ctx.state.preview.setdefault("retarget_forms", {})
+    form = forms_by_job.get(job_id)
+    if form is None:
         form = {
             "job_id": job_id,
             "profile": "raw",
             "custom_triangles": optimize.PROFILES["standard"],
         }
-        ctx.state.preview["retarget_form"] = form
+        forms_by_job[job_id] = form
     return form
 
 

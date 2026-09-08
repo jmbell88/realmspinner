@@ -161,6 +161,55 @@ def test_pump_submits_and_reports_when_input_png_is_missing_on_first_check(svc):
     assert state.preview is None
 
 
+def test_matte_preview_cache_does_not_grow_without_bound_across_jobs(svc):
+    """2026-09-08 audit, finding create-07.
+
+    ``open_for``/``close`` reset the *open* preview's fields but never removed
+    the entry the just-closed job left in ``MatteState.cache`` -- so a Create
+    session that previewed the matte on many distinct references grew that
+    dict for the life of the process. Nothing ever reads a *different* job's
+    entry back (``pump`` looks the cache up by ``state.job_id`` alone), so
+    moving to a new job may safely drop the outgoing one.
+    """
+    job_a = _reference(svc, _subject_rgb())
+    job_b = _reference(svc, _subject_rgb())
+
+    class Ctx:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(matte=None)
+            self.svc = svc
+
+        def submit(self, key, fn, *args, **kwargs):
+            return True
+
+    ctx = Ctx()
+
+    def _remembered(job_id: str):
+        preview = svc_matte.preview(svc, job_id)
+        # Safely in the past, so ``remember`` actually stores it (git's
+        # racily-clean rule -- see the module docstring above).
+        return svc_matte.replace_stamp(preview, time.time_ns() - 10 * svc_matte.MTIME_RACE_NS)
+
+    matte_preview.open_for(ctx, job_a, {})
+    state = matte_preview.pump(ctx)
+    matte_preview.on_task_done(
+        ctx, SimpleNamespace(key=matte_preview.key(job_a), result=_remembered(job_a))
+    )
+    assert job_a in state.cache
+
+    matte_preview.open_for(ctx, job_b, {})
+    matte_preview.pump(ctx)
+    matte_preview.on_task_done(
+        ctx, SimpleNamespace(key=matte_preview.key(job_b), result=_remembered(job_b))
+    )
+
+    # The unfixed code left job_a's entry in the cache forever -- this is the
+    # failing assertion against it.
+    assert job_a not in state.cache
+    assert job_b in state.cache
+    assert len(state.cache) == 1
+
+
 # --- approved alpha ---------------------------------------------------------
 
 

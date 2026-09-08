@@ -25,6 +25,49 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **Alt+drag orbits the pose viewport even when the press lands on a joint.**
+  The pose-mode viewport Poser and Create's rig editor share tested the gizmo
+  and every joint marker under the cursor before asking whether Alt was held,
+  so the documented "look around without disturbing anything" gesture dragged
+  a joint out of position whenever the cursor happened to be over one — a
+  plausible pose recorded as one clean undo step rather than an error. Clay's
+  handler had always read Alt first; this one now does too (the 2026-09-08
+  audit, create-01).
+- **The Surface texture prompt and the Retarget triangle budget survive a
+  look at another asset.** Both panels kept one form slot and reset it on
+  any change of selection, the pattern 0.0.40 fixed in the Remesh, Sheet and
+  Sprite panels and missed here: a typed surface description or a custom
+  triangle count vanished when you glanced at a neighbouring card to compare.
+  Both now keep a form per asset (create-02).
+- **Create's Reset confirm says what Reset discards.** The dialog named the
+  prompt, the negative prompt, the model, the LoRA, the reference and the run
+  controls; Reset also dropped the asset type and every Tileset, Sprite Sheet
+  or Character field you had filled in, and the dialog is the only guard
+  against an accidental press. The text now names all of it; chapter 22 says
+  the same (create-03).
+- **The Rig and Pose rail segments no longer open for a job whose mesh is
+  written but whose status is not `done`.** The rail predicted the segment
+  from the mesh file alone while the service also required a finished job,
+  so a click during a job's running tail, or after a later step errored, got
+  the refusal toast the segment's own tooltip claimed would not happen. The
+  rail now asks the service's question, in the service's words (create-04).
+- **The Mesh stage's inherited-value label names the right reference when the
+  source is a selected mesh.** 0.0.41 made the "keep the reference's" option
+  name the value it inherits, for an explicit pick; for a selected finished
+  mesh with no pick, the label fell back to the generic wording while the
+  muted line under it and the real submit named the mesh's parent reference.
+  The label now resolves the source the way the submit does (create-05).
+- **Create's Reference stage no longer re-resolves an unchanged form's recipe
+  sixty times a second.** Resolving a recipe fingerprints the checkpoint,
+  and a checkpoint is a directory, so every draw re-walked its tree with a
+  stat per file, from three note helpers at once. The pane now memoises on
+  the request's own contents, so the walk runs once per edit; provenance's
+  fingerprint itself is unchanged and uncached, because a stale fingerprint
+  in a provenance record is worse than a slow frame (create-06).
+- **The promote-matte preview drops the entry it replaced.** Its per-job
+  cache accumulated one preview per reference opened for the life of the
+  session; opening a different job's preview now evicts the last
+  (create-07).
 - **The seven `trellis_*` engine axes reach an ordinary Create job, not only a
   sweep.** A findings sweep could already set Band, Texture resolution, the two
   guidance strengths, the token budget, Decimation and Atlas resolution — they

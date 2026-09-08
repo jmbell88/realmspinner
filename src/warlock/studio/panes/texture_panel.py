@@ -151,12 +151,22 @@ def draw(ctx: Any, job: Any) -> None:
 
 
 def _form(ctx: Any, job_id: str) -> dict[str, Any]:
-    """Kept on app state so it survives a frame, rebuilt per job so a prompt
-    typed against one mesh is never submitted against another -- the retarget
-    panel's rule, and for the sharper version of its reason: a surface
-    description is a sentence somebody wrote, not a tier they clicked."""
-    form = ctx.state.preview.get("retexture_form")
-    if form is None or form.get("job_id") != job_id:
+    """Kept on app state, keyed by job id, so a prompt typed against one mesh
+    is never submitted against another -- and, since ``remesh_panel``'s fix
+    (commit 89cb6412), so it survives a glance at another asset too.
+
+    The 2026-09-08 audit, finding create-02: this used to be one shared slot
+    compared by ``form.get("job_id") != job_id``, the pattern commit
+    89cb6412 fixed on ``remesh_panel``/``sheet_panel``/``sprite_panel`` but
+    left standing here -- so looking at a different card in the Library and
+    coming back silently reset a typed surface description to defaults, with
+    no undo. A surface description is a sentence somebody wrote, not a tier
+    they clicked, which is what made the loss worth a dict instead of a
+    comment.
+    """
+    forms_by_job = ctx.state.preview.setdefault("retexture_forms", {})
+    form = forms_by_job.get(job_id)
+    if form is None:
         form = {
             "job_id": job_id,
             "prompt": "",
@@ -170,7 +180,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
             "depth": True,
             "control_scale": models.CONTROLNETS["depth"].default_scale,
         }
-        ctx.state.preview["retexture_form"] = form
+        forms_by_job[job_id] = form
     return form
 
 

@@ -465,6 +465,30 @@ def _generate_tooltip(show_count: bool, count: int) -> str:
     return f"Ctrl+Enter · {count} {noun}"
 
 
+# The Reset confirm's own words, module-level so a regression test can read
+# them without an imgui context (``_reset`` below draws a button first, which
+# needs one). The 2026-09-08 audit, finding create-03: this text used to name
+# only six things -- the prompt, the negative prompt, the model, the LoRA,
+# the reference and the run controls -- while ``settings_2d._reset`` actually
+# replaces the *whole* form with ``default_form_2d()``, silently discarding
+# the asset type (the whole Image/3D Model/Seamless Material/Tileset/Sprite
+# Sheet/Character selection) and every Tileset/Sprite/Character field the
+# user had typed in (materials, variants, style_lock, seam_erase, palette,
+# cell_size, and the rest) -- none of which the old text named. The fix
+# broadens the *text* to match what Reset has always discarded, per the
+# 2026-09-08 audit's own call: narrowing ``_reset`` instead would make "another
+# like this" lose the asset type on every rerun, which is a bigger behaviour
+# change than a confirm dialog earns on its own.
+_RESET_CONFIRM_MESSAGE = (
+    "The prompt, the negative prompt, the model, the LoRA, the reference and "
+    "the run controls go back to their defaults, with a freshly rolled seed "
+    "-- and so does everything else on this form, including the asset type "
+    "(Image, 3D Model, Seamless Material, Tileset, Sprite Sheet or Character) "
+    "and any Tileset, Sprite Sheet or Character fields you have filled in. "
+    "The 3D form is untouched."
+)
+
+
 def _reset(ctx: Any, *, compact: bool) -> None:
     """*Reset...*, beside Generate now rather than pinned above the settings
     column it used to sit atop.
@@ -499,11 +523,7 @@ def _reset(ctx: Any, *, compact: bool) -> None:
         ctx.confirms.ask(
             dialogs.Confirm(
                 title="Reset the image settings?",
-                message=(
-                    "The prompt, the negative prompt, the model, the LoRA, "
-                    "the reference and the run controls go back to their "
-                    "defaults. The 3D form is untouched."
-                ),
+                message=_RESET_CONFIRM_MESSAGE,
                 confirm_label="Reset",
                 cancel_label="Cancel",
                 on_confirm=lambda: settings_2d._reset(ctx),

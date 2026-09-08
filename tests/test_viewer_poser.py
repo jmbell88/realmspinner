@@ -347,6 +347,51 @@ def test_ghost_handles_never_move_the_live_model():
         assert node.world == pytest.approx(was)
 
 
+# --- input: Alt+drag orbit (create-01) ---------------------------------------
+
+
+def test_alt_drag_orbits_even_when_the_press_lands_on_a_pose_marker(monkeypatch):
+    """The 2026-09-08 audit, finding create-01: ``_press`` tested a left press
+    against the gizmo and every joint marker before it ever asked whether Alt
+    was held, so an Alt+drag that started on top of a marker grabbed that
+    joint instead of orbiting -- even though the comment further down in
+    ``_press`` and ``shortcuts.py`` both promise Alt+drag orbits in every
+    viewport, in every mode. Mirrors how ``test_clay_view.py`` proves the same
+    contract for Clay's ``_view_drag`` handler: stub ``pygame.key.get_mods``
+    to report Alt held, land the ray dead-centre on a marker, and check the
+    press neither grabbed nor selected it.
+    """
+    import pygame
+
+    monkeypatch.setattr(pygame.key, "get_mods", lambda: pygame.KMOD_ALT, raising=False)
+
+    # A single marker sitting exactly on the ray the stubbed `_ray` returns,
+    # so an unguarded press finds and grabs it every time.
+    stub = SimpleNamespace(
+        pose_mode=True,
+        editor=SimpleNamespace(
+            bound=True, selected=None, handles={"hips": np.array([0.0, 0.0, 0.0])}
+        ),
+        placement=m3.identity(),
+        radius=1.0,
+        _grab=None,
+        _last_mouse=(0.0, 0.0),
+        _ray=lambda local: (np.array([0.0, 0.0, 3.0]), np.array([0.0, 0.0, -1.0])),
+        _active_gizmo=lambda: None,
+    )
+    # Unbound-method-over-a-stub pattern: ``_press`` calls ``self._alt_held()``,
+    # bound here to the real implementation (over the same stub) so the test
+    # exercises the actual pygame read the monkeypatch above sets up, not a
+    # second fake standing in for it.
+    stub._alt_held = lambda: Viewer._alt_held(stub)
+
+    consumed = Viewer._press(stub, 1, (0.0, 0.0))
+
+    assert consumed is True
+    assert stub._grab == "orbit"
+    assert stub.editor.selected is None, "Alt+drag must not select the marker it started over"
+
+
 def test_a_ghost_puts_unnamed_bones_at_rest_not_at_the_live_pose():
     """A key lists only the bones it moves, so a ghost of that key is what
     ``apply_preset`` would show -- everything else back at rest. Reading the

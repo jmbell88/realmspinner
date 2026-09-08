@@ -121,8 +121,10 @@ or promoting one simply composes without the retired fragments.
 
 **Reset...**, in the command bar beside Generate, puts the whole form back to its first-launch
 defaults after a confirm — the prompt, the negative prompt, the model and LoRA, the reference and the
-run controls, with a freshly rolled seed. It touches nothing outside this pane: the 3D form is left
-alone.
+run controls, with a freshly rolled seed, and everything else on the form too: the asset type (Image,
+3D Model, Seamless Material, Tileset, Sprite Sheet or Character) and any Tileset, Sprite Sheet or
+Character fields you have filled in. The confirm says so, since it is the only guard against an
+accidental press. It touches nothing outside this pane: the 3D form is left alone.
 
 ## Models and style LoRAs
 

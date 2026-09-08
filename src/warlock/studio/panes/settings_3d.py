@@ -400,11 +400,20 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
 def _source_param(ctx: Any, key: str) -> str | None:
     """The reference job's own recorded value for ``key``, if it has one.
 
-    ``ctx.state.source_job`` and the form key are the same name a job's
-    ``params`` dict was written under (``_q_generate.py``), so this is a
-    plain lookup rather than a mapping this pane has to keep in sync.
+    Resolved through :func:`_effective_source`, not a plain read of
+    ``ctx.state.source_job`` -- the 2026-09-08 audit, finding create-05: with
+    no explicit pick but a finished mesh selected, ``_submit`` inherits from
+    that mesh's *parent* reference (``_effective_source``), and its own muted
+    line names that reference correctly. This function read ``source_job``
+    directly and so named nothing, falling back to the generic "keep the
+    reference's" right above a line that had already said what was actually
+    being kept.
+
+    The key is the same name a job's ``params`` dict was written under
+    (``_q_generate.py``), so this is a plain lookup once the source is
+    resolved, rather than a mapping this pane has to keep in sync.
     """
-    source = ctx.cache.get(ctx.state.source_job)
+    source = _effective_source(ctx, ctx.cache.get(ctx.state.source_job))
     if source is None:
         return None
     return (source.get("params") or {}).get(key) or None

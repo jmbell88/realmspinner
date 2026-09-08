@@ -200,17 +200,65 @@ def _resolved_recipe(ctx: Any, form: dict[str, Any]) -> Any:
     Wrapped because it runs on the frame thread from three note helpers: a
     partially restored form must make the pane say nothing rather than raise
     inside the draw, which is ``_negative_supported``'s standing rule here.
+
+    Memoised on the *request*, not on frame or form identity (2026-09-08
+    audit, finding create-06, and the orchestrator's ruling on it: a
+    fingerprint feeding a provenance record may not be memoised on wall
+    time, only on content or a generation counter). ``request_from_legacy``
+    is cheap and pure, so it is rebuilt every call; only
+    ``generation.resolve_recipe`` -- which fingerprints every installed
+    checkpoint directory (``provenance.file_fingerprint`` via ``_checksum``)
+    -- is worth skipping, and only while the request compares equal to the
+    one the cached answer was resolved from and ``ctx.svc.config`` is the
+    same object. The result stays correct across many unchanged frames and
+    resolves again the moment either input actually changes, which a
+    frame-keyed cache could not promise. Set with ``setattr`` rather than a
+    declared ``AppState`` field: this module does not own ``state.py``, and a
+    plain dataclass instance takes an extra attribute without one. A caller
+    with no ``ctx.state`` at all (several note helpers are exercised
+    headlessly against a bare ``SimpleNamespace``) gets the pre-fix
+    behaviour instead of an ``AttributeError``: resolve every call, memoise
+    nothing.
     """
     try:
         request = generation.request_from_legacy(form)
-        return generation.resolve_recipe(request, ctx.svc.config)
+        config = ctx.svc.config
     except Exception:
         # Silent on purpose, and the same choice ``_negative_supported`` makes
         # for the same reason: this runs sixty times a second inside the draw,
         # so a partially restored form must make the pane say *nothing* rather
         # than log a line per frame or raise through the frame loop. The
         # service remains the final compatibility gate, and it is not silent.
+        # ``ctx.svc`` is read here, inside the same guard, for the same
+        # reason: some note helpers are exercised headlessly against a
+        # ``SimpleNamespace`` that carries no ``svc`` at all.
         return None
+
+    # ``getattr`` rather than ``ctx.state``: the frame thread's ``ctx`` always
+    # carries an ``AppState`` to hang the memo on, but several note helpers
+    # (``recipe_structure_note`` and friends, exercised headlessly by
+    # tests/test_settings_2d_notes.py and tests/test_generation_tiers.py) call
+    # this with a bare ``SimpleNamespace(svc=..., guidance=...)`` that has no
+    # ``.state`` at all. A headless caller with nothing to memoise onto just
+    # gets the pre-fix behaviour -- resolve every call -- rather than an
+    # ``AttributeError``.
+    state = getattr(ctx, "state", None)
+    cache = getattr(state, "_resolved_recipe_cache", None) if state is not None else None
+    if cache is not None:
+        cached_request, cached_config_id, cached_resolved = cache
+        if cached_config_id == id(config) and cached_request == request:
+            return cached_resolved
+
+    try:
+        resolved = generation.resolve_recipe(request, config)
+    except Exception:
+        # A form that resolves to a broken request must say nothing once,
+        # not raise every frame -- caching the ``None`` here is what makes
+        # that once rather than sixty times a second.
+        resolved = None
+    if state is not None:
+        state._resolved_recipe_cache = (request, id(config), resolved)
+    return resolved
 
 
 def clear_for_tier(ctx: Any, form: dict[str, Any]) -> list[str]:

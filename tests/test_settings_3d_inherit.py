@@ -87,6 +87,39 @@ def test_a_reference_with_no_recorded_value_also_falls_back():
     assert settings_3d._bg_options(ctx)[0] == ("", "keep the reference's")
 
 
+def test_inherited_mesh_option_names_the_selected_meshs_reference_value():
+    """The 2026-09-08 audit, finding create-05: with no explicit
+    ``source_job`` but a finished mesh selected in the library, ``_submit``
+    (via ``_effective_source``) inherits from that mesh's *parent* reference,
+    and its own muted line names that reference correctly. The unset-option
+    label above it must name the same job -- not fall back to the generic
+    wording, which is what happened while ``_source_param`` read
+    ``ctx.state.source_job`` on its own instead of resolving through
+    ``_effective_source`` the same way.
+    """
+    reference = {
+        "id": "ref1",
+        "status": "done",
+        "params": {"platform": "high", "bg_removal": "birefnet"},
+    }
+    mesh = {
+        "id": "mesh1",
+        "stage": "model",
+        "status": "done",
+        "files": ["model.glb"],
+        "parent_id": "ref1",
+    }
+    ctx = _Ctx({"ref1": reference})
+    ctx.state.source_job = None
+    ctx.job = lambda: mesh
+
+    platform_options = settings_3d._platform_options(ctx)
+    bg_options = settings_3d._bg_options(ctx)
+
+    assert platform_options[0] == ("", "From reference: High detail")
+    assert bg_options[0] == ("", "From reference: birefnet")
+
+
 # --- the engine disclosure ----------------------------------------------------
 #
 # The seven trellis_* launch flags, drawn under a collapsed "Engine

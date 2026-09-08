@@ -97,6 +97,15 @@ def key(job_id: str) -> str:
 def open_for(ctx: Any, job_id: str, kwargs: dict[str, Any], *, force: bool = False) -> MatteState:
     """Put the preview in front of the promotion. Draws nothing itself."""
     state = ensure(ctx)
+    if state.job_id and state.job_id != job_id:
+        # The 2026-09-08 audit (finding create-07): nothing ever reads a
+        # *different* job's entry back -- ``pump`` looks ``cache`` up by
+        # ``state.job_id`` alone -- so a session that previews many
+        # references grew this dict for the life of the process. Dropping
+        # the outgoing job's entry here caps it at one; reopening the *same*
+        # job (same id) is left alone, since that is the one case a stale
+        # entry still saves a recompute.
+        state.cache.pop(state.job_id, None)
     state.job_id = job_id
     state.kwargs = dict(kwargs)
     state.force = force

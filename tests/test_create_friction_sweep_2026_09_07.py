@@ -139,6 +139,44 @@ def test_a_sprite_form_survives_a_look_at_another_asset():
     assert again["seed_a"] == first_seed
 
 
+def test_a_retexture_form_survives_a_look_at_another_asset():
+    # The 2026-09-08 audit, finding create-02: commit 89cb6412 gave
+    # remesh/sheet/sprite panels a per-job-id dict, but left this sibling on
+    # one shared slot compared by ``form.get("job_id") != job_id`` -- so
+    # glancing at another asset and coming back silently discarded a typed
+    # surface prompt.
+    from warlock.studio.panes import texture_panel
+
+    ctx = SimpleNamespace(state=AppState())
+    first = texture_panel._form(ctx, "aaaaaaaaaaaa")
+    first["prompt"] = "rusted iron plating"
+    first["strength"] = 0.9
+
+    texture_panel._form(ctx, "bbbbbbbbbbbb")
+    again = texture_panel._form(ctx, "aaaaaaaaaaaa")
+    assert again is first
+    assert again["prompt"] == "rusted iron plating"
+    assert again["strength"] == 0.9
+
+
+def test_a_retarget_form_survives_a_look_at_another_asset():
+    # The 2026-09-08 audit, finding create-02: matches
+    # ``test_a_retexture_form_survives_a_look_at_another_asset`` above -- the
+    # same single-slot pattern discarded a chosen custom triangle budget.
+    from warlock.studio.panes import retarget_panel
+
+    ctx = SimpleNamespace(state=AppState())
+    first = retarget_panel._form(ctx, "aaaaaaaaaaaa")
+    first["profile"] = "custom"
+    first["custom_triangles"] = 54321
+
+    retarget_panel._form(ctx, "bbbbbbbbbbbb")
+    again = retarget_panel._form(ctx, "aaaaaaaaaaaa")
+    assert again is first
+    assert again["profile"] == "custom"
+    assert again["custom_triangles"] == 54321
+
+
 # --- 5.3c: prompt history outlives the process ------------------------------
 
 

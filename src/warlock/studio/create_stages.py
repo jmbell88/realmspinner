@@ -313,10 +313,19 @@ def available(stage: str, job: Any, ctx: Any = None) -> str | None:
             # cannot rig at all. ``pose_panel``'s own sentence.
             noun = "Rigging" if stage == "rig" else "Posing"
             return f"{noun} needs Blender, which is not installed."
-        if not _reached_mesh(job, None, None) or "model.glb" not in (
-            (job or {}).get("files") or []
+        if (
+            not _reached_mesh(job, None, None)
+            or (job or {}).get("status") != "done"
+            or "model.glb" not in ((job or {}).get("files") or [])
         ):
-            # ``service.rig.create_rig``'s refusal, verbatim.
+            # ``service.rig.create_rig``'s refusal, verbatim. The 2026-09-08
+            # audit, finding create-04: this arm used to skip the status
+            # check ``create_rig`` itself makes (``source["status"] != "done"``,
+            # service/rig.py:64-68), so a job whose mesh stage had already
+            # written model.glb but whose overall status was still "running"
+            # (a later step in flight) or had since become "error" predicted
+            # the segment open, and a click through it landed a refusal the
+            # rail's own docstring promised would not happen.
             return "job has no finished mesh to rig"
         if stage == "pose" and not _reached_rig(job, None, None):
             # ``service.rig.save_joints``'s refusal, verbatim. The Rig segment
