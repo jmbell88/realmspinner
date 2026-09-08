@@ -18,10 +18,12 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## 0.0.40 — 2026-09-07
+## 0.0.41 — 2026-09-07
 
-Two panels stopped charging by the frame for answers that only change by
-the edit, and the engine axes got a door and a form.
+Review stopped being a place where judgements go to be recorded and became
+the place they come back from: the settings a sweep ranked can now be applied
+to a real job, offered at the control that holds them, and filtered for in
+the library.
 
 - **The seven `trellis_*` engine axes reach an ordinary Create job, not only a
   sweep.** A findings sweep could already set Band, Texture resolution, the two
@@ -43,31 +45,7 @@ the edit, and the engine axes got a door and a form.
   ranked configuration a sweep judged under one of these axes applies it back
   correctly.
 
-- **Inker's nine-slice panel costs what an edit costs, not what a frame costs.**
-  With a slice selected, the tools sidebar flattened the whole document twice on
-  every frame: once for the Auto-fit button's enabled check and once for the
-  preview swatches. `Document.flatten` copies the full composite each call —
-  deliberately, since its callers may write to what they get back — so a 1024
-  canvas paid two multi-megabyte copies plus a full run scan per frame for two
-  answers that only move when the document does. The preview then ran three
-  `stretch` calls a frame to build pixels its own `(doc.rev, target)` texture
-  cache discarded on arrival, because the pixels were computed before the stamp
-  that had just matched was consulted. Both answers are now cached on the
-  document's revision in the one place the menu row and the panel already agree
-  about nine-slice (`inker_ops.nineslice_flat` and `nineslice_center`, which the
-  greyed-out check and the click both ask, so they cannot disagree), and the
-  swatches are stretched only on a cache miss. A settled frame flattens nothing
-  and stretches nothing. Found by review; `tests/inker/test_nineslice_cache.py`
-  counts flattens and stretches rather than asserting that a cache exists.
-- **The Library's Convert... picker is dialog-shaped again.** Every format button
-  sat on one line, so a music card's five — WAV, FLAC, AIFF, MP3, OGG — grew
-  the modal to roughly two and a half times the width floor it asks
-  `modal_bounds` for; a floor is not a cap, so nothing clipped it, and at UI
-  scale 2 the row reached the viewport clamp with its last buttons cut off. The
-  buttons wrap at two columns now, which is the same width for one format or for
-  five. Fixed columns rather than the wrap helper the rest of that pane uses:
-  this modal is `always_auto_resize`, so the width left on a line is decided by
-  the very row that would be asking about it.
+
 - **The library now shows a mesh's grade.** A graded mesh's card carries a
   small `+4`/`−2`-style pill beside its topology tell, `list_jobs` attaching
   the latest human verdict onto the row rather than into `params`; a new
@@ -148,6 +126,38 @@ the edit, and the engine axes got a door and a form.
   fills the New sweep form's axis and exactly enough fresh seeds to close the
   gap while leaving the captured baseline and the prompt untouched — a
   suggestion is "run this contrast again," not "start over."
+
+
+## 0.0.40 — 2026-09-07
+
+Two panels stopped charging by the frame for answers that only change by
+the edit.
+
+- **Inker's nine-slice panel costs what an edit costs, not what a frame costs.**
+  With a slice selected, the tools sidebar flattened the whole document twice on
+  every frame: once for the Auto-fit button's enabled check and once for the
+  preview swatches. `Document.flatten` copies the full composite each call —
+  deliberately, since its callers may write to what they get back — so a 1024
+  canvas paid two multi-megabyte copies plus a full run scan per frame for two
+  answers that only move when the document does. The preview then ran three
+  `stretch` calls a frame to build pixels its own `(doc.rev, target)` texture
+  cache discarded on arrival, because the pixels were computed before the stamp
+  that had just matched was consulted. Both answers are now cached on the
+  document's revision in the one place the menu row and the panel already agree
+  about nine-slice (`inker_ops.nineslice_flat` and `nineslice_center`, which the
+  greyed-out check and the click both ask, so they cannot disagree), and the
+  swatches are stretched only on a cache miss. A settled frame flattens nothing
+  and stretches nothing. Found by review; `tests/inker/test_nineslice_cache.py`
+  counts flattens and stretches rather than asserting that a cache exists.
+- **The Library's Convert... picker is dialog-shaped again.** Every format button
+  sat on one line, so a music card's five — WAV, FLAC, AIFF, MP3, OGG — grew
+  the modal to roughly two and a half times the width floor it asks
+  `modal_bounds` for; a floor is not a cap, so nothing clipped it, and at UI
+  scale 2 the row reached the viewport clamp with its last buttons cut off. The
+  buttons wrap at two columns now, which is the same width for one format or for
+  five. Fixed columns rather than the wrap helper the rest of that pane uses:
+  this modal is `always_auto_resize`, so the width left on a line is decided by
+  the very row that would be asking about it.
 
 ## 0.0.39 — 2026-09-07
 
