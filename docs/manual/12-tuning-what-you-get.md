@@ -49,6 +49,22 @@ weight, and those weights are not decorative — they were measured per adapter.
 "normal" 0.9 it produces black frames. A flat default across all LoRAs would be wrong for most of
 them.
 
+## Style LoRAs trained from the library
+
+Settings' **Train from my library...** button (see [App settings](41-app-settings.md#your-style-loras))
+builds a training set out of work you have already judged — favourited jobs, references you
+accepted, and the reference images behind meshes that graded usable or better — instead of a folder
+you point it at by hand. It is a convenience for gathering images, nothing more.
+
+**Say this plainly: training a style on pictures this same build generated is unmeasured.** Nothing
+in this app has run the comparison that would actually tell you whether it helps — generate the same
+prompts with the trained style on and with it off, judge the pairs blind, and see whether the
+verdicts differ. Until that sitting happens, "trains a working style" and "teaches the model to
+repeat its own habits back to itself, indistinguishably to you" are both live possibilities, and nobody
+has looked. That measurement is a future sitting, not a condition this feature had to clear before
+shipping — the button assembles a training set faithfully; it does not, and cannot yet, tell you the
+result is good.
+
 ## Conditioning on an image
 
 Two named ways to hand the model a picture, and they do different jobs.
@@ -107,6 +123,16 @@ Everything above changes what comes out, and it is very easy to convince yoursel
 helped. If it matters, the app has the machinery to check: launch a sweep varying one axis, judge the
 results blind, and read the Axis verdicts.
 [Judging what you made](04-judging-what-you-made.md#sweeps-and-what-verdicts-add-up-to) covers it.
+
+Once enough verdicts exist, most controls on this pane and the mesh column — the appearance and
+structure strengths, the img2img strength, the model and style pickers, the mesh settings — carry a
+small muted line under them saying what the value they are currently set to scored: something like
+"usable 6/8 (41%+) · avg +2.6". When a *different* value has scored better, a second line appears
+under it naming that value and a **Use ...** button beside it — pressing it sets the control to
+exactly that value, in the type the control already holds. It never fires on its own; the app never
+picks a setting for you, only offers the click once the evidence says something. Nothing appears
+while a value is already the one the evidence favours, or while too few verdicts exist behind any of
+them.
 
 ## What to read next
 

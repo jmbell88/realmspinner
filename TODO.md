@@ -13,10 +13,10 @@ version and every deleted plan (`git log --all --diff-filter=D`).
    decision. None of it is derivable from the tree and none of it can be
    closed by writing code.
 2. **Work that is fully specified and deliberately unstarted** — today that is
-   Troupe's phases 7 and 8 (P13) and the sweep abort (P31), each here with the
-   argument that makes it actionable, not as a title. An entry earns this kind
-   only by an explicit decision *not* to build it yet; it is not a parking
-   space for work nobody got to.
+   Troupe's phases 7 and 8 (P13), here with the argument that makes it
+   actionable, not as a title. An entry earns this kind only by an explicit
+   decision *not* to build it yet; it is not a parking space for work nobody
+   got to.
 3. **Open findings** (the section at the end): code work a review or a real
    run turned up and did not fix, numbered `F<N>` so it cannot be confused
    with the `P<N>` entries above. Each is buildable and is struck out the day
@@ -353,94 +353,6 @@ local weights through `fetch_worker`.
 
 **Expected outcome:** none until P11 says the programme continues; the value
 of this entry is that nobody re-plans it.
-
-## P31. A sweep that fails should stop repeating the failure — specified, deliberately unstarted
-
-**Why it is unstarted:** the user's call on 2026-09-06, after the incident
-below, to have the design written down and reviewed before it is built. It is
-buildable exactly as written; it is here rather than in the tree because that
-decision has not been revisited, not because anything is unresolved.
-
-**The incident.** The `detail-060` run (2026-09-06) queued 30 jobs as five
-`SweepPlan`s, one per subject. On the first subject all three `decim0-*` rungs
-failed at ~29 minutes each, for one structural reason
-(`docs/measurements/2026-09-03-trellis-detail-sweep.md`). The remaining four
-subjects were still queued to repeat the same three configurations. Nothing in
-the system noticed; the run was cancelled by hand. The queue is FIFO and
-sweep-blind by construction — `JobStore.next_queued` is `WHERE status='queued'
-ORDER BY created_at, id LIMIT 1`, with no priority, no per-kind logic and no
-group awareness — so nothing was going to notice.
-
-**Do.**
-
-*Where the hook goes.* `Worker._process`'s `finally` block already has an
-`else` branch reached exactly when `status == "error"`, after `_finish_job`
-has confirmed the row was still `running` and the write landed; today it calls
-only `_record_observation`. Add one generic optional callback — `on_job_failed
-(job)`, default `None` — invoked there. **`queue.py` must not learn what a
-sweep is**: no `service` import, no `sweep_id`, no group. Its only present
-reads of the sweep columns are write-through to `add_observation` for
-analytics, and that property is worth keeping. The service layer supplies the
-callback and owns every sweep-shaped decision inside it. (This does not touch
-the INVARIANTS entry that membership is *columns, not params keys* — that one
-is about `rerun_job`/`promote_to_model` copying params, and reading `sweep_id`
-does not bear on it.)
-
-*What the callback does.* In `service/sweeps.py`: return if the job has no
-`sweep_id`; `store.sweep_jobs(sweep_id)` (the existing and only sweep-scoped
-query — do not add another); keep rows still `queued`; cancel those whose
-server group equals the failed job's, with a reason naming the failed unit and
-its error. The group key needs **no schema change** — `UnitPlan.server_group`
-is `tuple(merged.get(p) for p in SERVER_AXES)` and all seven values already
-live in each job's `params`. Factor out one `server_group_of(params)` helper
-that `UnitPlan.server_group` also calls, so the key has one definition.
-
-*Which status, and the invariant it costs.* `cancelled`, plus a written
-`error` reason. Not `error`: `docs/INVARIANTS.md` holds that an `error` row
-*is* a measurement of its settings and so records an observation, and a unit
-that never ran must not enter the verdict corpus. But the same bullet frames
-`cancelled` as "the user changing their mind", which this is not — so that
-bullet is amended in the same commit to say a cancel comes in two kinds, user-
-initiated and system-initiated-with-a-reason, and that neither records an
-observation.
-
-*The write.* One new `JobStore` method, shaped like `resolve_candidates` (the
-only existing multi-row status write, on the sibling `candidate_group`
-column): `UPDATE jobs SET status='cancelled', finished_at=?, error=? WHERE
-sweep_id=? AND status='queued' AND id IN (…)`. Conditional on `queued` only —
-never `running`: the point is to stop work that has not started, and a sibling
-already on the card is left to reach its own terminal status. One statement,
-one lock, `rowcount` returned.
-
-*The transient-failure escape.* One OOM from an unrelated app must not retire
-four units. The cancelled rows keep a reason naming the trigger, and the
-reason text names `scripts/sweep_refill.py` as the re-queue path — confirm
-that script actually does re-queue before relying on it in the wording.
-
-*Tests.* In `tests/test_queue.py` (real `Worker`, real sqlite store,
-`fake_pipelines`): the callback fires once after a durable terminal write, and
-does **not** fire when `_finish_job` returned `False` because a cancel won the
-race — pattern on `test_a_failed_terminal_write_does_not_wedge_the_worker` and
-`test_worker_finish_does_not_overwrite_a_cancel_that_raced_it`.
-`test_exception_in_generate_marks_error_and_worker_survives` asserts today's
-behaviour (an unrelated job still runs) and must keep passing. In
-`tests/test_sweeps_service.py`: the scoping claim — a failure cancels units
-sharing its `server_group` and leaves the others queued — as a companion to
-`test_units_are_grouped_by_server_config_with_the_base_group_first`.
-`_FakeWorker` there is too thin to drive the firing test; use the real harness
-for that and service-level rows for the scoping. Not `tests/test_sweep.py`:
-despite the name it covers an unrelated benchmarking ladder.
-
-**Expected outcome:** honestly, about an hour of the five this incident cost.
-The three `decim0` rungs share one `server_group` (they differ only in
-`profile`/`custom_triangles`, which are not `SERVER_AXES`), so the two
-survivors on the chest would have been cancelled the moment the first failed —
-but each subject is its own `sweep_id`, and cross-sweep abort is out of scope:
-one sweep cancelling another's work is a much larger claim about intent than
-this mechanism should make. **The larger protection is procedural** — run a
-new axis on one subject before fanning it across a corpus — and that belongs
-in the pre-registration discipline, not in code. Build this for the sharp
-edge it removes, not for the hours.
 
 ## P14. Listen to Sirens, on a machine with a sound card
 
@@ -1308,6 +1220,15 @@ Both belong to P1 step 4 now rather than here.
   the supplied-base-mesh path is untouched.
 - **P18, `style_lock`.** Built 2026-08-30 as the *Keep one style across the
   list* checkbox on the Materials arm, with its cost beside it.
+- **P31, the sweep abort.** Built 2026-09-07 exactly as specified:
+  `Worker.on_job_failed` (queue.py, default `None`) fires from `_process`'s
+  `error` branch; `service.sweeps.on_job_failed` owns the decision, cancelling
+  a failed unit's still-*queued* siblings that share its `server_group`
+  (`server_group_of`, factored out of `UnitPlan.server_group`) via
+  `JobStore.cancel_sweep_units` (`resolve_candidates`'s shape, conditional on
+  `status='queued'`). The reason text names `scripts/sweep_refill.py`, whose
+  docstring does re-queue exactly `cancelled` and shutdown-interrupted units.
+  `docs/INVARIANTS.md` now says a cancel comes in two kinds.
 - **The 3.12 CI leg.** Read 2026-09-03: fourteen failures, six of them rig
   paths that fail rather than skip without `bpy`. The floor was raised to 3.13
   (`bpy` is 3.13-only and the installer packs its own 3.13 runtime).

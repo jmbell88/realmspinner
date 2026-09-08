@@ -499,6 +499,38 @@ def test_comparison_lines_never_raise_on_malformed_entries(tmp_path):
     ]
 
 
+# --- suggestion_line (review_mode.suggest_sweeps' own line) --------------------
+
+
+def test_suggestion_line_matches_the_stated_example():
+    suggestion = {
+        "param": "trellis_gss", "a": "3.0", "b": "unset",
+        "pairs": 4, "needed": 1, "leader": "3.0", "leader_wins": 3,
+    }
+
+    assert findings_mod.suggestion_line(suggestion) == (
+        "trellis_gss: 3.0 vs unset is 3/4 for 3.0 - 1 more matched pair settles it"
+    )
+
+
+def test_suggestion_line_pluralises_more_than_one_pair_needed():
+    suggestion = {
+        "param": "trellis_gss", "a": "3.0", "b": "unset",
+        "pairs": 3, "needed": 2, "leader": "3.0", "leader_wins": 2,
+    }
+
+    assert findings_mod.suggestion_line(suggestion) == (
+        "trellis_gss: 3.0 vs unset is 2/3 for 3.0 - 2 more matched pairs settle it"
+    )
+
+
+def test_suggestion_line_is_defensive_to_a_malformed_suggestion():
+    assert findings_mod.suggestion_line(None) == ""
+    assert findings_mod.suggestion_line({}) == (
+        "?: ? vs ? is 0/0 for ? - 0 more matched pairs settle it"
+    )
+
+
 # --- grades (findings v4) ------------------------------------------------------
 #
 # Every test above this line uses a document with no grades in it, which is what
@@ -620,3 +652,174 @@ def test_every_rendered_string_stays_inside_the_baked_glyph_range():
     for text in rendered:
         assert text
         assert all(ord(ch) <= 0xFF for ch in text), text
+
+
+# --- best_value (findings v5: actionable at the control) -----------------------
+#
+# ``hint`` says what the *current* value scored; ``best_value`` says what the
+# evidence actually favours, so a generate pane can offer the click rather
+# than making the user go find the winning value and dial it in by hand.
+
+
+def test_the_best_value_is_the_wilson_leader_not_the_raw_rate_leader():
+    """The exact pathology ``wilson_low`` exists to fix, one level up: a
+    5-for-5 must not out-rank a solid 19-of-20 just because its raw rate is
+    higher -- ``aggregate``'s own docstring gives these two bounds."""
+    doc = _doc({"lora_weight": {
+        "0.6": {"n": 5, "accepts": 5, "wilson_low": 0.566},
+        "0.9": {"n": 20, "accepts": 19, "wilson_low": 0.764},
+    }})
+
+    found = findings_mod.best_value(doc, "lora_weight", 0.6, min_n=5)
+
+    assert found is not None
+    value_str, entry, scope = found
+    assert value_str == "0.9"
+    assert entry["n"] == 20
+    assert scope == ""
+
+
+def test_no_value_clears_min_n_means_no_offer():
+    doc = _doc({"lora_weight": {"0.6": {"n": 3, "accepts": 3, "wilson_low": 0.4}}})
+
+    assert findings_mod.best_value(doc, "lora_weight", 0.6, min_n=5) is None
+
+
+def test_the_current_value_being_best_means_no_offer():
+    """The float32 slider case: imgui hands back 0.6000000238418579 for a
+    slider resting on 0.6, and the bucket the evidence already favours is
+    keyed "0.6" -- a button offering to set what is already set is not an
+    offer."""
+    doc = _doc({"lora_weight": {
+        "0.6": {"n": 8, "accepts": 6, "wilson_low": 0.5},
+        "0.9": {"n": 8, "accepts": 2, "wilson_low": 0.1},
+    }})
+
+    assert findings_mod.best_value(
+        doc, "lora_weight", 0.6000000238418579, min_n=5
+    ) is None
+
+
+def test_a_scoped_subject_answers_before_the_pool_and_says_so():
+    """A subject with enough behind it answers for itself, exactly the bargain
+    ``hint`` already strikes -- even though the pooled corpus disagrees
+    (favouring "turbo", n=84), the subject's own top-ranked value wins, and
+    the scope label says which corpus answered."""
+    doc = {
+        "version": 5,
+        "generated": "x",
+        "params": {"base_model": {"turbo": {"n": 84, "accepts": 3, "wilson_low": 0.02}}},
+        "prompts": {
+            "abc123": {"params": {"base_model": {
+                "turbo": {"n": 8, "accepts": 6, "wilson_low": 0.35},
+                "sdxl_cfg": {"n": 8, "accepts": 7, "wilson_low": 0.55},
+            }}},
+        },
+    }
+
+    found = findings_mod.best_value(doc, "base_model", "turbo", min_n=5, prompt_hash="abc123")
+
+    assert found is not None
+    value_str, entry, scope = found
+    assert value_str == "sdxl_cfg"
+    assert entry["n"] == 8
+    assert scope == "this subject"
+
+
+def test_a_thin_subject_falls_back_to_the_pool_and_says_that_too():
+    doc = {
+        "version": 5,
+        "generated": "x",
+        "params": {"base_model": {"sdxl_cfg": {"n": 84, "accepts": 60, "wilson_low": 0.6}}},
+        "prompts": {
+            "abc123": {"params": {"base_model": {
+                "turbo": {"n": 2, "accepts": 2, "wilson_low": 0.3},
+            }}},
+        },
+    }
+
+    found = findings_mod.best_value(doc, "base_model", "turbo", min_n=5, prompt_hash="abc123")
+
+    assert found is not None
+    value_str, entry, scope = found
+    assert value_str == "sdxl_cfg"
+    assert scope == "all subjects"
+
+
+def test_best_value_with_no_prompt_hash_is_pooled_and_unlabelled():
+    doc = _doc({"lora_weight": {
+        "0.6": {"n": 8, "accepts": 2, "wilson_low": 0.1},
+        "0.9": {"n": 8, "accepts": 7, "wilson_low": 0.55},
+    }})
+
+    found = findings_mod.best_value(doc, "lora_weight", 0.6, min_n=5)
+
+    assert found is not None
+    assert found[0] == "0.9"
+    assert found[2] == ""
+
+
+def test_best_value_line_matches_the_stated_example():
+    entry = {"n": 8, "accepts": 7, "wilson_low": 0.47, "mean_grade": 2.94}
+
+    assert findings_mod.best_value_line(entry, "this subject") == (
+        "7/8 usable (47%+) · avg +2.9 · this subject"
+    )
+
+
+def test_best_value_line_without_a_scope_carries_no_trailing_label():
+    entry = {"n": 8, "accepts": 7, "wilson_low": 0.47}
+
+    assert findings_mod.best_value_line(entry, "") == "7/8 accept (47%+)"
+
+
+# --- corpus (findings v5, the other half) ---------------------------------------
+
+
+def test_the_corpus_line_names_how_many_configurations_rank():
+    doc = {
+        "version": 5,
+        "generated": "x",
+        "corpus": {
+            "graded_n": 42, "jobs_n": 42, "grades": {}, "tags": {},
+            "zero_used": 0, "prompts_n": 5, "configs_n": 19, "configs_ranked": 3,
+            "contrasts_settled": 2, "contrasts_open": 4,
+        },
+    }
+
+    assert findings_mod.corpus_line(doc) == (
+        "42 graded meshes · 3 of 19 configurations rank · 2 contrasts settled, 4 open"
+    )
+    assert findings_mod.corpus_line({"corpus": "broken"}) == ""
+    assert findings_mod.corpus_line(None) == ""
+
+
+def test_a_v4_reader_is_unchanged_by_the_corpus_section(svc):
+    """The corpus section is additive, to the same letter ``top_vectors`` is:
+    a v4-era reader (``hint``) has never heard of a top-level ``corpus`` key,
+    and must render a real, end-to-end aggregated document -- one that now
+    carries that key -- exactly as it rendered one that did not.
+
+    Goes through ``service.findings.aggregate`` rather than a hand-built doc,
+    so the ``"corpus" in doc`` assertion is a genuine regression check: on
+    unfixed code that key is simply absent, which a hand-built fixture could
+    not have shown.
+    """
+    from warlock.service import findings as svc_findings
+    from warlock.service import verdicts as svc_verdicts
+
+    for _ in range(6):
+        job_id = svc.store.create(
+            "image", "a chest", {"lora_weight": 0.9}, stage="model", status="done"
+        )
+        svc_verdicts.record_verdict(svc, job_id, grade=3, source="human")
+    job_id = svc.store.create(
+        "image", "a chest", {"lora_weight": 0.9}, stage="model", status="done"
+    )
+    svc_verdicts.record_verdict(svc, job_id, grade=-3, source="human")
+
+    doc = svc_findings.aggregate(svc.store)
+
+    assert "corpus" in doc
+    # The old reader renders exactly what it always did, corpus key or not.
+    assert findings_mod.hint(doc, "lora_weight", 0.9) == "usable 6/7 (49%+) · avg +2.1"

@@ -37,6 +37,13 @@ from .validation import (
     MAX_MESH_CANDIDATES,
     check_job_id,
     check_seed,
+    check_trellis_atlas,
+    check_trellis_band,
+    check_trellis_decim,
+    check_trellis_gsh,
+    check_trellis_gss,
+    check_trellis_max_tokens,
+    check_trellis_tex_res,
     check_vram,
     check_weights,
     not_done_message,
@@ -417,6 +424,13 @@ def promote_to_model(
     bg_removal: str | None = None,
     profile: str | None = None,
     custom_triangles: int | None = None,
+    trellis_band: int | None = None,
+    trellis_tex_res: int | None = None,
+    trellis_gss: float | None = None,
+    trellis_gsh: float | None = None,
+    trellis_max_tokens: int | None = None,
+    trellis_decim: int | None = None,
+    trellis_atlas: int | None = None,
     rig: bool | None = None,
     rig_template: str | None = None,
     reference_prep: bool | None = None,
@@ -442,12 +456,25 @@ def promote_to_model(
     ``resolution`` is the exception to "omitted means keep what the reference
     recorded": see the comment below the params copy -- a reference's stored
     resolution belongs to the 2D pane's platform select, not to the mesh.
+
+    The seven ``trellis_*`` engine axes follow ``create_job``'s own rule
+    exactly (unset means the exe's own default runs, written only when not
+    None): a promoted job is the other door onto a mesh job, and until now it
+    was the only one these axes could not reach a real Create job through --
+    a sweep could set them, an ordinary promotion could not.
     """
     check_seed("mesh_seed", mesh_seed)
     if resolution is not None and resolution not in ALLOWED_RESOLUTIONS:
         raise Invalid(
             f"resolution must be one of {sorted(ALLOWED_RESOLUTIONS)}", field="resolution"
         )
+    check_trellis_band(trellis_band)
+    check_trellis_tex_res(trellis_tex_res)
+    check_trellis_gss(trellis_gss)
+    check_trellis_gsh(trellis_gsh)
+    check_trellis_max_tokens(trellis_max_tokens)
+    check_trellis_decim(trellis_decim)
+    check_trellis_atlas(trellis_atlas)
     source = svc.require_job(job_id)
     if source["stage"] != "reference":
         raise Invalid(
@@ -518,6 +545,32 @@ def promote_to_model(
         raw["resolution"] = guidance.PLATFORMS[guidance.DEFAULT_PLATFORM].resolution
     params.update(_normalize_guidance(svc, raw))
     resolve_profile(svc, params, profile, custom_triangles)
+    # create_job's own unset-follows-config rule, restated rather than
+    # re-derived: an inherited value describes the *source* reference's mesh
+    # stage, which never ran these flags (a reference is text/image, not
+    # model), so there is nothing here to inherit and every one of these is
+    # written only when this call asked for it.
+    for key, value in (
+        ("trellis_band", trellis_band),
+        ("trellis_tex_res", trellis_tex_res),
+    ):
+        if value is not None:
+            params[key] = int(value)
+    for key, value in (
+        ("trellis_gss", trellis_gss),
+        ("trellis_gsh", trellis_gsh),
+    ):
+        if value is not None:
+            params[key] = float(value)
+    # ``is not None`` on every one of these, and it is load-bearing for decim:
+    # 0 is the "no decimation" rung and must land in params as 0.
+    for key, value in (
+        ("trellis_max_tokens", trellis_max_tokens),
+        ("trellis_decim", trellis_decim),
+        ("trellis_atlas", trellis_atlas),
+    ):
+        if value is not None:
+            params[key] = int(value)
     if reference_prep is not None:
         params["reference_prep"] = bool(reference_prep)
     if rig is not None:

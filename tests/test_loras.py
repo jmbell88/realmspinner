@@ -11,19 +11,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
-from warlock import generation, models, progress, rigging, vram
+from warlock import generation, models, progress, rigging, vectors, vram
 from warlock.config import Config
 from warlock.db import JobStore
 from warlock.pipelines import lora_train
 from warlock.queue import Worker
 from warlock.service import loras as svc_loras
+from warlock.service import verdicts as svc_verdicts
 from warlock.service.errors import Invalid
 from warlock.service.validation import DERIVED_PARAMS
 from warlock.studio.panes import app_settings
@@ -407,6 +409,130 @@ def test_the_training_door_needs_the_base_weights(svc, tmp_path):
     with pytest.raises(Invalid) as info:
         svc_loras.train_lora(svc, _images(tmp_path, 3), label="x", trigger="y")
     assert info.value.field == "base_model"
+
+
+# --- the library's own accepted work ----------------------------------------------------------
+
+
+def _reference_job(
+    svc, *, stage: str = "reference", status: str = "queued", box=(2, 2, 10, 10), size=(32, 32)
+):
+    """A job with a ``reference.png`` distinguishable by ``bench.metrics.perceptual_hash`` --
+    a flat-colour square hashes identically to every other flat-colour square (dHash keys on
+    gradients, and a solid fill has none), so each caller places its own rectangle."""
+    job_id = svc.store.create("text", "a thing", {}, stage=stage, status=status)
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    im = Image.new("RGB", size, (220, 220, 220))
+    ImageDraw.Draw(im).rectangle(list(box), fill=(20, 60, 160))
+    im.save(job_dir / "reference.png")
+    return job_id
+
+
+def test_the_library_set_takes_accepted_references_and_usable_meshes_and_not_rejects(svc):
+    accepted_a = _reference_job(svc, box=(2, 2, 10, 10))
+    svc_verdicts.record_verdict(svc, accepted_a, verdict="accept", stage="reference")
+
+    accepted_b = _reference_job(svc, box=(20, 20, 30, 30))
+    svc_verdicts.record_verdict(svc, accepted_b, verdict="accept", stage="reference")
+
+    usable_mesh = _reference_job(svc, stage="model", status="done", box=(2, 20, 10, 30))
+    svc_verdicts.record_verdict(svc, usable_mesh, grade=vectors.USABLE_GRADE, stage="model")
+
+    rejected_ref = _reference_job(svc, box=(20, 2, 30, 10))
+    svc_verdicts.record_verdict(svc, rejected_ref, verdict="reject", stage="reference")
+
+    below_cut = _reference_job(svc, stage="model", status="done", box=(11, 11, 21, 21))
+    svc_verdicts.record_verdict(svc, below_cut, grade=vectors.USABLE_GRADE - 1, stage="model")
+
+    result = svc_loras.library_training_set(svc, favourites=False)
+
+    expected = {
+        svc.job_dir(accepted_a) / "reference.png",
+        svc.job_dir(accepted_b) / "reference.png",
+        svc.job_dir(usable_mesh) / "reference.png",
+    }
+    assert set(result["paths"]) == expected
+    assert result["sources"] == {
+        "favourites": 0,
+        "accepted_references": 2,
+        "usable_meshes": 1,
+    }
+    assert result["dropped_duplicates"] == 0
+    assert result["considered"] == 3
+
+
+def test_two_references_inside_the_duplicate_floor_contribute_one_image(svc):
+    first = _reference_job(svc, box=(2, 2, 10, 10))
+    svc_verdicts.record_verdict(svc, first, verdict="accept", stage="reference")
+    time.sleep(0.01)  # keep created_at strictly ordered on a coarse clock
+
+    # A byte-identical copy of the same picture, filed as its own accepted
+    # reference under a different job -- exactly the "same reference reused
+    # across two jobs" case DUPLICATE_SIMILARITY exists to collapse.
+    duplicate = svc.store.create("text", "a thing", {}, stage="reference")
+    job_dir = svc.job_dir(duplicate)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(svc.job_dir(first) / "reference.png", job_dir / "reference.png")
+    svc_verdicts.record_verdict(svc, duplicate, verdict="accept", stage="reference")
+    time.sleep(0.01)
+
+    second = _reference_job(svc, box=(20, 20, 30, 30))
+    svc_verdicts.record_verdict(svc, second, verdict="accept", stage="reference")
+    time.sleep(0.01)
+
+    third = _reference_job(svc, box=(2, 20, 10, 30))
+    svc_verdicts.record_verdict(svc, third, verdict="accept", stage="reference")
+
+    result = svc_loras.library_training_set(svc, favourites=False)
+
+    assert result["dropped_duplicates"] == 1
+    assert result["considered"] == 4
+    paths = set(result["paths"])
+    assert len(paths) == 3
+    # The earlier of the two colliding rows is the one kept.
+    assert svc.job_dir(first) / "reference.png" in paths
+    assert svc.job_dir(duplicate) / "reference.png" not in paths
+
+
+def test_a_library_set_below_min_images_is_refused_on_the_images_field(svc):
+    only_one = _reference_job(svc, box=(2, 2, 10, 10))
+    svc_verdicts.record_verdict(svc, only_one, verdict="accept", stage="reference")
+
+    with pytest.raises(Invalid) as info:
+        svc_loras.library_training_set(svc, favourites=False)
+    assert info.value.field == "images"
+
+
+def test_a_pruned_reference_is_counted_missing_not_trained_on(svc):
+    pruned = _reference_job(svc, box=(2, 2, 10, 10))
+    svc_verdicts.record_verdict(svc, pruned, verdict="accept", stage="reference")
+    # Simulate prune_jobs: the job row and its directory are gone, but the
+    # verdict that named it survives -- service.verdicts documents this as
+    # the whole reason the verdict's vector is denormalized.
+    shutil.rmtree(svc.job_dir(pruned))
+    svc.store.delete(pruned)
+    assert svc.store.get(pruned) is None
+
+    kept_a = _reference_job(svc, box=(20, 20, 30, 30))
+    svc_verdicts.record_verdict(svc, kept_a, verdict="accept", stage="reference")
+    kept_b = _reference_job(svc, box=(2, 20, 10, 30))
+    svc_verdicts.record_verdict(svc, kept_b, verdict="accept", stage="reference")
+    kept_c = _reference_job(svc, box=(20, 2, 30, 10))
+    svc_verdicts.record_verdict(svc, kept_c, verdict="accept", stage="reference")
+
+    result = svc_loras.library_training_set(svc, favourites=False)
+
+    # Considered counts the pruned candidate too -- it was a real accepted
+    # reference once -- but it never reaches the trained set.
+    assert result["considered"] == 4
+    assert len(result["paths"]) == 3
+    expected = {
+        svc.job_dir(kept_a) / "reference.png",
+        svc.job_dir(kept_b) / "reference.png",
+        svc.job_dir(kept_c) / "reference.png",
+    }
+    assert set(result["paths"]) == expected
 
 
 # --- the worker ------------------------------------------------------------------------------

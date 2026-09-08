@@ -46,9 +46,25 @@ def list_jobs(
 
     limit = max(1, min(limit, _facade.MAX_LIST_LIMIT))
     jobs = svc.store.list(limit, before)
+    # A3: the human mesh grade, on the row rather than in ``params`` -- the
+    # library's "best" sort used to read ``params["rank"]``, a reference-only
+    # advisory score, because nothing else was on the row to sort by. Grading
+    # a mesh writes a ``verdicts`` row, not a param, so it has to be joined in
+    # here; one call for the whole page keeps this the same "one query, not
+    # one per row" shape ``attach_files``'s own cache exists for.
+    # ``stage="model"`` matters: a job's *reference* may carry a binary image
+    # label under the same job id, and that label's ``grade`` column is NULL
+    # -- passing no stage would let ``verdicts_for`` hand back whichever of
+    # the two rows sorted last and the card would flash between a mesh grade
+    # and nothing for no reason a reader could see.
+    recorded = svc.store.verdicts_for(
+        [job["id"] for job in jobs], source="human", stage="model"
+    )
     for job in jobs:
         attach_files(job, svc.job_dir(job["id"]), cache=files_cache)
         svc.attach_progress(job)
+        verdict = recorded.get((job["id"], "human"))
+        job["grade"] = verdict["grade"] if verdict else None
     return jobs
 
 

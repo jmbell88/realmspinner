@@ -277,6 +277,19 @@ def remove_reviewed_sweeps(
     }
 
 
+def server_group_of(params: dict[str, Any]) -> tuple[Any, ...]:
+    """The subset of a settings vector that decides how ``trellis-server`` is
+    launched -- the seven :data:`SERVER_AXES` values, in order, read straight
+    off ``params`` with no schema change needed.
+
+    One definition, called from :meth:`UnitPlan.server_group` (planning, over
+    ``base | overrides``) and from :func:`on_job_failed` (an abort decision,
+    over a job row's already-merged ``params``) -- so "same server config" is
+    never computed two ways that could drift apart (P31).
+    """
+    return tuple(params.get(p) for p in SERVER_AXES)
+
+
 def axis_params() -> tuple[str, ...]:
     """Every param an axis may name, sorted -- what the form offers."""
     return tuple(sorted(set(guidance.form_fields()) | set(KWARG_AXES)))
@@ -299,7 +312,7 @@ class UnitPlan:
 
     def server_group(self, base: dict[str, Any]) -> tuple[Any, ...]:
         merged = {**base, **self.overrides}
-        return tuple(merged.get(p) for p in SERVER_AXES)
+        return server_group_of(merged)
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,6 +602,69 @@ def create_sweep(
             log.exception("could not roll back sweep %s", sweep_id)
         raise
     return {"id": sweep_id, "units": len(created), "jobs": created}
+
+
+def on_job_failed(svc: WarlockService, job: dict[str, Any]) -> None:
+    """The queue's sweep-abort hook (P31): a job that just failed cancels its
+    sweep's still-*queued* units sharing its server group, so a structural
+    failure does not have to repeat itself across every remaining subject
+    before anyone notices.
+
+    **The incident.** The ``detail-060`` run (2026-09-06, five subjects as
+    five sweeps) failed all three ``decim0-*`` rungs on its first subject at
+    ~29 minutes each, for one structural reason
+    (``docs/measurements/2026-09-03-trellis-detail-sweep.md``); the other four
+    subjects were still queued to repeat exactly those three configurations,
+    and nothing noticed. ``JobStore.next_queued`` is FIFO and sweep-blind by
+    construction, so it never was going to.
+
+    Injected onto ``Worker.on_job_failed`` (``studio.runtime``, since
+    queue.py may not import this module or learn what a sweep is) rather than
+    called directly; ``job`` is the failed row itself, already carrying its
+    terminal ``status``/``error`` -- ``_notify_job_failed`` reads it fresh
+    rather than handing back the stale in-memory copy the dispatch loop had
+    been carrying.
+
+    **Cross-sweep abort is deliberately out of scope.** Each subject in a
+    fan-out is minted as its own ``sweep_id``, and one sweep reaching over to
+    cancel another's units is a much larger claim about intent than a shared
+    server config supports -- see P31's own "Expected outcome" for why that is
+    a feature and not a gap.
+
+    Cancelling writes no observation (``docs/INVARIANTS.md``: a cancel comes
+    in two kinds now, and this is the system-initiated one, still not a
+    measurement -- the unit never ran). The reason text names
+    ``scripts/sweep_refill.py``, which is the re-queue path for exactly this
+    status (its own docstring: "cancelling one leaves it ``cancelled``" and
+    "[o]nly ``cancelled`` and shutdown-interrupted units are refilled").
+    """
+    sweep_id = job.get("sweep_id")
+    if not sweep_id:
+        return
+    group = server_group_of(job.get("params") or {})
+    queued_ids = [
+        other["id"]
+        for other in svc.store.sweep_jobs(sweep_id)
+        if other.get("status") == "queued"
+        and server_group_of(other.get("params") or {}) == group
+    ]
+    if not queued_ids:
+        return
+    unit = job.get("sweep_unit") or job.get("id")
+    reason = (
+        f"cancelled: {unit} failed on this server config ({job.get('error') or 'error'}); "
+        "the rest of this sweep's units sharing it were stopped rather than "
+        "repeating the failure. If it was transient, re-queue with "
+        "scripts/sweep_refill.py once the cause is fixed."
+    )
+    cancelled = svc.store.cancel_sweep_units(sweep_id, queued_ids, reason)
+    if cancelled:
+        log.info(
+            "sweep %s: %s failed, cancelled %d queued unit(s) sharing its server group",
+            sweep_id,
+            unit,
+            cancelled,
+        )
 
 
 def list_sweeps(svc: WarlockService) -> list[dict[str, Any]]:

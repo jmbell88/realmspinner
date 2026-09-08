@@ -88,7 +88,14 @@ Nothing is ever deleted on your behalf, and declining leaves you with ordinary a
 hidden ones.
 
 Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
-See [Review](37-review.md).
+See [Review](37-review.md). The picker itself shows what has been graded so far: a candidate you have
+already graded carries its grade — `+4`, `-2` — beside its status, read once for the whole group rather
+than asked about candidate by candidate. While any finished attempt in the group is still ungraded, a
+line under the picker says so: *"Grade each attempt before you keep one - they feed What works."* That
+line is the whole of what grading does here — it never reorders the candidates, never marks one as the
+apparent winner, and never stops you from pressing **Keep this one** on an ungraded attempt. It is a
+reminder, not a gate: what you decide by pressing Keep is yours to decide, and the sentence only asks
+that the mesh you did not choose still teaches the corpus something before it leaves the picker.
 
 The count applies to **Make 3D** only. An upload queues one mesh job, as it always has.
 
@@ -165,6 +172,30 @@ hurts has not been measured. Treat it as an experiment rather than an improvemen
 
 The **Rig** section, present only when Blender is installed, holds **Rig when the mesh lands** and a
 skeleton picker. See [Rigging and posing](25-rigging-and-posing.md).
+
+## Engine (advanced)
+
+Below Rig is a collapsed **Engine (advanced)** header, closed by default. It holds the seven launch
+flags the reconstruction engine (`trellis-server.exe`) itself accepts: **Band**, **Texture resolution**,
+**Sparse-structure guidance**, **Structured-latent guidance**, **Token budget**, **Decimation** and
+**Atlas resolution**. A findings sweep could already set every one of these — they are exactly
+`service.sweeps`'s `SERVER_AXES`, the set that decides how the engine process is launched — but until
+now an ordinary Make 3D had no door onto them at all.
+
+Every control here starts **unset**, and unset is a real value: it means "the engine's own default
+runs", the same rule every other control on this stage follows. Leave the whole section alone and
+nothing about this changes from what shipped before it existed. **Decimation** is the one exception
+worth knowing — its unset reading is `-1`, not `0`, because `0` is itself a meaningful setting here
+("turn decimation off and ship the full reconstruction"), not an empty box.
+
+Changing any one of these restarts the engine process for the job it applies to — that is what a
+launch flag *is* — so the note under the header says so, and this is not a section to open on every
+run. It exists for measurement work: sweeping the token budget or the atlas size to find where a
+default should move, in the same way `docs/measurements/2026-09-03-trellis-detail-sweep.md` and its
+siblings already did through Review's sweep form. See
+[Configuration](40-configuration.md#environment-variables) for what each flag does and the environment
+variable that sets the same thing app-wide, and [Review](37-review.md#what-works) for how a findings
+hint next to one of these controls is read.
 
 ## Triangle budget
 

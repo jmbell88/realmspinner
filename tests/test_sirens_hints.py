@@ -7,9 +7,13 @@ nothing implements is worse than no hint, because it is read as a promise.
 
 from __future__ import annotations
 
+import inspect
+import re
+
 import pytest
 
 from warlock.studio import sirens_hints, sirens_keys, sirens_state
+from warlock.studio.panes import sirens_patterns
 from warlock.studio.sirens import document as D
 from warlock.studio.sirens import synth
 
@@ -108,3 +112,22 @@ def test_every_key_the_line_names_is_a_key_the_mode_listens_to():
                 sirens_hints.hint(column, has_selection=selection)
             )
     assert named <= known, sorted(named - known)
+
+
+def test_the_sirens_keyboard_hint_wraps_rather_than_clipping():
+    """C3: the hint line under the strip is a full sentence, not a status
+    word -- ``widgets.muted`` deliberately does not wrap (it is meant for
+    short strip elements like the column label beside it), so drawn with
+    that helper in a narrow Sirens sidebar it was clipped at the pane edge
+    with no scrollbar to reach the rest. ``widgets.muted_wrapped`` exists for
+    exactly this shape of line; the fix is which helper wraps the call to
+    ``sirens_hints.hint``, so read the source rather than the pixels.
+    """
+    source = inspect.getsource(sirens_patterns._toolbar)
+    preceding = source[: source.index("sirens_hints.hint(")]
+    helper = re.search(r"widgets\.(muted\w*)\(\s*$", preceding.rstrip())
+    assert helper is not None, "expected a widgets.muted* call wrapping the hint"
+    assert helper.group(1) == "muted_wrapped", (
+        "the keyboard hint must be drawn with widgets.muted_wrapped, not "
+        f"widgets.{helper.group(1)}, or it clips at the pane edge"
+    )

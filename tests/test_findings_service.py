@@ -285,6 +285,25 @@ def test_vectors_are_ranked_and_carry_their_jobs(svc):
     assert len(svc_findings.presets(doc, min_n=2)) == 1
 
 
+def test_the_corpus_section_counts_each_job_once_under_latest_wins(svc):
+    """``params``/``vectors``/``prompts`` credit every source's row against a
+    job on purpose (the confound this project accepts) -- but the ``corpus``
+    section is a health count, and a job graded by a human and by an AI judge
+    is two rows in ``latest_verdicts()`` and one mesh. It must not be counted
+    twice, and the human verdict is the one its grade histogram keeps."""
+    job_id = svc.store.create(
+        "image", "a chest", {"platform": "pc"}, stage="model", status="done"
+    )
+    svc_verdicts.record_verdict(svc, job_id, grade=3, source="human")
+    svc_verdicts.record_verdict(svc, job_id, grade=-3, source="ai:demo")
+
+    doc = svc_findings.aggregate(svc.store)
+
+    assert doc["corpus"]["jobs_n"] == 1
+    assert doc["corpus"]["graded_n"] == 1
+    assert doc["corpus"]["grades"] == {"3": 1}
+
+
 def test_an_ai_source_sits_beside_the_human_one(svc):
     job_id = svc.store.create("image", "a chest", {"platform": "pc"},
                               stage="model", status="done")

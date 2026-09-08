@@ -298,6 +298,27 @@ def test_created_at_is_indexed(store):
     assert "idx_jobs_created" in names
 
 
+def test_listing_jobs_newest_first_uses_no_temporary_sort(store):
+    """A2: ``list`` orders by ``created_at DESC, id DESC`` (the tie-break
+    ``list``'s own docstring explains), but the schema's ``idx_jobs_created``
+    only covers ``created_at`` -- so sqlite satisfied the ordering with a
+    temporary b-tree sort on every page of every library refresh, twice a
+    second. ``idx_jobs_created_id`` -- the composite index on the exact
+    (column, direction) pair the query asks for -- lets sqlite walk it in
+    order instead, and that shows up as the "USE TEMP B-TREE" line
+    disappearing from the plan, not as anything list() itself returns."""
+    plan = [
+        dict(row)["detail"]
+        for row in store._conn.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM jobs"
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (200,),
+        )
+    ]
+    assert not any("TEMP B-TREE" in line for line in plan), plan
+    assert any("idx_jobs_created_id" in line for line in plan), plan
+
+
 # --- keyset pagination -------------------------------------------------------
 
 

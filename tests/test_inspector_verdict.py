@@ -9,12 +9,25 @@ from warlock.studio.panes import inspector
 from warlock.studio.state import AppState
 
 
+class _FakeCache:
+    """Just enough of ``JobsCache`` for ``inspector.record_verdict`` (A3): it
+    invalidates the cache inline, on the frame thread, because it is not a
+    task ``main._on_task_done`` would catch by key -- see that call site."""
+
+    def __init__(self) -> None:
+        self.invalidated = 0
+
+    def invalidate(self) -> None:
+        self.invalidated += 1
+
+
 class FakeCtx:
     def __init__(self, svc: Any) -> None:
         self.svc = svc
         self.state = AppState()
         self.submitted: list[str] = []
         self.toasts: list[tuple[str, str]] = []
+        self.cache = _FakeCache()
 
     def submit(self, key: str, run: Any, *args: Any) -> bool:
         self.submitted.append(key)

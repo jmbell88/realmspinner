@@ -19,6 +19,22 @@ asset) and then *offers* the losers to the ordinary delete path behind the
 ordinary confirm. Deleting two meshes on a single click, because the user
 pressed the button that means "I like this one", is not a trade anybody agreed
 to.
+
+**A5: grading feeds the corpus, and the nudge is the whole intervention.**
+Keeping a candidate used to be a decision that never reached a verdict --
+nothing here ever showed, or asked for, a grade, so a kept mesh taught
+findings nothing about which settings won. `_grades` reads every member's
+latest verdict in one call, memoized on the job cache's own generation
+counter the way `panes.landing.rows` already is, so it costs one query per
+*refresh* of the group rather than one per member or one per frame; a grade
+just filed reaches it because `panes.inspector.record_verdict` already calls
+`ctx.cache.invalidate()`. What is drawn from it is deliberately thin: a
+grade beside the candidate that has one, and a muted line while a finished
+attempt does not. No ordering, no pre-selection, no filtering -- the judge's
+own doctrine (`docs/INVARIANTS.md`, "advisory... sorts and never filters")
+applies here even though nothing here is the judge, because the failure mode
+is the same one: a picker that reordered or hid a candidate on the strength
+of a grade would be making the keep decision instead of nudging it.
 """
 
 from __future__ import annotations
@@ -29,10 +45,22 @@ from imgui_bundle import imgui
 
 from ...service import jobs as svc_jobs
 from .. import candidates as candidates_mod
-from .. import controls, dialogs, widgets
+from .. import controls, dialogs, review_mode, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import library
+
+#: The nudge, drawn once per group while some finished attempt has no grade.
+#: Basic-Latin only (imgui's default atlas), so " - " and not an em dash --
+#: the same rule ``review_mode``'s own UI strings state for themselves.
+_NUDGE = "Grade each attempt before you keep one - they feed What works."
+
+#: One memoized answer: ``(key, {job_id: grade})``, where ``key`` names the
+#: cache generation, group and member set it was read for. Module-level like
+#: ``panes.landing._ROWS_CACHE``, for the same reason -- there is exactly one
+#: candidate group offered at a time (``candidates.pending`` says so), so one
+#: slot is the whole cache rather than something keyed per group.
+_GRADES_CACHE: tuple[Any, dict[str, int | None]] | None = None
 
 
 def draw(ctx: Any) -> None:
@@ -50,9 +78,81 @@ def draw(ctx: Any) -> None:
             "Keep becomes available once they all have."
         )
     selected = ctx.state.selected
+    grades = _grades(ctx, group)
     for member in group.members:
-        _member(ctx, group, member, selected == member["id"])
+        _member(ctx, group, member, selected == member["id"], grades)
+    nudge = _nudge_text(group, grades)
+    if nudge is not None:
+        widgets.muted(nudge)
     widgets.divider()
+
+
+def _grades(ctx: Any, group: Any) -> dict[str, int | None]:
+    """``{job_id: grade}`` for every member of ``group``. -> One ``verdicts_for``
+    read per group, not one per member and not one per frame.
+
+    Memoized on the job cache's own generation counter -- ``jobs_cache.visible``
+    and ``panes.landing.rows`` are already memoized the identical way, against
+    the identical counter, and it only moves when a fresh read actually lands.
+    That is what makes this cheap to call from every frame's ``draw``: a grade
+    just filed shows up the next time the cache refreshes, which
+    ``panes.inspector.record_verdict``'s own ``ctx.cache.invalidate()`` call is
+    what schedules.
+
+    A ``None`` generation -- a headless ``ctx`` with no real cache, as every
+    test here builds -- never memoizes: nothing behind it can go stale to
+    avoid re-reading, and a test asking "did this cost one query" builds a
+    real ``JobsCache`` to get an answer that means anything.
+    """
+    global _GRADES_CACHE
+    member_ids = [m["id"] for m in group.members]
+    cache = getattr(ctx, "cache", None)
+    generation = getattr(cache, "_generation", None)
+    key = (id(cache), generation, group.group, tuple(member_ids))
+    if generation is not None and _GRADES_CACHE is not None and _GRADES_CACHE[0] == key:
+        return _GRADES_CACHE[1]
+    try:
+        recorded = ctx.svc.store.verdicts_for(member_ids, source=review_mode.SOURCE, stage="model")
+    except Exception:
+        # Never fail a frame over a grade nobody asked for explicitly --
+        # ``panes.inspector.is_graded`` takes the same stance for the same
+        # reason. The picker itself still works with no grades in hand.
+        return {}
+    grades = {job_id: verdict.get("grade") for (job_id, _source), verdict in recorded.items()}
+    if generation is not None:
+        _GRADES_CACHE = (key, grades)
+    return grades
+
+
+def _status_text(member: dict[str, Any], grades: dict[str, int | None]) -> str:
+    """The status line, with the recorded grade appended if there is one.
+
+    A plain string, on purpose: it is what makes the grade assertable without
+    a GL context, and it is what ``_member`` hands straight to ``widgets.muted``
+    rather than composing on two lines that would need a second ``same_line``.
+    """
+    status = candidates_mod.status_line(member)
+    grade = grades.get(member["id"])
+    if grade is None:
+        return status
+    text = review_mode.grade_text(grade)
+    return f"{status} · {text}" if text else status
+
+
+def _nudge_text(group: Any, grades: dict[str, int | None]) -> str | None:
+    """``_NUDGE``, or ``None`` while nothing in ``group`` needs it.
+
+    Only a ``done`` candidate can carry a grade at all -- an errored or
+    cancelled attempt never reaches ``panes.inspector``'s verdict section, so
+    counting it as "settled and ungraded" would leave the sentence on screen
+    forever for a mesh nobody could ever grade. That is what "settled" means
+    here, narrower than ``candidates.Group.finished``'s own (which also
+    counts a failure as settled, because *that* question is "is there
+    anything left to wait for").
+    """
+    if any(m.get("status") == "done" and grades.get(m["id"]) is None for m in group.members):
+        return _NUDGE
+    return None
 
 
 #: How wide a candidate's "A"/"B" picker button is, in design pixels. Wide
@@ -61,7 +161,9 @@ def draw(ctx: Any) -> None:
 _PICKER_BUTTON = 44.0
 
 
-def _member(ctx: Any, group: Any, member: dict[str, Any], current: bool) -> None:
+def _member(
+    ctx: Any, group: Any, member: dict[str, Any], current: bool, grades: dict[str, int | None]
+) -> None:
     job_id = member["id"]
     label = candidates_mod.label(member)
     # ``sp``, not raw pixels: this is a design measurement like every other
@@ -75,7 +177,7 @@ def _member(ctx: Any, group: Any, member: dict[str, Any], current: bool) -> None
     # Safe against the pane edge: a 44 dp button plus one item spacing inside a
     # 300 dp sidebar leaves most of the line. The smoke-test guard measures it.
     imgui.same_line()
-    widgets.muted(candidates_mod.status_line(member))
+    widgets.muted(_status_text(member, grades))
     # Keep is offered on the selected candidate only, and only once every
     # member has settled: keeping one dissolves the group, so a member still
     # queued would quietly become an asset nobody chose.

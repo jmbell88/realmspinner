@@ -927,9 +927,9 @@ class ReviewPanes:
                 recorded += " - " + ", ".join(unit["tags"])
             widgets.muted(f"Recorded: {recorded}")
 
-        self._review_findings(ctx)
+        self._review_findings(ctx, unit)
 
-    def _review_findings(self, ctx: Any) -> None:
+    def _review_findings(self, ctx: Any, unit: dict[str, Any] | None = None) -> None:
         """What the verdicts add up to, and the one-click way to reuse it.
 
         Two answers, most conclusive first. Axis verdicts are matched pairs
@@ -938,6 +938,22 @@ class ReviewPanes:
         ranked vectors are whole configurations ordered by their Wilson lower
         bound (the "floor" percentage), because the per-parameter marginals
         are confounded and a raw rate lets a lucky 5/5 outrank a 19/20.
+
+        ``unit`` is optional and, when it carries a subject with
+        ``PRESET_MIN_N`` verdicts of its own (findings v5's
+        ``prompts[*].top_vectors``), its own ranking leads instead of the
+        pooled one -- labelled "for this subject", the same bargain
+        ``bench.findings.hint`` already strikes per param: what makes a good
+        wooden crate says very little about what makes a good character. No
+        unit, or a thin/unknown subject, falls back to the pooled ranking
+        exactly as this always has.
+
+        A third answer, between the two: axis verdicts say which contrasts are
+        unsettled but never how to settle one -- ``review_mode.suggest_sweeps``
+        reads the same section for the ones a few more matched pairs would
+        close, and "Plan this sweep" is ``review_mode.plan_suggestion`` filling
+        the New-sweep form's axis and seeds, one click rather than rebuilding
+        both by hand from a line of text.
         """
         from imgui_bundle import imgui
 
@@ -952,7 +968,18 @@ class ReviewPanes:
         # mtime-cached but still a stat per frame, for a section that is
         # closed by default -- and the lines are formatted from scratch.
         doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
-        top = svc_findings.presets(doc or {})
+        corpus_line = findings_lib.corpus_line(doc)
+        if corpus_line:
+            widgets.muted(corpus_line)
+        subject = unit.get("prompt_hash") if isinstance(unit, dict) else None
+        prompts = (doc or {}).get("prompts")
+        scope = prompts.get(subject) if subject and isinstance(prompts, dict) else None
+        subject_top = [
+            v for v in (scope.get("top_vectors") or [])
+            if isinstance(v, dict) and v.get("n", 0) >= svc_findings.PRESET_MIN_N
+        ] if isinstance(scope, dict) else []
+        for_subject = bool(subject_top)
+        top = subject_top if for_subject else svc_findings.presets(doc or {})
         axis_lines = findings_lib.comparison_lines(doc)
         if axis_lines:
             widgets.muted("Axis verdicts (matched pairs, all else equal):")
@@ -962,7 +989,32 @@ class ReviewPanes:
                 else:
                     imgui.text_wrapped(line)
             imgui.separator()
+        # Review knows which contrasts are unsettled (the lines above), but
+        # never how to settle one -- ``suggest_sweeps`` reads the same section
+        # for the ones a few more matched pairs would close, and this button
+        # is the one-click way to act on that rather than rebuilding the axis
+        # and seeds by hand.
+        suggestions = review_mode.suggest_sweeps(doc)
+        if suggestions:
+            widgets.muted("Sweep suggestions (a few more matched pairs would settle these):")
+            state = review_mode.ensure(ctx)
+            for s in suggestions:
+                imgui.text_wrapped(findings_lib.suggestion_line(s))
+                if controls.button(f"Plan this sweep##suggest-{s['param']}-{s['a']}-{s['b']}"):
+                    review_mode.plan_suggestion(state, s)
+                    ctx.toast(
+                        'Filled the axis and seeds for that contrast. Set the '
+                        'prompt and press "Start from current 2D/3D settings", '
+                        "then Launch sweep."
+                    )
+            imgui.separator()
         if not top:
+            gap = findings_lib.nearest_rank_gap(doc, min_n=svc_findings.PRESET_MIN_N)
+            closest = (
+                f" The closest is {gap} verdict{'' if gap == 1 else 's'} away."
+                if gap is not None
+                else ""
+            )
             widgets.muted(
                 f"No whole configuration has {svc_findings.PRESET_MIN_N} verdicts yet."
                 if axis_lines
@@ -970,9 +1022,12 @@ class ReviewPanes:
                     f"Nothing yet: a configuration needs "
                     f"{svc_findings.PRESET_MIN_N} verdicts to rank, and axis "
                     "verdicts need matched pairs from sweeps sharing seeds."
+                    f"{closest}"
                 )
             )
             return
+        if for_subject:
+            widgets.muted("Top configurations for this subject:")
         for entry in top[:5]:
             summary = review_mode.describe_vector(entry["vector"])
             imgui.text_wrapped(f"{findings_lib.vector_line(entry)}  -  {summary}")

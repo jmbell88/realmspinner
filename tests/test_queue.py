@@ -524,6 +524,57 @@ async def test_a_failed_terminal_write_does_not_wedge_the_worker(worker, monkeyp
     await worker.shutdown()
 
 
+async def test_on_job_failed_fires_once_after_a_durable_terminal_write(worker):
+    """P31's hook: the callback fires exactly once, off a real error, once the
+    terminal write has actually landed -- with the fresh row, not the stale
+    in-memory ``job`` the dispatch loop had been carrying (it never learns the
+    error message any other way)."""
+    calls: list[dict] = []
+    worker.on_job_failed = lambda job: calls.append(job)
+
+    bad_id = _make_image_job(worker)
+    worker.trellis.should_raise = RuntimeError("boom")
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(bad_id)["status"] == "error")
+    await worker.shutdown()
+
+    assert len(calls) == 1
+    assert calls[0]["id"] == bad_id
+    assert calls[0]["status"] == "error"
+    assert calls[0]["error"] == "boom"
+
+
+async def test_on_job_failed_does_not_fire_when_finish_lost_the_race(worker, monkeypatch):
+    """Companion to ``test_worker_finish_does_not_overwrite_a_cancel_that_raced_it``:
+    when a cancel wins the race to the terminal write, ``_finish_job`` returns
+    False and ``_process`` takes the ``if not finished`` branch -- the ``else``
+    that calls ``_record_observation`` and the new hook is never reached, so a
+    race the worker already handles correctly must not also retire a sweep's
+    siblings over a job that never really finished as an error."""
+    calls: list[dict] = []
+    worker.on_job_failed = lambda job: calls.append(job)
+    real_finish = worker.store.finish
+
+    def finish_after_a_race(job_id, status, error=None):
+        # Simulates a cancel landing between claim() and the terminal write --
+        # by the time the real finish() runs, the row is no longer 'running'
+        # and its WHERE clause matches nothing.
+        worker.store.cancel(job_id)
+        return real_finish(job_id, status, error)
+
+    monkeypatch.setattr(worker.store, "finish", finish_after_a_race)
+
+    doomed = _make_image_job(worker)
+    worker.trellis.should_raise = RuntimeError("boom")
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(doomed)["status"] == "cancelled")
+    await worker.shutdown()
+
+    assert calls == []
+
+
 def _make_worker(tmp_path, **config_overrides) -> Worker:
     """Like the worker fixture, but with Config overrides (vram_exclusive etc.)."""
     config = Config(

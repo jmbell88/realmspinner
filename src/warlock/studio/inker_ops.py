@@ -307,20 +307,91 @@ def _normalise_overrides(raw: Any) -> dict[str, tuple[Binding, ...]]:
     return out
 
 
+#: ``bindings_for``'s answer, and the stamp it was compiled at. One slot, on
+#: the same reasoning as ``_flat_stamp``/``_flat_plane`` above: a frame draws
+#: one menu from one overrides mapping, so a dict keyed by overrides would
+#: only hold stale tables alive. Before this cache, ``_normalise_overrides``
+#: re-walked ``BINDINGS`` and re-validated every persisted override on *every*
+#: call, and both ``resolve_binding`` and ``shortcut_for`` call ``bindings_for``
+#: -- ``menus._inker_specs`` alone calls ``shortcut_for`` once per registered
+#: op, twice a frame, so the whole table was being recompiled hundreds of
+#: times a frame for input that only changes when a user remaps a key.
+_bindings_stamp: Any = None
+_bindings_table: tuple[Binding, ...] | None = None
+
+#: The ``{op.name: shortcut string}`` map ``menus._inker_specs`` needs, cached
+#: on the same stamp as ``_bindings_table`` so a remap invalidates both
+#: together. Deliberately *not* used for enabled/checked states elsewhere in
+#: that loop -- those are genuinely per-frame answers (selection, tool state,
+#: document contents) and caching them would show stale menu rows.
+_shortcuts_stamp: Any = None
+_shortcuts_map: dict[str, str] | None = None
+
+
+def _overrides_stamp(overrides: Any) -> str:
+    """A canonical, hashable form of a persisted overrides mapping.
+
+    The mapping is already plain data straight out of settings JSON (or
+    ``None``), so round-tripping it through sorted JSON is cheap and exact --
+    two overrides mappings compare equal here iff ``_normalise_overrides``
+    would treat them identically.
+    """
+
+    if not overrides:
+        return "{}"
+    return json.dumps(overrides, sort_keys=True, default=str)
+
+
 def bindings_for(overrides: Any = None) -> tuple[Binding, ...]:
     """The effective binding table after target-scoped user overrides."""
 
+    global _bindings_stamp, _bindings_table
+    stamp = _overrides_stamp(overrides)
+    if _bindings_stamp == stamp and _bindings_table is not None:
+        return _bindings_table
+
     changed = _normalise_overrides(overrides)
     if not changed:
-        return BINDINGS
-    out = [
-        binding
-        for binding in BINDINGS
-        if binding_target(binding.kind, binding.target) not in changed
-    ]
-    for target_key in sorted(changed):
-        out.extend(changed[target_key])
-    return tuple(out)
+        table = BINDINGS
+    else:
+        out = [
+            binding
+            for binding in BINDINGS
+            if binding_target(binding.kind, binding.target) not in changed
+        ]
+        for target_key in sorted(changed):
+            out.extend(changed[target_key])
+        table = tuple(out)
+
+    _bindings_stamp, _bindings_table = stamp, table
+    return table
+
+
+def shortcuts_for(overrides: Any = None) -> dict[str, str]:
+    """``{op.name: shortcut_for("command", op.name, overrides)}`` for every op.
+
+    Built once per overrides stamp: ``menus._inker_specs`` used to call
+    ``shortcut_for`` once per registered op, twice a frame, each call redoing
+    the same walk over the (already memoized) binding table.
+    """
+
+    global _shortcuts_stamp, _shortcuts_map
+    stamp = _overrides_stamp(overrides)
+    if _shortcuts_stamp == stamp and _shortcuts_map is not None:
+        return _shortcuts_map
+
+    table = bindings_for(overrides)
+    by_target: dict[str, list[str]] = {}
+    for binding in table:
+        if binding.kind == "command" and binding.trigger == "press":
+            by_target.setdefault(binding.target, []).append(binding.chord)
+    result = {
+        op.name: " or ".join(dict.fromkeys(by_target.get(op.name, [])))
+        for op in OPS
+    }
+
+    _shortcuts_stamp, _shortcuts_map = stamp, result
+    return result
 
 
 def resolve_binding(

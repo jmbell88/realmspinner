@@ -35,6 +35,7 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
     """An App stand-in with just enough of ``app_ctx`` for ``_refresh``."""
     from types import SimpleNamespace
 
+    from warlock.studio import main
     from warlock.studio.state import AppState
 
     submitted: list[str] = []
@@ -44,6 +45,11 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
         return accept_submits
 
     class FakeApp:
+        # The real method, not a stand-in: ``_refresh`` passes it as the
+        # ``on_transition`` callback, and these tests are about what reaches
+        # it (via the stubbed ``cache.request`` below), not a copy of its
+        # logic.
+        _announce_job_transition = main.App._announce_job_transition
         def __init__(self) -> None:
             self.calls: list[str] = []
             self.submitted = submitted
@@ -53,6 +59,12 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
                 state=AppState(),
                 submit=submit,
                 toast=lambda *a, **k: None,
+                # A2: ``_refresh`` now calls ``cache.request(ctx.tasks, ...)``
+                # rather than ``cache.tick`` directly -- these tests stub
+                # ``cache.request`` itself (see ``_tick_with``), so this
+                # stand-in is never actually asked to submit anything; it
+                # exists only so the attribute access does not raise.
+                tasks=SimpleNamespace(submit=lambda *a, **k: True),
             )
 
         def _request_storage(self, job_id: str | None = None) -> None:
@@ -87,8 +99,16 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
 
 
 def _tick_with(cache, job: dict[str, Any], previous: str = "running") -> None:
-    """Drive ``tick``'s announce callback with one transition."""
-    cache.tick = lambda announce: bool(announce(job, previous))  # type: ignore[method-assign]
+    """Drive ``request``'s announce callback with one transition.
+
+    A2: ``_refresh`` submits the read via ``cache.request(ctx.tasks,
+    on_transition)`` rather than calling ``cache.tick`` inline, so this stubs
+    ``request`` instead -- the callback is fired synchronously here exactly as
+    the old stub fired it through ``tick``, which is fine for what these tests
+    pin (that ``_refresh`` wires a transition through to ``announce``'s
+    effects), not the async landing itself.
+    """
+    cache.request = lambda runner, announce: bool(announce(job, previous))  # type: ignore[method-assign]
 
 
 def test_a_finished_job_asks_for_storage_off_the_frame_thread(svc):
@@ -166,7 +186,7 @@ def test_a_refused_recompute_is_retried_on_the_next_frame(svc):
     assert app.app_ctx.state.findings_dirty is True, "a refused submit must stay pending"
 
     # Nothing finishes on this frame; the pending request is what drives it.
-    cache.tick = lambda announce: False  # type: ignore[method-assign]
+    cache.request = lambda runner, announce: False  # type: ignore[method-assign]
     main.App._refresh(app)
 
     assert app.submitted.count(review_mode.FINDINGS_KEY) == 2

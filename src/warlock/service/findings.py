@@ -88,7 +88,38 @@ __all__ = [
 # derived usable cut, which is computed identically. A v3 reader is correct on a
 # v4 file, and ``bench.findings`` renders the v3 strings verbatim for a file
 # that carries no grades.
-FINDINGS_VERSION = 4
+# 5: ``prompts[*].top_vectors`` -- the same whole-configuration ranking
+# ``vectors`` carries (see ``_rank_vectors``, factored out of ``aggregate`` so
+# both compute it identically), scoped to one subject and capped at the top 5,
+# so Review's "What works" can lead with a subject's own best configurations
+# rather than only the pooled ranking every subject shares -- the same bargain
+# ``bench.findings.hint`` already strikes per param. Additive, to the letter:
+# every v4 key keeps its value and its meaning, and a v4 reader that has never
+# heard of ``top_vectors`` is correct on a v5 file, because it never looks
+# under a key it does not know exists. This bump is shared with at least one
+# other, unrelated additive change (a top-level ``corpus`` section) landing
+# under the same version number around the same time -- this comment
+# describes only ``top_vectors``; whichever change lands second should extend
+# this comment rather than replace it, since both are additive to v4 and to
+# each other.
+#
+# The other half of the same v5 bump: a top-level ``corpus`` section (see
+# ``_corpus``) -- ``graded_n``, ``jobs_n``, ``grades``, ``tags``, ``zero_used``,
+# ``prompts_n``, ``configs_n``, ``configs_ranked`` and the two contrast counts.
+# It answers "how much of the corpus is graded, and how much of the ranking
+# and contrast machinery has anything to say yet" in one glance, which is what
+# ``bench.findings.corpus_line`` renders and Review's "What works" leads with.
+# Additive exactly as ``top_vectors`` is: a v4 reader has never heard of a key
+# named ``corpus`` and stays correct on a v5 file by never looking under it.
+# ``jobs_n``/``graded_n``/``grades``/``tags``/``zero_used``/``prompts_n`` are
+# the one place in this module that deliberately does *not* credit every
+# source's row the way ``params``/``vectors``/``prompts`` do -- a corpus
+# *health* count must not count one mesh twice just because an AI judge also
+# looked at it, so they are built off a job-deduped view (human verdict kept
+# when a job carries more than one source's). ``configs_n``/``configs_ranked``
+# are read straight off the already-computed ``vectors`` section instead,
+# because they exist to agree with what Review's ranking already shows.
+FINDINGS_VERSION = 5
 JSON_FILENAME = "findings.json"
 
 # How many verdicts a whole vector needs before it is offered as a preset. The
@@ -144,6 +175,31 @@ def aggregate(store: Any) -> dict[str, Any]:
         o for o in store.latest_observations() if isinstance(o.get("vector"), dict)
     ]
 
+    out_params = _marginals(records, observations, full=True)
+    out_vectors = _rank_vectors(records, observations)
+    out_comparisons = _comparisons(records, observations)
+
+    return {
+        "version": FINDINGS_VERSION,
+        "generated": datetime.now(UTC).isoformat(timespec="seconds"),
+        "params": out_params,
+        "prompts": _per_prompt(records, observations),
+        "vectors": out_vectors,
+        "comparisons": out_comparisons,
+        "corpus": _corpus(records, out_vectors, out_comparisons),
+    }
+
+
+def _rank_vectors(
+    records: list[dict[str, Any]], observations: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The whole-configuration ranking over one pool of rows, best first.
+
+    Factored out of ``aggregate`` so the pooled ``vectors`` section and each
+    subject's ``prompts[*].top_vectors`` (v5) are computed by the same code
+    rather than by two that can drift -- ``_marginals``'s reason, applied to
+    the other section this document carries.
+    """
     vectors: dict[str, dict[str, Any]] = {}
     for record in records:
         key = vector_key(record["vector"])
@@ -157,8 +213,6 @@ def aggregate(store: Any) -> dict[str, Any]:
         metrics = obs.get("metrics")
         if isinstance(metrics, dict) and metrics:
             vector_metrics.setdefault(vector_key(obs["vector"]), []).append(metrics)
-
-    out_params = _marginals(records, observations, full=True)
 
     out_vectors = []
     for bucket in vectors.values():
@@ -204,14 +258,63 @@ def aggregate(store: Any) -> dict[str, Any]:
             v["key"],
         )
     )
+    return out_vectors
+
+
+def _corpus(
+    records: list[dict[str, Any]],
+    out_vectors: list[dict[str, Any]],
+    out_comparisons: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """The corpus at a glance -- see ``FINDINGS_VERSION``'s v5 comment.
+
+    ``jobs_n``/``graded_n``/``grades``/``tags``/``zero_used``/``prompts_n``
+    are counted off a *job-deduped* view: one row per ``job_id``, the human
+    verdict kept when a job carries more than one source's. That is a
+    deliberate departure from every other section in this module, which
+    credits every source's row against a job on purpose (the confound this
+    project accepts, argued at the top of this file) -- but a health count of
+    the corpus must not report one mesh twice just because an AI judge also
+    looked at it.
+
+    ``configs_n``/``configs_ranked`` are read straight off ``out_vectors``
+    instead of recomputed from the deduped rows, so they agree, key for key,
+    with the ranking Review's "What works" and ``presets()`` already show --
+    "3 of 19 configurations rank" has to be the same 3 and the same 19.
+    """
+    by_job: dict[str, dict[str, Any]] = {}
+    for record in records:
+        job_id = record.get("job_id")
+        if not job_id:
+            continue
+        current = by_job.get(job_id)
+        if current is None or (
+            current.get("source") != "human" and record.get("source") == "human"
+        ):
+            by_job[job_id] = record
+    deduped = list(by_job.values())
+
+    summary = _summarise(deduped)
+    prompts = {r["prompt_hash"] for r in deduped if r.get("prompt_hash")}
 
     return {
-        "version": FINDINGS_VERSION,
-        "generated": datetime.now(UTC).isoformat(timespec="seconds"),
-        "params": out_params,
-        "prompts": _per_prompt(records, observations),
-        "vectors": out_vectors,
-        "comparisons": _comparisons(records, observations),
+        "graded_n": summary["graded_n"],
+        "jobs_n": len(deduped),
+        "grades": summary["grades"],
+        "tags": summary["tags"],
+        # A reading in its own right (grade-scale prediction 3), not derived
+        # from ``grades`` by a reader that would have to know a string "0" is
+        # how JSON spells the int key.
+        "zero_used": summary["grades"].get("0", 0),
+        "prompts_n": len(prompts),
+        "configs_n": len(out_vectors),
+        "configs_ranked": sum(1 for v in out_vectors if v.get("n", 0) >= PRESET_MIN_N),
+        "contrasts_settled": sum(
+            1 for entries in out_comparisons.values() for e in entries if e.get("pairs", 0) >= 5
+        ),
+        "contrasts_open": sum(
+            1 for entries in out_comparisons.values() for e in entries if e.get("pairs", 0) < 5
+        ),
     }
 
 
@@ -308,7 +411,17 @@ def _per_prompt(
                 continue
             by_prompt.setdefault(key, ([], []))[pool].append(row)
     return {
-        key: {"params": _marginals(scoped_records, scoped_obs, full=False)}
+        key: {
+            "params": _marginals(scoped_records, scoped_obs, full=False),
+            # v5: this subject's own whole-configuration ranking, capped at the
+            # top 5 -- ``_rank_vectors`` again, over exactly the rows already
+            # scoped to this subject, so it means precisely what the pooled
+            # ``vectors`` section means, over a narrower set. Unfiltered by
+            # ``PRESET_MIN_N`` here, the same way the pooled ``vectors`` list
+            # is unfiltered and ``presets()`` is what applies the threshold at
+            # read time -- a reader that wants a different bar is free to ask.
+            "top_vectors": _rank_vectors(scoped_records, scoped_obs)[:5],
+        }
         for key, (scoped_records, scoped_obs) in sorted(by_prompt.items())
     }
 

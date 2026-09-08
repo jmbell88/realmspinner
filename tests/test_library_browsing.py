@@ -9,6 +9,7 @@ do to a row the user has thrown away.
 from __future__ import annotations
 
 import inspect
+import threading
 import time
 from typing import Any
 
@@ -17,7 +18,7 @@ import pytest
 from warlock.service import jobs as svc_jobs
 from warlock.service.errors import Conflict
 from warlock.studio import jobs_cache as cache_mod
-from warlock.studio.panes import library
+from warlock.studio.panes import library, library_full
 from warlock.studio.state import SORTS, Filters, parse_query
 
 
@@ -185,6 +186,77 @@ def test_an_unknown_sort_key_is_the_querys_order():
     """A persisted value from a build that offered a key this one does not."""
     rows = [job(id="a"), job(id="b")]
     assert Filters(sort="kremlin").order(rows) == rows
+
+
+# --- A3: grade-aware library ---------------------------------------------------
+
+
+def test_the_grade_sort_files_ungraded_rows_last_in_both_directions():
+    """"Ungraded" is not a value at one end of the scale, the same rule
+    ``size`` and ``best`` already state -- most of a workshop predates
+    grading, and a plain reverse would put that whole backlog first."""
+    rows = [job(id="ungraded"), job(id="high", grade=4), job(id="low", grade=-2)]
+    for descending in (True, False):
+        ordered = Filters(sort="grade", descending=descending).order(rows)
+        assert ordered[-1]["id"] == "ungraded"
+    assert [j["id"] for j in Filters(sort="grade").order(rows)][:2] == ["high", "low"]
+
+
+def test_usable_only_hides_a_plus_two_and_shows_a_plus_three_through_the_one_cut(monkeypatch):
+    """The cut is Review's own scale (``+3`` is "usable"), and it must be the
+    live constant rather than a second spelling of it -- patching the real
+    ``vectors.USABLE_GRADE`` has to move the predicate with it."""
+    import warlock.vectors as vectors_mod
+
+    below = job(id="below", grade=2)
+    at_cut = job(id="at-cut", grade=3)
+    filters = Filters(usable_only=True)
+    assert not filters.matches(below)
+    assert filters.matches(at_cut)
+
+    monkeypatch.setattr(vectors_mod, "USABLE_GRADE", 4)
+    assert not filters.matches(at_cut)
+
+
+def _finished_mesh(svc) -> str:
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a barrel")["id"]
+    svc.store.set_status(job_id, "done")
+    return job_id
+
+
+def test_a_listed_job_carries_its_latest_human_mesh_grade_and_not_an_image_label(svc):
+    """``list_jobs`` attaches the mesh grade onto the row -- and only the mesh
+    grade: a reference on the same job id can carry a binary image label
+    whose ``grade`` column is NULL, and that must not leak onto the card as a
+    mesh verdict it never received."""
+    from warlock.service import verdicts as svc_verdicts
+
+    graded = _finished_mesh(svc)
+    svc_verdicts.record_verdict(svc, graded, grade=4)
+
+    labelled = _finished_mesh(svc)
+    svc.job_dir(labelled).mkdir(parents=True, exist_ok=True)
+    (svc.job_dir(labelled) / "input.png").write_bytes(b"not really a png")
+    svc_verdicts.record_verdict(svc, labelled, verdict="accept", stage="reference")
+
+    rows = {j["id"]: j for j in svc_jobs.list_jobs(svc)}
+
+    assert rows[graded]["grade"] == 4
+    assert rows[labelled]["grade"] is None
+
+
+def test_a_regraded_job_lists_the_newer_grade(svc):
+    """Verdicts are append-only (a changed mind is a new row); the row must
+    show what the reviewer thinks now, not what they filed first."""
+    from warlock.service import verdicts as svc_verdicts
+
+    job_id = _finished_mesh(svc)
+    svc_verdicts.record_verdict(svc, job_id, grade=-3, reasons=["holes"])
+    svc_verdicts.record_verdict(svc, job_id, grade=5)
+
+    rows = {j["id"]: j for j in svc_jobs.list_jobs(svc)}
+
+    assert rows[job_id]["grade"] == 5
 
 
 # --- J91: the trash ----------------------------------------------------------
@@ -361,7 +433,7 @@ def test_resetting_a_window_that_never_grew_does_not_force_a_re_read(svc):
 def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
     """W2.1: the cache only ever loads the newest page, so a search used to
     find nothing for a job the pager had not reached yet -- "Load older" was
-    the only way in. ``widen_for_search`` merges a store-side match into the
+    the only way in. ``widen_for_filters`` merges a store-side match into the
     window before ``Filters.matches`` runs, so the search reaches it directly.
     """
     old_id = svc.store.create("text", "a rusty iron lantern", {})
@@ -374,8 +446,216 @@ def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
     assert old_id not in cache.by_id  # the one-row window missed it
 
     filters = Filters(text="lantern")
-    cache.widen_for_search(filters)
+    cache.widen_for_filters(filters)
     assert old_id in [j["id"] for j in cache.visible(filters)]
+
+
+@pytest.fixture(scope="module")
+def imgui_ctx(gl):
+    """See ``test_studio_smoke.imgui_ctx`` -- the same context shape, module
+    scoped for the same reason: a session-scoped context left alive after the
+    last test here collides with the next file's own context over one GL
+    context."""
+    from imgui_bundle import imgui
+
+    from warlock.studio import imgui_backend, theme
+
+    prev_screen = type(gl).__dict__.get("screen")
+    fbo = gl.simple_framebuffer((1600, 950))
+    fbo.use()
+    type(gl).screen = property(lambda _self: fbo)
+
+    imgui.create_context()
+    io = imgui.get_io()
+    io.set_ini_filename(None)
+    io.display_size = (1600, 950)
+    io.delta_time = 1 / 60
+    io.fonts.add_font_default()
+    theme.apply(imgui)
+    renderer = imgui_backend.ImguiRenderer(gl)
+    yield imgui, renderer
+    renderer.shutdown()
+    imgui.destroy_context()
+    if prev_screen is not None:
+        type(gl).screen = prev_screen
+
+
+@pytest.fixture
+def app_ctx(gl, svc, tmp_path, imgui_ctx):
+    from warlock.studio import textures
+    from warlock.studio.app_ctx import Ctx
+    from warlock.studio.runtime import Runtime
+    from warlock.studio.tasks import TaskRunner
+    from warlock.studio.viewer_embed import Viewer
+
+    runtime = Runtime(svc.config)
+    runtime.store = svc.store
+    runtime.tasks = TaskRunner(workers=1)
+    viewer = Viewer(gl)
+    from warlock.studio.settings import Settings
+    from warlock.studio.state import AppState
+
+    ctx = Ctx(
+        svc=svc,
+        runtime=runtime,
+        state=AppState(),
+        cache=cache_mod.JobsCache(svc),
+        tasks=runtime.tasks,
+        settings=Settings.load(tmp_path),
+        viewer=viewer,
+        textures=textures.ThumbnailCache(gl),
+    )
+    yield ctx
+    viewer.release()
+    ctx.textures.release()
+    runtime.tasks.shutdown(wait=False)
+
+
+def _frame(imgui_ctx, build):
+    imgui, renderer = imgui_ctx
+    imgui.new_frame()
+    imgui.set_next_window_size((1200, 900))
+    imgui.begin("##host")
+    build()
+    imgui.end()
+    imgui.render()
+    renderer.render(imgui.get_draw_data())
+
+
+def test_a_tag_search_finds_an_asset_outside_the_loaded_window_in_both_library_views(
+    app_ctx, imgui_ctx
+):
+    """A3: ``widen_for_filters`` widens the store-side candidate set for a
+    ``tag:`` filter, not only free text -- and both Library views call it, so
+    a structured filter reaches past the loaded window whichever one is open.
+
+    Before this fix, ``JobsCache.widen_for_search`` only ever ran from
+    ``panes/library.py`` and only ever asked the store for a name/prompt
+    substring -- so a ``tag:`` filter, and the full-window Library entirely,
+    both stayed blind to anything outside the loaded page.
+    """
+    svc = app_ctx.svc
+    old_id = svc.store.create("text", "an old wooden chest", {})
+    svc.store.set_meta(old_id, tags="rusty")
+    svc.store._conn.execute("UPDATE jobs SET created_at = 1.0 WHERE id = ?", (old_id,))
+    svc.store._conn.commit()
+    svc.store.create("text", "a fresh crate", {})
+
+    app_ctx.state.filters = Filters(text="tag:rusty")
+    app_ctx.cache = cache_mod.JobsCache(svc, limit=1)
+    app_ctx.cache.tick()
+    assert old_id not in app_ctx.cache.by_id  # the one-row window missed it
+
+    _frame(imgui_ctx, lambda: library.draw(app_ctx))
+    assert old_id in [j["id"] for j in app_ctx.cache.visible(app_ctx.state.filters)]
+
+    # Fresh cache and fresh filters object: the full-window Library must reach
+    # the same job on its own, not merely inherit the sidebar's merge.
+    app_ctx.state.filters = Filters(text="tag:rusty")
+    app_ctx.cache = cache_mod.JobsCache(svc, limit=1)
+    app_ctx.cache.tick()
+    assert old_id not in app_ctx.cache.by_id
+
+    _frame(imgui_ctx, lambda: library_full.draw(app_ctx))
+    assert old_id in [j["id"] for j in app_ctx.cache.visible(app_ctx.state.filters)]
+
+
+def test_the_job_list_is_read_off_the_frame_thread_and_adopted_on_it(svc):
+    """A2: ``JobsCache.tick`` used to call ``list_jobs`` inline -- one sqlite
+    read plus a per-row ``attach_files`` stat over the whole window -- on
+    whatever thread called it, and ``main.py`` calls it every frame. The fix
+    splits it as ``refresh_storage``/``measure``/``adopt_storage`` already are:
+    ``request`` submits :meth:`JobsCache.read` to a real :class:`TaskRunner`
+    and touches nothing on the cache itself; only :meth:`JobsCache.adopt`,
+    called with the task's result, may ever assign ``jobs`` or ``by_id``.
+    """
+    from warlock.studio.tasks import TaskRunner
+
+    svc.store.create("text", "a rusty sword", {})
+    cache = cache_mod.JobsCache(svc)
+    runner = TaskRunner(workers=1)
+    read_thread: dict[str, str] = {}
+    real_read = cache.read
+
+    def spying_read(files_snapshot: Any) -> Any:
+        read_thread["name"] = threading.current_thread().name
+        return real_read(files_snapshot)
+
+    cache.read = spying_read  # type: ignore[method-assign]
+
+    try:
+        assert cache.request(runner) is True
+        # Handed off, not run here: nothing about the cache has changed on
+        # this thread merely because a read was submitted.
+        assert cache.jobs == []
+        assert cache.by_id == {}
+        assert cache.error is None
+
+        deadline = time.monotonic() + 5
+        done: list[Any] = []
+        while time.monotonic() < deadline and not done:
+            done = runner.poll()
+        assert done and done[0].key == "jobs-list", done
+
+        # The read really ran on a different thread from this one.
+        assert read_thread.get("name") not in (None, threading.current_thread().name)
+        # And still nothing is published until ``adopt`` is called -- with the
+        # task's result, on this (the frame) thread.
+        assert cache.jobs == []
+
+        assert cache.adopt(done[0].result) is True
+        assert len(cache.jobs) == 1
+        assert list(cache.by_id) == [cache.jobs[0]["id"]]
+    finally:
+        cache.read = real_read  # type: ignore[method-assign]
+        runner.shutdown(wait=False)
+
+
+def test_load_older_fetches_the_next_page_rather_than_re_reading_the_window(svc, monkeypatch):
+    """O119/A2: ``load_more`` used to raise ``self.limit``, and every
+    subsequent refresh re-read (and re-``attach_files``-statted) the *whole*
+    growing window from the top. ``read`` now reuses whatever older rows are
+    already held and only asks the store for the delta -- proved here by
+    counting ``JobStore.list`` calls and the ``limit``/``before`` each one
+    used rather than by any behaviour the old, unfixed code also happened to
+    produce.
+    """
+    from warlock.studio import jobs_cache as cache_mod_local
+
+    for i in range(cache_mod_local.LIST_LIMIT + 5):
+        job_id = svc.store.create("text", f"asset {i}", {})
+        svc.store._conn.execute(
+            "UPDATE jobs SET created_at = ? WHERE id = ?", (float(i), job_id)
+        )
+    svc.store._conn.commit()
+
+    calls: list[tuple[int, Any]] = []
+    real_list = svc.store.list
+
+    def counting_list(limit=100, before=None, kind=None):
+        calls.append((limit, before))
+        return real_list(limit, before, kind)
+
+    monkeypatch.setattr(svc.store, "list", counting_list)
+
+    cache = cache_mod.JobsCache(svc)
+    cache.tick()
+    assert len(calls) == 1
+    first_limit = calls[0][0]
+    assert first_limit == cache_mod_local.LIST_LIMIT
+
+    calls.clear()
+    cache.load_more()
+    cache.tick()
+
+    # The already-loaded top page plus whatever older rows were already held
+    # must not be re-read: the newest page is refreshed (one call with no
+    # cursor) and only the *new* page beyond it is fetched (one call with a
+    # ``before`` cursor) -- never a single call asking for the whole widened
+    # window in one go, which is what "re-reading the window" would look like.
+    assert not any(before is None and limit > cache_mod_local.LIST_LIMIT for limit, before in calls)
+    assert any(before is not None for limit, before in calls), calls
+    assert len(cache.jobs) == cache_mod_local.LIST_LIMIT + 5
 
 
 def test_the_size_sort_notices_a_measurement_landing(svc):
@@ -597,6 +877,120 @@ def test_start_convert_submits_the_export_prefix_for_several_assets():
     library._start_convert(ctx, ["t1", "t2"])
     assert len(ctx.submitted) == 1
     assert ctx.submitted[0][0] == "export-convert"
+
+
+# --- the full-window grid's row layout and row clipping (A1) -----------------
+
+
+def test_the_grids_row_layout_puts_a_date_heading_at_the_start_of_its_own_row():
+    """Pure-function twin of ``library._convert_rows``: a date heading always
+    breaks the row before it, even mid-row, because the column counter resets
+    there -- a "Today" heading landing beside yesterday's cards on the same
+    row would be a lie about what separates them (J89)."""
+    now = time.time()
+    jobs = [
+        job(id="a", created_at=now),
+        job(id="b", created_at=now),
+        job(id="c", created_at=now - 90 * 86400),  # months back -> a new heading
+    ]
+    entries = library_full._row_layout(jobs, count=3, grouped=True)
+    kinds = [kind for kind, _payload in entries]
+    assert kinds.count("heading") == 2
+    # The row that carried "a" and "b" is closed out *before* the second
+    # heading, not left open with "c" appended onto it.
+    row_entries = [payload for kind, payload in entries if kind == "row"]
+    assert [j["id"] for j in row_entries[0]] == ["a", "b"]
+    assert [j["id"] for j in row_entries[1]] == ["c"]
+
+
+def test_the_grids_row_layout_wraps_at_the_column_count_with_no_headings():
+    jobs = [job(id=str(i)) for i in range(7)]
+    entries = library_full._row_layout(jobs, count=3, grouped=False)
+    assert all(kind == "row" for kind, _payload in entries)
+    assert [len(payload) for _kind, payload in entries] == [3, 3, 1]
+    flat = [j["id"] for _kind, payload in entries for j in payload]
+    assert flat == [j["id"] for j in jobs]
+
+
+class _FakeGridImgui:
+    """Just enough of imgui for ``library_full._row_clipper``'s arithmetic --
+    ``test_resource_ceilings.py``'s ``_FakeImgui`` for ``library._clipper``,
+    at row granularity."""
+
+    def __init__(self, view: float, scroll: float) -> None:
+        self._view = view
+        self._scroll = scroll
+        self.cursor = 0.0
+        self.dummies: list[float] = []
+
+    def get_window_size(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(y=self._view)
+
+    def get_scroll_y(self):
+        return self._scroll
+
+    def get_cursor_pos_y(self):
+        return self.cursor
+
+    def dummy(self, size):
+        self.dummies.append(size[1])
+        self.cursor += size[1]
+
+
+def test_the_full_library_grid_submits_only_the_rows_on_screen(monkeypatch):
+    """A1: ``_grid`` used to call ``_cell`` for every loaded job regardless of
+    scroll position -- 5,000 assets paid ``push_id``, two
+    ``get_cursor_screen_pos``, ``draggable_source``, ``is_item_hovered``,
+    ``_card_context`` and ``fit_text`` per cell even scrolled far off screen
+    (the measured 372 ms/frame). The fix is ``library._clipper``'s own
+    arithmetic at row rather than cell granularity, gated on the same
+    ``library.CLIP_THRESHOLD``."""
+    row_h = 100.0
+    count = 3
+    total = 300  # well over CLIP_THRESHOLD
+    fake = _FakeGridImgui(view=400.0, scroll=0.0)
+    monkeypatch.setattr(library_full, "imgui", fake)
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(state=SimpleNamespace(library_scroll_to=None, selected=None))
+    skip = library_full._row_clipper(ctx, total)
+    assert skip is not None
+
+    rows_drawn = 0
+    cells_drawn = 0
+    for start in range(0, total, count):
+        row_jobs = [job(id=str(i)) for i in range(start, min(start + count, total))]
+        if skip(row_jobs, row_h):
+            continue
+        rows_drawn += 1
+        cells_drawn += len(row_jobs)
+        fake.cursor += row_h
+
+    total_rows = -(-total // count)
+    assert rows_drawn < total_rows, "an off-screen row must be skipped"
+    assert cells_drawn < total, "a 400px viewport of 100px rows holds only a few"
+    # Every skipped row still takes its own height, so the scrollbar and every
+    # row's place in the list are what they would have been.
+    assert fake.cursor == pytest.approx(total_rows * row_h)
+
+
+def test_the_grids_row_clipper_never_skips_the_selected_or_scroll_to_row(monkeypatch):
+    fake = _FakeGridImgui(view=400.0, scroll=0.0)
+    monkeypatch.setattr(library_full, "imgui", fake)
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(
+        state=SimpleNamespace(library_scroll_to=None, selected="j250")
+    )
+    skip = library_full._row_clipper(ctx, 300)
+    assert skip is not None
+    row_jobs = [job(id="j250")]
+    # Placed far past the viewport (cursor is at 0, row would land at 0 --
+    # force it off screen by advancing the fake cursor first).
+    fake.cursor = 10_000.0
+    assert skip(row_jobs, 100.0) is False
 
 
 def test_dialogs_offers_a_filter_for_every_new_convert_suffix():

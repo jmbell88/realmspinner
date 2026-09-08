@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_created_id ON jobs(created_at, id);
 
 CREATE TABLE IF NOT EXISTS sweeps (
     id          TEXT PRIMARY KEY,
@@ -355,6 +357,21 @@ MIGRATIONS: list[list[str]] = [
         " WHERE grade IS NULL AND stage = 'model' AND verdict = 'accept'",
         "UPDATE verdicts SET grade = -3"
         " WHERE grade IS NULL AND stage = 'model' AND verdict = 'reject'",
+    ],
+    # 11 -- A2: ``list`` orders by ``created_at DESC, id DESC`` (paging by
+    # keyset cursor needs the tie-break, see its docstring), but
+    # ``idx_jobs_created`` above only covers ``created_at`` -- so sqlite used
+    # it to satisfy the WHERE on ``before`` and then still built a temporary
+    # b-tree to sort the matched rows by ``id`` within each ``created_at``,
+    # on every page of every library refresh. A composite index on the exact
+    # (column, direction) pair the ORDER BY asks for lets sqlite walk it
+    # in order instead -- ``EXPLAIN QUERY PLAN`` loses its "USE TEMP B-TREE
+    # FOR ORDER BY" line once this exists. Additive, like idx_jobs_dispatch
+    # in migration 8, and left beside ``idx_jobs_created`` rather than
+    # replacing it: something in this file may yet want a plain created_at
+    # range scan, and a second index costs an append here, nothing more.
+    [
+        "CREATE INDEX IF NOT EXISTS idx_jobs_created_id ON jobs(created_at, id)",
     ],
 ]
 
@@ -1112,37 +1129,88 @@ class JobStore:
             ).fetchall()
         return [self._to_dict(r) for r in rows]
 
-    def search_ids(self, text: str, *, limit: int) -> list[str]:
-        """Ids whose ``name`` or ``prompt`` contains ``text`` (case-insensitive,
-        prefix and substring), newest first.
+    def search_ids(
+        self,
+        text: str,
+        *,
+        limit: int,
+        tags: Sequence[str] = (),
+        names: Sequence[str] = (),
+        status: str | None = None,
+        favorite: bool | None = None,
+        trash: bool = False,
+    ) -> list[str]:
+        """Ids matching what SQL can genuinely answer, newest first (A3).
+
+        ``text`` is a substring of ``name`` or ``prompt`` (case-insensitive),
+        exactly as before. ``tags`` and ``names`` are the ``tag:``/``name:``
+        field terms ``state.parse_query`` pulls out of the filter box -- a
+        real column and a comma-separated one, both indexable, unlike the
+        rest of ``QUERY_FIELDS`` (``kind`` is a Python derivation over
+        ``params``, not a column). ``status``, ``favorite`` and ``trash`` are
+        the matching ``Filters`` fields, applied the same way ``Filters``
+        applies them, so a job that satisfies all of them can be found
+        whether or not the window has loaded it yet.
 
         Widens what the library's search can reach past whatever window
         ``jobs_cache`` has already loaded -- it merges these ids in so a job
-        the pager has not scrolled back to yet is still found. The Python
+        the pager has not scrolled back to yet is still found. **The Python
         predicate in ``Filters.matches`` still decides the final match; this
-        only widens the candidate set it is asked about.
+        only widens the candidate set it is asked about** -- it must never
+        grow more permissive than that predicate, or a row could appear here
+        that the workshop itself would refuse to show.
 
-        **Only ``name`` and ``prompt``, never ``params``** -- the same rule
-        ``active_jobs`` states above: ``params`` is one JSON blob sqlite
-        cannot index into, and a LIKE scan of every row's params on every
-        keystroke is exactly the cost that method declined to pay, at a size
-        (a history of thousands) where it would not be free.
+        **Never ``params``** -- the same rule ``active_jobs`` states above:
+        ``params`` is one JSON blob sqlite cannot index into, and a LIKE scan
+        of every row's params on every keystroke is exactly the cost that
+        method declined to pay, at a size (a history of thousands) where it
+        would not be free. ``kind:`` and a size sort stay unanswerable here
+        for the same reason -- see ``panes/library.py``'s
+        ``_narrows_the_window``.
 
         LIKE's own wildcards are escaped so a user typing a literal ``%`` or
         ``_`` searches for that character rather than having it read back as
         "any characters" or "any one character".
         """
         text = text.strip()
-        if not text:
+
+        def _escape(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+        conditions = ["deleted_at IS NOT NULL" if trash else "deleted_at IS NULL"]
+        args: list[Any] = []
+        if status is not None:
+            conditions.append("status = ?")
+            args.append(status)
+        if favorite:
+            conditions.append("favorite = 1")
+        if text:
+            pattern = f"%{_escape(text)}%"
+            conditions.append("(name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\')")
+            args.extend([pattern, pattern])
+        for tag in tags:
+            # Tags are stored comma-separated (`` tags`` column docstring
+            # above): bracketing both the column and the pattern in commas
+            # makes the LIKE match a whole entry, the same rule
+            # ``state._field_matches`` applies in Python, so ``tag:wood``
+            # cannot find ``driftwood`` here either.
+            conditions.append("(',' || tags || ',') LIKE ? ESCAPE '\\'")
+            args.append(f"%,{_escape(tag)},%")
+        for name in names:
+            conditions.append("name LIKE ? ESCAPE '\\'")
+            args.append(f"%{_escape(name)}%")
+        # Nothing to widen for: matching this to every non-deleted row (or
+        # every trashed one) would not be a search, it would be "load
+        # everything" wearing a search's name.
+        if not (text or tags or names or status is not None or favorite):
             return []
-        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{escaped}%"
+        query = (
+            "SELECT id FROM jobs WHERE " + " AND ".join(conditions)
+            + " ORDER BY created_at DESC, id DESC LIMIT ?"
+        )
+        args.append(limit)
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT id FROM jobs WHERE (name LIKE ? ESCAPE '\\' OR prompt LIKE ? ESCAPE '\\')"
-                " ORDER BY created_at DESC, id DESC LIMIT ?",
-                (pattern, pattern, limit),
-            ).fetchall()
+            rows = self._conn.execute(query, args).fetchall()
         return [r[0] for r in rows]
 
     # --- sweeps ---------------------------------------------------------------
@@ -1216,6 +1284,35 @@ class JobStore:
         with self._lock:
             self._conn.execute("DELETE FROM sweeps WHERE id = ?", (sweep_id,))
             self._commit()
+
+    def cancel_sweep_units(
+        self, sweep_id: str, job_ids: Sequence[str], reason: str
+    ) -> int:
+        """Cancel the named units of one sweep, still-queued only, in one
+        statement -- ``resolve_candidates``'s shape (P31), on the sibling
+        ``sweep_id`` column, and conditional on ``status = 'queued'`` for the
+        same reason that one is conditional on ``candidate_group``: this is a
+        multi-row status write and every row must move together or not at all.
+
+        **Never ``running``.** The point is to stop work that has not started;
+        a sibling already on the card is left to reach its own terminal status
+        rather than being torn out from under the worker.
+
+        -> how many rows were actually cancelled.
+        """
+        ids = [str(job_id) for job_id in job_ids]
+        if not ids:
+            return 0
+        now = time.time()
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE jobs SET status = 'cancelled', finished_at = ?, error = ? "
+                f"WHERE sweep_id = ? AND status = 'queued' AND id IN ({placeholders})",
+                (now, reason, sweep_id, *ids),
+            )
+            self._commit()
+            return cur.rowcount
 
     # --- candidates -----------------------------------------------------------
 

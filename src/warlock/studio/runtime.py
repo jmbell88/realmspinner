@@ -29,6 +29,7 @@ from .. import doctor, vram
 from ..config import Config, get_config
 from ..db import JobStore
 from ..service import WarlockService
+from ..service import sweeps as sweeps_mod
 from .tasks import TaskRunner
 
 log = logging.getLogger(__name__)
@@ -173,6 +174,12 @@ class Runtime:
         # queue.py may not reach into service -- and defaulted to a null lock
         # there, so a headless Worker is unchanged.
         self.worker.artifact_lock = self.svc.convert_lock
+        # The sweep-abort decision (P31): queue.py may not import service or
+        # learn what a sweep is, so a failed job's reaction to its own
+        # siblings is injected the same way the lock above is. ``svc`` is
+        # closed over rather than passed at call time because the callback
+        # signature the worker calls is ``on_job_failed(job)``.
+        self.worker.on_job_failed = lambda job: sweeps_mod.on_job_failed(self.svc, job)
         return self.svc
 
     def _resolve_vram(self) -> vram.Plan:

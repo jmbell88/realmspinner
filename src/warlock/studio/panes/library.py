@@ -18,7 +18,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import followups
+from ... import followups, vectors
 from ...service import derive as svc_derive
 from ...service import export as svc_export
 from ...service import jobs as svc_jobs
@@ -33,6 +33,7 @@ from .. import (
     icons,
     jobs_cache,
     motion,
+    review_mode,
     theme,
     tokens,
     toolbar,
@@ -109,10 +110,10 @@ def draw(ctx: Any) -> None:
     # select-all acts on exactly this list and computing it twice a frame to
     # keep the old order would be paying for the same filter pass twice.
     #
-    # Widen first (W2.1): a search reaches past the loaded window by merging
-    # in matching ids the store has that the window does not, before the
-    # predicate below decides which of them actually match.
-    ctx.cache.widen_for_search(ctx.state.filters)
+    # Widen first (W2.1, A3): a search reaches past the loaded window by
+    # merging in matching ids the store has that the window does not, before
+    # the predicate below decides which of them actually match.
+    ctx.cache.widen_for_filters(ctx.state.filters)
     jobs = ctx.cache.visible(ctx.state.filters)
     # Draws the (?) too, on the sort row that reserves the width for it --
     # ``render.help_button`` right-aligns with an unconditional ``same_line``,
@@ -323,29 +324,35 @@ def _clipper(ctx: Any, count: int):
 
 
 def _narrows_the_window(filters: Any) -> bool:
-    """Whether a control active right now is one ``JobsCache.widen_for_search``
-    cannot reach past the loaded window (J88, revised for W2.1).
+    """Whether a control active right now is one ``JobsCache.widen_for_filters``
+    cannot reach past the loaded window (J88, revised for A3).
 
-    Plain free text is excluded on purpose: ``widen_for_search`` merges in
-    whatever the store finds by name or prompt from *outside* the window, so a
-    bare word already searches the whole history rather than only the page.
-    What still stops at the window's edge is everything that predicate does
-    not widen for -- the combos (kind, status, favourites) and a field term
-    inside the box itself (``tag:wood``, ``status:error``), which narrow
-    *within* whatever is loaded and nothing here reaches past that.
+    ``widen_for_filters`` now turns free text, the ``tag:``/``name:`` field
+    terms, the status/favourites combos and the trash toggle into real
+    store-side predicates, so all of those already search the whole history
+    rather than only the page. What is still stuck at the window's edge:
+    ``kind`` (the combo, and a ``kind:`` field term), because ``card_kind`` is
+    a Python derivation over a job's ``params`` blob rather than a column; the
+    size sort, because it reads the storage walk rather than anything in the
+    row; and ``status:``/``stage:``/``id:`` field terms typed in the box
+    itself -- unlike the ``status`` *combo*, those are not (yet) turned into a
+    column predicate, only into ``Filters.matches``' own substring check.
     """
-    if filters.favorites_only or filters.status != "all" or filters.kind != "all":
+    if filters.kind != "all":
+        return True
+    if filters.sort == "size":
         return True
     if filters.text:
         _terms, fields = parse_query(filters.text)
-        if fields:
+        if any(f in ("kind", "status", "stage", "id") for f, _v in fields):
             return True
     return False
 
 
 def _load_more(ctx: Any) -> None:
-    """The window is the newest N of M. A plain-text search reaches past it --
-    see :meth:`~warlock.studio.jobs_cache.JobsCache.widen_for_search` -- but
+    """The window is the newest N of M. A search or a status/favourites/trash
+    filter reaches past it -- see
+    :meth:`~warlock.studio.jobs_cache.JobsCache.widen_for_filters` -- but
     every control that does not is still only ever answered from the loaded
     page, so a history longer than it needs to say so rather than let one of
     those quietly miss what it never loaded."""
@@ -593,6 +600,20 @@ def _view_row(ctx: Any) -> None:
     if starred:
         imgui.pop_style_color(2)
     imgui.same_line()
+    # A3: beside the star, on the same "pick a pile" argument -- a grade is
+    # a fact about a mesh the way a favourite is a fact about an asset, and
+    # both belong on this row rather than the sort combo. The cut is
+    # ``vectors.USABLE_GRADE`` through ``Filters.usable_only``, never
+    # restated here.
+    usable = filters.usable_only
+    if usable:
+        imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.OK)))
+        imgui.push_style_color(imgui.Col_.button.value, imgui.ImVec4(*theme.rgba(theme.OK, 0.2)))
+    if widgets.icon_button(icons.CIRCLE_CHECK, "Usable"):
+        filters.usable_only = not usable
+    if usable:
+        imgui.pop_style_color(2)
+    imgui.same_line()
     # Trash next, immediately after the star, because the rail lists the two
     # of them together in that order.
     lit = filters.trash
@@ -773,6 +794,7 @@ def _card_body(ctx: Any, job: Any, queue_pos: dict[str, int] | None = None) -> N
     # would inherit the ``same_line`` that call did not spend.
     widgets.stage_badge(job, inline=True)
     widgets.quality_badge(job, inline=True)
+    _grade_pill(job, inline=True)
     rank = (job.get("params") or {}).get("rank")
     if isinstance(rank, dict) and rank.get("score") is not None:
         imgui.same_line()
@@ -821,6 +843,32 @@ def _card_body(ctx: Any, job: Any, queue_pos: dict[str, int] | None = None) -> N
         _card_actions(ctx, job)
     imgui.end_group()
     _card_context(ctx, job)
+
+
+def _grade_pill(job: Any, *, inline: bool = False) -> None:
+    """A3: the mesh's own human grade, after ``quality_badge`` -- the
+    topology tell is measured, the grade is judged, and the two answer
+    different questions side by side rather than one overwriting the other.
+
+    Undrawn for an ungraded job, on ``quality_badge``'s own rule (its own
+    docstring): most of the library predates grading, and a card is not the
+    place to say "ungraded" about every asset that has never been reviewed.
+    ``inline`` therefore belongs here rather than to the caller, for the same
+    reason -- a ``same_line`` spent on a call that draws nothing is inherited
+    by whatever comes next.
+    """
+    grade = job.get("grade")
+    if not isinstance(grade, int) or isinstance(grade, bool):
+        return
+    text = review_mode.grade_text(grade)
+    if not text:
+        return
+    if inline:
+        imgui.same_line()
+    widgets.pill(
+        f"grade {text}",
+        theme.OK if grade >= vectors.USABLE_GRADE else theme.MUTED,
+    )
 
 
 def followup_failure_tooltip(job: Any) -> str:

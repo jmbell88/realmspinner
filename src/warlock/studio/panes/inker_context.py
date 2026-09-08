@@ -664,6 +664,9 @@ def _field(ctx: Any, state: Any, tab: Any, key: str) -> Any:
     label = inker_state.context_label(key)
 
     def slider_int(low: int, high: int, fmt: str = "%d", width: float = NARROW) -> Any:
+        # Also ignores ``compact`` -- unlike ``percent_slider`` below, its
+        # formats ("%d px", "tol %d", "%d deg") are already short enough to
+        # survive COMPACT width, so there is nothing here for compact to do.
         def draw(compact: bool) -> None:
             changed, value = controls.slider_int(
                 f"##ctx/{key}", int(options[key]), low, high, fmt
@@ -674,6 +677,8 @@ def _field(ctx: Any, state: Any, tab: Any, key: str) -> Any:
         return toolbar.Field(key, label, draw, width=width, compact=COMPACT)
 
     def slider_float(low: float, high: float, fmt: str = "%.2f") -> Any:
+        # Same reasoning as ``slider_int``: "%.2f" stays whole at COMPACT
+        # width, so ignoring ``compact`` here is not an oversight either.
         def draw(compact: bool) -> None:
             changed, value = controls.slider_float(
                 f"##ctx/{key}", float(options[key]), low, high, fmt
@@ -695,15 +700,24 @@ def _field(ctx: Any, state: Any, tab: Any, key: str) -> Any:
         """
 
         def draw(compact: bool) -> None:
+            # Compacted, the field is ~54px (COMPACT) and the labelled format
+            # ("Hardness 85%") clips the one thing the reader came for -- the
+            # value -- which is what a real 54px render showed. The bare
+            # "%.0f%%" keeps the number readable; the name comes back as a
+            # hover, since ``toolbar.Field`` carries no tooltip of its own to
+            # do that for us (only ``Item`` does).
+            fmt = "%.0f%%" if compact else f"{label} %.0f%%"
             changed, shown = controls.slider_float(
                 f"##ctx/{key}",
                 float(options[key]) * 100.0,
                 low * 100.0,
                 high * 100.0,
-                f"{label} %.0f%%",
+                fmt,
             )
             if changed:
                 options[key] = float(shown) / 100.0
+            if compact and imgui.is_item_hovered():
+                imgui.set_tooltip(label)
 
         return toolbar.Field(key, label, draw, width=NARROW, compact=COMPACT)
 

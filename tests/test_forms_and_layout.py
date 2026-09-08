@@ -407,6 +407,84 @@ def test_every_dense_pane_explains_at_least_one_of_its_controls(name):
     assert any(token in source for token in EXPLAINS)
 
 
+# --- C2: a label that overruns the fixed column ------------------------------
+
+
+def test_a_form_field_whose_label_overruns_the_column_stacks_instead_of_overlapping():
+    """C2, the 2026-09-07 audit.
+
+    ``Form.field``'s column branch jumped to a fixed ``label_width`` with
+    ``imgui.same_line`` no matter how wide the label it had just drawn was.
+    ``widgets.field_label`` uppercases the text, which routinely makes a label
+    wider than the docstring's own assumption that "a field label is short" --
+    and once it is, the control was placed under the label's own tail instead
+    of beside it. Measuring the drawn group and falling back to the stacked
+    treatment (no ``same_line``, full-width control) for *this field only* is
+    what closes it; every other field's column alignment is untouched.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _ui_context import imgui_context
+
+    from warlock.studio import forms
+
+    class _Recorder:
+        """Wraps the real ``same_line`` so the test can tell whether the
+        column branch or the stacked fallback ran, without guessing at pixel
+        positions the real font would produce."""
+
+        def __init__(self, real):
+            self.real = real
+            self.calls = 0
+
+        def __call__(self, *a, **kw):
+            self.calls += 1
+            return self.real(*a, **kw)
+
+    def _run(monkeypatch, label_width_seen: float) -> int:
+        with imgui_context(monkeypatch) as imgui:
+            imgui.new_frame()
+            imgui.set_next_window_size((800.0, 300.0))
+            imgui.begin("probe")
+            try:
+                recorder = _Recorder(imgui.same_line)
+                monkeypatch.setattr(imgui, "same_line", recorder)
+                # The real group's measured width stands in for an uppercased
+                # long label; the fixed column is 120 design px wide.
+                monkeypatch.setattr(
+                    imgui, "get_item_rect_size", lambda: imgui.ImVec2(label_width_seen, 20.0)
+                )
+                with (
+                    forms.Form("probe", available_width=800.0) as form,
+                    form.field("f", "field") as _problem,
+                ):
+                    imgui.button("control")
+                return recorder.calls
+            finally:
+                imgui.end()
+                imgui.end_frame()
+                imgui.render()
+
+    from _pytest.monkeypatch import MonkeyPatch
+
+    mp_long = MonkeyPatch()
+    try:
+        calls_long = _run(mp_long, 300.0)  # wider than the 120 px column
+    finally:
+        mp_long.undo()
+
+    mp_short = MonkeyPatch()
+    try:
+        calls_short = _run(mp_short, 40.0)  # comfortably inside the column
+    finally:
+        mp_short.undo()
+
+    assert calls_long == 0, "a label wider than the column must skip same_line and stack"
+    assert calls_short == 1, "a short label must keep the ordinary same_line column"
+
+
 def test_forms_footer_does_not_bypass_the_divider_door():
     """Shell-10, the 2026-09-07 audit.
 

@@ -597,7 +597,9 @@ def _toolbar(ctx: Any, state: Any) -> None:
     # The keyboard in hand, on its own line under the strip. Muted and under
     # rather than over, which is ``clay_hud.hint_line``'s rule: it is read when
     # you are stuck, and a line over the grid covers the thing you are stuck on.
-    widgets.muted(
+    # muted_wrapped, not muted: this is a full sentence, and in a narrow
+    # Sirens sidebar plain ``muted`` clipped it at the pane edge (C3).
+    widgets.muted_wrapped(
         sirens_hints.hint(
             state.column, has_selection=state.selection() is not None
         )

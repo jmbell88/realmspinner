@@ -53,6 +53,11 @@ CELL = 160.0
 
 
 def draw(ctx: Any) -> None:
+    # Widen first (W2.1, A3): the full-window Library shares one ``Filters``
+    # and one ``JobsCache`` with the sidebar library, but had never called
+    # this itself, so its search only ever saw the loaded page. See
+    # ``library.draw`` for the fuller version of this comment.
+    ctx.cache.widen_for_filters(ctx.state.filters)
     jobs = ctx.cache.visible(ctx.state.filters)
     # Resolved before the columns are sized, because whether it resolves is
     # what decides how wide the middle one is.
@@ -216,6 +221,78 @@ def _toggle(label: str, icon: str, lit: bool, colour: int) -> bool:
 # --- the grid ---------------------------------------------------------------
 
 
+def _row_layout(
+    jobs: list[Any], count: int, grouped: bool
+) -> tuple[tuple[str, Any], ...]:
+    """The grid's rows and headings as data: ``("heading", text)`` or
+    ``("row", [jobs])`` entries, in order.
+
+    Pure -- no imgui call in it -- the same shape ``library._convert_rows``
+    already takes for a wrapped button row, so the interleaving a date
+    heading forces on the row below it (the column counter resets, so a
+    heading always starts a fresh row rather than landing mid-row) is a plain
+    assertion in ``tests/test_library_browsing.py`` instead of a screenshot.
+    Row-clipping (A1) walks this list rather than the loop in ``_grid``
+    itself, because a row entirely off screen is what a cell-granularity skip
+    could never express -- cells are packed with ``imgui.same_line()``.
+    """
+    entries: list[tuple[str, Any]] = []
+    group = ""
+    row: list[Any] = []
+    for job in jobs:
+        if grouped:
+            heading = library.date_group(job.get("created_at"))
+            if heading != group:
+                group = heading
+                if row:
+                    entries.append(("row", row))
+                    row = []
+                entries.append(("heading", heading))
+        if len(row) == count:
+            entries.append(("row", row))
+            row = []
+        row.append(job)
+    if row:
+        entries.append(("row", row))
+    return tuple(entries)
+
+
+def _row_clipper(ctx: Any, total: int):
+    """Row-granularity twin of ``library._clipper`` (A1). Read that
+    docstring first -- this is its exact arithmetic, one register up: the
+    unit skipped is a full row of cells (``_row_layout``'s ``"row"``
+    entries) rather than one card, because a grid cell cannot be measured on
+    its own the way a stacked card can -- it is placed with
+    ``imgui.same_line()``, so only the row as a whole has a cursor position.
+
+    ``None`` below :data:`library.CLIP_THRESHOLD`, same gate, same reasoning:
+    a library short enough to fit on screen gains nothing from a
+    scroll-dependent path underneath it. The two exemptions ``_clipper``
+    documents carry over unchanged -- ``library_scroll_to`` because
+    ``set_scroll_here_y`` must actually be called on the row that holds it,
+    and ``selected`` so that arriving by any other route still lands -- a row
+    is kept whole when either falls inside it, not only the one cell.
+    """
+    if total < library.CLIP_THRESHOLD:
+        return None
+    view = float(imgui.get_window_size().y)
+    if view <= 0.0:
+        return None
+    scroll = float(imgui.get_scroll_y())
+    keep = {ctx.state.library_scroll_to, ctx.state.selected}
+
+    def skip(row_jobs: list[Any], row_h: float) -> bool:
+        if any(job["id"] in keep for job in row_jobs):
+            return False
+        top = float(imgui.get_cursor_pos_y())
+        if top + row_h < scroll or top > scroll + view:
+            imgui.dummy((0.0, row_h))
+            return True
+        return False
+
+    return skip
+
+
 def _grid(ctx: Any, jobs: list[Any]) -> None:
     style = imgui.get_style()
     pad = style.window_padding
@@ -239,31 +316,31 @@ def _grid(ctx: Any, jobs: list[Any]) -> None:
     if imgui.begin_child("library-full/cells", (0, height)):
         if not jobs:
             library._empty(ctx)
-        group = ""
-        column = 0
-        for job in jobs:
-            # Date grouping (J89), and only under the date sort: a "Today"
-            # heading above a list ordered by size would be a lie about what
-            # separates the rows below it. A heading also breaks the row, which
-            # is why the column counter is reset rather than derived from the
-            # index.
-            if ctx.state.filters.sort == "newest":
-                heading = library.date_group(job.get("created_at"))
-                if heading != group:
-                    group = heading
-                    # Deliberately *not* inside a ``widgets.section_blocks``
-                    # scope. A tinted block groups controls against a flat pane;
-                    # what follows this heading is a wall of cards that already
-                    # carry their own surfaces, so a block behind them would be
-                    # a surface behind surfaces. The rail above does take the
-                    # blocks -- it is controls -- and gets them from
-                    # ``layout.pane``.
-                    widgets.section(heading)
-                    column = 0
-            if column:
-                imgui.same_line()
-            column = (column + 1) % count
-            _cell(ctx, job, (cell_w, cell_h), thumb, pad)
+        # Date grouping (J89), and only under the date sort: a "Today" heading
+        # above a list ordered by size would be a lie about what separates the
+        # rows below it. Built as data (A1) rather than interleaved into this
+        # loop, so the row-clipper below can skip a whole off-screen row
+        # without re-deriving where the headings fall.
+        grouped = ctx.state.filters.sort == "newest"
+        entries = _row_layout(jobs, count, grouped)
+        skip = _row_clipper(ctx, len(jobs))
+        for kind, payload in entries:
+            if kind == "heading":
+                # Deliberately *not* inside a ``widgets.section_blocks`` scope.
+                # A tinted block groups controls against a flat pane; what
+                # follows this heading is a wall of cards that already carry
+                # their own surfaces, so a block behind them would be a
+                # surface behind surfaces. The rail above does take the
+                # blocks -- it is controls -- and gets them from
+                # ``layout.pane``.
+                widgets.section(payload)
+                continue
+            if skip is not None and skip(payload, cell_h):
+                continue
+            for i, job in enumerate(payload):
+                if i:
+                    imgui.same_line()
+                _cell(ctx, job, (cell_w, cell_h), thumb, pad)
         library._load_more(ctx)
     imgui.end_child()
     library._bulk(ctx, jobs)

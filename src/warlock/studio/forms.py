@@ -140,9 +140,21 @@ class Form:
             imgui.begin_group()
             self._label(label, help_text)
             imgui.end_group()
-            imgui.same_line(start_x + self.layout.label_width)
-            imgui.set_next_item_width(self.layout.control_width)
-            control_x = start_x + self.layout.label_width
+            # A field label is meant to be short (see ``widgets.field_label``'s
+            # docstring), but ``field_label`` uppercases it, and an uppercased
+            # long label can run wider than the fixed ``label_width`` column
+            # that ``same_line`` below assumes -- the control would then be
+            # placed under the tail of its own label instead of beside it.
+            # Measuring the drawn group and falling back to the stacked
+            # treatment for just this field is cheaper than guessing widths
+            # up front, and it degrades one field instead of the whole form.
+            if imgui.get_item_rect_size().x > self.layout.label_width:
+                imgui.set_next_item_width(-1.0)
+                control_x = start_x
+            else:
+                imgui.same_line(start_x + self.layout.label_width)
+                imgui.set_next_item_width(self.layout.control_width)
+                control_x = start_x + self.layout.label_width
         yield resolved
         note = resolved or helper
         if note:

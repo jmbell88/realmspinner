@@ -384,6 +384,200 @@ def test_selecting_a_candidate_moves_the_selection_and_nothing_else(svc):
     assert ctx.submitted == []
 
 
+# --- A5: candidate decisions feed the corpus, nudge only --------------------
+
+
+def test_a_graded_candidate_shows_its_grade_and_an_ungraded_one_the_nudge(svc):
+    """A grade filed against a kept-open candidate must reach the picker --
+    today it never does, because nothing there ever reads a verdict. The
+    nudge is the whole intervention: no ordering, no pre-selection, just a
+    sentence while a finished attempt is still ungraded."""
+    from warlock.service import verdicts as verdicts_mod
+    from warlock.studio.panes import candidates_panel
+
+    source = _reference(svc)
+    result = svc_jobs.promote_candidates(svc, source, count=2)
+    graded_id, ungraded_id = result["ids"]
+    for job_id in result["ids"]:
+        svc.store.set_status(job_id, "done")
+    verdicts_mod.record_verdict(svc, graded_id, grade=4, reasons=[], source="human")
+
+    ctx = _Ctx(svc)
+    ctx.jobs = [svc.store.get(i) for i in result["ids"]]
+    group = candidates_mod.pending(ctx.jobs)
+
+    grades = candidates_panel._grades(ctx, group)
+    assert grades[graded_id] == 4
+    assert grades.get(ungraded_id) is None
+
+    # The graded candidate's own line carries its grade, spelled the one way
+    # review_mode.grade_text spells every grade in the app.
+    graded_member = next(m for m in group.members if m["id"] == graded_id)
+    ungraded_member = next(m for m in group.members if m["id"] == ungraded_id)
+    assert "+4" in candidates_panel._status_text(graded_member, grades)
+    assert "+4" not in candidates_panel._status_text(ungraded_member, grades)
+
+    # And while the ungraded one is still settled and ungraded, the group
+    # carries the nudge -- never a filter, never an order, only the sentence.
+    assert candidates_panel._nudge_text(group, grades) is not None
+    assert "What works" in candidates_panel._nudge_text(group, grades)
+
+    # Grading the second attempt clears it.
+    verdicts_mod.record_verdict(svc, ungraded_id, grade=-2, reasons=[], source="human")
+    grades = candidates_panel._grades(ctx, group)
+    assert candidates_panel._nudge_text(group, grades) is None
+
+
+def test_the_picker_reads_grades_once_per_group_not_per_frame(svc):
+    """The picker's own memo, not a call per member and not a call per frame.
+
+    A real ``JobsCache`` stands in for the sidebar's: its generation counter
+    only moves when a fresh read lands, exactly the shape ``jobs_cache.visible``
+    and ``panes.landing.rows`` are already memoized against -- so five draws
+    against one unmoved generation must cost one query, not five, and
+    certainly not one per member of the group.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio.jobs_cache import JobsCache
+    from warlock.studio.panes import candidates_panel
+
+    source = _reference(svc)
+    result = svc_jobs.promote_candidates(svc, source, count=3)
+    for job_id in result["ids"]:
+        svc.store.set_status(job_id, "done")
+
+    cache = JobsCache(svc)
+    cache.tick()
+    group = candidates_mod.pending(cache.jobs)
+    assert len(group.members) == 3
+
+    calls = []
+    real_verdicts_for = svc.store.verdicts_for
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return real_verdicts_for(*args, **kwargs)
+
+    svc.store.verdicts_for = counting
+    try:
+        ctx = SimpleNamespace(svc=svc, cache=cache)
+        for _ in range(5):
+            candidates_panel._grades(ctx, group)
+    finally:
+        svc.store.verdicts_for = real_verdicts_for
+
+    assert len(calls) == 1
+
+
+# --- engine axes on an ordinary promotion ------------------------------------
+#
+# A findings sweep could already set every one of the seven trellis_* launch
+# flags (``service.sweeps.KWARG_AXES``); until ``promote_to_model`` grew these
+# kwargs, an ordinary Create job had no door onto them at all -- the settings
+# pane drew nothing and the promotion door took no keyword for them.
+
+
+def test_an_engine_axis_set_on_the_mesh_form_reaches_the_promoted_jobs_params(svc):
+    """The pane's own kwargs builder, through the service door, into the
+    stored row -- the whole path a press of Make 3D actually takes."""
+    from warlock.studio.panes import settings_3d
+    from warlock.studio.state import DEFAULT_FORM_3D
+
+    source = _reference(svc)
+    form = {
+        **DEFAULT_FORM_3D,
+        "trellis_band": 8,
+        "trellis_tex_res": 256,
+        "trellis_gss": 7.5,
+        "trellis_gsh": 3.5,
+        "trellis_max_tokens": 65536,
+        "trellis_decim": 0,  # the interesting rung: "decimation off", not "unset"
+        "trellis_atlas": 4096,
+    }
+    kwargs = settings_3d.promote_kwargs(form)
+    for key, expected in (
+        ("trellis_band", 8),
+        ("trellis_tex_res", 256),
+        ("trellis_gss", 7.5),
+        ("trellis_gsh", 3.5),
+        ("trellis_max_tokens", 65536),
+        ("trellis_decim", 0),
+        ("trellis_atlas", 4096),
+    ):
+        assert kwargs[key] == expected
+
+    result = svc_jobs.promote_to_model(svc, source, **kwargs)
+    params = svc.store.get(result["id"])["params"]
+    for key, expected in (
+        ("trellis_band", 8),
+        ("trellis_tex_res", 256),
+        ("trellis_gss", 7.5),
+        ("trellis_gsh", 3.5),
+        ("trellis_max_tokens", 65536),
+        ("trellis_decim", 0),
+        ("trellis_atlas", 4096),
+    ):
+        assert params[key] == expected
+
+
+def test_an_unset_engine_axis_writes_no_param_so_the_exe_default_runs(svc):
+    """None on every one of the seven means "the exe's own default runs"
+    (config.py:370-431) -- the same rule ``create_job`` already states, and
+    until now ``promote_to_model`` could not honour it because it had no
+    keyword for any of these at all."""
+    source = _reference(svc)
+    result = svc_jobs.promote_to_model(
+        svc,
+        source,
+        trellis_band=None,
+        trellis_tex_res=None,
+        trellis_gss=None,
+        trellis_gsh=None,
+        trellis_max_tokens=None,
+        trellis_decim=None,
+        trellis_atlas=None,
+    )
+    params = svc.store.get(result["id"])["params"]
+    for key in (
+        "trellis_band", "trellis_tex_res", "trellis_gss", "trellis_gsh",
+        "trellis_max_tokens", "trellis_decim", "trellis_atlas",
+    ):
+        assert key not in params
+
+    # The pane's own path to the same thing: a form left at its sentinels
+    # sends no engine kwarg at all, so an ordinary promotion is unaffected.
+    from warlock.studio.panes import settings_3d
+    from warlock.studio.state import DEFAULT_FORM_3D
+
+    kwargs = settings_3d.promote_kwargs(dict(DEFAULT_FORM_3D))
+    assert not any(k.startswith("trellis_") for k in kwargs)
+
+
+def test_a_bad_engine_value_is_refused_at_promotion_with_its_field(svc):
+    """Validated with the same helpers ``create_job`` uses, so an unusable
+    value costs the request rather than two minutes of GPU -- and the refusal
+    names the control, the way every other promotion refusal does."""
+    source = _reference(svc)
+    with pytest.raises(Invalid) as excinfo:
+        svc_jobs.promote_to_model(svc, source, trellis_band=999)
+    assert excinfo.value.field == "trellis_band"
+
+    with pytest.raises(Invalid) as excinfo:
+        svc_jobs.promote_to_model(svc, source, trellis_gss=-1.0)
+    assert excinfo.value.field == "trellis_gss"
+
+    with pytest.raises(Invalid) as excinfo:
+        svc_jobs.promote_to_model(svc, source, trellis_decim=-5)
+    assert excinfo.value.field == "trellis_decim"
+
+    # A refusal must not leave a row behind -- the same all-or-nothing rule
+    # ``test_admission_is_all_or_nothing`` states for the reference report.
+    assert svc.store.list(100) == [] or all(
+        j["stage"] != "model" for j in svc.store.list(100)
+    )
+
+
 # --- the 3D pane's control ---------------------------------------------------
 
 

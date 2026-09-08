@@ -150,7 +150,10 @@ def test_the_announce_path_routes_a_sweep_unit_to_the_summary():
     raises twenty notices and buries the one that matters."""
     from warlock.studio import main
 
-    source = inspect.getsource(main.App._refresh)
+    # A2: the announce logic moved out of ``_refresh`` (which now only submits
+    # the read) into ``_announce_job_transition``, shared with the async
+    # landing in ``_on_task_done`` -- see its own docstring.
+    source = inspect.getsource(main.App._announce_job_transition)
     assert "sweep_summary" in source
     assert source.index("sweep_summary") < source.index("transition_message(job, previous)")
 

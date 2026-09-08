@@ -31,6 +31,7 @@ import shutil
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -956,6 +957,15 @@ class Worker(
         # back into existence after the unlink.
         self.artifact_lock: Any = lambda _job_id, _name: contextlib.nullcontext()
         self.fatal: BaseException | None = None
+        # The service layer's reaction to a job that just failed, injected the
+        # same way ``artifact_lock`` is: queue.py may not import service or
+        # learn what a sweep is (P31), so ``studio.runtime`` sets this to
+        # ``service.sweeps.on_job_failed`` and it stays None -- a no-op --
+        # headless. Called with the fresh, finished row (not the in-memory
+        # ``job`` this loop has been carrying) from ``_process``'s ``error``
+        # branch, off the event loop thread, and a callback that raises is
+        # logged and swallowed like every other diagnostic here.
+        self.on_job_failed: Callable[[dict[str, Any]], None] | None = None
         self.progress = ProgressBus()
         self._parser = TrellisProgressParser(self._emit_progress)
         self.trellis.on_line = self._parser.feed
@@ -1842,6 +1852,12 @@ class Worker(
                         # and it is the status that discards the artifacts a
                         # row would be describing.
                         await self._record_observation(job_id)
+                        # The sweep-abort hook (P31): a failure this sharp is
+                        # a structural property of the settings, and repeating
+                        # it across every remaining unit of the same server
+                        # group teaches the corpus nothing the first one did
+                        # not. No-op outside Studio and for an ordinary job.
+                        await self._notify_job_failed(job_id)
             finally:
                 # Unconditionally, and in a nest of its own: the terminal write
                 # can raise (`database is locked`, a full disk) and these four

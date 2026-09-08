@@ -31,6 +31,24 @@ log = logging.getLogger(__name__)
 #: the trainer cannot open costs the request, not a queue slot and a load.
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
+#: How similar two candidate images' perceptual hashes must be for
+#: ``library_training_set`` to treat them as the same picture rather than two
+#: different ones. ``docs/measurements/2026-08-11-perceptual-hash-floor.md``
+#: measured a lossless round trip (resize, JPEG re-encode) at a rescaled 1.0,
+#: the worst real variation it tried -- a 1.4x brightness multiply -- at only
+#: 0.66, and two genuinely different drawn objects at ~0.06, indistinguishable
+#: from the noise floor. 0.92 sits above every "different picture" score that
+#: measurement found and below only a lossless copy, so this only ever
+#: collapses the same reference reused across two jobs or a plain resave --
+#: never two merely similar renders, which is exactly what that document says
+#: this metric cannot rank.
+DUPLICATE_SIMILARITY = 0.92
+
+#: A ceiling ``store.search_ids`` still wants, chosen so it is never the
+#: limiting factor: a personal library's favourites are nowhere near this many
+#: rows, and this is a background task (never the frame thread) either way.
+_FAVOURITES_SCAN_LIMIT = 10_000
+
 
 def catalog(svc: WarlockService) -> list[dict[str, Any]]:
     """Every style LoRA the picker offers, imported ones marked by ``source``."""
@@ -101,6 +119,152 @@ def remove_lora(svc: WarlockService, key: str) -> dict[str, Any]:
         raise Invalid("that style was not imported here, so it cannot be removed", field="key")
     generation.remove_imported_lora(svc.config, key)
     return {"ok": True, "key": key}
+
+
+def library_training_set(
+    svc: WarlockService,
+    *,
+    favourites: bool = True,
+    accepted_references: bool = True,
+    usable_meshes: bool = True,
+    dedupe: bool = True,
+) -> dict[str, Any]:
+    """The library's own accepted work, gathered into a LoRA training set.
+
+    Three independent sources, each switchable and each counted on its own in
+    the returned ``sources``:
+
+    * every favourited job -- a broad "I liked this" signal;
+    * every job whose latest human *reference* label is ``accept`` -- an
+      explicit "this 2D asset is good";
+    * the ``reference.png`` of every model job graded ``vectors.USABLE_GRADE``
+      or better -- a mesh that reconstructed well is evidence its reference
+      was a good blank, even though nobody labelled the picture itself.
+
+    A job that qualifies through more than one source still contributes
+    exactly one image -- it has exactly one reference file -- but ``sources``
+    counts every job that qualified for *each* source, overlap and all, which
+    is what the settings pane's summary line reports.
+
+    Near-duplicates -- the same reference reused across two jobs, or a plain
+    resave -- collapse to one image via ``bench.metrics.perceptual_hash`` at
+    ``DUPLICATE_SIMILARITY``, keeping the EARLIER row: a style trained twice
+    keeps whichever copy has been in the library longer.
+
+    A candidate whose job row or reference file has since been pruned off
+    disk -- or trashed -- is silently missing rather than an error:
+    ``service.verdicts`` already documents that a verdict outlives the job it
+    names, so a corpus built from a library that has since been tidied up must
+    degrade, not raise.
+
+    Refuses under ``lora_train.MIN_IMAGES`` the same way ``train_lora`` itself
+    does, with ``field="images"`` so the pane can ring the same control.
+    Capped at ``lora_train.MAX_IMAGES``, newest first.
+    """
+    from ..vectors import USABLE_GRADE
+    from . import verdicts as verdicts_mod
+
+    raw: dict[str, set[str]] = {
+        "favourites": set(),
+        "accepted_references": set(),
+        "usable_meshes": set(),
+    }
+    if favourites:
+        raw["favourites"] = set(
+            svc.store.search_ids("", limit=_FAVOURITES_SCAN_LIMIT, favorite=True)
+        )
+    if accepted_references or usable_meshes:
+        latest = svc.store.latest_verdicts()
+        if accepted_references:
+            raw["accepted_references"] = {
+                v["job_id"]
+                for v in latest
+                if v["source"] == verdicts_mod.SOURCE_HUMAN
+                and v["stage"] == "reference"
+                and v["verdict"] == "accept"
+            }
+        if usable_meshes:
+            raw["usable_meshes"] = {
+                v["job_id"]
+                for v in latest
+                if v["source"] == verdicts_mod.SOURCE_HUMAN
+                and v["stage"] == "model"
+                and isinstance(v.get("grade"), int)
+                and not isinstance(v.get("grade"), bool)
+                and v["grade"] >= USABLE_GRADE
+            }
+
+    considered = set().union(*raw.values()) if any(raw.values()) else set()
+
+    # (created_at, path) per candidate that is still on disk and not
+    # trashed -- everything else is a pruned or trashed candidate, and is
+    # counted in ``considered`` but never reaches ``paths``.
+    resolved: dict[str, tuple[float, Path]] = {}
+    for job_id in considered:
+        job = svc.store.get(job_id)
+        if job is None or job.get("deleted_at") is not None:
+            continue
+        job_dir = svc.job_dir(job_id)
+        path = next(
+            (job_dir / name for name in verdicts_mod.IMAGE_NAMES if (job_dir / name).is_file()),
+            None,
+        )
+        if path is None:
+            continue
+        resolved[job_id] = (float(job["created_at"]), path)
+
+    # Oldest first, so the dedupe pass below keeps the earlier of two
+    # colliding rows and drops the later one.
+    entries = sorted(
+        ((job_id, created_at, path) for job_id, (created_at, path) in resolved.items()),
+        key=lambda e: (e[1], e[0]),
+    )
+
+    dropped_duplicates = 0
+    if dedupe:
+        # A pure-stdlib-plus-numpy metric, not a bench pipeline: reusing the
+        # near-duplicate hash bench/metrics.py already carries and measured is
+        # the point, and this module owns none of the GPU/queue machinery
+        # bench/__init__.py's "reaches the app the same way a user does" rule
+        # is actually about.
+        from ..bench import metrics as bench_metrics
+
+        kept: list[tuple[str, float, Path]] = []
+        kept_hashes: list[int] = []
+        for job_id, created_at, path in entries:
+            image_hash = bench_metrics.perceptual_hash(path)
+            is_duplicate = image_hash is not None and any(
+                bench_metrics.hash_similarity(image_hash, other) >= DUPLICATE_SIMILARITY
+                for other in kept_hashes
+            )
+            if is_duplicate:
+                dropped_duplicates += 1
+                continue
+            kept.append((job_id, created_at, path))
+            if image_hash is not None:
+                kept_hashes.append(image_hash)
+        entries = kept
+
+    # Newest first, then capped -- the library's own version of the ceiling
+    # the folder-based door already enforces.
+    entries.sort(key=lambda e: (e[1], e[0]), reverse=True)
+    entries = entries[: lora_train.MAX_IMAGES]
+
+    final_ids = {job_id for job_id, _created_at, _path in entries}
+    if len(final_ids) < lora_train.MIN_IMAGES:
+        raise Invalid(
+            f"the library has {len(final_ids)} usable image(s) so far; a style needs at "
+            f"least {lora_train.MIN_IMAGES} -- favourite more jobs, or accept more "
+            "references or meshes",
+            field="images",
+        )
+
+    return {
+        "paths": [path for _job_id, _created_at, path in entries],
+        "considered": len(considered),
+        "dropped_duplicates": dropped_duplicates,
+        "sources": {key: len(ids & final_ids) for key, ids in raw.items()},
+    }
 
 
 def train_lora(

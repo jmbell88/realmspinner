@@ -1239,8 +1239,50 @@ def _loras(ctx: Any) -> None:
                 "trigger": f"{folder.name} style"[: lora_train.MAX_TRIGGER],
                 "steps": lora_train.DEFAULT_STEPS,
             }
+    imgui.same_line()
+    # A scan, not a dialog: it reads the whole job history plus a
+    # perceptual-hash pass over every candidate, which is real disk and CPU
+    # work -- the frame loop never blocks for it. Submitted under the
+    # generic "preview" key ``main._on_task_done`` already merges into
+    # ``ctx.state.preview`` -- the same landing spot the folder button
+    # writes to directly -- so the library button fills the same form
+    # without this pane needing its own task-result handler.
+    if widgets.disabled_button(
+        "Train from my library...", not busy and not ctx.busy("preview")
+    ):
+        ctx.submit("preview", _library_training_preview, ctx.svc)
     _lora_import_form(ctx)
     _lora_train_form(ctx)
+
+
+def _library_training_preview(svc: Any) -> dict[str, Any]:
+    """Off the frame thread: ``loras.library_training_set`` over the whole
+    library, turned into the same ``lora_train`` preview form the folder
+    button fills. A refusal (too few qualifying images) raises ``Invalid``
+    and reaches the user through the ordinary failed-task toast, field ring
+    included -- there is no folder-scan path duplicating that door here.
+    """
+    from ...pipelines import lora_train
+    from ...service import loras as svc_loras
+
+    result = svc_loras.library_training_set(svc)
+    return {
+        "lora_train": {
+            "images": result["paths"],
+            "label": "Library style"[: lora_train.MAX_LABEL],
+            "trigger": "library style"[: lora_train.MAX_TRIGGER],
+            "steps": lora_train.DEFAULT_STEPS,
+            # Marks this form as library-sourced rather than folder-sourced:
+            # ``_lora_train_form`` reads it to skip the folder rescan and to
+            # draw the library's own summary line instead of "Training from
+            # <folder>: N images".
+            "library_summary": {
+                "considered": result["considered"],
+                "dropped_duplicates": result["dropped_duplicates"],
+                "sources": result["sources"],
+            },
+        }
+    }
 
 
 def lora_import_kwargs(form: dict[str, Any]) -> dict[str, Any]:
@@ -1325,19 +1367,34 @@ def _lora_train_form(ctx: Any) -> None:
     form = ctx.state.preview.get("lora_train")
     if not form:
         return
-    # Scanned when the folder changes, not every frame this form is drawn.
-    # ``training_images`` is an ``iterdir`` plus a filter and a sort, and this
-    # form stays on screen for as long as it takes to type a name -- on a
-    # network path or a large training set that was a per-frame disk hit on the
-    # frame thread, for a count that cannot change while the dialog is up.
-    if form.get("scanned_folder") != form["folder"]:
-        form["images"] = training_images(Path(form["folder"]))
-        form["scanned_folder"] = form["folder"]
-    images = form["images"]
-    widgets.muted(
-        f"Training from {Path(form['folder']).name}: {len(images)} images "
-        f"({lora_train.MIN_IMAGES} to {lora_train.MAX_IMAGES})"
-    )
+    summary = form.get("library_summary")
+    if summary is not None:
+        # Filled by ``_library_training_preview``, already resolved -- no
+        # folder to rescan, and the image list is the library scan's own
+        # deduped, capped result.
+        images = form["images"]
+        sources = summary["sources"]
+        widgets.muted(
+            f"{len(images)} images ({summary['dropped_duplicates']} near-duplicates "
+            f"dropped; from {sources['favourites']} favourites, "
+            f"{sources['accepted_references']} accepted references, "
+            f"{sources['usable_meshes']} usable meshes)"
+        )
+    else:
+        # Scanned when the folder changes, not every frame this form is
+        # drawn. ``training_images`` is an ``iterdir`` plus a filter and a
+        # sort, and this form stays on screen for as long as it takes to type
+        # a name -- on a network path or a large training set that was a
+        # per-frame disk hit on the frame thread, for a count that cannot
+        # change while the dialog is up.
+        if form.get("scanned_folder") != form["folder"]:
+            form["images"] = training_images(Path(form["folder"]))
+            form["scanned_folder"] = form["folder"]
+        images = form["images"]
+        widgets.muted(
+            f"Training from {Path(form['folder']).name}: {len(images)} images "
+            f"({lora_train.MIN_IMAGES} to {lora_train.MAX_IMAGES})"
+        )
     with forms.Form(
         "lora-train",
         errors=ctx.state.field_errors,
@@ -1356,10 +1413,15 @@ def _lora_train_form(ctx: Any) -> None:
         if changed:
             form["steps"] = value
     ok = lora_train.MIN_IMAGES <= len(images) <= lora_train.MAX_IMAGES
+    needed = (
+        "The library doesn't have enough qualifying images yet."
+        if summary is not None
+        else "The folder needs between 3 and 100 images."
+    )
     pressed = widgets.disabled_button(
         "Train style",
         ok and not ctx.busy("lora:train"),
-        reason="" if ok else "The folder needs between 3 and 100 images.",
+        reason="" if ok else needed,
     )
     if pressed:
         # Last time's rings first: a new submit is judged on its own.

@@ -92,6 +92,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .. import vectors
 from ..service import verdicts as verdicts_mod
 from . import quality
 
@@ -335,6 +336,14 @@ def _unit(job: dict[str, Any], recorded: dict[tuple[str, str], dict[str, Any]],
         # and a falsy check would answer no.
         "grade": seen.get("grade"),
         "tags": list(seen.get("reasons") or ()),
+        # v5: the subject this unit's prompt hashes to, so the findings panel
+        # can prefer this subject's own top-ranked configurations
+        # (``findings.json``'s ``prompts[*].top_vectors``) over the pooled
+        # list once it has enough behind it. A plain read of the same fact
+        # ``service.verdicts.record_verdict`` already stamps onto its own
+        # verdict row -- never a second derivation of it. ``""`` for a job
+        # with no prompt, matching ``vectors.prompt_hash``'s own rule.
+        "prompt_hash": vectors.prompt_hash(job.get("prompt")),
     }
 
 
@@ -1366,6 +1375,110 @@ def cache_id_for_label(row: dict[str, Any]) -> str:
 # --- launching a sweep -------------------------------------------------------
 
 
+def suggest_sweeps(doc: dict[str, Any] | None, *, min_pairs: int = 5) -> list[dict[str, Any]]:
+    """Open contrasts that a few more matched pairs would settle. Pure.
+
+    Review's "What works" panel already says *which* contrasts are unsettled
+    -- ``bench.findings.comparison_lines`` renders nothing for one short of
+    ``min_pairs`` -- but never how to settle one. This is that: read the same
+    ``doc["comparisons"]`` section that function reads, and for every entry
+    with ``0 < pairs < min_pairs`` (some evidence, not yet enough) emit what a
+    reviewer needs to close it. ``min_pairs`` is ``comparison_lines``' own
+    display threshold, passed through rather than restated -- a contrast
+    below it is exactly the one that never gets a "beat ... in N of M" line,
+    so it is the set this exists to answer for.
+
+    Zero pairs is excluded on purpose: that is a contrast nobody has run, not
+    one somebody started and left short, and suggesting a sweep for it would
+    be indistinguishable from suggesting one for every axis the catalog
+    knows. ``pairs >= min_pairs`` already renders its own verdict and needs no
+    suggestion either.
+
+    ``leader`` is whichever side currently has more wins (``a`` on a tie,
+    which is arbitrary but deterministic -- a coin flip is not worth a
+    field), and ``leader_wins`` rides along because
+    :func:`bench.findings.suggestion_line` states the current score and
+    cannot derive it from the other fields.
+
+    Ordered by ``needed`` ascending -- the contrast closest to settling leads
+    -- then by lopsidedness (``|a_wins - b_wins|``) descending, because a
+    near-decided contrast is worth closing before a coin-flip one the same
+    distance away, then by param name for a stable order over ties.
+    """
+    if not isinstance(doc, dict):
+        return []
+    comparisons = doc.get("comparisons")
+    if not isinstance(comparisons, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for param, entries in comparisons.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            pairs = entry.get("pairs")
+            if not isinstance(pairs, int) or isinstance(pairs, bool):
+                continue
+            if not (0 < pairs < min_pairs):
+                continue
+            a_wins = entry.get("a_wins")
+            a_wins = a_wins if isinstance(a_wins, int) and not isinstance(a_wins, bool) else 0
+            b_wins = entry.get("b_wins")
+            b_wins = b_wins if isinstance(b_wins, int) and not isinstance(b_wins, bool) else 0
+            leader_is_a = a_wins >= b_wins
+            rows.append(
+                {
+                    "param": str(param),
+                    "a": str(entry.get("a", "?")),
+                    "b": str(entry.get("b", "?")),
+                    "pairs": pairs,
+                    "needed": min_pairs - pairs,
+                    "leader": str(entry.get("a" if leader_is_a else "b", "?")),
+                    "leader_wins": a_wins if leader_is_a else b_wins,
+                    "_lopsided": abs(a_wins - b_wins),
+                }
+            )
+    rows.sort(key=lambda r: (r["needed"], -r["_lopsided"], r["param"]))
+    for row in rows:
+        del row["_lopsided"]
+    return rows
+
+
+def plan_suggestion(state: ReviewState, s: dict[str, Any]) -> None:
+    """Fill the New-sweep form to close one open contrast from :func:`suggest_sweeps`.
+
+    Sets the one axis a suggestion is about, to exactly its two values, and
+    enough fresh seeds to cover the matched pairs still needed -- ``needed``
+    new seeds queue ``needed`` new baseline/axis pairs sharing a seed, which
+    is the whole definition of a matched pair
+    ``service.findings._comparisons`` scores by, so each closes one.
+
+    **Leaves ``form.base`` and ``form.prompt`` alone.** A suggestion is "run
+    this contrast again", not "start a sweep from scratch" -- the base is
+    whatever the user last captured (or nothing, if they never have) and the
+    prompt is theirs to fill in; overwriting either here would queue a sweep
+    against a subject, or a set of settings, the reviewer never chose. The
+    caller toasts the two things left for the user to do -- set the prompt,
+    then press "Start from current 2D/3D settings" -- because this function
+    is pure and may not.
+
+    Fresh seeds are timestamp-derived rather than drawn from the existing
+    corpus: a repeated seed would not be "one more matched pair", it would be
+    the same pair filed a second time, and the sweep's own matching is keyed
+    on seed equality.
+    """
+    form = state.form
+    param = str(s.get("param") or "")
+    a, b = s.get("a"), s.get("b")
+    form.axes = [{"param": param, "values": f"{a}, {b}"}]
+    needed = s.get("needed")
+    valid = isinstance(needed, int) and not isinstance(needed, bool) and needed > 0
+    needed = needed if valid else 1
+    base_seed = int(time.time() * 1000) % 1_000_000
+    form.seeds = ", ".join(str(base_seed + i) for i in range(needed))
+
+
 def capture_base(ctx: Any) -> dict[str, Any]:
     """The settings vector the two generate forms currently describe.
 
@@ -1398,6 +1511,22 @@ def capture_base(ctx: Any) -> dict[str, Any]:
     if float(form_3d.get("size_m") or 0) > 0:
         base["size_m"] = float(form_3d["size_m"])
     base["reference_prep"] = bool(form_3d.get("reference_prep"))
+    # The seven engine axes, the same "still at its sentinel means omitted"
+    # rule ``settings_3d._engine_kwargs`` states for the same fields -- a
+    # sweep launched from a form that never touched these must not claim a
+    # trellis flag nobody set. 0 is every sentinel but trellis_decim's, whose
+    # own 0 is "decimation off" rather than "unset" (state.DEFAULT_FORM_3D).
+    for key in ("trellis_band", "trellis_tex_res", "trellis_max_tokens", "trellis_atlas"):
+        value = form_3d.get(key)
+        if value is not None and int(value) > 0:
+            base[key] = int(value)
+    for key in ("trellis_gss", "trellis_gsh"):
+        value = form_3d.get(key)
+        if value is not None and float(value) > 0:
+            base[key] = float(value)
+    decim = form_3d.get("trellis_decim")
+    if decim is not None and int(decim) >= 0:
+        base["trellis_decim"] = int(decim)
     return base
 
 
@@ -2061,7 +2190,8 @@ def _label_key(ctx: Any, state: ReviewState, event: Any, name: str) -> bool:
 # ``resolution`` is derived from platform and is not applied at all, nor is
 # ``stage``, which is not a setting.
 FORM_3D_KEYS = ("platform", "profile", "custom_triangles", "size_m", "bg_removal",
-                "reference_prep")
+                "reference_prep", "trellis_band", "trellis_tex_res", "trellis_gss",
+                "trellis_gsh", "trellis_max_tokens", "trellis_decim", "trellis_atlas")
 SKIP_KEYS = ("stage", "resolution")
 
 
@@ -2097,10 +2227,20 @@ def apply_vector(state: Any, vector: dict[str, Any]) -> None:
                 continue
             if key not in form:
                 continue
-            form[key] = _coerce_form_value(form[key], value)
+            form[key] = coerce_form_value(form[key], value)
 
 
-def _coerce_form_value(default: Any, value: Any) -> Any:
+def coerce_form_value(default: Any, value: Any) -> Any:
+    """``value`` cast to the type ``default`` already is.
+
+    Public (promoted from ``_coerce_form_value``) because the best-value
+    "Use ..." button the generate panes offer next to a findings hint
+    (``settings_2d``/``settings_3d``) writes into a form the identical way
+    ``apply_vector`` does, and for the identical reason: a bucket key such as
+    ``"0.6"`` in ``findings.json`` is always a string, and the form field it
+    is offered against may be a float, so the write has to land in the type
+    the widget actually reads.
+    """
     try:
         if isinstance(default, bool):
             return bool(value)

@@ -23,6 +23,7 @@ from ... import guidance as guidancelib
 from ... import models as modelslib
 from ...bench import findings as findings_lib
 from ...pipelines import tileatlas as tileatlaslib
+from ...service import findings as svc_findings
 from ...service import jobs as svc_jobs
 from ...service import palettes as svc_palettes
 from ...service import sprites as svc_sprites
@@ -46,6 +47,7 @@ from .. import (
     widgets,
 )
 from ..manual import render as manual_render
+from ..review_mode import coerce_form_value
 from ..tokens import sp
 from ..widgets import field_options as _options
 from . import settings_character
@@ -1044,6 +1046,65 @@ def _findings_hint(
     )
 
 
+def _hint(
+    ctx: Any,
+    form: dict[str, Any],
+    param: str,
+    value: Any,
+    findings_doc: Any = _LOAD_FINDINGS,
+) -> None:
+    """Draw the findings hint for the control just drawn, plus the offer to
+    jump straight to what the evidence favours -- ``settings_3d._hint``'s
+    shape, in the pane that owns the prompt these hints are scoped by.
+
+    The 2026-09-07 review's ask, "findings become actionable at the control":
+    the hint says what the *current* value scored, and until now that was
+    where it stopped -- a user agreeing had to go find the winning value and
+    dial it in by hand. ``_best_value_offer`` is the click.
+    """
+    hint = _findings_hint(ctx, param, value, findings_doc)
+    if hint is not None:
+        widgets.hint_text(hint)
+    _best_value_offer(ctx, form, param, value, findings_doc)
+
+
+def _best_value_offer(
+    ctx: Any,
+    form: dict[str, Any],
+    param: str,
+    value: Any,
+    findings_doc: Any = _LOAD_FINDINGS,
+) -> None:
+    """"7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
+    evidence favours a value other than the one already set.
+
+    **Offered, never applied** -- ``settings_3d._size_suggestion``'s shape: a
+    button that silently rewrote a slider the moment a sweep tipped the
+    ranking would be indistinguishable from the app deciding the setting for
+    the user, which every findings surface in this app deliberately refuses
+    to do. Silent when the current value already leads
+    (``bench.findings.best_value`` answers None then), because a button
+    offering to set what is already set is not an offer, it is clutter.
+    """
+    doc = findings_doc
+    if doc is _LOAD_FINDINGS:
+        doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+    found = findings_lib.best_value(
+        doc,
+        param,
+        value,
+        min_n=svc_findings.PRESET_MIN_N,
+        prompt_hash=vectors.prompt_hash(ctx.state.form_2d.get("prompt")),
+    )
+    if found is None:
+        return
+    value_str, entry, scope = found
+    widgets.muted(findings_lib.best_value_line(entry, scope))
+    imgui.same_line()
+    if controls.button(f"Use {value_str}##best-{param}"):
+        form[param] = coerce_form_value(form[param], value_str)
+
+
 # --- pieces -----------------------------------------------------------------
 
 
@@ -1398,6 +1459,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["ip_scale"] = value
+        _hint(ctx, form, "ip_scale", form["ip_scale"])
 
     widgets.field_label("start image")
     # The 2026-09-05 audit, finding create-04: this checkbox used to be drawn
@@ -1427,6 +1489,7 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["init_strength"] = value
+        _hint(ctx, form, "init_strength", float(form.get("init_strength") or 0.45))
     if inert is not None:
         imgui.end_disabled()
         widgets.muted_wrapped(inert)
@@ -1445,11 +1508,13 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["control_scale"] = value
+        _hint(ctx, form, "control_scale", form["control_scale"])
         changed, value = controls.slider_float(
             "Until##cn", float(form["control_end"]), *_range(ctx, "control_end_range", 0.0, 1.0)
         )
         if changed:
             form["control_end"] = value
+        _hint(ctx, form, "control_end", form["control_end"])
         widgets.help_marker(
             "How far into the drawing the structure keeps acting. Ending early "
             "lets the last steps add detail the reference never had; 1.0 holds "
@@ -1811,9 +1876,7 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -
         return
     for note in ctx.state.preview.get(CLEARED_KEY) or ():
         widgets.muted_wrapped(note)
-    hint = _findings_hint(ctx, "base_model", form["base_model"], findings_doc)
-    if hint is not None:
-        widgets.hint_text(hint)
+    _hint(ctx, form, "base_model", form["base_model"], findings_doc)
     _licence_note(form["base_model"])
 
 
@@ -1903,9 +1966,7 @@ def _lora(
     if form["style_lora"] != was_lora:
         ctx.state.clear_field_error("style_lora")
     reseed_lora_weight(form, was_lora)
-    hint = _findings_hint(ctx, "style_lora", form["style_lora"], findings_doc)
-    if hint is not None:
-        widgets.hint_text(hint)
+    _hint(ctx, form, "style_lora", form["style_lora"], findings_doc)
     if form["style_lora"] and show_strength:
         _lora_strength(ctx, form, findings_doc)
     if no_lora is not None:
@@ -1930,9 +1991,7 @@ def _lora_strength(
     if changed:
         form["lora_weight"] = value
     widgets.muted_wrapped(f"tuned default: {lora_default_weight(form['style_lora']):g}")
-    hint = _findings_hint(ctx, "lora_weight", form["lora_weight"], findings_doc)
-    if hint is not None:
-        widgets.hint_text(hint)
+    _hint(ctx, form, "lora_weight", form["lora_weight"], findings_doc)
 
 
 def _negative(ctx: Any, form: dict[str, Any]) -> None:

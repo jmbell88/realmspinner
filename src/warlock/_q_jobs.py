@@ -90,6 +90,27 @@ class JobOps:
         except Exception:
             log.exception("could not record observation for job %s", job_id)
 
+    async def _notify_job_failed(self: Worker, job_id: str) -> None:
+        """Hand the injected ``on_job_failed`` callback a fresh copy of the
+        row that just errored (P31 -- the sweep-abort hook).
+
+        Read fresh rather than trusting the in-memory ``job`` this loop has
+        been carrying, for the same reason ``_observe_finished`` does: the
+        terminal write (status, error) just landed via ``store.finish`` and
+        the caller needs that, not the row as it stood at ``claim()``. A
+        callback failing must not wedge the worker over a job it has already
+        recorded -- logged and swallowed like every other diagnostic here.
+        """
+        if self.on_job_failed is None:
+            return
+        job = await asyncio.to_thread(self.store.get, job_id)
+        if job is None:
+            return
+        try:
+            await asyncio.to_thread(self.on_job_failed, job)
+        except Exception:
+            log.exception("on_job_failed callback raised for job %s", job_id)
+
     async def _record_followup_failure(
         self: Worker,
         job_id: str,

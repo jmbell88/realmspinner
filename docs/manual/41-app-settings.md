@@ -144,6 +144,24 @@ model are unloaded first and come back on the next job), and about 800 steps is 
 fast card. When it finishes the style is registered exactly as an imported one, at weight 1.0, with
 your trigger words. Your images never leave the machine.
 
+**Train from my library...** builds the same training set without a folder, out of work you have
+already judged. It gathers three things from your job history — every favourited job, every
+reference you labelled *accept* while judging, and the reference image of every mesh graded usable
+or better (a mesh that reconstructed well is evidence its picture was a good blank, even if you
+never labelled the picture itself) — drops near-duplicates so the same reference reused across two
+jobs only trains once, and fills the same form the folder button does. The scan runs in the
+background, so the rest of the app stays responsive while it reads through your history; the
+summary line under the form says how many images it found and where they came from, for example "24
+images (3 near-duplicates dropped; from 9 favourites, 14 accepted references, 4 usable meshes)".
+If your library does not yet have enough judged work, the button's scan refuses the same way the
+folder door does, naming how many it found.
+**Training on pictures this same build generated is unmeasured.** Nothing here has run the paired,
+blind comparison — the LoRA on against the LoRA off, judged without knowing which is which — that
+would say whether a style trained this way actually helps or just teaches the model to repeat its
+own habits back to itself. Treat it as a convenience for gathering images you already vetted by
+hand, not as a validated recipe; [Tuning what you get](12-tuning-what-you-get.md#style-loras-trained-from-the-library)
+has the longer note.
+
 **Remove** beside an imported or trained style deletes its file and its entry. Built-in styles are
 not listed here and cannot be removed.
 

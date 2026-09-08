@@ -1382,6 +1382,13 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
     # answer left stale the section would keep springing open on a mesh that
     # has just been graded.
     ctx.state.inspector_graded[job_id] = True
+    # A3: the grade just filed is on the job row (``_jobs_list.list_jobs``),
+    # not in a task-thread write ``main._on_task_done`` would catch by key --
+    # this write is inline on the frame thread, the same reason the module
+    # docstring gives, so nothing else invalidates the cache for it. Without
+    # this the card kept its stale (ungraded) pill until the next unrelated
+    # refresh happened to land.
+    ctx.cache.invalidate()
     # Through Review's own request, not a second submit under a copy of its
     # key: two spellings of one task key are two things to keep in step.
     review_mode.refresh_findings(ctx)

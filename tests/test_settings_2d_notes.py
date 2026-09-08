@@ -84,6 +84,49 @@ def test_the_pane_says_when_it_fell_back_to_every_subject(tmp_path):
     )
 
 
+def test_pressing_use_writes_the_value_in_the_forms_own_type(tmp_path, monkeypatch):
+    """The best-value offer's button ("findings become actionable at the
+    control"): ``findings.json`` keys a bucket by ``str()`` of the value
+    ("0.9"), and the slider it is offered against holds a float -- pressing
+    "Use 0.9" must land a ``float`` in the form, the same rule
+    ``review_mode.apply_vector`` already follows for "Apply to forms"."""
+    import json
+
+    doc = {
+        "version": 5,
+        "generated": "x",
+        "params": {
+            "lora_weight": {
+                "0.6": {"n": 8, "accepts": 2, "wilson_low": 0.1},
+                "0.9": {"n": 8, "accepts": 7, "wilson_low": 0.55},
+            }
+        },
+    }
+    (tmp_path / "findings.json").write_text(json.dumps(doc), encoding="utf-8")
+    from warlock.bench import findings as findings_lib
+
+    findings_lib._CACHE.clear()
+
+    form = {"prompt": "a wooden crate", "lora_weight": 0.6}
+    ctx = SimpleNamespace(
+        svc=SimpleNamespace(config=SimpleNamespace(bench_dir=tmp_path)),
+        state=SimpleNamespace(form_2d=form),
+    )
+    # No GL context needed: ``_best_value_offer`` draws a muted line and a
+    # button, and both are stubbed out so this asserts the write alone --
+    # ``controls.button`` forced True is exactly what
+    # ``test_the_structure_repair_changes_the_control_its_own_note_names``
+    # already does for the same reason.
+    monkeypatch.setattr(settings_2d.controls, "button", lambda *a, **k: True)
+    monkeypatch.setattr(settings_2d.widgets, "muted", lambda *a, **k: None)
+    monkeypatch.setattr(settings_2d.imgui, "same_line", lambda *a, **k: None)
+
+    settings_2d._best_value_offer(ctx, form, "lora_weight", form["lora_weight"])
+
+    assert form["lora_weight"] == 0.9
+    assert isinstance(form["lora_weight"], float)
+
+
 def test_a_cfg_base_gets_no_negative_prompt_note():
     form = {"base_model": models.cfg_bases()[0]}
     assert settings_2d.negative_prompt_note(_ctx(), form) is None
@@ -373,7 +416,9 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
     ``size_m`` is the deliberate omission: it is continuous, so "0.35" and
     "0.36" are separate buckets and the five-verdict threshold would never be
     met. ``custom_triangles`` is the same. Everything else the form submits and
-    ``VECTOR_PARAMS`` names must carry a hint.
+    ``VECTOR_PARAMS`` names must carry a hint -- the seven ``trellis_*`` engine
+    axes (``_engine``, "Engine (advanced)") included, since a findings sweep
+    can already set every one of them (``service.sweeps.KWARG_AXES``).
     """
     import re
     from pathlib import Path
@@ -382,9 +427,15 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
     from warlock.studio.panes import settings_3d
 
     source = Path(settings_3d.__file__).read_text(encoding="utf-8")
-    hinted = set(re.findall(r'_hint\(ctx, "(\w+)"', source))
-    owned = {"platform", "profile", "size_m", "bg_removal", "reference_prep",
-             "custom_triangles"}
+    # ``_hint`` also draws the best-value offer now (findings v5, "actionable
+    # at the control"), which needs the form to write into -- the pattern
+    # widened to match ``_hint(ctx, form, "platform", ...)``.
+    hinted = set(re.findall(r'_hint\(ctx, form, "(\w+)"', source))
+    owned = {
+        "platform", "profile", "size_m", "bg_removal", "reference_prep",
+        "custom_triangles", "trellis_band", "trellis_tex_res", "trellis_gss",
+        "trellis_gsh", "trellis_max_tokens", "trellis_decim", "trellis_atlas",
+    }
 
     assert owned <= set(vectors.VECTOR_PARAMS), "the form and the vocabulary must agree"
     assert hinted == owned - {"size_m", "custom_triangles"}

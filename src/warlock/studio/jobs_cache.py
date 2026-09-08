@@ -92,10 +92,23 @@ class JobsCache:
         # "load more" widened the window. Pruned to the page below, so it can
         # never outgrow what is being shown.
         self._files: dict[str, tuple[tuple[Any, int], list[str]]] = {}
-        # (generation, text) of the last search widen, so a search is not
-        # re-run every frame draw() calls it on -- only when the text changes
-        # or ``tick`` has replaced ``jobs`` and thrown the merge away.
-        self._search_key: tuple[int, str] | None = None
+        # Rows beyond the newest page (A2/O119): ``read`` only ever refreshes
+        # the top ``LIST_LIMIT`` rows on an ordinary tick, so anything "Load
+        # older" has widened the window with lives here, untouched, until
+        # ``reset_window`` drops it or a wider window asks ``read`` for more of
+        # it than is already held. Re-reading the whole window on every tick
+        # was the defect: every row past the first page paid its
+        # ``attach_files`` stat again, forever, for rows nothing had changed.
+        self._old_rows: list[dict[str, Any]] = []
+        # What ``_dirty`` was the moment the in-flight read was started, for
+        # the COUNT(*) cadence in :meth:`adopt` -- ``was_dirty`` used to be a
+        # local in ``tick``; now the read and the adopt are different calls,
+        # so it has to survive between them.
+        self._read_was_dirty = False
+        # The last (generation, filter fields) a widen ran for, so it is not
+        # re-run every frame draw() calls it on -- only when a widenable field
+        # changes or ``tick`` has replaced ``jobs`` and thrown the merge away.
+        self._search_key: tuple[Any, ...] | None = None
 
     def invalidate(self) -> None:
         """Refresh on the next tick. Called after anything the UI did that
@@ -147,22 +160,89 @@ class JobsCache:
         self.limit = LIST_LIMIT
         self.invalidate()
 
-    def tick(self, on_transition: Callable[[dict[str, Any], str | None], None] | None = None):
-        """-> whether the list was re-read this frame."""
+    def _due(self) -> bool:
         now = time.monotonic()
-        if not self._dirty and now < self._next_refresh:
-            return False
-        was_dirty = self._dirty
-        self._dirty = False
+        return self._dirty or now >= self._next_refresh
+
+    def read(self, files_snapshot: dict[str, Any]) -> dict[str, Any]:
+        """The blocking half: one sqlite read plus ``attach_files``' stat walk.
+
+        **Off the frame thread only** -- this is the read A2 exists to move
+        there. Touches no attribute on ``self`` besides reading ``self.limit``
+        and ``self._old_rows`` (never mutated here, only by :meth:`adopt`), so
+        it is safe to hand to :class:`TaskRunner`; the caller must hand it a
+        *copy* of ``self._files`` (``files_snapshot``), because this mutates
+        that dict in place exactly as ``attach_files`` always has, and the
+        frame thread must not see those writes until :meth:`adopt` publishes
+        them.
+
+        Only the newest ``LIST_LIMIT`` rows are re-read here -- "Load older"
+        rows already held in ``self._old_rows`` are reused rather than
+        re-fetched, and only the delta between what is held and what
+        ``self.limit`` now asks for is pulled in, by keyset cursor, page by
+        page. That is what stops "Load older" from turning into a re-read (and
+        a re-stat) of the whole growing window on every tick (O119/A2).
+
+        -> ``{"jobs": [...], "old": [...], "files": files_snapshot}`` or
+        ``{"error": str}`` for :meth:`adopt` to publish.
+        """
         try:
-            jobs = svc_jobs.list_jobs(self.svc, self.limit, files_cache=self._files)
+            top_size = min(self.limit, LIST_LIMIT)
+            top = svc_jobs.list_jobs(self.svc, top_size, files_cache=files_snapshot)
+            target_old = max(0, self.limit - LIST_LIMIT)
+            old = list(self._old_rows[:target_old])
+            while len(old) < target_old:
+                tail = old[-1] if old else (top[-1] if top else None)
+                if tail is None:
+                    break
+                before = (tail.get("created_at") or 0.0, tail.get("id") or "")
+                page = svc_jobs.list_jobs(
+                    self.svc,
+                    min(LIST_LIMIT, target_old - len(old)),
+                    before=before,
+                    files_cache=files_snapshot,
+                )
+                if not page:
+                    break
+                old.extend(page)
+                if len(page) < LIST_LIMIT:
+                    break
         except Exception as exc:  # a locked DB, a vanished file
             log.exception("could not read the job list")
-            self.error = str(exc)
+            return {"error": str(exc)}
+        return {"jobs": top, "old": old, "files": files_snapshot}
+
+    def adopt(
+        self,
+        reading: dict[str, Any],
+        on_transition: Callable[[dict[str, Any], str | None], None] | None = None,
+    ) -> bool:
+        """Frame-thread half of :meth:`read` -- publish a reading. -> whether
+        it landed (a ``{"error": ...}`` reading, or a stale one from a task
+        started before the last :meth:`reset_window`, does not).
+
+        This is the one place that ever assigns ``jobs``, ``by_id`` and
+        ``_last_status``, and the one place that ever fires ``on_transition``
+        -- exactly the property :meth:`tick` had, moved here so a call
+        submitted through :class:`TaskRunner` can share it.
+        """
+        if not isinstance(reading, dict):
             return False
+        error = reading.get("error")
+        if error:
+            self.error = str(error)
+            return False
+        top = reading.get("jobs")
+        if top is None:
+            return False
+        old = reading.get("old") or []
+        self._old_rows = old
+        jobs = top + old
         self.error = None
         self.jobs = jobs
+        self._files = reading.get("files", self._files)
         self._generation += 1
+        now = time.monotonic()
         # Adaptive cadence (L102): fast only while a job is live -- that is the
         # only time a row can change without the UI having called invalidate.
         live = any(j.get("status") in ("queued", "running") for j in jobs)
@@ -178,7 +258,7 @@ class JobsCache:
         if len(jobs) < self.limit:
             self.total = len(jobs)
             self.count_error = None
-        elif was_dirty or now >= self._next_count:
+        elif self._read_was_dirty or now >= self._next_count:
             self._next_count = now + COUNT_SECONDS
             try:
                 self.total = self.svc.store.count()
@@ -196,6 +276,47 @@ class JobsCache:
                     on_transition(job, previous)
         self._last_status = {j["id"]: j["status"] for j in jobs}
         return True
+
+    def request(
+        self,
+        runner: Any,
+        on_transition: Callable[[dict[str, Any], str | None], None] | None = None,
+    ) -> bool:
+        """Submit :meth:`read` to ``runner`` if a refresh is due. -> whether a
+        read was submitted this frame -- not whether new data landed, which
+        only :meth:`adopt` (called from wherever ``runner``'s result is
+        collected) can say.
+
+        **Frame thread.** This, not :meth:`tick`, is what the app's own frame
+        loop calls: the read is what A2 moves off this thread, via
+        ``TaskRunner.submit``, which refuses a key already in flight -- so if
+        the previous read has not landed yet, this frame's request is simply
+        skipped rather than queued, and the next due frame tries again.
+        ``on_transition`` is not used here; the caller passes the same
+        callback to :meth:`adopt` once the task's result comes back.
+        """
+        if not self._due():
+            return False
+        self._read_was_dirty = self._dirty
+        self._dirty = False
+        return bool(runner.submit("jobs-list", self.read, dict(self._files)))
+
+    def tick(self, on_transition: Callable[[dict[str, Any], str | None], None] | None = None):
+        """The synchronous form of :meth:`request` + :meth:`adopt`, for a
+        caller with no frame loop to route a task result through -- a script,
+        a test, or a headless harness. Blocks, exactly like
+        :meth:`refresh_storage` beside it and for the same reason; the app
+        itself calls :meth:`request` instead. -> whether the list was re-read.
+        """
+        if not self._due():
+            return False
+        self._read_was_dirty = self._dirty
+        self._dirty = False
+        reading = self.read(dict(self._files))
+        if reading.get("error"):
+            self.error = str(reading["error"])
+            return False
+        return self.adopt(reading, on_transition)
 
     def refresh_storage(self) -> None:
         """Measure the data directory now, and publish the reading.
@@ -295,28 +416,48 @@ class JobsCache:
     def get(self, job_id: str | None) -> dict[str, Any] | None:
         return None if job_id is None else self.by_id.get(job_id)
 
-    def widen_for_search(self, filters: Any) -> None:
-        """W2.1: pull in matches the loaded window does not cover.
+    def widen_for_filters(self, filters: Any) -> None:
+        """W2.1, widened for A3: pull in matches the loaded window does not cover.
 
         Filtering only ever ran over ``self.jobs`` -- the newest page the
         cache happened to have loaded -- so searching for a job the pager had
         not reached yet found nothing, and "Load older" was the only way to
         it. This asks the store for ids the *window itself* would never have
-        surfaced and merges their rows in; ``Filters.matches`` still decides
-        whether any of them actually match (kind, status, favourites, tag
-        prefixes) -- this only widens what it is asked about.
+        surfaced (by free text, ``tag:``/``name:`` field terms, status,
+        favourites and the trash/workshop split -- everything ``search_ids``
+        can turn into a real column predicate) and merges their rows in;
+        ``Filters.matches`` still decides whether any of them actually match
+        -- this only widens what it is asked about, never more permissively.
 
-        Skipped once per (list generation, search text): ``tick`` replaces
-        ``self.jobs`` wholesale on every refresh, which throws any previous
-        merge away, so a changed generation is exactly when this needs to run
-        again -- and unchanged, running it every frame ``draw`` calls this on
-        would be a LIKE scan per frame for nothing new.
+        Called from both ``panes/library.py`` and ``panes/library_full.py``:
+        the two views share one ``Filters`` and must never disagree about
+        what a search finds.
+
+        Skipped once per (list generation, filter fields that reach the
+        store): ``tick`` replaces ``self.jobs`` wholesale on every refresh,
+        which throws any previous merge away, so a changed generation is
+        exactly when this needs to run again -- and unchanged, running it
+        every frame ``draw`` calls this on would be a LIKE scan per frame for
+        nothing new.
         """
+        from .state import parse_query
+
         text = (filters.text or "").strip()
-        if not text:
+        terms, fields = parse_query(text) if text else ([], [])
+        tags = tuple(v for f, v in fields if f == "tag")
+        names = tuple(v for f, v in fields if f == "name")
+        # No field terms: the raw text is the whole free-text query, exactly
+        # as it always was. With field terms present, only the plain words
+        # are still a name/prompt substring search -- ``tag:wood`` itself is
+        # not a word to LIKE against ``name``/``prompt``.
+        free_text = text if not fields else " ".join(terms)
+        status = None if filters.status == "all" else filters.status
+        favorite = filters.favorites_only or None
+        active = bool(free_text or tags or names or status or favorite)
+        key = (self._generation, free_text, tags, names, status, favorite, filters.trash)
+        if not active:
             self._search_key = None
             return
-        key = (self._generation, text)
         if key == self._search_key:
             return
         self._search_key = key
@@ -325,7 +466,15 @@ class JobsCache:
             # nothing outside it left to widen with.
             return
         try:
-            ids = self.svc.store.search_ids(text, limit=SEARCH_LIMIT)
+            ids = self.svc.store.search_ids(
+                free_text,
+                limit=SEARCH_LIMIT,
+                tags=tags,
+                names=names,
+                status=status,
+                favorite=favorite,
+                trash=filters.trash,
+            )
         except Exception:
             log.exception("could not search the job list")
             return

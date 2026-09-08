@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from .. import vectors
 from . import verbs
 
 # The prompt history the 2D pane offers. Twenty is what the browser kept: long
@@ -342,6 +343,26 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # unmeasured, so the pane offers the switch rather than turning it on for
     # everyone. Flip both together once the occupancy sweep says which way.
     "reference_prep": False,
+    # The seven trellis-server launch flags (service.sweeps.SERVER_AXES plus
+    # trellis_band/trellis_tex_res -- the two the sweep engine no longer needs
+    # to special-case, per that module's own comment). A sweep could already
+    # set every one of these; until this pane drew them, an ordinary Create
+    # job could not. Each sentinel is a value no legal setting produces, so
+    # leaving a control alone sends nothing and the exe's own default runs
+    # (config.py:370-431) -- the same "unset is a real value" rule every other
+    # override in this form already follows (module docstring).
+    #
+    # 0 is the sentinel for every axis except trellis_decim: its own 0 is not
+    # "unset", it is "decimation off", a real, meaningful value the exe must
+    # be able to receive -- so trellis_decim's sentinel is -1, the one value
+    # outside its legal range (validation.check_trellis_decim admits 0..2**16).
+    "trellis_band": 0,
+    "trellis_tex_res": 0,
+    "trellis_gss": 0.0,
+    "trellis_gsh": 0.0,
+    "trellis_max_tokens": 0,
+    "trellis_decim": -1,
+    "trellis_atlas": 0,
 }
 
 
@@ -356,6 +377,7 @@ SORTS: list[tuple[str, str]] = [
     ("duration", "time taken"),
     ("size", "size on disk"),
     ("best", "score"),
+    ("grade", "grade"),
 ]
 
 # The field prefixes the filter box understands (J87). Each maps onto a
@@ -437,6 +459,13 @@ class Filters:
     # ``sprite`` is a sprite-sheet draft, which is 2D and goes to Inker.
     kind: str = "all"
     favorites_only: bool = False
+    # A3: hide anything below the same cut Review's own scale states --
+    # ``vectors.USABLE_GRADE``, imported rather than restated (H-style
+    # invariant: a second spelling of the cut is how a filter comes to
+    # disagree with the grade it is filtering on). Persisted the same way
+    # ``favorites_only`` is; an ungraded job has no grade to compare and is
+    # hidden along with everything below the cut.
+    usable_only: bool = False
     # One of SORTS. Persisted with the rest of the filter bar, because a
     # workshop is browsed the same way every session.
     sort: str = "newest"
@@ -496,6 +525,12 @@ class Filters:
             return False
         if self.favorites_only and not job.get("favorite"):
             return False
+        if self.usable_only:
+            grade = job.get("grade")
+            if not isinstance(grade, int) or isinstance(grade, bool):
+                return False
+            if grade < vectors.USABLE_GRADE:
+                return False
         if self.status != "all" and job.get("status") != self.status:
             return False
         if self.kind != "all" and card_kind(job) != self.kind:
@@ -619,6 +654,17 @@ class Filters:
                     return (0, -float(rank.get("score") or 0.0))
                 except (TypeError, ValueError):
                     return (1, 0.0)
+
+            return key
+        if sort == "grade":
+            def key(job: dict[str, Any]) -> tuple[int, Any]:
+                grade = job.get("grade")
+                if not isinstance(grade, int) or isinstance(grade, bool):
+                    # Ungraded, not "worst" -- the same bucket "best" already
+                    # keeps a job with no score out of, so it does not read as
+                    # a −5 the reviewer never filed.
+                    return (1, 0.0)
+                return (0, -float(grade))
 
             return key
         return None

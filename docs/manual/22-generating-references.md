@@ -311,6 +311,12 @@ model repaints the rest; at 0.65 only the gist does. It is the control for "this
 extra on the card. It needs an SDXL-family model, like the other two halves, and it can be combined
 with either of them. The inspector records *start image* and *start strength* on the job.
 
+All four strengths above — Appearance, Structure's two, and this one — carry the same findings
+machinery as the Model and Style LoRA pickers once enough verdicts exist behind a value: a muted line
+saying what the current setting scored, and, when a different value has scored better, a **Use ...**
+button that sets it exactly. See [Measuring instead of
+guessing](12-tuning-what-you-get.md#measuring-instead-of-guessing).
+
 ## Approving a reference
 
 When a reference job finishes it appears in the library and, when selected, fills the viewport at

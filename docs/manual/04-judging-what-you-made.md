@@ -39,6 +39,11 @@ to memorise.
 Tags are legal at any grade, and that is deliberate. They describe the mesh rather than justify the
 verdict, so "+4, holes" is a sensible thing to say: mostly good, one specific flaw.
 
+A grade you file here follows the mesh back to the
+[library](36-library-and-jobs.md#the-job-lifecycle): its card carries a small grade pill from then
+on, and the library's own **Usable** filter and **grade** sort both read it — "usable" there means
+exactly the +3 cut in the table above, not a second definition of the word.
+
 The list you are judging is not something you have to build. Anything finished that nobody has
 judged shows up automatically in a bucket called **Recent, unreviewed** — daily work and deliberate
 experiments feed one pool.
@@ -120,7 +125,10 @@ you how many jobs that is before you commit any GPU time. They queue through exa
 as any other job.
 
 Grade the results and they roll up into **What works** — a ranked list of whole configurations that
-produced usable meshes, with **Apply to forms** to load a winner straight back into Create.
+produced usable meshes, with **Apply to forms** to load a winner straight back into Create. A line
+above the list names the corpus behind it at a glance — how many meshes are graded, how many of your
+configurations have enough verdicts to rank, and how many of the settled-versus-open axis contrasts
+below it have five or more matched pairs.
 
 One subtlety about that ranking, because it changes how you read it. A verdict credits *every*
 setting in the job, so the marginal effect of any single one is confounded with everything that

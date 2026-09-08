@@ -21,7 +21,27 @@ the release you are actually running.
 ## 0.0.40 — 2026-09-07
 
 Two panels stopped charging by the frame for answers that only change by
-the edit.
+the edit, and the engine axes got a door and a form.
+
+- **The seven `trellis_*` engine axes reach an ordinary Create job, not only a
+  sweep.** A findings sweep could already set Band, Texture resolution, the two
+  guidance strengths, the token budget, Decimation and Atlas resolution — they
+  are `service.sweeps`'s `SERVER_AXES`, the flags that decide how
+  `trellis-server.exe` is launched — but `promote_to_model` took no keyword for
+  any of them and the Mesh stage drew no control, so the only way to a real
+  asset built at a non-default setting was the sweep form. `promote_to_model`
+  gained the seven kwargs, validated with the same `check_trellis_*` helpers
+  `create_job` already used, written into params only when not `None` — the
+  same "unset means the exe's own default runs" rule the API has followed
+  since these flags were added. The Mesh stage's collapsed **Engine
+  (advanced)** header draws one control per axis, each beside its findings
+  hint, closed by default because every one of them restarts the engine
+  process for the job it applies to. `state.DEFAULT_FORM_3D`'s sentinels are
+  `0` for every axis but `trellis_decim`, whose own `0` is a real setting
+  ("decimation off") rather than "unset" — its sentinel is `-1`. Review's
+  "Apply to forms" and its sweep-baseline capture carry the same seven, so a
+  ranked configuration a sweep judged under one of these axes applies it back
+  correctly.
 
 - **Inker's nine-slice panel costs what an edit costs, not what a frame costs.**
   With a slice selected, the tools sidebar flattened the whole document twice on
@@ -48,6 +68,86 @@ the edit.
   five. Fixed columns rather than the wrap helper the rest of that pane uses:
   this modal is `always_auto_resize`, so the width left on a line is decided by
   the very row that would be asking about it.
+- **The library now shows a mesh's grade.** A graded mesh's card carries a
+  small `+4`/`−2`-style pill beside its topology tell, `list_jobs` attaching
+  the latest human verdict onto the row rather than into `params`; a new
+  **Usable** toggle beside Favourites hides everything below Review's own
+  `+3` cut, and a **grade** sort joins the combo, ungraded rows sorting last
+  in either direction. The library's "best" sort no longer has to stand in
+  for a judgement it was never about — that sort still reads the advisory
+  2D score, and grade is now its own column.
+- **Findings become actionable at the control.** A hint under a slider used to
+  say only what the *current* value scored; now, once a different value has
+  cleared enough verdicts and scored better, a second muted line names it —
+  "7/8 usable (47%+) · avg +2.9 · this subject" — with a **Use ...** button
+  beside it that sets the control to exactly that value, in the type the
+  control already holds (`bench.findings.best_value`/`best_value_line`,
+  `review_mode.coerce_form_value` promoted to public so both generate panes
+  can share it). Offered, never applied, and silent once the control already
+  holds the leader. The 2D pane's appearance, structure and img2img strengths
+  (`ip_scale`, `control_scale`, `control_end`, `init_strength`) gained
+  findings hints for the first time alongside it. `findings.json` bumps to
+  v5: each subject's `prompts[*]` now also carries its own top 5 ranked
+  configurations, so Review's "What works" leads with "Top configurations for
+  this subject" while judging a unit whose subject has enough behind it,
+  falling back to the pooled ranking otherwise — a v4 reader is unaffected,
+  since the new key is additive.
+- **A sweep unit that fails outright now stops the rest of its server group
+  from repeating the failure.** The `detail-060` run (2026-09-06) queued five
+  subjects as five sweeps; the first subject's three `decim0-*` rungs all
+  failed the same structural way at ~29 minutes each, and the other four sat
+  queued to repeat exactly those three configurations because the queue is
+  FIFO and sweep-blind by construction. `Worker.on_job_failed` (P31), injected
+  from `service.sweeps.on_job_failed` so queue.py still never imports
+  `service`, now cancels a failed unit's still-queued siblings that share its
+  `server_group` — never a sibling already running — with a reason naming the
+  failure and pointing at `scripts/sweep_refill.py` to re-queue them if it
+  turns out to have been transient. Cross-sweep abort stays out of scope: each
+  subject in a fan-out is its own `sweep_id`.
+- **The Candidates picker now shows what has been graded.** A candidate you
+  have already judged carries its grade beside its status, read once per
+  group rather than once per candidate; while a finished attempt is still
+  ungraded a muted line says so — "Grade each attempt before you keep one -
+  they feed What works." Grading is a nudge only: nothing here reorders the
+  candidates, marks an apparent winner, or blocks Keep on an ungraded one.
+- **`findings.json` gains a `corpus` section, and Review's "What works" leads
+  with it.** How many meshes are graded, how many configurations have enough
+  verdicts to rank, and how many axis contrasts are settled versus still open
+  now render as one line — "42 graded meshes · 3 of 19 configurations rank ·
+  2 contrasts settled, 4 open" — above the ranked list, and the "nothing yet"
+  message names how close the nearest configuration is instead of only that
+  none has ranked. `scripts/grade_scale_check.py` is the companion reader:
+  it tabulates the grade corpus against the three predictions
+  `docs/measurements/2026-08-09-grade-scale.md` recorded before any grading
+  pass existed, and reports the two facts its "promote the mean above Wilson"
+  revisit condition is stated in terms of.
+- **A style LoRA can train from the library instead of a folder.** Settings'
+  new **Train from my library...** button (beside **Train from a folder...**)
+  gathers favourited jobs, references labelled `accept`, and the reference
+  images of meshes graded `vectors.USABLE_GRADE` or better — a mesh that
+  reconstructed well is evidence its picture was a good blank — into the same
+  training form, off the frame thread. Near-duplicates (the same reference
+  reused across two jobs, a plain resave) collapse to one image via
+  `bench.metrics.perceptual_hash`, keeping the earlier row; a pruned or
+  trashed candidate is silently missing rather than an error, since a
+  verdict's snapshot already outlives the job it named. `service.loras.
+  library_training_set` is the new door, refusing under `lora_train.
+  MIN_IMAGES` on the same `field="images"` a folder does. Training a style
+  this way is on pictures this same build generated, and that is explicitly
+  unmeasured — the paired blind grade (LoRA on vs. off) that would say
+  whether it actually helps is a future sitting, not a condition this
+  shipped under.
+- **Review's "What works" now says how to settle a contrast, not only which
+  ones are open.** `review_mode.suggest_sweeps` reads the same
+  `findings.json` comparisons axis verdicts already render from and, for
+  every contrast with some matched pairs but short of the display threshold,
+  states which value currently leads, by what score, and how many more
+  matched pairs would settle it — "trellis_gss: 3.0 vs unset is 3/4 for 3.0 -
+  1 more matched pair settles it" (`bench.findings.suggestion_line`). **Plan
+  this sweep** beside each one calls `review_mode.plan_suggestion`, which
+  fills the New sweep form's axis and exactly enough fresh seeds to close the
+  gap while leaving the captured baseline and the prompt untouched — a
+  suggestion is "run this contrast again," not "start over."
 
 ## 0.0.39 — 2026-09-07
 

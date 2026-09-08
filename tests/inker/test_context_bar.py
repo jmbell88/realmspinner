@@ -112,6 +112,42 @@ def test_the_size_widget_covers_the_engines_whole_brush_range():
     assert inker.MIN_BRUSH < inker.MAX_BRUSH
 
 
+def test_a_compacted_percent_slider_shows_its_value_rather_than_its_name(monkeypatch):
+    """C1: at COMPACT width (~54px) ``f"{label} %.0f%%"`` clips the number --
+    the one thing the reader came for -- to show a fragment of the label
+    instead. Compact must fall back to the bare ``%.0f%%``, and the name has
+    to come back some other way, so this also checks for a hover tooltip."""
+
+    from warlock.studio.panes import inker_context
+
+    state = inker_state.InkerState(tool="brush")
+    field = inker_context._field(None, state, None, "hardness")
+    assert field is not None
+
+    seen_fmt: list[str] = []
+
+    def fake_slider_float(_id, value, _lo, _hi, fmt):
+        seen_fmt.append(fmt)
+        return False, value
+
+    monkeypatch.setattr(inker_context.controls, "slider_float", fake_slider_float)
+    monkeypatch.setattr(inker_context.imgui, "is_item_hovered", lambda: False)
+
+    field.draw(False)
+    assert seen_fmt[-1] == "Hardness %.0f%%"
+
+    field.draw(True)
+    assert seen_fmt[-1] == "%.0f%%"
+
+    hovered_tooltips: list[str] = []
+    monkeypatch.setattr(inker_context.imgui, "is_item_hovered", lambda: True)
+    monkeypatch.setattr(
+        inker_context.imgui, "set_tooltip", lambda text: hovered_tooltips.append(text)
+    )
+    field.draw(True)
+    assert hovered_tooltips == ["Hardness"]
+
+
 # --- 6.1: the five inks ------------------------------------------------------
 
 

@@ -191,9 +191,12 @@ def test_announce_still_calls_the_viewer_reload_for_a_finished_remesh(svc):
     from warlock.studio.jobs_cache import JobsCache
 
     class WiredApp(FakeApp):
-        # The real method, not a stand-in: what is under test is whether
-        # ``_refresh`` still reaches it, not what it then does with a job.
+        # The real methods, not stand-ins: what is under test is whether
+        # ``_refresh`` still reaches ``_reload_viewer_after_rework``, not what
+        # it then does with a job -- and A2 moved the wiring that reaches it
+        # into ``_announce_job_transition``, so that has to be real too.
         _reload_viewer_after_rework = main.App._reload_viewer_after_rework
+        _announce_job_transition = main.App._announce_job_transition
 
         def _check_worker(self) -> None:
             pass
@@ -211,9 +214,14 @@ def test_announce_still_calls_the_viewer_reload_for_a_finished_remesh(svc):
         "status": "done",
         "params": {"source_job": "aaaaaaaaaaaa"},
     }
-    cache.tick = lambda announce: bool(announce(job, "running"))  # type: ignore[method-assign]
+    # A2: ``_refresh`` submits the read via ``cache.request(ctx.tasks, ...)``
+    # rather than calling ``cache.tick`` inline, so ``request`` is stubbed
+    # here instead, fired synchronously -- fine for what this pins (the
+    # wiring), not the async landing itself.
+    cache.request = lambda runner, announce: bool(announce(job, "running"))  # type: ignore[method-assign]
     app.app_ctx.cache = cache
     app.app_ctx.svc = svc
+    app.app_ctx.tasks = SimpleNamespace(submit=lambda *a, **k: True)
     # The done-transition toast takes "action"/"action_arg" kwargs the
     # shared FakeApp's toast stub (built for _on_task_done's plain calls)
     # does not accept; only the reload wiring is under test here.

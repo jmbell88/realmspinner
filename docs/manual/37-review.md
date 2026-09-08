@@ -158,6 +158,29 @@ does not bury your real assets; Review is where they live.
 Deleting a sweep deletes its jobs and meshes but keeps every verdict filed on them — what the
 sweep taught outlives what it built.
 
+### Sweep suggestions
+
+The "What works" section (below) knows which contrasts are close to a verdict but short of the pair
+threshold, and offers a **Plan this sweep** button per one. Pressing it fills **What to vary** with
+that contrast's parameter and its two values, and **Seeds** with exactly as many fresh seeds as the
+contrast still needs — one fresh seed closes one more matched pair, the same "same subject, same
+seed, one setting differing" match the axis verdicts below are computed from. It leaves the prompt
+and the baseline exactly as you last set them: a suggestion is "run this contrast again", not "start
+a sweep from scratch". Type the prompt (or press **Start from current settings** for a fresh
+baseline) and press **Launch sweep** to queue it.
+
+**A unit that fails outright cancels the rest of its own server config rather than repeating the
+failure.** If a unit errors during generation, every other unit of the same sweep that is still
+queued *and* shares its engine settings (band width, texture resolution, the two guidance
+strengths, the token budget, decimation, atlas size — the six `trellis_` flags plus resolution
+above) is cancelled too, with a reason naming the unit that failed. A unit that had already started
+is left alone and reaches its own outcome; a queued unit under a *different* engine configuration is
+left alone too — only a sibling that would have hit the same wall is stopped before it does. This
+does not reach across sweeps: a fan-out over several subjects mints one sweep per subject, and a
+failure in one never touches another's units. If the failure turns out to have been transient
+rather than a real problem with the settings, the cancelled units can be re-queued from the command
+line with `scripts/sweep_refill.py`.
+
 ### Clearing out the list
 
 **Remove N reviewed sweeps…** sits above the filter box and takes every sweep there is nothing left
@@ -226,6 +249,11 @@ opinion on screen anchors the independent judgement a blind review exists to col
 
 ## What works
 
+At the top of the findings section, before either kind of answer, one line names the corpus at a
+glance — "42 graded meshes · 3 of 19 configurations rank · 2 contrasts settled, 4 open" — so you can
+tell how much evidence stands behind the lists under it before reading either one. It is silent on a
+findings.json written before this line existed.
+
 The findings section at the bottom of the verdict panel gives two kinds of answer.
 
 **Axis verdicts** are the conclusive kind: matched pairs recovered from sweeps. Two units pair up
@@ -237,6 +265,13 @@ the same way: every finished mesh is measured automatically (worst-hole fraction
 triangle count), so a sweep shows "worst-hole -4.1% over 12 paired runs" the moment it finishes,
 before a single verdict is filed.
 
+Below the axis verdicts, when a contrast has some evidence but not yet enough to render one of those
+lines — more than zero matched pairs, fewer than the threshold — a **sweep suggestion** names it
+anyway: "trellis_gss: 3.0 vs unset is 3/4 for 3.0 - 1 more matched pair settles it" says which value
+currently leads, by how much, and how many more matched pairs would settle the question. A **Plan
+this sweep** button beside each one fills the New sweep form's axis and seed count for you — see
+[Sweep suggestions](#sweep-suggestions) above.
+
 **Ranked configurations** are whole settings vectors ordered by a conservative floor on their
 usable rate, shown as "usable 80% of 20 (61%+) · avg +2.6": the first number is what happened, the
 parenthesised one is the floor the evidence supports — which is what stops a lucky 5-for-5 from
@@ -244,14 +279,31 @@ outranking a solid 19-of-20 — and the average is the mean grade behind it. The
 rather than doing the ranking: over one sample its own spread is zero, which would re-create exactly
 the lucky-5-for-5 problem the floor exists to prevent. A configuration needs five verdicts to
 appear, and carries muted lines of its machine measurements and its tag tallies when it has any.
-"Apply to forms" writes one into the Reference and Mesh stage forms.
+Before any configuration has that many, the section says how close the nearest one is — "the closest
+is 2 verdicts away" — rather than only that nothing has ranked yet.
+"Apply to forms" writes one into the Reference and Mesh stage forms, the seven engine axes under
+**Engine (advanced)** included — a configuration ranked from sweep units necessarily carries whatever
+those units were launched with (see [Generating meshes](23-generating-meshes.md#engine-advanced)).
+
+While you are judging a sweep unit whose subject has five or more verdicts of its own, the ranking
+above leads with "Top configurations for this subject" instead of the pooled list — what makes a good
+wooden crate says very little about what makes a good character, so a subject with enough behind it
+answers for itself rather than being averaged into everything else. A thin or unknown subject, or
+nothing selected at all, falls back to the pooled ranking exactly as it always has.
 
 The same findings feed the small hints next to controls in the generate panes, so the learning is
 visible where the decisions are made: "usable 6/8 (41%+) · avg +2.6" once a value has enough
 verdicts behind it, and before that "holes 3% · watertight 71% (21 meshes)" from the automatic
 measurements alone —
-every finished mesh contributes those, reviewed or not. Verdicts, measurements and matched pairs
-all survive pruning and sweep deletion; the corpus outlives the assets it was learned from.
+every finished mesh contributes those, reviewed or not. When a *different* value has scored better
+than the one currently set, a second muted line names it — "7/8 usable (47%+) · avg +2.9 · this
+subject" — with a **Use ...** button beside it, so the finding is a click rather than a value you
+have to go dial in by hand yourself. It is offered, never applied: nothing changes until you press
+it, and nothing is offered once the control already holds what the evidence favours. See [Measuring
+instead of guessing](12-tuning-what-you-get.md#measuring-instead-of-guessing).
+
+Verdicts, measurements and matched pairs all survive pruning and sweep deletion; the corpus outlives
+the assets it was learned from.
 
 Next: [Keyboard shortcuts](38-shortcuts.md) has the full Review table, and
 [The library and jobs](36-library-and-jobs.md) covers where sweep units do and do not appear.

@@ -997,6 +997,100 @@ def test_closing_a_labelling_pass_returns_to_the_verdict_loop(ctx, svc):
     assert svc.store.latest_verdicts()[0]["stage"] == "model"
 
 
+# --- sweep suggestions --------------------------------------------------------
+
+
+def _comparison_entry(**overrides: Any) -> dict[str, Any]:
+    entry = {
+        "a": "3.0", "b": "unset", "pairs": 4, "a_wins": 3, "b_wins": 1,
+        "ties": 0, "sweeps": 1, "prompts": 1, "deltas": {},
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_a_contrast_two_pairs_short_is_suggested_with_the_seeds_that_close_it():
+    """A contrast two pairs short of the display threshold (5, the same
+    threshold ``comparison_lines`` never renders a verdict below) is
+    suggested with exactly the two matched pairs it still needs -- and
+    ``plan_suggestion`` fills that many fresh seeds, no more and no fewer,
+    so pressing "Plan this sweep" then Launch queues exactly what closes it.
+    """
+    doc = {
+        "comparisons": {
+            "trellis_gss": [_comparison_entry(pairs=3, a_wins=2, b_wins=1)],
+        },
+    }
+
+    suggestions = review_mode.suggest_sweeps(doc)
+
+    assert suggestions == [
+        {
+            "param": "trellis_gss", "a": "3.0", "b": "unset",
+            "pairs": 3, "needed": 2, "leader": "3.0", "leader_wins": 2,
+        }
+    ]
+
+    state = review_mode.ReviewState()
+    review_mode.plan_suggestion(state, suggestions[0])
+    assert len(review_mode.parse_seeds(state.form.seeds)) == 2
+
+
+def test_a_settled_contrast_is_not_suggested():
+    """``pairs >= min_pairs`` already renders its own verdict line and needs
+    no suggestion; ``pairs == 0`` is a contrast nobody has run at all, not one
+    left short, and suggesting a sweep for every axis the catalog knows would
+    make the panel noise rather than help."""
+    doc = {
+        "comparisons": {
+            "lora_weight": [_comparison_entry(pairs=5, a_wins=4, b_wins=1)],
+            "trellis_band": [_comparison_entry(pairs=0, a_wins=0, b_wins=0)],
+        },
+    }
+
+    assert review_mode.suggest_sweeps(doc) == []
+
+
+def test_suggest_sweeps_orders_by_how_close_a_contrast_is_to_settling():
+    doc = {
+        "comparisons": {
+            "far": [_comparison_entry(pairs=1, a_wins=1, b_wins=0)],
+            "close": [_comparison_entry(pairs=4, a_wins=3, b_wins=1)],
+        },
+    }
+
+    suggestions = review_mode.suggest_sweeps(doc)
+
+    assert [s["param"] for s in suggestions] == ["close", "far"]
+
+
+def test_suggest_sweeps_tolerates_a_doc_with_no_comparisons():
+    assert review_mode.suggest_sweeps(None) == []
+    assert review_mode.suggest_sweeps({}) == []
+    assert review_mode.suggest_sweeps({"comparisons": "broken"}) == []
+
+
+def test_planning_a_suggestion_fills_the_axis_and_seeds_and_leaves_the_base_alone(ctx):
+    state = review_mode.ensure(ctx)
+    state.form.base = {"lora_weight": 0.9}
+    state.form.base_note = "1 setting(s) captured"
+    state.form.prompt = "a wooden chest"
+    suggestion = {
+        "param": "trellis_gss", "a": "3.0", "b": "unset",
+        "pairs": 3, "needed": 2, "leader": "3.0", "leader_wins": 2,
+    }
+
+    review_mode.plan_suggestion(state, suggestion)
+
+    assert state.form.axes == [{"param": "trellis_gss", "values": "3.0, unset"}]
+    assert len(review_mode.parse_seeds(state.form.seeds)) == 2
+    # The base and the prompt are the user's own, and a suggestion is "run
+    # this contrast again" -- not "start a new sweep from scratch".
+    assert state.form.base == {"lora_weight": 0.9}
+    assert state.form.base_note == "1 setting(s) captured"
+    assert state.form.prompt == "a wooden chest"
+
+
 # --- launching ---------------------------------------------------------------
 
 
@@ -1069,6 +1163,39 @@ def test_the_baseline_is_captured_from_the_forms_the_user_already_tuned(ctx):
     assert base["reference_prep"] is True
     # The prompt is not a setting: it belongs to the sweep, not to its base.
     assert "prompt" not in base
+
+
+def test_capture_base_records_the_engine_axes_the_form_holds(ctx):
+    """The seven trellis_* engine axes follow the same "still at its
+    sentinel means omitted" rule ``size_m`` already states here -- a sweep
+    launched from an untouched Mesh form must not claim an engine flag
+    nobody set, and one launched from a form that did set one must carry it,
+    trellis_decim's 0 included (its sentinel is -1, not 0 -- state.py)."""
+    ctx.state.form_3d["trellis_band"] = 8
+    ctx.state.form_3d["trellis_tex_res"] = 256
+    ctx.state.form_3d["trellis_gss"] = 7.5
+    ctx.state.form_3d["trellis_gsh"] = 3.5
+    ctx.state.form_3d["trellis_max_tokens"] = 65536
+    ctx.state.form_3d["trellis_decim"] = 0
+    ctx.state.form_3d["trellis_atlas"] = 4096
+
+    base = review_mode.capture_base(ctx)
+    assert base["trellis_band"] == 8
+    assert base["trellis_tex_res"] == 256
+    assert base["trellis_gss"] == 7.5
+    assert base["trellis_gsh"] == 3.5
+    assert base["trellis_max_tokens"] == 65536
+    assert base["trellis_decim"] == 0
+    assert base["trellis_atlas"] == 4096
+
+
+def test_capture_base_omits_an_engine_axis_left_at_its_sentinel(ctx):
+    base = review_mode.capture_base(ctx)
+    for key in (
+        "trellis_band", "trellis_tex_res", "trellis_gss", "trellis_gsh",
+        "trellis_max_tokens", "trellis_decim", "trellis_atlas",
+    ):
+        assert key not in base
 
 
 def test_seeds_are_parsed_and_a_typo_is_a_toast_not_a_crash(ctx):

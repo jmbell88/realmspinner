@@ -25,6 +25,7 @@ absence of an average is never a zero -- zero is a real grade on this scale
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,136 @@ def _lookup(bucket: dict[str, Any], value: Any) -> dict[str, Any] | None:
         if round(key_value, 6) == target:
             return candidate
     return None
+
+
+def _value_matches(key: str, value: Any) -> bool:
+    """Whether a bucket key names ``value``, by ``_lookup``'s own rule.
+
+    Factored out so :func:`best_value` can ask "is the leader already what is
+    set" with the identical float32 tolerance ``_lookup`` uses for a slider --
+    two roundings of the same rule would drift the day one of them didn't.
+    """
+    if key == str(value):
+        return True
+    if not isinstance(value, float):
+        return False
+    try:
+        candidate = float(key)
+    except ValueError:
+        return False
+    return round(candidate, 6) == round(value, 6)
+
+
+def _as_float(value: Any, default: float) -> float:
+    """``value`` as a float, or ``default`` when it is not a real number --
+    ``bool`` excluded, since it is an ``int`` in Python and would silently
+    become 0.0/1.0."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return default
+
+
+def _best_in(section: dict[str, Any], param: str, min_n: int) -> tuple[str, dict[str, Any]] | None:
+    """The ``(value_str, entry)`` clearing ``min_n`` in ``section[param]`` that
+    maximises ``(wilson_low, mean_grade, n)`` -- the exact tie-break order
+    ``service.findings.aggregate`` sorts ``vectors`` by, so "best" here means
+    the same thing it means in the Review ranking, not a second opinion on it.
+
+    A bucket with no grade sorts as if its mean were ``-inf``, ``aggregate``'s
+    own rule for the same reason: a bucket nobody graded is not tied with one
+    graded exactly zero, which is a real grade on this scale.
+    """
+    candidates = section.get(param) if isinstance(section, dict) else None
+    if not isinstance(candidates, dict):
+        return None
+    best: tuple[str, dict[str, Any]] | None = None
+    best_key: tuple[float, float, int] | None = None
+    for value_str, entry in candidates.items():
+        if not isinstance(entry, dict):
+            continue
+        n = entry.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or n < min_n:
+            continue
+        wilson = _as_float(entry.get("wilson_low"), 0.0)
+        mean = _as_float(entry.get("mean_grade"), -math.inf)
+        key = (wilson, mean, n)
+        if best is None or key > best_key:  # type: ignore[operator]
+            best, best_key = (value_str, entry), key
+    return best
+
+
+def best_value(
+    doc: dict[str, Any] | None,
+    param: str,
+    value: Any,
+    *,
+    min_n: int,
+    prompt_hash: str | None = None,
+) -> tuple[str, dict[str, Any], str] | None:
+    """``(value_str, entry, scope_label)`` for the best-scoring bucket of
+    ``param``, or ``None`` when there is nothing worth offering.
+
+    "Best" is the same Wilson-first, mean-grade-second, n-third ordering
+    ``aggregate`` ranks whole vectors by (see :func:`_best_in`); "worth
+    offering" excludes two cases. Nothing clears ``min_n`` -- a thin bucket is
+    noise, exactly the bar ``hint`` already holds a single value to. And the
+    leader *is* the current value, under ``_lookup``'s float32 rule -- a
+    button that writes back the value already set is not an offer, it is
+    theatre, and it is exactly what an unrounded comparison would produce for
+    every float32 slider sitting on its own best bucket.
+
+    Scoped the same way ``hint`` is: a subject with ``min_n`` behind it
+    answers for itself, labelled ``"this subject"``; short of that the pooled
+    corpus answers, labelled ``"all subjects"``; with no ``prompt_hash`` at
+    all the pooled corpus answers unlabelled, because a caller that does not
+    know its subject is making no claim about one.
+    """
+    if doc is None:
+        return None
+
+    def offer(
+        found: tuple[str, dict[str, Any]] | None, scope: str
+    ) -> tuple[str, dict[str, Any], str] | None:
+        if found is None:
+            return None
+        value_str, entry = found
+        if _value_matches(value_str, value):
+            return None
+        return (value_str, entry, scope)
+
+    if not prompt_hash:
+        return offer(_best_in(doc.get("params") or {}, param, min_n), "")
+
+    scoped = _params_section(doc, prompt_hash)
+    pooled = doc.get("params") or {}
+    if scoped is not pooled:
+        found = _best_in(scoped, param, min_n)
+        if found is not None:
+            return offer(found, "this subject")
+    return offer(_best_in(pooled, param, min_n), "all subjects")
+
+
+def best_value_line(entry: dict[str, Any], scope: str) -> str:
+    """The best-value offer's own line -- ``"7/8 usable (47%+) · avg +2.9 ·
+    this subject"`` -- deliberately reordered from :func:`hint`'s "usable 6/8"
+    so the two never look like the same claim at a glance: one describes what
+    the *current* value scored, the other what the *offered* one did.
+    """
+    n = entry.get("n", 0) if isinstance(entry, dict) else 0
+    n = n if isinstance(n, int) and not isinstance(n, bool) else 0
+    accepts = entry.get("accepts", 0) if isinstance(entry, dict) else 0
+    accepts = accepts if isinstance(accepts, int) and not isinstance(accepts, bool) else 0
+    average = _mean_grade(entry)
+    noun = "accept" if average is None else "usable"
+    base = f"{accepts}/{n} {noun}"
+    bound = entry.get("wilson_low") if isinstance(entry, dict) else None
+    if isinstance(bound, (int, float)) and not isinstance(bound, bool):
+        base += f" ({round(bound * 100)}%+)"
+    if average is not None:
+        base += f" · avg {average}"
+    if scope:
+        base += f" · {scope}"
+    return base
 
 
 def hint(
@@ -343,6 +474,63 @@ def metrics_line(metrics: Any) -> str | None:
     return _measured(parts)
 
 
+def corpus_line(doc: dict[str, Any] | None) -> str:
+    """The corpus at a glance -- ``"42 graded meshes · 3 of 19 configurations
+    rank · 2 contrasts settled, 4 open"`` -- or ``""`` when the document
+    carries no ``corpus`` section (a file written before findings v5's other
+    half, or one that crossed a disk and lost the key).
+
+    Reads ``service.findings._corpus`` verbatim; nothing here recomputes a
+    count the writer already produced, which is the same discipline every
+    other reader in this module follows.
+    """
+    if not isinstance(doc, dict):
+        return ""
+    corpus = doc.get("corpus")
+    if not isinstance(corpus, dict):
+        return ""
+    graded_n = _int_count(corpus.get("graded_n"))
+    configs_n = _int_count(corpus.get("configs_n"))
+    configs_ranked = _int_count(corpus.get("configs_ranked"))
+    settled = _int_count(corpus.get("contrasts_settled"))
+    open_ = _int_count(corpus.get("contrasts_open"))
+    return (
+        f"{graded_n} graded mesh{'' if graded_n == 1 else 'es'} · "
+        f"{configs_ranked} of {configs_n} configuration{'' if configs_n == 1 else 's'} rank · "
+        f"{settled} contrast{'' if settled == 1 else 's'} settled, {open_} open"
+    )
+
+
+def nearest_rank_gap(doc: dict[str, Any] | None, *, min_n: int = 5) -> int | None:
+    """How many more verdicts the closest short-of-threshold configuration
+    needs before it ranks, or ``None`` when there is no such configuration --
+    an empty/missing ``vectors`` section, or one where every configuration
+    already ranks.
+
+    Reads ``vectors`` rather than ``corpus``: what a "nothing yet" message
+    wants to say is how close the ``top`` list Review already renders is to
+    having an entry, and ``n`` on each of those rows already means exactly
+    that -- a second computation from the corpus counts could disagree with
+    it on a hand-edited file.
+    """
+    if not isinstance(doc, dict):
+        return None
+    vectors = doc.get("vectors")
+    if not isinstance(vectors, list):
+        return None
+    best: int | None = None
+    for entry in vectors:
+        if not isinstance(entry, dict):
+            continue
+        n = entry.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or n >= min_n:
+            continue
+        gap = min_n - n
+        if best is None or gap < best:
+            best = gap
+    return best
+
+
 def sample_jobs(entry: Any) -> list[str]:
     """The job ids a ranked vector's verdicts were drawn from -- what Review's
     "Show examples" opens the Library onto.
@@ -405,6 +593,33 @@ _DELTA_LABELS = {
     "watertight": "watertight",
     "ready": "ready",
 }
+
+
+def suggestion_line(s: dict[str, Any]) -> str:
+    """One suggestion from ``review_mode.suggest_sweeps``, said in words --
+    ``"trellis_gss: 3.0 vs unset is 3/4 for 3.0 - 1 more matched pair settles
+    it"``. Pure, and defensive to the same rule everything else in this module
+    follows: the suggestion crossed no disk but is still handed in from a pane
+    on the frame thread.
+
+    ASCII-only, this module's own rule: " - " rather than an em dash, for the
+    same atlas-coverage reason every other line here spells it out.
+    """
+    if not isinstance(s, dict):
+        return ""
+    param = str(s.get("param", "?"))
+    a = str(s.get("a", "?"))
+    b = str(s.get("b", "?"))
+    leader = str(s.get("leader", "?"))
+    pairs = _int_count(s.get("pairs"))
+    needed = _int_count(s.get("needed"))
+    leader_wins = _int_count(s.get("leader_wins"))
+    tail = (
+        "1 more matched pair settles it"
+        if needed == 1
+        else f"{needed} more matched pairs settle it"
+    )
+    return f"{param}: {a} vs {b} is {leader_wins}/{pairs} for {leader} - {tail}"
 
 
 def comparison_lines(doc: dict[str, Any] | None, *, min_pairs: int = 5) -> list[str]:

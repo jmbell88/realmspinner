@@ -124,6 +124,60 @@ def test_shortcut_overrides_round_trip_through_studio_settings():
     assert restored.shortcut_overrides == state.shortcut_overrides
 
 
+def test_the_binding_table_is_compiled_once_until_an_override_changes(monkeypatch):
+    """``bindings_for`` used to re-walk ``BINDINGS`` on every call.
+
+    ``resolve_binding`` and ``shortcut_for`` both call it, and
+    ``menus._inker_specs`` calls ``shortcut_for`` once per registered op,
+    twice a frame -- hundreds of recompiles a frame for input that only
+    changes when a user remaps a key. Memoizing on the overrides stamp should
+    make repeated calls with the same overrides free, and only recompile when
+    the overrides actually change.
+    """
+    overrides = inker_ops.set_shortcuts({}, "command", "undo", ["Ctrl+U"])
+
+    calls = []
+    real = inker_ops._normalise_overrides
+
+    def counting(raw):
+        calls.append(raw)
+        return real(raw)
+
+    monkeypatch.setattr(inker_ops, "_normalise_overrides", counting)
+    inker_ops._bindings_stamp = None
+    inker_ops._bindings_table = None
+
+    inker_ops.bindings_for(overrides)
+    inker_ops.bindings_for(overrides)
+    inker_ops.bindings_for(overrides)
+    assert len(calls) == 1
+
+    monkeypatch.setattr(inker_ops, "_normalise_overrides", real)
+    changed = inker_ops.set_shortcuts({}, "command", "undo", ["F12"])
+    monkeypatch.setattr(inker_ops, "_normalise_overrides", counting)
+    inker_ops.bindings_for(changed)
+    assert len(calls) == 2
+
+
+def test_the_shortcut_cache_stamp_includes_the_overrides_so_a_remap_is_never_stale():
+    """A guard on the *cache*, not a regression test for a shipped bug.
+
+    Uncached code recomputed the table on every call and so could never go
+    stale: this test cannot fail against the code that stood before the cache
+    was added, and that is expected. What it pins is the failure the cache
+    itself could introduce -- dropping the overrides mapping out of the stamp,
+    which would leave ``menus._inker_specs`` drawing a remapped shortcut's old
+    key until something unrelated happened to invalidate the slot.
+    """
+    before = inker_ops.shortcuts_for(None)["undo"]
+
+    overrides = inker_ops.set_shortcuts({}, "command", "undo", ["F9"])
+    after = inker_ops.shortcuts_for(overrides)["undo"]
+
+    assert after != before
+    assert after == "F9"
+
+
 def test_no_two_default_command_bindings_share_a_chord_and_context():
     """A chord that means two things means whichever one the table lists first.
 

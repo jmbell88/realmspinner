@@ -60,6 +60,14 @@ Boolean variables accept `1`, `true` or `on`; anything else is off.
 | `WARLOCK_NATIVE` | `1` | Whether the optional native kernels are used at all. `0` forces the numpy fallbacks, which is what the parity tests and an A/B timing run want. The fallbacks are never deleted, so this changes speed and nothing else. |
 | `WARLOCK_NATIVE_DLL` | unset | Path to the compiled kernel library, overriding `vendor/warlockc/warlockc.dll`. |
 
+The seven `WARLOCK_TRELLIS_BAND`/`TEX_RES`/`GSS`/`GSH`/`MAX_TOKENS`/`DECIM`/`ATLAS` rows above are
+process-wide defaults, applied to every job that does not say otherwise. Each now has a UI twin: the
+Mesh stage's collapsed **Engine (advanced)** header (see
+[Generating meshes](23-generating-meshes.md#engine-advanced)) sets the identical flag for one job
+only, and an unset control there falls back to whatever the variable above is set to, exactly as the
+API's own `trellis_*` job parameters already did. Neither changes the other — the environment variable
+is still what a headless run or an unattended batch sees.
+
 ### Seeing which of these are actually set
 
 `warlock doctor` prints an **Effective configuration** block after its checks, and the diagnostics

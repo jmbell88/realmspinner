@@ -2003,6 +2003,14 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             if isinstance(done.result, int):
                 ctx.state.home_unreviewed = done.result
             return
+        if key == "jobs-list":
+            # A2: the frame-thread half of the split ``request``/``read``
+            # started -- the one place ``jobs``, ``by_id`` and
+            # ``_last_status`` are ever assigned, and the one place a status
+            # transition is ever announced, same as the old inline ``tick``.
+            if ctx.cache.adopt(done.result, self._announce_job_transition):
+                self._sync_viewer()
+            return
         if key == "storage" or key.startswith("storage:"):
             # Both the full walk and the per-job incremental re-measure (C33)
             # land here, each as a *reading* -- the sizes, or the one directory
@@ -2128,55 +2136,69 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             self._unclaimed.add(key)
             log.info("a %r task finished with nowhere to deliver its result", key)
 
-    def _refresh(self) -> None:
+    def _announce_job_transition(self, job: Any, previous: str | None) -> None:
+        """``JobsCache``'s ``on_transition`` callback -- shared between
+        :meth:`_refresh` (which submits the read) and :meth:`_on_task_done`
+        (which lands it), so a status change is announced identically
+        whichever call happens to be the one that adopted it.
+        """
         from . import review_mode
         from .jobs_cache import sweep_summary, transition_message
 
         ctx = self.app_ctx
+        sweep_id = job.get("sweep_id")
+        if sweep_id:
+            # One toast per sweep, not one per unit (N109). A twenty-unit
+            # sweep otherwise raises twenty notices, which is exactly the
+            # burst the "+N more" line exists to count -- and the useful
+            # message ("how did it go") is the one nothing was raising.
+            summary = sweep_summary(ctx.cache.jobs, sweep_id)
+            if summary is not None:
+                ctx.toast(*summary, action="review", action_arg=sweep_id)
+        else:
+            message = transition_message(job, previous)
+            if message is not None:
+                # "Show" selects it (N108): a toast that names a job and
+                # offers no way to it makes the user find it by hand,
+                # which after an overnight batch is the whole problem.
+                ctx.toast(*message, action="show", action_arg=job["id"])
+        if job["status"] == "done":
+            # Incremental (C33): only this job's directory changed, so only
+            # it is re-walked; delete and prune still trigger the full one.
+            self._request_storage(job["id"])
+            # The worker has just appended an observation for this job
+            # (queue._observe_finished, same condition), and it has no way
+            # to ask for the recompute itself -- it runs on the asyncio
+            # thread and knows nothing about tasks or panes. This is the
+            # only place a finished generation is noticed, so it is where
+            # the machine half of the findings corpus enters the file:
+            # without it, evidence recorded on every run would reach
+            # findings.json only when somebody next filed a verdict.
+            if job.get("stage") == "model" and job.get("kind") in ("text", "image"):
+                review_mode.refresh_findings(ctx)
+                self._select_finished_mesh_if_waiting(job)
+            # 2026-09-05 audit, finding create-02: a remesh or a re-texture
+            # is a *queued* job, unlike a retarget's foreground task, so the
+            # "remesh:"/"retexture:" keys the panels submit fire when the
+            # panel enqueues the row, not when the worker finishes it -- by
+            # the time this job reaches "done" nothing is waiting on that
+            # key any more. This transition, noticed the same way a
+            # finished generation is noticed above, is the only place left.
+            self._reload_viewer_after_rework(job)
 
-        def announce(job: Any, previous: str | None) -> None:
-            sweep_id = job.get("sweep_id")
-            if sweep_id:
-                # One toast per sweep, not one per unit (N109). A twenty-unit
-                # sweep otherwise raises twenty notices, which is exactly the
-                # burst the "+N more" line exists to count -- and the useful
-                # message ("how did it go") is the one nothing was raising.
-                summary = sweep_summary(ctx.cache.jobs, sweep_id)
-                if summary is not None:
-                    ctx.toast(*summary, action="review", action_arg=sweep_id)
-            else:
-                message = transition_message(job, previous)
-                if message is not None:
-                    # "Show" selects it (N108): a toast that names a job and
-                    # offers no way to it makes the user find it by hand,
-                    # which after an overnight batch is the whole problem.
-                    ctx.toast(*message, action="show", action_arg=job["id"])
-            if job["status"] == "done":
-                # Incremental (C33): only this job's directory changed, so only
-                # it is re-walked; delete and prune still trigger the full one.
-                self._request_storage(job["id"])
-                # The worker has just appended an observation for this job
-                # (queue._observe_finished, same condition), and it has no way
-                # to ask for the recompute itself -- it runs on the asyncio
-                # thread and knows nothing about tasks or panes. This is the
-                # only place a finished generation is noticed, so it is where
-                # the machine half of the findings corpus enters the file:
-                # without it, evidence recorded on every run would reach
-                # findings.json only when somebody next filed a verdict.
-                if job.get("stage") == "model" and job.get("kind") in ("text", "image"):
-                    review_mode.refresh_findings(ctx)
-                    self._select_finished_mesh_if_waiting(job)
-                # 2026-09-05 audit, finding create-02: a remesh or a re-texture
-                # is a *queued* job, unlike a retarget's foreground task, so the
-                # "remesh:"/"retexture:" keys the panels submit fire when the
-                # panel enqueues the row, not when the worker finishes it -- by
-                # the time this job reaches "done" nothing is waiting on that
-                # key any more. This transition, noticed the same way a
-                # finished generation is noticed above, is the only place left.
-                self._reload_viewer_after_rework(job)
+    def _refresh(self) -> None:
+        from . import review_mode
 
-        if ctx.cache.tick(announce):
-            self._sync_viewer()
+        ctx = self.app_ctx
+
+        # A2: the read (one sqlite query plus a per-row ``attach_files`` stat
+        # over the whole window) used to run inline here, on the frame thread,
+        # every single frame this is called from -- the dominant library cost
+        # at a few thousand assets. ``request`` only submits it to a task
+        # thread when a refresh is actually due; the result lands later, on
+        # whatever frame ``_on_task_done`` sees the "jobs-list" key finish, and
+        # is adopted there. Nothing here mutates ``ctx.cache`` at all now.
+        ctx.cache.request(ctx.tasks, self._announce_job_transition)
         # Outside the tick: the request may have been made by a verdict on a
         # frame the list did not re-read, and a refused submit has to be
         # retried on some later frame rather than on the next list refresh.

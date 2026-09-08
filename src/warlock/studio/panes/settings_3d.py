@@ -16,12 +16,14 @@ from imgui_bundle import imgui
 
 from ... import guidance, vectors
 from ...bench import findings as findings_lib
+from ...service import findings as svc_findings
 from ...service import jobs as svc_jobs
 from ...service import sheets as svc_sheets
 from ...service.errors import Invalid
 from ...service.validation import MAX_MESH_CANDIDATES, MAX_UPLOAD_BYTES, random_seed
 from .. import controls, create_stages, dialogs, focus, forms, matte_preview, theme, widgets
 from ..manual import render as manual_render
+from ..review_mode import coerce_form_value
 from ..tokens import sp
 from . import stage_rig
 
@@ -121,7 +123,7 @@ def _draw_form(
         )
     if form["platform"] != before:
         ctx.state.clear_field_error("platform")
-    _hint(ctx, "platform", form["platform"])
+    _hint(ctx, form, "platform", form["platform"])
     _budget(ctx, form)
 
     _size(ctx, form)
@@ -137,7 +139,7 @@ def _draw_form(
             form["bg_removal"],
             _bg_options(ctx),
         )
-    _hint(ctx, "bg_removal", form["bg_removal"])
+    _hint(ctx, form, "bg_removal", form["bg_removal"])
 
     with focus.item(ctx.state, FOCUS_PANE, "mesh_seed"):
         changed, seed = form_ui.number(
@@ -176,9 +178,10 @@ def _draw_form(
     )
     if changed:
         form["reference_prep"] = prep
-    _hint(ctx, "reference_prep", form["reference_prep"])
+    _hint(ctx, form, "reference_prep", form["reference_prep"])
 
     _rig(ctx, form)
+    _engine(ctx, form, form_ui)
     _turnaround(ctx)
     _reset_row(ctx)
     _submit(ctx, form)
@@ -250,8 +253,9 @@ def _findings_hint(ctx: Any, param: str, value: Any) -> str | None:
     return findings_lib.hint(doc, param, value, prompt_hash=subject or None)
 
 
-def _hint(ctx: Any, param: str, value: Any) -> None:
-    """Draw the findings hint for the control just drawn, if there is one.
+def _hint(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
+    """Draw the findings hint for the control just drawn, if there is one,
+    plus the offer to jump straight to what the evidence favours.
 
     This pane used to hint one control out of five, which put the evidence
     furthest from where it applies: an observation measures *geometry* -- hole
@@ -259,11 +263,44 @@ def _hint(ctx: Any, param: str, value: Any) -> None:
     about most directly are exactly these, and they were the ones showing
     nothing. Every param here is in ``vectors.VECTOR_PARAMS``, so every one of
     them is something a verdict and an observation are already filed against.
+
+    The 2026-09-07 review's ask, "findings become actionable at the control":
+    the hint above says what the *current* value scored, and until now that
+    was where it stopped -- a user agreeing had to go find the winning value
+    and dial it in by hand. ``_best_value_offer`` is the click.
     """
     hint = _findings_hint(ctx, param, value)
-    if hint is None:
+    if hint is not None:
+        widgets.hint_text(hint)
+    _best_value_offer(ctx, form, param, value)
+
+
+def _best_value_offer(ctx: Any, form: dict[str, Any], param: str, value: Any) -> None:
+    """"7/8 usable (47%+) · avg +2.9 · this subject" with a button, when the
+    evidence favours a value other than the one already set.
+
+    **Offered, never applied** -- ``_size_suggestion``'s shape (below), drawn
+    here for every hinted control rather than only Size: a button that
+    silently rewrote a slider the moment a sweep tipped the ranking would be
+    indistinguishable from the app deciding the setting for the user, which is
+    the one thing every findings surface in this app deliberately refuses to
+    do. Silent when the current value already leads (``bench.findings.best_value``
+    itself answers None then), because a button offering to set what is
+    already set is not an offer, it is clutter.
+    """
+    doc = findings_lib.load(Path(ctx.svc.config.bench_dir) / "findings.json")
+    source = ctx.cache.get(ctx.state.source_job)
+    subject = vectors.prompt_hash(source.get("prompt")) if source else ""
+    found = findings_lib.best_value(
+        doc, param, value, min_n=svc_findings.PRESET_MIN_N, prompt_hash=subject or None
+    )
+    if found is None:
         return
-    widgets.hint_text(hint)
+    value_str, entry, scope = found
+    widgets.muted(findings_lib.best_value_line(entry, scope))
+    imgui.same_line()
+    if controls.button(f"Use {value_str}##best-{param}"):
+        form[param] = coerce_form_value(form[param], value_str)
 
 
 # "Size (m)" as a drag rather than a slider (K96), and the *ceiling* is why: a
@@ -348,7 +385,7 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
         return
     form["profile"] = widgets.labeled_combo("Budget", form["profile"], PROFILES)
     widgets.field_error(ctx.state, "profile")
-    _hint(ctx, "profile", form["profile"])
+    _hint(ctx, form, "profile", form["profile"])
     if form["profile"] == "custom":
         # The same control the retarget panel draws, appearing under exactly
         # the same condition (K95). It is the widget ``custom_triangles`` never
@@ -571,6 +608,141 @@ def _rig(ctx: Any, form: dict[str, Any]) -> None:
         stage_rig.skeleton_field(ctx, form)
 
 
+def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
+    """The seven trellis-server launch flags -- a findings sweep could already
+    set every one of these (``service.sweeps.KWARG_AXES``); until this door
+    existed no ordinary Create job could.
+
+    Collapsed by default, under "Engine (advanced)": these are not mesh
+    settings the way ``platform`` or ``bg_removal`` are, they are how the
+    reconstruction *process* is launched, and every one of them restarts
+    trellis-server for this job (``service.sweeps.SERVER_AXES`` is exactly
+    this list, minus nothing). A pane most people never open should not cost
+    the ordinary path a restart it never asked for, which is what a header
+    that opens by default would risk the moment somebody brushed a value.
+
+    Each control leaves its field at ``state.DEFAULT_FORM_3D``'s sentinel
+    when untouched, and :func:`_engine_kwargs` is what turns "still at the
+    sentinel" into "omit the kwarg" -- the same shape ``_size`` and
+    ``_budget`` already use for ``size_m`` and ``custom_triangles``. Findings
+    hints follow the same lookup as every other control here (``_hint``); a
+    verdict filed under one of these axes shows up against it exactly as one
+    filed under ``resolution`` does.
+    """
+    opened = controls.collapsing_header("Engine (advanced)##engine")
+    if not opened:
+        return
+    widgets.muted(
+        "Launch flags for the reconstruction engine itself, not the mesh. "
+        "Changing any of these restarts it for this job."
+    )
+    changed, value = form_ui.number(
+        "trellis_band", "Band", int(form["trellis_band"]),
+        help_text=(
+            "Narrow-band width in voxels for the DC remesh. 0 keeps the "
+            "engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_band"] = max(0, int(value))
+    _hint(ctx, form, "trellis_band", form["trellis_band"])
+
+    changed, value = form_ui.number(
+        "trellis_tex_res", "Texture resolution", int(form["trellis_tex_res"]),
+        help_text=(
+            "Baked PBR texture edge in px. 0 keeps the engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_tex_res"] = max(0, int(value))
+    _hint(ctx, form, "trellis_tex_res", form["trellis_tex_res"])
+
+    changed, value = form_ui.number(
+        "trellis_gss", "Sparse-structure guidance", float(form["trellis_gss"]),
+        help_text=(
+            "Guidance strength for the sparse-structure stage. 0 keeps the "
+            "engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_gss"] = max(0.0, float(value))
+    _hint(ctx, form, "trellis_gss", form["trellis_gss"])
+
+    changed, value = form_ui.number(
+        "trellis_gsh", "Structured-latent guidance", float(form["trellis_gsh"]),
+        help_text=(
+            "Guidance strength for the structured-latent stage. 0 keeps the "
+            "engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_gsh"] = max(0.0, float(value))
+    _hint(ctx, form, "trellis_gsh", form["trellis_gsh"])
+
+    changed, value = form_ui.number(
+        "trellis_max_tokens", "Token budget", int(form["trellis_max_tokens"]),
+        help_text=(
+            "The engine's high-resolution token budget (it ships at 49152). "
+            "0 keeps the engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_max_tokens"] = max(0, int(value))
+    _hint(ctx, form, "trellis_max_tokens", form["trellis_max_tokens"])
+
+    changed, value = form_ui.number(
+        "trellis_decim", "Decimation", int(form["trellis_decim"]),
+        help_text=(
+            "The engine's own decimation. -1 keeps its default (quadric "
+            "simplify to ~300k faces at resolution 1024); 0 turns it off and "
+            "ships the full reconstruction; a positive grid picks the legacy "
+            "cluster-grid pass."
+        ),
+    )
+    if changed:
+        form["trellis_decim"] = max(-1, int(value))
+    _hint(ctx, form, "trellis_decim", form["trellis_decim"])
+
+    changed, value = form_ui.number(
+        "trellis_atlas", "Atlas resolution", int(form["trellis_atlas"]),
+        help_text=(
+            "UV atlas edge in px for the baked textures. 0 keeps the "
+            "engine's own default."
+        ),
+    )
+    if changed:
+        form["trellis_atlas"] = max(0, int(value))
+    _hint(ctx, form, "trellis_atlas", form["trellis_atlas"])
+
+
+def _engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
+    """The engine axes as override kwargs, with "still at its sentinel" left
+    out entirely -- ``promote_kwargs``'s own rule, restated once and shared
+    with :func:`_upload_kwargs` rather than duplicated into it: a form field
+    honoured for a promoted reference and quietly ignored for a dropped file
+    is exactly the bug ``_upload_kwargs``'s docstring already names for every
+    other field here.
+    """
+    out: dict[str, Any] = {}
+    if int(form["trellis_band"]) > 0:
+        out["trellis_band"] = int(form["trellis_band"])
+    if int(form["trellis_tex_res"]) > 0:
+        out["trellis_tex_res"] = int(form["trellis_tex_res"])
+    if float(form["trellis_gss"]) > 0:
+        out["trellis_gss"] = float(form["trellis_gss"])
+    if float(form["trellis_gsh"]) > 0:
+        out["trellis_gsh"] = float(form["trellis_gsh"])
+    if int(form["trellis_max_tokens"]) > 0:
+        out["trellis_max_tokens"] = int(form["trellis_max_tokens"])
+    # >= 0, not > 0: 0 is decimation off, a real value the exe must receive,
+    # and only -1 (DEFAULT_FORM_3D's sentinel) means "unset" for this one.
+    if int(form["trellis_decim"]) >= 0:
+        out["trellis_decim"] = int(form["trellis_decim"])
+    if int(form["trellis_atlas"]) > 0:
+        out["trellis_atlas"] = int(form["trellis_atlas"])
+    return out
+
+
 def _turnaround(ctx: Any) -> None:
     """"Render turnaround": the sprite-sheet control, reached from the mesh
     that already exists rather than from a rig-shaped stage.
@@ -780,6 +952,7 @@ def promote_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     # promotion inherit whatever the reference recorded, and this checkbox is
     # the 3D pane's decision, not the reference's.
     out["reference_prep"] = bool(form["reference_prep"])
+    out.update(_engine_kwargs(form))
     return out
 
 
@@ -1107,6 +1280,7 @@ def _upload_kwargs(ctx: Any) -> dict[str, Any]:
         kwargs["rig"] = True
         if form["rig_template"]:
             kwargs["rig_template"] = form["rig_template"]
+    kwargs.update(_engine_kwargs(form))
     return kwargs
 
 

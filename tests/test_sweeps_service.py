@@ -72,6 +72,61 @@ def test_units_are_grouped_by_server_config_with_the_base_group_first():
     ]
 
 
+def test_a_failure_cancels_only_its_own_server_group_and_leaves_the_rest_queued(svc):
+    """P31's sweep-abort hook. Companion to
+    ``test_units_are_grouped_by_server_config_with_the_base_group_first``: the
+    ``detail-060`` incident (TODO.md P31, 2026-09-06) queued three units that
+    shared one server config, all three failed the same structural way, and
+    nothing cancelled the rest of the corpus's queued repeats of it. Here one
+    axis is not a ``SERVER_AXES`` field (``lora_weight``, same group as the
+    baseline it varies) and one is (``trellis_band``, a different group), so
+    the scoping claim -- same server group cancelled, everything else left
+    alone -- has something to distinguish it from "cancel the whole sweep".
+
+    Drives ``service.sweeps.on_job_failed`` directly with a real store's rows
+    -- the queue-side firing/race behaviour belongs to ``tests/test_queue.py``
+    and a ``_FakeWorker`` is too thin to stand in for it here.
+    """
+    plan = _plan(
+        seeds=(1,),
+        axes=(
+            Axis("lora_weight", (0.6,)),
+            Axis("trellis_band", (8,)),
+        ),
+    )
+    result = svc_sweeps.create_sweep(svc, plan)
+    units = {u["sweep_unit"]: u for u in svc.store.sweep_jobs(result["id"])}
+    baseline = units["baseline s1"]
+    same_group = units["lora_weight=0.6 s1"]
+    other_group = units["trellis_band=8 s1"]
+
+    svc.store.claim(baseline["id"])
+    svc.store.finish(baseline["id"], "error", "boom")
+    failed = svc.store.get(baseline["id"])
+
+    svc_sweeps.on_job_failed(svc, failed)
+
+    cancelled = svc.store.get(same_group["id"])
+    assert cancelled["status"] == "cancelled"
+    assert "scripts/sweep_refill.py" in cancelled["error"]
+    assert svc.store.get(other_group["id"])["status"] == "queued"
+    # The failed unit itself is untouched by the hook -- its row is already
+    # terminal and the hook only ever writes to *queued* siblings.
+    assert svc.store.get(baseline["id"])["status"] == "error"
+
+
+def test_a_job_outside_any_sweep_is_a_no_op_for_the_abort_hook(svc):
+    """A job with no ``sweep_id`` -- the ordinary case -- must not raise or
+    touch anything; ``on_job_failed`` fires on every failed job, sweep or not
+    (queue.py cannot tell the difference, by design)."""
+    job = svc_jobs.create_job(svc, kind="text", prompt="a wooden chest", seed=1)
+    svc.store.claim(job["id"])
+    svc.store.finish(job["id"], "error", "boom")
+    failed = svc.store.get(job["id"])
+
+    svc_sweeps.on_job_failed(svc, failed)  # must not raise
+
+
 def test_admission_refuses_a_named_tier_while_gltfpack_is_absent(svc):
     # Admission validated only the profile *name*, so a sweep could finish
     # wearing profile="standard" over meshes the missing binary never touched

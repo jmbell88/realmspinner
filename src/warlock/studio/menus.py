@@ -145,6 +145,7 @@ def _inker_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
     state = inker_mode.ensure(ctx)
     tab = state.active
     out = []
+    shortcuts = inker_ops.shortcuts_for(state.shortcut_overrides)
     for index, op in enumerate(inker_ops.OPS):
         if not op.menu or op.name in SHADOWED_BY_DOORS:
             continue
@@ -158,9 +159,7 @@ def _inker_specs(ctx: Any, *, evaluate: bool = True) -> list[MenuSpec]:
                 checked=(
                     bool(op.checked(state, tab)) if evaluate and op.checked else False
                 ),
-                shortcut=inker_ops.shortcut_for(
-                    "command", op.name, state.shortcut_overrides
-                ),
+                shortcut=shortcuts.get(op.name, ""),
                 disabled_reason=inker_ops.reason_for(op, state, tab) if evaluate else "",
                 callback=lambda op=op: inker_menu.activate(ctx, op),
                 separator_before=bool(op.separator_before),

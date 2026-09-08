@@ -117,3 +117,57 @@ def test_a_finding_can_open_its_supporting_examples(ui, svc, monkeypatch):
     assert state.mode == "library"
     assert state.library_scroll_to == "job-a"
     assert state.filters.job_ids == frozenset({"job-a", "job-b", "job-c"})
+
+
+def test_an_open_contrast_offers_a_plan_this_sweep_button(ui, svc, monkeypatch):
+    """Review knows which contrasts are unsettled (the axis-verdict lines)
+    but never how to settle one -- "Plan this sweep" is the one-click route
+    from ``review_mode.suggest_sweeps`` to a filled New-sweep form."""
+    from warlock.studio import widgets
+    from warlock.studio.state import AppState
+
+    monkeypatch.setattr(widgets, "FORCE_SECTIONS_OPEN", True)
+
+    comparisons = {
+        "trellis_gss": [{
+            "a": "3.0", "b": "unset", "pairs": 3,
+            "a_wins": 2, "b_wins": 1, "ties": 0,
+            "sweeps": 1, "prompts": 1, "deltas": {},
+        }],
+    }
+    bench = svc.config.bench_dir
+    bench.mkdir(parents=True, exist_ok=True)
+    (bench / "findings.json").write_text(
+        json.dumps(
+            {
+                "version": 5,
+                "params": {},
+                "vectors": [],
+                "comparisons": comparisons,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = AppState()
+    ctx = SimpleNamespace(svc=svc, state=state, toast=lambda *a, **kw: None)
+
+    probe.begin_frame()
+    ui.new_frame()
+    ui.set_next_window_size((900.0, 700.0))
+    ui.set_next_window_pos((0.0, 0.0))
+    ui.begin("##host")
+    review_panes.ReviewPanes()._review_findings(ctx)
+    ui.end()
+    ui.end_frame()
+
+    buttons = {c.text: c for c in probe.FRAME_CONTROLS if c.kind == "button"}
+    assert "Plan this sweep" in buttons
+
+    # Drawing the panel already reached ``review_mode.ensure(ctx)`` to draw the
+    # button, so the same ``ReviewState`` the button's own handler would use
+    # is already sitting on ``state.review`` -- what the button does is one
+    # call away from here, not a second imgui frame with a simulated click.
+    suggestion = review_mode.suggest_sweeps({"comparisons": comparisons})[0]
+    review_mode.plan_suggestion(state.review, suggestion)
+    assert state.review.form.axes[0]["param"] == "trellis_gss"

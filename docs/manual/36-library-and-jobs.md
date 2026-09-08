@@ -45,6 +45,11 @@ A job moves through a small set of states, shown as a coloured pill on its card:
 
 The pill carries a short glyph as well as a colour, so the state is readable without relying on hue.
 
+A mesh you have graded in [Review](04-judging-what-you-made.md#grading-is-not-accepting-or-rejecting)
+also carries a small **grade pill** — `+4`, `−2`, and so on — beside its topology tell. An ungraded
+mesh, which is most of a workshop that predates grading, carries no pill at all rather than one
+saying "ungraded" on every card.
+
 Jobs run **one at a time**. The GPU is a serial resource, so the queue is genuinely a queue, and a
 queued card shows its position in it ("#3 in queue") rather than leaving you guessing.
 
@@ -96,17 +101,21 @@ same values are the rail. Either way:
   about what the job *produced*, not what was submitted — a text job that stopped at a reference and
   one that went on to a mesh are the same kind of job and two different things to look for.
 - A star toggle for favourites only.
+- A checkmark toggle for **Usable** only — a mesh you graded +3 or higher in
+  [Review](04-judging-what-you-made.md#grading-is-not-accepting-or-rejecting), the same cut Review
+  states. An ungraded mesh is hidden by it too, the same as a mesh graded below the cut.
 - A tick that selects every asset the filters are showing, for the bulk bar below. It says *shown*
   rather than *all* deliberately: the list is a window onto the newest N (see below), so a control
   claiming everything would leave the older jobs out of the delete that usually follows. Pressing it
   again once everything shown is ticked clears them.
 
-**Sorting.** The combo offers date, name, kind, time taken, size on disk and score, and the caret
-beside it reverses whichever is chosen. Every sort puts the rows it *cannot* answer for at the end,
-in both directions — a job that never ran has no duration, and an asset whose directory has not been
-measured yet has no size. That is deliberate: "unknown" is not a value at one end of the scale.
-Sizes come from the storage measurement at the foot of the panel, which runs in the background, so
-sorting by size shortly after launch may put everything in that bucket for a moment.
+**Sorting.** The combo offers date, name, kind, time taken, size on disk, score and grade, and the
+caret beside it reverses whichever is chosen. Every sort puts the rows it *cannot* answer for at the
+end, in both directions — a job that never ran has no duration, an asset whose directory has not been
+measured yet has no size, and a mesh nobody has graded has no grade. That is deliberate: "unknown" is
+not a value at one end of the scale. Sizes come from the storage measurement at the foot of the
+panel, which runs in the background, so sorting by size shortly after launch may put everything in
+that bucket for a moment.
 
 Under the date sort the list is grouped by **today**, **yesterday**, **this week** and then by month.
 The grouping is only shown under that sort: a "today" heading above a list ordered by size would be a

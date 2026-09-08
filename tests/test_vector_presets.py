@@ -63,6 +63,27 @@ def test_an_uncoercible_value_leaves_the_form_alone():
     assert isinstance(state.form_2d["lora_weight"], float)
 
 
+def test_apply_vector_carries_the_engine_axis_a_ranked_vector_was_judged_under():
+    """The seven trellis_* engine axes are in FORM_3D_KEYS beside every other
+    mesh-side control, so a ranked vector a sweep judged under one of them
+    (``vectors.VECTOR_PARAMS`` already carries all seven) applies it back to
+    the Mesh stage form exactly as it applies ``platform`` or ``size_m``."""
+    state = AppState()
+    review_mode.apply_vector(
+        state,
+        {
+            "trellis_band": 8,
+            "trellis_decim": 0,  # the interesting rung, not merely truthy
+            "trellis_gss": 7.5,
+        },
+    )
+    assert state.form_3d["trellis_band"] == 8
+    assert state.form_3d["trellis_decim"] == 0
+    assert state.form_3d["trellis_gss"] == 7.5
+    # Owned by the 3D form alone, the same split every other mesh key holds.
+    assert "trellis_band" not in state.form_2d
+
+
 def test_a_vector_describes_itself_without_the_non_settings():
     line = review_mode.describe_vector({"base_model": "sdxl", "stage": "model"})
     assert line == "base_model=sdxl"

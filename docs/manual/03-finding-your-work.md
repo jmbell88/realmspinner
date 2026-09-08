@@ -59,12 +59,15 @@ plain word you type reaches past that window on its own: it is matched against e
 prompt, not only the ones already loaded, so typing `lantern` finds a job named that from months ago
 without you having to scroll back to it first. What still only applies to the loaded window is
 everything else the box can do — the `tag:`/`status:`/`kind:`/`stage:`/`id:`/`name:` prefixes, and the
-kind/status/favourites controls beside it. When one of those is active and there is more history
+kind/status/favourites/usable controls beside it. When one of those is active and there is more history
 behind the window, the pane says so, and **Load older** is what widens it — the way back to the rest
 of your history for a filter that free text alone cannot reach into.
 
-**Sorting** offers newest, name, kind, duration, size on disk, and score. Under *newest* the list
-also grows date headings — Today, Yesterday, This week, then by month.
+**Sorting** offers newest, name, kind, duration, size on disk, score, and grade. Under *newest* the
+list also grows date headings — Today, Yesterday, This week, then by month.
+
+A **Usable** toggle sits beside Favourites: it shows only meshes graded at or above Review's own
+"usable" cut, covered next.
 
 **Opening** an asset is a click, or Enter on the selection. Where it lands depends on what it is: a
 reference opens on the Reference stage, a mesh on Mesh, a drawing in Inker, a tile map in Plotter, a
