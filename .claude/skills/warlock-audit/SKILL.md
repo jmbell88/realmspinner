@@ -73,7 +73,11 @@ Make one scratchpad directory for the run, `<scratchpad>/audit-<date>/`, with a
 ## 3. Fan out explorers — one per segment
 
 Read `references/brief-explorer.md` and the segment contract at the top of
-`subsystems.md` once. Every row of `subsystems.md` carries a **Segments** list: a
+`subsystems.md` once, along with the **Owed from the 2026-09-08 run** section that
+follows it: four segments returned that day having read only part of what they own, and
+each names the files it left. If a segment you are about to launch appears there, put
+its unread files at the top of that explorer's brief and require the coverage note to
+say whether the gap closed — then strike the entry from that section when it has. Every row of `subsystems.md` carries a **Segments** list: a
 partition of its Source files, 1 to 7 of them. **One explorer per segment**, never one per
 slice — `shell` is 52 modules, `inker` 55 package files plus its codecs and panes, and one
 agent cannot read that honestly. Both earlier runs of this skill split a row by hand

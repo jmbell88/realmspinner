@@ -35,6 +35,40 @@ here so it is a decision, not an improvisation.
   decides. Segments do not apply to a *theme* scope: a theme is one explorer per row,
   walking its single checklist item over the whole row.
 
+## Owed from the 2026-09-08 run — read these first
+
+That run launched all fifty-three segments and all fifty-three returned, but four of them
+said plainly in their coverage notes that they had not read everything they owned. A
+segment that reports an unread file is doing the right thing; leaving it unread twice is
+not. An explorer whose segment appears below **opens these files before anything else**,
+and says in its coverage note whether the gap is now closed.
+
+- `plotter` / `mode` — `panes/plotter_tileset.py` (726 lines) was **never opened**, and
+  `panes/plotter_canvas.py` (3600), `plotter_tools.py` (983) and
+  `panes/plotter_tileset_editor.py` (1178) were read only in part: the setup dialog, the
+  object-selection and snap code, the Map-properties dialog and the Wang-colour rows. The
+  paint and stamp gestures, the minimap, the blend-preview compositing, the resize/offset
+  dialogs, the status line, the context menus, the toolbar, the View popover and the tile
+  sheet, collision and animation tabs are all unread. This segment still produced the run's
+  only Critical from what it *did* read, which is the argument for finishing it.
+- `pipelines` / `install` — eight of the ten `native/*.c` kernels were never opened
+  (`meshaudit.c`, `contours.c`, `dither.c`, `composite.c`, `palette.c`, `bvh.c`, `cells.c`,
+  `palettef.c`; only `flood.c` and `morph.c` were read), and `scripts/` was swept by grep
+  for network and subprocess calls rather than read. The C kernels' bar is bit-identical
+  parity with a numpy reference, so ceilings and bounds inside them (checklist item 10) are
+  the classes most likely to be hiding there.
+- `service` / `gates` — `models.py`'s registry tables (roughly lines 570–1760) were sampled
+  rather than read; no `Fetch` record's revision, size or pattern was diffed against
+  `docs/MODELS.md`. Pair this with the `docs` slice's section B if both are in scope.
+- `docs` / `E` — twenty-seven of `service/`'s files were grepped for staleness markers
+  rather than read for docstring accuracy (section G). The six that were read turned up
+  nothing, so this is an unmeasured gap rather than a suspected one.
+
+Two smaller ones, from the same run: `inker` / `sheets` did not open manual chapters 15 and
+29, and `create` / `panes` did not open chapters 12, 22 or 23 — in both cases the segment
+judged its findings from source and tests, so checklist item 5 (docs-vs-code) is unwalked
+for those five chapters.
+
 ## shell
 
 - **Source:** `studio/main.py`, `runtime.py`, `app_ctx.py`, `state.py`, `tasks.py`,
@@ -61,7 +95,7 @@ here so it is a decision, not an improvisation.
   `tests/test_journal.py`, `tests/test_layouts.py`, `tests/test_panes_*.py`,
   `tests/test_landing_*.py`, `tests/test_library_*.py`, `tests/test_inspector_*.py`,
   `tests/test_review_mode.py`, `tests/test_settings_*.py`, `tests/test_notifications.py`,
-  `tests/test_dialogs_prompt.py`, `tests/test_palette.py`, `tests/ui/`, `tests/app/`.
+  `tests/test_dialogs_prompt.py`, `tests/test_palette.py`.
 - **Manual:** 03, 04, 20, 21, 36, 37, 38, 41.
 - **Gates:** `tests/test_undo_gesture_doors.py`, `tests/test_frame_thread_doors.py`,
   `tests/test_task_thread_writes.py`, `tests/test_pane_guard.py` (imgui id collisions,
@@ -70,17 +104,18 @@ here so it is a decision, not an improvisation.
 - **Segments (6):**
   1. `boot` — `main.py`, `runtime.py`, `app_ctx.py`, `state.py`, `tasks.py`, `splash.py`,
      `guard.py`, `probe.py`, `focus.py`. Leads 11, 13, 332, 334–346, 350–352, 452–458.
-     Tests `tests/test_studio_smoke.py`, `tests/test_editor_shell.py`, `tests/app/`, and
-     the three thread gates.
+     Tests `tests/test_studio_smoke.py`, `tests/test_editor_shell.py`, and the three
+     thread gates.
   2. `documents` — `layout.py`, `layouts.py`, `layout_edit.py`, `layout_skeleton.py`,
-     `docmodes.py`, `journal.py`, `recents.py`, `asset_open.py`, `artifacts.py`,
+     `skeletons.py`, `docmodes.py`, `journal.py`, `recents.py`, `asset_open.py`,
+     `artifacts.py`,
      `jobs_cache.py`, `filetypes.py`, `npyguard.py`, `sizeguard.py`, `xmlguard.py`,
      `zipguard.py`. Leads 203, 320–324, 489–503. Tests `tests/test_layouts.py`,
      `tests/test_journal.py`.
   3. `chrome` — `rail.py`, `menus.py`, `status_bar.py`, `toolbar.py`, `shortcuts.py`,
      `dialogs.py`, `palette.py`; panes `palette.py`, `overlay.py`. Leads 151–169, 410–422,
      452–458. Tests `tests/test_palette.py`, `tests/test_dialogs_prompt.py`,
-     `tests/test_notifications.py`, `tests/ui/`. Manual 37, 38.
+     `tests/test_notifications.py`. Manual 37, 38.
   4. `widgets` — `widgets.py`, `controls.py`, `forms.py`, `undo.py`, `verbs.py`,
      `icons.py`, `surfaces.py`, `textures.py`, `shadows.py`, `vibrancy.py`, `fps.py`,
      `resources.py`, `settings.py`, `component_gallery.py`, `motion.py`, `theme.py`,
@@ -100,8 +135,8 @@ here so it is a decision, not an improvisation.
 - **Source:** `studio/create_brief.py`, `create_stages.py`, `create_assets.py`,
   `asset_exits.py`, `readiness.py`, `generation_workspace.py`, `matte_preview.py`,
   `quality.py`, `candidates.py`, `studio/viewer/`, `studio/viewer_embed.py`,
-  `_viewer_pose.py` (shared with `poser`, as `viewer/gltf.py` is with `clay`),
-  `_view_*.py`; panes `settings_2d.py`, `settings_3d.py`, `settings_character.py`,
+  `_viewer_pose.py` (shared with `poser`, as `viewer/gltf.py` is with `clay`); panes
+  `settings_2d.py`, `settings_3d.py`, `settings_character.py`,
   `texture_panel.py`, `remesh_panel.py`, `retarget_panel.py`, `sprite_panel.py`,
   `sheet_panel.py`, `stage_rig.py`, `pose_panel.py`; `guidance.py`, `judge.py`,
   `generation.py`, `sweep.py`, `provenance.py`. The 2026-09-08 run found
@@ -126,9 +161,7 @@ here so it is a decision, not an improvisation.
      `generation.py`, `sweep.py`, `provenance.py`. Leads 49, 384–388. Tests
      `tests/test_generation_*.py`, `tests/test_candidates.py`, `tests/test_matte_*.py`.
      Manual 12, 24.
-  3. `viewer` — `studio/viewer/` (all), `viewer_embed.py`, `_viewer_pose.py`,
-     `_view_bounds.py`, `_view_cache.py`, `_view_drag.py`, `_view_overlay.py`,
-     `_view_pick.py`. Leads
+  3. `viewer` — `studio/viewer/` (all), `viewer_embed.py`, `_viewer_pose.py`. Leads
      136–138, 354, 398. Tests `tests/test_viewer_*.py`, `tests/test_gltf_loader.py`,
      `tests/test_resource_ceilings.py`. Manual 23.
   4. `panes` — panes `settings_2d.py`, `settings_3d.py`, `settings_character.py`,
@@ -208,15 +241,17 @@ here so it is a decision, not an improvisation.
      `glbimport.py`; `glbio.py`, `studio/viewer/gltf.py`. Leads 136–138, 300 (uid undo),
      306 (drag delta), 398. Tests `tests/test_mesh_import.py`,
      `tests/test_gltf_loader.py`, `tests/test_resource_ceilings.py`.
-  3. `mode` — `studio/clay_mode.py`, `clay_ops.py`, `clay_state.py`, `clay_view.py`,
-     `clay_viewport.py`, `clay_hints.py`; panes `clay_bridge.py`, `clay_header.py`,
+  3. `mode` — `studio/clay_mode.py`, `clay_ops.py`, `clay_state.py`, `clay_view.py`
+     and its five mixins `_view_bounds.py`, `_view_cache.py`, `_view_drag.py`,
+     `_view_overlay.py`, `_view_pick.py`; `clay_viewport.py`, `clay_hints.py`; panes
+     `clay_bridge.py`, `clay_header.py`,
      `clay_hud.py`, `clay_menu.py`, `clay_outliner.py`, `clay_props.py`, `clay_tools.py`.
      Gates `tests/test_clay_view.py`, the headless import pin. Tests
      `tests/test_clay_*.py`. Manual 07, 30.
 
 ## poser
 
-- **Source:** `studio/poser_mode.py`, `poser_viewport.py`, `skeletons.py`,
+- **Source:** `studio/poser_mode.py`, `poser_viewport.py`,
   `_viewer_pose.py`; panes `poser_*.py`, `pose_panel.py`, `retarget_panel.py`;
   `rigging.py`, `poselib.py`, `clips.py`, `service/rig.py`, `service/poses.py`,
   `service/clips.py`, `pipelines/blender_worker.py`, `jointfit.py`, `pose2d.py`,
@@ -231,7 +266,7 @@ here so it is a decision, not an improvisation.
 - **Gates:** `tests/test_poser_imports.py` (only `blender_worker` imports `bpy`),
   `tests/test_poser_panes_smoke.py`.
 - **Segments (3):**
-  1. `rig` — `rigging.py`, `skeletons.py`, `templates/*.json`,
+  1. `rig` — `rigging.py`, `templates/*.json`,
      `pipelines/blender_worker.py`, `pipelines/jointfit.py`. Leads 116, 124–134 (weld
      before heat, deformation battery, joint sources), 436–438, 515. Gate
      `tests/test_poser_imports.py`. Tests `tests/test_rig*.py`, `tests/test_rigging.py`.
@@ -255,14 +290,15 @@ here so it is a decision, not an improvisation.
   frame tables, clips, sidecar, pixeliser, joints, atlas size, four jobs and a gate, T-pose
   guide, character sheet, no document), 460–464 (tag names, corrections, three-way
   re-render merge), 470 (scores rank, never gate).
-- **Tests:** `tests/troupe/`, `tests/test_sprite_*.py`, `tests/test_effect_sprites.py`.
+- **Tests:** `tests/troupe/`, `tests/test_sprite_*.py`.
 - **Manual:** 11, 27, 33.
-- **Gates:** headless import pin (`tests/troupe/`), `tests/test_effect_sprites.py`
-  (outward imports).
+- **Gates:** the headless import pin, `tests/troupe/test_troupe_imports.py`, whose
+  `OUTWARD_IMPORTS` set is the outward-import pin for `studio/troupe/`. It globs
+  `studio/troupe/*.py` only, so `studio/troupe_state.py` is *not* covered by it.
 - **Segments (3):**
   1. `engine` — `studio/troupe/qa.py`, `spec.py`, `ulpc.py`; `studio/troupe_state.py`.
      Leads 426–448 (frame tables, joints, atlas size, T-pose guide), 470. Gates the
-     headless import pin, `tests/test_effect_sprites.py`. Tests `tests/troupe/`.
+     headless import pin, `tests/troupe/test_troupe_imports.py`. Tests `tests/troupe/`.
   2. `jobs` — `_q_troupe.py`, `_q_sprite.py`, `service/troupe.py`, `service/sprites.py`,
      `service/sheets.py`, `service/characters.py`. Leads 390–394, 440–448 (four jobs and a
      gate, no document), 460–464.
@@ -508,7 +544,8 @@ here so it is a decision, not an improvisation.
 
 ## tour
 
-- **Source:** `studio/tour/`, `studio/_view_overlay.py` (the drawing side), panes `tour.py`.
+- **Source:** `studio/tour/` (the data), panes `tour.py` (the drawing side: the
+  scrim, the ring, the card, `_hole`/`_veil`/`_card_pos`).
 - **INVARIANTS:** 450 (points and waits; never acts for the reader).
 - **Tests:** `tests/tour/`.
 - **Manual:** 01.
