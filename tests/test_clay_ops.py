@@ -517,6 +517,38 @@ def test_mirror_bakes_into_the_mesh_and_leaves_the_scale_positive() -> None:
     assert doc.by_uid(uid).generator is None
 
 
+def test_shade_smooth_in_face_mode_with_no_face_selection_is_refused_not_silent() -> None:
+    """clay-06 (2026-09-08 audit): Shade Smooth/Flat are registered for both
+    object and face mode, and were gated on ``has_objects`` alone -- an
+    *object*-selection predicate -- even though the op body reads
+    ``doc.element_sel`` in face mode.
+
+    ``doc.selection`` can be non-empty in face mode with no face picked: the
+    outliner selects an object by calling ``doc.select`` directly
+    (``panes/clay_outliner.py``), which does not touch ``element_sel`` the way
+    picking a face does. Before the fix that left ``has_objects`` reading True
+    here, so the row drew enabled, the click ran an empty loop over
+    ``doc.element_sel``, and nothing happened -- no ``set_shading`` call, no
+    history step, no toast.
+    """
+    doc, uid = _doc()
+    doc.set_element_mode("face")
+    doc.select([uid])
+    assert doc.selection == {uid}
+    assert not doc.element_sel, "no face has been picked"
+
+    smooth = clay_ops.get("shade-smooth")
+    assert not smooth.enabled(doc), "nothing for the op body to act on"
+    assert clay_ops.reason_for(smooth, doc)
+    assert clay_ops.run(_Ctx(), doc, smooth) is False
+    assert len(doc.history) == 1, "the add, and nothing else -- no silent no-op step"
+
+    # Picking a face is what makes it live again.
+    _faces(doc, uid, 0)
+    assert smooth.enabled(doc)
+    assert clay_ops.run(_Ctx(), doc, smooth) is True
+
+
 # --- merge ------------------------------------------------------------------
 
 

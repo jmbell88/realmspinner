@@ -1200,11 +1200,17 @@ def save_pose(
         if protected:
             raise ValueError(f"extra may not override {sorted(protected)}")
         record.update(extra)
-    # Staged beside the destination and renamed. The GLB is dropped only after
-    # the JSON has landed, so the pair is never inconsistent the other way
-    # round -- which is the part ``write_json_staged`` does not know about.
-    write_json_staged(path, record, prefix=f".{pose_id}.")
+    # The GLB is dropped *before* the JSON is staged in, not after. The two
+    # statements are not atomic together, and a crash between them is real:
+    # the 2026-09-08 audit's poser-04 found the old order -- write the JSON,
+    # then drop the GLB -- left a crash between them pairing the *new* pose
+    # record with the *old* baked GLB on disk, which posed_model's
+    # ``if not path.exists(): ... bake ...`` then served as fresh forever,
+    # with no error or staleness signal. This order's worst case is a crash
+    # leaving the *old* JSON with no cached GLB -- costing only a redundant
+    # rebake next time the pose is fetched, never stale content.
     pose_glb_path(job_dir, pose_id).unlink(missing_ok=True)
+    write_json_staged(path, record, prefix=f".{pose_id}.")
     return record
 
 
@@ -1253,8 +1259,16 @@ def delete_pose(job_dir: Path, pose_id: str) -> bool:
     path = pose_path(job_dir, pose_id)
     if not path.exists():
         return False
-    path.unlink()
+    # The derived GLB goes before the source JSON it depends on, matching
+    # save_pose's ordering above and for the same reason (poser-05, the
+    # 2026-09-08 audit): the old order -- delete the JSON, then the GLB --
+    # left a crash between them stranding an orphaned <pose_id>.glb that
+    # nothing lists, sweeps, or ever deletes, since posed_model raises
+    # NotFound on the missing JSON before it would ever look for the GLB.
+    # This order's worst case is a crash that leaves the JSON undeleted
+    # (delete_pose raises, the pose still "exists") with no orphan behind it.
     pose_glb_path(job_dir, pose_id).unlink(missing_ok=True)
+    path.unlink()
     return True
 
 

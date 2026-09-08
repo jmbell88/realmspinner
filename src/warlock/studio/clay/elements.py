@@ -239,9 +239,17 @@ def invert(mesh: Mesh, sel: ElementSel, mode: str) -> ElementSel:
 def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
     """Drop elements a mesh no longer has.
 
-    An op can shrink a mesh under a selection that outlived it -- a delete
-    followed by an undo lands here -- and an out-of-range face index would take
-    down the overlay build rather than the op.
+    **Not currently called from any live path** -- the 2026-09-08 audit's
+    clay-09 found this docstring claiming to be how the codebase handles "a
+    delete followed by an undo", but the actual mechanism for that is
+    :meth:`ClayDoc._forget_elements`, which drops the whole per-object
+    ``element_sel`` entry on undo/redo rather than restricting it in place.
+    Kept, and unit-tested (:mod:`tests.clay.test_elements`), because it is the
+    right tool the day something shrinks a mesh *without* going through the
+    undo path that ``_forget_elements`` already guards -- at which point an
+    out-of-range face index would otherwise take down the overlay build
+    rather than the op. Wire it in there rather than assuming this docstring
+    already means it is reachable.
     """
     n_verts, n_faces = len(mesh.positions), len(mesh.starts) - 1
     edges = sel.edges

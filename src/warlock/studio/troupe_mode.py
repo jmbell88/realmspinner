@@ -975,7 +975,12 @@ def scores(ctx: Any) -> Any:
     record = active_sheet(ctx)
     geometry = cell_geometry(record)
     path = rigging.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
-    if geometry is None or not path.exists():
+    # is_file(), not exists(): the 2026-09-08 audit's troupe-04 found exists()
+    # here, which is also true of a directory and would let a stale or
+    # malformed sheet path slip past this refusal only to fail later inside
+    # Image.open with no mention of which sheet -- the same class of bug
+    # sheet.pack() was fixed for on 2026-09-07.
+    if geometry is None or not path.is_file():
         preview["troupe_scores:failed"] = key
         return None
     task_key = scores_key(*key)
@@ -1070,7 +1075,9 @@ def atlas_texture(ctx: Any) -> Any:
     if ctx.busy(task):
         return None
     path = rigging.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
-    if not path.exists():
+    # is_file(), not exists(): the 2026-09-08 audit's troupe-04 found exists()
+    # here too -- see the matching comment in ``scores`` above.
+    if not path.is_file():
         return None
     ctx.submit(task, _decode_atlas, path, tag=key)
     return None

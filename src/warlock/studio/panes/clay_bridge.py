@@ -118,23 +118,41 @@ def _files(ctx: Any, tab: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
 
 
+def _outputs_why(doc: Any, saving: bool) -> str:
+    """Why both output buttons below are refused right now, or ``""`` when
+    they are not.
+
+    One sentence for both, because they are refused for the same two reasons
+    and a user reading two different explanations of one state would look for
+    two different problems. The ``_VIEWPORT_WHY`` pattern: a shared gate gets a
+    shared sentence.
+
+    Pulled out as its own function by the 2026-09-08 audit's clay-07: the
+    "Make 3D" button next to Export received this sentence as its ``reason``,
+    but Export itself did not, so it greyed out with no explanation while the
+    comment two lines above it said both buttons share one. Extracting it is
+    also what lets this be asserted without imgui -- panes cannot be driven
+    headlessly, but the sentence a button greys with can still be a plain
+    function of a document and a bool.
+    """
+    if saving:
+        return "Saving..."
+    if not any(obj.visible for obj in doc.objects):
+        return "Nothing visible to send -- every object is hidden."
+    return ""
+
+
 def _outputs(ctx: Any, tab: Any) -> None:
     # The one heading every mode's exits are under. See ``inker_bridge``'s
     # ``_pipeline`` for why the five of them agree on a name.
     widgets.section("Take it somewhere")
     doc = tab.doc
-    ready = any(obj.visible for obj in doc.objects) and not tab.saving
-    # One sentence for both buttons below, because they are refused for the
-    # same two reasons and a user reading two different explanations of one
-    # state would look for two different problems. The ``_VIEWPORT_WHY``
-    # pattern: a shared gate gets a shared sentence, hoisted to a local.
-    why = (
-        "Saving..."
-        if tab.saving
-        else "Nothing visible to send -- every object is hidden."
-    )
+    why = _outputs_why(doc, tab.saving)
+    ready = not why
 
-    if widgets.primary_button(f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}", enabled=ready):
+    if widgets.primary_button(
+        f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}", enabled=ready, reason=why
+    ):
         clay_mode.export_asset(ctx, tab)
     if imgui.is_item_hovered():
         imgui.set_tooltip(

@@ -549,6 +549,32 @@ def test_a_document_being_saved_cannot_be_exported(svc) -> None:
     assert ctx.submitted == []
 
 
+def test_export_to_library_button_names_why_it_is_disabled() -> None:
+    """clay-07 (2026-09-08 audit): ``clay_bridge._outputs``'s own comment says
+    one sentence covers both output buttons below it, "because they are
+    refused for the same two reasons" -- but only the "Make 3D" button
+    actually received it as ``reason``; the "Export to the library" button
+    passed none at all, so it greyed out with no explanation while saving or
+    while every object was hidden.
+
+    The fix pulls that sentence into ``_outputs_why``, a plain function of a
+    document and a bool, so it is assertable without imgui -- panes cannot be
+    driven headlessly, but the reason a button greys with now can be.
+    """
+    from warlock.studio.panes import clay_bridge
+
+    doc = bd.ClayDoc()
+    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+
+    assert clay_bridge._outputs_why(doc, saving=True) == "Saving..."
+
+    obj.visible = False
+    assert "hidden" in clay_bridge._outputs_why(doc, saving=False)
+
+    obj.visible = True
+    assert clay_bridge._outputs_why(doc, saving=False) == ""
+
+
 # --- opening -----------------------------------------------------------------
 
 
@@ -1014,6 +1040,54 @@ def test_a_finding_click_pushes_no_undo_step() -> None:
     head = doc.history.head
     clay_props._select_finding(doc, obj, diagnose.findings(obj.mesh)[0])
     assert doc.history.head == head
+
+
+def test_deleting_a_checked_object_drops_its_manifold_cache_entry() -> None:
+    """clay-08 (2026-09-08 audit): ``ClayState.manifold`` -- the per-object
+    "last mesh check" cache ``_diagnostics`` fills in -- was only ever pruned
+    for a uid when its *tab* closed (``close_tab``'s ``release``). Deleting an
+    object mid-session left its entry keyed on the now-orphaned uid, pinning
+    the whole ``Mesh`` (positions/loops/starts arrays) it measured alive,
+    unreachable, for the rest of the tab's life.
+    """
+    from warlock.studio import clay_ops
+    from warlock.studio.clay import diagnose
+
+    doc = bd.ClayDoc()
+    keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    doomed = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_stray_vertex_box()))
+    ctx = FakeCtx()
+    state = clay_mode.ensure(ctx)
+    state.manifold[keep.uid] = (keep.mesh, diagnose.findings(keep.mesh))
+    state.manifold[doomed.uid] = (doomed.mesh, diagnose.findings(doomed.mesh))
+
+    doc.select([doomed.uid])
+    assert clay_ops.run(ctx, doc, clay_ops.get("delete")) is True
+
+    assert doomed.uid not in state.manifold, "the removed object's cache entry must go with it"
+    assert keep.uid in state.manifold, "an object still open in the tab is untouched"
+
+
+def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
+    """clay-08's other two sites: ``join_objects`` also drops an object from
+    ``doc.objects`` (the ones a merge or a union absorbs), outside a tab
+    close, and the same cache leak applies."""
+    from warlock.studio import clay_ops
+    from warlock.studio.clay import diagnose
+
+    doc = bd.ClayDoc()
+    target = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    absorbed = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[2.0, 0.0, 0.0])
+    )
+    ctx = FakeCtx()
+    state = clay_mode.ensure(ctx)
+    state.manifold[absorbed.uid] = (absorbed.mesh, diagnose.findings(absorbed.mesh))
+
+    doc.select([target.uid, absorbed.uid])
+    assert clay_ops.run(ctx, doc, clay_ops.get("join")) is True
+
+    assert absorbed.uid not in state.manifold
 
 
 # --- axis views and the orthographic toggle (Clay17) -------------------------

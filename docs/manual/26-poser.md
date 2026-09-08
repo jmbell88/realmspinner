@@ -115,9 +115,10 @@ template preview. While a session is bound to an asset this way:
 
 Rigging is queued work, out of process, behind whatever else the queue is already doing, so a re-rig
 can take a while; the session stays open and usable meanwhile. Once the new rig lands, the viewport
-rebinds to it on its own — no further action needed — and if you picked a different skeleton than the
-one you had, the clip editor and the shared library beneath it switch to match the new one, exactly
-as they do when you change skeletons in an unbound session.
+rebinds to it on its own — unless you kept posing the old rig while it queued, in which case landing
+asks before discarding that edit, the same as submitting the re-rig did — and if you picked a
+different skeleton than the one you had, the clip editor and the shared library beneath it switch to
+match the new one, exactly as they do when you change skeletons in an unbound session.
 
 ## Choosing the front
 

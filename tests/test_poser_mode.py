@@ -607,6 +607,36 @@ def test_pump_rerig_rebinds_once_the_queued_job_lands(svc, monkeypatch):
     assert len(viewer.loaded) == 2, "sync_asset reloads rig.glb a second time"
 
 
+def test_land_rerig_asks_before_discarding_a_pose_edited_while_the_job_was_queued(
+    svc, monkeypatch
+):
+    """poser-01 (the 2026-09-08 audit): ``rerig``'s own guard protects only the
+    moment the re-rig is *submitted* -- an ordinary thing to do while a
+    Blender rig job serialises on the queue is to keep posing the old rig, and
+    unfixed ``_land_rerig`` called ``viewer.exit_pose_mode()``/``clear()``
+    unconditionally the instant the job landed, discarding that edit with no
+    confirm and no toast."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
+    poser_mode.rerig(ctx, "humanoid")
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    result = ctx.results[key]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
+    state = poser_mode.ensure(ctx)
+
+    # The user keeps posing the *old* rig while the re-rig is still queued.
+    viewer.editor.dirty = True
+
+    ctx.jobs[result["id"]] = {"id": result["id"], "status": "done"}
+    poser_mode.pump_rerig(ctx)
+
+    assert viewer.pose_mode is True, "must not discard the unsaved edit with no confirm"
+    assert len(ctx.confirms.asked) == 1
+    assert state.rerig_job_id == "", "the landed job is not re-polled while the confirm waits"
+
+    ctx.confirms.asked[0].on_confirm()
+    assert viewer.pose_mode is False, "confirming goes ahead and lands the re-rig"
+
+
 def test_pump_rerig_ignores_a_failed_job(svc, monkeypatch):
     ctx, viewer, job_id = _opened_asset(svc, monkeypatch)
     poser_mode.rerig(ctx, "humanoid")

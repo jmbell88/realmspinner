@@ -23,7 +23,7 @@ from warlock.config import Config
 from warlock.db import JobStore
 from warlock.pipelines import sheet as sheetlib
 from warlock.queue import Worker
-from warlock.service import Invalid, NotFound
+from warlock.service import Conflict, Invalid, NotFound
 from warlock.service import jobs as svc_jobs
 from warlock.service import sheets as svc_sheets
 
@@ -561,6 +561,36 @@ def test_finished_sheets_are_listed_read_and_deleted(svc, assets):
     assert svc_sheets.sheet_png(svc, job_id, "a" * 12).read_bytes().startswith(b"\x89PNG")
     assert svc_sheets.delete_sheet(svc, job_id, "a" * 12) == {"ok": True}
     assert svc_sheets.list_sheets(svc, job_id)["sheets"] == []
+
+
+def test_deleting_a_sheet_with_an_in_flight_rerender_is_refused(svc, assets):
+    """The 2026-09-08 audit (troupe-03): ``_restyle_in_flight`` only ever
+    checked for a ``pixel_sheet`` job naming this sheet, not a queued
+    ``charsheet`` re-render whose ``params["base_sheet"]`` is copying cells
+    from it. The worker's own existence check in ``_charsheet`` runs once at
+    job start, before the Blender render; ``_quantise``'s
+    ``sheetlib.compose_cells(base_png, ...)`` re-opens the same base PNG
+    minutes later, after the render finishes -- so a delete that slips
+    through here kills the re-render with an unhandled ``FileNotFoundError``
+    instead of the same clear, immediate refusal the sibling ``pixel_sheet``
+    case already gets.
+    """
+    job_id = _mesh_job(svc, assets)
+    rigging.sheet_dir(assets / job_id).mkdir(parents=True)
+    _write_sheet(assets / job_id, "a" * 12)
+
+    svc.store.create(
+        "charsheet",
+        "a knight",
+        {"source_job": job_id, "sheet_id": rigging.new_id(), "base_sheet": "a" * 12},
+    )
+
+    with pytest.raises(Conflict, match="re-render") as excinfo:
+        svc_sheets.delete_sheet(svc, job_id, "a" * 12)
+    assert excinfo.value.field == "sheet_id"
+    # Refused, not silently ignored: the sheet is still there afterwards.
+    listed = svc_sheets.list_sheets(svc, job_id)["sheets"]
+    assert [s["id"] for s in listed] == ["a" * 12]
 
 
 @pytest.mark.parametrize("bad", ["not-an-id", "ABCDEF012345", "0123456789abcd"])

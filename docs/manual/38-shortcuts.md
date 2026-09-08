@@ -416,11 +416,13 @@ Packing is automatic — `R` is only there for when you want it now rather than 
 | Up / Down | Turn the character one direction, holding the frame |
 | PageUp / PageDown | Previous / next animation |
 | Home / End | First / last frame of the run, and pause |
+| C | Toggle the checkerboard |
+| P | Toggle the pivot mark |
 
 Turning holds the frame on purpose, so you can see the same moment of a stride from another side.
 Changing animation starts the new one from its first frame.
 
-There is nothing else. Troupe holds no document — the sheet it plays was published by a job and
+That is the whole keyboard. Troupe holds no document — the sheet it plays was published by a job and
 lives in that job's directory — so there is no save, no undo and no tab to close.
 
 ## Muse

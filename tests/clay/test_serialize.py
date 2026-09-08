@@ -347,6 +347,40 @@ def test_a_transform_that_is_not_numbers_is_refused() -> None:
         ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
 
 
+def test_a_wblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error() -> None:
+    """The 2026-09-08 audit's clay-05: ``scene["objects"]`` present but not a
+    list used to reach ``len(declared)`` and raise a bare ``TypeError``,
+    unlike every other malformed field in this reader (the uid, each vector,
+    each material's own fields) which this module deliberately catches and
+    turns into its own named refusal. ``clay_mode._load`` has no wrapping
+    try/except, so the uncaught TypeError reached the user as the generic
+    "Something went wrong" instead of this file's own sentence.
+    """
+
+    def mangle(scene: dict) -> None:
+        # ``None``, not a string: ``len("not a list")`` and iterating its
+        # characters both succeed, which would mask the bug behind the
+        # per-object uid refusal instead of exercising ``len(declared)``
+        # itself (line 596), the actual crash site the finding names.
+        scene["objects"] = None
+
+    with pytest.raises(ValueError, match="not a Warlock Clay document"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+
+
+def test_a_wblk_whose_materials_field_is_not_a_list_is_refused_with_a_value_error() -> None:
+    """Same clay-05 gap, the other field this reader forgot to guard: a
+    "materials" entry that is present but not a list used to fail the list
+    comprehension building the palette with a bare ``TypeError`` instead of a
+    named refusal."""
+
+    def mangle(scene: dict) -> None:
+        scene["materials"] = None
+
+    with pytest.raises(ValueError, match="not a Warlock Clay document"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+
+
 def test_a_material_with_a_null_factor_is_refused_by_name() -> None:
     """``float(None)`` is a ``TypeError`` from deep inside the reader with no
     mention of the file; what the user needs to hear is which half is broken."""

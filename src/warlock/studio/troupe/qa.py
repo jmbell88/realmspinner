@@ -27,6 +27,7 @@ inside the functions, as every module of this package does.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -320,6 +321,21 @@ def score_sheet(
     flagged = 0
     for index in sorted(scores):
         animation, direction, offset, metrics, flags = scores[index]
+        # Claimed *before* the metric loop below, and with ``math.inf`` rather
+        # than the plain 1.0 the M13 fix used: a blank cell's own
+        # ``here.foot``/``here.centroid`` default to ``(0, 0)`` against a real
+        # neighbour, so ``foot_jitter``/``centroid_jitter`` computed on that
+        # *same* cell can legitimately post a ratio past 1.0 and win the
+        # ``(severity, ratio)`` comparison below -- naming e.g. "foot_jitter
+        # 0.81" as ``worst`` on a cell whose only real problem is that it is
+        # empty. The 2026-09-08 audit (troupe-02) found this against this
+        # function's own comment: nothing a sheet can show, including that
+        # same cell's neighbour-relative metrics, is worse than a blank.
+        if "blank" in flags:
+            key = (LEVEL_BAD, math.inf)
+            if key > worst_key:
+                worst_key = key
+                worst = ("blank", 1.0, index)
         for name, value in metrics.items():
             warn, bad = THRESHOLDS[name]
             if value >= warn:
@@ -330,11 +346,6 @@ def score_sheet(
                 if key > worst_key:
                     worst_key = key
                     worst = (name, float(value), index)
-        if "blank" in flags:
-            key = (LEVEL_BAD, 1.0)
-            if key > worst_key:
-                worst_key = key
-                worst = ("blank", 1.0, index)
         ordered = tuple(flag for flag in FLAGS if flag in flags)
         if ordered:
             flagged += 1

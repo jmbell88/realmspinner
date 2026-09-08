@@ -111,6 +111,23 @@ def _frame(imgui_ctx, build):
     renderer.render(imgui.get_draw_data())
 
 
+class _FakeGpu:
+    """Stands in for ``GpuScene``: only the one call poser_controls makes.
+
+    Before the 2026-09-08 audit's poser-02, ``_PoserViewer`` had no ``.gpu``
+    at all, so ``test_a_selected_joint_can_be_rotated_by_number`` could not
+    see that ``_rotate_selected_to_euler`` (and ``_root``'s typed offset)
+    wrote the pose without ever calling ``refresh_palettes`` -- a double that
+    cannot see the defect is why that test passed on the unfixed code.
+    """
+
+    def __init__(self) -> None:
+        self.refreshed = 0
+
+    def refresh_palettes(self) -> None:
+        self.refreshed += 1
+
+
 class _PoserViewer:
     """The surface the panes touch, over a real editor on a meshless armature
     -- the shape the preview loads as, minus the file and the GL."""
@@ -134,6 +151,10 @@ class _PoserViewer:
         # than a stub, so the damping the press has to see through is the
         # damping the app actually runs.
         self.camera = Camera()
+        # poser-02: the bound-mesh skin palette, recomputed on every pose
+        # change (viewer/scene.py) -- not on every draw call, so nothing else
+        # refreshes it on a frame.
+        self.gpu = _FakeGpu()
 
 
 def test_the_poser_panes_build_without_rigging(app_ctx, imgui_ctx):
@@ -509,6 +530,30 @@ def test_a_selected_joint_can_be_rotated_by_number(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
 
 
+def test_typing_a_joint_rotation_or_root_offset_refreshes_the_bound_meshs_skin_palette(
+    app_ctx, imgui_ctx
+):
+    """poser-02 (the 2026-09-08 audit): every other mutating door in Poser --
+    Reset joint, Reset all, Mirror, the gizmo drag -- refreshes
+    ``GpuScene.refresh_palettes`` after it writes the pose; the typed Rotate
+    X/Y/Z and Offset X/Y/Z fields wrote the correct data but skipped it,
+    leaving a bound mesh's skin visibly frozen at the old pose."""
+    from warlock.studio.panes import poser_controls
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    viewer = app_ctx.poser_viewer
+    viewer.editor.selected = "hips"
+    viewer.selected_bone = "hips"
+
+    assert viewer.gpu.refreshed == 0
+    poser_controls._rotate_selected_to_euler(viewer, [90.0, 0.0, 0.0])
+    assert viewer.gpu.refreshed == 1, "a typed joint rotation must refresh the skin palette"
+
+    poser_controls._set_root_offset(viewer, [0.1, 0.0, 0.2])
+    assert viewer.gpu.refreshed == 2, "a typed root offset must refresh the skin palette too"
+
+
 def test_joints_changed_from_rest_are_marked(app_ctx, imgui_ctx):
     from warlock.studio.panes import poser_controls
     from warlock.studio.viewer import math3d as m3
@@ -576,3 +621,32 @@ def test_update_key_shows_pending_when_the_pose_drifted(app_ctx, imgui_ctx):
     assert poser_clips._key_pending(viewer, 2) is False
 
     _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
+
+
+def test_revert_clips_reason_names_still_saving_when_a_save_is_in_flight():
+    """poser-06 (the 2026-09-08 audit): "Revert to shipped clips" always said
+    "These are already the clips the build ships." when disabled, even while
+    the real reason was a save mid-flight -- unlike "Save clips" two lines
+    above it, which already branches on ``busy``. Asserted with no imgui
+    frame, the ``inker_mode._no_document_reason``/``clay_ops.reason_for``
+    pattern this repository already uses for a greyed control's reason."""
+    from types import SimpleNamespace as NS
+
+    from warlock.studio.panes import poser_clips
+
+    unsaved = NS(clips_unsaved=True, clips={})
+    edited = NS(clips_unsaved=False, clips={"edited": True})
+    clean = NS(clips_unsaved=False, clips={})
+
+    # Busy wins: there *is* an unsaved change, and it is mid-write, not sitting
+    # there unwritten the way the fixed string implied.
+    assert poser_clips._revert_clips_reason(unsaved, busy=True) == "Still saving."
+    assert poser_clips._revert_clips_reason(edited, busy=True) == "Still saving."
+    # Nothing to revert, and no save running: the original reason still holds.
+    assert (
+        poser_clips._revert_clips_reason(clean, busy=False)
+        == "These are already the clips the build ships."
+    )
+    # Something to revert and nothing running: the button is live, no reason
+    # needed.
+    assert poser_clips._revert_clips_reason(unsaved, busy=False) == ""

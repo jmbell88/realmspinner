@@ -265,6 +265,43 @@ def test_a_blank_frame_outranks_an_earlier_mild_warning():
     )
 
 
+def test_a_blank_cell_with_neighbour_relative_metrics_still_names_worst_as_blank():
+    """The 2026-09-08 audit (troupe-02): the blank branch's tie-break ratio was
+    hard-coded to 1.0, while ``foot_jitter``/``centroid_jitter`` computed on
+    that *same* blank cell against its real neighbour -- whose ``here.foot``
+    and ``here.centroid`` default to ``(0, 0)`` for an empty crop -- can post
+    a ratio far past 1.0 and win the ``(severity, ratio)`` comparison. The QA
+    panel (``studio/panes/troupe_preview.py``) prints ``score.worst`` verbatim,
+    so the artist was told the worst problem was e.g. "foot_jitter 0.81"
+    instead of the actual defect: a missing frame. A blank is ranked at
+    ``LEVEL_BAD`` by construction, and nothing a sheet can show -- including
+    that same cell's own neighbour-relative metrics -- is worse.
+
+    Same input as ``test_a_blank_frame_is_flagged_and_so_is_the_frame_after_it``
+    (a four-frame walk cycle, front only, frame 2 blank): that test never
+    asserted ``score.worst[0]``, which is exactly the gap this closes.
+    """
+    layout = _layout([("walk", 4, ("front",), True)])
+
+    def paint(index, crop):
+        if index != 2:
+            _figure(crop)
+
+    score = _score(layout, paint)
+    by = score.lookup()
+    blank_cell = by[("walk", "front", 2)]
+    assert "blank" in blank_cell.flags
+    # Sanity: this cell really does carry a same-cell metric that would beat
+    # a ratio of 1.0, so the assertion below is not vacuous.
+    assert blank_cell.metrics["foot_jitter"] / qa.THRESHOLDS["foot_jitter"][1] > 1.0
+    assert score.worst is not None
+    assert score.worst[0] == "blank", (
+        f"worst named {score.worst[0]!r} instead of 'blank' for a cell whose "
+        "only real problem is that it is empty"
+    )
+    assert score.worst[2] == 2
+
+
 def test_every_metric_has_a_threshold_and_a_flag():
     assert set(qa.THRESHOLDS) == set(qa.METRICS)
     assert set(qa._FLAG_OF) == set(qa.METRICS)

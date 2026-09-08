@@ -254,6 +254,41 @@ def _entry_corners(
 # there, so only the *direction* needs the fallback.
 _BISECTOR_EPS = 1e-9
 
+#: What a bevel may run on, in mesh corners. Unlike ops_subdiv.subdivide,
+#: ops_dissolve's merge and ops_boolean's kernel call, bevel_edges had no
+#: ceiling at all -- the 2026-09-08 audit's clay-03 found that its rewrite
+#: walks the *whole* mesh with two unconditional Python loops ("for face in
+#: range(faces): ..." and "for corner in range(len(loops)): ...") no matter
+#: how small the selection is, so a bevel's cost tracks the mesh clay_ops.
+#: run_mesh_op calls it on -- the frame thread -- rather than the edge picked.
+#:
+#: The audit measured one edge beveled at 14ms on a 10k-face mesh and 254ms on
+#: a 160k-face mesh: linear, about 1.6us per corner (loops == 4 * faces on a
+#: quad mesh). Extrapolating that rate, a mesh past ~625,000 faces would stall
+#: past a second on a single click; 2,000,000 corners (500,000 quad faces)
+#: keeps a margin under that line, the same "well under a second" bar
+#: ops_dissolve.MAX_DISSOLVED_RING uses.
+MAX_BEVELED_CORNERS = 2_000_000
+
+
+def _refuse_size(mesh: Mesh) -> None:
+    """Refuse before the whole-mesh rewrite loops run, from the mesh's own size.
+
+    Bevel's cost is in the mesh being edited, not in the selection -- see
+    MAX_BEVELED_CORNERS -- so this reads ``len(mesh.loops)`` rather than
+    anything selection-shaped, and is asked before any of the per-edge setup
+    below, following the same "refuse before the allocation" pattern as
+    ops_subdiv._refuse_growth, ops_dissolve._refuse_ring and
+    ops_boolean._refuse_complexity.
+    """
+    grown = len(mesh.loops)
+    if grown > MAX_BEVELED_CORNERS:
+        raise OpError(
+            f"Beveling on this object would walk {grown:,} corners, past the "
+            f"{MAX_BEVELED_CORNERS:,} Clay works with. Bevel a simpler mesh, "
+            "or reduce its face count first."
+        )
+
 
 def bevel_edges(
     mesh: Mesh, sel: ElementSel, *, width: float = 0.05
@@ -311,6 +346,7 @@ def bevel_edges(
     """
     if len(sel.edges) == 0:
         raise OpError("Select an edge to bevel.")
+    _refuse_size(mesh)
     a = adjacency(mesh)
     ids = a.edge_ids(sel.edges)
     if (ids < 0).any():

@@ -1280,6 +1280,28 @@ def test_the_pane_never_scores_in_the_frame_loop() -> None:
     assert "troupe_mode.scores(" in source
 
 
+def test_atlas_texture_and_scores_refuse_a_sheet_path_that_is_not_a_file(svc):
+    """is_file(), not exists(): the 2026-09-08 audit's troupe-04 found
+    ``scores`` and ``atlas_texture`` gating a task submission on
+    ``path.exists()``, the same class of bug ``sheet.pack()`` was fixed for on
+    2026-09-07 (see the comment there). A directory sitting where the sheet
+    PNG should be still satisfies ``exists()``, so the task would be
+    submitted and fail inside ``Image.open`` with no mention of which sheet,
+    instead of being refused at the door the way ``pack()`` already is."""
+    ctx = _SubmitCtx(svc)
+    job_id, made = _v2_character(svc)
+    ctx.viewer = SimpleNamespace()  # anything not None: atlas_texture only gates on identity
+    png_path = rigging.sheet_png_path(svc.job_dir(job_id), made[0])
+    png_path.unlink()
+    png_path.mkdir()
+    troupe_mode.select(ctx, job_id, made[0])
+
+    assert troupe_mode.scores(ctx) is None
+    assert troupe_mode.scores_failed(ctx)
+    assert troupe_mode.atlas_texture(ctx) is None
+    assert ctx.submitted == [], "a directory at the sheet path must not reach a task submit"
+
+
 def test_cell_geometry_reads_a_non_square_plan_in_the_right_order():
     assert troupe_mode.cell_geometry({"columns": 8, "frame_size": 32}) == (8, 32, 32)
     assert troupe_mode.cell_geometry(

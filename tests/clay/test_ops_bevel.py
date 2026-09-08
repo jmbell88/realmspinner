@@ -239,6 +239,26 @@ def test_a_bevels_slide_uvs_are_interpolated_and_its_miters_are_copied() -> None
     assert np.isfinite(out.uv).all()
 
 
+def test_bevel_refuses_before_it_walks_the_whole_mesh_past_a_size_ceiling() -> None:
+    """The 2026-09-08 audit's clay-03: bevel_edges had no growth/complexity
+    ceiling at all, unlike ops_subdiv.subdivide, ops_dissolve's merge and
+    ops_boolean's kernel call -- its rewrite walks the *whole* mesh with two
+    unconditional Python loops ("for face in range(faces):" and "for corner in
+    range(len(loops)):") regardless of how small the selection is, so a
+    bevel's cost tracks mesh size, not selection size, with nothing to refuse
+    it before clay_ops.run_mesh_op calls it on the frame thread. Build a mesh
+    just past ob.MAX_BEVELED_CORNERS and check bevelling a single interior
+    edge is refused up front, naming the corner count, rather than walking it.
+    """
+    n = 708  # 4 * n * n = 2,005,056 corners, just past MAX_BEVELED_CORNERS
+    m = _grid(n, n)
+    assert len(m.loops) > ob.MAX_BEVELED_CORNERS
+    a = adj.adjacency(m)
+    edge = a.edge_verts[a.edge_uses == 2][0]
+    with pytest.raises(el.OpError, match="past the"):
+        ob.bevel_edges(m, el.ElementSel(edges=[edge]), width=0.1)
+
+
 def test_bevel_refuses_a_boundary_edge_and_an_empty_selection() -> None:
     m = _grid(2, 1)
     boundary = adj.check_manifold(m).boundary_edges[0]

@@ -218,7 +218,8 @@ def _object_for(
 ) -> Obj | None:
     if len(prim.indices) < 3 or len(prim.positions) == 0:
         return None
-    mesh = _mesh_for(prim, _material_index(prim.material, materials, palette))
+    slot = _material_index(prim.material, materials, palette)
+    mesh = _mesh_for(prim, slot)
     translation, rotation, scale = m3.decompose(node.world)
     return Obj(
         uid=new_uid(),
@@ -231,6 +232,13 @@ def _object_for(
         # the properties panel shows counts rather than a size field that would
         # discard the file the moment it was touched.
         generator=None,
+        # The 2026-09-08 audit's clay-02: this used to fall through to the
+        # dataclass default of 0 for every object, because ``slot`` was
+        # computed for the mesh but never handed to ``Obj`` -- so the
+        # properties panel's "default material" (and what an Extrude/Inset
+        # paints new faces with) was wrong for any object past the first
+        # primitive in an ordinary multi-material import.
+        material=slot,
     )
 
 

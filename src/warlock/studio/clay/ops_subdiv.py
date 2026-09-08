@@ -177,15 +177,29 @@ def subdivide_topology(mesh: Mesh, faces: np.ndarray) -> Subdivision:
 MAX_SUBDIVIDED_FACES = 1_000_000
 
 
-def _refuse_growth(mesh: Mesh, verb: str) -> None:
+def _refuse_growth(mesh: Mesh, verb: str, faces: np.ndarray | None = None) -> None:
     """Refuse before a level runs, from the size the level will produce.
 
-    ``len(mesh.loops)`` is the count exactly: a subdivision turns every face
-    *corner* into one quad, so the corner count of the mesh going in is the
-    face count of the mesh coming out. Asked before, because the whole cost of
-    this operation is the allocation it is about to make.
+    ``len(mesh.loops)`` is exact when *faces* is ``None``: Catmull-Clark always
+    subdivides every face (see its own docstring), so the mesh's whole corner
+    count going in is the face count coming out. Linear ``subdivide`` can be
+    asked to grow only a *selection* -- an unselected face keeps its own face
+    count no matter how many corners splicing a neighbour's midpoint adds to
+    its loop, so its contribution to the output is one face each, not its
+    corner count. Reusing the whole mesh's corner count for a partial
+    selection is what the 2026-09-08 audit's clay-01 found: linear-subdividing
+    one selected face on an otherwise huge mesh was refused every time, the
+    error naming an output size that had nothing to do with what was actually
+    selected -- and its own suggested remedy, "subdivide a part of it," was
+    exactly what had just been tried.
     """
-    grown = len(mesh.loops)
+    if faces is None:
+        grown = len(mesh.loops)
+    else:
+        sel = np.unique(np.asarray(faces, dtype="i8"))
+        starts = mesh.starts.astype("i8")
+        counts = starts[sel + 1] - starts[sel]
+        grown = (face_count(mesh) - len(sel)) + int(counts.sum())
     if grown > MAX_SUBDIVIDED_FACES:
         raise OpError(
             f"{verb} this object would make {grown:,} faces, past the "
@@ -206,7 +220,7 @@ def subdivide(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     faces = sel.faces if len(sel.faces) else np.arange(face_count(mesh), dtype="i4")
     if face_count(mesh) == 0:
         raise OpError("This object has no faces to subdivide.")
-    _refuse_growth(mesh, "Subdividing")
+    _refuse_growth(mesh, "Subdividing", faces)
     result = subdivide_topology(mesh, np.asarray(faces, dtype="i8"))
     return result.mesh, result.children
 

@@ -115,6 +115,38 @@ def test_restrict_drops_what_a_shrunken_mesh_no_longer_has() -> None:
     assert got.faces.tolist() == [0]
 
 
+def test_restrict_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is_not() -> None:
+    """The 2026-09-08 audit's clay-09: ``restrict``'s docstring described a
+    safety net -- guarding the overlay build when an op shrinks a mesh under
+    a selection that outlived it -- that no code in ``src/`` actually called;
+    only this file's own test above does. Either a live caller exists, or the
+    docstring has to say plainly that none does, so a future op that shrinks
+    a mesh in place does not assume protection is already wired in.
+    """
+    import inspect
+    import re
+    from pathlib import Path
+
+    import warlock.studio as studio_pkg
+
+    root = Path(studio_pkg.__file__).parent
+    callers = [
+        path
+        for path in root.rglob("*.py")
+        if path.name != "elements.py"
+        and re.search(r"\brestrict\s*\(", path.read_text(encoding="utf-8"))
+    ]
+    if callers:
+        return  # a live caller exists -- nothing more to prove
+
+    doc = inspect.getdoc(el.restrict) or ""
+    assert "not currently called" in doc.lower(), (
+        "restrict() has no live caller under studio/, but its docstring no "
+        "longer admits that -- either wire it into the caller that should "
+        "use it, or restore the honest docstring"
+    )
+
+
 def test_op_error_is_a_value_error_so_a_forgotten_catch_still_fails_loudly() -> None:
     assert issubclass(el.OpError, ValueError)
 

@@ -25,6 +25,58 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **A re-rig that landed while you were still posing threw the pose away.**
+  Rigging is queued work that can take minutes, and the obvious thing to do
+  while you wait is carry on posing the rig you already have. Submitting the
+  re-rig asked before discarding unsaved edits; the moment it *landed* did not,
+  and rebound the viewport on the spot -- so an authored pose could vanish with
+  no confirm, no toast and nothing to undo. Landing now asks the same question
+  submitting did, and still rebinds without a word when there is nothing to
+  lose.
+- **Typing an exact rotation moved the numbers and not the model.** The Rotate
+  and Offset fields wrote the right values -- a pose saved from them was always
+  correct -- but they skipped the step that recomputes the skinned mesh's joint
+  palette, which only the gizmo and the reset buttons were doing. On a bound
+  asset the mesh sat frozen at the old pose while the bone overlay moved, which
+  read as the fields being broken. Both now refresh what you are looking at.
+- **A model with more than one material came in with every object set to the
+  first one.** Clay's GLB import painted each object's faces with the right
+  palette slots but left the object's *default* material -- the one the
+  properties panel shows, and the one a new face from an extrude or an inset
+  gets -- at slot zero for everything. Ordinary multi-material assets were
+  enough to hit it.
+- **Subdividing part of a large mesh was refused for the size of the whole one.**
+  The ceiling was measured from every corner in the object rather than from the
+  faces actually selected, so a big imported mesh could not be subdivided at
+  all, and the refusal suggested doing the very thing it had just refused. It
+  now counts what the operation will really produce.
+- **Beveling could lock the window on a very large mesh; it says no instead.**
+  Bevel rewrites the whole mesh however little is selected -- a quarter of a
+  second at 160,000 faces, and worse from there -- and it was the one Clay
+  operation with no size ceiling at all. It now refuses before it starts, the
+  way subdivide, dissolve and the booleans already did.
+- **Troupe's shortcut sheet was missing two keys it has always had.** `C` for
+  the checkerboard and `P` for the pivot mark work, and chapter 33 describes
+  them, but neither the Ctrl+/ sheet nor the shortcuts chapter listed them --
+  and the chapter finished by saying there was nothing else. Both list them now,
+  and a test reads the keys off the mode itself so the next one cannot go
+  missing quietly.
+- **A blank frame in a sheet's QA report is named as a blank frame.** The panel
+  reports the single worst thing it found, and on an empty cell the jitter
+  measured against its neighbour could outrank the emptiness itself -- so the
+  worst problem in a sheet with a missing frame was reported as a foot wobble.
+- **Deleting a sheet a re-render is still reading from is refused.** The guard
+  knew about restyles and not about character-sheet re-renders, which reopen the
+  base sheet after the render finishes; deleting it mid-flight killed the job
+  deep in the pipeline instead of at the door.
+- Smaller things from the same pass. A malformed GLB or `.wblk` now explains
+  itself instead of surfacing a bare Python error; Shade Smooth and Shade Flat
+  grey out in face mode with nothing selected rather than looking live and doing
+  nothing; Clay's Export button and Poser's Revert-to-shipped-clips button say
+  why they are unavailable; an interrupted pose save or delete can no longer
+  leave a stale bake or a stranded file behind; the mesh-check cache lets go of
+  objects you delete or merge; and rigging a T-posed character no longer loads a
+  pose detector whose answer it was always going to discard.
 - **You can now tell Warlock which way a model faces.** Every directional sprite
   sheet this program has ever rendered assumed the subject's front was whatever
   direction the mesh happened to be authored facing -- true of the shipped

@@ -1125,6 +1125,34 @@ def test_an_out_of_range_texture_index_is_refused_with_a_value_error_not_an_inde
         gltf.load(data)
 
 
+def test_a_texture_with_no_source_is_refused_with_a_value_error_not_a_key_error():
+    """The 2026-09-08 audit's clay-04: a ``textures[]`` entry with no
+    "source" key is legal per the glTF 2.0 schema (a texture may carry only a
+    sampler), and indexing straight into it used to raise a bare
+    ``KeyError`` -- the one shape of malformed reference this file's sibling
+    boundaries (node.mesh, node.skin, skin.joints, texture/image index
+    bounds, prim["material"]) had already been hardened against by the
+    2026-09-05/09-06/09-07 audits. ``glbimport.glb_to_claydoc`` catches
+    ``Exception`` broadly, so the unhandled shape reached the user as
+    "...'source'" instead of a sentence describing what is wrong."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        # A texture that names only a sampler, no source image.
+        textures=[{"sampler": 0}],
+        materials=[
+            {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}
+        ],
+        meshes=[
+            {"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}
+        ],
+    )
+    with pytest.raises(ValueError, match="texture 0 has no source"):
+        gltf.load(data)
+
+
 def test_a_negative_texture_index_is_refused_rather_than_wrapping_to_the_last_texture():
     """Same wraparound risk as clay-06, one boundary over: ``ref["index"]: -1``
     would satisfy an upper-bound-only check and silently resolve to the last

@@ -759,7 +759,16 @@ def pump_rerig(ctx: Any) -> None:
         state.rerig_job_id = ""
         state.rerig_source_job = ""
         if state.job_id == source:
-            _land_rerig(ctx)
+            # The 2026-09-08 audit's poser-01: rerig()'s own guard protects only
+            # the moment the re-rig is *submitted*, minutes before this fires --
+            # an ordinary thing to do while a Blender job serialises on the
+            # queue is to keep posing the old rig in the meantime. Unguarded,
+            # _land_rerig's exit_pose_mode()/clear() discarded that edit with no
+            # confirm and no toast the instant the job landed. Routed through
+            # the same guard() every other destructive door here already uses;
+            # when there is nothing unsaved it proceeds immediately, same as
+            # before.
+            guard(ctx, "land this re-rig", lambda: _land_rerig(ctx))
     elif status in ("error", "cancelled"):
         # The generic job-transition toast (``main.py``'s ``_refresh``)
         # already says why; nothing here is worth watching any further.

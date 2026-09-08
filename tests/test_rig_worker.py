@@ -599,6 +599,45 @@ async def test_joints_the_user_corrected_are_never_second_guessed(worker, monkey
     await worker.shutdown()
 
 
+async def test_a_rig_that_measures_its_own_joints_never_asks_pose2d_for_a_second_guess(
+    worker, monkeypatch
+):
+    """The 2026-09-08 audit's poser-03: ``joints="measured"`` is what Troupe
+    sets for a T-posed character precisely because jointfit -- measuring the
+    mesh's own vertices -- is expected to beat the bbox template, and
+    ``op_rig`` resolves that branch *before* ``_rig_bones`` ever looks at
+    ``template_bones``. Asking pose2d for landmarks in that case pays for a
+    full ViTPose model load and a CPU forward pass for an answer that is
+    always discarded on the jointfit success path -- see blender_worker.py's
+    ``_rig_bones`` and ``op_rig``'s "measured" branch (not owned here)."""
+    calls = _fake_worker_run(monkeypatch)
+    detections = _fake_detection(monkeypatch)
+    source = _rigged_reference(worker)
+    rig_id = worker.store.create(
+        "rig", None, {"source_job": source, "template": "humanoid", "joints": "measured"}
+    )
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+
+    assert detections == [], "measured joints are resolved off the mesh, not the reference image"
+    assert "template_bones" not in calls[0]["spec"]
+    await worker.shutdown()
+
+
+def test_a_rig_that_measures_its_own_joints_is_not_offered_to_the_detector(worker, monkeypatch):
+    """The gate itself, direct: ``_wants_landmarks`` must read
+    ``params["joints"]`` rather than only ``params["bones"]``."""
+    _fake_detection(monkeypatch)
+    source_dir = worker.config.job_dir(rigging.new_id())
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "input.png").write_bytes(b"a reference, of some description")
+
+    assert worker._wants_landmarks(source_dir, "humanoid", {"joints": "measured"}) is False
+    # An ordinary rig of the same mesh is unaffected.
+    assert worker._wants_landmarks(source_dir, "humanoid", {}) is True
+
+
 async def test_the_kill_switch_stops_the_detector_being_asked(worker, monkeypatch):
     calls = _fake_worker_run(monkeypatch)
     detections = _fake_detection(monkeypatch)

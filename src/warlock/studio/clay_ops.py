@@ -413,6 +413,28 @@ def _has_elements_reason(doc: Any) -> str:
     return "" if has_elements(doc) else "Select something in the viewport first."
 
 
+def _shade_enabled(doc: Any) -> bool:
+    """Shade Smooth/Flat's own gate, because the op is registered for two modes
+    that mean different things by "the selection".
+
+    The 2026-09-08 audit's clay-06: the row was gated on ``has_objects`` alone,
+    which is an *object*-selection predicate, even though ``_shade``'s body
+    reads ``doc.element_sel`` in face mode -- so an object selected with no
+    faces picked drew a live, enabled button that ran an empty loop: no
+    ``set_shading`` call, no history step, no toast. Grading the same thing the
+    op body reads, mode for mode, is what keeps the two from disagreeing.
+    """
+    if doc.element_mode == "object":
+        return has_objects(doc)
+    return has_elements(doc)
+
+
+def _shade_reason(doc: Any) -> str:
+    if doc.element_mode == "object":
+        return _has_objects_reason(doc)
+    return _has_elements_reason(doc)
+
+
 def _has_two_visible_reason(doc: Any) -> str:
     # The manual's own wording for this gate (docs/manual/30-clay.md, "Merging
     # objects"): "greys out unless two visible objects are selected".
@@ -577,10 +599,13 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     """
     from .clay import ops as clay_ops_geom
 
-    del ctx
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = clay_ops_geom.join([doc.by_uid(uid) for uid in uids], eps=float(weld))
     doc.join_objects(uids[0], mesh, uids[1:])
+    # clay-08 (2026-09-08 audit): the absorbed objects leave ``doc.objects``
+    # here, and their manifold-check cache entries would otherwise outlive
+    # them -- see ``_forget_manifold``.
+    _forget_manifold(ctx, uids[1:])
     doc.select([uids[0]])
 
 
@@ -601,10 +626,13 @@ def _union(ctx: Any, doc: Any, **_: Any) -> None:
     """
     from .clay import ops_boolean
 
-    del ctx
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = ops_boolean.union([doc.by_uid(uid) for uid in uids])
     doc.join_objects(uids[0], mesh, uids[1:])
+    # clay-08 (2026-09-08 audit): see ``_join``'s identical comment -- the
+    # absorbed objects' manifold-check cache entries would otherwise outlive
+    # them.
+    _forget_manifold(ctx, uids[1:])
     doc.select([uids[0]])
 
 
@@ -617,11 +645,39 @@ def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
     run_object_op(ctx, doc, one)
 
 
+def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
+    """Drop cached "mesh check" entries for objects that just left the document.
+
+    The 2026-09-08 audit's clay-08: ``ClayState.manifold`` -- the per-object
+    "last mesh check" cache the properties panel fills in (``clay_props``'s
+    ``_diagnostics``) -- was only ever pruned when a tab *closed*
+    (``clay_mode.close_tab``'s ``release``). Deleting, merging or unioning an
+    object away mid-session left its entry keyed on the now-orphaned uid,
+    pinning the whole ``Mesh`` (positions/loops/starts arrays) it measured
+    alive, unreachable, for the rest of the tab's life. This is that same pop,
+    at every other site an object leaves ``doc.objects``.
+
+    Reached through ``ctx.state.clay`` with ``getattr`` at each hop, the way
+    ``_frame`` above reaches ``ctx.clay_view``: this keeps the module callable
+    with the bare toast-only ``ctx`` double the rest of this file's tests use,
+    which has neither attribute.
+    """
+    state = getattr(ctx, "state", None)
+    clay_state = getattr(state, "clay", None) if state is not None else None
+    manifold = getattr(clay_state, "manifold", None)
+    if manifold is None:
+        return
+    for uid in uids:
+        manifold.pop(uid, None)
+
+
 def _delete(ctx: Any, doc: Any, **_: Any) -> None:
     from .clay import selection
 
+    before = {obj.uid for obj in doc.objects}
     for message in selection.delete_selected(doc):
         toast(ctx, message)
+    _forget_manifold(ctx, before - {obj.uid for obj in doc.objects})
 
 
 def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
@@ -968,8 +1024,11 @@ def _register_defaults() -> None:
                 label=label,
                 modes=("object", "face"),
                 run=_shade(smooth),
-                enabled=has_objects,
-                reason=_has_objects_reason,
+                # clay-06 (2026-09-08 audit): ``has_objects`` graded object
+                # mode's own question in face mode too, where the op body
+                # reads the *element* selection -- see ``_shade_enabled``.
+                enabled=_shade_enabled,
+                reason=_shade_reason,
                 separator_before=smooth,
             )
         )

@@ -30,6 +30,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from warlock.service.errors import Invalid
@@ -189,6 +190,50 @@ def test_an_imported_mesh_becomes_an_ordinary_asset(svc, tmp_path):
     assert job["status"] == "done"
     assert job["prompt"] == "knight_base"
     assert (svc.job_dir(out["id"]) / "model.glb").is_file()
+
+
+# --- multi-material import ----------------------------------------------------
+
+
+def test_importing_a_two_material_glb_gives_each_object_its_own_default_material() -> None:
+    """The 2026-09-08 audit's clay-02: ``_object_for`` looked up each
+    primitive's palette slot (``_material_index``) to build the object's
+    *mesh*, but never passed that same index into ``Obj(...)`` -- so every
+    object past the first kept the dataclass default of 0 as its
+    properties-panel "default material" (and what an Extrude/Inset paints new
+    geometry with), wrong on any ordinary multi-material import with no
+    malformed file required.
+    """
+    from warlock.studio.clay import document as bd
+    from warlock.studio.clay import glbimport
+    from warlock.studio.clay import mesh as bm
+    from warlock.studio.clay import primitives as bp
+    from warlock.studio.viewer import glbwrite
+
+    doc = bd.ClayDoc(materials=[bd.default_material("a"), bd.default_material("b")])
+    two_tone = bp.box()
+    material = np.array([0, 0, 0, 1, 1, 1], dtype="i4")
+    doc.objects.append(
+        bd.Obj(
+            uid=bd.new_uid(),
+            name="Box",
+            mesh=bm.Mesh(
+                positions=two_tone.positions,
+                loops=two_tone.loops,
+                starts=two_tone.starts,
+                material=material,
+                smooth=two_tone.smooth,
+            ),
+        )
+    )
+
+    out = glbimport.glb_to_claydoc(glbwrite.write_glb(bd.to_model(doc)))
+
+    assert len(out.objects) == 2, "one primitive per material becomes one object each"
+    assert [o.material for o in out.objects] == [0, 1], (
+        "every object's own default material should match the palette slot "
+        "its mesh faces actually carry, not fall back to 0"
+    )
 
 
 # --- the drop router ---------------------------------------------------------

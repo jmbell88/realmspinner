@@ -253,15 +253,45 @@ def _restyle_in_flight(svc: WarlockService, sheet_id: str) -> bool:
     return False
 
 
+def _rerender_in_flight(svc: WarlockService, sheet_id: str) -> bool:
+    """Is a ``charsheet`` re-render row copying cells from *sheet_id* still
+    queued or running -- ``troupe.rerender_charsheet``'s ``params["base_sheet"]``
+    names the sheet it composites onto.
+
+    The 2026-09-08 audit (troupe-03): ``_restyle_in_flight`` above only ever
+    recognised a ``pixel_sheet`` job as a reason to refuse a delete, so a
+    re-render a user deliberately queued to touch up a handful of cells could
+    have its base sheet deleted while still building on it. ``_q_troupe.py``'s
+    ``_charsheet`` checks the base exists once, at job start, before the
+    Blender render; its ``_quantise`` step re-opens the same PNG via
+    ``sheetlib.compose_cells(base_png, ...)`` minutes later, after the render
+    finishes, and hits a file that is gone -- an unhandled
+    ``FileNotFoundError`` instead of the clear, immediate refusal the sibling
+    ``pixel_sheet`` case already gets.
+    """
+    for j in svc.store.active_jobs():
+        if j["kind"] != "charsheet":
+            continue
+        if (j.get("params") or {}).get("base_sheet") == sheet_id:
+            return True
+    return False
+
+
 def delete_sheet(svc: WarlockService, job_id: str, sheet_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
-    # Same per-asset hold ``create_sheet`` takes, so a restyle cannot be
-    # queued in the gap between the check above and the unlink below.
+    # Same per-asset hold ``create_sheet`` takes, so a restyle or re-render
+    # cannot be queued in the gap between the checks below and the unlink.
     with svc.convert_lock(job_id, "sheets"):
         if _restyle_in_flight(svc, sheet_id):
             raise Conflict(
                 "this sheet's pixel restyle is still running; wait for it to"
+                " finish before deleting the sheet",
+                field="sheet_id",
+            )
+        if _rerender_in_flight(svc, sheet_id):
+            raise Conflict(
+                "this sheet's re-render is still running; wait for it to"
                 " finish before deleting the sheet",
                 field="sheet_id",
             )

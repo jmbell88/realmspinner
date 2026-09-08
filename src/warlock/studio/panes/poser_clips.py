@@ -335,6 +335,25 @@ def _scrubber(ctx: Any, state: Any) -> None:
             poser_mode.apply_key(ctx)
 
 
+def _revert_clips_reason(state: Any, busy: bool) -> str:
+    """Why "Revert to shipped clips" is disabled right now, or "" if it is not.
+
+    The 2026-09-08 audit's poser-06: this button's disabled reason was the
+    fixed string "These are already the clips the build ships." even when it
+    was actually disabled because a save was in flight (``busy`` true while
+    ``clips_unsaved``/``edited`` is also true) -- unlike "Save clips" two
+    lines above it, which already branches its own reason on ``busy``. A
+    greyed control naming the wrong reason it is unavailable is the class of
+    bug this codebase's other audits already treat as a defect (see
+    ``inker_mode._no_document_reason``, ``clay_ops.reason_for``), which is
+    also why this is its own function rather than inline in the draw call:
+    a greyed control's reason has to be testable without an imgui frame.
+    """
+    if (state.clips_unsaved or bool(state.clips.get("edited"))) and not busy:
+        return ""
+    return "Still saving." if busy else "These are already the clips the build ships."
+
+
 def _save(ctx: Any, state: Any) -> None:
     imgui.dummy((0, sp(tokens.SP_2)))
     busy = ctx.busy(poser_mode.CLIPS_SAVE_KEY)
@@ -355,7 +374,7 @@ def _save(ctx: Any, state: Any) -> None:
         "Revert to shipped clips",
         (state.clips_unsaved or bool(state.clips.get("edited"))) and not busy,
         (-1, 0),
-        reason="These are already the clips the build ships.",
+        reason=_revert_clips_reason(state, busy),
         tooltip="Throw away every change to this skeleton's clips. Asks first.",
     ):
         poser_mode.revert_clips(ctx)

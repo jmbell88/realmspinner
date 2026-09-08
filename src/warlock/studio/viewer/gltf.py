@@ -796,6 +796,15 @@ class _Reader:
                 f"declares {len(textures)} texture(s)"
             )
         tex = textures[index]
+        # The 2026-09-08 audit's clay-04: a textures[] entry with no "source"
+        # key is legal per the glTF 2.0 schema (a texture may carry only a
+        # sampler), and indexing straight into it used to raise a bare
+        # KeyError -- the one shape of malformed reference this file's other
+        # boundaries (node.mesh, node.skin, skin.joints, this same function's
+        # own texture/image bounds checks, prim["material"]) had already been
+        # hardened against. Refused here in the same message shape.
+        if "source" not in tex:
+            raise ValueError(f"texture {index} has no source image")
         source = tex["source"]
         images = self.gltf.get("images", [])
         if not 0 <= source < len(images):

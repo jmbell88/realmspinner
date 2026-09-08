@@ -73,6 +73,41 @@ def test_saving_over_an_id_replaces_it_and_drops_the_baked_glb(tmp_path):
     assert not glb.exists()
 
 
+def test_a_crash_between_the_pose_write_and_the_glb_unlink_never_leaves_a_stale_bake_served(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-08 audit's poser-04: save_pose used to write the new pose
+    JSON (an atomic rename) *before* unlinking the stale cached bake, so a
+    crash between those two non-atomic statements left the new pose record
+    on disk paired with the *old* baked GLB -- and posed_model's
+    ``if not path.exists(): bake`` then serves that stale GLB as fresh
+    forever. Reproduced by monkeypatching the JSON write (the second of the
+    two statements once they are correctly ordered) to explode -- modelling
+    a crash that lands after the GLB has already gone but before the new
+    record replaces the old one."""
+    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    glb = rigging.pose_glb_path(tmp_path, record["id"])
+    glb.write_bytes(b"old-bake")
+    path = rigging.pose_path(tmp_path, record["id"])
+    before = path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        rigging, "write_json_staged", lambda *a, **k: (_ for _ in ()).throw(OSError("crash"))
+    )
+    with pytest.raises(OSError):
+        rigging.save_pose(
+            tmp_path, {"name": "crouch", "bones": {"hips": IDENTITY}}, record["id"]
+        )
+
+    # The cached bake must already be gone -- dropped before the write that
+    # "crashed" -- so nothing is left that could be mistaken for a fresh
+    # bake of the (unwritten) new pose.
+    assert not glb.exists()
+    # And the pose record on disk is still the pre-crash one: the rename
+    # that would have replaced it never landed.
+    assert path.read_text(encoding="utf-8") == before
+
+
 def test_a_corrupt_pose_file_costs_only_itself(tmp_path):
     good = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
     (rigging.pose_dir(tmp_path) / "0123456789ab.json").write_text("{not json")
@@ -97,6 +132,37 @@ def test_delete_pose_removes_both_files(tmp_path):
     assert rigging.list_poses(tmp_path) == []
     assert not rigging.pose_glb_path(tmp_path, record["id"]).exists()
     assert rigging.delete_pose(tmp_path, record["id"]) is False
+
+
+def test_a_crash_between_deleting_the_pose_json_and_its_glb_leaves_no_permanent_orphan(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-08 audit's poser-05: delete_pose used to unlink the pose's
+    .json before unlinking its cached .glb, so a crash between the two left
+    an orphaned <pose_id>.glb in poses/ that nothing lists, sweeps, or ever
+    deletes. Reproduced by monkeypatching the JSON unlink (the second of the
+    two once correctly ordered) to explode -- modelling a crash that lands
+    after the GLB is already gone but before the record it depends on is
+    removed."""
+    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    glb = rigging.pose_glb_path(tmp_path, record["id"])
+    glb.write_bytes(b"baked")
+    path = rigging.pose_path(tmp_path, record["id"])
+
+    real_unlink = Path.unlink
+
+    def tracked(self, *a, **k):
+        if self == path:
+            raise OSError("crash")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", tracked)
+    with pytest.raises(OSError):
+        rigging.delete_pose(tmp_path, record["id"])
+
+    # The derived artifact must already be gone -- unlinked before the crash
+    # -- so nothing is left as a permanent, unreachable orphan.
+    assert not glb.exists()
 
 
 # --- the service surface ----------------------------------------------------

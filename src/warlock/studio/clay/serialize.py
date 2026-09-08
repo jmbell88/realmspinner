@@ -593,6 +593,17 @@ def read_wblk(data: bytes) -> ClayDoc:
         from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
 
         declared = scene.get("objects", [])
+        # The 2026-09-08 audit's clay-05: a hand-edited or partially corrupted
+        # ``.wblk`` whose "objects" field is present but not a list used to
+        # reach ``len(declared)`` below and raise a bare ``TypeError`` --
+        # unlike every other malformed field in this reader (the uid, each
+        # vector, each material's own fields), which this module deliberately
+        # catches and turns into the same named refusal. ``clay_mode._load``
+        # has no wrapping try/except, so the uncaught TypeError reached the
+        # user as the generic "Something went wrong" instead of this file's
+        # own "this is not a Warlock Clay document" sentence.
+        if not isinstance(declared, list):
+            raise ValueError("this is not a Warlock Clay document")
         if len(declared) > MAX_OBJECTS:
             raise ValueError(
                 f"this clay document places {len(declared):,} objects, past "
@@ -642,7 +653,14 @@ def read_wblk(data: bytes) -> ClayDoc:
     # ClayDoc substitutes the default palette for None, so hand it None --
     # but only when there are objects, because an empty scene legitimately
     # round-trips its empty palette.
-    materials = [_material_from(m, textures) for m in scene.get("materials", [])]
+    declared_materials = scene.get("materials", [])
+    # Same clay-05 gap, the other field this reader forgot to guard: a
+    # "materials" entry that is present but not a list used to fail the list
+    # comprehension below with a bare TypeError instead of this reader's own
+    # named refusal.
+    if not isinstance(declared_materials, list):
+        raise ValueError("this is not a Warlock Clay document")
+    materials = [_material_from(m, textures) for m in declared_materials]
     if objects and not materials:
         materials = None
     return ClayDoc(objects=objects, materials=materials)

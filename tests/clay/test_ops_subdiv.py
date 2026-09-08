@@ -132,6 +132,44 @@ def test_material_and_smoothing_are_inherited_by_the_children() -> None:
     assert out.smooth.tolist() == np.repeat(marked.smooth, 4).tolist()
 
 
+def test_subdividing_a_small_selection_on_a_huge_mesh_is_not_refused_by_the_whole_meshs_size() -> (
+    None
+):
+    """The 2026-09-08 audit's clay-01: ``_refuse_growth`` used to read
+    ``len(mesh.loops)`` -- the *whole mesh's* corner count -- even for a
+    one-face selection, so a huge imported mesh could never be
+    linear-subdivided at all, no matter how small the selection. Build a mesh
+    of disjoint quads big enough that its total corner count alone crosses
+    ``MAX_SUBDIVIDED_FACES`` (the old refusal's trigger), select exactly one
+    face, and check the op actually runs: true growth is just that one face's
+    four corners replacing it, plus every other face passing through
+    unchanged.
+    """
+    n = 260_000  # 4*n loops = 1,040,000 > MAX_SUBDIVIDED_FACES (1,000,000)
+    assert 4 * n > sub.MAX_SUBDIVIDED_FACES
+    i = np.arange(n, dtype="f4")
+    positions = np.zeros((4 * n, 3), dtype="f4")
+    positions[0::4, 0] = i
+    positions[1::4, 0] = i + 1
+    positions[2::4, 0] = i + 1
+    positions[3::4, 0] = i
+    positions[1::4, 1] = 1
+    positions[2::4, 1] = 1
+    m = bm.Mesh(
+        positions=positions,
+        loops=np.arange(4 * n, dtype="i4"),
+        starts=np.arange(0, 4 * n + 1, 4, dtype="i4"),
+        material=np.zeros(n, dtype="i4"),
+        smooth=np.zeros(n, dtype=bool),
+    )
+    out, sel = sub.subdivide(m, el.ElementSel(faces=np.array([0], dtype="i4")))
+    # One face became four quads; the other n - 1 faces passed through as
+    # themselves -- nothing like the 1,040,000 the old, whole-mesh formula
+    # would have refused with.
+    assert bm.face_count(out) == (n - 1) + 4
+    assert len(sel.faces) == 4
+
+
 def test_subdivide_refuses_a_mesh_with_no_faces() -> None:
     empty_mesh = bm.Mesh(
         positions=np.zeros((0, 3), dtype="f4"),

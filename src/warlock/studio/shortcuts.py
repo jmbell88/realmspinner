@@ -294,6 +294,11 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Up / Down", "Turn the character one direction, holding the frame"),
             ("PageUp / PageDown", "Previous / next animation"),
             ("Home / End", "First / last frame of the run, and pause"),
+            # C and P were bound in troupe_mode.handle_key from the start but
+            # missing from this table and chapter 38 -- the 2026-09-08 audit's
+            # troupe-01, closed here and in the manual chapter alongside it.
+            ("C", "Toggle the checkerboard"),
+            ("P", "Toggle the pivot mark"),
         ],
     )
     table(

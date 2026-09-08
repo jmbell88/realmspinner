@@ -41,6 +41,15 @@ def _rotate_selected_to_euler(viewer: Any, degrees: Any) -> None:
     path straight onto the node: the delta between the current quaternion and
     the one the typed degrees describe, wrapped in the editor's own
     ``record()`` so a numeric edit is one undo step exactly like a drag is.
+
+    The gpu refresh below is the 2026-09-08 audit's poser-02: this used to
+    call ``editor.rotate_selected`` and stop, unlike the gizmo drag in
+    ``viewer_embed._motion`` (and Reset joint/Reset all/Mirror, through the
+    ``Viewer`` wrapper's ``_after_pose_change``) which all refresh the skin
+    palette after every mutating call. ``GpuScene.refresh_palettes`` is
+    "recomputed on every pose change, not per draw call" (viewer/scene.py) --
+    nothing else recomputes it on a frame, so a typed rotation wrote the
+    correct data but left the bound mesh visibly frozen at the old pose.
     """
     editor = viewer.editor
     if editor.model is None or editor.selected is None:
@@ -52,6 +61,8 @@ def _rotate_selected_to_euler(viewer: Any, degrees: Any) -> None:
     delta = m3.quat_mul(m3.quat_conjugate(current), target)
     with editor.record():
         editor.rotate_selected(delta)
+    if viewer.gpu is not None:
+        viewer.gpu.refresh_palettes()
 
 
 def _changed_from_rest(viewer: Any, bone: str | None) -> bool:
@@ -199,6 +210,21 @@ def _joint(ctx: Any, viewer: Any) -> None:
             poser_mode.guard(ctx, "mirror the pose", viewer.mirror)
 
 
+def _set_root_offset(viewer: Any, offset: Any) -> None:
+    """Write a typed root offset, keeping the bound mesh's skin in sync.
+
+    Mirrors :func:`_rotate_selected_to_euler`'s own gpu refresh: the
+    2026-09-08 audit's poser-02 found this call site skipping
+    ``GpuScene.refresh_palettes`` the same way, leaving a skinned mesh frozen
+    at the old pose after a typed root offset even though the saved data was
+    correct.
+    """
+    with viewer.editor.record():
+        viewer.editor.set_root_translation(offset)
+    if viewer.gpu is not None:
+        viewer.gpu.refresh_palettes()
+
+
 def _root(viewer: Any) -> None:
     editor = viewer.editor
     if editor.root is None:
@@ -243,8 +269,7 @@ def _root(viewer: Any) -> None:
         # than a live drag point -- ``move_root`` takes a model-space point
         # off the gizmo's own drag math, which a typed number has no way to
         # supply without recomputing that math a second time.
-        with editor.record():
-            editor.set_root_translation(new_offset)
+        _set_root_offset(viewer, new_offset)
     if any(offset):
         widgets.muted(
             f"root offset  x {offset[0]:+.2f}  y {offset[1]:+.2f}  z {offset[2]:+.2f}"

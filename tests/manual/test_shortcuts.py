@@ -201,6 +201,38 @@ def test_no_binding_in_the_sheet_is_missing_from_the_chapter(title):
     )
 
 
+def test_troupe_shortcuts_sheet_lists_the_checkerboard_and_pivot_keys():
+    """The reverse of every other gate in this module -- see the module
+    docstring for why the popup-to-chapter direction alone was not enough.
+
+    2026-09-08 audit, finding troupe-01: the Ctrl+/ sheet's Troupe table (and
+    chapter 38's) omitted C and P, which ``troupe_mode.handle_key`` has bound
+    all along, and chapter 38 closed the section with "there is nothing
+    else". Read straight off ``handle_key``'s own source rather than off a
+    list hand-written here, so the next plain-letter binding it adds cannot
+    go missing from the sheet silently the way these two did.
+    """
+    import inspect
+    import re
+
+    from warlock.studio import troupe_mode
+
+    source = inspect.getsource(troupe_mode.handle_key)
+    # Plain lower-case letter constants only (``pygame.K_c``, not
+    # ``pygame.K_LEFT`` or ``pygame.K_SPACE``) -- the arrows, Space, Home/End
+    # and the page keys are named tokens the chapter and popup already spell
+    # out, and are covered by the rest of this module's gate. A bare letter
+    # like C or P is the case that slipped through once already.
+    letters = {match.upper() for match in re.findall(r"pygame\.K_([a-z])\b", source)}
+    assert letters, "handle_key binds no plain letters -- this gate has nothing to check"
+    troupe = _popup_atoms().get("Troupe", set())
+    missing = sorted(letters - troupe)
+    assert not missing, (
+        f"troupe_mode.handle_key binds {missing} and the Ctrl+/ sheet's "
+        f"Troupe table does not list them"
+    )
+
+
 def test_the_chapter_does_not_send_the_reader_to_a_control_that_was_deleted():
     """Finding 4, as a ratchet. The header and its ``?`` button went in the
     UI redesign; the chapter went on naming both for three waves."""

@@ -65,6 +65,12 @@ class RigOps:
             # detector to produce a second one they would also overrule is pure
             # cost.
             and not params.get("bones")
+            # The 2026-09-08 audit's poser-03: joints="measured" (Troupe's
+            # T-pose route) resolves off the mesh's own vertices in op_rig
+            # *before* _rig_bones ever looks at template_bones, so a landmark
+            # set computed here is always thrown away on that path -- a model
+            # load and a CPU forward pass paid for an answer nothing reads.
+            and params.get("joints") != "measured"
             # An imported or hand-modelled mesh has no reference to read.
             and (source_dir / "input.png").exists()
             and pose2d.available(self.config)
