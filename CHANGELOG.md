@@ -18,7 +18,10 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## 0.0.39 — 2026-09-07
+## 0.0.40 — 2026-09-07
+
+Two panels stopped charging by the frame for answers that only change by
+the edit.
 
 - **Inker's nine-slice panel costs what an edit costs, not what a frame costs.**
   With a slice selected, the tools sidebar flattened the whole document twice on
@@ -45,6 +48,8 @@ the release you are actually running.
   five. Fixed columns rather than the wrap helper the rest of that pane uses:
   this modal is `always_auto_resize`, so the width left on a line is decided by
   the very row that would be asking about it.
+
+## 0.0.39 — 2026-09-07
 
 - **Sirens' Sound effects pane was never drawn, and the reason was every
   workspace's.** Sirens' right sidebar declares four panes — Instruments,
