@@ -98,12 +98,15 @@ here so it is a decision, not an improvisation.
 ## create
 
 - **Source:** `studio/create_brief.py`, `create_stages.py`, `create_assets.py`,
-  `generation_workspace.py`, `matte_preview.py`, `quality.py`, `candidates.py`,
-  `studio/viewer/`, `studio/viewer_embed.py`, `_view_*.py`; panes `settings_2d.py`,
-  `settings_3d.py`, `settings_character.py`, `texture_panel.py`, `remesh_panel.py`,
-  `retarget_panel.py`, `sprite_panel.py`, `sheet_panel.py`, `stage_rig.py`,
-  `pose_panel.py`; `guidance.py`, `judge.py`, `generation.py`, `sweep.py`,
-  `provenance.py`.
+  `asset_exits.py`, `readiness.py`, `generation_workspace.py`, `matte_preview.py`,
+  `quality.py`, `candidates.py`, `studio/viewer/`, `studio/viewer_embed.py`,
+  `_viewer_pose.py` (shared with `poser`, as `viewer/gltf.py` is with `clay`),
+  `_view_*.py`; panes `settings_2d.py`, `settings_3d.py`, `settings_character.py`,
+  `texture_panel.py`, `remesh_panel.py`, `retarget_panel.py`, `sprite_panel.py`,
+  `sheet_panel.py`, `stage_rig.py`, `pose_panel.py`; `guidance.py`, `judge.py`,
+  `generation.py`, `sweep.py`, `provenance.py`. The 2026-09-08 run found
+  `asset_exits.py`, `readiness.py` (both new on 2026-09-07) and `_viewer_pose.py`
+  missing from this list; a file a segment's owner imports directly belongs here.
 - **INVARIANTS:** 49 (`hole_worst`), 98–100 (LoRA, conditioning axes), 108 (chunked
   prompt), 136–138 (glTF loader ceilings), 146–149 (taxonomy, quality tier), 318
   (painted reference), 354 (rendering parity), 384–388 (derivation, sweep, candidates),
@@ -116,20 +119,22 @@ here so it is a decision, not an improvisation.
 - **Gates:** `tests/test_create_stages.py` (no control in both bar and column),
   `tests/test_resource_ceilings.py`, `tests/test_field_error_wiring.py`.
 - **Segments (4)** — this is the 2026-09-05 split, which found both of that run's Highs:
-  1. `brief` — `create_brief.py`, `create_stages.py`, `create_assets.py`, `quality.py`,
-     `guidance.py`, `judge.py`. Leads 146–149, 318. Gate `tests/test_create_stages.py`.
+  1. `brief` — `create_brief.py`, `create_stages.py`, `create_assets.py`,
+     `asset_exits.py`, `quality.py`, `guidance.py`, `judge.py`. Leads 146–149, 318. Gate `tests/test_create_stages.py`.
      Tests `tests/test_create_*.py`, `tests/test_judge*.py`. Manual 02, 22.
   2. `workspace` — `generation_workspace.py`, `candidates.py`, `matte_preview.py`,
      `generation.py`, `sweep.py`, `provenance.py`. Leads 49, 384–388. Tests
      `tests/test_generation_*.py`, `tests/test_candidates.py`, `tests/test_matte_*.py`.
      Manual 12, 24.
-  3. `viewer` — `studio/viewer/` (all), `viewer_embed.py`, `_view_bounds.py`,
-     `_view_cache.py`, `_view_drag.py`, `_view_overlay.py`, `_view_pick.py`. Leads
+  3. `viewer` — `studio/viewer/` (all), `viewer_embed.py`, `_viewer_pose.py`,
+     `_view_bounds.py`, `_view_cache.py`, `_view_drag.py`, `_view_overlay.py`,
+     `_view_pick.py`. Leads
      136–138, 354, 398. Tests `tests/test_viewer_*.py`, `tests/test_gltf_loader.py`,
      `tests/test_resource_ceilings.py`. Manual 23.
   4. `panes` — panes `settings_2d.py`, `settings_3d.py`, `settings_character.py`,
      `texture_panel.py`, `remesh_panel.py`, `retarget_panel.py`, `sprite_panel.py`,
-     `sheet_panel.py`, `stage_rig.py`, `pose_panel.py`. Leads 98–100, 108, 146–149. Gate
+     `sheet_panel.py`, `stage_rig.py`, `pose_panel.py`; `studio/readiness.py`. Leads
+     98–100, 108, 146–149. Gate
      `tests/test_field_error_wiring.py`. Tests `tests/test_settings_*.py`,
      `tests/test_prompt_*.py`, `tests/test_conditioning_*.py`. Manual 12, 22, 23.
 
