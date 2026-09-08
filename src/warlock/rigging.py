@@ -1025,11 +1025,51 @@ def read_rig(job_dir: Path) -> dict[str, Any] | None:
     return read_record(job_dir / "rig.json", "rig.json")
 
 
+class RigError(ValueError):
+    """A rig.json this reads cannot answer for, naming the field.
+
+    ``poselib.RecordError``'s shape, for a rig record instead of a pose one:
+    a ``ValueError`` subclass so nothing that already catches ``ValueError``
+    changes, with ``field`` carried so ``service.errors.invalid_from`` can
+    point the refusal at a control instead of the message arriving addressed
+    to nothing.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+def validate_rig_bones(bones: Any) -> list[str]:
+    """A rig.json's ``bones`` list, name-checked. Raises :class:`RigError`.
+
+    docs/INVARIANTS.md states a pose *or rig* JSON is validated at the read
+    door, not only at the write door -- but until the 2026-09-08 audit
+    (poser-02) that was only ever built for pose records: a rig.json passed
+    ``read_record``'s three file-level guards (valid JSON, valid dict, under
+    the byte ceiling) and then a bare ``[b["name"] for b in bones]`` crashed
+    on a bone with no ``name`` key with an uncaught ``KeyError``, one field
+    deeper than the case the invariant already names as fixed. This is that
+    same door for rig.json's bone list, tolerant like ``poselib.validate_
+    record``'s own bone check: a bone entry that is not a dict, or whose name
+    is not a non-empty string, is refused by name rather than by traceback.
+    """
+    if not isinstance(bones, list):
+        raise RigError("rig.json's bones must be a list", field="bones")
+    names: list[str] = []
+    for entry in bones:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name:
+            raise RigError("rig.json has a bone with no name", field="bones")
+        names.append(name)
+    return names
+
+
 def rig_bone_names(job_dir: Path) -> list[str] | None:
     rig = read_rig(job_dir)
     if rig is None:
         return None
-    return [b["name"] for b in rig.get("bones", [])]
+    return validate_rig_bones(rig.get("bones", []))
 
 
 # --- pose storage -----------------------------------------------------------

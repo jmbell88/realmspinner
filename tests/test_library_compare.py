@@ -134,12 +134,23 @@ def test_the_menu_item_says_which_way_round_the_comparison_goes():
 
 def test_the_baseline_is_captured_when_the_menu_opens():
     """Not read when the item is clicked: the right-click that opens the menu
-    has already moved the selection onto the target."""
+    has already moved the selection onto the target.
+
+    Captured *before* ``select`` runs and assigned *after* it -- not the other
+    way round, since shell-02 (the 2026-09-08 audit) made ``AppState.select``
+    itself clear ``compare_baseline`` on an ordinary selection change, and
+    setting it ahead of the call would have this line undo its own
+    assignment.
+    """
     source = Path(library.__file__).read_text(encoding="utf-8")
     opened = source.index("imgui.open_popup(\"more\")")
     before = source[:opened]
-    assert "ctx.state.compare_baseline = ctx.state.selected" in before
-    assert before.index("ctx.state.compare_baseline") < before.rindex("select(ctx, job[\"id\"])")
+    assert "previous = ctx.state.selected" in before
+    assert "ctx.state.compare_baseline = previous" in before
+    select_call = before.rindex("select(ctx, job[\"id\"])")
+    previous_capture = before.index("previous = ctx.state.selected")
+    baseline_assign = before.rindex("ctx.state.compare_baseline = previous")
+    assert previous_capture < select_call < baseline_assign < opened
 
 
 @pytest.mark.parametrize("attr", ["compare_baseline", "compare_pending"])
@@ -188,6 +199,41 @@ def test_a_refused_second_compare_leaves_the_first_one_alone(tmp_path):
     assert ctx.state.comparing == "bbbbbbbbbbbb", "the first compare was cancelled"
     assert ctx.state.compare_pending == first
     assert len(ctx.submitted) == 1
+
+
+def test_compare_from_the_ellipsis_menu_does_not_reuse_a_stale_right_click_baseline(tmp_path):
+    """shell-02 (the 2026-09-08 audit): ``compare_baseline`` was written only
+    by the card's right-click handler and never cleared on an ordinary
+    selection change, or when the same overflow menu is instead opened via
+    the small ellipsis button -- so "Compare selected with this" clicked from
+    a menu opened that way could silently reuse whichever job was
+    right-clicked earliest in the session instead of the asset actually
+    selected.
+
+    Reproduced here without any right-click at all: a stale baseline from
+    some earlier gesture, then an ordinary ``state.select`` (a plain card
+    click, or the selection already in place when the ellipsis menu is
+    opened) -- which must retire it. If it does not, comparing the now
+    -selected card with itself is not refused.
+    """
+    from warlock.studio.state import AppState
+
+    ctx = _Ctx(tmp_path)
+    ctx.state = AppState()
+    # An earlier right-click, on a different card entirely, left this behind.
+    ctx.state.compare_baseline = "zzzzzzzzzzzz"
+    # The user then selects another card the ordinary way -- no right-click,
+    # so nothing here ever touches ``compare_baseline`` except ``select``
+    # itself.
+    ctx.state.select("aaaaaaaaaaaa")
+
+    # Opens that same card's overflow via the ellipsis and clicks "Compare
+    # selected with this" -- comparing the selected asset with itself, which
+    # must be refused.
+    library.compare(ctx, "aaaaaaaaaaaa")
+
+    assert ctx.submitted == [], "the stale baseline let a self-comparison through"
+    assert ctx.toasts and "different asset" in ctx.toasts[0][0]
 
 
 def test_a_refused_first_compare_leaves_nothing_behind(tmp_path):

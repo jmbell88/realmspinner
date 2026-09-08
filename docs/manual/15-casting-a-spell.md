@@ -81,6 +81,10 @@ one set of colours; an indexed document's own palette is used instead when it ha
 
 With **Four directions** or **Eight**, the simulation itself is turned — the same spread, the same
 gravity, facing down — and each phase gets a tag per facing: `impact/E`, `impact/S`, and so on.
+Not every effect can afford that. Fireball is already over the bake ceiling at more than one facing,
+and the Facings combo greys out whichever counts the chosen preset cannot bake, naming the cost, so
+you learn it before you press Insert rather than after. Pick a lighter effect — **Slash** or
+**Wind gust** — to watch facings turned.
 
 ## Export
 

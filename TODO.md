@@ -84,8 +84,7 @@ about 1.4 GB installed base**, SHA-256 `254b3af9…`, at v0.0.35.
    suite for the first time, `music`'s sdist build path and the bundled-wheel
    branch of `pack_worker.collect` included. Still unchecked: whether Poser
    opens without a restart afterwards.
-4. **Fix the model downloads, then prove the fetch pipeline under the bundled
-   interpreter.** The one thing that stopped both runs. Her log named the cause
+4. **Prove the fetch pipeline under the bundled interpreter.** The one thing that stopped both runs. Her log named the cause
    and it is ours: a failed fetch deletes its staging tree, resume state and
    all, so a 16.1 GB model cannot be retried in over a line that resets — F1.
    The resets themselves hit several hosts and are still undiagnosed (F2), but
@@ -442,8 +441,10 @@ already take a four-direction kind.
 a single count, show the eight-direction count as a label rather than a
 one-item combo, and let the combo reappear the day a second count ships.~~
 **Built 2026-09-04** (noticed in the 2026-09-06 audit, finding docs-17):
-`settings_2d.py:791-797` already branches `form_ui.readonly` under two
-discovered direction counts and `form_ui.segmented_choice` otherwise.
+`settings_2d._sprite_layout` already branches `form_ui.readonly` under two
+discovered direction counts and `form_ui.segmented_choice` otherwise. (The
+2026-09-08 audit, finding docs-10: this cited line numbers, which drift; the
+branch is named by its function now.)
 
 **Expected outcome:** either six authored guides and a two-option control, or
 the count stated as a fact.
@@ -1050,10 +1051,13 @@ promotes the wrong call in some of these functions and misses the real one in
 others, which fails open, silently.
 
 **Where it stands.** `PUBLISHERS` in `tests/test_job_durability.py` now covers
-eight stages and all eight pass. The three above were left untouched as out of
-scope, and nothing yet says whether they are correct.
+nine stages and all nine pass. ~~`_remesh` (`_q_mesh.py`)~~ **Closed 2026-09-08**
+(the 2026-09-08 audit, finding docs-05): it already carried the classifying
+comment and already committed after its `os.replace`, so only the missing
+`PUBLISHERS` row was real, and it is added. `_deform_qa` and the promotion stage
+are untouched, and nothing yet says whether they are correct.
 
-**Do:** read each of the three, decide whether its rename is a completion marker
+**Do:** read each of the two remaining, decide whether its rename is a completion marker
 or a checkpoint, and say which in a comment beside it. Add a `PUBLISHERS` row
 for every one that is a completion marker, and confirm it commits.
 
@@ -1089,6 +1093,59 @@ ignores duration is, and both are code changes this file cannot make for you.
 
 **Expected outcome:** one dated measurement, and a settled answer to the
 question this change made and could not itself answer.
+
+## P40. Settle which way Inker's timeline stack reads on screen
+
+**Why it is yours:** nothing headless can assert imgui's screen Y-order, and the
+two accounts inside the code disagree, so the only way to know is to look. The
+module docstring of `panes/inker_timeline.py` and chapter 28 both promise "the
+background is the bottom row, which is Aseprite's order, Photoshop's order",
+while the comment on the draw loop in the same file says the opposite -- that the
+panel draws top-down "because Photoshop's does" -- and `row_plan`/`_grid` submit
+rows in ascending stack-index order, background first. Under imgui's ordinary
+top-down child layout that puts the background at the *top*, which is the reverse
+of what both documents claim (the 2026-09-08 audit, finding inker-H1).
+`tests/inker/test_timeline_merge.py::test_the_rows_run_bottom_up` pins the data
+order and says nothing about the screen.
+
+**Do:** open Inker with three or four layers and look, or run
+`/exercise-mode inker` and read the timeline capture. Decide which of the two
+intents is real. Then either reverse the `row_plan`/`_grid` walk so the highest
+stack index draws first -- matching the manual and Aseprite -- or correct the
+module docstring and chapter 28 to describe the ascending order the code draws
+and drop the "Aseprite's order, Photoshop's order" claim. Either way check that
+`_row_menu`'s **Move up** and **Move down** move a row the direction their labels
+say on screen, since they inherit whichever answer is right.
+
+**Expected outcome:** one screenshot, one decision, and the code and both
+documents saying the same thing about it -- plus a test pinning whichever of the
+two the decision makes true.
+
+## P41. Re-measure the retexture coverage table under the fixed weight bake
+
+**Why it is yours:** it needs a real card, real weights and the retexture corpus,
+and the conclusion it feeds is an art-direction call about where coverage work
+goes next. `docs/measurements/2026-08-15-retexture-visibility.md` reports the
+coverage figures the current constants are pinned on -- the 54.4% facing-only
+baseline, the derived "16.2 pp of the shipped coverage was smear", and the 38%
+/41% honest-coverage conclusion -- and it was measured five days before
+`docs/measurements/2026-08-20-retexture-weight-colorspace.md` found the
+sRGB-encoded `weight` bake target that made `MIN_FACING = 0.15` behave as
+approximately 0.0196. The 08-20 document corrects the 08-08 table by name and
+never mentions 08-15's, although `combine()` thresholds the same facing weights
+on top of the newer depth test, so every occlusion-tested arm in 08-15 ran
+through the identical uncorrected bake (the 2026-09-08 audit, finding docs-H1).
+
+**Do:** re-run `scripts/retexture_probe.py`'s coverage table for the `a0`, `a1`,
+`b`, `c1`, `c2` and `d-ladder-*` arms against the current, colorspace-fixed
+weight bake, following 08-15's own "Reproducing" section. Compare each figure
+against the one that document reports.
+
+**Expected outcome:** either a dated note confirming 08-15's percentages hold
+within noise -- in which case `DEPTH_EPS_LO`/`HI` and the feather constants stay
+pinned where they are and the Tier 3 UV-space inpainting question stands as
+posed -- or a correction document in the shape 08-20 used for 08-08, and a
+re-decision of whether Tier 3 is still the named next coverage step.
 
 ## P39. Reproduce the one faulthandler dump, or let it expire
 

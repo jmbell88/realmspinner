@@ -193,7 +193,10 @@ def record_verdict(
         # refusals are the most informative negatives a blank probe can learn
         # from -- throwing them away would leave the probe trained only on
         # images the hand-written rules already liked.
-        if not any((svc.job_dir(job_id) / name).exists() for name in IMAGE_NAMES):
+        # is_file, not exists (the 2026-09-08 audit, service-07): a stray
+        # directory sharing one of these names would otherwise read as
+        # present and fail later at open() instead of this refusal.
+        if not any((svc.job_dir(job_id) / name).is_file() for name in IMAGE_NAMES):
             raise Invalid("that job has no reference image to judge")
     elif job["status"] != "done":
         # A verdict is a judgement about artifacts, and the vector snapshot is

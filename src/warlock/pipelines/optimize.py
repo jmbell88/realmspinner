@@ -129,7 +129,14 @@ def run(
             "source_triangles": source_triangles,
             "bytes": dest.stat().st_size,
         }
-    if not exe.exists():
+    # ``.is_file()``, not ``.exists()`` (the 2026-09-08 audit, pipelines-04):
+    # the same defect already fixed at ``doctor._gltfpack_check`` and
+    # ``retarget_panel._gltfpack_available``, and this is the site that
+    # actually decides whether a retarget job runs. A directory left where
+    # ``gltfpack.exe`` should be used to read as "present" and reach
+    # ``winjob.run([str(exe), ...])`` below, where ``subprocess.Popen`` raises
+    # an uncaught OSError instead of this module's own ``OptimizeError``.
+    if not exe.is_file():
         raise OptimizeError(
             f"gltfpack not found at {exe}; use the 'raw' profile or set WARLOCK_GLTFPACK"
         )

@@ -97,15 +97,37 @@ def test_every_marked_anchor_is_named_by_a_step():
     """The other direction: a mark nobody points at is dead weight.
 
     The rail's keys are exempt because it marks every mode from one call site --
-    eleven keys from one line, of which a tour naturally uses a few. Everything
-    else is marked deliberately, one call per control, and should have a reason
-    to exist.
+    one key per entry in modes.KEYS, of which a tour naturally uses a few.
+    Everything else is marked deliberately, one call per control, and should
+    have a reason to exist.
     """
     used = {step.anchor for _tour, step in _steps() if step.anchor}
     stray = sorted(_marked_in_source() - used - _RAIL_KEYS)
     assert not stray, (
         f"marked but never pointed at: {stray}. Either a step wants it, or the "
         "mark outlived the step that did."
+    )
+
+
+def test_marked_anchor_docstring_states_no_hardcoded_key_count():
+    """The 2026-09-08 audit, finding tour-01: this docstring used to say the
+    rail 'marks every mode from one call site -- eleven keys from one line',
+    a hand-counted number that drifted the moment ``modes.KEYS`` grew past
+    eleven entries (it holds thirteen today) with nothing to catch it -- the
+    workspace-count sweep walks docs/, src/ and root *.md files but not
+    tests/. The docstring must describe the count as derived from
+    ``modes.KEYS``, the way ``_RAIL_KEYS`` itself already is, instead of
+    naming a specific number that can go stale again.
+    """
+    import inspect
+
+    doc = inspect.getdoc(test_every_marked_anchor_is_named_by_a_step) or ""
+    assert "modes.KEYS" in doc, (
+        "the rail-exemption docstring should point at modes.KEYS instead of "
+        "a hand-counted number"
+    )
+    assert not re.search(r"\beleven\b", doc, re.IGNORECASE), (
+        "the docstring still hard-codes the stale count 'eleven'"
     )
 
 

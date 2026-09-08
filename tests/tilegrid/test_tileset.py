@@ -150,3 +150,31 @@ def test_a_phased_set_needs_phase_squared_rows_per_terrain():
             terrains=(TerrainSpec("A", (1, 2, 3, 255), (0, 0, 0, 255)),),
             phases=2,
         )
+
+
+def test_tileset_module_docstring_does_not_claim_image_collections_are_refused():
+    """The 2026-09-08 audit, plotter-06: the module docstring's opening
+    paragraph said Tiled's "collection of images" variant "is refused by
+    :mod:`.tsx` and :mod:`.tmx` rather than half-supported" -- but this same
+    file defines a full ``Collection`` model (``compose_collection``,
+    ``Tileset.collection``/``is_collection``, and every collection-aware
+    accessor below it), and ``plotter/tsx.py`` imports and calls
+    ``compose_collection`` to read exactly that Tiled variant, with its own
+    comment there saying it "is modelled now ... rather than refused". A
+    maintainer of this shared leaf file (imported by Plotter, Packwright and
+    Inker) told by its own opening paragraph that a real, exercised code path
+    in the same file does not exist risks a reintroduced refusal or a second,
+    duplicate model of collections elsewhere.
+    """
+    from warlock.studio.tilegrid import tileset
+
+    doc = tileset.__doc__ or ""
+    assert "is refused" not in doc, (
+        "the module docstring still claims image collections are refused, "
+        "but Collection/compose_collection model them instead -- see "
+        "plotter/tsx.py's own 'modelled now ... rather than refused' comment"
+    )
+    assert "Collection" in doc, (
+        "the module docstring should describe the Collection model it defines "
+        "rather than saying nothing about it at all"
+    )

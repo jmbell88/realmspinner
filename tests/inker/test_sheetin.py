@@ -251,6 +251,15 @@ def test_a_count_of_zero_is_refused_rather_than_meaning_all():
         sheetin.grid_rects((64, 64), (32, 32), count=0)
 
 
+def test_grid_rects_refuses_a_cell_count_past_a_sane_ceiling():
+    """The 2026-09-08 audit (inker-02): an ordinary 2x2 cell size typed over an
+    ordinary 1024x1024 atlas is 262,144 cells -- a document big enough to freeze
+    the frame thread building it and everything downstream that walks it after
+    -- and nothing here refused it."""
+    with pytest.raises(ValueError, match=str(sheetin.MAX_SHEET_FRAMES)):
+        sheetin.grid_rects((1024, 1024), (2, 2))
+
+
 def _striped(width: int, height: int) -> np.ndarray:
     """An atlas whose every column is a different red, so a mis-sliced cell is
     visible as the wrong number rather than as the wrong shape."""

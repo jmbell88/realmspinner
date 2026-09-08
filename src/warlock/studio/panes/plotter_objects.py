@@ -156,8 +156,16 @@ def _row(ctx: Any, state: Any, tab: Any, layer: Any, obj: Any) -> None:
             # Shift extends, which is the same gesture the canvas marquee makes
             # and the outliner's rule too.
             if imgui.get_io().key_shift:
+                # ``selected_object`` is read-only (see its own docstring in
+                # ``plotter_state.py``): the 2026-09-08 audit, plotter-01,
+                # found this row assigning to it directly, which raised
+                # ``AttributeError`` on every Shift+click instead of
+                # extending the selection. ``make_primary`` is the accessor
+                # for exactly this -- the canvas's own Shift+click path
+                # (``plotter_canvas.py``) already uses it for the identical
+                # gesture.
                 state.select_objects(state.selected_objects | {obj.uid})
-                state.selected_object = obj.uid
+                state.make_primary(obj.uid)
             else:
                 state.select_object(obj.uid)
             # The layer too: a selection on a layer no tool can reach is a

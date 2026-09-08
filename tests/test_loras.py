@@ -372,6 +372,51 @@ def test_the_training_door_copies_the_images_and_queues_a_row(svc, tmp_path, bas
     assert len(copied) == 4
 
 
+def test_train_lora_removes_its_job_directory_when_copying_training_images_fails(
+    svc, tmp_path, base_present, monkeypatch
+):
+    """service-06 (the 2026-09-08 audit): unlike ``create_character`` and
+    ``create_tile_sheet`` -- both of which mint their job directory inside a
+    try/except that ``shutil.rmtree``s it on any failure -- ``train_lora``
+    created ``job_dir/train/`` and copied every training image into it with
+    no try/except at all, before ``svc.store.create`` ever ran. A failure
+    partway through the copy (a bad file, ENOSPC, a permissions error) used
+    to raise out with the row never created, leaving an orphaned job
+    directory with no owner -- exactly what ``service.library.verify()``'s
+    ``orphan_dirs`` finding exists to surface.
+    """
+    paths = _images(tmp_path, 4)
+    real_open = Image.open
+    calls = {"n": 0}
+
+    def flaky_open(path, *a, **k):
+        calls["n"] += 1
+        if calls["n"] > len(paths):
+            # Every path already passed the door's own validation loop above
+            # this one (one Image.open per path); this is the copy loop's
+            # own re-open (Pillow invalidates an object after ``verify()``,
+            # so it opens each path a second time), and it fails partway
+            # through.
+            raise OSError("simulated read failure")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(Image, "open", flaky_open)
+
+    before = (
+        {p.name for p in svc.config.data_dir.iterdir()}
+        if svc.config.data_dir.exists()
+        else set()
+    )
+    with pytest.raises(OSError):
+        svc_loras.train_lora(svc, paths, label="Cosmos", trigger="cosmos style")
+    after = (
+        {p.name for p in svc.config.data_dir.iterdir()}
+        if svc.config.data_dir.exists()
+        else set()
+    )
+    assert after == before, after - before
+
+
 @pytest.mark.parametrize(
     ("count", "kwargs", "field"),
     [

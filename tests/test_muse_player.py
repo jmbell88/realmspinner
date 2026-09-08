@@ -596,6 +596,23 @@ def test_muse_disabled_control_reasons_are_pure_and_testable():
     assert "not downloaded" in missing
 
 
+def test_the_trays_disabled_reasons_are_pure_and_testable():
+    """The 2026-09-08 audit, finding muse-04. The tray (``muse_results.py``)
+    had four ``reason='' if ready else 'this take has not finished yet'``
+    inline literals -- the same pattern **muse-07** (2026-09-05 audit) pulled
+    out of the brief and the player strip in
+    ``test_muse_disabled_control_reasons_are_pure_and_testable`` above, just
+    above this test. This is that guard's missing third surface: a future
+    edit to the tray's sentence, or a bug that greys a card button for the
+    wrong reason, has nothing else in the suite to catch it.
+    """
+    from warlock.studio.panes import muse_results
+
+    assert muse_results._ready_reason(True) == ""
+    not_ready = muse_results._ready_reason(False)
+    assert "not finished yet" in not_ready and not_ready != ""
+
+
 # --- the untouched marker's anchor (muse-02) ----------------------------------
 
 
@@ -659,6 +676,60 @@ def test_dragging_a_grip_past_the_other_marker_keeps_the_untouched_one_fixed(
         _at(8.0, active=False, activated=False, deactivated=True)
         muse_player._input(ctx, one, origin, width)
         assert (one.loop_start, one.loop_end) == (8.0, 12.0)
+    finally:
+        imgui.destroy_context(gl_ctx)
+        if previous is not None:
+            imgui.set_current_context(previous)
+
+
+def test_the_drawn_playhead_does_not_move_until_a_seek_drag_releases(ctx, monkeypatch):
+    """The 2026-09-08 audit, finding muse-05. ``_input``'s docstring used to
+    claim the drawn playhead is "drawn from the pending value" during a plain
+    click-drag-to-seek and "the sound catches up when they let go" -- implying
+    live visual feedback during the drag. For a plain seek (no grip grabbed),
+    nothing in ``_input`` runs while ``imgui.is_item_active()`` is true:
+    ``muse_mode.seek`` -- the only thing that moves ``play_offset``, which
+    ``_playhead`` reads through ``muse_mode.position`` -- only fires from the
+    ``is_item_deactivated()`` branch. So the position seen by a caller reading
+    it mid-drag must equal the pre-drag value, and only becomes the drag's
+    target once the gesture releases.
+    """
+    from imgui_bundle import imgui
+
+    from warlock.studio.panes import muse_player
+
+    one = _loaded(ctx, seconds=20.0)
+    width = 1000.0
+    origin = type("Origin", (), {"x": 0.0, "y": 0.0})()
+    before = one.play_offset
+
+    previous = imgui.get_current_context()
+    gl_ctx = imgui.create_context()
+    try:
+        io = imgui.get_io()
+        io.set_ini_filename(None)
+
+        def _at(seconds: float, *, active: bool, activated: bool, deactivated: bool):
+            monkeypatch.setattr(imgui, "is_item_active", lambda: active)
+            monkeypatch.setattr(imgui, "is_item_activated", lambda: activated)
+            monkeypatch.setattr(imgui, "is_item_deactivated", lambda: deactivated)
+            io.mouse_pos = (seconds / one.duration * width, 0.0)
+
+        # Press, away from either grip (there is no region at all): grabs "".
+        _at(5.0, active=True, activated=True, deactivated=False)
+        muse_player._input(ctx, one, origin, width)
+        assert one.play_offset == before
+
+        # Mid-drag, still held. The docstring's old claim was that the drawn
+        # position tracks the pointer here -- it must not.
+        _at(10.0, active=True, activated=False, deactivated=False)
+        muse_player._input(ctx, one, origin, width)
+        assert one.play_offset == before
+
+        # Release: only now does the position catch up to where the drag let go.
+        _at(10.0, active=False, activated=False, deactivated=True)
+        muse_player._input(ctx, one, origin, width)
+        assert one.play_offset == pytest.approx(10.0)
     finally:
         imgui.destroy_context(gl_ctx)
         if previous is not None:

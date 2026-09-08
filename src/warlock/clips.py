@@ -16,12 +16,15 @@ do it -- and not in ``rigging`` because that module imports nothing from
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from . import rigging
 from .pipelines import charsheet, sheet
+
+log = logging.getLogger(__name__)
 
 
 def expand_clips(
@@ -125,12 +128,69 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
                 "space": str(clip["space"]),
                 # Whole scene frames per animation frame. See ANIMATION_FPS.
                 "step": ANIMATION_FPS * int(duration_ms) / 1000.0,
+                # ``root_translation`` forwarded raw (character-height units,
+                # ``sheet._record``'s own unit) when the frame carries one --
+                # the 2026-09-08 audit (poser-01) found this dict built as
+                # ``{"bones": record["bones"]}`` alone, so a clip's authored
+                # vertical motion (the whole of a jump's crouch/launch/apex/
+                # land arc) was computed by ``sheet.interpolate_clip`` and then
+                # thrown away before it ever reached a spec. Scaled into a
+                # world-space ``root_offset`` by :func:`animate_spec`, which is
+                # the one caller with a job directory to read a rig's bounds
+                # from -- this function stays host-pure and job-independent.
                 "frames": [
-                    {"bones": record["bones"]} for record in frames
+                    {
+                        "bones": record["bones"],
+                        **(
+                            {"root_translation": record["root_translation"]}
+                            if record.get("root_translation")
+                            else {}
+                        ),
+                    }
+                    for record in frames
                 ],
             }
         )
     return tracks
+
+
+def _attach_root_offsets(tracks: list[dict[str, Any]], job_dir: Path) -> None:
+    """Scale every frame's raw ``root_translation`` into a world-space
+    ``root_offset``, in place -- ``op_sheet``'s per-cell ``root_offset``,
+    mirrored for a track's per-frame one.
+
+    ``clips.py`` may not import ``queue.py`` (``queue`` imports ``_q_troupe``,
+    which imports ``clips`` -- a cycle), so this is this module's own copy of
+    ``queue._sheet_root_offsets``'s arithmetic against
+    ``rigging.root_offset_world``, and tolerant the same way
+    ``service.rig._pose_bake_spec`` is: a rig.json this job directory does not
+    have yet, or one built before bounds/root were recorded, costs every
+    frame's offset rather than the bake. The 2026-09-08 audit (poser-01)'s own
+    rule -- "costs the measurement, never the rig" -- applied to a root offset
+    instead of a joint measurement.
+    """
+    carries_root = any(
+        frame.get("root_translation") for track in tracks for frame in track["frames"]
+    )
+    if not carries_root:
+        return
+    rig_meta = rigging.read_rig(job_dir) or {}
+    bounds, root_bone = rig_meta.get("bounds"), rig_meta.get("root")
+    if not (isinstance(bounds, dict) and "min" in bounds and "max" in bounds and root_bone):
+        log.warning("a clip carries a root offset but %s cannot scale it", job_dir / "rig.json")
+        return
+    for track in tracks:
+        for frame in track["frames"]:
+            root_translation = frame.pop("root_translation", None)
+            if not root_translation:
+                continue
+            try:
+                offset = rigging.root_offset_world(root_translation, bounds)
+            except (TypeError, ValueError, IndexError):
+                log.warning("a clip has a root offset rig.json cannot scale")
+                continue
+            frame["root_offset"] = offset
+            frame["root_bone"] = str(root_bone)
 
 
 def animate_spec(
@@ -158,6 +218,7 @@ def animate_spec(
     tracks = animation_tracks(template_key)
     if not tracks:
         raise ValueError(f"nothing is authored for the {template_key} rig")
+    _attach_root_offsets(tracks, job_dir)
     return {
         "op": "animate",
         "rig_glb": str(job_dir / "rig.glb"),

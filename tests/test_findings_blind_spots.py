@@ -205,10 +205,15 @@ def test_the_troupe_bridge_and_sheet_panes_import_without_a_context():
 
 def test_a_rerender_names_the_runs_it_was_asked_for():
     """``_rerender`` is the subset door -- the one place a partial re-render's
-    run list is turned into a request -- and nothing named it."""
-    from warlock.studio.panes import troupe_sheets
+    run list is turned into a request -- and nothing named it.
 
-    assert troupe_sheets._RERENDER_SLOT == "troupe_rerender_runs"
+    Moved onto ``troupe_mode`` by the 2026-09-08 audit's troupe-02 fix: the
+    slot now has to be owned by the module that clears it in ``select``, not
+    by the pane that only reads it.
+    """
+    from warlock.studio import troupe_mode
+
+    assert troupe_mode.RERENDER_SLOT == "troupe_rerender_runs"
 
 
 # --- packwright_items ---------------------------------------------------------

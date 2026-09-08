@@ -1227,6 +1227,21 @@ def op_animate(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             _applied, missing = _apply_pose(arm_obj, frame.get("bones") or {}, space)
             unknown.extend(n for n in missing if n not in unknown)
             at = 1.0 + frame_index * step
+            # The 2026-09-08 audit (poser-01): every shipped clip's authored
+            # root_translation -- a walk's strike-passing lift, a jump's whole
+            # crouch/launch/apex/land arc -- reached this loop and was never
+            # applied, unlike op_pose's single-frame bake, which has always
+            # called _apply_root_translation for a library pose's offset.
+            # clips.animate_spec pre-scales it to a world offset (it has the
+            # rig's own bounds; this loop only has the armature), keyed off
+            # the same root bone rig.json's own "root" field names.
+            root_offset = frame.get("root_offset")
+            if root_offset:
+                root_bone = frame.get("root_bone")
+                if _apply_root_translation(arm_obj, root_bone, root_offset):
+                    root_pbone = arm_obj.pose.bones.get(str(root_bone or ""))
+                    if root_pbone is not None:
+                        root_pbone.keyframe_insert(data_path="location", frame=at)
             for pbone in arm_obj.pose.bones:
                 pbone.rotation_mode = "QUATERNION"
                 pbone.keyframe_insert(data_path="rotation_quaternion", frame=at)

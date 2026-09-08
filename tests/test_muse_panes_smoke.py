@@ -381,3 +381,40 @@ def test_every_derive_control_is_drawn_by_something():
     # The numeric ones each need a label and a bound; the two edit fields are
     # text and are drawn by their own branch.
     assert named - set(muse_results.DERIVE_FIELDS) == {"edit_prompt", "edit_lyrics"}
+
+
+@pytest.mark.parametrize("task", sorted(muse_mode.DERIVE_CONTROLS))
+def test_the_derive_popup_draws_for_every_task(frames, tmp_path, task):
+    """The 2026-09-08 audit, finding muse-03. Every other test in this file
+    that touches the tray leaves ``MuseState.derive_job`` unset, so
+    ``derive_popup`` took its early return (``not state.derive_job``) in
+    every run here -- including this file's own docstring claim of drawing
+    "every Muse pane". A regression in ``_derive_field``'s per-task widget
+    selection, or in the popup's own control loop, had nothing in the suite
+    that would ever build the frame it lives on.
+
+    Fails against the unfixed suite in the sense that matters here: deleting
+    the two lines below that set ``derive_job``/``derive_form`` (i.e.
+    reverting to what every prior test in this file did) makes
+    ``derive_popup`` a no-op and this test would draw nothing -- the same gap
+    the finding names. What is asserted is that the popup actually reaches
+    ``imgui.begin_popup_modal`` and draws every control ``DERIVE_CONTROLS``
+    names for this task, not just that ``draw()`` returns without raising.
+    """
+    from imgui_bundle import imgui
+
+    ctx = _ctx(tmp_path, [_take("a")])
+    muse_mode.open_derive(ctx, "a", task)
+    state = muse_mode.ensure(ctx)
+    assert state.derive_job == "a"
+    assert state.derive_form["task"] == task
+
+    opened_popup = False
+
+    def build() -> None:
+        nonlocal opened_popup
+        muse_results.draw(ctx)
+        opened_popup = imgui.is_popup_open(muse_results.DERIVE_POPUP)
+
+    frames(build)
+    assert opened_popup, "derive_popup never reached begin_popup_modal for this task"

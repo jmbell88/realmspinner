@@ -74,7 +74,10 @@ def _image_for(svc: WarlockService, job_id: str) -> Path | None:
     job_dir = svc.job_dir(job_id)
     for name in verdicts_mod.IMAGE_NAMES:
         path = job_dir / name
-        if path.exists():
+        # is_file, not exists (the 2026-09-08 audit, service-07): a stray
+        # directory sharing one of these names would otherwise read as
+        # present and fail later at open() instead of "no image here".
+        if path.is_file():
             return path
     return None
 
@@ -239,5 +242,8 @@ def status(
         "needed": judge_mod.MIN_PER_CLASS,
         "trained": fitted is not None,
         "trained_labels": fitted.labels if fitted is not None else 0,
-        "trained_at": path.stat().st_mtime if fitted is not None and path.exists() else None,
+        # is_file, not exists (the 2026-09-08 audit, service-07): a stray
+        # directory at the probe's path would otherwise read as present and
+        # fail at stat() with an unrelated error instead of this None.
+        "trained_at": path.stat().st_mtime if fitted is not None and path.is_file() else None,
     }

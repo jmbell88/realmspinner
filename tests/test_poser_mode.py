@@ -246,6 +246,50 @@ def test_a_failed_task_clears_its_flags(svc):
     assert state.error == "no bpy"
 
 
+def test_a_stale_preview_failure_does_not_clobber_the_template_the_user_switched_to(svc):
+    """The 2026-09-08 audit (poser-03): state.building/state.error are single,
+    un-scoped fields, so a PREVIEW_KEY_PREFIX landing always overwrote them
+    even when it was submitted for a template the user has since switched
+    away from -- unlike CLIPS_KEY's own landing, which already checks
+    ``done.result.get("template") == state.template`` before adopting
+    (test_a_landing_for_another_template_is_ignored). This is the same guard
+    for its sibling, on both the success and the failure landing.
+    """
+    ctx = FakeCtx(svc)
+    state = poser_mode.ensure(ctx)
+    assert state.template == "humanoid"
+    state.building = True
+    state.error = ""
+
+    # The user switches to quadruped while humanoid's build is still in
+    # flight, and humanoid's build then fails.
+    state.template = "quadruped"
+    poser_mode.on_task_failed(
+        ctx,
+        SimpleNamespace(key=f"{poser_mode.PREVIEW_KEY_PREFIX}humanoid", message="no bpy"),
+    )
+    assert state.building is True, "quadruped's own build is still in flight"
+    assert state.error == "", "humanoid's stale failure must not show over quadruped"
+
+    # A stale *success* landing is dropped the same way.
+    poser_mode.on_task_done(
+        ctx,
+        SimpleNamespace(
+            key=f"{poser_mode.PREVIEW_KEY_PREFIX}humanoid", result="/tmp/humanoid.glb"
+        ),
+    )
+    assert state.building is True
+    assert state.preview_template != "humanoid"
+
+    # quadruped's own landing still works normally.
+    poser_mode.on_task_failed(
+        ctx,
+        SimpleNamespace(key=f"{poser_mode.PREVIEW_KEY_PREFIX}quadruped", message="no bpy"),
+    )
+    assert state.building is False
+    assert state.error == "no bpy"
+
+
 # --- the template switch -----------------------------------------------------
 
 
@@ -407,6 +451,54 @@ def test_close_asset_resets_every_asset_field(svc, monkeypatch):
     assert poser_mode.PREVIEW_KEY_PREFIX + state.template in ctx.submitted, (
         "closing falls back to the template preview"
     )
+
+
+def test_opening_a_second_asset_while_the_first_ones_pose_list_is_still_loading_does_not_strand_it(
+    svc,
+):
+    """The 2026-09-08 audit (poser-04): ``asset_poses_loading`` was one flag
+    shared by every asset even though its landing key
+    (``ASSET_POSES_KEY_PREFIX`` + job id) is already per-job -- so opening a
+    second rigged asset while the first one's saved-pose fetch was still in
+    flight silently refused to submit a read for the second asset, and
+    nothing re-armed it when the first asset's stale result landed.
+    """
+    job1 = _rigged_job(svc)
+    job2 = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    state = poser_mode.ensure(ctx)
+
+    # job1's fetch is still in flight -- set the way a real submit leaves it
+    # standing until its own landing.
+    state.job_id = job1
+    state.asset_poses_loading.add(job1)
+
+    # The user opens a second rigged asset before job1's fetch lands.
+    state.job_id = job2
+    poser_mode.refresh_asset_poses(ctx)
+    key2 = f"{poser_mode.ASSET_POSES_KEY_PREFIX}{job2}"
+    assert key2 in ctx.submitted, "job2's own read must still be submitted"
+    assert job2 in state.asset_poses_loading
+
+    # job1's stale result lands: it must clear only its own flag, and it must
+    # not strand job1 loading forever or touch job2's session.
+    poser_mode.on_task_done(
+        ctx,
+        SimpleNamespace(
+            key=f"{poser_mode.ASSET_POSES_KEY_PREFIX}{job1}",
+            result={"poses": [{"id": "stale"}]},
+        ),
+    )
+    assert job1 not in state.asset_poses_loading
+    assert job2 in state.asset_poses_loading, "job2's own fetch is unaffected"
+    assert state.asset_poses == [], "job1's stale poses must not land on job2's session"
+
+    # job2's own landing still completes normally.
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=key2, result=ctx.results[key2])
+    )
+    assert job2 not in state.asset_poses_loading
+    assert state.asset_poses == ctx.results[key2]["poses"]
 
 
 def test_reframe_frames_the_real_mesh_when_an_asset_is_bound(svc):

@@ -106,11 +106,23 @@ def get_rig(svc: WarlockService, job_id: str) -> dict[str, Any]:
     rig = rigging.read_rig(svc.job_dir(job_id))
     if rig is None:
         raise NotFound("job is not rigged")
+    try:
+        # The 2026-09-08 audit (poser-02): a rig.json that passes read_record's
+        # file-level guards but carries a bone with no "name" used to reach a
+        # caller as an uncaught KeyError instead of a field-addressed refusal.
+        rigging.validate_rig_bones(rig.get("bones", []))
+    except ValueError as exc:
+        raise invalid_from(exc, "That rig cannot be read") from exc
     return rig
 
 
 def _rig_bones(svc: WarlockService, job_id: str) -> list[str]:
-    bones = rigging.rig_bone_names(svc.job_dir(job_id))
+    try:
+        bones = rigging.rig_bone_names(svc.job_dir(job_id))
+    except ValueError as exc:
+        # rig_bone_names now validates the bone list itself (poser-02); see
+        # get_rig's own comment above for the incident.
+        raise invalid_from(exc, "That rig cannot be read") from exc
     if bones is None:
         raise NotFound("job is not rigged")
     return bones

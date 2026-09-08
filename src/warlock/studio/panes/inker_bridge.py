@@ -24,7 +24,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, inker_mode, theme, tokens, widgets
+from .. import controls, docmodes, icons, inker_mode, theme, tokens, widgets
 from ..inker import transform
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -1141,34 +1141,95 @@ def open_convert(ctx: Any, tab: Any, *, to_mode: str = "") -> None:
     imgui.open_popup(CONVERT_POPUP)
 
 
+def _convert_mode_run(tab: Any, mode: str, method: str, max_colours: int) -> dict[str, Any]:
+    """Task thread only: the compute half of a mode-changing conversion.
+
+    Mirrors ``inker_palette_io.set_color_mode`` rather than calling it, for a
+    reason forced by this fix rather than chosen for its own sake:
+    ``set_color_mode`` re-checks ``tab.busy`` at its own top, and by the time
+    this runs, ``docmodes.start_save`` has already set ``tab.saving`` True to
+    lock the tab for the run -- calling through it here would refuse every
+    mode conversion against the very lock this fix added. ``set_color_mode``
+    itself is in ``inker_palette_io.py``, outside this fix's file list, so the
+    two are kept in step by hand: same three ``Document`` calls, same
+    "already this mode" and ``ValueError`` refusals, same labels (read from
+    ``inker_palette_io.COLOR_MODE_LABELS`` rather than copied). Only the
+    ``ctx.toast`` calls move -- to ``_done_convert`` (``inker_mode.py``), on
+    the frame thread the rest of Inker's async doors already toast from.
+    """
+    from .. import inker_palette_io
+
+    doc = tab.doc
+    if mode not in inker_palette_io.COLOR_MODES or doc.color_mode == mode:
+        return {"mode": True, "ok": False}
+    try:
+        if mode == "indexed":
+            moved = doc.convert_to_indexed(doc.palette or None, method, max_colours=max_colours)
+        elif mode == "grayscale":
+            moved = doc.convert_to_grayscale()
+        else:
+            moved = doc.convert_to_rgb()
+    except ValueError as exc:
+        label = inker_palette_io.COLOR_MODE_LABELS[mode]
+        return {"mode": True, "ok": False, "error": f"Cannot switch to {label}: {exc}."}
+    if not moved:
+        return {"mode": True, "ok": False}
+    return {
+        "mode": True,
+        "ok": True,
+        "color_mode": mode,
+        "palette_len": len(doc.palette) if mode == "indexed" else 0,
+        "transparent_index": doc.transparent_index if mode == "indexed" else 0,
+    }
+
+
 def apply_convert(ctx: Any, tab: Any) -> bool:
     """Answer the open session: snap onto a table, or enter indexed mode.
 
-    Free of imgui so the branch can be asserted without a window -- which is
-    the point of it being a function at all, since "did Apply change the mode"
-    is the whole of what distinguishes the two sessions.
+    **Off the frame thread since the 2026-09-08 audit (finding inker-01).**
+    ``Document.convert_to_palette`` (``inker/_doc_indexed.py``) walks every
+    unique cel of the whole document through ``dither.convert``, and
+    Floyd-Steinberg's own docstring (``inker/dither.py``) measures that at
+    roughly 43 seconds for one 2048-square plane -- long enough, on an
+    8192-square canvas (``pixelguard.py``), to freeze the pygame frame loop
+    for the duration with no progress and no cancel. This used to call
+    ``commit_convert``/``set_color_mode`` inline; now it only decides *what*
+    to run and hands the run to ``ctx.submit``, the same compute-then-land
+    shape ``poll_inpaint``/``_decode_inpaint`` already use for a cheaper door.
+    ``_done_convert`` (``inker_mode.py``) lands the result and raises the
+    toast, because a toast raised from the task thread would be exactly the
+    kind of frame-thread state this fix is trying to stop touching from off
+    it. The mode branch cannot simply call ``set_color_mode`` from the task
+    thread for the same reason -- see ``_convert_mode_run``.
 
     A **mode** session cancels the preview before converting rather than
     committing it, for ``commit_convert``'s own reason one level down: the
     preview has already written converted pixels onto the current frame, and
     ``convert_to_indexed``'s snapshot would otherwise record *those* as the
     state to undo to -- one Ctrl+Z landing on a document that never existed.
+
+    Returns whether the job was accepted, not whether it landed -- the caller
+    (``convert_popup``) already ignores the return value and closes the popup
+    unconditionally, same as it always has.
     """
     state = inker_mode.ensure(ctx)
+    if tab is None or tab.busy:
+        return False
     table = list(state.convert_table)
     mode, state.convert_mode = state.convert_mode, ""
+    method = state.convert_method
+    max_colours = state.convert_max
     state.convert_uid = ""
-    if mode:
-        tab.doc.cancel_convert()
-        return inker_mode.set_color_mode(
-            ctx, tab, mode, method=state.convert_method, max_colours=state.convert_max
-        )
-    if not tab.doc.commit_convert(table, state.convert_method):
-        return False
-    state.palette_slot = 0
-    state.palette_slots = []
-    state.palette_usage = None
-    ctx.toast(f"Converted to {len(table)} colour(s).", "success")
+
+    def run() -> dict[str, Any]:
+        """Task thread only. Neither branch touches ``ctx`` or imgui."""
+        if mode:
+            tab.doc.cancel_convert()
+            return _convert_mode_run(tab, mode, method, max_colours)
+        ok = tab.doc.commit_convert(table, method)
+        return {"mode": False, "ok": ok, "count": len(table)}
+
+    docmodes.start_save(ctx, tab, f"inker-convert:{tab.uid}", run)
     return True
 
 

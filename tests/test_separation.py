@@ -18,9 +18,13 @@ the service).
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 
 from warlock import _q_music, fetch, models, rigging, vram
+from warlock.queue import Worker
 from warlock.service import _jobs_rework as rework
 from warlock.service import files
 from warlock.service.errors import Conflict, Invalid
@@ -369,3 +373,53 @@ def test_a_split_cannot_be_rerolled(svc):
     svc.store.set_status(split, "done")
     with pytest.raises(Invalid, match="no seed to change"):
         resubmit.rerun_job(svc, split)
+
+
+# --- dispatch ------------------------------------------------------------
+
+
+async def _wait_until(predicate, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    pytest.fail("condition not met before timeout")
+
+
+def test_separate_job_does_not_reuse_the_blender_pose_timeout(svc, monkeypatch):
+    """The 2026-09-08 audit, finding muse-02. ``pose_timeout`` (300s) is sized
+    for an inline Blender pose bake -- seconds, not minutes, by its own
+    docstring -- but ``_separate`` is a queued job that can process up to a
+    600-second take on a CPU fallback. Reusing ``pose_timeout`` would kill a
+    legitimately-progressing separation at 300s exactly like a hung one.
+    Fails against the unfixed code, which passes ``worker.config.pose_timeout``
+    (300.0) to ``rigging.run_worker`` instead of a separation-sized ceiling.
+    """
+    calls: list[dict] = []
+
+    def fake_run_worker(spec, *, on_progress=None, on_start=None, timeout=0.0, **kwargs):
+        from pathlib import Path
+
+        calls.append({"spec": spec, "timeout": timeout})
+        Path(spec["out_dir"]).mkdir(parents=True, exist_ok=True)
+        return {"ok": True, "files": [], "rate": 44100}
+
+    monkeypatch.setattr(rigging, "run_worker", fake_run_worker)
+
+    worker = Worker(svc.config, svc.store)
+    take = _take(svc)
+    split_id = rework.separate_job(svc, take)["id"]
+
+    async def _run() -> None:
+        worker.start()
+        await _wait_until(lambda: worker.store.get(split_id)["status"] == "done")
+        await worker.shutdown()
+
+    asyncio.run(_run())
+
+    assert len(calls) == 1
+    # It must not be pose_timeout (300s, sized for an inline bake with a
+    # completely different cost model) -- it must be the job's own field.
+    assert calls[0]["timeout"] != svc.config.pose_timeout
+    assert calls[0]["timeout"] == svc.config.separation_timeout

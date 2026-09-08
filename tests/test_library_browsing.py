@@ -433,9 +433,18 @@ def test_resetting_a_window_that_never_grew_does_not_force_a_re_read(svc):
 def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
     """W2.1: the cache only ever loads the newest page, so a search used to
     find nothing for a job the pager had not reached yet -- "Load older" was
-    the only way in. ``widen_for_filters`` merges a store-side match into the
+    the only way in. ``request_widen`` merges a store-side match into the
     window before ``Filters.matches`` runs, so the search reaches it directly.
+
+    Submitted through a real ``TaskRunner`` and collected like ``request``/
+    ``adopt`` already are (shell-01, the 2026-09-08 audit): the store query
+    used to run inline here, on whichever thread called ``widen_for_filters``,
+    which on the frame thread was the exact stall the ordinary list poll's
+    ``request``/``read``/``adopt`` split exists to prevent.
     """
+    from warlock.studio.jobs_cache import SEARCH_KEY
+    from warlock.studio.tasks import TaskRunner
+
     old_id = svc.store.create("text", "a rusty iron lantern", {})
     svc.store._conn.execute("UPDATE jobs SET created_at = 1.0 WHERE id = ?", (old_id,))
     svc.store._conn.commit()
@@ -445,9 +454,24 @@ def test_a_job_outside_the_loaded_window_is_found_by_its_prompt(svc):
     cache.tick()
     assert old_id not in cache.by_id  # the one-row window missed it
 
-    filters = Filters(text="lantern")
-    cache.widen_for_filters(filters)
-    assert old_id in [j["id"] for j in cache.visible(filters)]
+    runner = TaskRunner(workers=1)
+    try:
+        filters = Filters(text="lantern")
+        assert cache.request_widen(filters, runner) is True
+        # Handed off, not run here: nothing about the cache changes merely
+        # because a search was submitted.
+        assert old_id not in cache.by_id
+
+        deadline = time.monotonic() + 5
+        done: list[Any] = []
+        while time.monotonic() < deadline and not done:
+            done = runner.poll()
+        assert done and done[0].key == SEARCH_KEY, done
+
+        cache.adopt_widen(done[0].result)
+        assert old_id in [j["id"] for j in cache.visible(filters)]
+    finally:
+        runner.shutdown(wait=False)
 
 
 @pytest.fixture(scope="module")
@@ -522,10 +546,24 @@ def _frame(imgui_ctx, build):
     renderer.render(imgui.get_draw_data())
 
 
+def _drain_search(ctx: Any) -> None:
+    """Poll a real ``TaskRunner`` for the search :meth:`request_widen`
+    submitted and hand its result to ``adopt_widen`` -- the frame-thread half,
+    which ``main._on_task_done`` performs in the app (shell-01)."""
+    from warlock.studio.jobs_cache import SEARCH_KEY
+
+    deadline = time.monotonic() + 5
+    done: list[Any] = []
+    while time.monotonic() < deadline and not done:
+        done = ctx.tasks.poll()
+    assert done and done[0].key == SEARCH_KEY, done
+    ctx.cache.adopt_widen(done[0].result)
+
+
 def test_a_tag_search_finds_an_asset_outside_the_loaded_window_in_both_library_views(
     app_ctx, imgui_ctx
 ):
-    """A3: ``widen_for_filters`` widens the store-side candidate set for a
+    """A3: ``request_widen`` widens the store-side candidate set for a
     ``tag:`` filter, not only free text -- and both Library views call it, so
     a structured filter reaches past the loaded window whichever one is open.
 
@@ -547,6 +585,7 @@ def test_a_tag_search_finds_an_asset_outside_the_loaded_window_in_both_library_v
     assert old_id not in app_ctx.cache.by_id  # the one-row window missed it
 
     _frame(imgui_ctx, lambda: library.draw(app_ctx))
+    _drain_search(app_ctx)
     assert old_id in [j["id"] for j in app_ctx.cache.visible(app_ctx.state.filters)]
 
     # Fresh cache and fresh filters object: the full-window Library must reach
@@ -557,6 +596,7 @@ def test_a_tag_search_finds_an_asset_outside_the_loaded_window_in_both_library_v
     assert old_id not in app_ctx.cache.by_id
 
     _frame(imgui_ctx, lambda: library_full.draw(app_ctx))
+    _drain_search(app_ctx)
     assert old_id in [j["id"] for j in app_ctx.cache.visible(app_ctx.state.filters)]
 
 

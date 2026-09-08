@@ -113,7 +113,19 @@ def _plane_bytes(layer: Any) -> int:
     return int(cost) if cost is not None else int(layer.pixels.nbytes)
 
 
-@dataclass
+# Every ``Edit`` subclass below that carries a numpy array (or, per
+# ``ColorStateEdit``/``SelectionEdit``, something built from one) is declared
+# ``eq=False``. The 2026-09-08 audit (inker-10) found the default dataclass
+# ``__eq__`` tuple-compares those fields and returns the raw ndarray
+# comparison rather than a bool, so ``==``, ``!=`` or ``in`` on two edits
+# raises "the truth value of an array with more than one element is
+# ambiguous" instead of comparing them -- the base ``Edit`` in ``studio/undo.py``
+# avoids this by not being a dataclass at all, but every concrete type here is
+# one. Nothing in this build compares edit instances structurally today (the
+# history panel keys off ``type(edit)`` and ``uid``, never equality), so
+# identity comparison -- what ``eq=False`` falls back to -- changes no
+# observed behaviour.
+@dataclass(eq=False)
 class PatchEdit(Edit):
     """Exact pixels of one rectangle of one layer, before and after.
 
@@ -165,7 +177,7 @@ class PatchEdit(Edit):
         self._put(doc, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class IndexPatchEdit(Edit):
     """:class:`PatchEdit` for a truly indexed document: **index** crops.
 
@@ -206,7 +218,7 @@ class IndexPatchEdit(Edit):
         self._put(doc, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class IndexRemapEdit(Edit):
     """A slot permutation applied to every index plane in the document.
 
@@ -238,7 +250,7 @@ class IndexRemapEdit(Edit):
         doc.apply_remap(self.forward)
 
 
-@dataclass
+@dataclass(eq=False)
 class ColorStateEdit(Edit):
     """Colour mode, palette and transparent index, before and after.
 
@@ -398,7 +410,7 @@ class LayerFlagEdit(Edit):
         doc._set_layer_flags(self.layer_uid, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class MatteEdit(Edit):
     """The document's matte colour, before and after.
 
@@ -427,7 +439,7 @@ class MatteEdit(Edit):
         self._apply(doc, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class PaletteEdit(Edit):
     """The document's colour *table*, before and after. A few dozen tuples.
 
@@ -472,7 +484,7 @@ class PaletteEdit(Edit):
         self._apply(doc, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class FramePaletteEdit(Edit):
     """One frame's own colour table, before and after. ``None`` is "no override".
 
@@ -516,7 +528,7 @@ class FramePaletteEdit(Edit):
         self._apply(doc, self.after)
 
 
-@dataclass
+@dataclass(eq=False)
 class SheetBaseEdit(Edit):
     """The recorded render and its conflict flags, before and after.
 
@@ -575,7 +587,7 @@ def _unpack(blob: tuple[bytes, tuple[int, int]] | None) -> np.ndarray | None:
     return np.frombuffer(zlib.decompress(data), dtype=np.uint8).reshape(shape).copy()
 
 
-@dataclass
+@dataclass(eq=False)
 class SelectionEdit(Edit):
     """A selection change. Masks compress to almost nothing -- they are mostly
     runs of 0 and 255 -- which is the only reason selection changes can afford
@@ -596,7 +608,7 @@ class SelectionEdit(Edit):
         doc.set_selection_mask(_unpack(self.after))
 
 
-@dataclass
+@dataclass(eq=False)
 class ReplayEdit(Edit):
     """A whole-canvas operation: flip, rotate, scale, crop, canvas resize.
 
@@ -651,7 +663,7 @@ class ReplayEdit(Edit):
         self.replay(doc)
 
 
-@dataclass
+@dataclass(eq=False)
 class FlourishEdit(Edit):
     """One effect group's recipe and render record, before and after.
 

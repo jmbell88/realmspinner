@@ -173,7 +173,15 @@ class PoserState:
     #: This asset's own saved poses (``service.rig.list_poses``), distinct from
     #: the shared, skeleton-keyed library above.
     asset_poses: list[dict[str, Any]] = field(default_factory=list)
-    asset_poses_loading: bool = False
+    #: Job ids with an in-flight ``ASSET_POSES_KEY_PREFIX`` read. A single
+    #: bool here, before the 2026-09-08 audit (poser-04), meant opening a
+    #: second rigged asset while the first one's fetch was still in flight
+    #: silently refused to submit the second read (the shared flag read as
+    #: "already loading"), and nothing re-armed it when the first asset's
+    #: stale result landed -- the second asset showed "no saved poses" with no
+    #: error and no recovery. Scoped per job id, the way the landing key
+    #: (``ASSET_POSES_KEY_PREFIX`` + job id) already is.
+    asset_poses_loading: set[str] = field(default_factory=set)
     #: Set when binding the viewer to the asset failed (a missing rig.glb, a
     #: GLB with no skin). Cleared only by :func:`retry_asset`, so a broken rig
     #: is not retried every frame.
@@ -505,12 +513,12 @@ def refresh_asset_poses(ctx: Any) -> None:
     from ..service import rig as svc_rig
 
     state = ensure(ctx)
-    if not state.job_id or state.asset_poses_loading:
+    if not state.job_id or state.job_id in state.asset_poses_loading:
         return
-    state.asset_poses_loading = True
+    state.asset_poses_loading.add(state.job_id)
     key = f"{ASSET_POSES_KEY_PREFIX}{state.job_id}"
     if not ctx.submit(key, svc_rig.list_poses, ctx.svc, state.job_id):
-        state.asset_poses_loading = False
+        state.asset_poses_loading.discard(state.job_id)
 
 
 def save_pose_to_asset(ctx: Any) -> None:
@@ -1109,8 +1117,18 @@ def on_task_done(ctx: Any, done: Any) -> None:
         pump(ctx)
         return
     if key.startswith(PREVIEW_KEY_PREFIX):
-        state.building = False
         template = key[len(PREVIEW_KEY_PREFIX):]
+        if template != state.template:
+            # The 2026-09-08 audit (poser-03): state.building/state.error are
+            # single, un-scoped fields, so a landing for a template the user
+            # has since switched away from used to overwrite them regardless
+            # -- showing the old template's failure over the new template's
+            # still-loading viewport, with Try again silently doing nothing
+            # until the real build eventually landed. CLIPS_KEY's landing
+            # below already checks this; this is the same check for its
+            # sibling.
+            return
+        state.building = False
         if done.result is not None:
             state.preview_path = Path(done.result)
             state.preview_template = template
@@ -1155,8 +1173,8 @@ def on_task_done(ctx: Any, done: Any) -> None:
             adopt_clips(ctx, done.result)
         return
     if key.startswith(ASSET_POSES_KEY_PREFIX):
-        state.asset_poses_loading = False
         job_id = key[len(ASSET_POSES_KEY_PREFIX):]
+        state.asset_poses_loading.discard(job_id)
         if job_id == state.job_id and isinstance(done.result, dict):
             state.asset_poses = list(done.result.get("poses") or ())
         return
@@ -1205,6 +1223,11 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         pump(ctx)
         return
     if done.key.startswith(PREVIEW_KEY_PREFIX):
+        template = done.key[len(PREVIEW_KEY_PREFIX):]
+        if template != state.template:
+            # poser-03's guard, mirrored on the failure landing: see the
+            # matching comment on the success side in on_task_done.
+            return
         state.building = False
         # What the viewport's empty state shows under the placeholder, so a
         # broken Blender is a sentence on screen rather than a toast that
@@ -1221,7 +1244,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         clips_pump(ctx)
         return
     if done.key.startswith(ASSET_POSES_KEY_PREFIX):
-        state.asset_poses_loading = False
+        state.asset_poses_loading.discard(done.key[len(ASSET_POSES_KEY_PREFIX):])
         return
 
 

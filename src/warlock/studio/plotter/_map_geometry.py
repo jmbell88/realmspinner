@@ -50,6 +50,19 @@ class GeometryOps:
         dx, dy = int(offset_x), int(offset_y)
         if (width, height) == (self.width, self.height) and (dx, dy) == (0, 0):
             return False
+        # The 2026-09-08 audit, plotter-05: an open object- or group-edit
+        # session's stored "before" describes the object's *pre-drag*
+        # position, and this method is about to shift every object's *live*
+        # x/y directly. Left open, closing the session later pushes an
+        # ``ObjectPropsEdit`` spanning pre-drag straight to post-resize,
+        # double-counting this method's own shift against the ``ResizeEdit``
+        # below -- ``offset`` and ``MapDoc.undo``/``redo``/``step_history``
+        # already close both before touching history, and this is the same
+        # rule. The stroke session is the deliberate exception: it is
+        # translated in place by ``_reframe_stroke`` rather than closed, so a
+        # resize mid-paint does not fragment one brush stroke into two.
+        self.end_object_edit()
+        self.end_group_edit()
         before_origin = (int(self.origin_x), int(self.origin_y))
         after_origin = (
             (before_origin[0] - dx, before_origin[1] - dy)
@@ -499,6 +512,13 @@ class GeometryOps:
         tile_h = _dimension(tile_h, "tile height")
         if (tile_w, tile_h) == (self.tile_w, self.tile_h):
             return False
+
+        # The 2026-09-08 audit, plotter-05: the same reason ``resize`` closes
+        # both sessions first -- this method is about to scale every object's
+        # live x/y, and a session left open would have a closing edit built
+        # from its pre-drag "before" against the already-scaled live "after".
+        self.end_object_edit()
+        self.end_group_edit()
 
         # A ratio rather than a cell walk: an object is not on the grid, it is
         # at a pixel, and the pixel that was two cells across is still two cells

@@ -13,10 +13,18 @@ partial final column -- is a file or a form the user got wrong, and the useful
 moment to say so is when the tileset is made. Deferring it produces a tileset
 that exists, appears in the list, and draws garbage.
 
-Only *image* tilesets exist here. Tiled's "collection of images" variant, where
-each tile is its own file, is refused by :mod:`.tsx` and :mod:`.tmx` rather than
-half-supported: the whole model below assumes one atlas and a tile id that is an
-index into its grid.
+**Both of Tiled's tileset shapes are modelled here, not just the sliced one.**
+An ordinary tileset is one image cut into a grid, and every tile id below is an
+index into that grid. Tiled's "collection of images" variant -- where each tile
+is its own file, ids may be sparse, and a tile's own size need not match the
+others' -- is :class:`Collection`: its pixels are still composed into one
+backing atlas on the way in (:func:`compose_collection`), so the texture
+upload, ``uv`` and both renderers go on working on one array, but every
+accessor answers about the *tile* rather than about the cell it was packed
+into. :mod:`.tsx` and :mod:`.tmx` read and write collections rather than
+refusing them (the 2026-09-08 audit, plotter-06, found this paragraph still
+claiming otherwise well after that landed) -- what a tileset genuinely refuses
+is narrower, and named where it is checked: :func:`.tsx.check_tileset_features`.
 """
 
 from __future__ import annotations

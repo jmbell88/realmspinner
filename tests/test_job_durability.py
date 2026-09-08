@@ -205,6 +205,15 @@ def _function_source(module: Any, name: str) -> str:
 #: the honest version of that judgement; this row is what "adding a kind is a
 #: sweep of every stage-keyed table" (CLAUDE.md) means for this table.
 PUBLISHERS = [
+    # docs-05 (the 2026-09-08 audit): ``_remesh`` was the one of the three
+    # sites TODO.md's P37 named as needing human judgement that already
+    # carried its own classifying docstring ("the rename is the point of no
+    # return, so a cancel that lands after it commits") and already called
+    # ``self._cancel.commit()`` right after its ``os.replace`` onto
+    # ``model.glb`` -- only this row, the mechanical half, was undone.
+    # ``_deform_qa`` and the ``_q_generate.py`` promotion stage genuinely need
+    # the reasoning P37 describes and stay out of this list.
+    ("warlock._q_mesh", "_remesh", "os.replace"),
     ("warlock._q_rig", "_rig", "finalize_rig"),
     ("warlock._q_rig", "_sheet", "_publish_text"),
     ("warlock._q_sprite", "_pixel_sheet", "_publish_text"),

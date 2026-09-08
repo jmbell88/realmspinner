@@ -209,8 +209,11 @@ def apply_library_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[s
         label = rigging.get_template(record["template"]).label
         raise Conflict(f"That pose was authored for the {label} skeleton.")
 
-    known = [b["name"] for b in rig.get("bones", [])]
     try:
+        # The 2026-09-08 audit (poser-02): a rig.json with a nameless bone
+        # crashed this bare comprehension with an uncaught KeyError, the same
+        # shape of hole service.rig._rig_bones had until the same fix.
+        known = rigging.validate_rig_bones(rig.get("bones", []))
         pose = rigging.validate_pose(
             {"name": record["name"], "bones": record["bones"]}, known
         )

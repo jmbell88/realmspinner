@@ -116,9 +116,17 @@ picker and the download confirmation. `StyleLora`, `IPAdapter`, `ControlNet`,
 `license` field, so no licence line is shown for those entries in-app —
 including TRELLIS.2-4B (`EngineModel`) and BiRefNet (`MattingModel`), both MIT
 per the table above but shown there by hand, not read from the registry.
-[`docs/MODELS.md`](docs/MODELS.md) lists the licence for every model by hand,
-independent of which dataclass carries the field. If you intend to sell what
-you generate, read the row for the model you generated it with (the 2026-09-06
-audit, finding docs-03: this paragraph used to say the `license` field and the
-in-app licence line existed for every registry entry; seven of ten classes
-have neither).
+Of those seven fieldless classes, [`docs/MODELS.md`](docs/MODELS.md) writes a
+row by hand for two -- TRELLIS.2-4B (`EngineModel`) and BiRefNet
+(`MattingModel`), both MIT. For the other five -- `StyleLora`, `IPAdapter`,
+`ControlNet`, `MetricModel` (DINOv2) and `PoseModel` (ViTPose) -- it names no
+row at all and says instead that they carry their own terms on their own
+repository pages, not audited by this project (the 2026-09-08 audit, finding
+docs-03: this paragraph used to claim full by-hand coverage in docs/MODELS.md
+for every model, independent of which dataclass carries the field, which
+docs/MODELS.md itself delivers for only two of the seven fieldless classes;
+the 2026-09-06 audit, finding docs-03, had already narrowed the same
+paragraph once before, from an earlier claim that the `license` field and the
+in-app licence line existed for every registry entry). If you intend to sell
+what you generate, read the row for the model you generated it with, or its
+own repository page directly if docs/MODELS.md has none.

@@ -15,6 +15,7 @@ import warlock.config as config_mod
 from warlock import rigging
 from warlock.service import Conflict, Failed, Invalid, NotFound
 from warlock.service import jobs as svc_jobs
+from warlock.service import poses as svc_poses
 from warlock.service import rig as svc_rig
 
 BONES = ["hips", "spine", "head"]
@@ -107,6 +108,71 @@ def test_poses_require_a_rig(svc):
         svc_rig.list_poses(svc, job_id)
     with pytest.raises(NotFound):
         svc_rig.save_pose(svc, job_id, _pose())
+
+
+def test_a_rig_with_a_nameless_bone_refuses_cleanly_instead_of_a_keyerror(svc, assets):
+    """The 2026-09-08 audit (poser-02): a rig.json that passes read_record's
+    file-level guards (valid JSON, valid dict, under the byte ceiling) but
+    carries a bone with no "name" key used to crash rigging.rig_bone_names
+    with an uncaught KeyError, which reached list_poses/save_pose unhandled
+    instead of the field-addressed refusal poselib.validate_record already
+    gives an equivalently malformed *pose* record. docs/INVARIANTS.md's own
+    "a pose or rig JSON is validated at the read door" paragraph names this
+    exact failure mode as fixed -- but only for pose records.
+    """
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
+    job_dir = assets / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"fake-glb")
+    (job_dir / "rig.glb").write_bytes(b"fake-rig")
+    # Valid JSON, valid dict, under the byte ceiling -- read_record's three
+    # file-level guards all pass. The second bone entry is the hand edit: a
+    # dict with no "name" key.
+    (job_dir / "rig.json").write_text(
+        json.dumps({"version": 1, "bones": [{"name": "hips"}, {"head": [0, 0, 0]}]})
+    )
+    svc.store.set_status(job_id, "done")
+
+    with pytest.raises(Invalid) as caught:
+        svc_rig.list_poses(svc, job_id)
+    assert caught.value.field == "bones"
+
+    with pytest.raises(Invalid) as caught:
+        svc_rig.save_pose(svc, job_id, _pose())
+    assert caught.value.field == "bones"
+
+    with pytest.raises(Invalid) as caught:
+        svc_rig.get_rig(svc, job_id)
+    assert caught.value.field == "bones"
+
+
+def test_applying_a_library_pose_to_a_rig_with_a_nameless_bone_refuses_cleanly(svc, assets):
+    """The same hole, a second door: service.poses.apply_library_pose built
+    ``known`` with the identical bare ``[b["name"] for b in rig.get("bones",
+    [])]`` comprehension as service.rig._rig_bones, fixed alongside it for
+    the same 2026-09-08 audit (poser-02)."""
+    template = rigging.get_template("humanoid")
+    stored = svc_poses.create_library_pose(
+        svc,
+        {
+            "name": "Crouch",
+            "template": "humanoid",
+            "bones": {b["name"]: IDENTITY for b in template.bones},
+        },
+    )
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
+    job_dir = assets / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"fake-glb")
+    (job_dir / "rig.glb").write_bytes(b"fake-rig")
+    (job_dir / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "humanoid", "bones": [{"name": "hips"}, {}]})
+    )
+    svc.store.set_status(job_id, "done")
+
+    with pytest.raises(Invalid) as caught:
+        svc_poses.apply_library_pose(svc, job_id, stored["id"])
+    assert caught.value.field == "bones"
 
 
 def test_listing_reports_the_rigs_bones(svc, assets):

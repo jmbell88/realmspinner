@@ -18,6 +18,7 @@ rather than shown -- ``viewer_embed``'s pending-marker rule, applied to cels.
 
 from __future__ import annotations
 
+import enum
 import time
 from pathlib import Path
 from typing import Any
@@ -101,6 +102,34 @@ def insert_reason(state: Any, tab: Any) -> str:
     return BUSY if getattr(tab, "busy", False) else ""
 
 
+def facing_afford(recipe: Any, directions: int) -> str:
+    """Why *directions* would be refused for *recipe*, or "" if it would not.
+
+    Checked against the preset's own recipe -- before ``inker_mode.flourish_insert``'s
+    canvas-fit scale, which only ever shrinks ``width``/``height``. Shrinking
+    geometry only ever lowers ``bake_cost`` (``inker/flourish/recipe.py``), so
+    a combination flagged here is refused on every canvas the preset could be
+    inserted into, never fewer -- the safe direction to be wrong in for a
+    warning shown before Insert is pressed.
+
+    The 2026-09-08 audit (finding inker-05): the Facings combo offered
+    One/Four/Eight unconditionally for every one of the 29 shipped presets,
+    but ``check_bake_cost`` (already gated at submission, the 2026-09-07
+    audit's inker-10) silently refuses 4 presets at Four directions and 11 at
+    Eight, ``fireball`` -- the manual's own walkthrough example -- among
+    both. This is the predicate the popup greys options with, computed from
+    the same ``check_bake_cost`` the submit path uses so the two can never
+    disagree about which combinations are legal.
+    """
+    from .inker.flourish import recipe as flourish_recipe
+
+    try:
+        flourish_recipe.check_bake_cost(recipe, directions)
+    except ValueError as exc:
+        return str(exc)
+    return ""
+
+
 def can_regenerate(state: Any, tab: Any) -> bool:
     return has_effect(state, tab) and not getattr(tab, "busy", False)
 
@@ -168,7 +197,35 @@ BAKE_TOO_COSTLY = (
 )
 
 
-def submit_render(ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: bool = False) -> bool:
+class SubmitResult(enum.Enum):
+    """What answers a caller of :func:`submit_render`/:func:`submit_insert`.
+
+    The two functions used to collapse every refusal into a bare ``False``,
+    so a caller could not tell "the bake cost too much" (already toasted, by
+    this module, right here) from "something is already running" (not
+    toasted here, and the caller's job to say so). The 2026-09-08 audit
+    (finding inker-09) found both ``inker_mode.flourish_insert`` and
+    ``flourish_regenerate`` adding a *second*, contradicting message on top
+    of the correct one whenever the refusal was actually the cost ceiling --
+    "already being inserted"/"still running" when nothing was in flight.
+    Finding inker-04 is the same ambiguity seen from :func:`tick`, which
+    could not tell "refused, stop asking" from "accepted, stop asking" either
+    and kept resubmitting -- and re-toasting -- every frame.
+    """
+
+    #: Handed to ``ctx.submit`` and accepted.
+    ACCEPTED = "accepted"
+    #: ``check_bake_cost`` refused it. Already toasted with ``BAKE_TOO_COSTLY``;
+    #: retrying with the same recipe would only refuse again.
+    TOO_COSTLY = "too_costly"
+    #: ``ctx.submit`` refused a key already in flight. Not toasted here --
+    #: the caller knows what it is that is already running.
+    BUSY = "busy"
+
+
+def submit_render(
+    ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: bool = False
+) -> SubmitResult:
     """Bake ``recipe`` off-thread for ``group_uid``. -> whether it was accepted.
     The group's textures go with it, read once here on the frame thread."""
     from .inker.flourish import bake as flourish_bake
@@ -178,7 +235,7 @@ def submit_render(ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: boo
         flourish_recipe.check_bake_cost(recipe)
     except ValueError:
         ctx.toast(BAKE_TOO_COSTLY, "warn")
-        return False
+        return SubmitResult.TOO_COSTLY
 
     key = render_key(tab, group_uid)
     tab_uid = tab.uid
@@ -193,10 +250,10 @@ def submit_render(ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: boo
         baked = flourish_bake.bake(recipe, progress=progress, assets=assets)
         return {"tab": tab_uid, "group": group_uid, "baked": baked, "force": force}
 
-    return bool(ctx.submit(key, work))
+    return SubmitResult.ACCEPTED if ctx.submit(key, work) else SubmitResult.BUSY
 
 
-def submit_insert(ctx: Any, tab: Any, recipe: Any) -> bool:
+def submit_insert(ctx: Any, tab: Any, recipe: Any) -> SubmitResult:
     from .inker.flourish import bake as flourish_bake
     from .inker.flourish import recipe as flourish_recipe
 
@@ -204,7 +261,7 @@ def submit_insert(ctx: Any, tab: Any, recipe: Any) -> bool:
         flourish_recipe.check_bake_cost(recipe)
     except ValueError:
         ctx.toast(BAKE_TOO_COSTLY, "warn")
-        return False
+        return SubmitResult.TOO_COSTLY
 
     key = insert_key(tab)
     tab_uid = tab.uid
@@ -215,11 +272,22 @@ def submit_insert(ctx: Any, tab: Any, recipe: Any) -> bool:
 
         return {"tab": tab_uid, "baked": flourish_bake.bake(recipe, progress=progress)}
 
-    return bool(ctx.submit(key, work))
+    return SubmitResult.ACCEPTED if ctx.submit(key, work) else SubmitResult.BUSY
 
 
 def tick(ctx: Any, state: Any, tab: Any, *, now: float) -> int:
-    """Submit every render that has become due for ``tab``. -> how many."""
+    """Submit every render that has become due for ``tab``. -> how many.
+
+    **A refusal for cost is popped, not retried.** Before the 2026-09-08 audit
+    (finding inker-04) this only popped ``flourish_due`` on acceptance, so a
+    recipe over ``MAX_BAKE_COST`` stayed due forever -- ``draw_inspector``
+    calls this every frame, and every frame called ``submit_render`` again,
+    which re-toasted ``BAKE_TOO_COSTLY`` again, permanently occupying the
+    toast stack's five visible slots even after the user clicked away. A
+    ``BUSY`` refusal is left due, same as before: ``land`` re-arms the clock
+    once the running render's result is in, and retrying it here would only
+    race the same key.
+    """
     if tab is None or getattr(tab, "busy", False):
         return 0
     sent = 0
@@ -233,9 +301,13 @@ def tick(ctx: Any, state: Any, tab: Any, *, now: float) -> int:
             # Let it rest until the running render lands; ``land`` re-arms the
             # clock when the pending recipe has moved past what it rendered.
             continue
-        if submit_render(ctx, tab, group, recipe):
+        result = submit_render(ctx, tab, group, recipe)
+        if result is SubmitResult.ACCEPTED:
             state.flourish_due.pop(group, None)
             sent += 1
+        elif result is SubmitResult.TOO_COSTLY:
+            state.flourish_due.pop(group, None)
+            state.flourish_pending.pop(group, None)
     return sent
 
 
@@ -578,11 +650,22 @@ def text_model_dir(config: Any) -> Path | None:
 
 def text_model_present(config: Any) -> bool:
     """Weights on disk: ``config.json`` and at least one safetensors file, the
-    same two facts ``fetch.present`` asks of every helper model."""
+    same two facts ``fetch.present`` asks of every helper model.
+
+    Both checks require a *regular file*, not merely a path that exists with
+    the right name -- ``.exists()``/``rglob`` alone are also true of a
+    directory named ``config.json`` or a directory ending in ``.safetensors``.
+    The 2026-09-08 audit (finding inker-12): this is the one "present is not
+    usable" door doctor.py's suspect-file check and ``pack_worker``'s import
+    probe already guard everywhere else, left unguarded on the door a user
+    hand-populates -- a stray directory or a partial copy reported the model
+    available, and ``text_model_available`` then spawned ``recipe_worker`` for
+    every prompt before falling back to the keyword mapper.
+    """
     base = text_model_dir(config)
-    if base is None or not (base / "config.json").exists():
+    if base is None or not (base / "config.json").is_file():
         return False
-    return any(base.rglob("*.safetensors"))
+    return any(p.is_file() for p in base.rglob("*.safetensors"))
 
 
 def text_model_available(config: Any) -> bool:

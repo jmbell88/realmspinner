@@ -50,6 +50,32 @@ def pattern_room(doc: Any, editable: bool) -> tuple[bool, str]:
     return True, ""
 
 
+def add_to_order_reason(effect: str, doc: Any, editable: bool) -> str:
+    """"Add to the order"'s disabled reason, in priority order. -> "" when
+    the button should be enabled.
+
+    Pulled out pure for the 2026-09-08 audit's finding sirens-05: this was an
+    inline three-way ternary, unlike every sibling disabled-reason in this
+    file and its neighbours -- :func:`pattern_room`,
+    ``sirens_instruments.instrument_room``, ``sirens_effects.delete_reason``,
+    ``sirens_instruments.sample_delete_reason`` -- each pulled out and unit
+    tested after the 2026-09-07 audit found the same shape of bug in them
+    (findings sirens-03/04/05 of that round). An inline ternary with untested
+    priority among competing disabled causes is precisely what produced those,
+    and this one had nothing to catch a wrong priority before it shipped.
+    """
+    if effect:
+        return (
+            f"The grid is editing the sound effect {effect}, and an effect's "
+            "pattern is not part of the song. Pick a song pattern first."
+        )
+    if not doc.patterns:
+        return "There is no pattern to add yet."
+    if not editable:
+        return _BUSY_WHY
+    return ""
+
+
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
 
@@ -80,15 +106,7 @@ def draw(ctx: Any) -> None:
     # say nothing.
     effect = sirens_mode.oneshot_name_for_caret(ctx, tab)
     addable = editable and bool(doc.patterns) and not effect
-    if effect:
-        add_why = (
-            f"The grid is editing the sound effect {effect}, and an effect's "
-            "pattern is not part of the song. Pick a song pattern first."
-        )
-    elif not doc.patterns:
-        add_why = "There is no pattern to add yet."
-    else:
-        add_why = _BUSY_WHY
+    add_why = add_to_order_reason(effect, doc, editable)
     if widgets.disabled_button(
         f"{icons.PLUS} Add to the order", addable, (width, 0), reason=add_why
     ):

@@ -71,6 +71,14 @@ renaming a sprite changes what the sidecar calls it and nothing else: two layers
 Selecting a source highlights it in the atlas preview and in the placement list, and offers a rename
 box and a **Remove** button. `Delete` removes the selected source.
 
+With a source selected, an **Anchor** checkbox sits above **Remove**. Off, the sprite has no pivot of
+its own and the sidecar records the documented centre. Ticked, it starts at the untrimmed picture's
+own centre — which changes nothing until you move it — and two drag fields place it in that sprite's
+own untrimmed pixels, measured from its top-left, before any trim. The preview draws a small cross
+wherever that puts it, on every sprite carrying one, so you aim by eye rather than by number. A pivot
+arrives already set only when it came from an Inker document that had one; a loose PNG or a sliced
+tile set has none until you tick the box.
+
 A rename that lands re-packs automatically, so the next export's sidecar carries the new name. One
 past 64 characters, or containing a path separator or control character, is refused — the name is
 written verbatim into the sidecar, where a consumer may treat it as a filename.
@@ -171,7 +179,9 @@ both describe exactly what was packed regardless of whether Tiled would agree on
 The sidecar is engine-neutral: pixel rectangles and nothing else. Each frame records where it landed
 in the atlas, whether it was trimmed, where the trimmed rectangle sat inside the original image, and
 what the original's size was — which together are what let a consumer place a sprite where you drew
-it rather than flush against its own bounding box.
+it rather than flush against its own bounding box. Each frame also carries a `pivot`, the anchor as a
+fraction of that same trimmed rectangle. A sprite with no anchor set still gets one — the documented
+centre — so the key is always there and a consumer's parser never has to handle its absence.
 
 Note that this is deliberately *not* the sidecar a [sprite sheet](27-sprite-sheets.md) writes. That
 format is Warlock's own and describes poses and view directions; this one describes an arbitrary

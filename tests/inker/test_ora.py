@@ -7,6 +7,7 @@ ORA that Krita opens as blank.
 
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import zipfile
@@ -852,3 +853,16 @@ def test_an_animated_background_layer_is_still_a_background_after_a_reload(tmp_p
     assert doc.anim.tracks[0].background is True
     assert doc.stack[0].background is True
     assert doc.has_background is True
+
+
+def test_new_cel_grid_shape_check_is_not_duplicated():
+    """The 2026-09-08 audit (inker-11): ``_read_tiles``'s nested ``_new_cel``
+    had its canvas-grid-shape check -- the comment beginning "The grid the
+    canvas has, not merely a grid the blob fits" and the code below it -- written
+    twice, byte for byte, back to back, over the same ``grid_h``/``grid_w``/
+    ``wanted`` values that never change between the two copies. The second
+    block never runs; it is only two copies of a security-relevant bound check
+    to keep in sync by hand."""
+    source = inspect.getsource(inker_ora._read_tiles)
+    assert source.count("wanted = grid_shape(") == 1
+    assert source.count("not merely a grid the blob fits") == 1

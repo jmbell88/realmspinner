@@ -13,6 +13,7 @@ under ``t2i_model_root/loras``, however it got there.
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -363,10 +364,21 @@ def train_lora(
     new_id = uuid.uuid4().hex[:12]
     job_dir = svc.job_dir(new_id)
     train_dir = job_dir / "train"
-    train_dir.mkdir(parents=True, exist_ok=True)
-    for index, path in enumerate(paths):
-        with Image.open(path) as im:
-            im.convert("RGB").save(train_dir / f"{index:03d}.png")
-    svc.store.create("lora_train", text, params, new_id)
+    try:
+        train_dir.mkdir(parents=True, exist_ok=True)
+        for index, path in enumerate(paths):
+            with Image.open(path) as im:
+                im.convert("RGB").save(train_dir / f"{index:03d}.png")
+        svc.store.create("lora_train", text, params, new_id)
+    except Exception:
+        # create_character's and create_tile_sheet's own shape (the
+        # 2026-09-08 audit, service-06): this directory is minted before the
+        # row, so only an insert (or copy) that never landed cleans up after
+        # itself -- otherwise a failure partway through the copy (a bad
+        # file, ENOSPC, a permissions error) leaves an orphaned job directory
+        # with no owner, exactly what service.library.verify()'s
+        # orphan_dirs finding exists to surface.
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
     svc.wake_worker()
     return {"id": new_id, "images": len(paths)}

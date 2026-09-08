@@ -403,15 +403,23 @@ def toolbar(
                     imgui.set_next_item_width(sp(item.width))
                     item.draw(False)
                     continue
+                # ``reason=``/``tooltip=`` go through ``controls.menu_item`` --
+                # not a hand-rolled tooltip after the call -- so that
+                # ``_finish_item``'s probe census (the one chokepoint the
+                # disabled-no-reason guard reads) sees the reason for a bar
+                # item that collapsed into this overflow menu. A hand-rolled
+                # tooltip drew the same text on screen but left the census
+                # blank, which the 2026-09-08 audit found (shell-05)
+                # misreported every overflowed disabled item as unexplained.
                 if controls.menu_item(
-                    f"{item.label}##{bar_id}/menu/{item.key}", "", False, item.enabled
+                    f"{item.label}##{bar_id}/menu/{item.key}",
+                    "",
+                    False,
+                    item.enabled,
+                    reason=item.reason,
+                    tooltip=item.tooltip,
                 )[0]:
                     clicked = item.key
-                note = item.reason if not item.enabled else item.tooltip
-                if note and imgui.is_item_hovered(
-                    imgui.HoveredFlags_.allow_when_disabled.value
-                ):
-                    imgui.set_tooltip(note)
             imgui.end_popup()
     if trailing_draw is not None:
         if drawn or MENU in tiers:

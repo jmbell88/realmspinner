@@ -157,7 +157,10 @@ def trellis_log(svc: WarlockService) -> dict[str, Any]:
     stopped unexpectedly" actually needs.
     """
     path = svc.config.data_dir / "trellis.log"
-    if not path.exists():
+    if not path.is_file():
+        # is_file, not exists (the 2026-09-08 audit, service-07): a stray
+        # directory named "trellis.log" would otherwise read as present and
+        # fail at open() with an unrelated error instead of this refusal.
         raise NotFound("no trellis log yet")
     with path.open("rb") as fh:
         fh.seek(0, os.SEEK_END)

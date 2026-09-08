@@ -1149,7 +1149,18 @@ def _tags_chunk(tags, frames: int) -> bytes:
     places would be two answers to one question, and the reader prefers the
     user-data one, so the legacy field would be the copy that silently went
     stale.
+
+    The tag *count* is refused here rather than left to ``struct.pack`` -- the
+    2026-09-08 audit (inker-06) found every other 16-bit count this writer
+    packs (frames, layers, the palette, a tag's own repeat) already named
+    itself in a ``ValueError`` before hitting the format's ceiling, but this
+    one field fell through to a bare ``struct.error`` naming no field and no
+    cause, breaking this module's own "refusals are by name" promise.
     """
+    if len(tags) > _MAX_U16:
+        raise ValueError(
+            f"an .aseprite holds at most {_MAX_U16} tags, not {len(tags)}"
+        )
     body = struct.pack("<H8s", len(tags), b"\0" * 8)
     last = max(0, frames - 1)
     for tag in tags:

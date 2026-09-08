@@ -116,3 +116,50 @@ def test_the_popup_draws_its_choices_when_open(ui):
     labels = {c.label for c in seen}
     assert any("Insert" in label for label in labels)
     assert any("Cancel" in label for label in labels)
+
+
+def test_flourish_insert_refuses_a_preset_the_manual_says_works_at_more_directions():
+    """The 2026-09-08 audit, finding inker-05: docs/manual/15-casting-a-spell.md's
+    walkthrough tells the reader to insert "fireball" "With Four directions or
+    Eight", but ``check_bake_cost`` (gated at submission since the 2026-09-07
+    audit's inker-10) refuses ``fireball`` at both -- the manual's own example
+    cannot be completed as written.
+    """
+    from warlock.studio.inker.flourish import recipe as R
+
+    fireball = presets.load("fireball")
+    with pytest.raises(ValueError):
+        R.check_bake_cost(fireball, 4)
+    with pytest.raises(ValueError):
+        R.check_bake_cost(fireball, 8)
+    # One direction -- what the popup defaults to -- still works.
+    R.check_bake_cost(fireball, 1)
+
+
+def test_the_facings_combo_warns_about_a_direction_count_the_preset_cannot_afford(ui):
+    """The popup used to offer One/Four/Eight unconditionally for every
+    preset with no indication some combinations are illegal until Insert is
+    pressed (finding inker-05). Selecting the manual's own broken example --
+    "fireball" at Four directions -- must grey Insert with a reason naming
+    the cost, computed from the same ``check_bake_cost`` the submit path
+    uses.
+    """
+    ctx, tab = _scene(with_effect=False)
+    state = ctx.state.inker
+    state.flourish_preset = "fireball"
+    state.flourish_directions = 4
+
+    def draw():
+        pane.open_popup(ctx, tab)
+        pane.popup(ctx, tab)
+
+    seen = _frame(ui, draw)
+    insert = next(c for c in seen if c.label.startswith("Insert"))
+    assert insert.enabled is False
+    assert "too large" in insert.reason or "pixels of frames" in insert.reason
+
+    # One direction is affordable, and Insert must not stay refused for it.
+    state.flourish_directions = 1
+    seen = _frame(ui, draw)
+    insert = next(c for c in seen if c.label.startswith("Insert"))
+    assert insert.enabled is True

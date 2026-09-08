@@ -68,10 +68,35 @@ def popup(ctx: Any, tab: Any) -> None:
         state.flourish_preset = names[0]
     state.flourish_preset = widgets.labeled_combo("Effect", state.flourish_preset, options)
     state.flourish_mode = widgets.labeled_combo("Look", state.flourish_mode, list(MODE_OPTIONS))
-    picked = widgets.labeled_combo(
-        "Facings", str(state.flourish_directions), list(DIRECTION_OPTIONS)
+
+    # Which of the three Facings the *selected* preset can actually afford,
+    # named with the same cost ``submit_insert`` would refuse it with -- see
+    # ``inker_flourish.facing_afford`` (the 2026-09-08 audit, finding
+    # inker-05). Checked against the preset's own recipe, ahead of the
+    # picker, so a combination roughly a third of the built-in effects cannot
+    # bake is visible before Insert is pressed rather than only after.
+    try:
+        active_preset = presets.load(state.flourish_preset)
+    except (KeyError, ValueError):
+        active_preset = None
+    facing_reasons = (
+        {
+            int(key): inker_flourish.facing_afford(active_preset, int(key))
+            for key, _ in DIRECTION_OPTIONS
+        }
+        if active_preset is not None
+        else {}
     )
+    facing_options = [
+        (key, label if not facing_reasons.get(int(key)) else f"{label} -- too large")
+        for key, label in DIRECTION_OPTIONS
+    ]
+    picked = widgets.labeled_combo("Facings", str(state.flourish_directions), facing_options)
     state.flourish_directions = int(picked)
+    facing_reason = facing_reasons.get(state.flourish_directions, "")
+    if facing_reason:
+        widgets.muted_wrapped(facing_reason[:1].upper() + facing_reason[1:] + ".")
+
     widgets.muted_wrapped(
         "The effect lands as a layer group above the active layer, one tag per "
         "phase. Every parameter can be changed afterwards from the inspector "
@@ -79,7 +104,10 @@ def popup(ctx: Any, tab: Any) -> None:
     )
     imgui.dummy((0, sp(tokens.SP_1)))
     busy = tab is None or tab.busy or ctx.busy(inker_flourish.insert_key(tab))
-    if controls.button("Insert", (sp(90), 0), enabled=not busy, reason=inker_flourish.BUSY):
+    reason = inker_flourish.BUSY if busy else facing_reason
+    if controls.button(
+        "Insert", (sp(90), 0), enabled=not busy and not facing_reason, reason=reason
+    ):
         inker_mode.flourish_insert(
             ctx,
             tab,

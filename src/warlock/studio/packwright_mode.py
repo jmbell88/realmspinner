@@ -661,6 +661,26 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # The decode landing: the sheet parks on the state until the popup's
         # tile-size answer turns it into sprites, or a cancel drops it.
         if isinstance(result, dict):
+            if state.tileset_import is not None and state.tileset_import_open:
+                # **Refused rather than adopted.** The 2026-09-08 audit
+                # (finding packwright-01): a second tile-sheet landing while
+                # an earlier one's popup was already open used to overwrite
+                # ``tileset_import`` unconditionally and reset
+                # ``tileset_import_open`` to False -- which the pane's own
+                # "open once a new import lands" check (above, in
+                # ``panes/packwright_sources.py``) then read as a fresh
+                # import and reopened the popup over, silently, completely
+                # different pixels: no toast, no confirm, no visible sign
+                # anything had changed underneath a user mid-typing a tile
+                # size. The user is already answering a question about one
+                # sheet; a second sheet does not get to jump the queue and
+                # answer it for them -- they finish or cancel the open popup
+                # and press Add a tile set again.
+                ctx.toast(
+                    "Another tile set is already waiting on the tile-size "
+                    "popup -- confirm or cancel it first."
+                )
+                return
             state.tileset_import = result["tileset"]
             state.tileset_import_open = False
             cell = result.get("cell")
@@ -761,9 +781,17 @@ def close_tab(ctx: Any, uid: str) -> None:
     state = ensure(ctx)
 
     def release(_tab: PackTab) -> None:
-        from .panes import packwright_textures
+        from .panes import packwright_settings, packwright_textures
 
         packwright_textures.release_doc(ctx, uid)
+        # The 2026-09-08 audit (finding packwright-03): ``_last_columns`` is a
+        # module-level ``dict[tab.uid, int]`` remembering each tab's last
+        # explicit column count, and it is the one per-tab-uid cache in this
+        # segment with no matching release -- ``packwright_textures`` above
+        # already pops its own cache keyed the same way, every closed tab
+        # ever given an explicit column count left one entry behind for the
+        # life of the process.
+        packwright_settings._last_columns.pop(uid, None)
 
     docmodes.close_tab(ctx, state, uid, release)
 

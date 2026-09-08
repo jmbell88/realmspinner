@@ -445,10 +445,13 @@ def test_an_interleaved_accessor_at_the_tail_of_the_buffer_loads():
 
 
 def test_an_interleaved_accessor_reads_the_right_rows():
-    positions = np.array([[1, 2, 3], [4, 5, 6]], dtype="<f4")
+    # Three rows, not two: the 2026-09-08 audit, finding create-01, refuses an
+    # unindexed TRIANGLES primitive whose vertex count is not a multiple of
+    # 3, and this fixture has no NORMAL/indices to exempt it from that check.
+    positions = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype="<f4")
     binary = b"".join(p.tobytes() + b"\xff\xff\xff\xff" for p in positions)
     data = _minimal(
-        [{"bufferView": 0, "componentType": 5126, "count": 2, "type": "VEC3"}],
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
         [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary), "byteStride": 16}],
         binary,
     )
@@ -850,6 +853,36 @@ def test_a_glb_with_an_out_of_range_skin_index_does_not_leak_gpu_buffers_from_ea
         gl.buffer = real_buffer
 
 
+def test_a_triangle_primitive_with_no_normals_and_a_non_multiple_of_three_index_count_is_refused_at_load():  # noqa: E501
+    """The 2026-09-08 audit, finding create-01. A TRIANGLES primitive whose
+    index count is not a multiple of 3 used to load clean: nothing checked
+    it, and the primitive carries no NORMAL attribute here, so the first
+    thing to notice was ``scene._face_normals``'s
+    ``primitive.indices.reshape(-1, 3)`` -- a bare ``ValueError`` raised only
+    after ``GpuModel.__init__`` had already allocated real GL buffers for any
+    earlier primitives, which then leak. The refusal belongs in
+    ``_Reader.primitive()``, before a ``Model`` is ever returned.
+    """
+    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype="<f4")
+    # 4 indices: not a multiple of 3, and no NORMAL attribute is declared.
+    indices = np.array([0, 1, 2, 0], dtype="<u4")
+    binary = positions.tobytes() + indices.tobytes()
+    data = _minimal(
+        [
+            {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5125, "count": 4, "type": "SCALAR"},
+        ],
+        [
+            {"buffer": 0, "byteOffset": 0, "byteLength": positions.nbytes},
+            {"buffer": 0, "byteOffset": positions.nbytes, "byteLength": indices.nbytes},
+        ],
+        binary,
+        meshes=[{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+    )
+    with pytest.raises(ValueError, match="multiple of 3"):
+        gltf.load(data)
+
+
 def test_a_node_count_over_the_ceiling_is_refused_at_load(monkeypatch):
     monkeypatch.setattr(gltf, "MAX_NODES", 2)
     with pytest.raises(ValueError, match="more than this viewer will load"):
@@ -951,11 +984,13 @@ def test_the_aggregate_budget_refuses_many_primitives_each_under_the_per_accesso
     that is the point: only the *document-wide* ceiling can catch a file that
     scales the primitive count instead of any one accessor's size."""
     monkeypatch.setattr(gltf, "MAX_TOTAL_BYTES", 20_000)
-    small = _bufferless_positions_doc(4, 100)
+    # 99, not 100: a multiple of 3, so create-01's unindexed-vertex-count
+    # refusal (2026-09-08 audit) does not fire on these bufferless fixtures.
+    small = _bufferless_positions_doc(4, 99)
     model = gltf.load(_glb(small, b""))
     assert len(model.meshes[0]) == 4
 
-    huge = _bufferless_positions_doc(200, 100)
+    huge = _bufferless_positions_doc(200, 99)
     with pytest.raises(ValueError, match="byte budget"):
         gltf.load(_glb(huge, b""))
 
@@ -972,7 +1007,9 @@ def test_a_repeated_accessor_reference_is_decoded_and_charged_once(monkeypatch):
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0}],
-        "accessors": [{"componentType": 5126, "count": 100, "type": "VEC3"}],
+        # 99, not 100: a multiple of 3, so create-01's unindexed-vertex-count
+        # refusal (2026-09-08 audit) does not fire on this fixture.
+        "accessors": [{"componentType": 5126, "count": 99, "type": "VEC3"}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 0}} for _ in range(50)]}],
     }
     model = gltf.load(_glb(doc, b""))

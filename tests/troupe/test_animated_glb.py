@@ -59,6 +59,64 @@ def test_a_track_carries_the_authors_own_timing_not_troupes():
         assert tracks[name]["frames"][0]["bones"] == authored[0]["bones"], name
 
 
+def test_animated_glb_carries_the_clips_own_root_translation(tmp_path):
+    """The 2026-09-08 audit (poser-01): ``animation_tracks`` used to build
+    every frame as ``{"bones": record["bones"]}`` alone, discarding
+    ``record.get("root_translation")`` -- so the shipped "jump" clip's whole
+    crouch/launch/rise/apex/fall/land arc, correctly interpolated by
+    ``sheet.interpolate_clip``/``_blend``, never reached a spec. The pure host
+    half (forwarding) is asserted directly; the scaling half
+    (``animate_spec``, which turns the raw character-height-unit value into a
+    world-space ``root_offset`` once it has a rig's own bounds) is also pure
+    Python and asserted here too. Only the bake itself (``op_animate`` calling
+    ``_apply_root_translation``) needs ``bpy`` -- see
+    ``test_every_authored_clip_comes_back_as_a_named_glTF_animation`` below.
+    """
+    authored = {
+        clip["name"]: sheetlib.interpolate_clip(
+            rigging.clip_keys("humanoid", clip["name"]),
+            clip["segments"],
+            closed=bool(clip["closed"]),
+            easing=str(clip["easing"]),
+            space=str(clip["space"]),
+            clip_id=clip["name"],
+        )
+        for clip in rigging.clip_library("humanoid")["clips"]
+    }
+    tracks = {track["name"]: track for track in clips.animation_tracks("humanoid")}
+    jump = tracks["jump"]
+    assert any(f.get("root_translation") for f in jump["frames"]), "jump lost its root motion"
+    for index, frame in enumerate(jump["frames"]):
+        assert frame.get("root_translation") == authored["jump"][index].get("root_translation")
+
+    # animate_spec scales it into a world offset once it has a rig to scale
+    # against -- op_sheet's own root_offset/root_bone shape, mirrored per
+    # frame instead of per cell.
+    job_dir = tmp_path
+    (job_dir / "rig.glb").write_bytes(b"fake-rig")
+    (job_dir / "rig.json").write_text(
+        json.dumps(
+            {
+                "template": "humanoid",
+                "root": "hips",
+                "bounds": {"min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 1.8]},
+            }
+        ),
+        "utf-8",
+    )
+    spec = clips.animate_spec(job_dir, "humanoid", job_dir / "out.glb", job_dir)
+    baked_jump = next(track for track in spec["clips"] if track["name"] == "jump")
+    scaled = [f for f in baked_jump["frames"] if f.get("root_offset")]
+    assert scaled, "root_offset never reached the animate spec"
+    assert all("root_translation" not in f for f in baked_jump["frames"])
+    assert all(f.get("root_bone") == "hips" for f in scaled)
+    # 1.8-world-unit-tall rig; the authored jump's z swings from -0.115 to
+    # 0.245 character heights, so the scaled offset should read on that
+    # order rather than a fraction of one -- otherwise "scaled" would be
+    # unscaled-and-truncated rather than truly onto this rig's own height.
+    assert max(abs(f["root_offset"][2]) for f in scaled) > 0.1
+
+
 def test_the_timing_table_has_one_home():
     """Per-frame duration and the loop flag already exist, once, in
     ``charsheet.ANIMATIONS``. A second copy would be one edit from disagreeing
@@ -205,6 +263,45 @@ def _gltf_json(path: Path) -> dict:
     return json.loads(data[20 : 20 + chunk_len].decode("utf-8"))
 
 
+def _gltf_chunks(path: Path) -> tuple[dict, bytes]:
+    """Both chunks of a binary GLB: the JSON header and the raw BIN payload.
+
+    ``_gltf_json``'s reader, walked one chunk further -- a sampler's actual
+    output values live in the second (BIN) chunk, which is what tells a
+    keyed-but-motionless channel (a translation track the exporter always
+    writes for an animated bone, holding rest-pose zeros) apart from one that
+    genuinely carries the clip's root motion.
+    """
+    data = path.read_bytes()
+    magic, _version, _length = struct.unpack_from("<III", data, 0)
+    assert magic == 0x46546C67, "not a GLB"
+    json_len, json_type = struct.unpack_from("<II", data, 12)
+    assert json_type == 0x4E4F534A, "first chunk is not JSON"
+    gltf = json.loads(data[20 : 20 + json_len].decode("utf-8"))
+    offset = 20 + json_len
+    bin_data = b""
+    if offset < len(data):
+        bin_len, bin_type = struct.unpack_from("<II", data, offset)
+        assert bin_type == 0x004E4942, "second chunk is not BIN"
+        bin_data = data[offset + 8 : offset + 8 + bin_len]
+    return gltf, bin_data
+
+
+def _accessor_vec3(
+    gltf: dict, bin_data: bytes, accessor_index: int
+) -> list[tuple[float, float, float]]:
+    """One accessor's values, VEC3/FLOAT only -- exactly what a translation
+    sampler's output is. No sparse-accessor support: nothing this worker
+    exports needs it."""
+    accessor = gltf["accessors"][accessor_index]
+    assert accessor["type"] == "VEC3" and accessor["componentType"] == 5126, accessor
+    view = gltf["bufferViews"][accessor["bufferView"]]
+    start = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+    count = accessor["count"]
+    values = struct.unpack_from(f"<{count * 3}f", bin_data, start)
+    return [tuple(values[i : i + 3]) for i in range(0, len(values), 3)]
+
+
 def test_every_authored_clip_comes_back_as_a_named_glTF_animation(svc, tmp_path):
     """The end-to-end claim, through the service's own door.
 
@@ -236,3 +333,73 @@ def test_every_authored_clip_comes_back_as_a_named_glTF_animation(svc, tmp_path)
     for anim in gltf["animations"]:
         assert anim["channels"], anim.get("name")
         assert anim["samplers"], anim.get("name")
+
+
+def test_the_bake_applies_the_clips_root_translation_to_the_root_bone(svc, tmp_path):
+    """The bake half of the 2026-09-08 audit (poser-01): op_animate used to
+    never call ``_apply_root_translation`` in its per-frame loop, unlike
+    op_pose's single-frame bake, so a clip's authored vertical motion never
+    reached the file even once ``animate_spec`` started forwarding it. With
+    ``rig.json`` carrying bounds and a root bone -- exactly what a real
+    ``op_rig`` bake always writes, unlike the minimal fixture the sibling test
+    above uses -- the "jump" animation should key a translation channel on
+    the root ("hips") node, which a rotation-only bake never produces.
+    """
+    pytest.importorskip("bpy")
+
+    job_id = _rigged(svc, rig=False)
+    job_dir = svc.job_dir(job_id)
+    rigging.run_worker(
+        rigging.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
+        timeout=600,
+    )
+    assert (job_dir / "rig.glb").exists()
+    # poselib.UNIT_LO/UNIT_HI: op_armature fits the preview exactly one
+    # character height tall, so this is the real bounds a rig this shape has,
+    # not an arbitrary fixture value.
+    (job_dir / "rig.json").write_text(
+        json.dumps(
+            {
+                "template": "humanoid",
+                "root": "hips",
+                "bounds": {"min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 1.0]},
+            }
+        ),
+        "utf-8",
+    )
+
+    out = derive.get_file(svc, job_id, "animated.glb")
+    gltf, bin_data = _gltf_chunks(out)
+    nodes = gltf.get("nodes") or []
+    hips_indices = {
+        i for i, node in enumerate(nodes) if "hips" in str(node.get("name") or "").lower()
+    }
+    assert hips_indices, [n.get("name") for n in nodes]
+
+    jump = next(a for a in gltf["animations"] if a.get("name") == "jump")
+    translation_channels = [
+        ch
+        for ch in jump["channels"]
+        if ch.get("target", {}).get("path") == "translation"
+        and ch["target"]["node"] in hips_indices
+    ]
+    assert translation_channels, (
+        "jump keys no translation channel on the root bone: the clip's "
+        "vertical motion never reached the bake"
+    )
+    # Channel presence alone is not enough: Blender's glTF exporter writes a
+    # full TRS track for every animated bone, so a channel exists even when
+    # nothing ever moved ``pbone.location`` and it holds constant rest-pose
+    # zeros. The values themselves must vary -- the authored clip's z swings
+    # from -0.115 to 0.245 character heights on a rig exactly one unit tall
+    # (poselib.UNIT_LO/UNIT_HI), so a real bake reads on that order. glTF is
+    # Y-up (the exporter's own +Z-up -> +Y-up conversion), so the vertical
+    # component of an exported translation is index 1, not 2.
+    up_values = [
+        v[1]
+        for ch in translation_channels
+        for v in _accessor_vec3(gltf, bin_data, jump["samplers"][ch["sampler"]]["output"])
+    ]
+    assert max(up_values) - min(up_values) > 0.1, (
+        f"the root bone's translation channel exists but never moves: {up_values}"
+    )

@@ -500,7 +500,11 @@ class MusicOps:
                 spec,
                 on_progress=on_progress,
                 on_start=self._note_blender,
-                timeout=self.config.pose_timeout,
+                # The 2026-09-08 audit, finding muse-02: this used to borrow
+                # ``pose_timeout``, sized for an inline Blender pose bake that
+                # runs in seconds -- not this job's cost model, a queued,
+                # up-to-600-second take that may fall back to CPU.
+                timeout=self.config.separation_timeout,
                 module="warlock.pipelines.separation_worker",
                 marker="separate",
                 name="Stem separation",

@@ -109,7 +109,14 @@ def _draw_shape(
     return mask
 
 
-@dataclass
+# ``eq=False``: the 2026-09-08 audit (inker-10) found the default dataclass
+# ``__eq__`` tuple-compares ``mask`` and returns the raw ndarray comparison
+# rather than a bool, so ``==``/``!=``/``in`` on two masks raises "the truth
+# value of an array with more than one element is ambiguous" instead of
+# comparing them. Nothing in this build relies on structural equality here --
+# every "did this change" check already uses ``np.array_equal`` -- so identity
+# comparison (what ``eq=False`` falls back to) changes no observed behaviour.
+@dataclass(eq=False)
 class SelectionMask:
     mask: np.ndarray
 

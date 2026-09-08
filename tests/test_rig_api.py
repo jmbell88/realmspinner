@@ -135,6 +135,24 @@ def test_rig_metadata_is_served_once_written(svc, assets):
     assert svc_rig.get_rig(svc, job_id) == meta
 
 
+def test_a_rig_with_a_nameless_bone_is_refused_not_a_keyerror(svc, assets):
+    """The 2026-09-08 audit (poser-02): rig.json passes read_record's three
+    file-level guards (valid JSON, valid dict, under the byte ceiling) with a
+    bone entry that has no "name" key, and get_rig used to let
+    rigging.rig_bone_names' bare ``[b["name"] for b in ...]`` crash out as an
+    uncaught KeyError instead of a field-addressed refusal -- one field
+    deeper than the pose-record case docs/INVARIANTS.md already names as
+    fixed. tests/test_poses_api.py covers the same fix for list_poses,
+    save_pose and apply_library_pose."""
+    job_id = _finished_mesh_job(svc, assets)
+    (assets / job_id / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "humanoid", "bones": [{"name": "hips"}, {}]})
+    )
+    with pytest.raises(Invalid) as caught:
+        svc_rig.get_rig(svc, job_id)
+    assert caught.value.field == "bones"
+
+
 def test_rig_glb_is_hidden_until_rig_json_lands(svc, assets):
     """rig.json is written last, so it -- not rig.glb's own existence -- is
     what says the rig finished. Otherwise a read can catch a half-exported GLB."""

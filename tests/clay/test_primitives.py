@@ -772,6 +772,25 @@ def test_the_torus_tube_field_is_clamped_against_its_radius() -> None:
     assert clamped["tube"] <= clamped["radius"]
 
 
+def test_a_clamped_columns_base_and_capital_are_stored_as_the_values_that_were_built() -> None:
+    """The 2026-09-08 audit's clay-04: ``column``'s own internal
+    ``base + capital > height * COLUMN_ENDS_MAX`` shrink is the identically
+    shaped relational clamp as ``torus``'s tube-vs-radius one, but
+    ``clamp_params`` only mirrored the torus branch -- so the properties
+    panel stored the raw base/capital the user typed while the generator
+    silently built the shaft from a smaller, substituted pair.
+    """
+    raw = {"radius": 0.35, "height": 2.0, "base": 1.0, "capital": 1.0, "segments": 16}
+    clamped = bp.clamp_params("column", raw)
+    assert clamped["base"] + clamped["capital"] <= clamped["height"] * bp.COLUMN_ENDS_MAX + 1e-9
+    # Not cosmetic: building from the clamped numbers must be the same mesh
+    # ``column`` already silently builds from the raw ones.
+    from_raw = bp.column(**raw)
+    from_clamped = bp.column(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
+
+
 def test_a_clamped_generator_value_is_stored_as_the_value_that_was_built() -> None:
     raw = {"radius": 0.35, "tube": 0.15, "segments": 0, "sides": 0}
     clamped = bp.clamp_params("torus", raw)

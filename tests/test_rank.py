@@ -59,6 +59,19 @@ def test_no_report_at_all_is_a_middling_score_not_a_zero():
     assert 0.0 < rank.composition_score(None) < 1.0
 
 
+def test_composition_score_treats_a_leaked_mask_report_as_unmeasured_not_low():
+    """pipelines-03 (2026-09-08 audit). ``reference.unmeasured()`` -- what
+    ``measure()`` returns whenever the corner-flood fill leaks through the
+    subject, the documented common case of a light subject on a light
+    background -- is a *present* report (``ok=True``) carrying a placeholder
+    ``occupancy=0.0``. Scoring that placeholder as a real measurement charged
+    it the full occupancy and warning cost (~0.59) instead of this module's
+    own "unknown, not bad" mid-range score for a report that says nothing.
+    """
+    leaked = reference.unmeasured("the mask leaked").as_dict()
+    assert rank.composition_score(leaked) == rank.UNMEASURED
+
+
 def test_the_score_is_the_composition_when_there_is_no_anchor():
     out = rank.score(_report(occupancy=0.78, components_major=1))
     assert out["score"] == out["composition"] == 1.0

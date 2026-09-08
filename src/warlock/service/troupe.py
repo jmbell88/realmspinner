@@ -233,6 +233,7 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
     check_vram(svc, "text", "reference", {"base_model": TROUPE_BASE_MODEL})
     checked = {"variant": variant, "pose": pose, "layout": layout.as_dict(), **options}
     raw_elevation = entries.get("elevation")
+    elevation: float | None = None
     if raw_elevation is not None:
         # **Refused against ``camera``, not against ``elevation``.** The number
         # is what this door validates, but nothing on the Troupe form is called
@@ -253,6 +254,37 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
                 field="camera",
             )
         checked["elevation"] = elevation
+
+    # **Planned and thrown away, exactly as ``create_charsheet``/``_charsheet_spec``
+    # already plan and throw away.** The 2026-09-08 audit (finding troupe-01)
+    # found this door validating every option a character sheet has except the
+    # one question that actually decides whether the sheet can be built: this
+    # is the same reference -> gate -> mesh -> rig -> sheet chain
+    # ``create_charsheet`` argues for at length, applied one link earlier, and
+    # without it a layout that cannot be planned against the configured rig
+    # template -- an atlas over the texture limit, or a movement the
+    # template's clip library has no clip for -- was accepted here and only
+    # failed in ``_q_troupe._charsheet``, uncaught, after the reference
+    # render, the human gate, the trellis reconstruction and the auto-rig had
+    # all completed. Planned against ``TROUPE_TEMPLATE`` rather than a
+    # caller-supplied one: this door has no rig yet to read a template off of,
+    # and ``TROUPE_TEMPLATE`` is the template ``_maybe_queue_rig`` pins the
+    # follow-up mesh to.
+    from ..pipelines import sheet as sheetlib
+
+    try:
+        records = expand_clips(TROUPE_TEMPLATE, layout)
+        charsheet.plan(
+            records,
+            frame_size=options["logical_size"],
+            elevation=sheetlib.DEFAULT_ELEVATION if elevation is None else elevation,
+            lighting="flat",
+            layout=layout,
+        )
+    except KeyError as exc:
+        raise Invalid(f"the {TROUPE_TEMPLATE} clip library is missing {exc}") from exc
+    except ValueError as exc:
+        raise invalid_from(exc, "That character sheet cannot be laid out") from exc
     return checked
 
 

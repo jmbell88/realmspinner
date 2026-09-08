@@ -204,6 +204,130 @@ def test_a_press_clears_the_rings_the_last_refusal_left(ctx, monkeypatch):
     assert ctx.state.field_errors == {}
 
 
+# --- deriving ------------------------------------------------------------
+
+
+#: One test value per derive field, distinct across fields so a swapped
+#: mapping (e.g. ``extend_left``'s value landing on ``extend_right``) would be
+#: caught rather than accidentally cancelling out.
+_DERIVE_VALUES: dict[str, Any] = {
+    "retake_variance": 0.75,
+    "extend_left": 11.0,
+    "extend_right": 22.0,
+    "repaint_start": 33.0,
+    "repaint_end": 44.0,
+    "edit_prompt": "a new brief",
+    "edit_lyrics": "[verse]\nnew words",
+    "ref_audio_strength": 0.6,
+}
+
+#: The kwargs ``derive`` must send ``derive_music_job`` for each task, given
+#: ``_DERIVE_VALUES`` and ``count=3``. ``loop`` only lists ``repaint_end`` in
+#: ``DERIVE_CONTROLS`` -- the popup asks for one figure, the span to rewrite --
+#: but the door reads a window, so ``derive`` also sends ``repaint_start=0.0``
+#: (centred on the roll downstream); that override is exactly what this table
+#: pins.
+_EXPECTED_KWARGS: dict[str, dict[str, Any]] = {
+    "retake": {"task": "retake", "count": 3, "retake_variance": 0.75},
+    "extend": {"task": "extend", "count": 3, "extend_left": 11.0, "extend_right": 22.0},
+    "repaint": {"task": "repaint", "count": 3, "repaint_start": 33.0, "repaint_end": 44.0},
+    "edit": {
+        "task": "edit",
+        "count": 3,
+        "edit_prompt": "a new brief",
+        "edit_lyrics": "[verse]\nnew words",
+    },
+    "loop": {"task": "loop", "count": 3, "repaint_end": 44.0, "repaint_start": 0.0},
+    "audio2audio": {"task": "audio2audio", "count": 3, "ref_audio_strength": 0.6},
+}
+
+
+@pytest.mark.parametrize("task", sorted(muse_mode.DERIVE_CONTROLS))
+def test_queue_it_reaches_derive_music_job_with_the_right_kwargs_for_every_task(
+    ctx, monkeypatch, task
+):
+    """The 2026-09-08 audit, finding muse-03. The "Make more" derive flow --
+    six tasks' worth of popup drawing, form handling and the door call -- had
+    no test anywhere: ``MuseState.derive_job``/``derive_form`` were never set
+    by a test, so ``derive_popup`` always early-returned even in the "every
+    Muse pane, drawn" smoke file. This is the controller half: that
+    ``derive(ctx)`` builds exactly the kwargs each task's own fields call for,
+    including the ``edit_prompt``/``edit_lyrics`` "" vs ``None`` distinction
+    and the ``loop`` task's ``repaint_start`` override.
+
+    Proved to exercise the branching, not just its shape, by first running it
+    against a deliberately broken ``derive`` (every field sent as ``0.0``/
+    ``""`` regardless of task) -- it failed for every task before the real
+    fields were wired back in. See the return notes for the pasted failure.
+    """
+    seen: dict[str, Any] = {}
+
+    def _derive(svc, job_id, **kw):
+        seen.update(kw)
+        return {"ids": ["derived123"]}
+
+    from warlock.service import jobs as svc_jobs
+
+    monkeypatch.setattr(svc_jobs, "derive_music_job", _derive)
+
+    muse_mode.open_derive(ctx, "parent123", task)
+    state = muse_mode.ensure(ctx)
+    for name in muse_mode.DERIVE_CONTROLS[task]:
+        state.derive_form[name] = _DERIVE_VALUES[name]
+    state.derive_form["count"] = 3
+
+    assert muse_mode.derive(ctx) is True
+    assert seen == _EXPECTED_KWARGS[task]
+    # The popup closes on a successful queue -- ``derive_job`` is what
+    # ``derive_popup`` gates on drawing at all.
+    assert state.derive_job == ""
+
+
+def test_an_edit_with_one_field_left_blank_sends_none_for_it_not_empty_string(
+    ctx, monkeypatch
+):
+    """``derive``'s own reasoning: ``None`` means "keep the parent's" and
+    ``""`` means "drop the words entirely" -- two different requests at the
+    door, so a field the user left untouched (whitespace-only) must arrive as
+    ``None`` even though its widget default is the empty string, while a field
+    the user actually typed into arrives as that text.
+    """
+    seen: dict[str, Any] = {}
+
+    def _derive(svc, job_id, **kw):
+        seen.update(kw)
+        return {"ids": ["derived123"]}
+
+    from warlock.service import jobs as svc_jobs
+
+    monkeypatch.setattr(svc_jobs, "derive_music_job", _derive)
+
+    muse_mode.open_derive(ctx, "parent123", "edit")
+    state = muse_mode.ensure(ctx)
+    state.derive_form["edit_prompt"] = "  "  # left blank, in effect
+    state.derive_form["edit_lyrics"] = "[verse]\nreal words"
+
+    assert muse_mode.derive(ctx) is True
+    assert seen["edit_prompt"] is None
+    assert seen["edit_lyrics"] == "[verse]\nreal words"
+
+
+def test_derive_with_no_take_selected_is_a_no_op(ctx, monkeypatch):
+    from warlock.service import jobs as svc_jobs
+
+    called = False
+
+    def _derive(svc, job_id, **kw):
+        nonlocal called
+        called = True
+        return {"ids": []}
+
+    monkeypatch.setattr(svc_jobs, "derive_music_job", _derive)
+    assert muse_mode.derive(ctx) is False
+    assert called is False
+    assert ctx.submitted == []
+
+
 # --- playback ----------------------------------------------------------------
 
 

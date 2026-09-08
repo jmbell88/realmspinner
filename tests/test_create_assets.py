@@ -298,3 +298,35 @@ def test_a_form_persisted_under_the_old_spelling_still_restores():
         assert settings._safe_form_value(key, "3d_model") is True, key
         assert settings._safe_form_value(key, "sprite_turnaround") is True, key
         assert settings._safe_form_value(key, "not_a_type") is False, key
+
+
+def test_sync_legacy_fields_docstring_names_a_caller_that_still_exists():
+    """The 2026-09-08 audit, finding create-05.
+
+    The docstring used to claim ``sync_legacy_fields`` "runs from
+    ``settings_2d._asset_type`` on *every frame*" as its one caller -- but no
+    function named ``_asset_type`` exists in ``settings_2d.py`` (it is called
+    directly from ``settings_2d.draw()``), and since the 2026-09-07 brief-bar
+    redesign it is also called every frame from ``create_brief.draw()`` and
+    read again from ``create_brief._type()`` -- neither of which the old
+    docstring named. A reader relying on the docstring to find every
+    per-frame writer of the "five fields written here are derived, not
+    editable" contract before wiring a new control onto one of them would
+    have missed ``create_brief.py``'s own calls.
+    """
+    from warlock.studio import create_brief
+
+    doc = create_assets.sync_legacy_fields.__doc__ or ""
+
+    # The retired spelling: no such function ever existed on settings_2d, and
+    # the fixed docstring must not claim otherwise as a *current* caller.
+    assert not hasattr(settings_2d, "_asset_type")
+    assert "settings_2d._asset_type" not in doc
+
+    # Every caller the docstring now names is real.
+    assert hasattr(settings_2d, "draw")
+    assert hasattr(create_brief, "draw")
+    assert hasattr(create_brief, "_type")
+    assert "settings_2d.draw()" in doc
+    assert "create_brief.draw()" in doc
+    assert "create_brief._type()" in doc

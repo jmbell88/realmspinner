@@ -342,6 +342,47 @@ _DOCS_10_ROOT_SOURCES = {
 }
 
 
+#: The 2026-09-08 audit, finding docs-04: SECURITY.md's "Any file the app
+#: opens" inventory named ``.tmx``/``.tsx`` but omitted ``.tmj``/``.tsj``,
+#: Tiled's JSON spellings of the same map and tileset formats -- read from the
+#: same untrusted external sources by ``plotter/tmx.py``'s ``read_tmj`` and
+#: ``plotter/tsx.py``'s ``.tsj`` tileset loader, routed by suffix in
+#: ``plotter_io.py``. The traversal-allowance carve-out named only ``.tmx``/
+#: ``.tsx`` too. A security researcher using either list to scope what is in
+#: scope would not know the JSON spelling carries the same class of risk.
+SECURITY = ROOT / "SECURITY.md"
+
+
+def test_security_md_file_format_list_includes_tiled_json_spellings():
+    """Both SECURITY.md mentions of the Tiled XML formats must also name the
+    JSON spellings the app reads through the very same code paths.
+
+    ``plotter_io.py`` routes ``.tmj``/``.tsj`` to ``tmx.read_tmj`` and
+    ``tsx``'s JSON tileset loader by suffix alongside ``.tmx``/``.tsx`` --
+    there is no code-level distinction in risk between the two spellings, so
+    the inventory and the traversal-allowance note must not draw one either.
+    """
+    text = SECURITY.read_text(encoding="utf-8")
+
+    def _slice(start_marker: str, end_marker: str) -> str:
+        start = text.index(start_marker) + len(start_marker)
+        end = text.index(end_marker, start)
+        return text[start:end]
+
+    inventory = _slice("Any file the app opens.", "Path traversal")
+    assert ".tmj" in inventory and ".tsj" in inventory, (
+        "SECURITY.md's 'Any file the app opens' inventory names .tmx/.tsx "
+        "but not their .tmj/.tsj JSON spellings, which the app reads through "
+        "the same plotter_io.py suffix routing"
+    )
+
+    traversal = _slice("not in scope", "## Supported versions")
+    assert ".tmj" in traversal and ".tsj" in traversal, (
+        "SECURITY.md's documented .tmx/.tsx traversal allowance does not "
+        "mention the same allowance in .tmj/.tsj"
+    )
+
+
 def test_the_five_ungated_root_docs_are_swept_for_dead_citations():
     """The 2026-09-06 audit, finding docs-10: SOURCES covered README.md,
     CLAUDE.md, docs/INVARIANTS.md, docs/MODELS.md, TODO.md, docs/COMPAT.md and

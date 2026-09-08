@@ -872,6 +872,28 @@ def test_engine_row_treats_zero_byte_gguf_files_as_missing_not_healthy(tmp_path)
     assert "empty" in row.detail
 
 
+def test_dedicated_birefnet_row_treats_a_zero_byte_file_as_healthy(tmp_path):
+    """pipelines-05 (2026-09-08 audit): the claim this reproduces and closes.
+
+    ``_birefnet_check`` was the one model-weight row built by hand (a bare
+    ``Path.exists()``) rather than through ``_registry_row``, so it was the
+    one row the M04 zero-byte fix never reached. With all ten GGUF probe
+    files zero-byte -- the same fixture ``test_engine_row_treats_...`` uses --
+    the sibling "TRELLIS GGUF weights" row must FAIL and this row must agree,
+    not report the identical file healthy.
+    """
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True)
+    for name in model_registry.TRELLIS_GGUF_FILES:
+        (models_dir / name).touch()  # exists, and is zero bytes
+    checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_models_dir=models_dir))}
+    gguf = checks["TRELLIS GGUF weights"]
+    birefnet = checks["trellis: birefnet.gguf (background removal)"]
+    assert gguf.ok is False
+    assert birefnet.ok is False, "disagrees with the GGUF row about the identical file"
+    assert "empty" in birefnet.detail
+
+
 def test_style_lora_row_treats_a_zero_byte_file_as_missing_not_healthy(tmp_path):
     root = tmp_path / "m"
     lora = model_registry.STYLE_LORAS["render3d"]

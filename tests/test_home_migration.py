@@ -256,6 +256,48 @@ def test_a_copy_that_does_not_match_leaves_the_source_alone(home, legacy, monkey
     assert not list(home.glob("*.incoming"))
 
 
+def test_a_later_roots_migration_failure_does_not_strand_an_earlier_roots_legacy_copy(
+    home, legacy, monkeypatch
+):
+    """service-04 (the 2026-09-08 audit): the removal loop only ran after the
+    whole ``for`` loop over ``pending`` completed without raising, and a
+    ``MigrationError`` on any root but the first exited ``run()`` before that
+    loop was ever reached -- leaving the roots that had *already* copied,
+    verified and published cleanly with their legacy copy on disk forever, a
+    full duplicate silently orphaned inside the checkout.
+    ``test_a_copy_that_does_not_match_leaves_the_source_alone`` above only
+    fails ``assets``, the first entry in ``_ROOTS``, so ``moved`` was always
+    empty when that test's exception fired and this hole went unexercised --
+    here the failure is moved to ``bench``, the second entry, specifically so
+    ``assets`` has already succeeded by the time it fires.
+    """
+    real = migrate._tree_size
+
+    def miscounting(path):
+        files, total = real(path)
+        # bench is the second root in _ROOTS: assets (the first) has already
+        # been copied, verified and published by the time this fires.
+        return (files + 1, total) if path == legacy / "bench" else (files, total)
+
+    monkeypatch.setattr(migrate, "_tree_size", miscounting)
+
+    with pytest.raises(migrate.MigrationError):
+        migrate.run(Config())
+
+    # assets: copied, verified and published cleanly -- a later root's
+    # failure must not strand its legacy copy just because it ran first.
+    assert (home / "assets" / "jobs.sqlite").exists()
+    assert not (legacy / "assets").exists()
+    # bench: the one that failed -- nothing published, nothing deleted, and
+    # no half-tree left at the destination.
+    assert not (home / "bench").exists()
+    assert (legacy / "bench" / "manifest.json").exists()
+    assert not list(home.glob("*.incoming"))
+    # And the roots after the failure never even started.
+    assert not (home / "palettes").exists()
+    assert (legacy / "palettes").exists()
+
+
 def test_the_exclusive_hold_survives_the_copy_and_not_only_the_check(home, legacy, monkeypatch):
     """RUN-02: the guarantee has to cover the *copy*, not one instant before it.
 

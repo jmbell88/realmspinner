@@ -526,6 +526,20 @@ class Config:
     sheet_timeout: float = field(
         default_factory=lambda: _env_float("WARLOCK_SHEET_TIMEOUT", 1800.0)
     )
+    # Wall-clock ceiling for the stem-separation subprocess (``_q_music._separate``).
+    # The 2026-09-08 audit, finding muse-02: this job used to borrow
+    # ``pose_timeout`` (300s), a ceiling ``pose_timeout``'s own docstring says
+    # is sized for an inline bake that runs in seconds, not minutes -- but
+    # separation is a *queued* job that can process up to a 600-second take
+    # (``service._jobs_music.MAX_DURATION``) in 10-second chunks and explicitly
+    # falls back to CPU with no card present, so a legitimately-progressing
+    # job on a long take or a CPU-only host was killed exactly like a hung
+    # one. Sized like ``rig_timeout``/``sheet_timeout`` -- generous because a
+    # full-length take on CPU is genuinely slow, but still bounded because this
+    # runs on the serial queue and a hang would block every later job.
+    separation_timeout: float = field(
+        default_factory=lambda: _env_float("WARLOCK_SEPARATION_TIMEOUT", 1800.0)
+    )
 
     @property
     def autosave_dir(self) -> Path:
@@ -592,6 +606,7 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("rig_timeout", "WARLOCK_RIG_TIMEOUT"),
     ("deform_qa", "WARLOCK_DEFORM_QA"),
     ("sheet_timeout", "WARLOCK_SHEET_TIMEOUT"),
+    ("separation_timeout", "WARLOCK_SEPARATION_TIMEOUT"),
 )
 
 # The other half of the environment, and the reason the readout was incomplete.

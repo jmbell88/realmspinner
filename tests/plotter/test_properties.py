@@ -201,6 +201,103 @@ def test_layer_properties_name_class_offset_parallax_typing_is_one_undo_step():
     )
 
 
+def test_the_object_properties_form_folds_a_position_drag_into_one_step():
+    """The 2026-09-08 audit, plotter-03: ``doc.set_object`` pushes an
+    unconditional ``history.push``, and Name, Class, Position, Size and
+    Rotation each called it straight from a field with no ``fold_undo``
+    between the two -- one undo step per keystroke or per drag-report instead
+    of one per gesture. This function's own Opacity row already folded, and
+    the comment beside it says why; these five had no such comment because
+    they had no such fold.
+
+    Each check is bounded to the gap between one field and the next one the
+    function draws, rather than "a fold exists somewhere before the write" --
+    which a neighbouring field's own fold would satisfy for free and prove
+    nothing about the field actually being checked.
+    """
+    import inspect
+
+    from warlock.studio.panes import plotter_layers
+
+    table = inspect.getsource(plotter_layers._object_fields)
+
+    after_name = table.split('"##obj-name"', 1)[1]
+    before_class = after_name.split('"##obj-class"', 1)[0]
+    assert "controls.fold_undo(" in before_class, (
+        "Name field is not folded before the Class field is drawn"
+    )
+
+    after_class = table.split('"##obj-class"', 1)[1]
+    before_position = after_class.split('"##obj-position"', 1)[0]
+    assert "controls.fold_undo(" in before_position, (
+        "Class field is not folded before the Position field is drawn"
+    )
+
+    after_position = table.split('"##obj-position"', 1)[1]
+    before_size = after_position.split('"##obj-size"', 1)[0]
+    assert "controls.fold_undo(" in before_size, (
+        "Position field is not folded before the Size field is drawn"
+    )
+
+    after_size = table.split('"##obj-size"', 1)[1]
+    before_rotation = after_size.split('"##obj-rotation"', 1)[0]
+    assert "controls.fold_undo(" in before_rotation, (
+        "Size field is not folded before the Rotation field is drawn"
+    )
+
+    after_rotation = table.split('"##obj-rotation"', 1)[1]
+    before_visible = after_rotation.split('"##obj-visible"', 1)[0]
+    assert "controls.fold_undo(" in before_visible, (
+        "Rotation field writes before it is folded"
+    )
+
+
+def test_a_custom_property_value_is_typed_as_one_undo_step():
+    """The 2026-09-08 audit, plotter-04: ``property_editor``/``_value_editor``
+    is the one shared custom-property editor the Map, Layer and Object
+    Properties panes all reach for, and every value it draws is written back
+    through an unconditional ``history.push`` (``doc.set_object``,
+    ``set_layer_props``, ``set_map_properties``). None of its typed fields
+    passed ``commit=True`` -- ``controls.py``'s own ``_field_call`` docstring
+    names this exact failure ("typing '120' into a frame's duration pushed
+    one step per character") as the reason the flag exists -- so typing into
+    an int, float or string custom property spammed the undo stack one step
+    per keystroke.
+
+    Bounded to the gap between one field's own type check and the next,
+    the same reason ``test_the_object_properties_form_folds_a_position_drag_
+    into_one_step`` gives: an unrelated neighbour's fix must not satisfy a
+    check that proves nothing about the field actually named.
+    """
+    import inspect
+
+    from warlock.studio.panes import plotter_layers
+
+    source = inspect.getsource(plotter_layers._value_editor)
+
+    after_object_plain = source.split('if prop.type == "object":', 1)[1]
+    before_int = after_object_plain.split('if prop.type == "int":', 1)[0]
+    assert "commit=True" in before_int, "the plain object-id field is not committed"
+
+    after_int = source.split('if prop.type == "int":', 1)[1]
+    before_float = after_int.split('if prop.type == "float":', 1)[0]
+    assert "commit=True" in before_float, "the int field is not committed"
+
+    after_float = source.split('if prop.type == "float":', 1)[1]
+    before_container = after_float.split("if prop.type in CONTAINER_TYPES:", 1)[0]
+    assert "commit=True" in before_container, "the float field is not committed"
+
+    after_container = after_float.split("if prop.type in CONTAINER_TYPES:", 1)[1]
+    assert "commit=True" in after_container, "the string fallback field is not committed"
+
+    children_source = inspect.getsource(plotter_layers._prop_children)
+    after_class_field = children_source.split('"##property-class"', 1)[1]
+    call_end = after_class_field.index(")")
+    assert "commit=True" in after_class_field[:call_end], (
+        "the class member's name field is not committed"
+    )
+
+
 @pytest.mark.parametrize("kind", ["class", "list"])
 def test_a_container_property_summarises_rather_than_showing_nothing(kind):
     """A class arriving from Tiled used to look like an empty string until the

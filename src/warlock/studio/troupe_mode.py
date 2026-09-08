@@ -598,6 +598,7 @@ def select(ctx: Any, job_id: str, sheet_id: str = "") -> None:
     _reconcile_preview(ctx)
     release_texture(ctx)
     release_scores(ctx)
+    release_rerender_selection(ctx)
 
 
 def active_sheet(ctx: Any) -> dict[str, Any] | None:
@@ -950,6 +951,13 @@ def release_scores(ctx: Any) -> None:
         ctx.state.preview.pop(name, None)
 
 
+def release_rerender_selection(ctx: Any) -> None:
+    """Forget the "Re-render some runs" ticks. ``select``'s own rule, applied
+    to :data:`RERENDER_SLOT`: a set of ticked runs is a fact about the sheet
+    on screen, and it must not survive picking a different one."""
+    ctx.state.preview.pop(RERENDER_SLOT, None)
+
+
 def scores(ctx: Any) -> Any:
     """The selected sheet's :class:`~.troupe.qa.SheetScore`, or None while it
     is being computed, absent or unscorable. Frame thread; cheap."""
@@ -1141,6 +1149,17 @@ def camera_elevation(form: Mapping[str, Any]) -> float | None:
 #: Where :func:`options` caches the door's answer. On ``state.preview`` rather
 #: than on ``TroupeState``: it is neither a selection nor a clock.
 OPTIONS_SLOT = "troupe_options"
+
+#: Where ``panes.troupe_sheets._rerender`` keeps the "Re-render some runs"
+#: checkbox ticks. Owned here rather than by that pane, because ``select`` is
+#: what has to clear it: the 2026-09-08 audit (finding troupe-02) found the
+#: set never scoped to or cleared for the selected sheet, so ticks made on one
+#: character sheet reappeared pre-checked on the next character sheet whose
+#: runs happened to share the same animation/direction vocabulary -- the
+#: common case, since every Troupe layout draws from the same shared runs.
+#: Pressing "Re-render N run(s)" there then re-rendered those runs on the
+#: wrong sheet.
+RERENDER_SLOT = "troupe_rerender_runs"
 
 
 def options(ctx: Any) -> dict[str, Any]:

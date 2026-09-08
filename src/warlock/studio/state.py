@@ -1110,7 +1110,11 @@ class AppState:
     # ``compare_baseline`` is recorded when the context menu *opens*, because
     # right-clicking a card selects it first -- so reading ``selected`` at the
     # moment the menu item is clicked gives the target, and "compare with
-    # selected" compared a mesh with itself (UX-04).
+    # selected" compared a mesh with itself (UX-04). Cleared by ``select``
+    # like ``comparing``/``compare_pending`` above: a value it doesn't own
+    # would otherwise survive an ordinary selection change and be found again
+    # by the ellipsis button's overflow menu, which shares the same popup but
+    # never sets this field itself (shell-02).
     #
     # ``compare_pending`` is the compare half of ``viewer.pending``: the parse
     # runs on a task thread and the result is checked against this before it is
@@ -1456,6 +1460,15 @@ class AppState:
             # result landing after the selection moved would be adopted into a
             # comparison that no longer exists.
             self.compare_pending = None
+            # The right-click baseline is stamped for exactly one menu open
+            # (``library._card_context``). Left standing across an ordinary
+            # selection change, it outlived the click that set it and
+            # reappeared through the small ellipsis button's *same* menu --
+            # which never touches this field -- so "Compare selected with
+            # this" clicked there could silently compare against whichever
+            # job was right-clicked earliest in the session instead of the
+            # live selection (the 2026-09-08 audit, finding shell-02).
+            self.compare_baseline = None
 
     def toggle_check(self, job_id: str) -> None:
         self.checked.symmetric_difference_update({job_id})

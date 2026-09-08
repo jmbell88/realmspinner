@@ -724,9 +724,17 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if done.key == LABELS_KEY:
         if state.labels is not None:
             state.labels.loading = False
-            if isinstance(done.result, dict):
-                state.labels.rows = list(done.result.get("rows") or ())
-                state.labels.status = dict(done.result.get("status") or {})
+            result = done.result if isinstance(done.result, dict) else {}
+            # Switching the labelling question ("Teach the judge": reference
+            # vs. blank) while the previous question's directory listing is
+            # still in flight let that earlier result land on the new
+            # LabelPass -- the panel showed the new question's title over the
+            # old question's images, and A/R then filed the label under the
+            # wrong stage. Guarded the same way the TRAIN_KEY branch below
+            # already guards its own late-arriving result.
+            if result.get("stage") == state.labels.stage:
+                state.labels.rows = list(result.get("rows") or ())
+                state.labels.status = dict(result.get("status") or {})
                 state.labels.index = 0
                 state.labels.uploaded = 0
         return
@@ -1237,7 +1245,11 @@ def _label_rows(svc: Any, stage: str) -> dict[str, Any]:
                 "verdict": None,
             }
         )
-    return {"rows": out, "status": judge_mod.status(svc, stage, source=SOURCE)}
+    return {
+        "stage": stage,
+        "rows": out,
+        "status": judge_mod.status(svc, stage, source=SOURCE),
+    }
 
 
 def open_labels(ctx: Any, stage: str) -> None:

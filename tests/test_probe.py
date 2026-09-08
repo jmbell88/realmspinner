@@ -37,6 +37,13 @@ _RAW_WIDGETS = {
     "collapsing_header",
     "menu_item",
     "menu_item_simple",
+    # Added the 2026-09-08 audit (shell-09): ``widgets.combo`` drew through a
+    # raw ``imgui.combo()`` with no ``enabled``/``reason`` and no probe census
+    # entry, and this set is what would have caught it -- "combo" was simply
+    # missing. Fixed by routing through ``controls.combo_native``, but the
+    # name stays in the inventory so a future raw combo call is counted.
+    "combo",
+    "begin_combo",
 }
 
 

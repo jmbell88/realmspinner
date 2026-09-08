@@ -33,11 +33,14 @@ IDLE_REFRESH_SECONDS = 3.0
 # not full the count is exact for free (total == len(jobs)).
 COUNT_SECONDS = 5.0
 LIST_LIMIT = 200
-# How many ids a search widens the window by. Small on purpose: this runs on
-# the frame thread's tick alongside the ordinary list read, and it only needs
+# How many ids a search widens the window by. Small on purpose: it only needs
 # to find candidates the loaded window is missing, not to become a second
 # pager -- "Load older" still exists for that.
 SEARCH_LIMIT = 50
+#: The task key :meth:`request_widen` submits under, so :meth:`adopt_widen`
+#: can be found from ``TaskRunner``'s result the way ``"jobs-list"`` already
+#: is for :meth:`read`/:meth:`adopt`.
+SEARCH_KEY = "jobs-search"
 #: The widest the window may get, whatever "Load older" is pressed. It is the
 #: service's own ``MAX_LIST_LIMIT``, read lazily below rather than imported so
 #: a test that lowers the ceiling lowers this too -- and it is a *local* cap
@@ -416,7 +419,7 @@ class JobsCache:
     def get(self, job_id: str | None) -> dict[str, Any] | None:
         return None if job_id is None else self.by_id.get(job_id)
 
-    def widen_for_filters(self, filters: Any) -> None:
+    def request_widen(self, filters: Any, runner: Any) -> bool:
         """W2.1, widened for A3: pull in matches the loaded window does not cover.
 
         Filtering only ever ran over ``self.jobs`` -- the newest page the
@@ -433,12 +436,26 @@ class JobsCache:
         the two views share one ``Filters`` and must never disagree about
         what a search finds.
 
+        **Frame thread.** This used to call ``self.svc.store.search_ids``
+        inline -- a real sqlite query behind ``JobStore``'s shared RLock, run
+        synchronously here on essentially every keystroke in the filter box,
+        the exact stall :meth:`read`/:meth:`request`/:meth:`adopt`'s split
+        exists to prevent for the ordinary poll (the 2026-09-08 audit, finding
+        shell-01). The query now goes through :meth:`_search` via
+        ``runner.submit``, the same door ``request`` sends the list poll
+        through; the caller collects the result and hands it to
+        :meth:`adopt_widen` when it lands, exactly as ``main._on_task_done``
+        already does for ``"jobs-list"``. -> whether a search was submitted
+        this frame.
+
         Skipped once per (list generation, filter fields that reach the
         store): ``tick`` replaces ``self.jobs`` wholesale on every refresh,
         which throws any previous merge away, so a changed generation is
         exactly when this needs to run again -- and unchanged, running it
         every frame ``draw`` calls this on would be a LIKE scan per frame for
-        nothing new.
+        nothing new. The key is only recorded once ``runner.submit`` actually
+        accepts the search: a refusal (one already in flight) must be retried
+        on a later frame rather than being mistaken for "already handled".
         """
         from .state import parse_query
 
@@ -457,14 +474,43 @@ class JobsCache:
         key = (self._generation, free_text, tags, names, status, favorite, filters.trash)
         if not active:
             self._search_key = None
-            return
+            return False
         if key == self._search_key:
-            return
-        self._search_key = key
+            return False
         if not self.can_load_more():
             # The window already holds everything the store has -- there is
             # nothing outside it left to widen with.
-            return
+            self._search_key = key
+            return False
+        submitted = bool(
+            runner.submit(
+                SEARCH_KEY,
+                self._search,
+                free_text,
+                tags,
+                names,
+                status,
+                favorite,
+                filters.trash,
+            )
+        )
+        if submitted:
+            self._search_key = key
+        return submitted
+
+    def _search(
+        self,
+        free_text: str,
+        tags: tuple[str, ...],
+        names: tuple[str, ...],
+        status: str | None,
+        favorite: bool | None,
+        trash: bool,
+    ) -> dict[str, Any]:
+        """The blocking half of :meth:`request_widen` -- one ``search_ids``
+        call, off the frame thread. -> ``{"ids": [...]}`` or ``{"error": str}``
+        for :meth:`adopt_widen` to publish.
+        """
         try:
             ids = self.svc.store.search_ids(
                 free_text,
@@ -473,10 +519,24 @@ class JobsCache:
                 names=names,
                 status=status,
                 favorite=favorite,
-                trash=filters.trash,
+                trash=trash,
             )
-        except Exception:
+        except Exception as exc:
             log.exception("could not search the job list")
+            return {"error": str(exc)}
+        return {"ids": ids}
+
+    def adopt_widen(self, reading: Any) -> None:
+        """Frame-thread half of :meth:`request_widen` -- merge a
+        :meth:`_search` reading into ``self.jobs``.
+
+        Called from wherever ``runner``'s result is collected, keyed on
+        :data:`SEARCH_KEY` -- ``main._on_task_done`` does that for the app.
+        """
+        if not isinstance(reading, dict):
+            return
+        ids = reading.get("ids")
+        if ids is None:
             return
         missing = [i for i in ids if i not in self.by_id]
         if not missing:
@@ -493,7 +553,8 @@ class JobsCache:
         # The shape of ``self.jobs`` changed under whatever ``visible``/
         # ``failures`` last memoized -- invalidate directly rather than
         # bumping ``_generation``, which would immediately fail the ``key ==
-        # self._search_key`` check above and re-run this search next frame.
+        # self._search_key`` check in :meth:`request_widen` and re-run the
+        # search next frame.
         self._visible_memo = None
         self._failures_memo = None
 

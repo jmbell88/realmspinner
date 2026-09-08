@@ -573,6 +573,42 @@ def test_playing_a_freshly_marked_loop_region_does_not_block_the_frame_thread(mo
     assert blend == [WORKER], "and play found it already cached -- no second call"
 
 
+# --- 10. the library search widen ---------------------------------------------
+
+
+def test_widen_for_filters_runs_the_store_query_off_the_frame_thread(monkeypatch):
+    """shell-01 (the 2026-09-08 audit): ``JobsCache.widen_for_filters``, called
+    unconditionally at the top of both Library panes' ``draw()``, ran
+    ``self.svc.store.search_ids`` -- a real sqlite query behind ``JobStore``'s
+    shared RLock -- directly on the frame thread on essentially every
+    keystroke in the filter box: the exact stall :meth:`JobsCache.read`'s own
+    ``request``/``adopt`` split exists to prevent for the ordinary list poll.
+    ``request_widen`` now submits the query through ``TaskRunner`` the same
+    way, and this is the sibling proof this file already keeps for every other
+    door: a ``ctx`` whose ``submit`` runs the task on a real worker thread,
+    with the store call spied to record which thread it ran on.
+    """
+    from warlock.studio import jobs_cache
+    from warlock.studio.state import Filters
+
+    svc = SimpleNamespace(store=SimpleNamespace(search_ids=lambda *a, **k: ["match-1"]))
+    threads = _spy(monkeypatch, svc.store, "search_ids")
+    cache = jobs_cache.JobsCache(svc)
+    runner = _Threaded()
+    runner.submitted, runner.tags, runner.result = [], [], None
+
+    filters = Filters(text="dragon")
+    submitted = cache.request_widen(filters, runner)
+
+    assert submitted is True
+    assert runner.submitted == [jobs_cache.SEARCH_KEY]
+    assert threads == [WORKER], "search_ids must not run on the frame thread"
+    # And nothing was merged into ``self.jobs`` yet -- that is the frame
+    # thread's half, landing only once ``adopt_widen`` is handed the result,
+    # exactly as ``read``/``adopt`` split for the ordinary list poll.
+    assert cache.jobs == []
+
+
 def test_a_stale_precompute_result_cannot_pair_its_key_with_a_newer_buffer(monkeypatch):
     """incident-2026-09-05b, a correction to muse-03: submitting
     ``muse_io.loop_body`` itself as the precompute task moved the blend off

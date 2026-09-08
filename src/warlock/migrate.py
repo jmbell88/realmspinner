@@ -346,6 +346,33 @@ def _carry_the_database(config: Config, moved: list[tuple[Path, Path]]) -> None:
         return
 
 
+def _delete_legacy_roots(moved: list[tuple[Path, Path]]) -> None:
+    """Delete every legacy tree in ``moved`` whose destination is published.
+
+    Outside the exclusive hold, and deliberately: the destinations are
+    already published, so nothing is at risk here except the disk space the
+    legacy trees occupy -- and the open handle ``_no_live_writer`` took on
+    the legacy ``jobs.sqlite`` has to be gone before Windows will let it be
+    unlinked. A failure to delete is not a failed migration: ``_pending``
+    skips a root whose destination is populated, so a leftover legacy tree
+    costs space and nothing else.
+
+    Its own function, called from both the exception-free path in
+    :func:`run` and from the except-block below it (the 2026-09-08 audit,
+    service-04): the removal used to happen only after the whole loop over
+    ``pending`` finished without raising, so a real I/O failure on any root
+    but the first -- a locked file, a permission error, disk trouble -- left
+    every *earlier* root's legacy copy on disk forever, duplicated at both
+    the old and the new home. Both call sites pass exactly the roots that
+    finished publishing their destination; a root whose own copy or verify
+    failed never made it into ``moved`` in the first place.
+    """
+    if os.environ.get("WARLOCK_MIGRATE_KEEP") == "1":
+        return
+    for legacy, _dest in moved:
+        shutil.rmtree(legacy, ignore_errors=True)
+
+
 def run(config: Config) -> list[str]:
     """Move any legacy root into ``config.home``. -> the roots that moved.
 
@@ -362,41 +389,42 @@ def run(config: Config) -> list[str]:
         return []
 
     moved: list[tuple[Path, Path]] = []
-    # The exclusive hold spans the measure, the copy and the verify; the
-    # deletes wait below until it is released -- see ``_no_live_writer`` for
-    # why the boundary sits there. Measuring inside it as well is not
-    # incidental: sizes taken before the lock could already be stale by the time
-    # the copy starts, and the verify compares against them.
-    with _no_live_writer():
-        sizes = [_tree_size(legacy) for legacy, _ in pending]
-        _require_space(config, sum(total for _, total in sizes))
+    try:
+        # The exclusive hold spans the measure, the copy and the verify; the
+        # deletes wait below until it is released -- see ``_no_live_writer``
+        # for why the boundary sits there. Measuring inside it as well is not
+        # incidental: sizes taken before the lock could already be stale by
+        # the time the copy starts, and the verify compares against them.
+        with _no_live_writer():
+            sizes = [_tree_size(legacy) for legacy, _ in pending]
+            _require_space(config, sum(total for _, total in sizes))
 
-        for (legacy, dest), (files, total) in zip(pending, sizes, strict=True):
-            # stderr rather than the log: this runs inside get_config(), which is
-            # called long before studio.main installs a file handler, and a 95 GB
-            # copy with no output at all is indistinguishable from a hang.
-            print(
-                f"warlock: moving {legacy} ({_human(total)}) to {dest} -- "
-                f"this happens once.",
-                file=sys.stderr,
-                flush=True,
-            )
-            _move(legacy, dest, files, total, remove=False)
-            print(f"warlock: moved {dest.name}.", file=sys.stderr, flush=True)
-            moved.append((legacy, dest))
+            for (legacy, dest), (files, total) in zip(pending, sizes, strict=True):
+                # stderr rather than the log: this runs inside get_config(),
+                # which is called long before studio.main installs a file
+                # handler, and a 95 GB copy with no output at all is
+                # indistinguishable from a hang.
+                print(
+                    f"warlock: moving {legacy} ({_human(total)}) to {dest} -- "
+                    f"this happens once.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                _move(legacy, dest, files, total, remove=False)
+                print(f"warlock: moved {dest.name}.", file=sys.stderr, flush=True)
+                moved.append((legacy, dest))
+    except Exception:
+        # A later root's copy or verify failed (service-04, the 2026-09-08
+        # audit): the with-block above has already released the exclusive
+        # hold by the time this runs, which is what ``_delete_legacy_roots``
+        # needs -- so every root that made it into ``moved`` before the
+        # failure is still deleted here, exactly as the exception-free path
+        # deletes them below, before the failure is re-raised.
+        _delete_legacy_roots(moved)
+        raise
 
     _carry_the_database(config, moved)
-
-    # Outside the hold, and deliberately last. The destinations are already
-    # published, so nothing is at risk here except the disk space the legacy
-    # trees occupy -- and the open handle on the legacy ``jobs.sqlite`` has to
-    # be gone before Windows will let it be unlinked. A failure to delete is not
-    # a failed migration: ``_pending`` skips a root whose destination is
-    # populated, so a leftover legacy tree costs space and nothing else.
-    if os.environ.get("WARLOCK_MIGRATE_KEEP") != "1":
-        for legacy, _dest in moved:
-            shutil.rmtree(legacy, ignore_errors=True)
-
+    _delete_legacy_roots(moved)
     _breadcrumb(config, moved)
     MOVED.extend(str(dest) for _, dest in moved)
     return [str(dest) for _, dest in moved]

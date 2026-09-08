@@ -2024,20 +2024,6 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
                     f"{doc.size[0]}x{doc.size[1]} canvas at {ts.tile_w}x{ts.tile_h} "
                     f"tiles is {wanted[0]}x{wanted[1]}"
                 )
-            # **The grid the canvas has, not merely a grid the blob fits.**
-            # The byte-length check above only proves the file is
-            # self-consistent, and ``materialize`` is deliberately tolerant --
-            # it breaks out past the canvas edge and clamps unknown ids -- so a
-            # refs grid smaller than the canvas was accepted, silently blanked
-            # the uncovered remainder, and discarded the decoded PNG that had
-            # been holding those pixels honestly.
-            wanted = grid_shape(doc.size, ts.tile_w, ts.tile_h)
-            if (grid_h, grid_w) != wanted:
-                raise ValueError(
-                    f"{entry['refs']} is a {grid_h}x{grid_w} grid; this "
-                    f"{doc.size[0]}x{doc.size[1]} canvas at {ts.tile_w}x{ts.tile_h} "
-                    f"tiles is {wanted[0]}x{wanted[1]}"
-                )
             if ts.tile_w != ts.tile_h and (refs & gid.DTYPE(gid.FLIP_D)).any():
                 # The refs door's own mask (``_doc_tiles._strip_diagonal``),
                 # applied to what a file carries: a diagonal flip of a

@@ -210,6 +210,67 @@ def test_matte_preview_cache_does_not_grow_without_bound_across_jobs(svc):
     assert len(state.cache) == 1
 
 
+def test_late_matte_preview_results_landing_after_several_more_switches_do_not_grow_the_cache_without_bound(  # noqa: E501
+    svc,
+):
+    """The 2026-09-08 audit, finding create-03.
+
+    ``open_for``'s own eviction (create-07, the test above) only catches the
+    *immediately preceding* job at the moment of a switch. It cannot catch a
+    preview that lands after the user has moved on through *several* more
+    switches, whose own outgoing-job pops were each a no-op because the job
+    that finally lands was never the job being switched away from. Before
+    this fix, ``on_task_done`` re-inserted every one of these into
+    ``state.cache`` with nothing ever removing it again -- unbounded growth
+    for a session that previews many references. It must not simply prune
+    everything but the current job either: a result for a job the user has
+    left is still supposed to be cached, just not shown (see
+    ``tests/test_matte_handoff.py::
+    test_a_result_for_a_job_the_user_left_is_cached_but_not_shown``) -- so the
+    fix is a small bound, not a single slot.
+    """
+    cap = matte_preview._MAX_CACHE_ENTRIES
+    jobs = [_reference(svc, _subject_rgb()) for _ in range(cap + 3)]
+
+    class Ctx:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(matte=None)
+            self.svc = svc
+
+        def submit(self, key, fn, *args, **kwargs):
+            return True
+
+    ctx = Ctx()
+
+    def _remembered(job_id: str):
+        preview = svc_matte.preview(svc, job_id)
+        return svc_matte.replace_stamp(preview, time.time_ns() - 10 * svc_matte.MTIME_RACE_NS)
+
+    # Open every job in turn and move on before its task ever completes --
+    # each switch's own eviction is a no-op, since the outgoing job was never
+    # cached yet.
+    state = None
+    for job_id in jobs:
+        matte_preview.open_for(ctx, job_id, {})
+        state = matte_preview.pump(ctx)
+
+    # Every job's task finally lands, long after the user moved on from all
+    # of them.
+    for job_id in jobs:
+        matte_preview.on_task_done(
+            ctx, SimpleNamespace(key=matte_preview.key(job_id), result=_remembered(job_id))
+        )
+
+    # Unbounded before the fix: none of these landings was ever the
+    # immediately-preceding job at a switch, so nothing ever evicted them.
+    assert len(state.cache) <= cap
+    # And it is the most recently landed ones that survive, not an arbitrary
+    # subset -- the first job to land is the first one an LRU drops.
+    for job_id in jobs[-cap:]:
+        assert job_id in state.cache
+    assert jobs[0] not in state.cache
+
+
 # --- approved alpha ---------------------------------------------------------
 
 

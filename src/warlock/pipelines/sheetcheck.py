@@ -144,6 +144,14 @@ def metadata_findings(meta: Mapping[str, Any] | None) -> list[str]:
             if outside:
                 out.append(f"{len(outside)} tagged frames are not cells of this sheet")
 
+    # Every offending cell, not just the first (the 2026-09-08 audit,
+    # pipelines-06): this used to ``break`` on the first bad pivot, unlike
+    # every other check in this function (tags, duplicated, uncovered,
+    # outside), which counts and names every affected cell. A reader who
+    # fixed the one named cell and re-validated discovered the next bad pivot
+    # only on a second pass, when this function already had every cell in
+    # hand.
+    bad_pivots: list[Any] = []
     for cell in cells:
         px, py = float(cell.get("pivot_x", 0.0)), float(cell.get("pivot_y", 0.0))
         w, h = float(cell.get("w", 0.0)), float(cell.get("h", 0.0))
@@ -152,8 +160,12 @@ def metadata_findings(meta: Mapping[str, Any] | None) -> list[str]:
         # *atlas* pixels lands far outside a 32px cell, which is exactly the
         # defect ``charsheet.point_in_cell`` exists to prevent.
         if not (0.0 <= px <= w and 0.0 <= py <= h):
-            out.append(f"cell {cell.get('index')}'s pivot is outside the cell")
-            break
+            bad_pivots.append(cell.get("index"))
+    if len(bad_pivots) == 1:
+        out.append(f"cell {bad_pivots[0]}'s pivot is outside the cell")
+    elif bad_pivots:
+        named = ", ".join(str(i) for i in bad_pivots)
+        out.append(f"{len(bad_pivots)} cells have a pivot outside the cell: {named}")
     return out
 
 

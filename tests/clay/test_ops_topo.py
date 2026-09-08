@@ -8,6 +8,7 @@ import pytest
 from warlock.studio.clay import adjacency as adj
 from warlock.studio.clay import elements as el
 from warlock.studio.clay import mesh as bm
+from warlock.studio.clay import ops_dissolve as dis
 from warlock.studio.clay import ops_topo as ops
 from warlock.studio.clay import primitives as prim
 from warlock.studio.clay import topo
@@ -253,6 +254,33 @@ def test_an_offset_extrude_moves_only_the_cap() -> None:
     cap = out.positions[out.loops[out.starts[1] : out.starts[2]]]
     original = m.positions[m.loops[m.starts[1] : m.starts[2]]]
     assert np.allclose(cap - original, normal * 0.5, atol=1e-5)
+
+
+def test_extrude_faces_offset_is_a_silent_noop_when_selected_regions_normals_cancel() -> None:
+    """The 2026-09-08 audit's clay-03: ``extrude_faces`` used to compute one
+    global mean normal from the sum of every selected face's normal, so a
+    non-zero offset over two disjoint regions whose normals cancel (a box's
+    opposite -Y and +Y caps, faces 0 and 1, which do not share an edge and so
+    are two separate regions) moved nothing -- no refusal, geometry that
+    looks unchanged -- the exact silent-no-op failure mode ``extrude_edges``'s
+    own docstring already refused to ship ("a parameter that silently does
+    nothing is worse than no parameter"). Fixed by grouping the offset per
+    connected region, the same grouping the wall already uses
+    (``topo.region_boundary_corners``), so each disjoint block moves along
+    its own mean normal instead of a whole selection's average.
+    """
+    m = prim.box()
+    out, _ = ops.extrude_faces(m, el.ElementSel(faces=[0, 1]), offset=0.5)
+    bottom_before = m.positions[m.loops[m.starts[0] : m.starts[1]]]
+    top_before = m.positions[m.loops[m.starts[1] : m.starts[2]]]
+    bottom_after = out.positions[out.loops[out.starts[0] : out.starts[1]]]
+    top_after = out.positions[out.loops[out.starts[1] : out.starts[2]]]
+    assert not np.allclose(bottom_after, bottom_before), "the -Y cap silently didn't move"
+    assert not np.allclose(top_after, top_before), "the +Y cap silently didn't move"
+    # Each cap still moves along its own outward normal, not some blended
+    # direction the two regions' normals would have averaged to.
+    assert np.allclose(bottom_after - bottom_before, [0.0, -0.5, 0.0], atol=1e-5)
+    assert np.allclose(top_after - top_before, [0.0, 0.5, 0.0], atol=1e-5)
 
 
 def test_an_extrudes_walls_inherit_their_source_corners_uvs() -> None:
@@ -565,3 +593,22 @@ def test_a_filled_caps_uvs_come_from_the_surface_around_it() -> None:
     cap = out.uv[len(m.uv) :]
     assert len(cap) == 6
     assert all(row.tolist() in m.uv.tolist() for row in cap)
+
+
+def test_fill_hole_refuses_a_ring_past_the_dissolve_sized_ceiling(monkeypatch) -> None:
+    """The 2026-09-08 audit's clay-01: ``fill_hole`` caps a boundary ring with
+    one n-gon and had no ceiling analogous to ``ops_dissolve``'s
+    ``MAX_DISSOLVED_RING``, even though it is reached through the identical
+    synchronous frame-thread path (``clay_ops.run_mesh_op``) and the cap is
+    triangulated by the same worst-case-quadratic earclip ear search that
+    ``MAX_DISSOLVED_RING`` exists specifically to keep off the frame thread.
+
+    Driven with the ceiling lowered rather than with a twenty-thousand-corner
+    hole, which would cost more to build than the thing it is testing -- the
+    same trade ``test_a_dissolve_whose_outline_is_too_big_is_refused`` makes.
+    """
+    m = _open_tube(6)
+    boundary = adj.check_manifold(m).boundary_edges
+    monkeypatch.setattr(dis, "MAX_DISSOLVED_RING", 4)
+    with pytest.raises(el.OpError, match="corners, past the"):
+        ops.fill_hole(m, el.ElementSel(edges=boundary[:1]))

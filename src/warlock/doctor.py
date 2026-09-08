@@ -490,11 +490,29 @@ def _birefnet_check(config: Config) -> Check:
     # report the weights missing while the app quietly kept asking for them.
     path = config.trellis_models_dir / guidance.BIREFNET_WEIGHTS
     ok = path.exists()
-    detail = (
-        str(path)
-        if ok
-        else f"missing at {path} -- background matting falls back to a threshold cutout"
-    )
+    # M04's zero-byte downgrade, reused rather than re-derived (pipelines-05,
+    # 2026-09-08 audit): this row was hand-rolled as a bare ``Path.exists()``
+    # and was the one model-weight row M04 never reached, so it could disagree
+    # with the sibling "TRELLIS GGUF weights" row about the identical file --
+    # reproduced with all ten GGUF probe files zero-byte, where that row said
+    # FAIL and this one still said OK. ``suspect_files`` is asked about the
+    # same file this row already names, through the one probe list both rows
+    # read, rather than a second size check that could itself drift.
+    empty = False
+    if ok:
+        spec = models.ENGINE_MODELS["trellis_gguf"]
+        empty = str(path) in fetch.suspect_files(config, "engine", spec)
+        if empty:
+            ok = False
+    if empty:
+        detail = (
+            f"{path} is empty and will not load -- background matting "
+            "falls back to a threshold cutout"
+        )
+    elif ok:
+        detail = str(path)
+    else:
+        detail = f"missing at {path} -- background matting falls back to a threshold cutout"
     # Named for the process that loads it: there is a second BiRefNet on the
     # host now (see _matting_checks) and the two are different downloads.
     #

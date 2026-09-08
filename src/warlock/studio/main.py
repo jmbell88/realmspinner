@@ -41,6 +41,7 @@ from .. import memlog, winjob
 from . import anchors, create_brief, filetypes, guard, probe, resources, tokens, viewer_embed
 from . import app_ctx as app_ctx_mod
 from . import fps as fps_mod
+from . import jobs_cache as jobs_cache_mod
 
 # The Ctrl+/ sheet's contents and its filter, in a file of their own since
 # 2026-09-04 and named here where every caller already looks. See
@@ -509,11 +510,23 @@ def initial_mode(settings: Any, available: Callable[[str], bool]) -> str:
     through: ``available`` is asked the identical question
     ``state.set_mode``'s ``_MODE_AVAILABLE`` hook asks, so this cannot answer
     "yes" to a door that switch would then refuse.
+
+    And a remembered mode that no longer *exists* falls back the same way,
+    checked against ``modes.KEYS`` before ``available`` is ever asked --
+    ``_escape_mode`` already makes this check for its own history and this was
+    the one reader of a persisted mode name that did not (shell-04, the
+    2026-09-08 audit). Left unchecked, a stale or hand-edited
+    ``last_workspace`` naming a retired mode reached ``_build_ui``'s else
+    branch and opened Create while ``state.mode`` held a value nothing else in
+    the app -- the rail's selected-item highlight, the status bar, Esc's
+    history -- recognises as a member of ``modes.KEYS``.
     """
+    from . import modes
+
     if str(settings.get(STARTUP_MODE_SETTING) or STARTUP_HOME) != STARTUP_LAST:
         return STARTUP_HOME
     remembered = str(settings.get(LAST_WORKSPACE_SETTING) or "")
-    if not remembered or not available(remembered):
+    if not remembered or remembered not in modes.KEYS or not available(remembered):
         return STARTUP_HOME
     return remembered
 
@@ -2010,6 +2023,12 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             # transition is ever announced, same as the old inline ``tick``.
             if ctx.cache.adopt(done.result, self._announce_job_transition):
                 self._sync_viewer()
+            return
+        if key == jobs_cache_mod.SEARCH_KEY:
+            # shell-01 (the 2026-09-08 audit): the frame-thread half of the
+            # split ``request_widen``/``_search`` -- the library's search used
+            # to run its store query inline, here, on the frame thread.
+            ctx.cache.adopt_widen(done.result)
             return
         if key == "storage" or key.startswith("storage:"):
             # Both the full walk and the per-job incremental re-measure (C33)

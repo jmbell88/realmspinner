@@ -162,6 +162,14 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     than its ``radius`` self-intersects, which the generator's own docstring
     says is "the properties panel's business (a soft clamp on the tube
     slider)" and which, until this function, no code anywhere actually did.
+
+    And ``column``'s own relational clamp -- the 2026-09-08 audit's clay-04:
+    ``base + capital`` past :data:`COLUMN_ENDS_MAX` of the height is the
+    identically shaped self-intersection this function already guards for
+    torus, and this function mirrored the torus branch without noticing its
+    sibling. Without it, the panel stored the raw base/capital the user typed
+    while ``column`` shrank a substituted pair before ever building, so a
+    saved document's params disagreed with the shaft it describes.
     """
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
@@ -169,6 +177,11 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
             out[key] = clamp(out[key])
     if generator == "torus" and "tube" in out and "radius" in out:
         out["tube"] = min(abs(float(out["tube"])), abs(float(out["radius"])))
+    if generator == "column" and "base" in out and "capital" in out and "height" in out:
+        b, c, h = abs(float(out["base"])), abs(float(out["capital"])), abs(float(out["height"]))
+        if b + c > h * COLUMN_ENDS_MAX:
+            shrink = (h * COLUMN_ENDS_MAX) / (b + c)
+            out["base"], out["capital"] = b * shrink, c * shrink
     return out
 
 

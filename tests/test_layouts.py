@@ -442,6 +442,79 @@ def test_the_editor_is_a_toggle_that_drops_what_it_was_holding():
     assert state.layout_edit.dragging == ""
 
 
+def test_layout_editor_can_actually_hide_a_hideable_slot(monkeypatch):
+    """The 2026-09-08 audit's shell-07: ``EditState.hidden``'s docstring
+    promised slots hidden "in this session's edit, before it is committed,"
+    but ``layout_edit.draw`` only ever implemented drag-start/drag-commit for
+    reordering -- nothing added a slot to ``edit.hidden``, so the fully-built
+    hiding machinery (``Slot.hideable``, ``Arrangement.hidden``,
+    ``skeletons.ordered``'s hidden-slot filtering) was unreachable by any
+    user gesture. Real imgui, no GL (see ``_ui_context``): the one exception
+    to this module's own "no imgui" rule, because the claim is about a
+    press landing, not about the arithmetic underneath it.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import layout as layout_mod
+    from warlock.studio import layout_edit, skeletons
+
+    slot = skeleton.Slot(id="swatches", label="Swatches", draw=lambda ctx: None)
+    column = skeleton.Column("left", (slot,))
+    monkeypatch.setattr(skeletons, "for_mode", lambda ctx, mode: {"left": column})
+
+    settings = _Settings()
+    library = layouts.Library(settings)
+    app = SimpleNamespace(layouts=library)
+    ctx = SimpleNamespace(state=SimpleNamespace(mode="inker"))
+
+    with imgui_context(monkeypatch) as imgui:
+        layout_mod.FRAME_PANES = {"swatches": (0.0, 0.0, 200.0, 60.0)}
+        edit = layout_edit.ensure(ctx.state)
+        edit.open = True
+        io = imgui.get_io()
+
+        def _frame(pos: tuple[float, float], down: bool) -> None:
+            io.add_mouse_pos_event(pos[0], pos[1])
+            io.add_mouse_button_event(0, down)
+            imgui.new_frame()
+            layout_edit.draw(app, ctx, None)
+            imgui.end_frame()
+
+        # Off the rect first, to lay out the badge without pressing it.
+        _frame((-100.0, -100.0), False)
+        # The badge is a square of side ``get_frame_height()`` in the pane's
+        # top-right corner -- the same formula ``draw`` uses, not a hardcoded
+        # pixel, so this does not fall out of step with it.
+        side = imgui.get_frame_height()
+        x, y, w, _h = layout_mod.FRAME_PANES["swatches"]
+        from warlock.studio.tokens import sp
+
+        centre = (x + w - sp(6) - side / 2.0, y + sp(6) + side / 2.0)
+        _frame(centre, True)
+        _frame(centre, False)
+
+    assert "swatches" in edit.hidden
+    # Written straight through, with no separate "done" gesture to press.
+    assert library.hidden("inker") == {"swatches"}
+
+    with imgui_context(monkeypatch) as imgui:
+        io = imgui.get_io()
+
+        def _frame2(pos: tuple[float, float], down: bool) -> None:
+            io.add_mouse_pos_event(pos[0], pos[1])
+            io.add_mouse_button_event(0, down)
+            imgui.new_frame()
+            layout_edit.draw(app, ctx, None)
+            imgui.end_frame()
+
+        _frame2((-100.0, -100.0), False)
+        _frame2(centre, True)
+        _frame2(centre, False)
+
+    assert "swatches" not in edit.hidden
+    assert library.hidden("inker") == set()
+
+
 def test_the_splitters_are_suppressed_while_editing():
     """A resize handle and a drag target on the same two pixels is a gesture
     nobody can aim."""

@@ -96,6 +96,32 @@ def test_a_missing_exe_raises_and_does_not_silently_ship_the_source(tmp_path, mo
         )
 
 
+def test_optimize_refuses_a_directory_named_like_the_binary_instead_of_invoking_it(
+    tmp_path, monkeypatch
+):
+    """pipelines-04 (2026-09-08 audit). ``exe.exists()`` is true of a
+    directory as well as a file -- the same defect already fixed at
+    ``doctor._gltfpack_check`` and ``retarget_panel._gltfpack_available`` --
+    so a broken unpack that left a *folder* named ``gltfpack.exe`` used to
+    read as "present" and reach ``winjob.run([str(exe), ...])``, where
+    ``subprocess.Popen`` raises an uncaught OSError instead of this module's
+    own ``OptimizeError``.
+    """
+
+    def explode(*a, **k):
+        raise AssertionError("gltfpack must not be invoked against a directory")
+
+    monkeypatch.setattr(winjob, "run", explode)
+    monkeypatch.setattr(optimize, "_triangles", lambda p: 100_000)
+    exe = tmp_path / "gltfpack.exe"
+    exe.mkdir()
+    src = tmp_path / "source.glb"
+    src.write_bytes(b"glb")
+    with pytest.raises(optimize.OptimizeError):
+        optimize.run(src, tmp_path / "model.glb", target_triangles=50_000, exe=exe)
+    assert not (tmp_path / "model.glb").exists()
+
+
 def test_a_failed_raw_copy_never_corrupts_an_existing_model(tmp_path, monkeypatch):
     """The within-budget path overwrites a model.glb the file route may be
     serving concurrently (POST /optimize runs on a *done* job), so the copy

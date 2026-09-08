@@ -56,6 +56,36 @@ def test_two_identical_passages_have_the_same_feature():
     assert bands[half // 2] @ bands[half + half // 2] == pytest.approx(1.0, abs=1e-3)
 
 
+def test_features_bands_span_40hz_to_nyquist_not_dc_to_second_highest_edge():
+    """The 2026-09-08 audit, finding muse-01. An off-by-one in how ``_bands``'s
+    boundary array was fed to ``np.add.reduceat`` made kept band 0 the
+    DC/sub-bass segment ``[0, ~40 Hz)`` and silently dropped the true top
+    band, ``[~4.5 kHz, Nyquist)`` -- the "sizzle" the module's own docstring
+    says the analysis exists to judge seams on.
+
+    Fails against the unfixed code: a tone inside the true top band splits
+    across kept bands 21-22 (band 23 all but empty) instead of dominating
+    band 23, and a tone inside the true first log-spaced band (~38-48 Hz)
+    peaks in kept band 1, not band 0.
+    """
+    rate = loops.ANALYSIS_RATE
+    bin_hz = rate / loops.FFT
+
+    sizzle = _tone(2.0, 5000.0, rate)
+    bands, _ = loops.features(sizzle)
+    frame = bands[bands.shape[0] // 2]
+    assert int(np.argmax(frame)) == loops.BANDS - 1
+    assert frame[loops.BANDS - 1] > 0.9
+
+    # Bin-aligned to FFT/ANALYSIS_RATE so Hanning leakage stays concentrated
+    # on this bin: bin 8 is ~43 Hz, squarely inside the true first log-spaced
+    # band (edges[0]..edges[1] of the 25-point geomspace, ~38-48 Hz).
+    low = _tone(2.0, 8 * bin_hz, rate)
+    bands, _ = loops.features(low)
+    frame = bands[bands.shape[0] // 2]
+    assert int(np.argmax(frame)) == 0
+
+
 def test_a_loud_passage_and_a_quiet_one_of_the_same_material_match_on_content():
     """And differ on level, which is the split the two return values are for.
 
@@ -105,11 +135,25 @@ def test_it_returns_alternatives_rather_than_one_answer():
 
 
 def test_candidates_are_distinct_rather_than_five_readings_of_one_basin():
+    """'Same basin' is ``_coarse``'s own dedup rule: both endpoints agree to
+    within a lead-in. Two candidates may legitimately share a start (or an
+    end) with the other endpoint far apart -- that is a different loop, not
+    the same one twice -- so the check is on the pair, not on raw distinctness
+    of starts alone.
+
+    The 2026-09-08 audit, finding muse-01, corrected ``features()``'s band
+    boundaries; the fix legitimately changes which candidates ``find()``
+    returns for this material, including which ones share a start, so the
+    raw-distinctness form of this assertion (checked before the fix) no
+    longer holds for this input even though no basin is duplicated.
+    """
     pcm = np.concatenate([_phrase(1.5, hz) for hz in (220, 330, 220, 440, 220)])
     out = loops.find(pcm, RATE)
-    starts = sorted(c.start for c in out)
     reach = loops.CONTEXT_FRAMES * loops.HOP * (RATE / loops.ANALYSIS_RATE)
-    assert all(b - a > 0 for a, b in zip(starts, starts[1:], strict=False))
+    for i, a in enumerate(out):
+        for b in out[i + 1 :]:
+            assert abs(a.start - b.start) > reach or abs(a.end - b.end) > reach
+    starts = [c.start for c in out]
     assert len(out) == 1 or max(starts) - min(starts) > reach
 
 

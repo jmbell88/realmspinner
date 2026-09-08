@@ -7,6 +7,15 @@ ask for anything else -- so the one conversion in the app that changes mode was
 the one conversion with no dither.
 
 One popup answers both now. ``convert_mode`` says which question it is asking.
+
+**``apply_convert`` submits and lands rather than converting inline**, since
+the 2026-09-08 audit (finding inker-01) found the whole-document dither
+running synchronously on the button press with the pygame frame loop blocked
+for as long as it took. ``_Ctx`` below is ``tests/inker/test_flourish_ops.py``'s
+fake -- it runs the submitted job inline and hands the result to
+``inker_mode.on_task_done`` exactly as the app's ``TaskRunner`` would, so
+these tests exercise the real route (submit -> ``_done_convert`` -> land)
+rather than the synchronous call that no longer exists.
 """
 
 from __future__ import annotations
@@ -16,18 +25,32 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio import inker
+from warlock.studio import inker, inker_mode
 from warlock.studio.inker_state import InkerDoc, InkerState
 from warlock.studio.panes import inker_bridge
+from warlock.studio.tasks import Done
 
 
 class _Ctx:
+    """Runs a submitted job inline and lands it through ``on_task_done``,
+    the same shape ``tests/inker/test_flourish_ops.py`` uses for the other
+    Inker async doors."""
+
     def __init__(self) -> None:
         self.state = SimpleNamespace(inker=InkerState())
         self.toasts: list[tuple[str, str]] = []
+        self.cache = SimpleNamespace(invalidate=lambda: None)
 
     def toast(self, text: str, level: str = "info", *_: Any) -> None:
         self.toasts.append((text, level))
+
+    def submit(self, key: str, fn, *args: Any, **kwargs: Any) -> bool:
+        try:
+            done = Done(key=key, result=fn(*args, **kwargs))
+        except Exception as exc:  # noqa: BLE001 -- the runner reports, never raises
+            done = Done(key=key, error=exc)
+        inker_mode.on_task_done(self, done)
+        return True
 
 
 def _ramp_tab(ctx: _Ctx) -> InkerDoc:
@@ -55,8 +78,9 @@ def test_applying_a_mode_session_enters_indexed_mode():
     ctx = _Ctx()
     tab = _ramp_tab(ctx)
     _session(ctx, tab, mode="indexed", method="nearest")
-    assert inker_bridge.apply_convert(ctx, tab)
+    assert inker_bridge.apply_convert(ctx, tab)  # accepted for submission
     assert tab.doc.is_indexed
+    assert tab.saving is False  # landed, not left locked
 
 
 def test_a_mode_session_uses_the_matrix_that_was_chosen():

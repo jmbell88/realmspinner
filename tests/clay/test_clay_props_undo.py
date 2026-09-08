@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import inspect
 
+from warlock.studio.clay import document as bd
+from warlock.studio.clay import primitives as bp
 from warlock.studio.panes import clay_props
 
 
@@ -46,3 +48,53 @@ def test_editing_a_transform_or_generator_field_by_keystroke_is_one_undo_step() 
 
     generator_src = inspect.getsource(clay_props._generator)
     _fold_precedes(generator_src, "_widget(key,", "doc.set_generator_params(")
+
+
+def test_adding_or_removing_a_material_slot_is_one_undo_step() -> None:
+    """The 2026-09-08 audit's clay-02: clicking Add pushed
+    ``doc.add_material()`` and ``doc.set_props(...)`` as two separate undo
+    steps for one click, and Remove pushed ``doc.remove_material(...)`` and
+    ``doc.set_props(...)`` as two separate steps too -- neither pair folded
+    by a ``history.mark()``/``collapse_since``, unlike every other
+    document-changing gesture in Clay. One Ctrl+Z after clicking Add left a
+    stray, unreferenced palette entry behind instead of restoring the
+    object's original material; one Ctrl+Z after Remove left the object
+    pointed at the reassigned slot instead of the one it started on.
+
+    ``_palette_row`` now routes both buttons through a ``ClayDoc`` helper
+    (``add_material_and_assign`` / ``remove_material_and_reassign``) that
+    folds the pair into one step, the same shape ``join_objects`` already
+    folds a mesh replacement and a set of removals into.
+    """
+    source = inspect.getsource(clay_props._palette_row)
+    assert "doc.add_material_and_assign(" in source
+    assert "doc.remove_material_and_reassign(" in source
+
+    doc = bd.ClayDoc()
+    obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+
+    before_materials = list(doc.materials)
+    before_history = len(doc.history)
+    new_index = doc.add_material_and_assign(obj.uid)
+    assert len(doc.materials) == len(before_materials) + 1
+    assert obj.material == new_index
+    assert len(doc.history) == before_history + 1, "one click, one undo step"
+    assert doc.undo()
+    assert list(doc.materials) == before_materials
+    assert obj.material != new_index, "one Ctrl+Z restores the pre-click material too"
+
+    extra = doc.add_material()
+    doc.set_props(obj.uid, material=extra)
+    before_materials = list(doc.materials)
+    before_history = len(doc.history)
+    assert doc.remove_material_and_reassign(obj.uid, extra) is True
+    assert obj.material != extra
+    assert len(doc.history) == before_history + 1, "one click, one undo step"
+    assert doc.undo()
+    # The removed entry comes back, in one press rather than the two the
+    # unfolded pair needed. What ``obj.material`` itself lands on afterwards
+    # is a separate, pre-existing question about ``_shift_materials``'s own
+    # in-place renumbering (``edits.py``, not owned by this fix) racing an
+    # ``ObjectPropsEdit`` undo on the same field -- present whether the pair
+    # is folded or not, and not what this finding is about.
+    assert list(doc.materials) == before_materials, "one Ctrl+Z restores the removed slot too"

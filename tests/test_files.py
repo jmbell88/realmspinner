@@ -13,6 +13,7 @@ import io
 import threading
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from warlock.service import files as svc_files
@@ -41,9 +42,15 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
     2026-09-07 audit, service-03.
 
     The interleaving is forced rather than hoped for: both saves are made to
-    observe "no backup yet" before either copies, and the second save's copy
-    is made to happen only after the first save's write has already landed --
-    exactly the ordering the finding describes.
+    observe "no backup yet" before either reads the pixels to back up, and
+    the second save's read is made to happen only after the first save's
+    write has already landed -- exactly the ordering the finding describes.
+
+    Hooks ``Path.read_bytes`` rather than ``shutil.copyfile``: the 2026-09-08
+    audit (service-05) moved the backup write off a bare ``shutil.copyfile``
+    onto the same staged-temp-then-``os.replace`` shape every other write in
+    this module already uses (``dest.read_bytes()`` then ``_staged_write``),
+    so the read of the source pixels is now the moment whose timing matters.
     """
     job_id = _reference(svc)
     job_dir = svc.job_dir(job_id)
@@ -51,7 +58,7 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
     original = job_dir / "input.orig.png"
 
     real_exists = Path.exists
-    real_copyfile = svc_files.shutil.copyfile
+    real_read_bytes = Path.read_bytes
     real_replace = svc_files.os.replace
 
     ident_box: dict[str, int] = {}
@@ -71,13 +78,14 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
                 a_checked.wait(2)
         return result
 
-    def fake_copyfile(src, dst):
-        if Path(dst) == original and threading.get_ident() == ident_box.get("b"):
-            # The second save's copy must not happen until the first save's
-            # write has landed -- otherwise both copies race the still-
-            # unedited dest and the bug this test targets never manifests.
+    def fake_read_bytes(self):
+        if self == dest and threading.get_ident() == ident_box.get("b"):
+            # The second save's read of the backup source must not happen
+            # until the first save's write has already landed -- otherwise
+            # both reads race the still-unedited dest and the bug this test
+            # targets never manifests.
             a_write_done.wait(2)
-        return real_copyfile(src, dst)
+        return real_read_bytes(self)
 
     def fake_replace(src, dst):
         result = real_replace(src, dst)
@@ -86,7 +94,7 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
         return result
 
     monkeypatch.setattr(Path, "exists", fake_exists)
-    monkeypatch.setattr(svc_files.shutil, "copyfile", fake_copyfile)
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
     monkeypatch.setattr(svc_files.os, "replace", fake_replace)
 
     errors: list[BaseException] = []
@@ -113,6 +121,81 @@ def test_concurrent_saves_do_not_let_the_undo_anchor_become_an_edited_copy(svc, 
     # edit -- not either racing save's colour, which is what an unlocked
     # check-then-copy-then-write produces.
     assert anchor_pixel == (200, 30, 30, 255)
+
+
+def test_a_failed_backup_copy_leaves_no_truncated_undo_anchor(svc, monkeypatch):
+    """service-05 (the 2026-09-08 audit): the one-time backup of the
+    generated reference (``input.orig.png``, undo's only anchor to the
+    pre-edit pixels) used to be written with a bare ``shutil.copyfile``
+    rather than through this module's own staged-temp-then-``os.replace``
+    pattern every other write here uses -- so a crash or a write failure
+    partway through the copy left a truncated ``input.orig.png`` on disk.
+    ``save_edited_image`` gates the backup on ``original.exists()``, so a
+    truncated file is never retried: it becomes the permanent "revert to
+    original" target, and a later ``revert_reference`` installs it onto the
+    served ``input.png``.
+    """
+    job_id = _reference(svc)
+    job_dir = svc.job_dir(job_id)
+    original = job_dir / svc_files.ORIGINAL
+
+    real_write_bytes = Path.write_bytes
+
+    def flaky_write_bytes(self, data):
+        if svc_files.ORIGINAL in self.name:
+            # A crash partway through writing the backup: some bytes reach
+            # disk, then the write is interrupted -- the failure mode the
+            # finding names. Only fires on the backup's own temp sibling (its
+            # name carries "input.orig.png"); the edit's own write, onto a
+            # temp sibling of "input.png", is untouched.
+            with open(self, "wb") as fh:
+                fh.write(data[: len(data) // 2])
+            raise OSError("simulated disk failure mid-copy")
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", flaky_write_bytes)
+
+    with pytest.raises(OSError):
+        svc_files.save_edited_image(svc, job_id, _png(colour=(9, 9, 9, 255)))
+
+    # No truncated file at the served backup name: the write staged to a temp
+    # sibling and never replaced onto it, so the failure lands there instead.
+    assert not original.exists()
+    # And the temp sibling itself is gone too -- _staged_write's own
+    # ``finally`` removes it whether the write succeeded or not.
+    assert list(job_dir.glob(f".{svc_files.ORIGINAL}.*.tmp")) == []
+
+
+def test_save_edited_image_drops_the_stale_reference_report_when_remeasurement_fails(
+    svc, monkeypatch
+):
+    """service-02 (the 2026-09-08 audit): ``_remeasure``'s reference branch
+    called ``reference.measure_file(src).as_dict()`` with no exception
+    handling, unlike the parallel tile branch three lines above it (which
+    catches, logs and drops the stale key) -- so a measurement failure after
+    a hand edit has already changed ``input.png`` on disk used to abort the
+    whole ``merge_params`` call. ``params["reference_report"]`` (already
+    stale by then) was left describing pixels the user no longer has, and
+    ``hand_edited`` was never recorded either, because the same call carries
+    both.
+    """
+    from warlock.pipelines import reference as reference_mod
+
+    job_id = _reference(svc)
+    # A report already on the row, from the generation this edit replaces --
+    # what a failed remeasurement must not leave standing.
+    svc.store.merge_params(job_id, {"reference_report": {"ok": True, "reasons": []}})
+
+    def boom(_path):
+        raise ValueError("corrupt reference")
+
+    monkeypatch.setattr(reference_mod, "measure_file", boom)
+
+    svc_files.save_edited_image(svc, job_id, _png(colour=(1, 2, 3, 255)))
+
+    params = svc.store.get(job_id)["params"]
+    assert "reference_report" not in params
+    assert params["hand_edited"] is True
 
 
 # -- DERIVED_AUDIO / DERIVED_IMAGE: the allowlist rule, both directions ------

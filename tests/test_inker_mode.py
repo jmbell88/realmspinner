@@ -2288,3 +2288,58 @@ def test_paste_from_os_still_lands_an_ordinary_image(monkeypatch):
     assert ok is True
     taken = tab.doc.clipboard.take()
     assert taken is not None and taken[0].shape == (4, 4, 4)
+
+
+def test_apply_convert_runs_the_whole_document_dither_off_the_frame_thread():
+    """The 2026-09-08 audit, finding inker-01: Apply used to call
+    ``Document.commit_convert`` inline on the button press, which walks
+    ``dither.convert``/``convert_indices`` over every unique cel of the whole
+    document -- Floyd-Steinberg's own docstring (``inker/dither.py``) measures
+    that at roughly 43s for one 2048-square plane, and canvases reach 8192
+    square (``pixelguard.py``). Nothing wrapped it in ``ctx.submit``, so the
+    pygame frame loop froze for as long as the conversion took.
+
+    A ``ctx.submit`` that only *records* the job, and never runs it, is the
+    frame thread's stand-in here: if Apply still converts inline, the document
+    comes back converted before this function returns, with nothing recorded.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from warlock.studio.panes import inker_bridge
+
+    tab = _tab(size=(16, 4))
+    ramp = np.linspace(0, 255, 16).astype("uint8")
+    tab.doc.stack.active.pixels[:, :, :3] = ramp[None, :, None]
+    tab.doc.stack.active.pixels[:, :, 3] = 255
+    tab.doc.invalidate_all()
+    state = _state(tab)
+
+    class _RecordingCtx:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(inker=state)
+            self.submitted: list[tuple] = []
+
+        def toast(self, *_a, **_k) -> None:  # pragma: no cover - unused if fixed
+            pass
+
+        def submit(self, key, fn, *args, **kwargs) -> bool:
+            self.submitted.append((key, fn, args, kwargs))
+            return True
+
+    ctx = _RecordingCtx()
+    assert tab.doc.begin_convert()
+    state.convert_uid = tab.uid
+    state.convert_mode = ""
+    state.convert_method = "nearest"
+    state.convert_max = 4
+    state.convert_table = tab.doc.built_palette(4)
+
+    inker_bridge.apply_convert(ctx, tab)
+
+    assert ctx.submitted, "commit_convert must be handed to ctx.submit, not run inline"
+    assert not tab.doc.is_indexed
+    # Still every one of the ramp's sixteen distinct greys, not the four the
+    # popup was asking for -- proof the conversion has not actually run.
+    assert len(np.unique(tab.doc.composite[..., 0])) > 4

@@ -225,7 +225,13 @@ def test_an_attached_controlnet_is_patched_too(stub_t2i, monkeypatch, tmp_path):
     # (a tiling brick wall guided by a depth hint) to avoid a one-word fix.
     t2i, pipe = stub_t2i
     pipe.controlnet = _Net()
-    monkeypatch.setattr(t2i, "_conditioned", lambda cond: (pipe, {}, lambda: None))
+    # pipelines-02 (2026-09-08 audit) gave ``_conditioned`` a second
+    # ``cancel_event`` parameter, so a one-arg stub no longer matches its
+    # signature and ``_generate``'s ``self._conditioned(conditioning,
+    # cancel_event)`` call raised a TypeError.
+    monkeypatch.setattr(
+        t2i, "_conditioned", lambda cond, cancel_event=None: (pipe, {}, lambda: None)
+    )
     cond = SimpleNamespace(as_dict=lambda: {})
 
     t2i.generate("brick wall", tmp_path / "a.png", conditioning=cond, tile=True)

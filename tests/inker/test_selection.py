@@ -212,6 +212,23 @@ def test_an_empty_selection_has_no_outline():
     assert sel.SelectionMask(np.zeros((8, 8), dtype=np.uint8)).contours() == []
 
 
+def test_selection_mask_equality_does_not_raise_on_distinct_equal_arrays():
+    """The 2026-09-08 audit (inker-10): the default dataclass ``__eq__`` tuple-
+    compares ``mask`` and hands back the raw ndarray comparison instead of a
+    bool, so ``==`` on two masks with equal-but-distinct arrays used to raise
+    "the truth value of an array with more than one element is ambiguous"
+    rather than compare them. ``eq=False`` falls back to identity, which is
+    at least a bool -- and ``!=``, ``in`` and ``bool(a == b)`` all go through
+    the same path."""
+    a = sel.SelectionMask(np.zeros((4, 4), dtype=np.uint8))
+    b = sel.SelectionMask(np.zeros((4, 4), dtype=np.uint8))
+    assert (a == b) is False
+    assert (a != b) is True
+    assert (a == a) is True
+    assert a not in [b]
+    assert a in [a]
+
+
 # --- floating pixels --------------------------------------------------------
 
 

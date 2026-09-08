@@ -521,11 +521,21 @@ def follow_playhead(ctx: Any) -> bool:
     mark = playhead_mark(ctx)
     if mark is None:
         return False
-    _order_index, pattern, row = mark
-    if state.pattern == pattern and state.row == row:
+    order_index, pattern, row = mark
+    # **The order index moves with the caret, not only the pattern and row
+    # (the 2026-09-08 audit, finding sirens-02).** A pattern reused at two
+    # order entries has the same pattern/row answer at both, so the early
+    # return above used to fire on the entry change alone and leave
+    # ``state.order_index`` on whatever an earlier click on the order list
+    # set it to. ``playhead_row`` then refuses to answer once the sounding
+    # entry disagrees with that stale index (S3's own rule, one door up), so
+    # the highlight went dark the moment playback moved into any entry but
+    # the one last clicked -- silently, for the rest of the session.
+    if state.order_index == order_index and state.pattern == pattern and state.row == row:
         return False
     state.pattern = pattern
     state.row = row
+    state.order_index = order_index
     # Every other thing that moves the caret clears this; a playhead is no
     # different, and a half-typed instrument number carried onto another row
     # would finish itself there.

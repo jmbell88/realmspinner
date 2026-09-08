@@ -1082,6 +1082,10 @@ def _object_fields(ctx: Any, doc: Any, state: Any, layer: Any, obj: MapObject) -
             "map addresses them by id.",
         )
         name = widgets.input_text("##obj-name", obj.name, max_length=64, hint="name")
+        # One gesture, one step (the 2026-09-08 audit, plotter-03): typing a
+        # name pushed one undo step per keystroke with no fold here, the same
+        # failure Opacity below is already folded against.
+        controls.fold_undo(doc.history)
         if name != obj.name:
             doc.set_object(layer.uid, obj.uid, name=name)
 
@@ -1093,6 +1097,8 @@ def _object_fields(ctx: Any, doc: Any, state: Any, layer: Any, obj: MapObject) -
         obj_class = widgets.input_text(
             "##obj-class", obj.obj_class, max_length=64, hint="class"
         )
+        # One gesture, one step (the 2026-09-08 audit, plotter-03).
+        controls.fold_undo(doc.history)
         if obj_class != obj.obj_class:
             doc.set_object(layer.uid, obj.uid, obj_class=obj_class)
 
@@ -1107,6 +1113,9 @@ def _object_fields(ctx: Any, doc: Any, state: Any, layer: Any, obj: MapObject) -
         changed, position = controls.input_float2(
             "##obj-position", [float(obj.x), float(obj.y)]
         )
+        # One gesture, one step (the 2026-09-08 audit, plotter-03): a drag on
+        # either axis reports on every frame the pointer moves.
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_object(
                 layer.uid, obj.uid, x=float(position[0]), y=float(position[1])
@@ -1117,6 +1126,8 @@ def _object_fields(ctx: Any, doc: Any, state: Any, layer: Any, obj: MapObject) -
             changed, size = controls.input_float2(
                 "##obj-size", [float(obj.w), float(obj.h)]
             )
+            # One gesture, one step (the 2026-09-08 audit, plotter-03).
+            controls.fold_undo(doc.history)
             if changed:
                 doc.set_object(
                     layer.uid,
@@ -1130,6 +1141,8 @@ def _object_fields(ctx: Any, doc: Any, state: Any, layer: Any, obj: MapObject) -
             "Rotation", "Degrees clockwise about the object's own origin."
         )
         changed, rotation = controls.input_float("##obj-rotation", float(obj.rotation))
+        # One gesture, one step (the 2026-09-08 audit, plotter-03).
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_object(layer.uid, obj.uid, rotation=float(rotation))
 
@@ -1479,8 +1492,15 @@ def _prop_children(
     if prop.type == "class":
         _row_named("class", "The Tiled class this member set belongs to.",
                    indent=sp(GROUP_INDENT) * (depth + 1))
+        # commit=True (the 2026-09-08 audit, plotter-04): this class-name
+        # field writes on every keystroke through the same unconditional
+        # ``on_change`` -> ``history.push`` path as the value fields above.
         class_name = widgets.input_text(
-            "##property-class", prop.propertytype, max_length=64, hint="class name"
+            "##property-class",
+            prop.propertytype,
+            max_length=64,
+            hint="class name",
+            commit=True,
         )
         if class_name != prop.propertytype:
             replacement = dict(props)
@@ -1655,14 +1675,28 @@ def _value_editor(
         return int(value) if value != str(int(prop.value or 0)) else None
     if prop.type == "object":
         imgui.set_next_item_width(-sp(26))
-        changed, value = controls.input_int("##v", int(prop.value or 0))
+        # commit=True (the 2026-09-08 audit, plotter-04): this field's own
+        # write is an undo step, and per-keystroke reporting is undo-stack
+        # spam rather than responsiveness -- ``controls._field_call``'s own
+        # docstring names the failure this opt-in exists to avoid.
+        changed, value = controls.input_int(
+            "##v", int(prop.value or 0), commit=True
+        )
         _goto_arrow(ctx, prop.value)
         return value if changed else None
     if prop.type == "int":
-        changed, value = controls.input_int("##v", int(prop.value or 0))
+        # commit=True (the 2026-09-08 audit, plotter-04): see the object
+        # branch above.
+        changed, value = controls.input_int(
+            "##v", int(prop.value or 0), commit=True
+        )
         return value if changed else None
     if prop.type == "float":
-        changed, value = controls.input_float("##v", float(prop.value or 0.0))
+        # commit=True (the 2026-09-08 audit, plotter-04): see the object
+        # branch above.
+        changed, value = controls.input_float(
+            "##v", float(prop.value or 0.0), commit=True
+        )
         return value if changed else None
     if prop.type in CONTAINER_TYPES:
         # Read-only, and shown rather than hidden: editing a class member or a
@@ -1671,8 +1705,11 @@ def _value_editor(
         widgets.muted(_summary(prop))
         return None
     # ``file`` lands here with ``string`` and ``color``: the path is text this
-    # editor never resolves, so a text row is the whole control.
-    text = widgets.input_text("##v", str(prop.value or ""), max_length=200)
+    # editor never resolves, so a text row is the whole control. commit=True
+    # (the 2026-09-08 audit, plotter-04): see the object branch above.
+    text = widgets.input_text(
+        "##v", str(prop.value or ""), max_length=200, commit=True
+    )
     return text if text != str(prop.value or "") else None
 
 

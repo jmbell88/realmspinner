@@ -190,8 +190,18 @@ def _input(ctx: Any, one: Any, origin: Any, width: float) -> None:
 
     **Re-played on release only.** ``muse_mode.seek`` puts a fresh buffer on the
     channel, and ``make_sound`` copies -- so a seek per mouse-move during a drag
-    is a ~40 MB copy per frame. The playhead the user drags is drawn from the
-    pending value; the sound catches up when they let go.
+    is a ~40 MB copy per frame.
+
+    **The drawn playhead does not move until release, either (2026-09-08
+    audit, finding muse-05).** ``muse_mode.seek`` -- the only thing that moves
+    ``play_offset``, which is what :func:`_playhead` reads through
+    ``muse_mode.position`` -- only runs from the ``imgui.is_item_deactivated()``
+    branch below, so a plain click-drag-to-seek (``_grabbed == ""``) draws the
+    line at its pre-drag position for the whole gesture and jumps once, on
+    release, exactly like the sound. A live-drawn playhead during the drag
+    would be the larger alternative; this file keeps the simpler contract
+    instead of adding a second, pending position to track alongside
+    ``play_offset``.
     """
     global _grabbed, _anchor
     if not (imgui.is_item_active() or imgui.is_item_deactivated()):

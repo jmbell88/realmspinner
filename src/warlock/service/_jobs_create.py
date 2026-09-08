@@ -108,7 +108,11 @@ def resolve_profile(
         target = optimize.resolve(profile, custom_triangles)
     except ValueError as exc:
         raise invalid_from(exc, "That triangle budget is not usable", field="profile") from exc
-    if target is not None and not svc.config.gltfpack_exe.exists():
+    # ``.is_file()``, not ``.exists()`` (the 2026-09-08 audit, pipelines-04):
+    # matches ``optimize.run``'s own gate, ``doctor._gltfpack_check`` and
+    # ``retarget_panel._gltfpack_available`` -- a directory left where the
+    # binary should be must refuse here rather than read as "installed".
+    if target is not None and not svc.config.gltfpack_exe.is_file():
         raise Invalid(
             f"the '{profile}' budget needs gltfpack, which is not installed "
             f"(expected at {svc.config.gltfpack_exe}); use profile 'raw', or "

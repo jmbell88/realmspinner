@@ -103,6 +103,9 @@ That is what makes 100% a place you can reach from either direction rather than 
 to type. The zoom stops at 5% and at
 6400% — far enough out to see any page whole, far enough in to place single pixels, and no
 further in either direction, because past those the canvas is either unreadable or unusable.
+Above 800% the wheel stops taking 5% notches and walks the same whole-scale ladder `+` and `-` do,
+one rung per notch rather than five percentage points — from 800% a notch goes straight to 1000% —
+because 5% of 1x is a step you can see and 5% of 64x is a twentieth of a source pixel.
 
 `+` and `-` are the other zoom, and they move differently on purpose: they step through *whole*
 scales — 5%, 10%, 12.5%, 25%, 50%, 100%, 200%, 300%, 400%, 500%, 600%, 800%,

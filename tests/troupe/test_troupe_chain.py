@@ -134,6 +134,30 @@ def test_a_template_with_no_clips_is_a_keyerror_not_an_empty_sheet():
         clips.expand_clips("fish")
 
 
+# -- the ULPC oracle's docstring ----------------------------------------------
+#
+# Kept out of ``tests/troupe/test_ulpc.py``: that module's ``pytestmark`` skips
+# every test in the file when the (unshipped, CC-BY-SA/GPL) example sheets are
+# not checked out, and a docstring assertion has nothing to do with whether
+# those files are on disk.
+
+
+def test_ulpc_docstring_no_longer_claims_a_door_nothing_wires():
+    """The 2026-09-08 audit, finding troupe-03: ``ulpc``'s module docstring
+    claimed two purposes -- built regression oracles, and letting a user
+    "bring their own LPC art in as filler while a character is being built"
+    -- but ``read()``/``crop()`` have no caller anywhere in ``src/`` outside
+    ``tests/troupe/test_ulpc.py`` and the package's own re-export, so the
+    second purpose described a door that does not exist as though it did.
+    Cut rather than built: wiring a pane or service door to these is new
+    feature work of its own, out of scope for this fix, and returned as owed
+    rather than done.
+    """
+    from warlock.studio.troupe import ulpc
+
+    assert "bring their own" not in (ulpc.__doc__ or "")
+
+
 # -- the door ----------------------------------------------------------------
 
 
@@ -259,6 +283,34 @@ def test_a_bad_option_is_refused_at_the_references_door(svc, block, field):
             svc, kind="text", prompt="a ranger", output="reference", troupe=block
         )
     assert excinfo.value.field == field
+
+
+def test_check_troupe_refuses_a_layout_the_charsheet_worker_cannot_plan(svc, monkeypatch):
+    """The 2026-09-08 audit, finding troupe-01: ``check_troupe`` validates the
+    whole follow-up chain at submission -- reference -> gate -> mesh -> rig ->
+    sheet -- per its own docstring, but never called
+    ``clips.expand_clips``/``charsheet.plan`` the way ``create_charsheet`` and
+    ``_charsheet_spec`` already do. A layout that cannot be planned against the
+    configured rig template used to be accepted here and only fail in
+    ``_q_troupe._charsheet``, uncaught, after a render, a gate approval and a
+    full mesh reconstruction had all been spent.
+
+    Forced with a monkeypatch rather than found with a real layout: this
+    door's template is always ``TROUPE_TEMPLATE`` and the shipped humanoid
+    library fills every layout ``resolve_layout`` can build, so there is no
+    request that reaches this door and breaks planning today -- what is under
+    test is that the door actually calls the same planning machinery the
+    worker calls uncaught, so the day the library grows a gap the door catches
+    it instead of the worker.
+    """
+
+    def boom(template, layout):
+        raise KeyError("walk")
+
+    monkeypatch.setattr(svc_troupe, "expand_clips", boom)
+    with pytest.raises(Invalid) as excinfo:
+        svc_troupe.check_troupe(svc, {})
+    assert svc_troupe.TROUPE_TEMPLATE in str(excinfo.value)
 
 
 def test_a_plain_reference_stores_no_block(svc):

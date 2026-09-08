@@ -16,8 +16,9 @@ Warlock Studio is an offline desktop application. It has no server, no account
 system and no network listener beyond `127.0.0.1`, so the realistic threat is
 **a malicious file**, not a malicious peer. In scope:
 
-- **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx`, `.wmap`,
-  `.wblk`, `.wpack`, `.wsng`, `.glb`, and every image format Pillow handles.
+- **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
+  spellings `.tmj`/`.tsj`, `.wmap`, `.wblk`, `.wpack`, `.wsng`, `.glb`, and
+  every image format Pillow handles.
   These are files people download from asset sites, so a crafted one reaching
   code execution, a decompression bomb, or a write outside the chosen directory
   is a real finding. So is a hang or an unbounded allocation.
@@ -46,10 +47,11 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   is already running the process.
 - Anything requiring an attacker who already has code execution as your user.
 - The known, documented traversal allowance in `.tmx`/`.tsx` external
-  references: Tiled's real folder layouts use `../`, so relative traversal is
-  permitted deliberately while absolute and UNC paths are refused. It is a
-  same-user read in an offline app; if you have a way to turn it into something
-  more, that *is* in scope.
+  references, and the same allowance in their `.tmj`/`.tsj` JSON spellings:
+  Tiled's real folder layouts use `../`, so relative traversal is permitted
+  deliberately while absolute and UNC paths are refused. It is a same-user
+  read in an offline app; if you have a way to turn it into something more,
+  that *is* in scope.
 
 ## Supported versions
 

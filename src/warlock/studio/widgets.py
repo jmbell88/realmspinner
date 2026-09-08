@@ -956,6 +956,8 @@ def combo(
     width: float = -1.0,
     *,
     tooltip: str | None = None,
+    enabled: bool = True,
+    reason: str = "",
 ):
     """A combo over (key, label) pairs. -> the (possibly unchanged) key.
 
@@ -972,19 +974,25 @@ def combo(
     why this is written down here rather than fixed nine times: the rule was
     already stated in ``settings_3d`` and it was stated somewhere nobody
     reaching for ``combo`` would read it.
+
+    ``enabled``/``reason`` go through ``controls.combo_native`` -- the same
+    ``_field_call`` wrapper ``labeled_slider_int``/``labeled_drag_int`` already
+    use -- rather than a caller wrapping this in its own
+    ``imgui.begin_disabled()``: that got neither the shared tooltip-on-hover
+    reason nor a probe census entry (the 2026-09-08 audit, shell-09). Optional
+    and both default to today's behaviour, so none of this control's ~30
+    existing call sites change.
     """
+    from . import controls
+
     keys = [key for key, _ in options]
     labels = [text for _, text in options]
     current = keys.index(value) if value in keys else 0
     if width:
         imgui.set_next_item_width(width)
-    changed, index = imgui.combo(label, current, labels)
-    # A ``##``-hidden combo has no name on screen, so the tooltip *is* its
-    # accessible name -- the same rule INVARIANTS.md states for a glyph button.
-    # Here rather than at the call site because three of the four hidden combos
-    # in the Inker had written it out and the fourth had simply forgotten.
-    if tooltip is not None and imgui.is_item_hovered():
-        imgui.set_tooltip(tooltip)
+    changed, index = controls.combo_native(
+        label, current, labels, enabled=enabled, reason=reason, tooltip=tooltip or ""
+    )
     return keys[index] if changed else value
 
 
@@ -2940,10 +2948,12 @@ def labeled_combo(
     width: float = -1.0,
     *,
     help_text: str | None = None,
+    enabled: bool = True,
+    reason: str = "",
 ):
     """A combo that keeps saying what it is after a value is chosen."""
     field_label(label, help_text)
-    return combo(f"##{label}", value, options, width)
+    return combo(f"##{label}", value, options, width, enabled=enabled, reason=reason)
 
 
 def labeled_slider_int(

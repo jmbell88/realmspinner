@@ -10,8 +10,9 @@ one.
 from __future__ import annotations
 
 import pytest
+from _ui_context import imgui_context
 
-from warlock.studio import controls, toolbar, widgets
+from warlock.studio import controls, probe, toolbar, widgets
 from warlock.studio.toolbar import FULL, ICON, MENU
 
 # Four items: two important (priority 0) and two extras (priority 1). 100 px
@@ -96,6 +97,72 @@ def test_the_gap_between_items_is_part_of_the_width():
 
 def test_an_empty_row_plans_nothing():
     assert toolbar.plan([], [], [], [], 0.0, 30.0) == []
+
+
+# --- the overflow menu, drawn for real ---------------------------------------
+#
+# ``plan`` above is pure and never opens a popup; this is the one test that
+# actually draws the menu ``MENU`` collapses an item into, real imgui with no
+# GL (see ``_ui_context``).
+
+
+@pytest.fixture
+def ui(monkeypatch):
+    """The shared imgui context; see ``_ui_context`` for why it is not a
+    conftest fixture."""
+    with imgui_context(monkeypatch) as imgui:
+        yield imgui
+
+
+def test_overflow_menu_item_reports_its_reason_to_the_probe_census(ui):
+    """The 2026-09-08 audit's shell-05: a toolbar item that collapses into the
+    overflow "..." menu drew its disabled reason as a hand-rolled tooltip
+    after the ``controls.menu_item`` call instead of passing ``reason=`` into
+    it, so ``_finish_item``'s probe census -- the one chokepoint
+    ``probe.py`` and the exercise driver read to flag "disabled-no-reason"
+    controls -- recorded an empty reason for it. The bar is one item, disabled,
+    with a reason, in a window too narrow for even its icon tier to fit --
+    which is what ``toolbar.plan`` collapses into ``MENU``."""
+    item = toolbar.Item(
+        "bake",
+        "Bake",
+        icon="B",
+        enabled=False,
+        reason="Nothing to bake yet.",
+        priority=1,
+    )
+
+    def build() -> None:
+        toolbar.toolbar("bar", [item])
+
+    # A window too narrow for the icon tier to fit forces the lone item into
+    # the overflow menu (``toolbar.plan``'s third and last tier).
+    io = ui.get_io()
+    io.add_mouse_pos_event(-100.0, -100.0)
+    io.add_mouse_button_event(0, False)
+    census: list = []
+    for _ in range(2):
+        probe.begin_frame()
+        ui.new_frame()
+        ui.set_next_window_size((10.0, 400.0))
+        ui.set_next_window_pos((0.0, 0.0))
+        ui.begin("##host")
+        # Pre-arms the popup ``toolbar.toolbar`` itself only opens on a click
+        # of the "..." button -- which is not drawn through ``controls.py``
+        # and so never reaches this probe census (see ``RAW_IMGUI_CONTROLS``)
+        # and cannot be found in it to click. Opening it here, before the
+        # bar draws, targets the same id (``f"{bar_id}/menu"``) in the same
+        # window's id stack, which is all ``begin_popup`` inside the bar
+        # checks against.
+        ui.open_popup("bar/menu")
+        build()
+        ui.end()
+        ui.end_frame()
+        census = list(probe.FRAME_CONTROLS)
+
+    (row,) = [c for c in census if c.kind == "menu_item"]
+    assert row.enabled is False
+    assert row.reason == "Nothing to bake yet."
 
 
 # --- value formatting --------------------------------------------------------

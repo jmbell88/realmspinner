@@ -534,7 +534,9 @@ class Text2Image:
         elif self._has_adapters:
             pipe.disable_lora()
 
-    def _conditioned(self, cond) -> tuple[Any, dict[str, Any], Callable[[], None]]:
+    def _conditioned(
+        self, cond, cancel_event: threading.Event | None = None
+    ) -> tuple[Any, dict[str, Any], Callable[[], None]]:
         """Attach a Conditioning to the resident pipe for one call.
 
         Returns ``(pipe to call, extra call kwargs, teardown)``.
@@ -546,6 +548,15 @@ class Text2Image:
         restart that running out of room would cost. The unconditioned path
         never reaches this function at all -- that is the bit-identity
         contract.
+
+        ``cancel_event`` is re-checked after each sub-load below (the 2026-09-08
+        audit, pipelines-02): a ControlNet (~2.5 GB) and an IP-Adapter (~1.2 GB)
+        each load from disk here, and until this check existed a cancel
+        pressed mid-attach was not observed until the per-step diffusion
+        callback fired, several seconds and a VRAM allocation later. Checked
+        through the same ``except BaseException: teardown(); raise`` path
+        already below, so a cancel here tears down exactly what had already
+        attached, the same as any other failure in this function.
         """
         from PIL import Image
 
@@ -690,6 +701,12 @@ class Text2Image:
                     )
                 extra["controlnet_conditioning_scale"] = float(cond.control_scale)
                 extra["control_guidance_end"] = float(cond.control_end)
+                # Re-checked after the ~2.5 GB ControlNet load (pipelines-02):
+                # a cancel pressed while it was loading is otherwise not seen
+                # until the IP-Adapter load below (or sampling) has also paid
+                # its own cost.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise JobCancelled
 
             if cond.uses_init:
                 if not cond.uses_control:
@@ -739,6 +756,10 @@ class Text2Image:
                 if cond.uses_mask:
                     with Image.open(cond.mask_image) as im:
                         extra["mask_image"] = im.convert("L")
+                # Re-checked after the img2img/inpaint class build (pipelines-02),
+                # the same reason as the ControlNet check above.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise JobCancelled
 
             if cond.uses_ip:
                 spec = models.IP_ADAPTERS[cond.ip_adapter]
@@ -763,6 +784,12 @@ class Text2Image:
                 target.set_ip_adapter_scale(float(cond.ip_scale))
                 with Image.open(cond.ip_image) as im:
                     extra["ip_adapter_image"] = im.convert("RGB")
+                # Re-checked after the ~1.2 GB IP-Adapter load (pipelines-02),
+                # the same reason as the two checks above -- this is the last
+                # sub-load in this function, so it is also the last chance to
+                # stop before ``_generate`` moves on to adapters and sampling.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise JobCancelled
         except BaseException:
             teardown()
             raise
@@ -974,7 +1001,7 @@ class Text2Image:
         if conditioning:
             if on_state is not None:
                 on_state("condition")
-            target, extra, teardown = self._conditioned(conditioning)
+            target, extra, teardown = self._conditioned(conditioning, cancel_event)
         else:
             target, extra, teardown = self._pipe, {}, _noop
         # The try starts here, not at the pipeline call. Everything between the
@@ -1020,6 +1047,13 @@ class Text2Image:
             # After from_pipe, never before: the adapters have to be set on the
             # pipeline object that is actually called.
             self._apply_adapters(target, lora, lora_weight)
+            # Re-checked here (pipelines-02, the 2026-09-08 audit): a style
+            # LoRA just loaded above, and the two long-prompt CLIP encodes
+            # below are the last cost paid before the per-step callback's own
+            # check would otherwise be the first place a cancel pressed during
+            # this stretch was observed.
+            if cancel_event is not None and cancel_event.is_set():
+                raise JobCancelled
             if on_state is not None:
                 on_state("sample")
 

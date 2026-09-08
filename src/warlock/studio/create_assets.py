@@ -111,14 +111,25 @@ def selected(form: Any) -> AssetType:
 def sync_legacy_fields(form: dict[str, Any]) -> AssetType:
     """Make the old service-door fields agree with authoritative asset_type.
 
-    **The five fields written here are derived, not editable.** This runs from
-    ``settings_2d._asset_type`` on *every frame*, so anything it writes is
-    rewritten before the next draw -- which is correct while ``asset_type`` is
-    the only control the user touches, and becomes a field nobody can type into
-    the moment a widget is pointed at one of them. The pane's old per-type
-    field groups that wrote ``sheet_type``, ``projection`` and ``count`` were
-    unreachable from ``draw`` and are gone; wiring a control back onto one of
-    these fields means deciding which of the two owns it first.
+    **The five fields written here are derived, not editable.** This runs on
+    *every frame* from every place ``asset_type`` can be read or changed --
+    ``settings_2d.draw()`` and, since the 2026-09-07 brief-bar redesign,
+    ``create_brief.draw()`` and ``create_brief._type()`` -- so anything it
+    writes is rewritten before the next draw. That is correct while
+    ``asset_type`` is the only control the user touches, and becomes a field
+    nobody can type into the moment a widget is pointed at one of them. The
+    pane's old per-type field groups that wrote ``sheet_type``, ``projection``
+    and ``count`` were unreachable from ``draw`` and are gone; wiring a
+    control back onto one of these fields means deciding which of the two
+    owns it first.
+
+    The 2026-09-08 audit, finding create-05: this docstring used to name its
+    one caller as a helper function on ``settings_2d`` that no longer exists
+    under that name -- this is called directly from ``settings_2d.draw()``
+    -- and it never named ``create_brief.py``'s own two call sites either, so
+    a reader relying on it to find every per-frame writer of the "derived,
+    not editable" contract before wiring a new control onto one of these
+    fields would miss them.
     """
     spec = selected(form)
     form["asset_type"] = spec.key

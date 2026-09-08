@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from . import topo
+from . import ops_dissolve, topo
 from .adjacency import adjacency, boundary_loops
 from .elements import ElementSel, OpError, empty
 from .mesh import Mesh, accumulate, face_count, face_normals, reversed_corner_perm
@@ -127,6 +127,67 @@ def flip_normals(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 # --- extrude ----------------------------------------------------------------
 
 
+def _region_offsets(
+    mesh: Mesh,
+    a: Any,
+    faces: np.ndarray,
+    cap_corners: np.ndarray,
+    used: np.ndarray,
+    offset: float,
+) -> np.ndarray:
+    """Each of *used*'s cap vertices' own displacement for :func:`extrude_faces`.
+
+    The 2026-09-08 audit's clay-03: computing one mean normal over the whole
+    selection cancels to zero whenever two selected regions face opposite
+    ways, and a non-zero offset then silently moved nothing. Grouped by
+    connected region instead -- the same union-find-over-shared-edges grouping
+    :func:`~.ops_dissolve.dissolve_faces` already does, reused rather than
+    duplicated -- each disjoint block of selected faces gets its own mean
+    normal, so opposite blocks in one selection still move, each along its
+    own direction.
+    """
+    if offset == 0.0:
+        return np.zeros((len(used), 3))
+
+    n_faces = face_count(mesh)
+    chosen = np.zeros(n_faces, dtype=bool)
+    chosen[faces] = True
+    union = ops_dissolve._Union(n_faces)
+    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
+    for corner in interior.tolist():
+        other = int(a.corner_face[a.twin[corner]])
+        if chosen[other]:
+            union.union(int(a.corner_face[corner]), other)
+    region_of = np.array([union.find(int(f)) for f in faces.tolist()], dtype="i8")
+    _roots, region_id = np.unique(region_of, return_inverse=True)
+
+    normals = face_normals(mesh)[faces]
+    sums = np.zeros((len(_roots), 3))
+    np.add.at(sums, region_id, normals)
+    directions = _unit(sums) * offset
+
+    lookup = np.full(n_faces, -1, dtype="i8")
+    lookup[faces] = region_id
+    corner_region = lookup[a.corner_face[cap_corners].astype("i8")]
+    corner_vertex = mesh.loops[cap_corners].astype("i8")
+
+    # A (vertex, region) pair deduplicated -- so a vertex touched by several
+    # faces of the *same* region counts that region once, and a vertex where
+    # two *different* regions meet (only possible at a shared corner, since a
+    # shared edge would have unioned them) averages both directions rather
+    # than one arbitrarily outweighing the other.
+    pairs = np.unique(np.stack([corner_vertex, corner_region], axis=1), axis=0)
+    n_verts = len(mesh.positions)
+    vert_sum = np.zeros((n_verts, 3))
+    vert_count = np.zeros(n_verts)
+    np.add.at(vert_sum, pairs[:, 0], directions[pairs[:, 1]])
+    np.add.at(vert_count, pairs[:, 0], 1.0)
+    vertex_direction = np.zeros((n_verts, 3))
+    touched = vert_count > 0
+    vertex_direction[touched] = vert_sum[touched] / vert_count[touched][:, None]
+    return vertex_direction[used]
+
+
 def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[Mesh, ElementSel]:
     """Pull the selected faces off the surface, walling in the gap they leave.
 
@@ -147,8 +208,17 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
     distance would be undone and redone at a different distance every single
     time; an extrude at zero followed by a gizmo drag of the returned cap
     selection is one undo step for the topology and one for the movement, both
-    of them things the user chose. A non-zero *offset* is still accepted, along
-    the region's area-weighted mean normal, for callers that have a number.
+    of them things the user chose. A non-zero *offset* is still accepted, for
+    callers that have a number, along each connected region's own mean
+    normal -- **per region**, not one mean over the whole selection: the
+    2026-09-08 audit's clay-03 found a single global mean silently moved
+    nothing whenever the selection held two regions facing opposite ways (a
+    box's -Y and +Y caps, say), because their normals summed to zero. Grouped
+    the way the wall this same op builds is already grouped
+    (:func:`~.topo.region_boundary_corners`'s "connected block"), each
+    disjoint block gets its own direction, and a vertex two different blocks
+    both touch -- only possible where they meet at a corner and not an edge --
+    averages the two directions rather than picking one arbitrarily.
 
     UV: caps **preserved** (their corners are untouched), walls **inherited** --
     each wall quad copies its two source corners' uvs, twice over, so a
@@ -164,11 +234,11 @@ def extrude_faces(mesh: Mesh, sel: ElementSel, *, offset: float = 0.0) -> tuple[
     new_index = np.full(n_verts, -1, dtype="i8")
     new_index[used] = n_verts + np.arange(len(used), dtype="i8")
 
-    direction = _unit(face_normals(mesh)[faces].sum(axis=0))
+    displacement = _region_offsets(mesh, a, faces, cap_corners, used, float(offset))
     positions = np.concatenate(
         [
             mesh.positions.astype("f8"),
-            mesh.positions[used].astype("f8") + direction * float(offset),
+            mesh.positions[used].astype("f8") + displacement,
         ]
     )
 
@@ -564,11 +634,15 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     corner loop makes the cap traverse every shared edge opposite to the face
     already on it.
 
-    **Refusals**, all of them because the ring is genuinely ambiguous rather
-    than merely awkward: a seed edge that is not on a boundary, a pinched
-    vertex (two boundary edges leave it, so which way the ring continues is a
-    coin toss), and a ring that visits a vertex twice (a figure eight, whose cap
-    would self-intersect).
+    **Refusals**: most because the ring is genuinely ambiguous rather than
+    merely awkward -- a seed edge that is not on a boundary, a pinched vertex
+    (two boundary edges leave it, so which way the ring continues is a coin
+    toss), and a ring that visits a vertex twice (a figure eight, whose cap
+    would self-intersect) -- and one, past
+    :data:`~.ops_dissolve.MAX_DISSOLVED_RING` corners, because the ring is
+    unambiguous but too big to triangulate on the frame thread without
+    stalling: see that constant's own docstring, which is the same argument
+    for this cap.
 
     UV is **copied from an adjacent boundary corner** at each ring vertex -- a
     documented placeholder. There is no correct answer without a projection or
@@ -611,6 +685,21 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
                 "face. Split it first."
             )
         new_loops.append(ring.astype("i8"))
+
+    # The 2026-09-08 audit's clay-01: this cap is one n-gon, handed to
+    # ``earclip`` at render time exactly as a dissolve's merged face is, so
+    # it is reached by the identical worst-case-quadratic ear search running
+    # in Python on the frame thread (``clay_ops.run_mesh_op`` calls this
+    # synchronously from the key handler). ``ops_dissolve.MAX_DISSOLVED_RING``
+    # is the ceiling that argument already justifies; shared rather than
+    # duplicated so the two ceilings cannot drift apart.
+    worst = max((len(r) for r in new_loops), default=0)
+    if worst > ops_dissolve.MAX_DISSOLVED_RING:
+        raise OpError(
+            f"That hole has {worst:,} corners, past the "
+            f"{ops_dissolve.MAX_DISSOLVED_RING:,} Clay can triangulate without "
+            "stalling. Fill a smaller hole."
+        )
 
     counts = np.array([len(r) for r in new_loops], dtype="i8")
     corners = np.concatenate(new_loops)

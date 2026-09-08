@@ -6,7 +6,6 @@ import contextlib
 import logging
 import os
 import secrets
-import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -525,7 +524,19 @@ def _remeasure(
     else:
         from ..pipelines import reference
 
-        changes["reference_report"] = reference.measure_file(src).as_dict()
+        try:
+            changes["reference_report"] = reference.measure_file(src).as_dict()
+        except Exception:
+            # The tile branch's own shape, extended here (the 2026-09-08
+            # audit, service-02): a measurement failure after an edit or a
+            # revert has already changed input.png on disk used to raise out
+            # of this whole function, aborting the merge_params call below --
+            # which left the stale, pre-edit reference_report standing (a
+            # verdict about pixels the user no longer has) and dropped
+            # hand_edited too, since the same call records both. Degrading to
+            # "no stored verdict" beats "a wrong one".
+            log.exception("reference re-measurement failed for job %s", job_id)
+            remove += ("reference_report",)
     if hand_edited:
         changes["hand_edited"] = True
     else:
@@ -582,7 +593,17 @@ def save_edited_image(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
         if not original.exists():
             # Once, and never clobbered: a second save must not make the
             # *first* edit the thing "Revert to original" restores.
-            shutil.copyfile(dest, original)
+            #
+            # Through _staged_write, not a bare shutil.copyfile (the
+            # 2026-09-08 audit, service-05): this is the one-time backup that
+            # is undo's only anchor to the pre-edit pixels, gated on
+            # original.exists() so a truncated file is never retried -- a
+            # crash or a write failure partway through a direct copyfile
+            # would have left a truncated input.orig.png as the permanent
+            # "revert to original" target, and revert_reference's
+            # os.replace(original, dest) would install those truncated bytes
+            # onto the served input.png.
+            _staged_write(original, dest.read_bytes())
         # Staged: promote_to_model and remesh copy input.png with a bare
         # copyfile, so a direct write_bytes onto a served name is a torn
         # read waiting to happen.

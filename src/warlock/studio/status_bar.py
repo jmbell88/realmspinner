@@ -32,6 +32,22 @@ def _document_name(tab: Any) -> str:
     return str(getattr(tab, "label", "Untitled")).split("##")[0] or "Untitled"
 
 
+def _document_modes() -> frozenset[str]:
+    """The modes this bar reports a document/tool/zoom row for -- everything
+    :data:`palette._DOC_MODES` calls a document mode except "poser", which is
+    handled by its own branch above (a viewer, not a tab).
+
+    Derived rather than a second, hand-written tuple: the two used to be two
+    independent literals, and a document mode added to ``_DOC_MODES`` in
+    future had no test tying this one to it -- the "seventh kind left out of
+    a hand-written list" pattern this codebase repeats (shell-08, the
+    2026-09-08 audit).
+    """
+    from . import palette
+
+    return frozenset(palette._DOC_MODES) - {"poser"}
+
+
 def items(ctx: Any) -> list[StatusItem]:
     """Current status as data so the shell and tests share one account."""
 
@@ -54,7 +70,7 @@ def items(ctx: Any) -> list[StatusItem]:
         if named is not None:
             name, dirty = named
             out.append(StatusItem("document", f"{name}{' *' if dirty else ''}"))
-    elif mode in ("inker", "clay", "plotter", "packwright", "sirens"):
+    elif mode in _document_modes():
         # **One branch for every document mode.** Inker alone reported its
         # tool and zoom, from a branch of its own; Plotter and Packwright
         # carry the identical ``PaintView.zoom`` and Plotter has tools, and

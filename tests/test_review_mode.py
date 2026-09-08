@@ -876,6 +876,35 @@ def test_a_labelling_pass_lists_the_images_that_question_has_not_reached(ctx, sv
     assert state.labels.stage == "blank"
 
 
+def test_labels_key_result_is_dropped_when_the_open_stage_has_since_changed(ctx, svc):
+    """The 2026-09-08 audit's shell-03: switching the labelling question
+    ("Teach the judge": reference <-> blank) while the previous question's
+    directory listing is still in flight let the earlier task's result land on
+    the new ``LabelPass`` -- mislabelling the training corpus, because A/R
+    files a label under ``state.labels.stage`` regardless of which question
+    was actually on screen. ``TRAIN_KEY`` already guards this exact race with
+    ``summary.get("stage") == state.labels.stage``; ``LABELS_KEY`` must too."""
+    _scanned(ctx)
+    review_mode.open_labels(ctx, "blank")
+    assert ctx.state.review.labels.stage == "blank"
+
+    # The reader switches questions before the "blank" listing's task returns.
+    review_mode.open_labels(ctx, "reference")
+    assert ctx.state.review.labels.stage == "reference"
+
+    # The stale "blank" listing now lands.
+    stale = {
+        "stage": "blank",
+        "rows": [{"job_id": "stale", "image": Path("x.png"), "verdict": None}],
+        "status": {},
+    }
+    review_mode.on_task_done(ctx, _Done(review_mode.LABELS_KEY, stale))
+
+    labels = ctx.state.review.labels
+    assert labels.stage == "reference"
+    assert labels.rows == []
+
+
 def test_a_and_r_label_with_no_reason_step(ctx, svc):
     """Five reason classes is far more than a first corpus can support, and
     reasons are a mesh-stage concept: what a blank probe learns is one bit."""

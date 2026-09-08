@@ -820,6 +820,45 @@ def test_delete_reasons_name_the_state_that_is_actually_true():
     assert sirens_instruments.delete_reason(True, True) == ""
 
 
+def test_follow_playhead_updates_order_index_so_a_reused_patterns_highlight_survives_the_next_entry(
+    monkeypatch,
+):
+    """the 2026-09-08 audit, finding sirens-02: ``follow_playhead`` moved
+    ``state.pattern``/``state.row`` onto the sounding row every frame but
+    never touched ``state.order_index``, even though ``playhead_row`` (added
+    to fix "a chorus at entries 00 and 03", S3) refuses to answer once
+    ``state.order_index`` disagrees with the sounding order entry. A pattern
+    reused at two order entries is the worst case: its pattern/row answer is
+    identical at both entries, so the caret was already "on" the sounding
+    row from an earlier click and the early-return above fired without ever
+    correcting the stale order index -- the highlight then stayed dark for
+    the rest of the session. Reproduced against the unfixed code: the caret
+    starts on the pattern/row the mark also names, with only the order index
+    stale (as a click on the order list, then Play, leaves it), and
+    ``follow_playhead`` reports no movement and leaves ``playhead_row`` mute.
+    """
+    from warlock.studio import sirens_audio
+    from warlock.studio.sirens_state import Sounding
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    pattern_uid = tab.doc.patterns[0].uid
+    sirens_mode.set_caret(ctx, pattern=pattern_uid, row=0, order_index=0)
+    state = sirens_mode.ensure(ctx)
+    assert state.follow, "follow mode is on by default -- this is the ordinary case"
+
+    # The song is sounding order entry 1, which happens to reuse the caret's
+    # own pattern at row 0 -- so pattern and row already match state, and only
+    # the order index (still 0, from the earlier click) is wrong.
+    tab.sounding = Sounding(marks=((0, 1, pattern_uid, 0),), anchor=0)
+    monkeypatch.setattr(sirens_audio, "tag", lambda: tab.uid)
+    monkeypatch.setattr(sirens_audio, "position", lambda: 0.0)
+
+    assert sirens_mode.follow_playhead(ctx)
+    assert state.order_index == 1
+    assert sirens_mode.playhead_row(ctx) == 0
+
+
 def test_the_sample_delete_reason_is_never_the_empty_string_while_busy():
     """the 2026-09-07 audit, finding sirens-05: the sample Delete button's
     reason fell through to "" while the song was saving -- the exact failure
@@ -839,3 +878,71 @@ def test_the_sample_delete_reason_is_never_the_empty_string_while_busy():
         == "This instrument has no sample."
     )
     assert sirens_instruments.sample_delete_reason(True, True) == ""
+
+
+def test_column_chars_length_agrees_with_document_columns(monkeypatch):
+    """the 2026-09-08 audit, finding sirens-04: ``COLUMN_CHARS`` was defined
+    and documented as "asserted by a test" and as the mechanism that "widens
+    the group" when a sixth grid column lands, but nothing in the module or
+    the suite ever read it -- so a column added to ``document.COLUMNS``
+    without a matching entry here would draw a grid with that column silently
+    missing, the exact hazard the comment claimed was already guarded
+    against. Reproduced against the unfixed code by mismatching the two and
+    reloading the module: with no assertion tying them together, the reload
+    used to succeed silently instead of raising.
+    """
+    import importlib
+
+    from warlock.studio.sirens import document as D
+
+    original = D.COLUMNS
+    monkeypatch.setattr(D, "COLUMNS", original + 1)
+    try:
+        with pytest.raises(AssertionError):
+            importlib.reload(sirens_patterns)
+    finally:
+        monkeypatch.setattr(D, "COLUMNS", original)
+        importlib.reload(sirens_patterns)
+
+
+class _FakeOrderDoc:
+    """A stand-in for ``SongDoc`` carrying only what ``add_to_order_reason``
+    reads. The function is pure over ``doc.patterns``' truthiness alone, so a
+    real document (and the pattern list it insists on keeping non-empty) is
+    more setup than the claim needs."""
+
+    def __init__(self, patterns: list[Any]) -> None:
+        self.patterns = patterns
+
+
+def test_add_to_order_reason_names_the_state_that_is_actually_true():
+    """the 2026-09-08 audit, finding sirens-05: "Add to the order"'s disabled
+    reason was an inline three-way ternary (effect selected, then no
+    patterns, then busy), unlike every sibling disabled-reason in this file
+    and its neighbours -- each pulled out pure and unit tested after the
+    2026-09-07 audit found this same shape of bug in them. Reproduced against
+    the unfixed code: ``sirens_orders`` has no ``add_to_order_reason`` at all,
+    so this fails with an ``AttributeError``.
+    """
+    from warlock.studio.panes import sirens_orders
+
+    with_pattern = _FakeOrderDoc([object()])
+    without_pattern = _FakeOrderDoc([])
+
+    assert sirens_orders.add_to_order_reason("Coin", with_pattern, True) == (
+        "The grid is editing the sound effect Coin, and an effect's "
+        "pattern is not part of the song. Pick a song pattern first."
+    )
+    # The effect reason wins even over "no patterns" and even while editable:
+    # picking a song pattern first is the fix either way.
+    assert sirens_orders.add_to_order_reason("Coin", without_pattern, True) == (
+        "The grid is editing the sound effect Coin, and an effect's "
+        "pattern is not part of the song. Pick a song pattern first."
+    )
+    assert sirens_orders.add_to_order_reason("", without_pattern, True) == (
+        "There is no pattern to add yet."
+    )
+    assert sirens_orders.add_to_order_reason("", with_pattern, False) == (
+        sirens_orders._BUSY_WHY
+    )
+    assert sirens_orders.add_to_order_reason("", with_pattern, True) == ""

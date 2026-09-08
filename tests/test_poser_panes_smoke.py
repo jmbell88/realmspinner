@@ -432,6 +432,24 @@ def test_joints_changed_from_rest_are_marked(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
 
 
+def test_poser_reset_all_tooltip_does_not_claim_no_undo():
+    """The 2026-09-08 audit (docs-06): poser_controls.py's "Reset all" button
+    still carried the tooltip "There is no undo, so this asks first." even
+    though ``Viewer.reset_all`` has been ``@_undoable`` since Ctrl+Z was wired
+    into the pose editor -- the sibling asset-pose panel (pose_panel.py) had
+    the same false claim removed already, and this copy was left behind."""
+    import inspect
+
+    from warlock.studio.panes import poser_controls
+
+    source = inspect.getsource(poser_controls._joint)
+    assert 'tooltip="Put every joint back to rest."' in source
+    assert (
+        'tooltip="Put every joint back to rest. There is no undo, so this asks first."'
+        not in source
+    )
+
+
 def test_update_key_shows_pending_when_the_pose_drifted(app_ctx, imgui_ctx):
     """``_key_pending`` is what draws the accent dot beside "Update key from
     pose" -- true only once a key is loaded and the live pose has moved off

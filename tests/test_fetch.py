@@ -601,6 +601,27 @@ def test_a_checkpoint_without_its_step_distillation_lora_is_absent(tmp_path):
     assert fetch.base_model_state(cfg, models.BASE_MODELS["sdxl_cfg"])[0]
 
 
+def test_create_mode_gate_admits_a_zero_byte_engine_download(tmp_path):
+    """pipelines-01 (2026-09-08 audit). ``modes.NEEDS_ROWS`` -- the mode gate
+    ``docs/INVARIANTS.md`` names as the sole protection against missing engine
+    weights -- is built from ``Entry.is_present`` via
+    ``service.downloads.rows``'s "present" flag. That used to be
+    ``fetch.present`` alone, a sweep of ``Path.is_file()`` calls blind to
+    size, so a killed download that left every probed GGUF file at zero bytes
+    read as "present" -- reproduced here -- and would have let Create open
+    while doctor's "TRELLIS GGUF weights" row, reading the identical files,
+    already said FAIL.
+    """
+    cfg = _config(tmp_path)
+    cfg.trellis_models_dir = tmp_path / "trellis2-gguf"
+    cfg.trellis_models_dir.mkdir(parents=True)
+    entry = fetch.find("engine:trellis_gguf")
+    assert entry is not None
+    for name in models.TRELLIS_GGUF_FILES:
+        (cfg.trellis_models_dir / name).touch()  # exists, and is zero bytes
+    assert not entry.is_present(cfg)
+
+
 def test_doctor_and_the_planner_share_one_probe():
     from warlock import doctor
 

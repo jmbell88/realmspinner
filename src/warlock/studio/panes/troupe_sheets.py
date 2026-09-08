@@ -203,9 +203,6 @@ def _pixel_report(ctx: Any, state: Any) -> dict[str, Any]:
     return found
 
 
-_RERENDER_SLOT = "troupe_rerender_runs"
-
-
 def _rerender(ctx: Any, state: Any) -> None:
     """Re-render some of this sheet's runs, keeping the rest.
 
@@ -224,7 +221,7 @@ def _rerender(ctx: Any, state: Any) -> None:
         return
     if not widgets.header("Re-render some runs", default_open=False):
         return
-    chosen = ctx.state.preview.setdefault(_RERENDER_SLOT, set())
+    chosen = ctx.state.preview.setdefault(troupe_mode.RERENDER_SLOT, set())
     by_animation: dict[str, list[dict[str, str]]] = {}
     for run in runs:
         by_animation.setdefault(run["animation"], []).append(run)

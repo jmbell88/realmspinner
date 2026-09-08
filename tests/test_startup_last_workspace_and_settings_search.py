@@ -62,6 +62,21 @@ def test_startup_can_reopen_the_last_workspace_and_defaults_to_home():
     assert main_mod.initial_mode(never_remembered, lambda _key: True) == "home"
 
 
+def test_initial_mode_falls_back_to_home_for_a_mode_that_no_longer_exists():
+    """shell-04 (the 2026-09-08 audit): a stale or hand-edited
+    ``last_workspace`` naming a retired mode used to reach ``available()``
+    unchecked and, with the door reported open, land on it -- opening
+    ``_build_ui``'s else branch (Create) while ``state.mode`` held a value
+    nothing else in the app recognises as a member of ``modes.KEYS``.
+    ``_escape_mode`` already refuses this way for its own history; this is
+    the other reader of a persisted mode name doing the same.
+    """
+    retired = _Settings({"startup_mode": "last", "last_workspace": "retired_mode"})
+    # ``available`` says yes to everything -- the retired name must still be
+    # refused on membership alone, before the gate is ever asked.
+    assert main_mod.initial_mode(retired, lambda _key: True) == "home"
+
+
 def test_the_last_workspace_is_written_down_as_the_mode_changes():
     """The other half of W3.1: something has to persist ``last_workspace``
     for ``initial_mode`` to have anything to read, or "Last workspace" opens

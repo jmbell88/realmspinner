@@ -911,6 +911,22 @@ class Worker(
             decim=config.trellis_decim,
             atlas=config.trellis_atlas,
         )
+        # The resolution the resident trellis process was last told to
+        # reconstruct at, so _check_resources can credit back what
+        # vram.estimate_parts's own model-stage branch would price it at
+        # (TRELLIS_GIB * TRELLIS_RES_MULT[resolution]) rather than the flat
+        # res-1024 baseline -- the 2026-09-08 audit (service-03): a session
+        # that had only run 512-resolution jobs was over-credited by 2.4 GiB
+        # of headroom that was not actually free. None until this process has
+        # primed trellis at least once, in which case the flat baseline is
+        # still what ``_check_resources`` falls back to. Updated in
+        # ``_process`` rather than at the ``self.trellis.generate`` call site
+        # (``_q_generate.GenerateOps``, a different mixin): ``last_used`` only
+        # moves inside ``TrellisServer.generate`` itself, so comparing it
+        # before and after a job runs is an exact, file-local signal that this
+        # job actually primed the server, without this module reaching into
+        # that one.
+        self._trellis_resolution: int | None = None
         self._text2image = None  # lazy: torch/diffusers may not be installed
         # Beside it and not inside it: the two children hold different weights
         # for different stages, and either may be resident without the other.
@@ -1593,7 +1609,23 @@ class Worker(
             # Counted in `need` for both stages under coexist, and given back
             # by the handoff's stop() before anything loads under exclusive.
             # No kind gate needed: need <= 0 already returned for rig jobs.
-            headroom += vram.TRELLIS_GIB
+            #
+            # Scaled by the resolution trellis is actually resident at
+            # (self._trellis_resolution), not the flat res-1024 baseline --
+            # the 2026-09-08 audit (service-03): vram.estimate_parts's own
+            # model-stage branch prices a resident trellis at
+            # TRELLIS_GIB * TRELLIS_RES_MULT[resolution] (13.6/16.0/24.0 GiB
+            # for the three allowed resolutions), so crediting the flat
+            # figure regardless disagreed with it whenever a session had only
+            # run jobs at a different resolution -- a 2.4 GiB over-credit of
+            # headroom that was not actually free, in the same direction as
+            # the 2026-08-03 host-commit-exhaustion crash this door exists to
+            # prevent. None (nothing has primed trellis yet this process) is
+            # the one case the flat baseline is still the right answer for,
+            # which is what dict.get's default below gives it.
+            headroom += vram.TRELLIS_GIB * vram.TRELLIS_RES_MULT.get(
+                self._trellis_resolution, 1.0
+            )
         if image_term > 0 and self._text2image is not None and self._text2image.loaded:
             # Gated on "did the estimate charge for a checkpoint", not on the
             # job's kind. The kind list this replaced said `text` alone, while
@@ -1736,6 +1768,13 @@ class Worker(
         # idle clock below -- see that ``finally`` for the loop this closes.
         admitted = False
         needs_backoff = False
+        # ``TrellisServer.last_used`` only moves inside ``generate`` itself
+        # (set the moment ``ensure_started`` returns, before the request body
+        # is even built), so comparing it before and after this job proves
+        # whether *this* job actually primed the server -- most jobs never
+        # touch trellis at all. See ``self._trellis_resolution``'s comment in
+        # ``__init__`` for why this is recorded here instead.
+        trellis_used_before = self.trellis.last_used
         try:
             self._check_resources(job)
             admitted = True
@@ -1784,6 +1823,22 @@ class Worker(
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(t2i.trim)
         finally:
+            if self.trellis.last_used != trellis_used_before:
+                # This job's own call into TrellisServer.generate moved the
+                # clock -- whatever the job's own outcome, the server is now
+                # (or was just) resident at the resolution it was handed, and
+                # _check_resources's credit for the next dispatch has to
+                # track that rather than the flat baseline (service-03, the
+                # 2026-09-08 audit). Mirrors vram._resolution's own clamp: an
+                # unrecognised or missing value reads as the 1024 baseline.
+                raw = (job.get("params") or {}).get("resolution")
+                try:
+                    resolution = int(raw)
+                except (TypeError, ValueError):
+                    resolution = 1024
+                self._trellis_resolution = (
+                    resolution if resolution in vram.TRELLIS_RES_MULT else 1024
+                )
             try:
                 if self._cancel.event.is_set() and not self._cancel.committed:
                     await self._set_cancelled(job_id)

@@ -154,6 +154,49 @@ def test_a_growth_moves_objects_with_the_window():
     assert (obj.x, obj.y) == (64.0, 16.0)
 
 
+def test_resize_closes_an_open_object_edit_session_before_shifting_it():
+    """The 2026-09-08 audit, plotter-05: ``resize`` (which ``grow_to_hold`` and
+    ``autocrop`` both delegate to) shifted every object's ``(x, y)`` directly
+    on the live document without first closing an open object-edit session,
+    unlike ``offset`` and ``MapDoc.undo``/``redo``/``step_history``, which all
+    close every session before touching history.
+
+    Left open, the session's stored "before" snapshot describes the object's
+    *pre-drag* position while ``resize`` has already shifted its *live*
+    ``x``/``y``. Ending the session afterwards (here, by undoing) pushes an
+    ``ObjectPropsEdit`` spanning pre-drag straight to post-resize -- double
+    counting the resize's own shift against the ``ResizeEdit`` already on the
+    stack, so two undos do not land the object back where it started: a
+    silent, on-disk-reachable corruption of its saved position.
+    """
+    doc = tilemap.MapDoc(4, 4, 16, 16)
+    doc.add_tile_layer("Ground")
+    layer = doc.add_object_layer("Objects")
+    obj = doc.add_object(
+        layer.uid, tilemap.MapObject(uid=new_uid(), name="spawn", x=32.0, y=16.0)
+    )
+    doc.history.clear()
+
+    # A drag opens a session at the object's true starting point, then moves
+    # it live -- the same shape a real ``begin_object_edit``/pointer-move/
+    # ``end_object_edit`` gesture takes, except the release never comes: the
+    # session is still open when the resize below lands mid-drag.
+    doc.begin_object_edit(layer.uid, obj.uid)
+    obj.x, obj.y = 40.0, 16.0
+
+    # Anchors the old content one tile to the right, so every object shifts
+    # by one tile width (16 px) in x -- ``resize``'s own object rule.
+    doc.resize(6, 4, offset_x=1, offset_y=0)
+
+    # Two undos should retrace exactly the two gestures that happened: the
+    # resize's own 16 px shift, then the drag back to the object's true
+    # original position -- landing on (32.0, 16.0), not on the mid-drag point
+    # the bug leaves it at.
+    doc.undo()
+    doc.undo()
+    assert (obj.x, obj.y) == (32.0, 16.0)
+
+
 def test_an_object_position_converts_at_the_tiled_door_and_nowhere_else():
     """A file gives object positions in *true* pixels, which is the space its
     chunk coordinates are in. Converting at the codec is what lets both

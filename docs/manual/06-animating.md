@@ -79,7 +79,9 @@ it.
 
 ## Exporting
 
-The transport's bottom row is the way out:
+The bridge pane's **Export** section is the way out, or the File menu — the five doors left the
+transport's bottom row once that row began clipping its own buttons at the window sizes people
+actually use:
 
 | Export | What you get |
 | --- | --- |

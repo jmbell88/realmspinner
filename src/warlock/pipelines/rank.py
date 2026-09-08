@@ -106,6 +106,19 @@ def composition_score(report: dict[str, Any] | None) -> float:
     """0..1 for how well framed one reference is, from its own report."""
     if not isinstance(report, dict):
         return UNMEASURED
+    if report.get("measured") is False:
+        # The 2026-09-08 audit (pipelines-03): ``reference.unmeasured()``
+        # -- returned whenever the corner-flood fill leaks through the
+        # subject, the documented common case of a light subject on a light
+        # background -- is a *present* report with ``ok=True`` and a
+        # placeholder ``occupancy=0.0``, not an absent one. Scoring that
+        # placeholder as a real measurement charged it the full occupancy
+        # and warning cost (~0.59) instead of this module's own "unknown, not
+        # bad" mid-range score, so a reference whose background merely failed
+        # to separate could rank below one that was actually measured and
+        # scored worse -- defeating the ranking for exactly the failure mode
+        # ``_leaked()`` exists to catch gracefully.
+        return UNMEASURED
     if report.get("ok") is False:
         # The report already said this cannot reconstruct. Nothing below can
         # rescue it, and a candidate that is going to be refused at promotion

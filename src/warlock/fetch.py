@@ -114,7 +114,24 @@ class Entry:
         return check_name(self.kind, self.label)
 
     def is_present(self, config: Config) -> bool:
-        return present(config, self.kind, self.spec)
+        """Whether this row is here *and not visibly broken*.
+
+        The 2026-09-08 audit (pipelines-01) found this disagreeing with the
+        doctor row that checks the identical files: ``present()`` alone is a
+        sweep of ``Path.is_file()`` calls, blind to size, so a killed download
+        that left every probe file at zero bytes read as "present" here --
+        reproduced with all ten engine GGUF probe files emptied, which let
+        ``modes.NEEDS_ROWS`` (the sole gate ``docs/INVARIANTS.md`` names for
+        this weight) admit Create, while doctor's "TRELLIS GGUF weights" row,
+        reading the same files, already said FAIL.
+
+        ``suspect_files`` runs only once ``present`` has already said yes --
+        one ``stat`` per candidate file, on top of a check this method (and
+        this UI path) was already making.
+        """
+        return present(config, self.kind, self.spec) and not suspect_files(
+            config, self.kind, self.spec
+        )
 
     @property
     def row_key(self) -> str:

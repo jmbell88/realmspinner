@@ -2340,6 +2340,26 @@ def test_create_builds_the_map_the_form_describes(monkeypatch):
     assert tab.doc.projection == "isometric"
 
 
+def test_create_gives_a_hexagonal_map_the_presets_own_hex_side(monkeypatch):
+    """The 2026-09-08 audit, plotter-02, continued: the form-level fix in
+    ``tests/test_plotter_setup.py`` is only half the claim -- the number has
+    to survive all the way to the document ``_create`` actually builds, or a
+    freshly created "Hexagonal" map still draws as "Staggered" (``hex_side =
+    0``) despite the form itself now carrying the right value."""
+    from warlock.studio import plotter_setup
+    from warlock.studio.panes import plotter_canvas
+    from warlock.studio.plotter import project
+
+    ctx = FakeCtx()
+    form = plotter_setup.apply_preset(plotter_setup.blank_form(), "Hexagonal, 32 px")
+    form["next"] = plotter_setup.NEXT_EMPTY
+    plotter_canvas._create(ctx, form)
+
+    tab = plotter_mode.ensure(ctx).active
+    assert tab.doc.projection == project.HEXAGONAL
+    assert tab.doc.hex_side == plotter_setup.DEFAULT_HEX_SIDE
+
+
 def test_create_opens_the_tileset_door_the_form_chose(monkeypatch):
     """A new map cannot be painted until it has a tileset, so the dialog offers
     both doors rather than leaving the user to find them. Monkeypatched because

@@ -1504,6 +1504,33 @@ def test_a_linked_tilemap_cel_arrives_as_one_object_in_two_frames():
     assert anim.is_linked(track, anim.frames[1].uid)
 
 
+def test_a_linked_tilemap_cel_drawn_at_its_own_offset_is_refused_by_name():
+    """The ordinary-cel sibling above (`..._drawn_at_its_own_offset_is_unlinked_
+    where_it_stands`) unlinks and warns, because a raster cel's tight rectangle
+    can be re-pasted at the new offset. A tile grid has no such pixel-level
+    crop, so ``_build_cels`` refuses this combination outright rather than
+    guessing at a re-placement in tile units -- the 2026-09-08 audit (inker-07)
+    found this refusal existed but was untested and undocumented in
+    docs/COMPAT.md."""
+    blank = _rgba(1, 1, (0, 0, 0, 0))
+    art = _rgba(1, 1, (5, 5, 5, 255))
+    data = _file(
+        _header(2, 1, 1),
+        [
+            _frame(
+                [
+                    _tileset_chunk(1, 1, 1, [blank, art]),
+                    _layer("Map", kind=2, tileset=1),
+                    _tilemap_cel(0, np.array([[1]], dtype=np.uint32)),
+                ]
+            ),
+            _frame([_linked_cel(0, 0, x=1, y=1)]),
+        ],
+    )
+    with pytest.raises(ValueError, match="linked tilemap cel"):
+        asein.document_from_aseprite(data)
+
+
 # --- the parse on its own ------------------------------------------------------
 
 

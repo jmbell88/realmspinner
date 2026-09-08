@@ -890,6 +890,23 @@ def combo(
     return changed, picked
 
 
+def combo_native(*args: Any, **kwargs: Any) -> Any:
+    """``imgui.combo`` itself, with the shared field treatment.
+
+    Not :func:`combo` -- that is a different widget (a menu-backed picker
+    drawn from this module's own ``selectable_row``s) and ``widgets.combo``'s
+    ~30 call sites draw the native dropdown, so giving them the disabled
+    treatment could not mean moving them onto :func:`combo`. This is the same
+    ``_field_call`` every ``labeled_slider_int``/``labeled_drag_int`` already
+    goes through, named for the imgui function it wraps rather than reusing
+    :func:`combo`'s name for a second shape. The 2026-09-08 audit's shell-09:
+    a combo greyed by hand around a raw ``imgui.combo()`` call got neither the
+    shared tooltip-on-hover reason nor a probe census entry, and the raw call
+    was invisible to ``tests/test_probe.py``'s own raw-widget inventory.
+    """
+    return _field_call("combo", *args, **kwargs)
+
+
 def switch(
     label: str,
     value: bool,

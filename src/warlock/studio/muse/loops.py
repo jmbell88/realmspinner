@@ -186,7 +186,16 @@ def features(mono: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     spectrum = np.abs(np.fft.rfft(frames, axis=1)).astype(np.float32)
     edges = _bands(spectrum.shape[1])
-    summed = np.add.reduceat(spectrum, np.r_[0, edges[:-1]], axis=1)[:, :BANDS]
+    # The 2026-09-08 audit, finding muse-01. ``edges[:-1]`` fed straight to
+    # ``reduceat`` as the segment starts, with no leading 0 and no trailing
+    # slice: reduceat's own "last segment runs to the end of the array" rule
+    # then closes the top band at Nyquist instead of at ``edges[-2]``. The
+    # previous ``np.r_[0, edges[:-1]][:, :BANDS]`` shape prepended a phantom
+    # band 0 covering [0 Hz, edges[0]) -- DC/sub-bass below the documented
+    # 40 Hz floor -- and then sliced away the true top band, [edges[-2],
+    # Nyquist), which is exactly the high-frequency "sizzle" this analysis
+    # exists to judge seams on.
+    summed = np.add.reduceat(spectrum, edges[:-1], axis=1)
     bands = np.log1p(summed)
     norm = np.linalg.norm(bands, axis=1, keepdims=True)
     bands = bands / np.maximum(norm, 1e-6)

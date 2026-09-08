@@ -892,6 +892,38 @@ def test_removing_an_unused_entry_renumbers_the_faces_above_it() -> None:
     assert int(doc.objects[0].mesh.material.max()) == 2, "and back again"
 
 
+def test_undoing_a_material_removal_restores_every_objects_original_material_index() -> None:
+    """The 2026-09-08 audit's clay-06: ``_shift_materials`` renumbers
+    ``Obj.material`` in place, and it is run twice over the course of one
+    Remove-then-undo -- once directly by ``remove_material``, once again by
+    ``MaterialListEdit.undo`` reinserting the slot. ``remove_material_and_
+    reassign`` then repoints the *selected* object explicitly with
+    ``set_props``, whose "before" is read only *after* the first shift has
+    already mutated the field -- so undoing that step lands the object back
+    on the shifted value, not the true pre-click one, and the second shift's
+    plain ``>= index`` arithmetic cannot tell "started exactly on the removed
+    slot" apart from "started one slot below it" to correct for that. A
+    bystander object with no explicit repoint at all has nothing to undo it
+    with either. Both must land back exactly where they started.
+    """
+    doc = bd.ClayDoc()
+    doc.add_material()  # two materials: 0, 1
+    selected = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Selected", mesh=bp.box(), material=1)
+    )
+    bystander = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Bystander", mesh=bp.box(), material=1)
+    )
+    assert doc.material_users(1) == 0, "no face uses slot 1, only the two defaults do"
+
+    assert doc.remove_material_and_reassign(selected.uid, 1) is True
+    assert doc.undo()
+
+    assert len(doc.materials) == 2
+    assert selected.material == 1, "the clicked object's own slot comes back exactly"
+    assert bystander.material == 1, "a bystander pointed at the same slot comes back too"
+
+
 # --- shading (Clay16) ---------------------------------------------------------
 
 

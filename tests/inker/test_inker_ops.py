@@ -14,7 +14,7 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker, inker_ops, inker_state
+from warlock.studio import inker, inker_ops, inker_sheet, inker_state
 from warlock.studio import state as state_mod
 
 SIZE = (32, 32)
@@ -50,6 +50,127 @@ def test_every_predicate_answers_with_nothing_open(op):
 
     state = inker_state.InkerState()
     assert isinstance(op.enabled(state, None), bool)
+
+
+#: Every op whose (enabled, reason) pair is one of ``when_ready``'s outputs,
+#: plus the hand-rolled equivalents named in finding inker-08 -- the scope the
+#: finding actually measured. The remainder finding inker-08's own record
+#: predicted ("the same defect shape recurs across the rest of the file") is
+#: closed by finding inker-13 below, whose test sweeps the whole registry
+#: instead of this hand-picked set.
+_WHEN_READY_REASONS = {
+    inker_ops._UNDO[1],
+    inker_ops._REDO[1],
+    inker_ops._CUT[1],
+    inker_ops._SELECT_ALL[1],
+    inker_ops._DESELECT[1],
+    inker_ops._INVERT[1],
+    inker_ops._COPY_LAYER[1],
+    inker_ops._MOVE_LAYER[1],
+    inker_ops._why_selection,
+}
+_HAND_ROLLED_BUSY_OPS = {
+    "wrap_half", "toggle_matte", "select_used_colours", "select_unused_colours",
+}
+
+
+@pytest.mark.parametrize(
+    "op",
+    [
+        op
+        for op in inker_ops.OPS
+        if op.reason in _WHEN_READY_REASONS or op.name in _HAND_ROLLED_BUSY_OPS
+    ],
+    ids=lambda op: op.name,
+)
+def test_a_greyed_op_with_no_document_open_says_so_rather_than_naming_busy_or_a_document_fact(op):
+    """The 2026-09-08 audit, finding inker-08:
+    ``test_every_predicate_answers_with_nothing_open`` (above) already
+    confirms ``state.active`` is ``None`` whenever the menu strip is drawn
+    with no tab, so every op gated through ``when_ready`` -- or one of the
+    hand-rolled equivalents that repeats its shape (``wrap_half``,
+    ``toggle_matte``, ``select_used_colours``, ``select_unused_colours``) --
+    must say so when refused in that state. Before the fix these said "The
+    document is busy..." (``when_ready``'s ``why`` fell straight to ``BUSY``
+    since ``ready(state, None)`` is also False) or a sentence that
+    presupposes a document ("This document is not tiled...", "A document
+    with a background layer has no transparency to flatten.", "This
+    document has no palette.") -- none of which is true when there is no
+    document.
+    """
+    state = inker_state.InkerState()
+    assert not op.enabled(state, None)
+    said = inker_ops.reason_for(op, state, None)
+    assert said == inker_ops.NO_DOC, (
+        f"{op.name} refuses with no document open but says {said!r}, "
+        f"not {inker_ops.NO_DOC!r}"
+    )
+
+
+#: The Sheet menu's nine ops all delegate their reason to ``inker_sheet``,
+#: whose functions already answer "Open a Troupe character sheet -- its tags
+#: are named animation_direction, and that is what a sheet correction reads."
+#: with nothing open (``inker_sheet.NO_SHEET``, via ``no_sheet_reason``/
+#: ``is_sheet(None)``). That sentence never names a document that does not
+#: exist -- it is the same actionable instruction whether nothing is open or
+#: a non-sheet document is -- so it is named here rather than made to say
+#: ``NO_DOC``, per the finding's own allowance for a reason that is "correct
+#: even with nothing open". Named explicitly, not excluded by menu, so a
+#: Sheet op added later with a real defect still fails the sweep below.
+_LEGITIMATE_NON_NO_DOC_REASON = {
+    "sheet_merge": inker_sheet.NO_SHEET,
+    "sheet_conflict_next": inker_sheet.NO_SHEET,
+    "sheet_keep_edit": inker_sheet.NO_SHEET,
+    "sheet_propagate": inker_sheet.NO_SHEET,
+    "sheet_remark": inker_sheet.NO_SHEET,
+    "sheet_replace": inker_sheet.NO_SHEET,
+    "sheet_shift": inker_sheet.NO_SHEET,
+    "sheet_mirror": inker_sheet.NO_SHEET,
+    "sheet_mirror_run": inker_sheet.NO_SHEET,
+    # ``clear_brush``'s ``enabled`` reads ``state.stamp`` alone -- the
+    # captured-brush flag lives on ``InkerState``, not on a tab -- so it is
+    # never gated on a document being open at all, and "No brush has been
+    # captured." is exactly as true with nothing open as with an empty
+    # document. Not the inker-13 shape: there is no document fact here to be
+    # wrong about.
+    "clear_brush": "No brush has been captured.",
+}
+
+
+@pytest.mark.parametrize("op", inker_ops.OPS, ids=lambda op: op.name)
+def test_no_inker_op_names_a_document_fact_when_nothing_is_open(op):
+    """Finding inker-13, the 2026-09-08 audit: inker-08's own record predicted
+    "the same defect shape recurs across the rest of the file", and it does --
+    roughly sixty further ops paired a ``ready``- or fact-gated ``enabled``
+    with a static ``BUSY`` sentence or a sentence that presupposes a document
+    ("This drawing has no frames yet...", "There is only one layer.",
+    "This tab is already showing two views."), shown even with no Inker
+    document open at all.
+
+    This sweeps :data:`inker_ops.OPS` itself, not a hand-listed subset (that
+    was inker-08's test, above): every op whose ``enabled`` refuses with
+    nothing open must say :data:`inker_ops.NO_DOC`, unless it is named in
+    :data:`_LEGITIMATE_NON_NO_DOC_REASON` with the specific, correct sentence
+    it says instead -- so an op added later with the same defect shape fails
+    this test too, and the allowlist itself is checked rather than just
+    exempted.
+    """
+    state = inker_state.InkerState()
+    if op.enabled(state, None):
+        return  # never refused with nothing open -- nothing to check
+    said = inker_ops.reason_for(op, state, None)
+    if op.name in _LEGITIMATE_NON_NO_DOC_REASON:
+        expected = _LEGITIMATE_NON_NO_DOC_REASON[op.name]
+        assert said == expected, (
+            f"{op.name} is allowlisted to say {expected!r} with nothing open, "
+            f"but says {said!r}"
+        )
+        return
+    assert said == inker_ops.NO_DOC, (
+        f"{op.name} refuses with no document open but says {said!r}, "
+        f"not {inker_ops.NO_DOC!r} -- and it is not in "
+        f"_LEGITIMATE_NON_NO_DOC_REASON"
+    )
 
 
 @pytest.mark.parametrize(

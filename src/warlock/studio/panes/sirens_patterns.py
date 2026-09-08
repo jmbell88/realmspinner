@@ -61,6 +61,17 @@ CHANNEL_W = 116.0
 #: the grid silently stops drawing it.
 COLUMN_CHARS: tuple[int, ...] = (3, 2, 2, 1, 2)
 
+# The 2026-09-08 audit found sirens-04: this comment's "asserted by a test"
+# was not true -- nothing in the module or the suite ever read COLUMN_CHARS,
+# so a seventh column added to ``document.COLUMNS`` without widening this
+# tuple would have drawn a grid with a column silently missing, the exact
+# hazard the comment claimed was already guarded against. Asserted here, at
+# import time, rather than left for a test to notice on its own schedule.
+assert len(COLUMN_CHARS) == D.COLUMNS, (
+    "COLUMN_CHARS must have one entry per document.COLUMNS column, or the"
+    " grid silently stops drawing the one it forgot"
+)
+
 #: Every byte a cell can hold, formatted once. Three of the five columns are a
 #: byte, and a visible grid is up to ``visible x channels`` cells *per frame* --
 #: so this is three ``f"{n:02X}"`` calls per cell that never had to happen.

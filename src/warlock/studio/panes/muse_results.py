@@ -112,6 +112,20 @@ def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
         _actions(ctx, job, job_id)
 
 
+def _ready_reason(ready: bool) -> str:
+    """Why a tray control is greyed until the take finishes. -> "" once done.
+
+    The 2026-09-08 audit, finding muse-04: this file's transport/ghost_button
+    calls each spelled ``"" if ready else "this take has not finished yet"``
+    inline, exactly the pattern **muse-07** (2026-09-05 audit) pulled into
+    ``_no_region_reason``/``_export_points_reason`` (``muse_player.py``) and
+    ``_generate_reason`` (``muse_brief.py``) everywhere else in this mode --
+    so a future edit to the sentence, or a bug that greys these buttons for
+    the wrong reason, had nothing here to catch it.
+    """
+    return "" if ready else "this take has not finished yet"
+
+
 def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     """Play/Stop and Open in Sirens, both dead until the WAV exists.
 
@@ -125,7 +139,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
         f"muse-{job_id}",
         playing,
         enabled=ready,
-        reason="" if ready else "this take has not finished yet",
+        reason=_ready_reason(ready),
         shortcut="",
     ):
         if playing:
@@ -136,7 +150,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     if widgets.ghost_button(
         verbs.open_in("sirens"),
         enabled=ready,
-        reason="" if ready else "this take has not finished yet",
+        reason=_ready_reason(ready),
         tooltip="Import this track into the tracker as a sample instrument.",
     ):
         muse_mode.open_in_sirens(ctx, job_id)
@@ -146,11 +160,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     if widgets.ghost_button(
         "Stems" if not stems else "Stems ✓",
         enabled=ready and not stems,
-        reason=(
-            "this take has already been split"
-            if stems
-            else "" if ready else "this take has not finished yet"
-        ),
+        reason="this take has already been split" if stems else _ready_reason(ready),
         tooltip=(
             "Split this take into drums, bass, vocals and everything else. "
             "Needs a one-off ~320 MiB download."
@@ -239,7 +249,7 @@ def _derive_menu(ctx: Any, job_id: str, ready: bool) -> None:
     if widgets.ghost_button(
         "Make more",
         enabled=ready,
-        reason="" if ready else "this take has not finished yet",
+        reason=_ready_reason(ready),
         tooltip="Derive another take from this one.",
     ):
         muse_mode.ensure(ctx).selected_job = job_id

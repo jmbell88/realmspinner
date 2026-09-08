@@ -23,27 +23,35 @@ from typing import Any
 
 from .plotter import project
 
-#: The starting points, as ``(label, width, height, tile_w, tile_h, projection)``.
-#: Sizes in tiles, tile sizes in pixels. Three rather than a page of them: a
-#: preset list is a way of *not* answering the question, and the useful answers
-#: are "the two common cell sizes" and "the other lattice".
-PRESETS: tuple[tuple[str, int, int, int, int, str], ...] = (
-    ("Small, 16 px tiles", 40, 30, 16, 16, project.ORTHOGONAL),
-    ("Standard, 32 px tiles", 32, 32, 32, 32, project.ORTHOGONAL),
-    # 2:1 is the isometric convention, and the generator already warns when a
-    # map departs from it -- so the preset that exists to be correct is 2:1.
-    ("Isometric, 64 x 32", 32, 32, 64, 32, project.ISOMETRIC),
-    # The offset lattices, one each. A staggered map is the hexagonal one with
-    # no flat run, so the two presets differ by exactly the hex side -- which is
-    # the clearest way to say what the relationship between them is.
-    ("Staggered, 32 px", 32, 32, 32, 32, project.STAGGERED),
-    ("Hexagonal, 32 px", 32, 32, 32, 32, project.HEXAGONAL),
-)
-
 #: What a hexagonal preset's flat run is, when the form has not been told
 #: otherwise. Half the tile is the regular hexagon, which is the shape somebody
-#: choosing "hexagonal" almost always means.
+#: choosing "hexagonal" almost always means. Defined before ``PRESETS`` because
+#: the Hexagonal row below is written in terms of it.
 DEFAULT_HEX_SIDE = 16
+
+#: The starting points, as ``(label, width, height, tile_w, tile_h, projection,
+#: hex_side)``. Sizes in tiles, tile sizes in pixels. Three rather than a page
+#: of them: a preset list is a way of *not* answering the question, and the
+#: useful answers are "the two common cell sizes" and "the other lattice".
+PRESETS: tuple[tuple[str, int, int, int, int, str, int], ...] = (
+    ("Small, 16 px tiles", 40, 30, 16, 16, project.ORTHOGONAL, 0),
+    ("Standard, 32 px tiles", 32, 32, 32, 32, project.ORTHOGONAL, 0),
+    # 2:1 is the isometric convention, and the generator already warns when a
+    # map departs from it -- so the preset that exists to be correct is 2:1.
+    ("Isometric, 64 x 32", 32, 32, 64, 32, project.ISOMETRIC, 0),
+    # The offset lattices, one each. A staggered map is the hexagonal one with
+    # no flat run, so the two presets differ by exactly the hex side -- which is
+    # the clearest way to say what the relationship between them is. Staggered
+    # is hex_side=0, deliberately: project.py's own Lattice docstring says a
+    # zero flat run is what makes a hexagonal lattice read as staggered, so
+    # this is the one preset that must stay at it.
+    ("Staggered, 32 px", 32, 32, 32, 32, project.STAGGERED, 0),
+    # The 2026-09-08 audit, plotter-02: this row used to leave hex_side at the
+    # ``MapDoc`` default of 0, which is the *staggered* lattice by the same
+    # docstring -- so "Hexagonal" drew exactly like "Staggered" until a user
+    # separately found Map > Map properties > Hex side and set it by hand.
+    ("Hexagonal, 32 px", 32, 32, 32, 32, project.HEXAGONAL, DEFAULT_HEX_SIDE),
+)
 
 #: The preset Create starts on.
 DEFAULT = PRESETS[1]
@@ -65,13 +73,14 @@ NEXT_FILE = "file"
 
 def blank_form() -> dict[str, Any]:
     """The dialog's state, on :attr:`DEFAULT`."""
-    label, width, height, tile_w, tile_h, projection = DEFAULT
+    label, width, height, tile_w, tile_h, projection, hex_side = DEFAULT
     return {
         "width": width,
         "height": height,
         "tile_w": tile_w,
         "tile_h": tile_h,
         "projection": projection,
+        "hex_side": hex_side,
         "next": NEXT_FILE,
         "preset": label,
         # Off by default: a fixed rectangle is what most maps want, it is what
@@ -85,7 +94,7 @@ def apply_preset(form: dict[str, Any], label: str) -> dict[str, Any]:
     """``form`` moved onto the named preset, in place. Unknown labels are kept
     as a custom entry rather than refused: the label is only a note about where
     the numbers came from, and the numbers are the answer."""
-    for name, width, height, tile_w, tile_h, projection in PRESETS:
+    for name, width, height, tile_w, tile_h, projection, hex_side in PRESETS:
         if name == label:
             form.update(
                 width=width,
@@ -93,6 +102,7 @@ def apply_preset(form: dict[str, Any], label: str) -> dict[str, Any]:
                 tile_w=tile_w,
                 tile_h=tile_h,
                 projection=projection,
+                hex_side=hex_side,
                 preset=name,
             )
             break
@@ -113,6 +123,10 @@ def clamp(form: dict[str, Any]) -> dict[str, Any]:
     if form.get("projection") not in project.PROJECTIONS:
         form["projection"] = project.ORTHOGONAL
     form["infinite"] = bool(form.get("infinite", False))
+    # Same cap as the tile sizes: hex_side is a pixel run inserted into the
+    # same cell, so anything ``tile_w``/``tile_h`` may not exceed neither may
+    # it.
+    form["hex_side"] = max(0, min(int(form.get("hex_side", 0) or 0), MAX_TILE_PX))
     return form
 
 

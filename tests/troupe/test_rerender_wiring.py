@@ -65,6 +65,21 @@ def test_the_runs_offered_come_from_the_sheet_rather_than_the_shipped_table(ctx,
     assert all({"animation", "direction"} == set(run) for run in runs)
 
 
+def test_rerender_selection_is_cleared_when_the_selected_sheet_changes(ctx):
+    """The 2026-09-08 audit, finding troupe-02: the "Re-render some runs"
+    checkbox set lived on ``ctx.state.preview`` with no key of its own and no
+    release in ``select`` -- so a tick made while looking at one character
+    sheet reappeared pre-checked on the next character or sheet whose runs
+    happen to share the same animation/direction names, which is the common
+    case, and pressing "Re-render N run(s)" there re-rendered the wrong
+    sheet's runs."""
+    ctx.state.preview[troupe_mode.RERENDER_SLOT] = {"walk/front", "idle/front"}
+
+    troupe_mode.select(ctx, "a-different-character")
+
+    assert troupe_mode.RERENDER_SLOT not in ctx.state.preview
+
+
 def test_a_re_render_needs_a_selected_sheet_and_some_runs(ctx):
     state = troupe_mode.ensure(ctx)
     state.job_id, state.sheet_id = "", ""

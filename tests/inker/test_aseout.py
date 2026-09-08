@@ -824,6 +824,17 @@ def test_a_tag_repeating_past_a_word_is_refused_by_name():
         aseout.aseprite_bytes(doc)
 
 
+def test_more_than_65535_tags_is_refused_by_name():
+    """The 2026-09-08 audit (inker-06): every other 16-bit count this writer
+    packs (frames, layers, the palette, a tag's repeat) is refused by name
+    before it reaches ``struct.pack`` -- the tag count itself was not, and fell
+    through to a bare ``struct.error``."""
+    doc = _animated()
+    doc.anim.tags = [Tag(name="walk", start=0, end=1)] * 65_536
+    with pytest.raises(ValueError, match="65535 tags"):
+        aseout.aseprite_bytes(doc)
+
+
 def test_a_blend_mode_the_format_has_no_number_for_is_refused_by_name():
     """Dead code while the two tables hold the same nineteen modes -- and the
     point of it is the day they do not, since the alternative is writing the

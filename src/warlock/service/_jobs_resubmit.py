@@ -28,6 +28,7 @@ from typing import Any
 from .. import guidance
 from . import matte
 from ._jobs_create import _normalize_guidance, resolve_profile
+from ._jobs_rework import _require_no_dependents
 from .core import WarlockService
 from .errors import Conflict, Invalid
 from .validation import (
@@ -261,6 +262,22 @@ def rerun_job(
         # a cancelled reroll made ``_discard_artifacts`` delete the original
         # job's published trio, and a finished one silently overwrote it.
         params["draft_id"] = rigging.new_id()
+
+    if params.get("source_job"):
+        # Every one of the seven kinds that carries ``params["source_job"]``
+        # (``followups.PRODUCTS``: retexture, remesh, rig, sheet, pixel_sheet,
+        # charsheet, sprite_synthesis) writes onto that mesh's served
+        # artifacts when it finishes -- and the four dedicated doors onto
+        # them (``optimize_job``, ``retexture_job``, ``remesh_job``,
+        # ``separate_job``) all hold ``_require_no_dependents`` before
+        # queuing or running one. This reroll is a fifth door onto the same
+        # write, reachable from the generic Reroll control every rework card
+        # offers, and it walked straight past that gate (the 2026-09-08
+        # audit, service-01): rerolling a finished retexture while a sibling
+        # rework for the same mesh is queued or running raced two writers
+        # onto one directory with no ordering between them, exactly the
+        # incident ``_require_no_dependents``'s own docstring names.
+        _require_no_dependents(svc, params["source_job"], "reroll")
 
     # A remesh of a reference is the third door onto a mesh job (create_job
     # and promote_to_model are the other two), and the only one that used to

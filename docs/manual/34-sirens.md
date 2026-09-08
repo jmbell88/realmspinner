@@ -304,7 +304,7 @@ its own graph, so the editor never draws a file clipped and then paints over the
 An instrument of kind **sample** plays a recording instead of synthesising one, pitched from the note
 you play it at: `C-4` is its recorded speed, an octave up is twice as fast. Import a `.wav` from the
 instrument panel, or drop one on the window while Sirens is in front. A song holds 64, and one
-sample runs to four minutes — long enough for a whole track from Muse, and past that the import is
+sample runs to ten minutes — long enough for a whole track from Muse, and past that the import is
 refused rather than trimmed.
 
 Two files with the same name are two samples rather than one overwriting the other. Removing a sample

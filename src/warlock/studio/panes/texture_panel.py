@@ -44,7 +44,20 @@ from ..manual import render as manual_render
 # ``_retexture_job`` relabels ``retexture_job``'s own refusal to match before
 # it ever reaches ``ctx.state.field_errors`` -- the door itself is shared with
 # the retired HTTP API and is not this panel's name to change.
-_FIELD_PREFIX = {"strength": "retexture_strength", "texture_size": "retexture_texture_size"}
+#
+# The 2026-09-08 audit, finding create-02: "prompt" needed the same
+# treatment. It is also ``create_brief.py``'s bare id for the Reference
+# stage's main asset prompt, and the id ``settings_2d.validate()`` files an
+# empty-prompt refusal under -- so an ordinary "the asset prompt is empty"
+# refusal on Create's Reference stage rang this panel's Surface field
+# whenever a mesh's inspector happened to be open at the same time, and
+# editing either field silently cleared the other's ring
+# (``clear_field_error("prompt")``).
+_FIELD_PREFIX = {
+    "strength": "retexture_strength",
+    "texture_size": "retexture_texture_size",
+    "prompt": "retexture_prompt",
+}
 
 
 def _retexture_job(svc: Any, job_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:
@@ -84,7 +97,9 @@ def draw(ctx: Any, job: Any) -> None:
         on_edit=ctx.state.clear_field_error,
     ) as form_ui:
         _changed, form["prompt"] = form_ui.multiline(
-            "prompt",
+            # Not the bare "prompt" id: create-02, 2026-09-08 audit -- see
+            # ``_FIELD_PREFIX`` above.
+            "retexture_prompt",
             "Surface",
             form["prompt"],
             MAX_PROMPT,
@@ -200,8 +215,20 @@ def occlusion_note(depth_on: bool) -> str | None:
 
 
 def _warn(ctx: Any, job: Any, form: dict[str, Any]) -> None:
-    """What this will invalidate, and what it deliberately will not."""
-    stale = svc_jobs.stale_surface_artifacts(ctx.svc.job_dir(job["id"]))
+    """What this will invalidate, and what it deliberately will not.
+
+    The 2026-09-08 audit, finding create-04: this used to call
+    ``svc_jobs.stale_surface_artifacts``, three ``Path.exists()`` filesystem
+    checks, every frame the "Surface texture" section is open -- disk I/O on
+    the frame thread, which ``CLAUDE.md`` names as a hard constraint. Its
+    siblings (``remesh_panel._warn_stale``, ``retarget_panel._warn_stale``)
+    answer the equivalent question with a plain membership test against
+    ``job.get("files")``, the already-cached, jobs_cache-refreshed list; this
+    does the same, against the same allowlist ``stale_surface_artifacts``
+    checks on disk.
+    """
+    present = set(job.get("files") or [])
+    stale = [name for name in retexture.SURFACE_DERIVED if name in present]
     if stale:
         widgets.text_colored(
             theme.WARN, "These exports will be rebuilt: " + ", ".join(stale)

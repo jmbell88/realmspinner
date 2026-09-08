@@ -973,10 +973,42 @@ def test_a_reroll_of_a_stored_retexture_refuses_the_same_family(svc, monkeypatch
     new_id = svc_jobs.retexture_job(svc, job_id, "rusted iron")["id"]
     # A row written before the check existed, spelled as one written now.
     svc.store.merge_params(new_id, {"base_model": klein})
-    svc.store.finish(new_id, "done")
+    # set_status, not finish: finish only transitions running -> terminal,
+    # and this row was never claimed, so store.finish(new_id, "done") was
+    # historically a silent no-op that left it "queued" -- which the
+    # service-01 fix's _require_no_dependents(mesh) would otherwise catch as
+    # a dependent of its own source mesh and refuse for the wrong reason.
+    svc.store.set_status(new_id, "done")
     with pytest.raises(Invalid) as caught:
         svc_jobs.rerun_job(svc, new_id, mode="reroll")
     assert caught.value.field == "base_model"
+
+
+def test_rerolling_a_retexture_is_refused_while_a_dependent_rework_is_in_flight(svc):
+    """service-01 (the 2026-09-08 audit): ``rerun_job``'s reroll path mints a
+    new job carrying the source row's ``source_job`` for every kind that has
+    one, but never called ``_require_no_dependents`` -- unlike
+    ``optimize_job``, ``retexture_job``, ``remesh_job`` and ``separate_job``,
+    which all hold that door before writing onto the same mesh's served
+    artifacts. ``_require_no_dependents``'s own docstring names the incident
+    this reopens: a re-texture's ``os.replace`` can publish a skin baked from
+    the pre-retarget geometry over a retargeted mesh, with no ordering
+    between the two writers and, on this path, no refusal at either door.
+    """
+    job_id, _ = _retexturable(svc)
+    finished = svc_jobs.retexture_job(svc, job_id, "rusted iron")["id"]
+    # set_status, not finish: this row was never claimed, so
+    # store.finish(finished, "done") would silently no-op and leave it
+    # "queued" -- its own row would then be the "dependent" the assertion
+    # below is really about, rather than the sibling rig created next.
+    svc.store.set_status(finished, "done")
+    # A sibling rework for the same mesh, still in flight -- a rig here for
+    # the same reason ``test_a_queued_rig_counts_too`` uses one: any of the
+    # seven kinds that write into the mesh's directory makes the point.
+    _rig_job_for(svc, job_id, status="running")
+
+    with pytest.raises(Conflict):
+        svc_jobs.rerun_job(svc, finished, mode="reroll")
 
 
 def test_a_retexture_reports_the_exports_that_carry_the_old_skin(svc):
@@ -1460,6 +1492,20 @@ def test_a_tile_is_priced_as_the_image_stage_it_is(svc):
 
 def test_a_seam_report_never_survives_into_a_new_job():
     assert "seam_report" in DERIVED_PARAMS
+
+
+def test_the_source_job_kind_count_matches_the_documented_seven():
+    """service-08 (the 2026-09-08 audit): docs/INVARIANTS.md's paragraph on
+    params["source_job"] rows names the kinds that carry one -- it said "Six"
+    after remesh was added there without updating the count (the 2026-09-07
+    audit, service-06), and followups.py's own PRODUCTS was corrected to
+    seven the same day. This is the cheap executable pin the finding asks
+    for: a kind added to one without the other is caught here rather than
+    only in prose nobody re-reads.
+    """
+    from warlock import followups
+
+    assert len(followups.PRODUCTS) == 7
 
 
 def test_the_tile_flag_is_an_input_and_not_a_derived_value():

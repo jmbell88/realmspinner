@@ -56,8 +56,9 @@ def draw(ctx: Any) -> None:
     # Widen first (W2.1, A3): the full-window Library shares one ``Filters``
     # and one ``JobsCache`` with the sidebar library, but had never called
     # this itself, so its search only ever saw the loaded page. See
-    # ``library.draw`` for the fuller version of this comment.
-    ctx.cache.widen_for_filters(ctx.state.filters)
+    # ``library.draw`` for the fuller version of this comment, including why
+    # this goes through ``ctx.tasks`` rather than running inline (shell-01).
+    ctx.cache.request_widen(ctx.state.filters, ctx.tasks)
     jobs = ctx.cache.visible(ctx.state.filters)
     # Resolved before the columns are sized, because whether it resolves is
     # what decides how wide the middle one is.

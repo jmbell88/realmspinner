@@ -200,6 +200,19 @@ def read_wav(data: bytes, rate: int) -> np.ndarray:
         mono = mono.reshape(-1, channels).mean(axis=1)
     if source_rate != rate and mono.size:
         count = max(1, int(round(mono.size * rate / source_rate)))
+        # The 2026-09-08 audit found sirens-01: the only size door above
+        # checks the *header's* declared frame count against
+        # ``MAX_SAMPLE_FRAMES``, but a low source rate scales the decoded
+        # duration up by ``rate / source_rate`` -- a WAV that declares a low
+        # enough rate passed both that door and the byte-size door in
+        # ``sirens_io._sample_ceiling`` (sized on the same frame count) while
+        # projecting to an array many times the ~10-minute budget, allocated
+        # here by ``np.interp`` before anything else could refuse it.
+        if count > MAX_SAMPLE_FRAMES:
+            raise ValueError(
+                f"this sample would decode to {count} frames at {rate} Hz,"
+                f" past the {MAX_SAMPLE_FRAMES} this build will load"
+            )
         mono = np.interp(
             np.arange(count, dtype=np.float64) * (source_rate / rate),
             np.arange(mono.size, dtype=np.float64),

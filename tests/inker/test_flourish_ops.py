@@ -140,6 +140,43 @@ def test_an_unknown_preset_is_refused_with_a_toast(ctx):
     assert ctx.toasts[-1][1] == "error"
 
 
+def test_submit_insert_refusal_for_cost_does_not_also_claim_an_insert_is_already_running(
+    ctx, monkeypatch
+):
+    """The 2026-09-08 audit, finding inker-09: ``flourish_insert`` used to
+    toast "An effect is already being inserted into this document." on *any*
+    ``False`` from ``submit_insert`` -- including a cost refusal, which
+    ``submit_insert`` had already toasted correctly right there. The second
+    message contradicted the first and pointed at the wrong problem, when
+    nothing was actually in flight.
+    """
+    from warlock.studio.inker import flourish
+    from warlock.studio.inker.flourish import presets
+    from warlock.studio.inker.flourish import recipe as R
+
+    tab = _open(ctx)
+    maxed = flourish.clamp(
+        R.Recipe(
+            width=100000,
+            height=100000,
+            supersample=99,
+            directions=999,
+            phases=tuple(R.Phase(f"p{i}", 100000) for i in range(20)),
+            layers=tuple(R.Layer(uid=i, kind="core") for i in range(50)),
+        )
+    )
+    assert R.bake_cost(maxed) > R.MAX_BAKE_COST  # the fixture, not the claim
+    monkeypatch.setattr(presets, "load", lambda name: maxed)
+
+    assert not inker_mode.flourish_insert(ctx, tab, preset="whatever")
+
+    assert len(ctx.toasts) == 1, ctx.toasts
+    text, level = ctx.toasts[0]
+    assert level == "warn"
+    assert "too large to bake" in text
+    assert "already being inserted" not in text
+
+
 def test_regenerate_is_greyed_until_the_active_layer_is_in_an_effect(ctx):
     tab = _open(ctx)
     op = inker_ops.get("flourish_regenerate")
@@ -171,6 +208,48 @@ def test_a_pending_edit_rests_then_renders_then_lands_as_one_step(ctx):
     assert ctx.toasts[-1][1] == "success"
     tab.doc.history.undo(tab.doc)
     assert tab.doc.flourish_state(group).recipe == rec
+
+
+def test_tick_stops_resubmitting_a_recipe_refused_for_its_bake_cost(ctx):
+    """The 2026-09-08 audit, finding inker-04: ``tick`` used to pop
+    ``flourish_due`` only when ``submit_render`` was *accepted*, so a recipe
+    over ``recipe.MAX_BAKE_COST`` stayed due forever -- ``draw_inspector``
+    calls ``tick`` every frame, and every frame called ``submit_render``
+    again, which re-toasted ``BAKE_TOO_COSTLY`` again, permanently occupying
+    the toast stack's five visible slots even after the user clicked away.
+    """
+    from warlock.studio.inker import flourish
+    from warlock.studio.inker.flourish import recipe as R
+
+    tab = _open(ctx)
+    rec = _small()
+    group = tab.doc.insert_flourish(B.bake(rec))
+    maxed = flourish.clamp(
+        R.Recipe(
+            width=100000,
+            height=100000,
+            supersample=99,
+            directions=999,
+            phases=tuple(R.Phase(f"p{i}", 100000) for i in range(20)),
+            layers=tuple(R.Layer(uid=i, kind="core") for i in range(50)),
+        )
+    )
+    assert R.bake_cost(maxed) > R.MAX_BAKE_COST  # the fixture, not the claim
+    state = ctx.state.inker
+    inker_flourish.set_pending(state, group, maxed, now=0.0)
+
+    sent = inker_flourish.tick(ctx, state, tab, now=inker_flourish.DEBOUNCE_SECONDS)
+
+    assert sent == 0
+    assert group not in state.flourish_due, "a refused recipe must not stay due forever"
+    assert group not in state.flourish_pending
+    assert len(ctx.toasts) == 1  # BAKE_TOO_COSTLY, once
+
+    # A second frame's tick (draw_inspector calls tick every frame) must not
+    # resubmit the same refused recipe, and must not toast again.
+    again = inker_flourish.tick(ctx, state, tab, now=inker_flourish.DEBOUNCE_SECONDS + 1.0)
+    assert again == 0
+    assert len(ctx.toasts) == 1
 
 
 def test_an_edit_made_during_a_render_is_rendered_next(ctx):
@@ -261,3 +340,32 @@ def test_a_failed_render_is_a_warning_not_a_crash(ctx):
     done = Done(key=inker_flourish.render_key(tab, 1), error=RuntimeError("boom"))
     assert not inker_flourish.land(ctx, ctx.state.inker, done, now=0.0)
     assert ctx.toasts[-1][1] == "warn"
+
+
+def test_text_model_present_rejects_a_directory_named_config_json(tmp_path):
+    """The 2026-09-08 audit, finding inker-12: ``text_model_present`` used
+    ``.exists()``/``rglob`` alone, both true of a directory shaped like the
+    two required names -- so a stray directory or a partial copy under this
+    hand-populated model folder reported the text model available, and
+    ``text_model_available`` then spawned ``recipe_worker`` for every prompt
+    before falling back to the keyword mapper.
+    """
+    root = tmp_path / "models"
+    base = root / inker_flourish.TEXT_MODEL_DIR
+    base.mkdir(parents=True)
+    # A *directory* named config.json, not a file -- the two suspect shapes
+    # the fix guards against.
+    (base / "config.json").mkdir()
+    (base / "model.safetensors").mkdir()
+    config = SimpleNamespace(t2i_model_root=root)
+
+    assert not inker_flourish.text_model_present(config)
+
+    # The real shape -- both regular files -- still reports present.
+    import shutil
+
+    shutil.rmtree(base / "config.json")
+    shutil.rmtree(base / "model.safetensors")
+    (base / "config.json").write_text("{}", encoding="utf-8")
+    (base / "model.safetensors").write_bytes(b"\0")
+    assert inker_flourish.text_model_present(config)

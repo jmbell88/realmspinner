@@ -1130,6 +1130,59 @@ def _done_tileset_import(ctx: Any, state: Any, done: Any) -> None:
             ctx.toast(f"{slot.tileset.name} added.", "success")
 
 
+def _done_convert(ctx: Any, state: Any, done: Any) -> None:
+    """Land Apply from the Convert popup, off the frame thread since 2026-09-08.
+
+    ``panes/inker_bridge.apply_convert`` used to run ``commit_convert`` or
+    ``set_color_mode`` inline on the button press -- a whole-document
+    ``_map_planes`` pass that ``inker/dither.py`` documents at ~43s for one
+    Floyd-Steinberg plane, with the pygame frame loop blocked for the
+    duration (the 2026-09-08 audit, finding inker-01). It now submits the
+    same work under ``docmodes.start_save``'s lock, keyed by tab, and this is
+    the landing half: unlock the tab and, only on success, settle the state a
+    conversion invalidates and raise whichever toast the run collected.
+    """
+    key = done.key
+    tab = state.get(key.split(":", 1)[1]) if ":" in key else None
+    if tab is not None:
+        tab.saving = False
+    result = done.result
+    if not isinstance(result, dict):
+        return
+    if result.get("mode"):
+        # ``_convert_mode_run`` (panes/inker_bridge.py) computed this; the
+        # toast text mirrors ``inker_palette_io.set_color_mode``'s three
+        # messages by hand, for the reason given on ``_convert_mode_run``.
+        if not result.get("ok"):
+            error = result.get("error")
+            if error:
+                ctx.toast(error, "warn")
+            return
+        ctx.cache.invalidate()
+        state.palette_slot = 0
+        state.palette_slots = []
+        state.palette_usage = None
+        state.fg_slot = None
+        color_mode = result.get("color_mode")
+        if color_mode == "indexed":
+            ctx.toast(
+                f"Indexed: {result.get('palette_len', 0)} colours, slot "
+                f"{result.get('transparent_index', 0)} is transparent.",
+                "success",
+            )
+        elif color_mode == "grayscale":
+            ctx.toast("Grayscale. Every write lands on a grey from here.", "success")
+        else:
+            ctx.toast("RGB colour. The pixels are unchanged.")
+        return
+    if not result.get("ok"):
+        return
+    ctx.cache.invalidate()
+    state.palette_slot = 0
+    state.palette_slots = []
+    state.palette_usage = None
+    ctx.toast(f"Converted to {result.get('count', 0)} colour(s).", "success")
+
 
 def _done_send(ctx: Any, state: Any, done: Any) -> None:
 
@@ -1184,6 +1237,7 @@ def _TASK_HANDLERS() -> dict[str, Any]:
         "inker-index": _done_index,
         "inker-palimg": _done_palimg,
         "inker-tileset-import": _done_tileset_import,
+        "inker-convert": _done_convert,
         "inker-send": _done_send,
         "inker-promote": _done_send,
     }
@@ -2177,8 +2231,16 @@ def flourish_insert(
         mode=mode if mode in ("painterly", "pixel") else "painterly",
         directions=max(1, int(directions)),
     )
-    if not inker_flourish.submit_insert(ctx, tab, recipe):
+    result = inker_flourish.submit_insert(ctx, tab, recipe)
+    if result is inker_flourish.SubmitResult.BUSY:
+        # Only the in-flight case earns this message. A cost refusal already
+        # toasted ``BAKE_TOO_COSTLY`` inside ``submit_insert`` -- the
+        # 2026-09-08 audit (finding inker-09) found this line firing
+        # unconditionally on top of it, claiming an insert was already
+        # running when nothing was.
         ctx.toast("An effect is already being inserted into this document.", "info")
+        return False
+    if result is not inker_flourish.SubmitResult.ACCEPTED:
         return False
     ctx.toast(f"Rendering {recipe.name}...")
     return True
@@ -2235,10 +2297,16 @@ def flourish_regenerate(ctx: Any, tab: Any, *, force: bool = False, **_: Any) ->
     if recipe is None:
         return False
     state.flourish_due.pop(group, None)
-    if not inker_flourish.submit_render(ctx, tab, group, recipe, force=force):
+    result = inker_flourish.submit_render(ctx, tab, group, recipe, force=force)
+    if result is inker_flourish.SubmitResult.BUSY:
+        # Only the in-flight case earns this canvas tip. A cost refusal
+        # already toasted ``BAKE_TOO_COSTLY`` inside ``submit_render`` -- the
+        # 2026-09-08 audit (finding inker-09) found this line firing
+        # unconditionally on top of it, claiming a render was still running
+        # when nothing was.
         state.say(inker_flourish.RENDERING)
         return False
-    return True
+    return result is inker_flourish.SubmitResult.ACCEPTED
 
 
 def flourish_keep_edits(ctx: Any, tab: Any, **_: Any) -> bool:

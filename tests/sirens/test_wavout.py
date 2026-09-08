@@ -171,6 +171,26 @@ def test_read_wav_refuses_a_zero_sample_rate_instead_of_crashing():
         wavout.read_wav(wav, 44100)
 
 
+def test_read_wav_refuses_a_low_rate_header_that_would_decode_past_the_size_budget(
+    monkeypatch,
+):
+    """the 2026-09-08 audit, finding sirens-01: the only size door checked the
+    WAV header's raw declared frame count against ``MAX_SAMPLE_FRAMES``, but
+    the decoded array's actual size scales by ``frames * rate / source_rate``
+    -- so a WAV declaring a low sample rate passes both that door and the
+    byte-size door in ``sirens_io._sample_ceiling`` (sized on the same frame
+    count) while resampling to an array many times larger, and covering many
+    times more real-world duration, than the budget. Reproduced with a
+    lowered ceiling so the probe file stays small: 100 header frames at 10 Hz,
+    read at a 4410 Hz render rate, project to 44,100 output frames -- past a
+    ceiling of 1,000, even though 100 <= 1,000 passes the header check alone.
+    """
+    monkeypatch.setattr(wavout, "MAX_SAMPLE_FRAMES", 1000)
+    raw = wavout.wav_bytes(np.zeros(100, dtype=np.float32), 10)
+    with pytest.raises(ValueError, match="past the"):
+        wavout.read_wav(raw, 4410)
+
+
 def test_writing_to_a_path_produces_the_same_bytes(tmp_path):
     pcm = np.zeros((16, 2), dtype=np.float32)
     target = tmp_path / "a.wav"

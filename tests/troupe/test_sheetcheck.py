@@ -89,3 +89,24 @@ def test_a_pivot_outside_its_cell_is_a_finding():
     verdict = sheetcheck.validate(_plan(), {}, bad)
     assert verdict["ok"] is False
     assert sheetcheck.describe(verdict)
+
+
+def test_metadata_findings_reports_every_cell_with_a_bad_pivot_not_just_the_first():
+    """pipelines-06 (2026-09-08 audit). The pivot check used to ``break`` on
+    the first offending cell, unlike every other check in this function (tags,
+    duplicated, uncovered, outside), which counts and names every affected
+    cell -- so a sidecar with several mis-pivoted cells reported only one of
+    them, and a reader who fixed it discovered the next bad pivot only on a
+    second pass.
+    """
+    bad = {
+        "image": "sheet.png",
+        "cells": [
+            {"index": 0, "w": 32, "h": 32, "pivot_x": 16.0, "pivot_y": 32.0},  # fine
+            {"index": 1, "w": 32, "h": 32, "pivot_x": 256.0, "pivot_y": 470.0},
+            {"index": 2, "w": 32, "h": 32, "pivot_x": -5.0, "pivot_y": 10.0},
+        ],
+    }
+    findings = sheetcheck.metadata_findings(bad)
+    assert len(findings) == 1
+    assert "1" in findings[0] and "2" in findings[0]

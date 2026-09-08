@@ -8,14 +8,24 @@ box matches, and whether a jump lands on the object or somewhere near it.
 
 from __future__ import annotations
 
+import contextlib
 from types import SimpleNamespace
 
 import pytest
+from _ui_context import imgui_context
 
 from warlock.studio import plotter_mode, plotter_state
 from warlock.studio.panes import plotter_layers, plotter_objects
 from warlock.studio.plotter import layer_rows
 from warlock.studio.plotter.tilemap import MapDoc
+
+
+@pytest.fixture
+def ui(monkeypatch):
+    """The shared headless imgui context; see ``_ui_context`` for why this is
+    a per-module fixture rather than a shared ``conftest`` one."""
+    with imgui_context(monkeypatch) as imgui:
+        yield imgui
 
 
 class _Settings:
@@ -156,6 +166,56 @@ def test_the_dock_reaches_objects_inside_a_group():
     assert [obj.name for _layer, objects in groups for obj in objects] == [
         "hidden_away"
     ]
+
+
+# --- clicking a row -----------------------------------------------------------
+
+
+def test_shift_clicking_an_object_row_extends_the_selection_without_crashing(ui, monkeypatch):
+    """The 2026-09-08 audit, plotter-01: ``PlotterState.selected_object`` is a
+    read-only ``@property`` with no setter, but the row's own Shift+click
+    branch assigned to it -- so the ordinary gesture of Shift+clicking a
+    second row in the Objects dock raised ``AttributeError`` instead of
+    extending the selection, the way the canvas's identical Shift+click
+    (``plotter_canvas.py``, ``state.make_primary(hit.uid)``) already does.
+
+    ``widgets.list_row`` is stubbed to report a click without needing a real
+    mouse position over its rect -- probe's own census does not reach raw
+    ``widgets.py`` calls either, for the same reason -- but every other imgui
+    call in ``_row`` (the label, the trailing id) is the real thing, inside a
+    real headless frame, so this still exercises the actual click handler.
+    """
+    doc = _map()
+    layer = doc.add_object_layer()
+    first = _place(doc, doc.layer(layer.uid), "door_1")
+    second = _place(doc, doc.layer(layer.uid), "door_2")
+    state = plotter_state.PlotterState()
+    state.select_object(first.uid)
+    tab = SimpleNamespace(doc=doc)
+    ctx = SimpleNamespace()
+
+    @contextlib.contextmanager
+    def _clicked_row(*_a, **_k):
+        yield True
+
+    monkeypatch.setattr(plotter_objects.widgets, "list_row", _clicked_row)
+    # A direct ``io.key_shift = True`` does not survive ``new_frame()``: imgui
+    # recomputes the modifier fields from tracked key events at the top of the
+    # frame, before the row below ever reads them. Replacing ``get_io`` itself
+    # is the same trick ``tests/plotter/_drive.py``'s ``Mouse`` uses, and it
+    # only touches the Python-level accessor -- imgui's own C++ input
+    # processing for ``new_frame``/``begin``/``end`` never goes through it.
+    monkeypatch.setattr(
+        ui, "get_io", lambda: SimpleNamespace(key_shift=True, key_ctrl=False, key_alt=False)
+    )
+    ui.new_frame()
+    ui.begin("##host")
+    plotter_objects._row(ctx, state, tab, layer, second)
+    ui.end()
+    ui.end_frame()
+
+    assert state.selected_objects == {first.uid, second.uid}
+    assert state.selected_object == second.uid
 
 
 # --- when the pane is there at all -------------------------------------------

@@ -25,6 +25,70 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **Shift+clicking a row in Plotter's Objects dock crashed the frame.** The
+  handler assigned to `selected_object`, which is a read-only property with no
+  setter, so an ordinary multi-select gesture raised `AttributeError` instead of
+  extending the selection; the canvas's own Shift+click had always used
+  `make_primary` for the identical gesture. Found by a full-codebase audit on
+  2026-09-08, whose fifty-three readers turned up eighty-seven defects across
+  every mode, the service layer, the pipelines and the documents. The rest of
+  this list is the user-visible part of what that audit closed.
+- **Muse's loop finder was scoring the wrong frequencies.** An off-by-one in how
+  the 24-band spectral feature consumed its own band edges kept a 0-40 Hz band
+  the analysis was never meant to see, and silently dropped the 4.5-5.5 kHz band
+  at the top -- the sizzle a loop seam is actually judged on. Every "Find loop
+  points" ranking was computed on that vector, with no error and no way to tell.
+- **An exported animation clip lost its root motion.** Every shipped clip
+  authors a root translation on almost every key -- the jump's whole crouch,
+  launch, rise, apex, fall and land arc is in it -- and Troupe's 2D sheet
+  interpolated it correctly, but the glTF export dropped the field on the way to
+  Blender and never applied one during the bake. A jump exported to an engine
+  had cycling limbs and a pelvis that never left rest height.
+- **Two of Inker's slowest operations ran on the frame thread.** Applying a
+  colour-mode conversion dithered every cel of the document without yielding --
+  measured at about 43 seconds for a single 2048-square plane with no native
+  kernel, multiplied by every cel -- and importing a sprite sheet allocated one
+  frame and one layer per cell with no ceiling, so an ordinary 2x2 cell size
+  over a 1024-square atlas built 262,144 of them. Both now run off the frame
+  loop, and the sheet import refuses a cell count past a sane bound.
+- **A killed weights download reported itself healthy.** The gate that decides
+  whether Create may open read presence with a file-exists check blind to size,
+  so an interrupted engine download that left ten zero-byte files let the user
+  in to submit a reconstruction against weights nothing could load -- while
+  doctor, reading the same files in the same process, already said FAIL. Both
+  now ask the same question. Doctor's own BiRefNet row had the same gap and
+  contradicted the row beside it about one file.
+- **Rerolling a re-texture could publish over a mesh another job was reworking.**
+  The four rework doors each refuse while a dependent job is in flight; the
+  generic Reroll control reached the same publish path without that check, which
+  is how a triangle budget silently reverts while the recorded profile goes on
+  claiming the tier ran.
+- **A Hexagonal map was not hexagonal.** The New Map preset left the flat run at
+  zero, which by the projection's own definition makes a hex lattice identical
+  to a staggered one, so the preset drew a plain diamond grid until the user
+  found the field in Map properties and set it by hand.
+- **Undo stopped losing work in four places.** Typing in Plotter's object
+  properties or in any custom Tiled property pushed one undo step per keystroke,
+  which evicts real history once the stack is full; adding or removing a Clay
+  material was two steps for one click; and undoing a material removal left
+  objects pointing at the wrong palette slot, because index arithmetic cannot
+  distinguish a default that named the removed slot from one that already sat
+  below it. That last one is fixed by remembering the affected objects by uid
+  before the renumber, not by correcting the number afterwards.
+- **Several greyed controls stopped describing a document that was not open.**
+  With no Inker tab at all, seventy-odd menu items explained themselves with
+  "the document is busy" or a fact about a document's layers. They now say
+  nothing is open, and a sweep over the whole op registry keeps the next one
+  honest.
+- **The manual stopped describing controls that had moved or never existed.**
+  Chapter 6 still sent readers to the timeline's bottom row for five exports
+  that left it in September; chapter 8's exercise told them to press a
+  "Measured joints" button the same chapter explains does not exist; chapter 34
+  understated the sample ceiling by six minutes; chapter 28 promised 5% zoom
+  notches that stop at 800%; and chapter 15's walkthrough could not be completed
+  with its own example effect, which is over the bake ceiling at the facings the
+  chapter tells you to pick. Packwright's anchor control, and the pivot it
+  writes into every sidecar, were documented for the first time.
 - **Alt+drag orbits the pose viewport even when the press lands on a joint.**
   The pose-mode viewport Poser and Create's rig editor share tested the gizmo
   and every joint marker under the cursor before asking whether Alt was held,

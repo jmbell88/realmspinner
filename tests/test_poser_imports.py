@@ -192,3 +192,29 @@ def test_the_viewer_half_imports_with_no_imgui_and_no_service():
         "warlock.studio.viewer.pose, warlock.studio.viewer.bonelines",
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_no_module_but_blender_worker_imports_bpy():
+    """bpy is process-global and, per CLAUDE.md, documented as *crashing* --
+    not raising -- the interpreter on geometry trellis produces. The whole
+    safety argument for keeping it to one subprocess module rests on nothing
+    else ever importing it, and until the 2026-09-08 audit (poser-05) that
+    rested on convention: this file's own pin above checks four named
+    modules, and ``test_rigging.py`` checks ``rigging.py`` specifically, but
+    nothing scanned the rest of ``src/warlock`` for a stray ``import bpy``.
+    """
+    exempt = ROOT / "pipelines" / "blender_worker.py"
+    offenders: list[str] = []
+    for path in ROOT.rglob("*.py"):
+        if path == exempt:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            hit = isinstance(node, ast.Import) and any(
+                alias.name == "bpy" or alias.name.startswith("bpy.") for alias in node.names
+            ) or isinstance(node, ast.ImportFrom) and node.module and (
+                node.module == "bpy" or node.module.startswith("bpy.")
+            )
+            if hit:
+                offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, offenders

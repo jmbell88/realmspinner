@@ -502,8 +502,22 @@ def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
     try:
         slots = {}
         for slot, index in (entry.get("textures") or {}).items():
-            if slot in TEXTURE_FIELDS and 0 <= int(index) < len(textures):
-                slots[slot] = textures[int(index)]
+            if slot not in TEXTURE_FIELDS:
+                continue
+            # The 2026-09-08 audit's clay-05: an index past the end of the
+            # textures this archive actually decoded used to be silently
+            # dropped -- that slot came back ``None`` -- rather than refused
+            # the way a texture member missing from the zip entirely already
+            # is (see ``_read_textures`` above). Both are the same shape of
+            # corruption ``read_wblk``'s crash-recovery path can hand this
+            # reader, so both refuse: this raise is caught by the ``except``
+            # below, the same door the rest of a malformed material uses.
+            if not 0 <= int(index) < len(textures):
+                raise ValueError(
+                    f"a material names texture index {index!r} for its {slot} slot, "
+                    f"past the {len(textures)} this file carries"
+                )
+            slots[slot] = textures[int(index)]
         return gltf.Material(
             **slots,
             name=str(entry.get("name", "")),

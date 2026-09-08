@@ -572,6 +572,25 @@ def test_closing_a_dirty_tab_asks_first():
     assert packwright_mode.ensure(ctx).get(tab.uid) is None
 
 
+def test_closing_a_packwright_tab_forgets_its_remembered_column_count():
+    """packwright-03, the 2026-09-08 audit: ``_last_columns`` is a module-level
+    ``dict[tab.uid, int]`` remembering each tab's last explicit column count,
+    and it is the one per-tab-uid cache in this segment with no matching
+    release -- unlike ``packwright_textures.release_doc``, which
+    ``close_tab``'s own release callback already calls for the texture cache
+    keyed the same way. Every atlas tab ever given an explicit column count
+    used to leave one entry behind for the life of the process."""
+    from warlock.studio.panes import packwright_settings
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    packwright_settings._last_columns[tab.uid] = 4
+
+    packwright_mode.close_tab(ctx, tab.uid)
+
+    assert tab.uid not in packwright_settings._last_columns
+
+
 # --- keys ---------------------------------------------------------------------
 
 
@@ -837,6 +856,48 @@ def test_a_rendered_sheet_handoff_is_not_silently_dropped_while_a_manual_tileset
     packwright_mode.add_rendered_sheet(ctx, "j1", "sheet1")  # the handoff
 
     assert ctx.refused == [], "the handoff must not collide with the manual picker's key"
+
+
+def test_a_second_tileset_landing_does_not_silently_replace_one_already_parked_under_an_open_popup():  # noqa: E501
+    """packwright-01, the 2026-09-08 audit: ``on_task_done``'s
+    ``"packwright-tileset"`` branch used to adopt whatever landed
+    unconditionally, even while an earlier import's popup was still open and
+    unconfirmed -- silently swapping the sheet under it and dropping
+    ``tileset_import_open`` back to False, so the pane's own "open once a new
+    import lands" check (``panes/packwright_sources.py``) reopened the popup
+    over completely different pixels next frame, with no toast and no visible
+    sign anything had changed."""
+    ctx = FakeCtx()
+    tab = packwright_mode.new_document(ctx)
+
+    first = np.zeros((4, 4, 4), dtype=np.uint8)
+    packwright_mode.on_task_done(
+        ctx,
+        _Done(
+            f"packwright-tileset:{tab.uid}",
+            {"tileset": ("first.png", "first", first), "uid": tab.uid},
+        ),
+    )
+    assert packwright_mode.ensure(ctx).tileset_import[1] == "first"
+
+    # The pane's own draw-loop behaviour: the popup opens once, the first
+    # time it sees a pending import, and stays open until confirmed or
+    # cancelled.
+    state = packwright_mode.ensure(ctx)
+    state.tileset_import_open = True
+
+    second = np.ones((4, 4, 4), dtype=np.uint8)
+    packwright_mode.on_task_done(
+        ctx,
+        _Done(
+            f"packwright-tileset:{tab.uid}",
+            {"tileset": ("second.png", "second", second), "uid": tab.uid},
+        ),
+    )
+
+    assert state.tileset_import[1] == "first", "the parked import must not be swapped"
+    assert state.tileset_import_open is True, "the open popup must not be reset"
+    assert ctx.toasts, "a dropped second import must say so"
 
 
 def test_the_same_drop_twice_over_still_dedupes(tmp_path):

@@ -538,6 +538,34 @@ def test_a_missing_texture_member_is_refused_rather_than_blanked() -> None:
         ser.read_wblk(out.getvalue())
 
 
+def test_a_material_naming_an_out_of_range_texture_index_is_refused() -> None:
+    """The 2026-09-08 audit's clay-05: this module's own docstring states "a
+    missing texture member is refused... opening the file with a blank
+    material would show the user a model that looks finished and is not, and
+    let them save it over their work" -- but ``_material_from`` only enforced
+    that for a texture named by a PNG member absent from the archive, not for
+    an index naming a slot past the end of the textures list ``read_wblk``
+    actually decoded, which is exactly the shape of truncation its own
+    crash-recovery path can hand this reader.
+    """
+    doc = bd.ClayDoc(
+        objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
+        materials=[gltf.Material(name="m", base_color=_tex())],
+    )
+    data = ser.wblk_bytes(doc)
+    source = zipfile.ZipFile(BytesIO(data))
+    scene = json.loads(source.read(ser.SCENE))
+    scene["materials"][0]["textures"]["base_color"] = 5  # only one texture exists
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w") as zf:
+        zf.writestr(ser.SCENE, json.dumps(scene))
+        for name in source.namelist():
+            if name != ser.SCENE:
+                zf.writestr(name, source.read(name))
+    with pytest.raises(ValueError, match="malformed"):
+        ser.read_wblk(out.getvalue())
+
+
 # --- the camera (Clay23) ------------------------------------------------------
 
 

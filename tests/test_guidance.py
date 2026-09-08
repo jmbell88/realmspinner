@@ -200,7 +200,13 @@ def test_the_gate_and_the_doctor_row_name_the_same_file(tmp_path):
     assert before.ok is False
     assert guidance.default_bg_removal(config.trellis_models_dir) == "auto"
 
-    (config.trellis_models_dir / guidance.BIREFNET_WEIGHTS).write_bytes(b"")
+    # Real bytes, not ``b""``: pipelines-05 (the 2026-09-08 audit) taught the
+    # doctor row the same zero-byte downgrade the sibling "TRELLIS GGUF
+    # weights" row already had, so a zero-byte file here now correctly reads
+    # as damaged rather than healthy -- and this test's actual claim is that
+    # the gate and the doctor row agree about one file, which needs the file
+    # to be genuinely usable, not merely present.
+    (config.trellis_models_dir / guidance.BIREFNET_WEIGHTS).write_bytes(b"weights")
     assert _birefnet_row(doctor.run_checks(config)).ok is True
     assert guidance.default_bg_removal(config.trellis_models_dir) == "birefnet"
 

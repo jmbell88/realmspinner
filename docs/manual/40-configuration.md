@@ -54,6 +54,7 @@ Boolean variables accept `1`, `true` or `on`; anything else is off.
 | `WARLOCK_RIG_TIMEOUT` | `1800` | Seconds a single Blender rigging subprocess may run before it is treated as hung. |
 | `WARLOCK_POSE_TIMEOUT` | `300` | Seconds for one pose bake. Much tighter, because a bake runs inline rather than on the job queue. |
 | `WARLOCK_SHEET_TIMEOUT` | `1800` | Seconds for one sprite-sheet render. Generous because the cell count is yours to choose, but still bounded. |
+| `WARLOCK_SEPARATION_TIMEOUT` | `1800` | Seconds for one stem-separation subprocess. Generous because a full-length take on the CPU fallback is genuinely slow, but still bounded because this runs on the serial queue. |
 | `WARLOCK_LOG_LEVEL` | `INFO` | Logging level for the console and the rotating log file. |
 | `WARLOCK_POSE_FIT` | `on` | Whether a rig may measure its joint positions off the reference image rather than taking the template's. Off falls back to the template everywhere. A kill switch, not an opt-in: any doubt already refuses the whole fit. |
 | `WARLOCK_DEFORM_QA` | `on` | Whether a finished rig is rendered in a battery of test poses (`rig_qa.png` beside the rig). Nothing scores it — the point is a picture you look at. Off skips the render. |

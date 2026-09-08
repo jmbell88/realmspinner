@@ -173,7 +173,13 @@ def _joint(ctx: Any, viewer: Any) -> None:
     # is the shared library every asset poses from.
     if controls.button(
         "Reset all",
-        tooltip="Put every joint back to rest. There is no undo, so this asks first.",
+        # The tooltip used to add "There is no undo, so this asks first.",
+        # which stopped being true once Ctrl+Z was wired into the pose editor
+        # (Viewer.reset_all is @_undoable, manual chapter 26). The 2026-09-08
+        # audit (docs-06) found pose_panel's matching copy already fixed and
+        # this one left behind. The guard stays regardless: a confirm is still
+        # the difference between losing a pose and being asked about it.
+        tooltip="Put every joint back to rest.",
     ):
         poser_mode.guard(ctx, "reset every joint", viewer.reset_all)
     if viewer.editor.mirror_pairs:

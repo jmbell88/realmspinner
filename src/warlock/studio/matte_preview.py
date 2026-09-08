@@ -94,6 +94,22 @@ def key(job_id: str) -> str:
     return f"matte-preview:{job_id}"
 
 
+# The 2026-09-08 audit, finding create-03: ``open_for``'s own eviction (see
+# below) only catches the *immediately preceding* job at the moment of a
+# switch, which is what ``test_matte_preview_cache_does_not_grow_without_
+# bound_across_jobs`` (create-07) covers. It cannot catch a preview that
+# lands after the user has moved on through *several* more switches, or one
+# that lands for a job that was never the open one at all -- and
+# ``test_a_result_for_a_job_the_user_left_is_cached_but_not_shown``
+# (test_matte_handoff.py) is exactly that second case, and is the reason the
+# cache is bounded rather than pruned to the single current job: a result for
+# a job the user has left must still be *cached*, just not *shown*. Capping
+# the whole cache at a small LRU in ``on_task_done`` keeps both true: no
+# session can regrow it without bound, and the last few jobs looked at are
+# still instant to return to.
+_MAX_CACHE_ENTRIES = 3
+
+
 def open_for(ctx: Any, job_id: str, kwargs: dict[str, Any], *, force: bool = False) -> MatteState:
     """Put the preview in front of the promotion. Draws nothing itself."""
     state = ensure(ctx)
@@ -213,10 +229,19 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if preview is None or not hasattr(preview, "job_id"):
         return
     svc_matte.remember(state.cache, preview)
+    # create-03 (see ``_MAX_CACHE_ENTRIES`` above): bound the cache instead of
+    # pruning it to one entry. A plain dict is insertion-ordered, so moving a
+    # just-touched key to the end and then trimming from the front is an LRU
+    # with no extra structure -- the *least* recently landed result is the
+    # one dropped once the cache is over the cap, not an arbitrary one.
+    if preview.job_id in state.cache:
+        state.cache[preview.job_id] = state.cache.pop(preview.job_id)
+        while len(state.cache) > _MAX_CACHE_ENTRIES:
+            state.cache.pop(next(iter(state.cache)))
     if preview.job_id != state.job_id:
         # The user closed the modal, or moved to another reference, while the
-        # cutout was being computed. Cached (it is still true about that file)
-        # and not shown.
+        # cutout was being computed. Still cached above (bounded, not
+        # dropped) -- just not shown.
         return
     state.preview = preview
     state.stamp = preview.stamp

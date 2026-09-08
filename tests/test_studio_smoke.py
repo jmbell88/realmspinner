@@ -5330,7 +5330,14 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     tab = SimpleNamespace(uid="tab-1", doc=SimpleNamespace(flourish_state=lambda group: None))
 
     ctx = _RefusingCtx()
-    assert inker_flourish.submit_render(ctx, tab, 1, maxed) is False
+    # Not a bare ``False`` any more: the 2026-09-08 audit (finding inker-09)
+    # gave both submit points a tri-state result so a caller can tell this
+    # refusal (already toasted right here) from "something is already
+    # running" (not toasted here at all) -- see ``SubmitResult``.
+    assert (
+        inker_flourish.submit_render(ctx, tab, 1, maxed)
+        is inker_flourish.SubmitResult.TOO_COSTLY
+    )
     assert ctx.submitted is False
     assert len(ctx.toasts) == 1
     text, level = ctx.toasts[0]
@@ -5339,7 +5346,7 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     assert "too large to bake" in text
 
     ctx2 = _RefusingCtx()
-    assert inker_flourish.submit_insert(ctx2, tab, maxed) is False
+    assert inker_flourish.submit_insert(ctx2, tab, maxed) is inker_flourish.SubmitResult.TOO_COSTLY
     assert ctx2.submitted is False
     assert len(ctx2.toasts) == 1
     assert ctx2.toasts[0][1] == "warn"

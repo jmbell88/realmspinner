@@ -39,6 +39,7 @@ from .animation import (
 from .layers import Layer, LayerStack
 
 __all__ = [
+    "MAX_SHEET_FRAMES",
     "document_from_atlas",
     "document_from_grid",
     "document_from_sheet",
@@ -46,6 +47,20 @@ __all__ = [
     "span_tags",
     "walk_tags",
 ]
+
+# The 2026-09-08 audit (inker-02) found a typed 2x2 cell over an ordinary
+# 1024x1024 atlas -- neither number remarkable, and both well inside what the
+# popup accepts -- produces 262,144 frames, each its own Frame *and* Layer
+# object, with nothing refusing before the allocation runs. That is not a
+# memory problem at this size; it is an object-count one; the undo stack, the
+# timeline, playback and every later save all walk the frame list once per
+# operation, and a document that size makes every one of them the freeze
+# instead of the import. This build's largest built-in sheet kind
+# (``DirectionalLayout``) tops out at a few dozen frames, so a ceiling two
+# orders of magnitude above that still leaves room for a hand-built tileset
+# import with room to spare, while stopping a fat-fingered cell size well
+# short of the point where the editor stops being usable on the result.
+MAX_SHEET_FRAMES = 4096
 
 
 def span_tags(spans: Sequence[Mapping[str, Any]]) -> list[Tag]:
@@ -281,6 +296,11 @@ def grid_rects(
     if total > capacity:
         raise ValueError(
             f"that grid holds {capacity} cells and {total} were asked for"
+        )
+    if total > MAX_SHEET_FRAMES:
+        raise ValueError(
+            f"that grid is {total} cells; a sprite sheet import holds at most "
+            f"{MAX_SHEET_FRAMES}"
         )
     return [
         (

@@ -330,18 +330,35 @@ class MaterialListEdit(Edit):
     the undo reverses exactly by shifting them back up. No mesh pixels or
     positions are stored here at all, which is what keeps a palette edit's undo
     cost at one material object.
+
+    That arithmetic is exact for every face and every default *except* one:
+    an object whose default named the removed slot itself. The 2026-09-08
+    audit's clay-06 found that case genuinely irreversible by number alone --
+    "started on the removed slot" and "started one slot below it" both land
+    on the same value once the slot is gone, and shifting back up cannot tell
+    them apart again. ``boundary`` is how this edit remembers which uids that
+    was true for, captured before the shift runs, so its own undo can put
+    them back on the slot by name instead of by (lossy) arithmetic. An add's
+    ``boundary`` is simply empty, because appending never loses this
+    information in the first place.
     """
 
     index: int
     material: Any
     added: bool
+    #: uids of every object whose *default* ``material`` field named the
+    #: removed slot exactly, at the moment ``ClayDoc.remove_material`` ran --
+    #: see ``_shift_materials`` and the 2026-09-08 audit's clay-06. Always
+    #: empty for an add: appending only ever shifts values already above the
+    #: new slot, and nothing is above the end of the list yet.
+    boundary: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         self.cost = _texture_bytes(self.material, set())
 
     def _insert(self, doc: Any) -> None:
         doc.materials.insert(self.index, self.material)
-        _shift_materials(doc, self.index, +1)
+        _shift_materials(doc, self.index, +1, restore=self.boundary)
         doc.touch()
 
     def _remove(self, doc: Any) -> None:
@@ -356,7 +373,9 @@ class MaterialListEdit(Edit):
         self._insert(doc) if self.added else self._remove(doc)
 
 
-def _shift_materials(doc: Any, index: int, delta: int) -> None:
+def _shift_materials(
+    doc: Any, index: int, delta: int, *, restore: tuple[int, ...] = ()
+) -> None:
     """Renumber every reference to a palette slot at or above *index*.
 
     An object that names no slot that high is skipped, which is what makes the
@@ -386,6 +405,24 @@ def _shift_materials(doc: Any, index: int, delta: int) -> None:
     those naming the palette as it stood before it. Deduplicated by identity,
     because an object that is both in the document and named by a step on the
     stack is one object and must shift once.
+
+    ``restore`` is :attr:`MaterialListEdit.boundary`, threaded through only
+    from that edit's own undo of a removal. The 2026-09-08 audit's clay-06:
+    a default that named the removed slot itself is genuinely lossy to the
+    plain ``>= index`` arithmetic below -- once it has landed on ``index - 1``
+    there is no number left that distinguishes it from a default that already
+    lived at ``index - 1`` before this ever ran, so shifting back up cannot
+    tell which of the two to move. A once-believed fix was that the
+    properties panel's Remove re-points that object's default in the very
+    next call as an ``ObjectPropsEdit``, so the undo would restore it exactly
+    "from the step that owns it" -- but that step's own "before" is captured
+    from *after* the removal's shift already ran, so it carries the same
+    already-lossy value forward instead of correcting it, and a bystander
+    object with no such step never had anything undo it at all. The uids in
+    ``restore`` are how the *removal's own* edit remembers, from before it
+    ran, which objects that was true for, so this call -- always the one
+    reinserting the slot -- can put them back on ``index`` by name instead of
+    by arithmetic.
     """
     from dataclasses import replace as _replace
 
@@ -399,17 +436,17 @@ def _shift_materials(doc: Any, index: int, delta: int) -> None:
 
     for obj in _material_holders(doc):
         obj.mesh = shift(obj.mesh)
-        if int(obj.material) >= index:
+        if obj.uid in restore:
+            # This object's default named *index* itself before the removal
+            # this reinsertion is undoing -- the one case the arithmetic below
+            # cannot recover on its own. Put back by name, not by number.
+            obj.material = index
+        elif int(obj.material) >= index:
             # The same threshold the face arrays use, and exactly reversible
-            # for every default *above* the slot. A default that names the
-            # removed slot itself is the one lossy case, and it is lossy
-            # because the position it named stopped existing -- no arithmetic
-            # can put that back. It is reachable from one place, the properties
-            # panel's own Remove, which re-points that object's default in the
-            # very next call and records it as an ``ObjectPropsEdit``; so the
-            # undo restores it exactly, from the step that owns it rather than
-            # from here. The clamp is the floor under the arithmetic for a slot
-            # 0 removal, not a choice about which material to substitute.
+            # for every default *above* the slot (the ``restore`` uids are
+            # the only ones for which that is not true). The clamp is the
+            # floor under the arithmetic for a slot 0 removal, not a choice
+            # about which material to substitute.
             obj.material = max(0, int(obj.material) + delta)
 
 
@@ -435,3 +472,17 @@ def _material_holders(doc: Any) -> Any:
         if obj is not None and hasattr(obj, "mesh") and id(obj) not in seen:
             seen.add(id(obj))
             yield obj
+
+
+def _boundary_uids(doc: Any, index: int) -> tuple[int, ...]:
+    """The uids ``_shift_materials`` will lose track of if *index* is removed.
+
+    Every object, over the same state space ``_material_holders`` walks, whose
+    *default* ``material`` field names ``index`` exactly, right now -- read
+    before ``ClayDoc.remove_material`` deletes the slot and shifts everything
+    down. The 2026-09-08 audit's clay-06: past this point that fact is gone
+    from the numbers themselves, so a caller that wants it back on undo has to
+    have taken it here, before the shift, and hand it to
+    :class:`MaterialListEdit` as ``boundary`` for its own undo to spend.
+    """
+    return tuple(obj.uid for obj in _material_holders(doc) if int(obj.material) == index)

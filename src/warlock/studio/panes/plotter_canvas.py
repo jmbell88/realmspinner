@@ -514,6 +514,7 @@ def _create(ctx: Any, form: dict) -> None:
         plotter_setup.size_of(form),
         projection=form["projection"],
         infinite=bool(form.get("infinite")),
+        hex_side=int(form.get("hex_side", 0) or 0),
     )
     # A library asset armed before the dialog opened wins over the form's
     # "Then" choice: it is the thing the user asked for, and the picker would

@@ -613,6 +613,19 @@ class _Reader:
                 self.accessor(prim["indices"]).reshape(-1),
                 "u4",
             )
+            # The 2026-09-08 audit, finding create-01: a TRIANGLES primitive
+            # (the only mode this loader accepts) whose index count is not a
+            # multiple of 3 used to load clean and only blow up later, out of
+            # ``scene._face_normals``'s ``indices.reshape(-1, 3)`` -- after
+            # GpuModel.__init__ had already allocated real ctx.buffer objects
+            # for any earlier primitives in the model, which then leak (this
+            # app sets no moderngl gc_mode). Refusing here means those buffers
+            # are never allocated for this file at all.
+            if len(indices) % 3 != 0:
+                raise ValueError(
+                    f"a TRIANGLES primitive needs an index count that is a "
+                    f"multiple of 3, got {len(indices)}"
+                )
         else:
             # Synthesised rather than read off the buffer, but no less real an
             # allocation -- and the one H01 names explicitly: a primitive with
@@ -621,6 +634,14 @@ class _Reader:
             # accessor index -- there is no accessor to key on -- which still
             # dedupes the ordinary case of several instances of one unindexed
             # mesh.
+            # Same guard as the indexed branch above, create-01: an unindexed
+            # TRIANGLES primitive's vertex count stands in for the index
+            # count, and must be a multiple of 3 for the same reason.
+            if len(positions) % 3 != 0:
+                raise ValueError(
+                    f"a TRIANGLES primitive needs a vertex count that is a "
+                    f"multiple of 3, got {len(positions)}"
+                )
             key = ("arange", len(positions))
             indices = self._typed_cache.get(key)
             if indices is None:

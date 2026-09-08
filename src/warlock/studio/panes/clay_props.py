@@ -466,12 +466,15 @@ def _palette_row(doc: Any, obj: Any) -> None:
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     users = doc.material_users(index)
     if controls.small_button(f"{icons.PLUS} Add##matadd"):
-        doc.set_props(obj.uid, material=doc.add_material())
+        # One step, not two -- the 2026-09-08 audit's clay-02: pushed as
+        # ``add_material()`` then ``set_props(...)`` separately, one Ctrl+Z
+        # after this click left a stray, unreferenced palette entry behind.
+        doc.add_material_and_assign(obj.uid)
     imgui.same_line()
     removable = users == 0 and len(doc.materials) > 1
     if widgets.disabled_button("Remove##matdel", removable):
-        doc.remove_material(index)
-        doc.set_props(obj.uid, material=min(index, len(doc.materials) - 1))
+        # Same fold as Add, for the same reason.
+        doc.remove_material_and_reassign(obj.uid, index)
     if not removable and len(doc.materials) > 1:
         # The count spans objects the undo stack still holds, not only the ones
         # in the document -- a slot removed while an undone deletion was the

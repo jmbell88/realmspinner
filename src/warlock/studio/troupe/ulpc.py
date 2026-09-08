@@ -1,14 +1,20 @@
 """A reader for Universal-LPC "full" sheets -- validation material, not art.
 
 Troupe is an alternative to ULPC, not a consumer of it. This module exists for
-two narrow reasons:
+one reason: it turns the measurements taken off ``examples/*.png`` into
+regression oracles that cost nothing to keep passing -- the 352-cell frame
+table, the N/W/S/E direction order, the lossless W/E mirror away from the
+face. **No ULPC art ships**; the example sheets are CC-BY-SA/GPL and stay out
+of the package and out of any training set.
 
-1. It turns the measurements taken off ``examples/*.png`` into regression
-   oracles that cost nothing to keep passing -- the 352-cell frame table, the
-   N/W/S/E direction order, the lossless W/E mirror away from the face.
-2. It lets a user bring their own LPC art in as filler while a character is
-   being built. **No ULPC art ships**; the example sheets are CC-BY-SA/GPL and
-   stay out of the package and out of any training set.
+``read`` and ``crop`` decode a full sheet against :data:`LAYOUT` and have no
+caller anywhere outside ``tests/troupe/test_ulpc.py`` and this package's own
+re-export. This docstring used to also claim a second purpose -- a
+user-supplied-art import door, standing in while a character is being built
+-- which the 2026-09-08 audit (finding troupe-03) cut: no pane, service door
+or worker reached for either function, so the claim described a capability as
+built when wiring it was still all-new, unstarted work. Building that door
+would be new feature work in its own right, not a restatement of this one.
 
 Nothing here decodes pixels beyond slicing a regular 64px grid: this is a
 layout table plus ``PIL.Image.crop``. The layout is the published "full" sheet

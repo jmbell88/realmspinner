@@ -649,9 +649,41 @@ def when_ready(
         return ready(state, tab) and predicate(state, tab)
 
     def why(state: Any, tab: Any) -> str:
+        # ``tab is None`` checked ahead of ``ready``, not folded into it: the
+        # 2026-09-08 audit (finding inker-08) found ``test_every_predicate_
+        # answers_with_nothing_open`` confirms ``state.active`` is always
+        # ``None`` with no tab open, and ``ready(state, None)`` is False for
+        # that same reason -- so with nothing open every op gated through
+        # this door said "The document is busy...", naming a save or
+        # playback that could not possibly be running.
+        if tab is None:
+            return NO_DOC
         return reason if ready(state, tab) else BUSY
 
     return enabled, why
+
+
+def _no_doc_first(text: str | Callable[[Any, Any], str]) -> Callable[[Any, Any], str]:
+    """*text*, unless there is no document at all, when it is :data:`NO_DOC`.
+
+    The 2026-09-08 audit, finding inker-13: ``when_ready`` (above) and five
+    hand-rolled equivalents were fixed for this at finding inker-08 an hour
+    earlier, whose own record predicted "the same defect shape recurs across
+    the rest of the file" -- ``enabled`` false because ``tab is None``, but
+    ``reason`` a static ``BUSY`` or a sentence that presupposes a document
+    ("This drawing has no frames yet...", "There is only one layer.") --
+    on roughly sixty further ops. Wrapping the existing sentence rather than
+    rewriting every ``enabled`` to route through ``when_ready`` keeps each
+    op's *busy* and *predicate-failed* wording exactly as it read before --
+    the only case that changes is the new one, no tab at all.
+    """
+
+    def _reason(state: Any, tab: Any) -> str:
+        if tab is None:
+            return NO_DOC
+        return text(state, tab) if callable(text) else text
+
+    return _reason
 
 
 def has_selection(state: Any, tab: Any) -> bool:
@@ -863,7 +895,7 @@ register(
         menu="File",
         key="Ctrl+S",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -875,7 +907,7 @@ register(
         menu="File",
         key="Ctrl+Shift+S",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -886,7 +918,7 @@ register(
         menu="File",
         key="Ctrl+Shift+E",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -897,7 +929,7 @@ register(
         _mode("export_sheet"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and animated(state, tab),
-        reason="This drawing has no frames yet -- Animate it first.",
+        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -907,7 +939,7 @@ register(
         _mode("export_gif"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and animated(state, tab),
-        reason="This drawing has no frames yet -- Animate it first.",
+        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -917,7 +949,7 @@ register(
         _mode("export_slices"),
         menu="File",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -928,7 +960,7 @@ register(
         menu="File",
         key="Ctrl+Shift+X",
         enabled=lambda state, tab: ready(state, tab) and bool(getattr(tab, "export_kind", "")),
-        reason="Nothing to repeat yet -- export once and this runs it again.",
+        reason=_no_doc_first("Nothing to repeat yet -- export once and this runs it again."),
         hint=(
             "The hot-path escape valve: configure the export once, then one "
             "key forever. It writes where it wrote and asks nothing."
@@ -959,7 +991,7 @@ register(
         _mode("import_tileset"),
         menu="File",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -970,7 +1002,7 @@ register(
         menu="File",
         key="Ctrl+E",
         enabled=lambda state, tab: ready(state, tab) and not tab.linked,
-        reason=(
+        reason=_no_doc_first(
             "This document is already in the library -- it is a reference "
             "opened for editing, so Ctrl+S is the write it wants."
         ),
@@ -984,7 +1016,7 @@ register(
         _mode("send_to_3d"),
         menu="File",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -994,7 +1026,7 @@ register(
         lambda ctx, tab, **_: _packwright(ctx, tab),
         menu="File",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1004,7 +1036,7 @@ register(
         _mode("revert"),
         menu="File",
         enabled=lambda state, tab: ready(state, tab) and tab.linked and tab.has_original,
-        reason=(
+        reason=_no_doc_first(
             "There is no original kept for this document: it is not a "
             "reference, or it has never been edited."
         ),
@@ -1089,7 +1121,7 @@ register(
         menu="Edit",
         key="Ctrl+C",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
     )
 )
 register(
@@ -1100,7 +1132,7 @@ register(
         menu="Edit",
         key="Ctrl+V",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1111,7 +1143,7 @@ register(
         menu="Edit",
         key="Ctrl+Shift+V",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1122,7 +1154,7 @@ register(
         menu="Edit",
         key="Ctrl+T",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -1134,7 +1166,7 @@ register(
         menu="Edit",
         key="Ctrl+B",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
     )
 )
 register(
@@ -1155,7 +1187,7 @@ register(
         menu="Edit",
         key="Ctrl+Shift+C",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         hint=(
             "What is visible inside the selection rather than one layer of it: "
             "an ordinary copy moves a drawing between layers, this moves a part "
@@ -1170,7 +1202,7 @@ register(
         _mode("new_from_selection"),
         menu="Edit",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
     )
 )
 register(
@@ -1234,7 +1266,7 @@ register(
         dialog("inker-filter"),
         menu="Edit",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -1305,7 +1337,7 @@ register(
         # could not carry two bindings; two dialogs is what gives it a home.
         key="Ctrl+Alt+I",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1319,7 +1351,7 @@ register(
         # what changed is that this now opens a dialog about the canvas alone.
         key="Ctrl+Alt+C",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1330,7 +1362,7 @@ register(
         menu="Sprite",
         key="Ctrl+U",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1341,7 +1373,7 @@ register(
         menu="Sprite",
         key="Ctrl+I",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1351,7 +1383,7 @@ register(
         _doc("crop_to_selection"),
         menu="Sprite",
         enabled=lambda state, tab: ready(state, tab) and has_selection(state, tab),
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
     )
 )
 register(
@@ -1364,7 +1396,7 @@ register(
         # and H is not one of them.
         key="Shift+H",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -1376,7 +1408,7 @@ register(
         menu="Sprite",
         key="Shift+V",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1386,7 +1418,7 @@ register(
         _doc("rotate90"),
         menu="Sprite",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1396,7 +1428,7 @@ register(
         dialog("inker-to-tilemap"),
         menu="Sprite",
         enabled=lambda state, tab: _tiles().can_convert(state, tab),
-        reason="The active layer is already a tilemap layer.",
+        reason=_no_doc_first("The active layer is already a tilemap layer."),
         separator_before=True,
     )
 )
@@ -1411,7 +1443,9 @@ register(
             and tab.doc.active_tilemap_uid() is not None
             and tab.doc.tile_behavior != "auto"
         ),
-        reason=("This is not a tilemap layer, or it already updates its tileset as you draw."),
+        reason=_no_doc_first(
+            "This is not a tilemap layer, or it already updates its tileset as you draw."
+        ),
         hint=(
             "Auto: painting on a tilemap layer edits the tile under the brush. "
             "Manual leaves the tileset alone and reverts the cell instead."
@@ -1425,10 +1459,24 @@ register(
         dialog("inker-convert"),
         menu="Sprite",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
+def _toggle_matte_reason(state: Any, tab: Any) -> str:
+    """``toggle_matte``'s refusal, in the order its ``enabled`` checks.
+
+    A hand-rolled equivalent of ``when_ready``'s three-way split (finding
+    inker-08): a static string named a document fact ("has no transparency
+    to flatten") even with no document open at all.
+    """
+    if tab is None:
+        return NO_DOC
+    if not ready(state, tab):
+        return BUSY
+    return "A document with a background layer has no transparency to flatten."
+
+
 register(
     Op(
         "toggle_matte",
@@ -1436,7 +1484,7 @@ register(
         _doc("toggle_matte"),
         menu="Sprite",
         enabled=lambda state, tab: ready(state, tab) and not tab.doc.has_background,
-        reason="A document with a background layer has no transparency to flatten.",
+        reason=_toggle_matte_reason,
         checked=lambda state, tab: tab is not None and tab.doc.matte is not None,
         hint=(
             "Puts white behind every erased area when this document is saved "
@@ -1584,7 +1632,7 @@ register(
         menu="Sprite",
         separator_before=True,
         enabled=_can_nineslice_fit,
-        reason=_nineslice_fit_reason,
+        reason=_no_doc_first(_nineslice_fit_reason),
         hint=(
             "Infers the stretchable middle of the selected slice from the art "
             "itself: the widest band of columns, and of rows, that repeat "
@@ -1600,7 +1648,7 @@ register(
         _mode("export_slices"),
         menu="Sprite",
         enabled=lambda state, tab: ready(state, tab) and _has_nineslice(state, tab),
-        reason=_nineslice_export_reason,
+        reason=_no_doc_first(_nineslice_export_reason),
         params=(
             Param("width", "Width", 128, 1, 8192),
             Param("height", "Height", 128, 1, 8192),
@@ -1627,7 +1675,7 @@ register(
         menu="Layer",
         key="Ctrl+Shift+N",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1641,7 +1689,7 @@ register(
         # is the same verb over a selection rather than over the whole layer.
         key="Ctrl+Shift+L",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1651,7 +1699,7 @@ register(
         _doc("remove_layer"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason="A document keeps at least one layer.",
+        reason=_no_doc_first("A document keeps at least one layer."),
     )
 )
 register(
@@ -1671,7 +1719,7 @@ register(
         _doc("group_layers"),
         menu="Layer",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -1689,7 +1737,7 @@ register(
         # would be moving the one its users have learned.
         key="Ctrl+Shift+M",
         enabled=lambda state, tab: ready(state, tab) and can_merge_down(state, tab),
-        reason="There is no layer under this one to merge into.",
+        reason=_no_doc_first("There is no layer under this one to merge into."),
     )
 )
 register(
@@ -1699,7 +1747,7 @@ register(
         _doc("flatten_layers"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason="There is only one layer.",
+        reason=_no_doc_first("There is only one layer."),
     )
 )
 register(
@@ -1710,7 +1758,7 @@ register(
         menu="Layer",
         key="Ctrl+Shift+Up",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason="There is only one layer.",
+        reason=_no_doc_first("There is only one layer."),
         separator_before=True,
     )
 )
@@ -1722,7 +1770,7 @@ register(
         menu="Layer",
         key="Ctrl+Shift+Down",
         enabled=lambda state, tab: ready(state, tab) and many_layers(state, tab),
-        reason="There is only one layer.",
+        reason=_no_doc_first("There is only one layer."),
     )
 )
 register(
@@ -1732,7 +1780,7 @@ register(
         lambda ctx, tab, **_: tab.doc.set_layer_props(tab.doc.stack.active_index, visible=True),
         menu="Layer",
         enabled=lambda state, tab: tab is not None and not tab.doc.stack.active.visible,
-        reason="This layer is already visible.",
+        reason=_no_doc_first("This layer is already visible."),
         separator_before=True,
     )
 )
@@ -1745,7 +1793,7 @@ register(
         enabled=lambda state, tab: (
             ready(state, tab) and len(tab.doc.stack) > 0 and not tab.doc.has_background
         ),
-        reason="The bottom layer is already the background.",
+        reason=_no_doc_first("The bottom layer is already the background."),
         hint=(
             "Makes the bottom layer opaque, and folds the document's matte "
             "colour into its pixels -- so what was a flatten-time overlay "
@@ -1761,7 +1809,7 @@ register(
         _doc("from_background"),
         menu="Layer",
         enabled=lambda state, tab: ready(state, tab) and tab.doc.has_background,
-        reason="There is no background layer.",
+        reason=_no_doc_first("There is no background layer."),
     )
 )
 register(
@@ -1773,7 +1821,7 @@ register(
         ),
         menu="Layer",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         hint="Drawn, never edited: an underlay to trace over.",
     )
 )
@@ -1785,7 +1833,7 @@ register(
         menu="Layer",
         key="Alt+S",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         hint=(
             "Hides everything else -- and pressing it again on the layer that "
             "is already alone brings the rest back."
@@ -1819,7 +1867,7 @@ register(
         _mode("animate"),
         menu="Frame",
         enabled=lambda state, tab: ready(state, tab) and not_animated(state, tab),
-        reason="This document is already animated.",
+        reason=_no_doc_first("This document is already animated."),
     )
 )
 register(
@@ -1844,7 +1892,7 @@ register(
         # contexts that must not see Enter -- ``Transformation`` and
         # ``Gesture`` -- are consumed by ``_modal`` before ``by_key`` is asked.
         enabled=animated,
-        reason="This drawing has no frames yet -- Animate it first.",
+        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -1854,7 +1902,7 @@ register(
         lambda ctx, tab, **_: tab.doc.set_frame_palette(list(tab.doc.palette or ())),
         menu="Frame",
         enabled=_can_own_palette,
-        reason=(
+        reason=_no_doc_first(
             "Only an indexed drawing can have a palette per frame -- its pixels"
             " are slot numbers, so a different table repaints them. Convert it"
             " to Indexed first."
@@ -1869,7 +1917,7 @@ register(
         lambda ctx, tab, **_: tab.doc.clear_frame_palette(),
         menu="Frame",
         enabled=_has_own_palette,
-        reason="This frame is already using the drawing's own palette.",
+        reason=_no_doc_first("This frame is already using the drawing's own palette."),
     )
 )
 register(
@@ -1880,7 +1928,7 @@ register(
         menu="Frame",
         key=".",
         enabled=animated,
-        reason="This drawing has no frames yet -- Animate it first.",
+        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
         separator_before=True,
     )
 )
@@ -1892,7 +1940,7 @@ register(
         menu="Frame",
         key=",",
         enabled=animated,
-        reason="This drawing has no frames yet -- Animate it first.",
+        reason=_no_doc_first("This drawing has no frames yet -- Animate it first."),
     )
 )
 register(
@@ -1903,7 +1951,7 @@ register(
         menu="Frame",
         key="Home",
         enabled=animated,
-        reason=NOT_ANIMATED,
+        reason=_no_doc_first(NOT_ANIMATED),
     )
 )
 register(
@@ -1914,7 +1962,7 @@ register(
         menu="Frame",
         key="End",
         enabled=animated,
-        reason=NOT_ANIMATED,
+        reason=_no_doc_first(NOT_ANIMATED),
     )
 )
 register(
@@ -1930,7 +1978,7 @@ register(
         # clip. Requiring "Animate this drawing" first would be a second name
         # for one operation.
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         separator_before=True,
     )
 )
@@ -1942,7 +1990,7 @@ register(
         menu="Frame",
         key="Alt+D",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -1957,7 +2005,7 @@ register(
         enabled=lambda state, tab: (
             ready(state, tab) and animated(state, tab) and len(tab.doc.anim.frames) > 1
         ),
-        reason="A clip keeps at least one frame.",
+        reason=_no_doc_first("A clip keeps at least one frame."),
     )
 )
 register(
@@ -2007,7 +2055,7 @@ register(
         menu="Select",
         key="Ctrl+Shift+D",
         enabled=can_reselect,
-        reason="Nothing has been deselected yet.",
+        reason=_no_doc_first("Nothing has been deselected yet."),
     )
 )
 register(
@@ -2094,6 +2142,16 @@ def _select_slots(ctx: Any, tab: Any, *, used: bool) -> bool:
     return doc.select_slots(slots)
 
 
+def _has_palette_reason(state: Any, tab: Any) -> str:
+    """``select_used_colours``/``select_unused_colours``'s refusal.
+
+    A static "This document has no palette." was shown with no document open
+    at all too (finding inker-08, the 2026-09-08 audit) -- true of no
+    document, but not what a user with nothing open needs to hear.
+    """
+    return NO_DOC if tab is None else "This document has no palette."
+
+
 register(
     Op(
         "select_used_colours",
@@ -2101,7 +2159,7 @@ register(
         lambda ctx, tab, **_: _select_slots(ctx, tab, used=True),
         menu="Select",
         enabled=lambda state, tab: tab is not None and bool(tab.doc.palette),
-        reason="This document has no palette.",
+        reason=_has_palette_reason,
         hint=(
             "Selects every pixel drawn in a palette slot that is in use. Its "
             "sibling below selects what the unused slots hold, which on a tidy "
@@ -2117,7 +2175,7 @@ register(
         lambda ctx, tab, **_: _select_slots(ctx, tab, used=False),
         menu="Select",
         enabled=lambda state, tab: tab is not None and bool(tab.doc.palette),
-        reason="This document has no palette.",
+        reason=_has_palette_reason,
     )
 )
 register(
@@ -2127,7 +2185,7 @@ register(
         lambda ctx, tab, **params: tab.doc.feather_selection(params["radius"]),
         menu="Select",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         params=(Param("radius", "Radius", 2.0, 0.0, 32.0, 0.5, integer=False),),
         separator_before=True,
     )
@@ -2139,7 +2197,7 @@ register(
         lambda ctx, tab, **params: tab.doc.grow_selection(params["steps"]),
         menu="Select",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         params=(Param("steps", "Pixels", 2, 1, 32),),
     )
 )
@@ -2150,7 +2208,7 @@ register(
         lambda ctx, tab, **params: tab.doc.shrink_selection(params["steps"]),
         menu="Select",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         params=(Param("steps", "Pixels", 2, 1, 32),),
     )
 )
@@ -2161,7 +2219,7 @@ register(
         lambda ctx, tab, **params: tab.doc.border_selection(params["steps"]),
         menu="Select",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         params=(Param("steps", "Pixels", 2, 1, 32),),
         hint=(
             "Replaces the selection with the band that many pixels either "
@@ -2212,7 +2270,7 @@ register(
         lambda ctx, tab, **_: _dup_view(tab),
         menu="View",
         enabled=_can_split,
-        reason="This tab is already showing two views.",
+        reason=_no_doc_first("This tab is already showing two views."),
         separator_before=True,
     )
 )
@@ -2223,7 +2281,7 @@ register(
         lambda ctx, tab, **_: _close_dup_view(tab),
         menu="View",
         enabled=_has_split,
-        reason="This tab is showing one view.",
+        reason=_no_doc_first("This tab is showing one view."),
     )
 )
 register(
@@ -2360,9 +2418,15 @@ register(
         _wrap_half,
         menu="View",
         enabled=lambda state, tab: ready(state, tab) and tab.tiled != "off",
+        # ``tab is None`` checked first, not folded into "not busy" (finding
+        # inker-08, the 2026-09-08 audit): with nothing open this used to
+        # fall straight to "This document is not tiled...", naming a
+        # document that does not exist.
         reason=lambda state, tab: (
-            BUSY
-            if tab is not None and tab.busy
+            NO_DOC
+            if tab is None
+            else BUSY
+            if tab.busy
             else "This document is not tiled -- there is no wrap seam to move."
         ),
     )
@@ -2374,7 +2438,7 @@ register(
         _doc("trim"),
         menu="Sprite",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
         hint=(
             "Crops away the fully transparent border. A document with nothing "
             "in it is left alone -- an empty canvas is a size you chose."
@@ -2388,7 +2452,7 @@ register(
         _mode("duplicate_document"),
         menu="Sprite",
         enabled=ready,
-        reason=BUSY,
+        reason=_no_doc_first(BUSY),
     )
 )
 register(
@@ -2432,7 +2496,7 @@ register(
         lambda ctx, tab, **_: _grid_from_selection(ctx, tab),
         menu="View",
         enabled=has_selection,
-        reason=NO_SELECTION,
+        reason=_no_doc_first(NO_SELECTION),
         hint=(
             "Sets the grid to the selection's own size, which is how a tile "
             "size gets from a drawing into the grid without being measured."
@@ -3232,7 +3296,7 @@ register(
         _wk_run("bake"),
         menu="Sprite",
         enabled=_wk_pred("can_bake"),
-        reason=_wk_reason("bake_reason"),
+        reason=_no_doc_first(_wk_reason("bake_reason")),
         hint=(
             "Writes the cycle into a new document -- one layer per body part, "
             "eight independently editable frames, and a looping walk tag. The "
@@ -3247,7 +3311,7 @@ register(
         _wk_run("cancel"),
         menu="Sprite",
         enabled=_wk_pred("is_open"),
-        reason=_wk_reason("cancel_reason"),
+        reason=_no_doc_first(_wk_reason("cancel_reason")),
         hint="Closes the setup and throws the rig away. Nothing to undo -- nothing was written.",
     )
 )

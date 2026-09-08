@@ -169,12 +169,21 @@ def new_document(
     *,
     projection: str | None = None,
     infinite: bool = False,
+    hex_side: int = 0,
 ) -> PlotterDoc:
     """A blank map. ``projection`` defaults to whatever ``MapDoc`` defaults to.
 
     Keyword-only and defaulted rather than members of ``size``, because ``size``
     is four numbers in two units and neither a string nor a flag is one -- and
     because every existing caller passes the tuple positionally.
+
+    ``hex_side`` is set directly on the fresh document rather than threaded
+    into ``MapDoc``'s constructor, which has no parameter for it: ``MapDoc``
+    always starts at ``hex_side = 0`` (the 2026-09-08 audit, plotter-02, found
+    that this is what a Hexagonal-projection map drew as too, since nothing
+    upstream of here ever set it to anything else). Set before
+    ``history.clear()`` so it is part of the document's opening state rather
+    than an edit on its history.
     """
     from .plotter.tilemap import MapDoc
 
@@ -184,6 +193,8 @@ def new_document(
         if projection is None
         else MapDoc(*size, projection=projection, **extra)
     )
+    if hex_side:
+        doc.hex_side = max(0, int(hex_side))
     doc.add_tile_layer("Ground")
     # A blank document with no layer has nothing to paint into and no row in the
     # layers panel, which reads as broken rather than as empty. The layer is

@@ -7,8 +7,19 @@ import inspect
 from pathlib import Path
 
 import pytest
+from _ui_context import imgui_context
 
-from warlock.studio import component_gallery, controls, forms, layout, theme, tokens, toolbar
+from warlock.studio import (
+    component_gallery,
+    controls,
+    forms,
+    layout,
+    probe,
+    theme,
+    tokens,
+    toolbar,
+    widgets,
+)
 from warlock.studio.panes import landing, overlay
 
 
@@ -98,6 +109,37 @@ def test_buttons_expose_the_shared_disabled_reason_contract():
     assert {"role", "control_size", "selected", "enabled", "reason", "tooltip"} <= set(
         parameters
     )
+
+
+def test_widgets_combo_supports_a_disabled_reason_like_every_other_field(monkeypatch):
+    """The 2026-09-08 audit's shell-09: ``widgets.combo`` drew through a raw
+    ``imgui.combo()`` call with no ``enabled``/``reason`` parameters, unlike
+    every sibling in ``controls.py`` and unlike ``labeled_slider_int`` and
+    ``labeled_drag_int`` beside it -- both migrated to ``controls.py`` "for
+    the disabled treatment, error ring, probe census entry". A pane that
+    needed to grey a combo had to hand-roll ``imgui.begin_disabled()`` around
+    it, invisible to ``tests/test_probe.py``'s raw-widget inventory. Real
+    imgui, no GL (see ``_ui_context``)."""
+    with imgui_context(monkeypatch) as imgui:
+        probe.begin_frame()
+        imgui.new_frame()
+        imgui.set_next_window_size((400.0, 200.0))
+        imgui.set_next_window_pos((0.0, 0.0))
+        imgui.begin("##host")
+        widgets.combo(
+            "##pick",
+            "a",
+            [("a", "Alpha"), ("b", "Beta")],
+            enabled=False,
+            reason="Nothing to pick from yet.",
+        )
+        imgui.end()
+        imgui.end_frame()
+        census = list(probe.FRAME_CONTROLS)
+
+    (row,) = [c for c in census if c.kind == "combo"]
+    assert row.enabled is False
+    assert row.reason == "Nothing to pick from yet."
 
 
 def test_shell_issue_summary_is_compact_and_singular_or_plural():

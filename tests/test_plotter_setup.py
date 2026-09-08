@@ -21,16 +21,40 @@ def test_a_blank_form_is_a_preset_rather_than_an_invention():
     """Every number the dialog opens on has to come from a row a reader can
     find, or the defaults drift away from the presets that claim to be them."""
     form = plotter_setup.blank_form()
-    label, width, height, tile_w, tile_h, projection = plotter_setup.DEFAULT
+    label, width, height, tile_w, tile_h, projection, hex_side = plotter_setup.DEFAULT
     assert plotter_setup.DEFAULT in plotter_setup.PRESETS
     assert plotter_setup.size_of(form) == (width, height, tile_w, tile_h)
     assert form["projection"] == projection
+    assert form["hex_side"] == hex_side
     assert form["preset"] == label
 
 
 def test_every_preset_is_a_projection_this_app_draws():
-    for label, _w, _h, _tw, _th, projection in plotter_setup.PRESETS:
+    for label, _w, _h, _tw, _th, projection, _hex_side in plotter_setup.PRESETS:
         assert projection in project.PROJECTIONS, label
+
+
+def test_the_hexagonal_preset_has_a_nonzero_flat_run():
+    """The 2026-09-08 audit, plotter-02: ``MapDoc`` starts every map at
+    ``hex_side = 0``, which ``project.py``'s own ``Lattice`` docstring says is
+    the *staggered* lattice, not the hexagonal one -- so a preset that left
+    ``hex_side`` at that default would draw identically to ``"Staggered, 32
+    px"`` despite the module's own comment that the two "differ by exactly the
+    hex side"."""
+    hexagonal = [p for p in plotter_setup.PRESETS if p[5] == project.HEXAGONAL]
+    assert hexagonal, "no hexagonal preset"
+    for preset in hexagonal:
+        label, _w, _h, _tw, _th, _proj, hex_side = preset
+        assert hex_side > 0, label
+
+    staggered = [p for p in plotter_setup.PRESETS if p[5] == project.STAGGERED]
+    assert staggered, "no staggered preset"
+    for preset in staggered:
+        label, _w, _h, _tw, _th, _proj, hex_side = preset
+        assert hex_side == 0, f"{label} is staggered and must keep hex_side at 0"
+
+    form = plotter_setup.apply_preset(plotter_setup.blank_form(), "Hexagonal, 32 px")
+    assert form["hex_side"] > 0
 
 
 def test_the_isometric_preset_is_two_to_one():
@@ -40,19 +64,20 @@ def test_the_isometric_preset_is_two_to_one():
     iso = [p for p in plotter_setup.PRESETS if p[5] == project.ISOMETRIC]
     assert iso, "no isometric preset"
     for preset in iso:
-        _label, _w, _h, tile_w, tile_h, _proj = preset
+        _label, _w, _h, tile_w, tile_h, _proj, _hex_side = preset
         assert tile_w == tile_h * 2
         assert plotter_setup.isometric_warning(_form_of(preset)) == ""
 
 
 def _form_of(preset) -> dict:
-    _label, width, height, tile_w, tile_h, projection = preset
+    _label, width, height, tile_w, tile_h, projection, hex_side = preset
     return {
         "width": width,
         "height": height,
         "tile_w": tile_w,
         "tile_h": tile_h,
         "projection": projection,
+        "hex_side": hex_side,
         "next": plotter_setup.NEXT_EMPTY,
         "preset": _label,
     }
@@ -60,10 +85,11 @@ def _form_of(preset) -> dict:
 
 def test_a_preset_moves_every_number_it_names():
     form = plotter_setup.blank_form()
-    label, width, height, tile_w, tile_h, projection = plotter_setup.PRESETS[-1]
+    label, width, height, tile_w, tile_h, projection, hex_side = plotter_setup.PRESETS[-1]
     plotter_setup.apply_preset(form, label)
     assert plotter_setup.size_of(form) == (width, height, tile_w, tile_h)
     assert form["projection"] == projection
+    assert form["hex_side"] == hex_side
 
 
 def test_an_unknown_preset_leaves_the_numbers_alone():

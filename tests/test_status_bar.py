@@ -1,0 +1,56 @@
+"""``status_bar.items``' document-mode branch, and the registry it must agree with.
+
+shell-08 (the 2026-09-08 audit): ``items()`` hand-wrote its own tuple of
+document modes (``"inker", "clay", "plotter", "packwright", "sirens"``) as a
+second, unguarded copy of ``palette._DOC_MODES``'s key set (``poser`` handled
+separately in both). A document mode added to ``_DOC_MODES`` in future had no
+test tying it to this tuple, so the status bar would silently stop showing
+that mode's document name, tool and zoom.
+"""
+
+from __future__ import annotations
+
+import importlib
+from types import SimpleNamespace
+
+from warlock.studio import palette, status_bar
+
+
+def test_status_bar_document_modes_match_the_doc_mode_registry(monkeypatch):
+    """A mode registered in ``palette._DOC_MODES`` (other than "poser", which
+    is its own special case in both places) must be one ``status_bar.items``
+    draws a document row for -- proven by adding a mode neither module has
+    ever heard of and checking the row appears, rather than by comparing the
+    two sets structurally, which a hand-written tuple that happened to be
+    copied correctly would also pass.
+    """
+    fake_tab = SimpleNamespace(label="Widget##pd9", dirty=False, view=None)
+    fake_module = SimpleNamespace(active=lambda ctx: fake_tab)
+
+    monkeypatch.setitem(palette._DOC_MODES, "gizmo", ("gizmo_mode", "Export Gizmo"))
+
+    real_import_module = importlib.import_module
+
+    def fake_import_module(name, package=None):
+        if name == ".gizmo_mode":
+            return fake_module
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    ctx = SimpleNamespace(state=SimpleNamespace(mode="gizmo"), cache=SimpleNamespace(jobs=[]))
+    items = {item.key: item.text for item in status_bar.items(ctx)}
+    assert items.get("document") == "Widget"
+
+
+def test_poser_is_excluded_from_the_derived_set_and_kept_as_its_own_branch():
+    """``poser`` is a real key of ``_DOC_MODES`` (with an empty export label,
+    since a pose is saved rather than exported) but has no tab and no
+    ``dirty`` -- it is handled by ``poser_mode.document_label`` instead, so it
+    must never join the derived document-mode set."""
+    assert "poser" in palette._DOC_MODES
+    assert "poser" not in status_bar._document_modes()
+
+
+def test_the_derived_set_matches_the_registry_minus_poser():
+    assert status_bar._document_modes() == frozenset(palette._DOC_MODES) - {"poser"}

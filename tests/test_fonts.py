@@ -89,3 +89,20 @@ def test_no_inter_face_carries_a_private_use_codepoint_at_all(face: str):
 def test_every_vendored_face_is_present():
     for name in (*FACES, "lucide.ttf"):
         assert (Path(fonts.FONT_DIR) / name).is_file()
+
+
+def test_no_icon_constant_is_an_empty_placeholder():
+    """The 2026-09-08 audit's shell-06: ``_icon_codepoints`` above filters on
+    ``len(value) == 1``, which silently drops an empty-string constant from
+    both codepoint checks rather than flagging it -- a transcription gap left
+    as `` "" `` renders no glyph at all (not even the wrong one) and nothing
+    here would catch it. Checked directly rather than through
+    ``_icon_codepoints``, since that helper is exactly what excludes it."""
+    empty = [
+        attr
+        for attr in dir(icons)
+        if attr.isupper()
+        and isinstance(getattr(icons, attr), str)
+        and getattr(icons, attr) == ""
+    ]
+    assert not empty, f"empty icon codepoint constant(s): {empty}"

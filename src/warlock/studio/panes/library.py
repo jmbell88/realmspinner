@@ -112,8 +112,13 @@ def draw(ctx: Any) -> None:
     #
     # Widen first (W2.1, A3): a search reaches past the loaded window by
     # merging in matching ids the store has that the window does not, before
-    # the predicate below decides which of them actually match.
-    ctx.cache.widen_for_filters(ctx.state.filters)
+    # the predicate below decides which of them actually match. Submitted
+    # through ``ctx.tasks`` rather than run inline -- ``search_ids`` is a real
+    # sqlite query behind a shared lock, and calling it here on the frame
+    # thread stalled the UI on essentially every keystroke in the filter box
+    # (the 2026-09-08 audit, finding shell-01); the result lands later and is
+    # merged in ``main._on_task_done``.
+    ctx.cache.request_widen(ctx.state.filters, ctx.tasks)
     jobs = ctx.cache.visible(ctx.state.filters)
     # Draws the (?) too, on the sort row that reserves the width for it --
     # ``render.help_button`` right-aligns with an unconditional ``same_line``,
@@ -324,10 +329,10 @@ def _clipper(ctx: Any, count: int):
 
 
 def _narrows_the_window(filters: Any) -> bool:
-    """Whether a control active right now is one ``JobsCache.widen_for_filters``
+    """Whether a control active right now is one ``JobsCache.request_widen``
     cannot reach past the loaded window (J88, revised for A3).
 
-    ``widen_for_filters`` now turns free text, the ``tag:``/``name:`` field
+    ``request_widen`` now turns free text, the ``tag:``/``name:`` field
     terms, the status/favourites combos and the trash toggle into real
     store-side predicates, so all of those already search the whole history
     rather than only the page. What is still stuck at the window's edge:
@@ -352,7 +357,7 @@ def _narrows_the_window(filters: Any) -> bool:
 def _load_more(ctx: Any) -> None:
     """The window is the newest N of M. A search or a status/favourites/trash
     filter reaches past it -- see
-    :meth:`~warlock.studio.jobs_cache.JobsCache.widen_for_filters` -- but
+    :meth:`~warlock.studio.jobs_cache.JobsCache.request_widen` -- but
     every control that does not is still only ever answered from the loaded
     page, so a history longer than it needs to say so rather than let one of
     those quietly miss what it never loaded."""
@@ -912,8 +917,15 @@ def _card_context(ctx: Any, job: Any) -> None:
         # with selected" read ``state.selected`` when the item was clicked, by
         # which time this line had already made it the target -- so it compared
         # a mesh with itself (UX-04).
-        ctx.state.compare_baseline = ctx.state.selected
+        #
+        # Captured *before* ``select`` runs and assigned *after* it, not the
+        # other way round: ``AppState.select`` now clears ``compare_baseline``
+        # itself as part of an ordinary selection change (shell-02, the
+        # 2026-09-08 audit), so setting it ahead of the call would have this
+        # line undo its own assignment.
+        previous = ctx.state.selected
         select(ctx, job["id"])
+        ctx.state.compare_baseline = previous
         imgui.open_popup("more")
     _overflow(ctx, job)
 

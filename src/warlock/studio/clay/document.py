@@ -88,6 +88,7 @@ from .edits import (  # noqa: F401
     ObjectPropsEdit,
     ObjectRemoveEdit,
     TransformEdit,
+    _boundary_uids,
     _material_holders,
     _shift_materials,
 )
@@ -673,11 +674,65 @@ class ClayDoc:
         if self.material_users(index):
             return False
         entry = self.materials[index]
+        # Taken before the shift below runs -- the 2026-09-08 audit's
+        # clay-06: once it has run, an object that named this slot exactly is
+        # indistinguishable by number from one that already named the slot
+        # below it, so the uids that named it have to be read now or the
+        # information is gone. Spent by MaterialListEdit's own undo.
+        boundary = _boundary_uids(self, index)
         del self.materials[index]
         _shift_materials(self, index, -1)
-        self.history.push(MaterialListEdit(index, entry, added=False))
+        self.history.push(MaterialListEdit(index, entry, added=False, boundary=boundary))
         self.touch()
         return True
+
+    def add_material_and_assign(self, uid: int, material: gltf.Material | None = None) -> int:
+        """Append a palette entry and point an object's default slot at it, as
+        **one** step. -> the new entry's index.
+
+        The 2026-09-08 audit's clay-02: the properties panel's Add button used
+        to call :meth:`add_material` and then :meth:`set_props` as two
+        separate pushes, so a single Ctrl+Z after the click left a stray,
+        unreferenced palette entry behind instead of restoring the object's
+        original slot -- "one press, one Ctrl+Z" applies here exactly as it
+        does to :meth:`join_objects`' merge-and-removals.
+        """
+        mark = self.history.mark()
+        index = self.add_material(material)
+        self.set_props(uid, material=index)
+        self.history.collapse_since(mark)
+        return index
+
+    def remove_material_and_reassign(self, uid: int, index: int) -> bool:
+        """Drop a palette entry and repoint an object at what's left, as
+        **one** step. -> whether it went.
+
+        The counterpart of :meth:`add_material_and_assign` for the Remove
+        button, same clay-02 finding: :meth:`remove_material` refuses rather
+        than reassigning a used slot, so a refusal here folds to nothing
+        rather than leaving a stray step -- :meth:`~.undo.UndoStack.
+        collapse_since` is a no-op on an empty run.
+
+        The two calls are exactly :meth:`remove_material` and :meth:`set_props`
+        in the order the properties panel already made them, unfolded; this
+        only wraps the pair. ``:func:`~.edits._shift_materials``'s own
+        renumbering of ``obj.material`` runs first exactly as it did before,
+        so this fold changes how many presses undo the pair, not what either
+        call does -- that renumbering's own undo is what makes the pair whole
+        again on the way back (the 2026-09-08 audit's clay-06: it used to be
+        documented here as fixed by the very next ``set_props`` call, which
+        was wrong -- that call's own "before" is read from *after* this
+        renumbering already ran, so it could not recover the value the
+        renumbering had lost; :meth:`remove_material` now hands the
+        renumbering the uids it is about to make irreversible, so its own
+        undo can put them back by name instead).
+        """
+        mark = self.history.mark()
+        removed = self.remove_material(index)
+        if removed:
+            self.set_props(uid, material=min(index, len(self.materials) - 1))
+        self.history.collapse_since(mark)
+        return removed
 
     def set_shading(self, uid: int, faces: Any, smooth: bool) -> bool:
         """Set the per-face shading flag on some of one object's faces.

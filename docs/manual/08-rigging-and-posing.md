@@ -144,7 +144,9 @@ step is one or two. If you tweak easing and see no change, the control is fine a
 ## Try it
 
 1. Rig a mesh, then read the `weighting:` line and look at the deformation sheet.
-2. If the arms look welded to the chest, re-rig with measured joints and compare.
+2. If the arms look welded to the chest, that is the A-pose trap, and there is no **Measured joints**
+   button here to press: Troupe's Character route measures joints for you, before the rig is built.
+   Compare one built that way, or open the asset's Pose panel and use **Adjust joints** by hand.
 3. In the asset's Pose panel, rotate an arm, mirror it, and save the pose.
 4. Open Poser on the same skeleton. Notice the bare armature. Author a wave and **Save as**.
 5. Back on the asset, apply that pose from **Library poses**, then delete the library original and

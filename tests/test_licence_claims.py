@@ -32,6 +32,7 @@ from warlock import models as models_mod
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTICES = ROOT / "THIRD-PARTY-NOTICES.md"
+MODELS_DOC = ROOT / "docs" / "MODELS.md"
 
 
 def _registry_dataclasses() -> dict[str, type]:
@@ -188,3 +189,96 @@ def test_notices_no_longer_claims_license_on_every_entry():
     """
     text = _normalize_ws(NOTICES.read_text(encoding="utf-8"))
     assert "license` field on every entry" not in text
+
+
+# --- the 2026-09-08 audit, finding docs-03 -----------------------------------
+#
+# The 2026-09-06 fix above stopped the notices paragraph from over-claiming
+# that every fieldless class shows an in-app licence line. It replaced that
+# with a different over-claim, one level down: "[docs/MODELS.md] lists the
+# licence for every model by hand, independent of which dataclass carries the
+# field." docs/MODELS.md's own "Licences, and what you may do with the
+# output" section does not do this for five of the seven fieldless classes --
+# its own words are "Style LoRAs, ControlNet, IP-Adapter, DINOv2 and ViTPose
+# carry their own terms on their own repository pages ... this project has
+# not audited each one" -- so only two of the seven (TRELLIS.2-4B/EngineModel,
+# BiRefNet/MattingModel) actually get a hand-written row in that document.
+#
+# These tests check the notices paragraph against docs/MODELS.md's *actual*
+# content rather than hard-coding the two/five split, so a future edit to
+# either file that reopens the gap is caught here rather than only by a human
+# rereading both documents side by side.
+
+#: Friendly name (as docs/MODELS.md spells it) -> registry class, for the
+#: seven fieldless classes only. Domain knowledge, the same mapping the
+#: finding itself uses -- not derived, because docs/MODELS.md's prose names
+#: models by their public name, not by the dataclass that models them.
+_FIELDLESS_FRIENDLY_NAMES = {
+    "EngineModel": "TRELLIS.2-4B",
+    "MattingModel": "BiRefNet",
+    "StyleLora": "Style LoRAs",
+    "ControlNet": "ControlNet",
+    "IPAdapter": "IP-Adapter",
+    "MetricModel": "DINOv2",
+    "PoseModel": "ViTPose",
+}
+
+
+def _models_doc_licence_section() -> str:
+    text = MODELS_DOC.read_text(encoding="utf-8")
+    start = text.index("## Licences, and what you may do with the output")
+    end = text.index("## Image models and style LoRAs", start)
+    return text[start:end]
+
+
+def _hand_rowed_friendly_names() -> set[str]:
+    """Every model name docs/MODELS.md gives its own ``| **Name** ...`` row
+    in the licence table, restricted to the fieldless-class names."""
+    section = _models_doc_licence_section()
+    return {
+        friendly
+        for friendly in _FIELDLESS_FRIENDLY_NAMES.values()
+        if f"**{friendly}**" in section
+    }
+
+
+def test_models_doc_hand_rows_exactly_two_of_the_seven_fieldless_classes():
+    """Guard on the guard: pins what docs-03 found docs/MODELS.md actually
+    does, so the sentence-matching test below fails on the sentence and not
+    on a silent change to docs/MODELS.md's own table."""
+    assert _hand_rowed_friendly_names() == {"TRELLIS.2-4B", "BiRefNet"}
+
+
+def test_notices_docs_models_claim_matches_what_docs_models_actually_lists():
+    """The notices paragraph's docs/MODELS.md claim, checked against the
+    document it is describing rather than trusted at its word.
+
+    Before the fix this sentence said docs/MODELS.md "lists the licence for
+    every model by hand, independent of which dataclass carries the field" --
+    an unqualified "every" that is false for five of the seven fieldless
+    classes. The fixed sentence must instead name exactly the classes
+    docs/MODELS.md hand-rows (derived above, not hard-coded here either) and
+    must not claim full coverage any more.
+    """
+    paragraph = _normalize_ws(_paragraph())
+    hand_rowed_classes = {
+        cls for cls, friendly in _FIELDLESS_FRIENDLY_NAMES.items()
+        if friendly in _hand_rowed_friendly_names()
+    }
+    not_rowed_classes = set(_FIELDLESS_FRIENDLY_NAMES) - hand_rowed_classes
+
+    # Every class docs/MODELS.md actually hand-rows must be named in the
+    # notices paragraph as one that gets a row.
+    for cls in hand_rowed_classes:
+        assert f"`{cls}`" in paragraph, (
+            f"{cls} gets a hand-written row in docs/MODELS.md but the "
+            "notices paragraph does not name it as one of the classes that does"
+        )
+
+    # And the paragraph must no longer claim blanket "every model" coverage --
+    # the specific over-claim docs-03 quoted.
+    assert "lists the licence for every model by hand" not in paragraph, (
+        "the notices paragraph still claims docs/MODELS.md rows every "
+        "model's licence by hand, which is false for "
+        f"{sorted(not_rowed_classes)}"
+    )
