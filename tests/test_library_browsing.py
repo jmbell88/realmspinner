@@ -494,6 +494,41 @@ def test_convert_formats_pulls_only_the_reencodings_out_of_the_export_grid():
     assert "icon.png" not in ref_names
 
 
+def test_the_format_buttons_wrap_instead_of_growing_the_dialog():
+    """A music card offers five formats. On one line at ``_CONVERT_BUTTON_W``
+    each that made the picker roughly 2.5x the width floor it asks
+    ``modal_bounds`` for -- a floor, not a cap, so nothing clipped it, and at UI
+    scale 2 the row ran into the viewport clamp with its last buttons cut off.
+    """
+    formats = library._CONVERT_FORMATS["music"]
+    assert len(formats) > library._CONVERT_COLUMNS, "the row that grew the dialog"
+    rows = library._convert_rows(formats)
+    assert all(len(row) <= library._CONVERT_COLUMNS for row in rows)
+    widest = max(len(row) for row in rows) * library._CONVERT_BUTTON_W
+    assert widest <= library._CONVERT_WIDTH
+
+
+def test_wrapping_the_formats_loses_none_of_them_and_reorders_nothing():
+    for kind, formats in library._CONVERT_FORMATS.items():
+        flat = [pair for row in library._convert_rows(formats) for pair in row]
+        assert flat == list(formats), kind
+
+
+def test_one_format_is_still_one_row():
+    """The split is columns, not a grid the shortest list has to fill."""
+    assert library._convert_rows((("a.wav", "WAV"),)) == ((("a.wav", "WAV"),),)
+    assert library._convert_rows(()) == ()
+
+
+def test_the_picker_draws_the_rows_rather_than_one_long_line():
+    """The layout is fixed columns and not ``same_line_or_wrap``: this modal is
+    ``always_auto_resize``, so the width left on the line is decided by the very
+    row that would be asking about it."""
+    source = inspect.getsource(library._convert_popup_body)
+    assert "_convert_rows(popup.formats)" in source
+    assert "same_line_or_wrap" not in source
+
+
 def test_the_overflow_menu_offers_a_convert_entry_when_the_card_can():
     source = inspect.getsource(library._overflow)
     assert "_convert_formats(job)" in source

@@ -734,10 +734,23 @@ _PREVIEW_FACTORS = (1.0, 1.5, 2.0)
 _PREVIEW_MAX_W = 84.0
 
 
-def _nineslice_texture(
-    ctx: Any, tab: Any, entry: Any, index: int, target: tuple[int, int], pixels: Any
-) -> Any:
-    """One preview size, uploaded on first ask and re-uploaded when it moves.
+#: Recorded in the swatch cache instead of a texture. ``_REFUSED`` is a size
+#: :func:`nineslice.stretch` will not draw (a target smaller than the fixed
+#: corners), remembered so the next frame does not run the stretch again to be
+#: told the same thing; ``_OK`` is a swatch that was built but has no texture
+#: because there is no GL context -- the headless smoke suite, which would
+#: otherwise re-stretch every frame for a placeholder.
+_REFUSED = "refused"
+_OK = "ok"
+
+
+def _nineslice_swatch(
+    ctx: Any, tab: Any, entry: Any, index: int, target: tuple[int, int], make: Any
+) -> tuple[bool, Any]:
+    """One preview size, built on first ask and rebuilt when it moves.
+
+    Returns ``(drawable, texture)``: ``drawable`` is false only for a size the
+    stretch refuses, and ``texture`` is ``None`` with no GL context.
 
     ``inker_textures.walk_texture``'s shape, copied rather than imported: that
     function's slot is named ``"walk{index}"``, and a nine-slice preview living
@@ -751,29 +764,46 @@ def _nineslice_texture(
     ``target`` catches a slice resize changing the size without a doc edit in
     between.
 
+    The pixels arrive as ``make``, a callable, rather than as an array: they
+    used to be stretched before this function was called and then dropped on
+    the floor by the stamp that had just matched, so a sidebar with a nine-slice
+    selected ran three whole-slice stretches a frame to rebuild swatches nobody
+    had touched.
+
     Keyed under this tab's ``inker_tex:`` prefix, so ``inker_textures.release_doc``
     frees it with everything else on close -- the same sweep every other Inker
     texture already relies on, unaffected by this file not importing that
-    module's private cache.
+    module's private cache. ``release_prefix`` drops the two markers above with
+    it: it releases what has a ``release`` and pops the rest.
     """
-    if ctx.viewer is None:
-        return None
     key = f"inker_tex:{tab.uid}:nineslice{entry.uid}:{index}"
     stamp_key = f"{key}:stamp"
     stamp = (tab.doc.rev, target)
-    texture = ctx.state.preview.get(key)
-    if texture is not None and ctx.state.preview.get(stamp_key) != stamp:
-        docmodes.forget_texture(texture)
+    cached = ctx.state.preview.get(key)
+    if cached is not None and ctx.state.preview.get(stamp_key) != stamp:
+        if not isinstance(cached, str):
+            docmodes.forget_texture(cached)
         ctx.state.preview.pop(key, None)
         ctx.state.preview.pop(stamp_key, None)
-        texture = None
-    if texture is None:
-        texture = ctx.viewer.ctx.texture(target, 4, pixels.tobytes())
-        nearest = ctx.viewer.ctx.NEAREST
-        texture.filter = (nearest, nearest)
-        ctx.state.preview[key] = texture
+        cached = None
+    if cached is not None:
+        return (cached != _REFUSED, None) if isinstance(cached, str) else (True, cached)
+    try:
+        pixels = make()
+    except ValueError:
+        ctx.state.preview[key] = _REFUSED
         ctx.state.preview[stamp_key] = stamp
-    return texture
+        return False, None
+    if ctx.viewer is None:
+        ctx.state.preview[key] = _OK
+        ctx.state.preview[stamp_key] = stamp
+        return True, None
+    texture = ctx.viewer.ctx.texture(target, 4, pixels.tobytes())
+    nearest = ctx.viewer.ctx.NEAREST
+    texture.filter = (nearest, nearest)
+    ctx.state.preview[key] = texture
+    ctx.state.preview[stamp_key] = stamp
+    return True, texture
 
 
 def _nineslice_preview(ctx: Any, tab: Any, entry: Any, key: Any) -> None:
@@ -786,6 +816,10 @@ def _nineslice_preview(ctx: Any, tab: Any, entry: Any, key: Any) -> None:
     fixed corners) rather than raising through a paint frame -- the refusal
     belongs to the export door, which is the one place a user asked for an
     exact size rather than "roughly how this looks bigger".
+
+    The flatten is ``inker_ops.nineslice_flat``'s cached one and it is asked for
+    *inside* the closure, so a frame whose three swatches are all still current
+    does not flatten the document at all.
     """
     if key.center is None:
         return
@@ -794,18 +828,21 @@ def _nineslice_preview(ctx: Any, tab: Any, entry: Any, key: Any) -> None:
     if w <= 0 or h <= 0:
         return
     widgets.muted("Preview")
-    flat = tab.doc.flatten()
     drawn_any = False
     for index, factor in enumerate(_PREVIEW_FACTORS):
         target = (max(1, round(w * factor)), max(1, round(h * factor)))
-        try:
-            pixels = nineslice.stretch(flat, key.bounds, key.center, *target)
-        except ValueError:
+
+        def make(target: tuple[int, int] = target) -> Any:
+            return nineslice.stretch(
+                inker_ops.nineslice_flat(tab), key.bounds, key.center, *target
+            )
+
+        drawable, texture = _nineslice_swatch(ctx, tab, entry, index, target, make)
+        if not drawable:
             continue
         if drawn_any:
             imgui.same_line()
         drawn_any = True
-        texture = _nineslice_texture(ctx, tab, entry, index, target, pixels)
         draw_w = min(sp(_PREVIEW_MAX_W), float(target[0]))
         draw_h = draw_w * target[1] / target[0]
         if texture is None:

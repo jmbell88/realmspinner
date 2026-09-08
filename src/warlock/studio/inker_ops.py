@@ -55,6 +55,8 @@ __all__ = [
     "get",
     "menu",
     "manifest",
+    "nineslice_center",
+    "nineslice_flat",
     "parse_shortcuts",
     "register",
     "resolve_binding",
@@ -1391,13 +1393,81 @@ def _nineslice_selected(state: Any, tab: Any) -> Any:
     return tab.doc.slice_by_uid(state.slice_uid)
 
 
+#: The last document flattened for a nine-slice question, and the stamp it was
+#: flattened at. One slot rather than a dict keyed by tab: only one tab is drawn
+#: per frame, and a dict would hold a full RGBA canvas alive for every document
+#: the session ever opened.
+_flat_stamp: Any = None
+_flat_plane: Any = None
+
+#: The last ``nineslice.fit`` answer, and its stamp. Separate slots because the
+#: answer is legitimately ``None`` -- a slice with nothing repeating in it -- and
+#: that refusal is as worth caching as a centre is.
+_fit_stamp: Any = None
+_fit_center: Any = None
+
+
+def _doc_stamp(tab: Any) -> tuple[Any, Any, Any]:
+    """What makes a flatten of ``tab`` stale.
+
+    ``doc.rev`` is the stamp ``_nineslice_swatch`` already argues for exactly
+    this content (it moves on precisely the edits that change what a nine-slice
+    preview shows), so this does not restate that reasoning. ``frame_uid`` joins
+    it because the bounds these answers are keyed on are read through
+    ``entry.at(frame_uid)``, and ``tab.uid`` because one slot is shared.
+    """
+    return (tab.uid, tab.doc.rev, tab.frame_uid)
+
+
+def nineslice_flat(tab: Any) -> Any:
+    """``tab.doc.flatten()``, computed once per edit rather than once per frame.
+
+    ``Document.flatten`` copies the whole composite on purpose -- its callers
+    are allowed to write to what they get back -- so the Auto-fit button's
+    enabled check and the tools panel's preview, both drawn every frame with a
+    slice selected, were paying two multi-megabyte copies a frame for two
+    answers that only move when the document does.
+
+    The cached array is handed out read-only: this one is *shared*, and the
+    copy's usual licence to be scribbled on does not survive that. Both readers
+    (:func:`nineslice.fit`, :func:`nineslice.stretch`) only read.
+
+    Lives here rather than on ``Document`` because it is a frame-loop concern,
+    and here rather than in the pane because ``inker_ops`` is already the one
+    place the menu row and the panel agree about nine-slice.
+    """
+    global _flat_stamp, _flat_plane
+    stamp = _doc_stamp(tab)
+    if _flat_stamp != stamp or _flat_plane is None:
+        plane = tab.doc.flatten()
+        plane.flags.writeable = False
+        _flat_stamp, _flat_plane = stamp, plane
+    return _flat_plane
+
+
+def nineslice_center(tab: Any, bounds: tuple[int, int, int, int]) -> Any:
+    """The inferred centre for ``bounds``, or ``None``, cached on the stamp.
+
+    The enabled check and the op's own run ask this rather than
+    ``nineslice.fit`` directly, so the greyed-out button and the click cannot
+    reach two different answers -- the same rule ``_nineslice_fit_button``
+    follows by reading this op instead of re-deriving it.
+    """
+    global _fit_stamp, _fit_center
+    stamp = (*_doc_stamp(tab), tuple(bounds))
+    if _fit_stamp != stamp:
+        from .inker import nineslice
+
+        _fit_center = nineslice.fit(nineslice_flat(tab), bounds)
+        _fit_stamp = stamp
+    return _fit_center
+
+
 def _can_nineslice_fit(state: Any, tab: Any) -> bool:
     entry = _nineslice_selected(state, tab)
     if entry is None or not ready(state, tab):
         return False
-    from .inker import nineslice
-
-    return nineslice.fit(tab.doc.flatten(), entry.at(tab.frame_uid).bounds) is not None
+    return nineslice_center(tab, entry.at(tab.frame_uid).bounds) is not None
 
 
 def _nineslice_fit_reason(state: Any, tab: Any) -> str:
@@ -1412,13 +1482,11 @@ def _nineslice_fit_reason(state: Any, tab: Any) -> str:
 
 
 def _run_nineslice_fit(ctx: Any, tab: Any, **_: Any) -> Any:
-    from .inker import nineslice
-
     state = ctx.state.inker
     entry = _nineslice_selected(state, tab)
     if entry is None:
         return False
-    center = nineslice.fit(tab.doc.flatten(), entry.at(tab.frame_uid).bounds)
+    center = nineslice_center(tab, entry.at(tab.frame_uid).bounds)
     if center is None:
         return False
     return tab.doc.set_slice(entry.uid, center=center)

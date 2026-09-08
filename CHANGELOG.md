@@ -20,6 +20,32 @@ the release you are actually running.
 
 ## 0.0.39 — 2026-09-07
 
+- **Inker's nine-slice panel costs what an edit costs, not what a frame costs.**
+  With a slice selected, the tools sidebar flattened the whole document twice on
+  every frame: once for the Auto-fit button's enabled check and once for the
+  preview swatches. `Document.flatten` copies the full composite each call —
+  deliberately, since its callers may write to what they get back — so a 1024
+  canvas paid two multi-megabyte copies plus a full run scan per frame for two
+  answers that only move when the document does. The preview then ran three
+  `stretch` calls a frame to build pixels its own `(doc.rev, target)` texture
+  cache discarded on arrival, because the pixels were computed before the stamp
+  that had just matched was consulted. Both answers are now cached on the
+  document's revision in the one place the menu row and the panel already agree
+  about nine-slice (`inker_ops.nineslice_flat` and `nineslice_center`, which the
+  greyed-out check and the click both ask, so they cannot disagree), and the
+  swatches are stretched only on a cache miss. A settled frame flattens nothing
+  and stretches nothing. Found by review; `tests/inker/test_nineslice_cache.py`
+  counts flattens and stretches rather than asserting that a cache exists.
+- **The Library's Convert... picker is dialog-shaped again.** Every format button
+  sat on one line, so a music card's five — WAV, FLAC, AIFF, MP3, OGG — grew
+  the modal to roughly two and a half times the width floor it asks
+  `modal_bounds` for; a floor is not a cap, so nothing clipped it, and at UI
+  scale 2 the row reached the viewport clamp with its last buttons cut off. The
+  buttons wrap at two columns now, which is the same width for one format or for
+  five. Fixed columns rather than the wrap helper the rest of that pane uses:
+  this modal is `always_auto_resize`, so the width left on a line is decided by
+  the very row that would be asking about it.
+
 - **Sirens' Sound effects pane was never drawn, and the reason was every
   workspace's.** Sirens' right sidebar declares four panes — Instruments,
   Envelopes, Sound effects, Song file — and shipped showing two and a sliver;

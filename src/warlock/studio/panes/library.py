@@ -1901,6 +1901,35 @@ _CONVERT_FORMATS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+#: The picker's own width floor, passed to ``modal_bounds``, and how the format
+#: buttons are laid out inside it. Fixed columns rather than
+#: ``widgets.same_line_or_wrap``: that helper asks how much width is left, and
+#: this modal is ``always_auto_resize``, so the width left is decided by the
+#: very row asking about it -- a music card's five formats on one line grew the
+#: dialog to something like 2.5x the width floor ``modal_bounds`` is given below
+#: (a floor, not a cap, so nothing clipped it), and at UI scale 2 the row ran
+#: into the viewport clamp with its last buttons cut off. Two columns at this
+#: width sit just inside that floor, so the dialog is the same width for one
+#: format or for five.
+_CONVERT_WIDTH = 320.0
+_CONVERT_BUTTON_W = 150.0
+_CONVERT_COLUMNS = 2
+
+
+def _convert_rows(
+    formats: tuple[tuple[str, str], ...],
+) -> tuple[tuple[tuple[str, str], ...], ...]:
+    """``formats`` split into rows of at most :data:`_CONVERT_COLUMNS`, in order.
+
+    Pure, so the picker's layout is a plain assertion in
+    ``tests/test_library_browsing.py`` rather than a screenshot -- the same
+    split this file's other Convert tests already take.
+    """
+    return tuple(
+        tuple(formats[i : i + _CONVERT_COLUMNS]) for i in range(0, len(formats), _CONVERT_COLUMNS)
+    )
+
+
 def _convert_formats(job: Any) -> tuple[tuple[str, str], ...]:
     """What ``job``'s card may convert to, keyed on ``card_kind`` the way
     ``_EXPORT_NAMES`` already is. Empty for every kind with no format list --
@@ -2011,7 +2040,7 @@ def _draw_convert_popup(ctx: Any) -> None:
         imgui.set_next_window_bg_alpha(0.0)
     imgui.push_style_var(imgui.StyleVar_.alpha.value, alpha)
     radius = widgets.push_surface_rounding()
-    widgets.modal_bounds(sp(320.0))
+    widgets.modal_bounds(sp(_CONVERT_WIDTH))
     opened, _ = imgui.begin_popup_modal(
         popup.title, None, imgui.WindowFlags_.always_auto_resize.value
     )
@@ -2039,14 +2068,15 @@ def _convert_popup_body(ctx: Any, popup: _ConvertPopup) -> None:
             "Convert to:" if len(popup.ids) == 1 else f"Convert {len(popup.ids)} assets to:"
         )
         imgui.dummy((0, sp(tokens.SP_1)))
-        for name, label in popup.formats:
-            if controls.button(f"{label}##convert-{name}", (sp(150), 0)):
-                imgui.close_current_popup()
-                popup.decisions.put(name)
-                ctx.state._library_convert = None
-                return
-            imgui.same_line()
-        imgui.new_line()
+        for row in _convert_rows(popup.formats):
+            for column, (name, label) in enumerate(row):
+                if column:
+                    imgui.same_line()
+                if controls.button(f"{label}##convert-{name}", (sp(_CONVERT_BUTTON_W), 0)):
+                    imgui.close_current_popup()
+                    popup.decisions.put(name)
+                    ctx.state._library_convert = None
+                    return
     imgui.dummy((0, sp(tokens.SP_1)))
     if controls.button("Cancel", (sp(110), 0)):
         imgui.close_current_popup()
