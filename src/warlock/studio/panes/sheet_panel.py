@@ -60,7 +60,7 @@ def draw(ctx: Any, job: Any) -> None:
     manual_render.help_button(ctx, "sheet")
 
     form = _form(ctx, job["id"])
-    _preview(ctx, form)
+    _preview(ctx, form, job)
     # Form.help_text renders widgets.help_marker beside the owning label.
     #
     # ``errors``/``on_edit``: ``create_sheet`` refuses by name -- ``clip_from``,
@@ -127,7 +127,7 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     return form
 
 
-def _preview(ctx: Any, form: dict[str, Any]) -> None:
+def _preview(ctx: Any, form: dict[str, Any], job: Any) -> None:
     """The direction strip, rendered one cell per frame.
 
     Every cell is a draw *and* a synchronous GPU-to-CPU readback, and the
@@ -148,7 +148,16 @@ def _preview(ctx: Any, form: dict[str, Any]) -> None:
         not viewer.stripping,
         reason="A preview is rendering. It draws one cell per frame; give it a moment.",
     ):
-        yaws = [i * 360.0 / form["yaws"] for i in range(form["yaws"])]
+        # The asset's own front (``poser_mode.set_front`` / the viewport
+        # toolbar's twin) is added to every yaw here because the queued
+        # render (``pipelines/sheet.py``) adds it to every camera it frames --
+        # INVARIANTS.md's "a sprite sheet's grid is decided on the host,
+        # never in Blender" is exactly the preview/renderer agreement this
+        # module already keeps for the frame margin and the yaw-0-on-+Z
+        # convention, and a preview that ignored the front would show column
+        # 0 facing a direction the render no longer uses for it.
+        front = float((job.get("params") or {}).get("front_yaw") or 0.0)
+        yaws = [(i * 360.0 / form["yaws"] + front) % 360.0 for i in range(form["yaws"])]
         try:
             viewer.begin_sheet_strip(
                 yaws, math.radians(form["elevation"]), form["lighting"] == "flat"

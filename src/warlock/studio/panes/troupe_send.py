@@ -54,6 +54,9 @@ class TroupeSend:
     #: does not do on the frame thread.
     rigged: bool = False
     template: str = ""
+    #: This mesh's own recorded front, read once at :func:`ask` -- a fact
+    #: about the job, not a question this dialog asks. See ``_front_helper``.
+    front_yaw: float = 0.0
     logical_size: int = 32
     camera: str = ""
     outline: str = ""
@@ -78,6 +81,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         job_id=job_id,
         label=str((job or {}).get("prompt") or (job or {}).get("name") or "")[:48],
         rigged="rig.glb" in ((job or {}).get("files") or []),
+        front_yaw=float(((job or {}).get("params") or {}).get("front_yaw") or 0.0),
         template=str(form.get("template") or ""),
         logical_size=int(form.get("logical_size") or 32),
         camera=str(form.get("camera") or ""),
@@ -166,6 +170,7 @@ def _body(ctx: Any, state: TroupeSend) -> None:
         helper = _camera_helper(presets, state.camera)
         if helper:
             widgets.muted(helper)
+        widgets.muted(_front_helper(state.front_yaw))
         state.outline = widgets.labeled_combo(
             "Outline",
             state.outline,
@@ -216,6 +221,20 @@ def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
             "are offered."
         ),
     )
+
+
+def _front_helper(front_yaw: float) -> str:
+    """What this mesh's own front is, read-only -- ``_camera_helper``'s shape.
+
+    **Read-only, no override control.** The front is set from Poser or the
+    viewport toolbar, both places the user is looking at the model turning
+    under the press; a number box in a send dialog the user opened to answer
+    two questions about sprite size and skeleton would be the worse tool for
+    the same job, with no picture beside it to judge the angle by.
+    """
+    if not front_yaw:
+        return "This mesh has no front set; sheets are rendered from yaw 0."
+    return f"This mesh's front is set to {front_yaw:.0f} degrees; sheets are rendered from it."
 
 
 def _camera_helper(presets: dict[str, Any], key: str) -> str:

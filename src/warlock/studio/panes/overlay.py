@@ -58,6 +58,21 @@ def shows_tiled(ctx: Any, job: Any) -> bool:
     )
 
 
+def shows_front(ctx: Any, job: Any) -> bool:
+    """Whether the front-yaw control belongs on this toolbar.
+
+    Mirrors ``sheet_panel.validate``'s own gate: ``service.jobs.set_front_yaw``
+    refuses a job with no finished mesh, and a control drawn ahead of that
+    refusal would grey with nothing to point at. Not gated on ``rig.glb`` --
+    Poser's own copy of this control only ever binds a rigged asset
+    (``poser_mode.open_asset`` needs a rig to pose against), but a sprite
+    sheet renders from an unrigged prop exactly as well, so this toolbar is
+    the one door open to a prop Poser will never show.
+    """
+    del ctx
+    return bool(job) and job.get("status") == "done" and "model.glb" in (job.get("files") or [])
+
+
 def toolbar(ctx: Any) -> None:
     """The viewer's own controls, along the top of the viewport."""
     from .. import inker_mode
@@ -122,6 +137,8 @@ def toolbar(ctx: Any) -> None:
         changed, state.turntable = widgets.toggle("Turntable", state.turntable, tag="turntable")
         if changed:
             viewer.set_turntable(state.turntable)
+        if shows_front(ctx, job):
+            _front_yaw(ctx, job, viewer)
     _wrap(icons.CAMERA)
     if widgets.icon_button(icons.CAMERA, "Screenshot...", enabled=viewer.has_model):
         _screenshot(ctx)
@@ -151,6 +168,69 @@ def toolbar(ctx: Any) -> None:
         ):
             ctx.clear_viewport()
     _texture_losses(viewer)
+
+
+def _front_yaw(ctx: Any, job: Any, viewer: Any) -> None:
+    """Poser's front-of-sheet control, for the meshes Poser cannot open.
+
+    Poser only binds a rigged asset's own ``rig.glb`` (:func:`shows_front`'s
+    reason), but ``pipelines/sheet.py`` never asks whether the mesh it is
+    framing carries bones, so an unrigged prop is exactly as sheetable and had
+    no route to say which way it faces at all. Same door
+    (``service.jobs.set_front_yaw``) and the same task key prefix as Poser's
+    own copy (``poser_mode.FRONT_KEY_PREFIX``) rather than a second one minted
+    here -- a job has exactly one front, so a press from this toolbar and a
+    press from an open Poser session on the same asset have to refuse each
+    other's double-click, and if that asset also happens to be open in Poser,
+    that session's own readout updates the moment this write lands
+    (``poser_mode.on_task_done``'s job-id check is what keeps a *different*
+    asset's session from ever seeing it).
+
+    The angle is read off ``camera._goal_theta``, not ``theta`` --
+    ``clay_state.CameraState.read_from``'s idiom, copied rather than restated:
+    the camera damps toward a goal, so a press mid-glide would record the
+    frame the button happened to interrupt rather than the direction the user
+    pointed the camera at. No sign flip and no origin shift: ``Camera.position``
+    and ``viewer.sheet.camera_position`` are the same function of yaw/theta, so
+    this viewport's angle already agrees with what a rendered sheet's yaw
+    means -- the button only has to carry the number across.
+
+    A button and not anything computed, because the 2026-08-05 sweep
+    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    matched view scatters *uniformly* across a 330-degree range on 37 jobs --
+    there is nothing on disk "the front" could be derived from.
+    """
+    import math
+
+    from .. import poser_mode
+
+    job_id = str(job.get("id") or "")
+    front = float((job.get("params") or {}).get("front_yaw") or 0.0)
+    key = f"{poser_mode.FRONT_KEY_PREFIX}{job_id}"
+    busy = ctx.busy(key)
+    label = f"Front {front:.0f}°" if front else "Set front"
+    widgets.same_line_or_wrap(widgets.button_width(label))
+    if widgets.disabled_button(
+        label,
+        not busy,
+        tooltip=(
+            "Every direction on this asset's sprite sheets is measured from "
+            "wherever the camera is pointed right now."
+        ),
+        reason="Still saving the previous front change." if busy else "",
+    ):
+        camera = viewer.camera
+        degrees = math.degrees(float(getattr(camera, "_goal_theta", camera.theta))) % 360.0
+        ctx.submit(key, svc_jobs.set_front_yaw, ctx.svc, job_id, degrees)
+    if front:
+        widgets.same_line_or_wrap(widgets.button_width("Reset front"))
+        if widgets.disabled_button(
+            "Reset front",
+            not busy,
+            reason="Still saving the previous front change." if busy else "",
+            tooltip="Put the front back at yaw 0.",
+        ):
+            ctx.submit(key, svc_jobs.set_front_yaw, ctx.svc, job_id, 0.0)
 
 
 def _has_content(ctx: Any, viewer: Any) -> bool:

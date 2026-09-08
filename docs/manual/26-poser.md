@@ -119,6 +119,40 @@ rebinds to it on its own — no further action needed — and if you picked a di
 one you had, the clip editor and the shared library beneath it switch to match the new one, exactly
 as they do when you change skeletons in an unbound session.
 
+## Choosing the front
+
+Every directional sprite sheet is a turntable: the renderer stands the camera at yaw 0, calls that
+the front, and steps around the model from there. Yaw 0 is a direction in the *mesh's* own space,
+though, and nothing guarantees your character is facing along it. The shipped skeleton templates
+are; a mesh you brought, or one Trellis reconstructed from a reference image, is facing wherever it
+happens to be facing. When it is turned, the sheet still comes out correctly laid out and correctly
+tagged — and every cell shows the wrong side of the character.
+
+This is not something the program can work out for you, and that is a measured result rather than a
+missing feature. A calibration sweep over 37 finished assets tried to find each mesh's best-matching
+view automatically; the answers scattered across a 330-degree range, and two independent metrics
+agreed with each other no better than chance. There is no front to read off a mesh. There is only
+the one you can see.
+
+So: orbit until the character is facing you the way you want it drawn, and press **Set this view as
+the front** in the right-hand panel. The panel reads the angle back to you, **Reset** puts it at 0
+again, and **Look at the front** turns the camera back to the recorded angle without changing your
+framing — useful for checking a front you set earlier, or one set from the 3D viewport.
+
+Only the **turntable** angle is taken. How far above the horizon a sheet is shot from stays the
+Camera preset on the Troupe form ([Troupe](33-troupe.md#the-options)), because that is a choice
+about the whole sheet's projection rather than about this model. Tilting the view here changes
+nothing.
+
+The front is stored on the asset, not on a sheet, so every sheet you build from it afterwards
+inherits it — the character sheets Troupe renders and the plain pose-by-direction sheets alike — and
+the direction previews follow. Sheets you already rendered are not re-rendered; build a new one, or
+re-render the sheet you have, to see the change. Nothing about a mesh you never set a front on
+changes at all: those sheets render exactly as they did before.
+
+An unrigged prop cannot be opened here, because the Poser needs a skeleton to pose. Props get the
+same control on the [3D viewport's own toolbar](24-the-3d-viewport.md#the-toolbar) instead.
+
 ## The pose library
 
 **Save** writes over the pose you are editing; **Save as** asks for a name and adds a new one. Both

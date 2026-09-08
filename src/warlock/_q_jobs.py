@@ -363,6 +363,14 @@ class JobOps:
             # ``None`` defeats. So a row queued before the control existed
             # stays byte-identical.
             sheet_params["elevation"] = block["elevation"]
+        if params.get("front_yaw"):
+            # ``params`` is the model-stage row's own params -- the mesh this
+            # sheet depicts -- so this reads the front the user set on the
+            # viewport button, the same way ``troupe.create_charsheet`` reads
+            # it off the source row it already has. Absent-key discipline,
+            # exactly as ``elevation`` above: a present ``None`` would defeat
+            # ``.get(k, default)`` downstream.
+            sheet_params["front_yaw"] = params["front_yaw"]
         try:
             sheet_id = await asyncio.to_thread(
                 self.store.create, "charsheet", job["prompt"], sheet_params, None

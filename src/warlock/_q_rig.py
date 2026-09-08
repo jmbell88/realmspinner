@@ -388,6 +388,12 @@ class RigOps:
             lighting=str(params.get("lighting", "flat")),
             yaws=int(params.get("yaws", sheetlib.DEFAULT_YAWS)),
         )
+        # The direction the user pressed, added to every cell's camera yaw so
+        # the sheet is shot from the front the user chose rather than always
+        # yaw 0. ``docs/measurements/2026-08-04-view-calibration.md``: a
+        # mesh's matched view scatters 330 degrees across 37 jobs, uniformly,
+        # so this cannot be derived and has to be a human's press.
+        front_yaw = float(params.get("front_yaw") or 0.0) % 360.0
         # A rig if there is one, so poses can apply; otherwise the plain mesh,
         # which is all an unrigged prop's turnaround needs.
         source_glb = source_dir / "rig.glb"
@@ -418,7 +424,13 @@ class RigOps:
         for c in layout.cells:
             cell: dict[str, Any] = {
                 "index": c.index,
-                "yaw": c.yaw,
+                # The guard makes "no front set renders byte-identical to
+                # before" an inspectable fact rather than an arithmetic claim
+                # about ``(x + 0.0) % 360.0`` -- ``rigging.py:1488-1491`` and
+                # ``_q_jobs.py:358-365`` already make the same call. Re-rounded
+                # to 4dp so the offset does not put float noise into the spec
+                # sent to Blender.
+                "yaw": c.yaw if not front_yaw else round((c.yaw + front_yaw) % 360.0, 4),
                 "pose": c.pose,
                 "frame": c.frame,
                 "bones": bones.get((c.pose, c.frame)) or {},
@@ -496,6 +508,7 @@ class RigOps:
             name=str(params.get("name") or ""),
             pivot=(float(pivot[0]), float(pivot[1])) if pivot else None,
             trims=trims,
+            front_yaw=front_yaw,
         )
         await asyncio.to_thread(
             queue_mod._publish_text,

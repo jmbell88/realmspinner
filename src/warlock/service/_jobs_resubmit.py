@@ -185,6 +185,16 @@ def rerun_job(
         # regenerates it from the prompt, so carrying it would claim a hand
         # edit of pixels nobody has touched.
         params.pop("hand_edited", None)
+    if kind in ("text", "image"):
+        # front_yaw is a statement about the *old* mesh's orientation, not
+        # about the run -- which is why it is not in DERIVED_PARAMS either: a
+        # rerun of an unchanged trellis reconstruction keeps the same
+        # geometry, so its front is still true. A reroll and a remesh both
+        # reconstruct a *different* mesh, though, so a front measured against
+        # the one this replaces is a claim about a shape that does not exist
+        # yet -- and the 2026-08-05 view-calibration sweep is exactly why it
+        # cannot be assumed to still be right (37 jobs, 330-degree scatter).
+        params.pop("front_yaw", None)
     if mode == "remesh":
         # A remesh is an image job: SDXL never runs, so a carried-over
         # conditioning selection would describe a run that cannot happen.

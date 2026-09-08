@@ -402,6 +402,15 @@ def create_charsheet(
     }
     if character is not None:
         params["character"] = dict(character)
+    # Snapshotted off the source row rather than left for the worker to read
+    # live: a user who re-presses the viewport's front button between this
+    # sheet and a later subset re-render would otherwise get a sheet half
+    # rendered from each front. Absent at zero -- ``set_front_yaw``'s own
+    # discipline -- so a mesh nobody has oriented mints a row byte-identical
+    # to one from before this feature existed.
+    front_yaw = source["params"].get("front_yaw")
+    if front_yaw:
+        params["front_yaw"] = front_yaw
     # The sheet cap, counted the way ``create_sheet`` counts it and under the
     # same job-wide hold: the artifact lands minutes after the row is minted,
     # so counting files alone lets N rapid submits all read the same count.
@@ -648,6 +657,11 @@ def send_to_troupe(
         layout=layout,
         template=template,
         character=character,
+        # Read off the source row this function already holds, rather than
+        # grown as a parameter of ``send_to_troupe`` itself: the row is the
+        # record of what the mesh's front was set to, and a caller-supplied
+        # value could disagree with it.
+        front_yaw=source["params"].get("front_yaw"),
     )
     from .. import doctor
 
@@ -706,6 +720,7 @@ def _charsheet_spec(
     layout: Mapping[str, Any] | None,
     template: str | None = None,
     character: Mapping[str, Any] | None = None,
+    front_yaw: float | None = None,
 ) -> dict[str, Any]:
     """Validate a sheet request and freeze it as the params the worker will use.
 
@@ -719,6 +734,12 @@ def _charsheet_spec(
     from one library and the skeleton from another. ``character`` is carried
     through untouched: ``_maybe_queue_sheet_after_rig`` copies this block onto
     the sheet row wholesale, which is the whole reason it is nested.
+
+    ``front_yaw`` is the mesh's own front, read by ``send_to_troupe`` off the
+    source row and passed through here rather than re-read later: this whole
+    dict is splatted wholesale by ``_q_jobs._maybe_queue_sheet_after_rig``, so
+    it has to already be the *value*, never ``None`` -- a present ``None``
+    would arrive there as a key that exists and is not a number.
     """
     from ..pipelines import sheet as sheetlib
 
@@ -781,6 +802,8 @@ def _charsheet_spec(
     }
     if character is not None:
         spec["character"] = dict(character)
+    if front_yaw:
+        spec["front_yaw"] = front_yaw
     return spec
 
 # ``get_charsheet`` was deleted on 2026-08-22. It delegated to

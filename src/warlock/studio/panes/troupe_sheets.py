@@ -88,6 +88,14 @@ def camera_line(record: dict[str, Any]) -> str:
     # was rendered at that framing whether or not this build still offers it.
     name = labels.get(preset, preset) or "custom"
     parts = [f"{name}, {float(camera.get('elevation') or 0.0):g} degrees"]
+    if "front_yaw" in camera:
+        # Present only once a sheet was rendered against a front the user set
+        # (``poser_controls``'s Poser control, or ``overlay``'s copy of it for
+        # an unrigged prop) -- a sidecar rendered before ``front_yaw`` existed
+        # simply lacks the key, which is what this guards on rather than the
+        # value being non-zero: a front explicitly set to 0 degrees is still a
+        # fact worth stating, same as any other angle.
+        parts.append(f"front at {float(camera['front_yaw']):g} degrees")
     projection = str(camera.get("projection") or "")
     if projection:
         parts.append(projection)

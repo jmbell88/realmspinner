@@ -312,6 +312,11 @@ def create_character(
     #    which also withholds ``joints="measured"`` -- measuring reads joints
     #    off a reference image this character never had.
     try:
+        # No ``front_yaw`` here, and there never will be: it is set by orbiting
+        # a viewport and pressing a button, and a registry-built character has
+        # no viewport session behind it to have done that in. Absent means the
+        # sheet renders its front row from yaw 0, same as every mesh before
+        # this feature existed.
         rig = svc_troupe.send_to_troupe(
             svc,
             job_id,

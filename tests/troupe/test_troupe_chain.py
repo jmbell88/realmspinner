@@ -869,6 +869,78 @@ async def test_the_sheet_renders_big_and_packs_small(worker, monkeypatch):
     assert not png.with_name(f".{png.name}.render").exists()
 
 
+async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monkeypatch):
+    """The offset reaches Blender, and nothing else moves with it.
+
+    A mesh's front cannot be derived -- the 2026-08-05 calibration sweep found
+    it scatters 330 degrees over 37 jobs -- so it is a press, and this is the
+    proof that the press lands on the only number that decides where the
+    camera stands. Everything the sheet *names* has to be untouched: the
+    direction tags are what engine playback reads, the run table is what the
+    layout snapshot publishes, and ``charsheet.resolve_layout`` refuses a
+    direction list that is not literally a preset, so a design that rotated
+    the layout could not even be written down. The camera angle actually used
+    is recorded once, separately, in the ``camera`` block.
+    """
+    import json
+
+    from warlock import rigging
+    from warlock.pipelines import charsheet as cs
+
+    front = 137.0
+    calls = _fake_render(monkeypatch)
+    source = worker.store.create("image", "a ranger", {}, stage="model")
+    source_dir = worker.config.job_dir(source)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "model.glb").write_bytes(b"fake-glb")
+    (source_dir / "rig.glb").write_bytes(b"fake-rig")
+    (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
+    worker.store.set_status(source, "done")
+
+    sheet_id = rigging.new_id()
+    job_id = worker.store.create(
+        "charsheet",
+        "a ranger",
+        {
+            "source_job": source,
+            "sheet_id": sheet_id,
+            "template": "humanoid",
+            "logical_size": 32,
+            "colors": 16,
+            "lighting": "flat",
+            "front_yaw": front,
+        },
+    )
+    worker.start()
+    try:
+        await _wait_until(
+            lambda: worker.store.get(job_id)["status"] in ("done", "error"), 60.0
+        )
+    finally:
+        await worker.shutdown()
+    assert worker.store.get(job_id)["error"] is None
+
+    # Every cell the worker was asked to render, turned by exactly the front.
+    table = cs.frame_table()
+    assert [c["yaw"] for c in calls[0]["spec"]["cells"]] == [
+        round((c.yaw + front) % 360.0, 4) for c in table
+    ]
+    # Which is genuinely a different render from the one it would have been:
+    # a dropped offset would leave the canonical angles and pass nothing here.
+    assert [c["yaw"] for c in calls[0]["spec"]["cells"]] != [c.yaw for c in table]
+
+    meta = json.loads(rigging.sheet_path(source_dir, sheet_id).read_text("utf-8"))
+    canonical = cs.resolve_layout().as_dict()["runs"]
+    # The run table stays the layout's own, unrotated -- and so do the tags,
+    # which are what playback actually reads.
+    assert [r["yaw"] for r in meta["troupe"]["runs"]] == [r["yaw"] for r in canonical]
+    assert [r["direction"] for r in meta["troupe"]["runs"]] == [
+        r["direction"] for r in canonical
+    ]
+    # The camera angle actually used is recorded once, and only here.
+    assert meta["camera"]["front_yaw"] == front
+
+
 async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch):
     """The gap this closes: a *rendered* sheet used to reach an engine as frame
     indices with no fps and no loop tags -- and the fps was the one thing the

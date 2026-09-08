@@ -101,7 +101,10 @@ snippet above still works. A reader that does not recognise a block should skip 
   degrees, `projection` is always `"orthographic"`, `pixel_size` and `render_size` are the sprite
   size and the size it was rendered at before reduction, and `frame_margin` is the margin the sheet
   was **actually** framed with — which is not always the default, because a sheet whose poses did
-  not fit is re-rendered once at a wider one.
+  not fit is re-rendered once at a wider one. `front_yaw` appears only when somebody set a front on
+  the model (see [Poser](26-poser.md#choosing-the-front)): it is the degrees added to every cell's
+  camera angle. A cell's own `yaw` is deliberately **not** adjusted — that field says which way the
+  sprite faces, and the angle the camera was actually at is `(yaw + front_yaw) % 360`.
 - **`character`** — only on a sheet the character registry built. Three keys: `family` (the species),
   `family_version`, and `recipe` — the whole recipe that produced this character, which is what lets
   the app load it back into Create and vary it. A sheet from a supplied mesh has no such block.

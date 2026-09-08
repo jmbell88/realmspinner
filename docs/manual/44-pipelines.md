@@ -198,6 +198,13 @@ three read it. The preview's own camera maths has to match the renderer's, down 
 yaw zero puts the camera on `+Z` in the exported Y-up frame, and the framing extent is
 `max(hypot(sx, sz), sy) * 1.12` — the same twelve percent margin the renderer frames with.
 
+A cell's stored `yaw` is the direction the **sprite faces**, which since 2026-09-08 is no longer
+always the direction the camera stood in. If the asset carries a front
+(see [Poser](26-poser.md#choosing-the-front)) the renderer shoots each cell from `yaw + front_yaw`
+and records `front_yaw` once, in the sidecar's `camera` block. Keeping the two apart is deliberate:
+the layout snapshot publishes canonical direction angles that `resolve_layout` refuses to let drift,
+so folding the offset into the cells would leave one sheet stating two different front directions.
+
 Three details are easy to undo by accident:
 
 - The camera is framed **once**, and it is framed from the *union* of every pose the sheet

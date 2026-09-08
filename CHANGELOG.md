@@ -25,6 +25,23 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **You can now tell Warlock which way a model faces.** Every directional sprite
+  sheet this program has ever rendered assumed the subject's front was whatever
+  direction the mesh happened to be authored facing -- true of the shipped
+  skeleton templates, and true of nothing a reconstruction returns. A character
+  whose mesh came out a quarter-turn off rendered a correctly laid out,
+  correctly tagged sheet in which every cell showed the wrong side, and nothing
+  in the pipeline noticed. It could not be fixed by measuring: a calibration
+  sweep over 37 finished jobs on 2026-08-05
+  (`docs/measurements/2026-08-04-view-calibration.md`) found each mesh's
+  best-matching view scattered by 330 degrees -- to a first approximation
+  uniformly -- with two independent metrics agreeing no better than chance. So
+  it is a press instead. Orbit the model in Poser, or in the shared 3D viewport
+  for a prop that has no rig, and set the front you want; every direction on
+  every sheet built from that asset is measured from there afterwards, and the
+  Troupe preview and the sheet panel's strip both follow. Nothing changes for
+  an asset you never set a front on -- those sheets render byte-identically to
+  the ones they rendered before.
 - **Shift+clicking a row in Plotter's Objects dock crashed the frame.** The
   handler assigned to `selected_object`, which is a read-only property with no
   setter, so an ordinary multi-select gesture raised `AttributeError` instead of

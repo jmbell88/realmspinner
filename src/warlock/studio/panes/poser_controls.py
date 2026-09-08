@@ -91,6 +91,8 @@ def draw(ctx: Any) -> None:
         _banner(state, viewer)
         _joint(ctx, viewer)
         _root(viewer)
+        if state.job_id:
+            _front(ctx, state, viewer)
         _save(ctx, state, viewer)
 
 
@@ -247,6 +249,64 @@ def _root(viewer: Any) -> None:
         widgets.muted(
             f"root offset  x {offset[0]:+.2f}  y {offset[1]:+.2f}  z {offset[2]:+.2f}"
         )
+
+
+def _front(ctx: Any, state: Any, viewer: Any) -> None:
+    """Which direction on this asset's sprite sheets is "front".
+
+    Only drawn with an asset bound (``draw``'s own ``state.job_id`` guard,
+    ``_save_asset``'s rule): a template-browsing session has no job to write
+    ``front_yaw`` onto, and the meshless armature preview has no sheets of its
+    own to orient.
+
+    **Not behind ``poser_mode.guard``.** That guard exists to stop a skeleton
+    switch or a Close discarding an unsaved *pose* edit sitting on the
+    editor -- neither button here touches the pose being authored, only the
+    job's own params, so there is nothing here for the guard to protect.
+
+    A button rather than anything derived, because the 2026-08-05 sweep
+    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    matched view scatters *uniformly* across a 330-degree range on 37 jobs --
+    there is no reading "the front" off the mesh or the reference image it
+    came from, so the only honest control is one that captures wherever the
+    user is already looking.
+    """
+    widgets.section("Front")
+    if state.asset_front_yaw:
+        widgets.muted(f"front at {state.asset_front_yaw:.1f}°")
+    else:
+        widgets.muted("Front not set -- sheets are measured from yaw 0.")
+    busy = ctx.busy(f"{poser_mode.FRONT_KEY_PREFIX}{state.job_id}")
+    if widgets.disabled_button(
+        "Set this view as the front",
+        not busy,
+        (-1, 0),
+        tooltip=(
+            "Every direction on this asset's sprite sheets is measured from "
+            "wherever the camera is pointed right now."
+        ),
+        reason="Still saving the previous front change." if busy else "",
+    ):
+        poser_mode.set_front(ctx)
+    if widgets.disabled_button(
+        "Reset",
+        not busy and bool(state.asset_front_yaw),
+        reason=(
+            "Still saving the previous front change."
+            if busy
+            else "The front is already at 0 degrees."
+        ),
+        tooltip="Put the front back at yaw 0.",
+    ):
+        poser_mode.clear_front(ctx)
+    imgui.same_line()
+    if widgets.disabled_button(
+        "Look at the front",
+        bool(state.asset_front_yaw) and viewer is not None,
+        reason="No front is set yet." if not state.asset_front_yaw else "",
+        tooltip="Turn the camera to the recorded front, keeping the framing.",
+    ):
+        poser_mode.look_at_front(ctx)
 
 
 def _save(ctx: Any, state: Any, viewer: Any) -> None:

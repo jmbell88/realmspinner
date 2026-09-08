@@ -1353,6 +1353,13 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     # and only spins -- so this pixel is the same in every direction, which is
     # exactly what makes it usable as a sprite pivot. Aiming here also keeps the
     # projection out of the render loop.
+    #
+    # A ``front_yaw`` offset (see ``_q_troupe``/``_q_rig``) costs nothing here:
+    # ``_union_framing`` above returns a scalar ``extent``, so the ortho window
+    # is the same square whichever direction is called "front", and this pivot
+    # is the projection of ``(centre[0], centre[1], lo[2])`` -- a point *on*
+    # the vertical orbit axis the camera spins around -- so it lands on the
+    # same pixel at any yaw, offset or not.
     _aim_camera(cam, centre, 0.0, elevation, distance)
     pivot = _project(bpy, cam, (centre[0], centre[1], lo[2]), size)
 
@@ -1377,6 +1384,13 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
                 # never leaks into the next pose's cells.
                 _apply_root_translation(armature, cell.get("root_bone"), cell["root_offset"])
             posed = key
+        # Read twice below -- here to aim, and again at the socket depth
+        # ordering -- which is exactly why a ``front_yaw`` offset (see
+        # ``_q_troupe``/``_q_rig``) is added into this per-cell value on the
+        # host rather than carried as a separate spec key: a spec key would
+        # have to be threaded to both reads and re-derived here, where adding
+        # it once, upstream, means this worker keeps needing to know only one
+        # angle per cell, exactly as it always has.
         _aim_camera(cam, centre, float(cell["yaw"]), elevation, distance)
         if sockets:
             # Per cell, because a socket is attached to a bone and both the

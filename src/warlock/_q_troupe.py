@@ -142,6 +142,13 @@ class TroupeOps:
 
         records = await asyncio.to_thread(clips.expand_clips, template, troupe_layout)
         logical = int(params.get("logical_size", 32))
+        # The direction the user pressed in the reference stage, added to every
+        # cell's camera yaw so the row Troupe labels "front" is actually shot
+        # from the front. ``docs/measurements/2026-08-04-view-calibration.md``
+        # is why this cannot be derived: a mesh's matched view scatters 330
+        # degrees across 37 jobs, uniformly, so only a human's press can supply
+        # it.
+        front_yaw = float(params.get("front_yaw") or 0.0) % 360.0
         layout = charsheet.plan(
             records,
             frame_size=logical,
@@ -171,7 +178,13 @@ class TroupeOps:
             record = by_key.get((c.pose, c.frame)) or {}
             cell: dict[str, Any] = {
                 "index": c.index,
-                "yaw": c.yaw,
+                # The guard makes "no front set renders byte-identical to
+                # before" an inspectable fact rather than an arithmetic claim
+                # about ``(x + 0.0) % 360.0`` -- ``rigging.py:1488-1491`` and
+                # ``_q_jobs.py:358-365`` already make the same call. Re-rounded
+                # to 4dp so the offset does not put float noise into a
+                # published sidecar.
+                "yaw": c.yaw if not front_yaw else round((c.yaw + front_yaw) % 360.0, 4),
                 "pose": c.pose,
                 "frame": c.frame,
                 "bones": record.get("bones") or {},
@@ -475,6 +488,7 @@ class TroupeOps:
             margin=float(
                 framing.get("margin") or params.get("margin") or sheetlib.FRAME_MARGIN
             ),
+            front_yaw=front_yaw,
         )
         # **Flags, never fails.** Every finding here is about a sheet that is
         # already packed, quantised and on disk: it opens, it exports, and the
@@ -913,7 +927,7 @@ def _composite_effects(
 
 
 def _camera_meta(
-    elevation: float, *, pixel_size: int, margin: float
+    elevation: float, *, pixel_size: int, margin: float, front_yaw: float = 0.0
 ) -> dict[str, Any]:
     """The ``camera`` block of a character sheet's sidecar.
 
@@ -928,6 +942,18 @@ def _camera_meta(
     preset holds exactly this elevation, and ``None`` when a caller set an
     angle of its own. Recording a *nearest* preset would be the sidecar
     claiming a framing the sheet was not rendered at.
+
+    ``front_yaw`` is the degrees added to every cell's camera yaw so the row
+    Troupe calls "front" is shot from the direction the user chose. It is
+    *not* what a cell's own ``yaw`` means: that field continues to say which
+    way the sprite faces, and the camera angle actually used to render it is
+    ``(yaw + front_yaw) % 360`` -- recorded here, separately, rather than
+    folded back into the cell table, so a pre-offset sidecar stays
+    interpretable once the number is known (the same split ``bench.views``
+    makes between ``worker_cells`` and its ``bench.yaw_offset`` sidecar
+    entry). Emitted only when non-zero: the overwhelming majority of sheets
+    have no front set, and this keeps their sidecar the byte-identical one
+    they always published.
     """
     from .pipelines import charsheet
 
@@ -936,7 +962,7 @@ def _camera_meta(
         (key for key, _label, angle in charsheet.CAMERA_PRESETS if angle == elevation),
         None,
     )
-    return {
+    meta = {
         "preset": preset,
         "elevation": elevation,
         # Orthographic throughout: ``rigging.sheet_spec`` frames every cell with
@@ -947,6 +973,9 @@ def _camera_meta(
         "render_size": charsheet.RENDER_SIZE,
         "frame_margin": float(margin),
     }
+    if front_yaw:
+        meta["front_yaw"] = float(front_yaw)
+    return meta
 
 
 def _atlas_entries(png: Path, colors: int) -> list[tuple[int, int, int]]:

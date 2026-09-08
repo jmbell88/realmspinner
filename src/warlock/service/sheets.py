@@ -195,6 +195,13 @@ def create_sheet(
         # could disagree with sheet.interpolate.
         "clip": ({"from": clip_from, "to": clip_to, "frames": clip_frames} if clip_from else None),
     }
+    # Snapshotted off the source row, like ``troupe.create_charsheet`` does for
+    # its own sheet -- an unrigged prop is sheetable through this plain door
+    # too, and it must be able to carry a front the same way a rigged
+    # character does. Absent at zero, ``set_front_yaw``'s own discipline.
+    front_yaw = source["params"].get("front_yaw")
+    if front_yaw:
+        params["front_yaw"] = front_yaw
     # The cap counts what is on disk *plus* every unfinished row that will
     # write a sheet into this directory: the artifact lands minutes after the
     # row is minted, so counting files alone let N rapid submits all read the

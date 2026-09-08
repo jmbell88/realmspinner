@@ -207,6 +207,47 @@ def update_job(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dic
     return get_job(svc, job_id)
 
 
+def set_front_yaw(svc: WarlockService, job_id: str, degrees: float) -> dict[str, Any]:
+    """Record which way a mesh is "front", for every directional sprite render.
+
+    The 2026-08-05 view-calibration sweep
+    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's
+    matched view scatters 330 degrees across 37 jobs -- effectively uniform --
+    so the front cannot be derived from the reconstruction and has to be a
+    human's press: orbit the model in a viewport, then confirm what is facing
+    the camera.
+
+    Checked against a finished mesh only, **not a rig** -- unlike
+    ``troupe.create_charsheet``, which needs a rig because every Troupe cell is
+    a posed frame. An unrigged prop still has a plain ``sheet`` door
+    (``sheets.create_sheet``) that needs no rig, and it must be able to carry a
+    front too.
+
+    No ``field``: the control that submits this is a button in a 3D viewport,
+    not a form field, so a malformed value can never actually reach here from
+    the UI.
+    """
+    job = svc.require_job(job_id)
+    job_dir = svc.job_dir(job_id)
+    if job["status"] != "done" or not (job_dir / "model.glb").exists():
+        raise Invalid("job has no finished mesh to set a front on")
+    try:
+        value = float(degrees) % 360.0
+    except (TypeError, ValueError):
+        raise Invalid("front_yaw must be a number") from None
+    # Removing the key at zero rather than storing 0.0 is load-bearing: it is
+    # what keeps "never used this feature" indistinguishable from "reset to
+    # the mesh's own front", which is what makes every downstream door's bare
+    # ``params.get("front_yaw")`` honest.
+    #
+    # merge_params, not set_params: this runs off the frame thread while a
+    # worker may be writing other keys -- a report, a health flag -- onto the
+    # same row.
+    svc.store.merge_params(job_id, {"front_yaw": value} if value else {},
+                           remove=() if value else ("front_yaw",))
+    return {"id": job_id, "front_yaw": value}
+
+
 def worker_is_inside(svc: WarlockService, job_id: str) -> bool:
     """Whether the GPU worker is still running this job, whatever the row says.
 

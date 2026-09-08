@@ -741,6 +741,7 @@ def sidecar(
     pivots: Mapping[int, tuple[float, float]] | None = None,
     slices: Mapping[int, list[dict[str, Any]]] | None = None,
     slices_conflict: Mapping[int, list[int]] | None = None,
+    front_yaw: float = 0.0,
 ) -> dict[str, Any]:
     """The engine-neutral description of the atlas next to it.
 
@@ -775,6 +776,18 @@ def sidecar(
     a cell has one geometry, but until now silently. A reader that has never
     heard of the key sees exactly the file it saw before, because an export with
     nothing to report does not write it at all.
+
+    ``front_yaw`` is the fifth, same rule: a top-level ``"front_yaw"`` degrees
+    figure, written **only when non-zero**. It is not a field of ``Plan`` --
+    the caller adds it to every render's camera yaw and passes the same
+    number here so the sidecar says what was actually shot. It is
+    deliberately *not* folded into ``cells[].yaw``: those stay the plan's own,
+    unrotated direction angles (``charsheet.resolve_layout`` refuses a
+    direction list that is not literally a preset value), so a cell still
+    says which way the sprite faces and this key alone says the camera angle
+    actually used to shoot it was ``(yaw + front_yaw) % 360``.
+    ``sheetcheck.metadata_findings`` is what flags a sidecar where that split
+    has been violated.
 
     On a non-square plan ``frame_size`` is emitted as **0** and ``frame_w`` /
     ``frame_h`` carry the truth. Zero is a loud wrong answer rather than a quiet
@@ -837,4 +850,10 @@ def sidecar(
             int(cell): [int(frame) for frame in frames]
             for cell, frames in sorted(slices_conflict.items())
         }
+    # Same rule again: absent rather than 0.0, so the overwhelming majority of
+    # sheets -- no front chosen -- publish the byte-identical sidecar they
+    # always did, and ``tests/test_sheet.py``'s square-sidecar equality test
+    # is what pins that.
+    if front_yaw:
+        payload["front_yaw"] = float(front_yaw)
     return payload

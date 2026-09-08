@@ -150,9 +150,12 @@ means forgetting it costs you a feature rather than an error. Omit it deliberate
 does, or list every symmetric limb, as `humanoid.json` does.
 
 Two conventions are worth honouring for consistency with the templates already there. Forward is
-`-Y`, which is what makes column zero of a sprite sheet the front view. And limbs you intend to pair
-should be placed mirror-symmetrically about `X`, because the reflection `mirror_pose` applies assumes
-that plane.
+`-Y`, which is what makes column zero of a sprite sheet the front view by default. (A mesh that is
+not built to that convention is not stuck with it: its own front is set by orbiting it in
+[Poser](26-poser.md#choosing-the-front) or the 3D viewport, and every sheet is measured from there
+instead. Honour the convention anyway — it is one less thing for whoever uses your template to have
+to notice.) And limbs you intend to pair should be placed mirror-symmetrically about `X`, because the
+reflection `mirror_pose` applies assumes that plane.
 
 See [Templates](25-rigging-and-posing.md#templates).
 

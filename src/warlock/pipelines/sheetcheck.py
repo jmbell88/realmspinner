@@ -120,6 +120,37 @@ def metadata_findings(meta: Mapping[str, Any] | None) -> list[str]:
                 f"the layout declares {declared} cells and the sidecar lists {count}"
             )
 
+    # ``camera.front_yaw`` and ``cells[].yaw`` are supposed to disagree: the
+    # cell stays the layout's canonical, unrotated direction angle (the same
+    # number ``troupe.runs[]`` publishes) and the offset that was actually
+    # added at render time lives only in ``camera``. That split is what keeps
+    # a rotated Plan from ever existing (``charsheet.resolve_layout`` refuses
+    # a direction list that is not literally a preset value) -- but nothing
+    # stops a future edit from "fixing" the cells to match the camera it was
+    # shot at, which would publish two contradictory front directions for the
+    # same sheet. This is that tripwire, not a repair: it only names the cells
+    # that no longer agree with their run.
+    camera = meta.get("camera")
+    front_yaw = float(camera.get("front_yaw") or 0.0) if isinstance(camera, Mapping) else 0.0
+    if front_yaw and isinstance(troupe, Mapping):
+        canonical: dict[int, float] = {}
+        for run in troupe.get("runs") or ():
+            start, end = int(run.get("start", 0)), int(run.get("end", -1))
+            yaw = float(run.get("yaw", 0.0))
+            for index in range(start, end + 1):
+                canonical[index] = yaw
+        drifted = sorted(
+            cell.get("index")
+            for cell in cells
+            if cell.get("index") in canonical
+            and abs(float(cell.get("yaw", 0.0)) - canonical[cell.get("index")]) > 1e-6
+        )
+        if drifted:
+            out.append(
+                f"camera.front_yaw is recorded but {len(drifted)} cell yaws no longer "
+                "match the layout's canonical direction angles"
+            )
+
     animation = meta.get("animation")
     if isinstance(animation, Mapping):
         tags = list(animation.get("tags") or ())

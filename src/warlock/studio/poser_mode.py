@@ -43,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,18 @@ ASSET_DELETE_KEY_PREFIX = "poser-asset-delete:"
 # ``stage_rig.rig_key``, so a double press within the same frame is refused by
 # ``TaskRunner.submit`` alone -- see :func:`rerig`.
 ASSET_RERIG_KEY_PREFIX = "poser-asset-rerig:"
+
+# The front-yaw control's own key, one per job -- writing this asset's front
+# through ``service.jobs.set_front_yaw`` and reading the normalised value back
+# into ``PoserState.asset_front_yaw`` once the write lands (:func:`set_front`,
+# :func:`clear_front`). "poser-" for the reason every key above is: main.py's
+# generic "poser-" dispatch routes any key with this prefix to this module's
+# own :func:`on_task_done`, from wherever it was submitted -- including
+# ``panes/overlay.py``'s copy of this control, for the unrigged props Poser
+# itself can never open. Sharing the prefix rather than minting a second one
+# is also what makes the two copies refuse each other's double-click: a job
+# has exactly one front, so it needs exactly one key.
+FRONT_KEY_PREFIX = "poser-front:"
 
 # What pose_job_id carries in a *template* authoring session. Can never equal
 # a 12-hex job id (a colon fails is_valid_id) -- but an *asset* session
@@ -170,6 +183,14 @@ class PoserState:
     #: The bound asset's ``rig.json``, or None if it had none readable. Held
     #: rather than re-read, the same reason ``pose_panel._enter`` reads it once.
     asset_rig: dict[str, Any] | None = None
+    #: This asset's chosen front, in degrees, read once at :func:`open_asset`
+    #: and kept current by :func:`on_task_done` when a write through
+    #: ``service.jobs.set_front_yaw`` lands. 0.0 doubles as "unset" -- the
+    #: service removes ``front_yaw`` from the job's params rather than storing
+    #: a zero, so there is no state a stored 0 could mean that "no front
+    #: chosen" does not already cover, and every reader here (the readout, the
+    #: greyed reasons on Reset and Look at the front) treats the two as one.
+    asset_front_yaw: float = 0.0
     #: This asset's own saved poses (``service.rig.list_poses``), distinct from
     #: the shared, skeleton-keyed library above.
     asset_poses: list[dict[str, Any]] = field(default_factory=list)
@@ -452,6 +473,10 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         state.job_id = job_id
         state.asset_label = str(job.get("name") or job.get("prompt") or job_id)
         state.asset_rig = rig
+        # From the job dict already in hand, not a fresh read -- ``open_asset``
+        # is handed the row the Library or Create already loaded, and
+        # everything else here reads it the same way.
+        state.asset_front_yaw = float((job.get("params") or {}).get("front_yaw") or 0.0)
         state.asset_error = ""
         state.asset_poses = []
         viewer = viewer_of(ctx)
@@ -490,6 +515,7 @@ def close_asset(ctx: Any) -> None:
         state.job_id = ""
         state.asset_label = ""
         state.asset_rig = None
+        state.asset_front_yaw = 0.0
         state.asset_poses = []
         state.asset_error = ""
         state.rerig_open = False
@@ -546,6 +572,88 @@ def save_pose_to_asset(ctx: Any) -> None:
         )
 
     ctx.prompts.ask(dialogs.Prompt(title="Name this pose", label="Name", on_accept=accept))
+
+
+def set_front(ctx: Any) -> None:
+    """Record the live camera's yaw as this asset's front, through
+    ``service.jobs.set_front_yaw``.
+
+    Reads ``camera._goal_theta``, not ``theta`` -- ``CameraState.read_from``'s
+    idiom (``clay_state.py:84``), copied rather than restated: the camera is
+    damped toward a goal it has not reached yet, so a press mid-glide would
+    record the frame the button happened to interrupt, not the direction the
+    user actually pointed the camera at.
+
+    **No sign flip and no origin shift.** With ``phi = pi/2 - e``,
+    ``Camera.position`` and ``viewer.sheet.camera_position`` are the same
+    function of yaw/theta (``viewer/camera.py:57-64``,
+    ``viewer/sheet.py:46-62``), and ``viewer.scene.placement`` is a pure
+    translation that cannot rotate the frame out from under either -- so the
+    viewport's ``theta`` and a rendered sheet's ``yaw`` already agree on what
+    the number means, and this only has to carry it across, never correct it.
+
+    A button and not a computed default, because the 2026-08-05 sweep
+    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    matched view scatters *uniformly* across a 330-degree range over 37 jobs
+    -- trellis-server picks its own orientation per subject, and there is
+    nothing on disk "the front" could be derived from. Submitted on a per-job
+    key (:data:`FRONT_KEY_PREFIX`), so ``TaskRunner.submit`` refuses a second
+    press while the first is still in flight -- the same shallow,
+    already-accepted double-click guard the rest of this module relies on.
+    """
+    from ..service import jobs as svc_jobs
+
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if not state.job_id or viewer is None:
+        return
+    job_id = state.job_id
+    camera = viewer.camera
+    degrees = math.degrees(float(getattr(camera, "_goal_theta", camera.theta))) % 360.0
+    key = f"{FRONT_KEY_PREFIX}{job_id}"
+    if not ctx.submit(key, svc_jobs.set_front_yaw, ctx.svc, job_id, degrees):
+        ctx.toast("Still saving the previous front change.", "info")
+
+
+def clear_front(ctx: Any) -> None:
+    """Put this asset's front back to unset.
+
+    Writing 0 through ``set_front_yaw`` *removes* ``front_yaw`` from the job's
+    params rather than storing a zero -- the service's own contract, and the
+    reason ``PoserState.asset_front_yaw`` treats 0.0 as "unset" everywhere it
+    is read. Refuses with nothing to do when it already is: the pane's own
+    Reset button is greyed for the same fact, stated as a reason rather than
+    silently doing nothing.
+    """
+    from ..service import jobs as svc_jobs
+
+    state = ensure(ctx)
+    if not state.job_id or not state.asset_front_yaw:
+        return
+    job_id = state.job_id
+    if not ctx.submit(f"{FRONT_KEY_PREFIX}{job_id}", svc_jobs.set_front_yaw, ctx.svc, job_id, 0.0):
+        ctx.toast("Still saving the previous front change.", "info")
+
+
+def look_at_front(ctx: Any) -> None:
+    """Turn the camera to the recorded front, keeping everything else.
+
+    Only ``_goal_theta`` moves -- ``phi``, ``distance`` and ``target`` are
+    left exactly where they are, ``Camera.look_along``'s own documented rule
+    (``viewer/camera.py:99-110``) and its reason: an angle change that also
+    reframed would throw away the part of the model the user had lined up on
+    the other two axes, which is the one thing they were about to check. This
+    is deliberately *not* a call to ``look_along`` itself, and
+    ``AXIS_VIEWS["front"]`` is deliberately left untouched by all of this --
+    its docstring makes the view *names* the contract, it is shared with Clay
+    in four places, and "front" there names the model's own -Z, which the
+    front-yaw control has not moved and was never meant to.
+    """
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if not state.job_id or viewer is None or not state.asset_front_yaw:
+        return
+    viewer.camera._goal_theta = math.radians(state.asset_front_yaw)
 
 
 def apply_asset_pose(ctx: Any, pose_id: str) -> None:
@@ -1193,6 +1301,25 @@ def on_task_done(ctx: Any, done: Any) -> None:
             viewer.editor.current = done.result.get("id")
         if job_id == state.job_id:
             refresh_asset_poses(ctx)
+        return
+    if key.startswith(FRONT_KEY_PREFIX):
+        # From the result, never from what was sent -- ``set_front_yaw``
+        # normalises into [0, 360), and a failed write must not leave this
+        # session believing an angle it never actually wrote. Also lands here
+        # for a press from ``panes/overlay.py``'s copy of this control, on
+        # whatever asset that toolbar has open; the job-id check below is what
+        # keeps that from ever touching a *different* asset's session.
+        job_id = key[len(FRONT_KEY_PREFIX):]
+        if job_id == state.job_id and isinstance(done.result, dict):
+            state.asset_front_yaw = float(done.result.get("front_yaw") or 0.0)
+        # Unconditionally, and *outside* the job-id check above. The front is a
+        # job param, and every other reader of it -- ``panes/overlay.py``'s own
+        # label for this control, the Send to Troupe dialog's helper line --
+        # reads the row out of ``ctx.cache`` rather than out of this session.
+        # Without this, a press from the viewport toolbar wrote the front and
+        # then went on drawing "Set front" until something unrelated happened
+        # to dirty the cache, which reads as the button having done nothing.
+        ctx.cache.invalidate()
         return
     if key.startswith(ASSET_DELETE_KEY_PREFIX):
         job_id, _, deleted = key[len(ASSET_DELETE_KEY_PREFIX):].partition(":")

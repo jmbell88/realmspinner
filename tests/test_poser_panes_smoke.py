@@ -10,6 +10,7 @@ pointer.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -20,6 +21,7 @@ from warlock.studio.jobs_cache import JobsCache
 from warlock.studio.settings import Settings
 from warlock.studio.state import AppState
 from warlock.studio.viewer import math3d as m3
+from warlock.studio.viewer.camera import Camera
 from warlock.studio.viewer.gltf import Model, Node
 from warlock.studio.viewer.pose import PoseEditor
 
@@ -128,6 +130,10 @@ class _PoserViewer:
         self.editor.root = "hips"
         self.pose_mode = True
         self.selected_bone = None
+        # The front control reads and turns this one -- a real Camera rather
+        # than a stub, so the damping the press has to see through is the
+        # damping the app actually runs.
+        self.camera = Camera()
 
 
 def test_the_poser_panes_build_without_rigging(app_ctx, imgui_ctx):
@@ -173,6 +179,98 @@ def test_the_poser_panes_build_with_a_session_and_a_library(app_ctx, imgui_ctx):
     viewer.editor.set_root_translation([0.1, 0.0, 0.2])
     _frame(imgui_ctx, lambda: poser_library.draw(app_ctx))
     _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+
+def test_the_front_section_draws_bound_and_unbound(app_ctx, imgui_ctx):
+    """The section only exists in an asset session, and both of its states
+    have to build: no front chosen (the readout says so and two of the three
+    buttons are greyed with a reason) and a front chosen."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_controls
+
+    app_ctx.rigging_available = True
+    state = poser_mode.ensure(app_ctx)
+    app_ctx.poser_viewer = _PoserViewer()
+
+    # Template session: no asset, so no front to set.
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+    state.job_id = "0123456789ab"
+    state.asset_label = "a ranger"
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+    state.asset_front_yaw = 137.5
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+
+def test_setting_the_front_records_the_goal_not_the_damped_angle(app_ctx, monkeypatch):
+    """The camera chases a goal, so ``theta`` is wherever the glide had got to
+    when the button was pressed. Recording that instead of the goal would
+    store an angle the user never chose and never saw settle -- and at
+    ``DAMPING`` 0.05 it can be tens of degrees short. ``clay_state.read_from``
+    made this call already; this is the test that it was copied."""
+    from warlock.studio import poser_mode
+
+    app_ctx.rigging_available = True
+    state = poser_mode.ensure(app_ctx)
+    state.job_id = "0123456789ab"
+    app_ctx.poser_viewer = _PoserViewer()
+    camera = app_ctx.poser_viewer.camera
+    camera.theta = math.radians(10.0)
+    camera._goal_theta = math.radians(137.0)
+
+    sent: list[float] = []
+    monkeypatch.setattr(
+        app_ctx, "submit", lambda key, fn, *a, **k: sent.append(a[-1]) or True
+    )
+    poser_mode.set_front(app_ctx)
+    assert sent and abs(sent[0] - 137.0) < 1e-6
+
+
+def test_looking_at_the_front_turns_the_camera_and_keeps_the_framing(app_ctx):
+    """An angle change that also reframed would throw away the part of the
+    model the user had lined up -- ``Camera.look_along``'s own rule, which is
+    why this is not a call to it."""
+    from warlock.studio import poser_mode
+
+    app_ctx.rigging_available = True
+    state = poser_mode.ensure(app_ctx)
+    state.job_id = "0123456789ab"
+    state.asset_front_yaw = 137.0
+    app_ctx.poser_viewer = _PoserViewer()
+    camera = app_ctx.poser_viewer.camera
+    before = (camera.phi, camera.distance, tuple(camera.target))
+
+    poser_mode.look_at_front(app_ctx)
+    assert abs(camera._goal_theta - math.radians(137.0)) < 1e-6
+    assert (camera.phi, camera.distance, tuple(camera.target)) == before
+
+
+def test_a_landed_front_write_dirties_the_jobs_cache(app_ctx, monkeypatch):
+    """Poser keeps its own copy of the front, but it is not the only reader.
+
+    ``panes/overlay.py``'s copy of this control labels itself from the *row*
+    (``job["params"]["front_yaw"]``) out of ``ctx.cache``, and so does the
+    Send to Troupe helper line. Updating only ``PoserState`` left a press from
+    the viewport toolbar writing the front and then going on drawing "Set
+    front" until something unrelated dirtied the cache -- which reads as the
+    button having done nothing at all. Invalidated for *any* job, not just the
+    bound one, because the toolbar's asset is routinely not Poser's.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import poser_mode
+
+    state = poser_mode.ensure(app_ctx)
+    state.job_id = ""  # no asset bound here: the toolbar's press, not Poser's.
+    calls: list[int] = []
+    monkeypatch.setattr(app_ctx.cache, "invalidate", lambda: calls.append(1))
+
+    done = SimpleNamespace(
+        key=f"{poser_mode.FRONT_KEY_PREFIX}0123456789ab",
+        result={"id": "0123456789ab", "front_yaw": 137.0},
+    )
+    poser_mode.on_task_done(app_ctx, done)
+    assert calls, "a landed front write left every row-reading pane stale"
 
 
 def test_drawing_the_library_pane_pumps_the_refresh_flag(app_ctx, imgui_ctx):
