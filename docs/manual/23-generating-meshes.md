@@ -48,19 +48,33 @@ where you see it first. It also carries the reference's own quality report: the 
 reconstruct, and the milder warnings — edge contact, a very thin subject — that are worth knowing
 before the spend rather than after.
 
+**The picture in the panel is the picture the engine rebuilds from.** Accepting it saves that cutout
+and hands it to the reconstruction with the engine told to keep the alpha rather than cut its own.
+That is worth stating because it was not always true: the panel used to show you Warlock's cutout and
+then send the engine the untouched reference, which the engine cut again with a *different* copy of
+the background-removal model. If you ask for several candidates, all of them get the same approved
+pixels, so a difference between two candidates is the reconstruction seed and nothing else.
+
+If you edit the reference after opening the panel — through **Fix matte**, or by saving in Inker in
+another tab — the cutout on screen stops describing the file, and Warlock cuts it again rather than
+building from pixels that are gone.
+
 Three buttons:
 
 - **Accept** queues the mesh job. When the report refused the reference the button reads
   **Build anyway** instead, and it submits with the refusal overridden — a confirm rather than a
   refusal, because the rules are heuristics about composition and you can see the image they are
-  arguing about. What you must not do is spend two minutes of GPU by accident.
+  arguing about. What you must not do is spend two minutes of GPU by accident. The override is
+  recorded against those exact pixels, so it applies to a rerun of the same job and to nothing else;
+  edit the image and the composition rules apply again.
 - **Fix matte** opens the reference in Inker with the cutout already folded into its alpha, as one
   undoable step. The eraser and the brush then edit the matte directly; see
   [Inker](28-inker.md#fixing-a-matte).
 - **Cancel** leaves everything as it was.
 
 A matte you edited and saved travels to the engine as the image's own alpha, and the job records
-that it was approved — the engine is told to keep the alpha rather than cut its own.
+that it was approved — the engine is told to keep the alpha rather than cut its own. A soft edge you
+painted stays soft; nothing along this path flattens it to a hard cut.
 
 Settings has an opt-in **Don't ask for clean cutouts** switch, off by default, that skips this panel
 for the case it exists to catch the least: a cutout with no report warnings or refusals, made by the
@@ -159,6 +173,9 @@ on every job.
 
 **Background** chooses how the engine mattes the input image: `auto`, `birefnet` or `threshold`.
 `auto` is the default and is right almost always; the other two exist for images `auto` gets wrong.
+A cutout you approved in the panel overrides this and pins `auto`, which is the mode that keeps an
+existing alpha — any other setting would re-cut the matte you just approved and make the approval a
+lie.
 
 **Mesh seed** is the reconstruction's own seed, separate from the image seed, with its own **Reroll**
 button and its own **Lock seed** switch. Leave it at zero to let the job pick one. Unlocked, every

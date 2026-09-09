@@ -123,6 +123,30 @@ signing was answered no for the closed beta; see Closed records) — though on
 install itself is no longer the question; a working download path and a card
 big enough to reconstruct on are.
 
+## P42. Judge the approved cutout against the server's own
+
+**Why it is yours:** a card and an eye, and it is the gate on a default that
+has already moved. As of 2026-09-08 accepting the promote modal's cutout makes
+*those pixels* the reconstruction's input, with the engine told to keep the
+alpha instead of cutting its own. Every argument for and against is written out
+in `docs/measurements/2026-09-08-approved-cutout-as-input.md`, including the one
+awkward fact: `bg_removal=auto` was measured at 0 accepts in 80 on 2026-08-07 —
+with nothing to preserve, which is not this configuration, but is not nothing
+either. Only the interactive path changed; every campaign submitter still copies
+the reference verbatim, so props-v1 and fantasy-v1 still describe what they
+measured.
+
+**Do:** run the two arms that document pre-registers — the five `detail-v1`
+subjects at seed 42, control against approved-cutout, ten units, about an hour
+and a half of card time — then the blind pass and the five pairwise calls. The
+decision rules are fixed and are applied verbatim; one of them (a silhouette
+that opens past 0.07 where the control's did not) fires the revert on its own.
+
+**Expected outcome:** the document's Results sections filled in, and either the
+flip stands or it becomes an opt-in tick with the mechanism and its tests kept.
+Until this closes, the shipped interactive default is unmeasured and this entry
+is what says so.
+
 ## P32. Re-examine the `trellis_tex_res = 512` pin
 
 **Why it is yours:** a card and a judgement. The graded mesh run closed on

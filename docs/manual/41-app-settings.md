@@ -243,23 +243,31 @@ while one you pressed the button for tells you what went wrong.
 
 ## Storage
 
-Three figures and two buttons. The figures are how many job directories exist and what they occupy,
-what is sitting in the [trash](36-library-and-jobs.md#the-trash) waiting to be emptied, and how much
-disk the downloaded model weights are actually using. All three are measured on a background thread
-and the last answer is drawn until a new one arrives, so none of them walks the disk while you are
-looking at something else. The first two are the same measurements the library reports, not a second
-opinion about the same directories; the third is a real measurement of the model store rather than
-the sizes the Models list declares, which are approximations kept for the progress bar and the
-free-disk check.
+Four figures and two buttons. The figures are how many job directories exist and what they occupy,
+what is sitting in the [trash](36-library-and-jobs.md#the-trash) waiting to be emptied, how much
+disk the downloaded model weights are actually using, and what the evidence archive holds. All four
+are measured on a background thread and the last answer is drawn until a new one arrives, so none of
+them walks the disk while you are looking at something else. The first two are the same measurements
+the library reports, not a second opinion about the same directories; the third is a real measurement
+of the model store rather than the sizes the Models list declares, which are approximations kept for
+the progress bar and the free-disk check.
+
+The fourth is absent until there is something to report. The archive fills up on a *delete* — the
+moment you are least expecting anything to be written — so it says so; but a line reading "0 archived
+jobs" would be a permanent fixture explaining a thing that has not happened.
 
 **Prune...** deletes everything but the newest N assets from disk, after a confirm that carries the
 count — N is yours to choose and it starts at twenty every time it is asked. Running jobs are never
-touched, and neither is anything you accepted or labelled.
+touched, and neither is anything you accepted or labelled. Anything you *did* grade, and anything a
+benchmark run tagged, has its files copied to the evidence archive on the way out — see
+[Library and jobs](36-library-and-jobs.md#storage-and-pruning).
 
 **Clean library...** is the other end of the same scale: every asset, trashed or not, including the
 accepted ones and the labelled images the quality judge and the tier checks are measured against.
-The verdict rows survive; the pixels behind them do not. Your pose library, Inker
-autosaves and settings are kept, and it refuses outright while anything is queued or running.
+The verdict rows survive; the pixels behind them do not, and nothing is written to the evidence
+archive either — starting a corpus over is not a request that quietly keeps the largest meshes on the
+disk. Your pose library, Inker autosaves and settings are kept, and it refuses outright while
+anything is queued or running.
 
 Both used to sit at the foot of the library, under the list of assets, which is the one place where
 "clean library" reads as an action on the assets you can see rather than on all of them.

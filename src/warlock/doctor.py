@@ -22,6 +22,10 @@ from .config import Config
 # is a module attribute rather than anything that has to be carried.
 from .pipelines import matting
 
+# Same reasoning: ``service.evidence`` imports json, shutil and ``provenance``
+# and nothing else, so naming the archive's size here costs no import weight.
+from .service import evidence
+
 MIN_FREE_DISK_GB = 5.0
 
 #: Where the host-memory row stops being green. Below the queue's own
@@ -154,6 +158,7 @@ def volatile_checks(
         _instance_check(config),
         _environment_check(),
         _disk_check(config),
+        _evidence_check(config),
         _store_check(config),
         _port_check(config, trellis_running),
     ]
@@ -693,6 +698,27 @@ def _disk_check(config: Config) -> Check:
     free_gb, where = min(seen.values())
     ok = free_gb >= MIN_FREE_DISK_GB
     return Check("free disk space", ok, f"{free_gb:.1f} GB free in {where}", fatal=False)
+
+
+def _evidence_check(config: Config) -> Check:
+    """How much the archive holds. Informational, never a failure.
+
+    ``service.evidence`` copies a judged job's pixels and mesh out of the
+    library before a bulk delete takes them, which is a size that grows without
+    anything on screen mentioning it. So it is mentioned here. ``ok`` is
+    unconditionally True: an archive of any size is the system working, and a
+    doctor row that went red for doing its job would teach the user to ignore
+    it.
+    """
+    used = evidence.usage(config)
+    if not used["jobs"]:
+        detail = f"empty ({config.evidence_dir})"
+    else:
+        detail = (
+            f"{used['jobs']} job(s), {used['bytes'] / (1024**3):.2f} GB "
+            f"in {config.evidence_dir}"
+        )
+    return Check("evidence archive", True, detail, fatal=False)
 
 
 def _physical_ram_gib() -> float | None:

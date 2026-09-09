@@ -2123,6 +2123,79 @@ async def test_a_rejected_reference_fails_before_trellis_runs(worker):
     assert worker.store.get(job_id)["params"]["reference_report"]["ok"] is False
 
 
+async def test_build_anyway_reaches_reconstruction(worker):
+    """The button spent a queue slot to reproduce its own refusal.
+
+    ``force`` skipped the *door's* soft check and was then discarded: it was
+    never written to params, so the worker re-measured the same image and raised
+    the identical sentences the user had just read and dismissed. Nothing that
+    pressed "Build anyway" ever reached trellis.
+    """
+    from PIL import Image
+
+    from warlock import provenance
+    from warlock.pipelines import reference
+
+    job_id = _make_image_job(worker)
+    path = worker.config.job_dir(job_id) / "input.png"
+    Image.new("RGB", (64, 64), (200, 200, 200)).save(path)
+    params = worker.store.get(job_id)["params"]
+    reference.grant_override(params, provenance.file_fingerprint(path), ("empty",))
+    worker.store.set_params(job_id, params)
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "done")
+    await worker.shutdown()
+
+    assert worker.trellis.generate_calls
+    # And the refusal is still recorded: ``vectors.observation_metrics`` rolls
+    # these codes into ``refused_*`` rates over a corpus that outlives the row,
+    # so a bypass that turned a refusal into a pass would re-base it.
+    report = worker.store.get(job_id)["params"]["reference_report"]
+    assert report["ok"] is False
+    assert "empty" in report["codes"]
+
+
+async def test_an_override_does_not_travel_to_a_job_with_different_pixels(worker):
+    """The grant is pinned to a fingerprint, so it cannot be inherited.
+
+    A rerun keeps the same ``input.png`` and keeps the override, which is right.
+    Any door writing *different* pixels writes a different fingerprint and the
+    grant stops applying with nothing to remember and nothing to clear.
+    """
+    from PIL import Image
+
+    from warlock.pipelines import reference
+
+    job_id = _make_image_job(worker)
+    path = worker.config.job_dir(job_id) / "input.png"
+    Image.new("RGB", (64, 64), (200, 200, 200)).save(path)
+    params = worker.store.get(job_id)["params"]
+    reference.grant_override(params, "s1:not-these-pixels", ("empty",))
+    worker.store.set_params(job_id, params)
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "error")
+    await worker.shutdown()
+
+    assert worker.trellis.generate_calls == []
+
+
+async def test_an_ordinary_composition_refusal_still_stops_the_worker(worker):
+    """The bypass is a bypass, not a removal. Without a grant, nothing moves."""
+    from PIL import Image
+
+    job_id = _make_image_job(worker)
+    Image.new("RGB", (64, 64), (200, 200, 200)).save(
+        worker.config.job_dir(job_id) / "input.png"
+    )
+    worker.start()
+    await _wait_until(lambda: worker.store.get(job_id)["status"] == "error")
+    await worker.shutdown()
+
+    assert worker.trellis.generate_calls == []
+
+
 async def test_an_unreadable_reference_is_passed_on_rather_than_rejected(worker):
     """The rules are about composition, and none of them can be evaluated on
     bytes that will not decode -- trellis is the authority on that."""

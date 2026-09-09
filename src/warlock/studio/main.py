@@ -1734,6 +1734,10 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             if isinstance(done.result, dict):
                 ctx.model_storage = done.result
             return
+        if key == "evidence-storage":
+            if isinstance(done.result, dict):
+                ctx.evidence_storage = done.result
+            return
         if key == app_ctx_mod.UPDATE_CHECK_KEY:
             if isinstance(done.result, dict):
                 # Onto the state rather than left in the task's progress: the

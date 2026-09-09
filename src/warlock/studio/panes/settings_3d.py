@@ -1160,8 +1160,16 @@ def _matte_body(ctx: Any, state: Any) -> None:
             _matte_image(ctx, preview)
             widgets.muted(f"{MATTE_SOURCES.get(preview.source, preview.source)} - "
                           f"keeps {preview.coverage * 100:.0f}% of the frame")
-            if preview.approved:
-                widgets.muted("This reference already carries this matte; it will be kept.")
+            # What Accept actually does, said once. It used to say this only
+            # for an already-matted reference -- because that was the only case
+            # where the cutout survived. Now it is every case: the pixels on
+            # screen are copied into the mesh job and the server is told to keep
+            # them rather than cut its own.
+            widgets.muted(
+                "These are the pixels the 3D engine will rebuild from."
+                if not preview.approved
+                else "This reference already carries this matte; it will be kept."
+            )
             for reason in preview.reasons:
                 imgui.push_style_color(imgui.Col_.text.value, imgui.ImVec4(*theme.rgba(theme.ERR)))
                 imgui.text_wrapped(reason)

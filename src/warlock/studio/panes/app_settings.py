@@ -929,11 +929,18 @@ def _layout(ctx: Any) -> None:
 
 _MEASURED = False
 
+#: ``_MEASURED``'s twin, for the evidence archive. Module-level for its reason
+#: exactly: the walk is once per session, not once per frame.
+_EVIDENCE_MEASURED = False
+
 
 def _reset_measure() -> None:
-    """For tests, for ``_reset_sweep``'s reason."""
-    global _MEASURED
+    """For tests, for ``_reset_sweep``'s reason. Both once-per-session walks,
+    because a helper that reset one of them would be a trap the moment a third
+    arrived."""
+    global _EVIDENCE_MEASURED, _MEASURED
     _MEASURED = False
+    _EVIDENCE_MEASURED = False
 
 
 def _model_storage(ctx: Any) -> None:
@@ -952,6 +959,36 @@ def _model_storage(ctx: Any) -> None:
         widgets.muted(f"{found['files']} model {noun} - {format_bytes(int(found['bytes']))}")
     else:
         widgets.muted("Measuring the model store...")
+
+
+def _evidence_storage(ctx: Any) -> None:
+    """What the evidence archive holds, asked for once per session.
+
+    ``_model_storage``'s shape and its reason: a directory that grows without
+    anything on screen naming it is one whose first reader is the user's disk.
+    That is exactly what this archive would otherwise be -- it fills up on a
+    *delete*, which is the moment a user is least expecting anything to be
+    written.
+
+    Silent when it is empty, which is every session until a bulk delete has had
+    something worth keeping to keep. A line reading "0 archived jobs" is a
+    permanent fixture explaining a feature that has not happened yet.
+    """
+    global _EVIDENCE_MEASURED
+    from ..state import format_bytes
+
+    if not _EVIDENCE_MEASURED:
+        _EVIDENCE_MEASURED = True
+        from ...service import evidence as svc_evidence
+
+        ctx.submit("evidence-storage", svc_evidence.usage, ctx.svc.config)
+    found = getattr(ctx, "evidence_storage", None)
+    if found and found["jobs"]:
+        noun = "job" if found["jobs"] == 1 else "jobs"
+        widgets.muted(
+            f"Kept as evidence: {found['jobs']} {noun} - "
+            f"{format_bytes(int(found['bytes']))}"
+        )
 
 
 def _storage(ctx: Any) -> None:
@@ -997,6 +1034,9 @@ def _storage(ctx: Any) -> None:
     # stamp and the library goes on asking under the page it is showing.
     summary = library.trash_summary(library.measure_trash(ctx, []))
     widgets.muted(f"In the trash: {summary}" if summary else "Measuring the trash...")
+    # And what the two buttons below carried out of the library rather than
+    # deleting. It sits under them because that is what it is about.
+    _evidence_storage(ctx)
 
     widgets.section("Maintenance")
     # The two non-destructive ones first, and deliberately above Prune: this

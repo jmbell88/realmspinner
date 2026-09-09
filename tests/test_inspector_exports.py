@@ -358,16 +358,38 @@ def test_a_rewritten_manifest_is_re_read(tmp_path):
 # -- what the notes under the grid actually say ----------------------------
 
 
+#: Every muted-note widget these functions may reach, captured together.
+#:
+#: **A note widget this list forgets is a hard crash, not a failed assertion.**
+#: The helper below patched ``muted`` alone, so when ``_matte_note`` and
+#: ``_manifest_summary`` moved to ``muted_wrapped`` -- a wrap, no change of
+#: meaning -- the real widget ran, called imgui with no context, and took the
+#: process down with ``Windows fatal exception: access violation``. Under
+#: ``-n 8`` that is ``[gwN] node down: Not properly terminated``, xdist
+#: replacing the worker, and the whole suite hanging at 99% with no summary
+#: ever printed: the failure costs a run rather than a line of output, and it
+#: does not name itself.
+#:
+#: So the capture is by *category* rather than by call site. Both take a single
+#: string and both mean "a muted note", which is what makes one list correct;
+#: a note function reaching for a third spelling belongs here the day it does.
+#: This is the same rule ``docs/measurements/2026-08-25-suite-context-crash.md``
+#: draws about the one imgui context -- a test that draws must patch what draws.
+_NOTE_WIDGETS = ("muted", "muted_wrapped")
+
+
 def _lines(monkeypatch, fn, *args):
-    """Run a note function with ``widgets.muted`` captured.
+    """Run a note function with every muted-note widget captured.
 
     The notes are the only part of the pane whose *wording* is a contract --
     with B3, which records ``hand_edited`` and ``matte`` specifically so this
-    task can show them -- and capturing the one widget they use is what makes
-    that assertable without a GL context.
+    task can show them -- and capturing the widgets they use is what makes that
+    assertable without a GL context. See ``_NOTE_WIDGETS`` for why "the widgets"
+    is a list rather than the one this used to name.
     """
     out: list[str] = []
-    monkeypatch.setattr(inspector.widgets, "muted", out.append)
+    for name in _NOTE_WIDGETS:
+        monkeypatch.setattr(inspector.widgets, name, out.append)
     fn(*args)
     return out
 

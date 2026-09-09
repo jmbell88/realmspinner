@@ -126,6 +126,14 @@ DERIVED_PARAMS = (
     # re-rendering those runs against that base.
     "rendered_cells",
     "reference_report",
+    # The record of ``cutout.png`` -- which pixels it was cut from, by what, and
+    # what the gate makes of it. About *this* row's own image, so a promotion
+    # copying params must not carry it onto a child whose ``input.png`` is a
+    # different file (it is the cutout itself, which would make the record claim
+    # to be its own source). The child records ``approved_input`` instead, which
+    # is deliberately *not* here: that is the request -- which pixels a person
+    # approved -- and it has to survive a rerun the way ``matte`` does.
+    "cutout",
     # What the *music* worker observed about the track it wrote, as opposed to
     # what was asked for. A reroll at a different duration must not inherit
     # this one's, or the row wears a length it does not have. Request echoes --

@@ -652,12 +652,17 @@ def _removal_toast(ctx: Any, done: Any) -> None:
         verb = f"Cleaned up {named}:" if named else "Cleaned up"
     else:
         verb = "Deleted"
-    removed = remaining = kept = swept = 0
+    removed = remaining = kept = swept = archived = 0
     if isinstance(done.result, dict):
         removed = int(done.result.get("deleted") or 0)
         remaining = int(done.result.get("remaining") or 0)
         kept = int(done.result.get("kept") or 0)
         swept = int(done.result.get("sweeps") or 0)
+        archived = int(done.result.get("archived") or 0)
+    # Said only when there is something to say. "0 archived" on a delete of
+    # ungraded work would be a sentence about a feature that did not apply, on
+    # the one path where the user is already reading carefully.
+    archive_text = f" {archived} archived as evidence." if archived else ""
     # The bulk action's own clause, because "8 asset folders" says nothing
     # about the thing the user actually asked to be rid of -- the rows.
     swept_text = f"{swept} sweep(s) and " if done.key == REMOVE_KEY else ""
@@ -671,7 +676,7 @@ def _removal_toast(ctx: Any, done: Any) -> None:
         ctx.toast(
             f"{verb} {swept_text}{removed} asset folder(s); kept {kept} you "
             'reviewed. Tick "also delete the units I accepted or labelled" '
-            "to take those too."
+            f"to take those too.{archive_text}"
         )
     elif remaining:
         # A unit the worker is still inside is cancelled but not deleted --
@@ -682,12 +687,12 @@ def _removal_toast(ctx: Any, done: Any) -> None:
         # looks like, and the sentence already says what to do next.
         ctx.toast(
             f"{verb} {swept_text}{removed} asset folder(s); {remaining} still "
-            "finishing. Delete again in a moment."
+            f"finishing. Delete again in a moment.{archive_text}"
         )
     else:
         ctx.toast(
             f"{verb} {swept_text}{removed} asset folder(s). "
-            "Verdicts and findings kept."
+            f"Verdicts and findings kept.{archive_text}"
         )
 
 

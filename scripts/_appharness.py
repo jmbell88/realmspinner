@@ -42,6 +42,7 @@ _ROOTS_UNDER_HOME = (
     "WARLOCK_DATA_DIR",
     "WARLOCK_DB",
     "WARLOCK_BENCH_DIR",
+    "WARLOCK_EVIDENCE_DIR",
     "WARLOCK_PALETTE_DIR",
     "WARLOCK_T2I_ROOT",
 )
@@ -560,6 +561,134 @@ def seed_troupe(app) -> None:
     ctx.cache.invalidate()
     ctx.cache.tick()
     troupe_mode.open_sheet(ctx, source_id, sheet_id)
+
+
+def _write_demo_figure(doc) -> None:
+    """A rising figure on channel one and a pulse under it, in one document.
+
+    Shared by :func:`seed_sirens` and :func:`seed_muse` because they want the
+    same thing for opposite reasons: the tracker needs a pattern grid with
+    something in it, and the take tray needs a WAV that is not silence -- a
+    waveform of an empty song is a flat line, which photographs as a bug.
+
+    Written through ``set_cells``, the one door every pattern write uses.
+    Poking ``cells`` directly would be a second way to edit a document, which
+    is what that method's docstring exists to prevent.
+    """
+    import numpy as np
+
+    from warlock.studio.sirens import document as sirens_doc
+    from warlock.studio.sirens import notes
+
+    pattern = doc.patterns[0]
+    rows = min(16, pattern.rows)
+    channels = min(2, pattern.channels)
+    block = np.full((rows, channels, sirens_doc.COLUMNS), notes.EMPTY, dtype=np.int16)
+    scale = (0, 2, 4, 5, 7, 9, 11, 12)
+    for row in range(rows):
+        block[row, 0, sirens_doc.NOTE] = notes.A4_NOTE - 9 + scale[row % len(scale)]
+        block[row, 0, sirens_doc.INSTRUMENT] = 0
+        block[row, 0, sirens_doc.VOLUME] = 48 + (row % 4) * 4
+        if channels > 1 and row % 4 == 0:
+            block[row, 1, sirens_doc.NOTE] = notes.A4_NOTE - 21
+            block[row, 1, sirens_doc.INSTRUMENT] = min(1, len(doc.instruments) - 1)
+    doc.set_cells(pattern.uid, 0, 0, 0, block)
+
+
+def seed_sirens(app) -> None:
+    """A song with notes in it, so the tracker is not six empty panes.
+
+    Sirens is six panes and every one of them answers "start a song or open a
+    ``.wsng``" with nothing open, so the corpus held three pictures of a mode
+    with no pattern grid, no instrument list, no envelope editor and no order
+    list -- the same gap ``seed`` closes for Inker, Clay, Plotter and
+    Packwright, and the same argument that made ``seed_troupe`` exist.
+
+    ``new_document`` is the entry point the New song button calls.
+
+    **Nothing sounds.** ``sirens_audio`` is never touched: a capture has
+    nothing to hear, and opening an audio device inside a screenshot pass is a
+    side effect on the machine that ran it.
+    """
+    from warlock.studio import sirens_mode
+
+    tab = sirens_mode.new_document(app.app_ctx)
+    _write_demo_figure(tab.doc)
+    # Saved rather than left dirty: an unsaved marker in every Sirens picture
+    # is a fact about the harness, not about the mode.
+    tab.doc.mark_saved()
+
+
+def seed_muse(app) -> None:
+    """Two finished takes and a decoded player, so Muse has a take tray.
+
+    Muse's results pane draws "No takes yet" until a music row exists, and
+    ``muse_player.should_draw`` keeps the transport strip off screen until one
+    has actually been auditioned -- so three of the mode's four surfaces were
+    absent from every capture: the tray's cards, their Play/Stems/derive
+    controls, and the whole full-width player with its waveform, playhead and
+    loop markers.
+
+    The audio is **made here**, by the app's own synth and WAV writer, because
+    a real take is a GPU and a 23 GB download: ``muse_mode`` already pairs
+    ``synth.render`` with ``wavout.wav_bytes`` for its reference tracks, so
+    this is that pairing and not a second way to make a WAV.
+
+    The player is built the way ``muse_mode.on_task_done`` builds it, minus
+    ``sirens_audio.play``: the strip needs a decoded buffer, and a screenshot
+    has nothing to hear. Going through ``muse_mode.play`` instead would open an
+    audio device on the machine running the pass and put the read on a task
+    thread the capture would race.
+    """
+    from warlock.studio import muse_io, muse_mode
+    from warlock.studio.muse_state import Player
+    from warlock.studio.sirens import document as sirens_doc
+    from warlock.studio.sirens import synth, wavout
+
+    ctx = app.app_ctx
+    song = sirens_doc.new_song()
+    _write_demo_figure(song)
+    samples, loop = synth.render(song)
+    wav = wavout.wav_bytes(samples, synth.SAMPLE_RATE, loop=loop)
+    takes = (
+        ("dungeon ambience, low strings, slow", 12345, ""),
+        ("dungeon ambience, low strings, slow, harp", 12346, "vary"),
+    )
+    first = ""
+    for prompt, seed, task in takes:
+        params = {"duration": 60.0, "seed": seed}
+        if task:
+            params["task"] = task
+        job_id = ctx.svc.store.create(
+            "music",
+            prompt,
+            params,
+            # ``stage="music"``, which is what ``_jobs_music`` writes and not
+            # ``create``'s ``"model"`` default. The difference is not cosmetic:
+            # ``JobStore.unverdicted_models`` selects on ``stage = 'model'``
+            # with no kind filter, so a take seeded at the default stage walks
+            # straight into Review's recent-unreviewed bucket and is offered
+            # for mesh grading -- five units, one of which answers "No mesh for
+            # this unit". The first Muse capture showed exactly that.
+            stage="music",
+            status="done",
+            parent_id=first or None,
+        )
+        ctx.svc.job_dir(job_id).mkdir(parents=True, exist_ok=True)
+        muse_mode.track_path(ctx, job_id).write_bytes(wav)
+        first = first or job_id
+    ctx.cache.invalidate()
+    ctx.cache.tick()
+    state = muse_mode.ensure(ctx)
+    state.selected_job = first
+    track = muse_io.read_track(muse_mode.track_path(ctx, first))
+    state.player = Player(
+        job=first,
+        pcm=track["pcm"],
+        rate=int(track["rate"]),
+        env=track.get("env"),
+        duration=float(track.get("duration", 0.0)),
+    )
 
 
 def seed_palette(app) -> None:

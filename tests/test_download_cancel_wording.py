@@ -24,7 +24,11 @@ def _cancel_source() -> str:
 
 def test_cancel_says_what_has_downloaded_is_kept():
     source = _cancel_source()
-    assert "widgets.muted(" in source
+    # Either muted spelling. The claim is that the sentence is a *muted note*
+    # beside the button, which ``muted_wrapped`` is -- it wraps, and in a 300 px
+    # sidebar this sentence needs to. Pinning the exact call was pinning a
+    # formatting choice as though it were the contract.
+    assert "widgets.muted(" in source or "widgets.muted_wrapped(" in source
     assert "keeps what has downloaded" in source
     assert "resumes" in source
     # It must not claim the opposite of the verified behaviour.

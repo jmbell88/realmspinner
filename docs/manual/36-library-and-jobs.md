@@ -251,12 +251,21 @@ jobs are never touched. Pruning removes both the database rows and the directori
 the whole history rather than only its first page — a history long enough to need pruning is exactly
 the one a single-page prune would fail on.
 
+Anything you graded, and anything a benchmark run tagged, is copied to the **evidence archive** on
+the way out. That archive sits beside your library rather than inside it, so nothing here reaches it,
+and it holds the reference, the cutout the mesh was rebuilt from, both meshes and a small file saying
+what the job was and how you scored it. Ordinary work you never judged is not archived — otherwise
+reclaiming space would only be moving it. [Settings → Storage](41-app-settings.md#storage) shows the
+size.
+
 **Clean library...** is the other end of the same scale: it deletes *every* asset, trashed
 or not, plus any job directory left behind with no row pointing at it. It is the one bulk action
 that keeps nothing — prune and **Empty trash...** both spare anything you accepted or labelled,
 because those files are what the quality judge and the triangle-tier checks are measured against,
-and this is the button for which that is not true. The verdict rows survive; the pixels behind them
-do not. Your pose library, Inker autosaves and settings are all kept, as is the job
+and this is the button for which that is not true. It writes nothing to the evidence archive either,
+for the same reason: starting a corpus over is not a request that quietly keeps the largest meshes on
+the disk. The verdict rows survive; the pixels behind them do not. Your pose library, Inker
+autosaves and settings are all kept, as is the job
 store itself. It refuses outright while anything is queued or running — "delete everything" that
 quietly left three jobs behind would have failed at the only thing it claims to do — so cancel the
 queue first.

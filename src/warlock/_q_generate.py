@@ -673,7 +673,33 @@ class GenerateOps:
         )
         await asyncio.to_thread(self.store.set_params, job_id, params)
         if not report.ok:
-            raise RuntimeError("; ".join(report.reasons))
+            # "Build anyway", and the only place it can be honoured. The door's
+            # own gate (``service._jobs_resubmit.promote_to_model``) is a *soft*
+            # check against what the reference stage measured; this one is the
+            # measurement of the pixels actually about to be uploaded, and until
+            # now it had no bypass at all -- so a forced promotion queued, waited
+            # its turn, and failed here with the sentences the user had already
+            # dismissed. The override is pinned to those pixels' fingerprint, so
+            # it cannot travel to a job whose image is something else.
+            #
+            # ``reference_report`` is left recording the refusal codes either
+            # way. ``vectors.observation_metrics`` rolls them into ``refused_*``
+            # rates over a corpus that outlives these rows, and a bypass that
+            # quietly turned a refusal into a pass would re-base that corpus.
+            allowed = await asyncio.to_thread(
+                functools.partial(
+                    reference.override_allows,
+                    params,
+                    provenance.file_fingerprint(image_path),
+                )
+            )
+            if not allowed:
+                raise RuntimeError("; ".join(report.reasons))
+            log.info(
+                "job %s: composition override honoured (%s)",
+                job_id,
+                ", ".join(report.codes) or "no codes",
+            )
 
         # **The worker's default has to be the door's.** A job normally arrives
         # with the key already resolved by ``service.jobs``, which asks

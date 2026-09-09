@@ -26,6 +26,8 @@ import uuid
 from typing import Any
 
 from .. import guidance
+from ..pipelines import reference
+from ..provenance import file_fingerprint
 from . import matte
 from ._jobs_create import _normalize_guidance, resolve_profile
 from ._jobs_rework import _require_no_dependents
@@ -462,6 +464,7 @@ def promote_to_model(
     rig_template: str | None = None,
     reference_prep: bool | None = None,
     force: bool = False,
+    prepared: matte.Prepared | None = None,
     candidate_group: str | None = None,
     candidate_index: int = 0,
 ) -> dict[str, Any]:
@@ -489,6 +492,20 @@ def promote_to_model(
     None): a promoted job is the other door onto a mesh job, and until now it
     was the only one these axes could not reach a real Create job through --
     a sweep could set them, an ordinary promotion could not.
+
+    **``prepared`` is the pixels the user approved**, and passing it is what
+    makes the modal mean something. Without it this copies ``input.png``
+    verbatim, which is what every other door does -- an upload, a sweep, the
+    headless campaign submitters -- and is deliberately unchanged. With it, the
+    approved cutout becomes this job's ``input.png``, ``matte.approve`` finds
+    the alpha and pins ``bg_removal`` to the mode that preserves it, and the
+    server stops re-cutting the image with a different copy of BiRefNet than the
+    one the user looked at. ``service.matte.Prepared`` argues the whole case.
+
+    It is taken as an argument rather than looked up here for one reason:
+    ``promote_candidates`` prepares **once** and hands the same object to every
+    candidate, so "each candidate reconstructs from identical pixels" is a
+    property of the call rather than of two cuts happening to agree.
     """
     check_seed("mesh_seed", mesh_seed)
     if resolution is not None and resolution not in ALLOWED_RESOLUTIONS:
@@ -520,7 +537,8 @@ def promote_to_model(
     # Bypassable because the rules are heuristics about composition, not
     # facts -- the 3D pane sends force behind a confirm.
     report = source["params"].get("reference_report") or {}
-    if not force and report.get("ok") is False:
+    refused = report.get("ok") is False
+    if not force and refused:
         raise Invalid(
             " ".join(report.get("reasons") or ["this reference cannot reconstruct"])
         )
@@ -611,12 +629,40 @@ def promote_to_model(
             params.pop("rig", None)
             params.pop("rig_template", None)
 
+    # Which pixels this job reconstructs from, and it is the only choice made
+    # here. ``prepared`` is a cutout a person accepted in the promote modal;
+    # without one this is the reference itself, exactly as it always was.
+    approved_from = src_png
+    if prepared is not None:
+        if prepared.job_id != job_id:
+            raise Invalid("that cutout was made from a different reference")
+        # Re-checked *now* rather than trusted from when the modal opened: the
+        # user may have taken the Fix-matte round trip, saved from Inker, or
+        # reverted the reference while the preview sat on screen. Refusing beats
+        # reconstructing from a cutout of pixels that no longer exist, and it is
+        # a refusal the pane can point at a control.
+        if prepared.src_fingerprint != file_fingerprint(src_png):
+            raise Invalid(
+                "the reference changed after that cutout was approved; "
+                "look at the matte again",
+                field="reference",
+            )
+        if not prepared.path.exists():
+            raise Invalid("that cutout is no longer on disk", field="reference")
+        approved_from = prepared.path
+        params["approved_input"] = {
+            "fingerprint": prepared.fingerprint,
+            "source": prepared.source,
+            "from": job_id,
+        }
+
     # After the guidance normalize, because it *overrides* the matte mode that
     # normalize just defaulted: a reference whose alpha is a cutout somebody
     # approved must not be re-cut by the server. Read off the file rather than
     # off params, because the alpha is the evidence -- a hand edit in Inker
-    # writes it into input.png and records nothing.
-    matte.approve(params, src_png)
+    # writes it into input.png and records nothing, and an accepted preview
+    # writes it into ``cutout.png`` and records only where it came from.
+    matte.approve(params, approved_from)
 
     params["mesh_seed"] = mesh_seed if mesh_seed is not None else random_seed()
     params["seed"] = params["mesh_seed"]
@@ -628,7 +674,18 @@ def promote_to_model(
     new_dir = svc.job_dir(new_id)
     new_dir.mkdir(parents=True, exist_ok=True)
     try:
-        shutil.copyfile(src_png, new_dir / "input.png")
+        shutil.copyfile(approved_from, new_dir / "input.png")
+        if force and refused:
+            # Granted against the bytes just written, not against the
+            # reference's -- with a cutout those differ, and the worker
+            # fingerprints its own ``input.png``. Recorded after the copy for
+            # the same reason: there is nothing to pin an override to until the
+            # pixels exist. See ``pipelines.reference.grant_override``.
+            reference.grant_override(
+                params,
+                file_fingerprint(new_dir / "input.png"),
+                report.get("codes") or (),
+            )
         svc.store.create(
             "image",
             source["prompt"],
@@ -695,6 +752,15 @@ def promote_candidates(
             f"candidates must be between 1 and {MAX_MESH_CANDIDATES}", field="count"
         )
     check_seed("mesh_seed", mesh_seed)
+    # **Cut once, for the whole group.** Every candidate must reconstruct from
+    # byte-identical approved pixels or the group is not the controlled
+    # comparison it is offered as -- BiRefNet is deterministic, but "two runs of
+    # the same model agree" is a premise, and this makes it an identity instead.
+    # It also saves N-1 seconds-long cuts. Absent (an upload, a sweep, a job
+    # whose reference is gone) simply means each candidate copies ``input.png``
+    # exactly as it always did.
+    if kwargs.get("prepared") is None:
+        kwargs["prepared"] = _prepared_or_none(svc, job_id)
     if count == 1:
         result = promote_to_model(svc, job_id, mesh_seed=mesh_seed, **kwargs)
         return {**result, "ids": [result["id"]], "group": None}
@@ -722,6 +788,22 @@ def promote_candidates(
                 shutil.rmtree(svc.job_dir(made), ignore_errors=True)
         raise
     return {"id": ids[0], "ids": ids, "group": group, "parent": job_id}
+
+
+def _prepared_or_none(svc: WarlockService, job_id: str) -> matte.Prepared | None:
+    """The approved cutout for this reference, or None if there cannot be one.
+
+    Never raises. A promotion is not the place to discover that BiRefNet will
+    not load: the fallback is the behaviour this door had for its whole life --
+    copy the reference and let the server cut it -- which is worse than the
+    cutout and is not a failure. ``promote_to_model``'s own checks still refuse
+    a reference with no image at all.
+    """
+    try:
+        return matte.ensure_prepared(svc, job_id)
+    except Exception:
+        log.exception("could not prepare the cutout for %s; promoting as-is", job_id)
+        return None
 
 
 def keep_candidate(svc: WarlockService, job_id: str) -> dict[str, Any]:

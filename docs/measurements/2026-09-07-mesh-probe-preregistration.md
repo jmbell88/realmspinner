@@ -209,3 +209,35 @@ whatever mix of new grading (through ordinary Create/Library review, which
 `review_mode.JudgingPass`'s cleanup licence explicitly does not touch — it
 "refuses `RECENT_ID`, whose units are ordinary library rows and whose removal
 is prune's job") and un-swept sweep review a human decides to do next.
+
+## Amendment, 2026-09-08 — the mechanism that emptied the corpus is gone
+
+**Nothing in the methodology above changes, and no number in it moves.** What
+changes is the sentence under Results that says the path back is whatever
+grading a human does next, because it was written against a tree in which
+finishing a grading pass *destroyed* what it graded, and that is no longer
+true. `service.evidence` copies a judged unit's `input.png`, `cutout.png`,
+`reference.png`, `source.glb` and `model.glb` — plus a `job.json` naming the
+settings and the grade — out to `config.evidence_dir` before `cleanup_sweep`
+or `prune_jobs` removes anything. The reclaim is unchanged; what has stopped
+happening is that it also took the measurement with it.
+
+Three things follow, and the third is the one worth being careful about:
+
+- **The count of 0 stands as a measurement of 2026-09-07** and is not
+  retroactively repaired. Those nine meshes are gone; nothing here recovers
+  them, and no fit may be taken against a corpus that pretends otherwise.
+- **A rejected unit now survives too**, which the retention rule deliberately
+  never kept (`jobs.retained_job_ids`: a model-stage reject "is fully carried
+  by its row"). That is correct for the finding it was written about and wrong
+  for this document, whose declared floor is **8 per split** — a regression
+  probe needs both ends of the grade scale, and until now only accepts were
+  ever kept.
+- **The corpus therefore accumulates from the next graded pass onward, and its
+  files live outside `data_dir`.** Anything reading it must read the archive as
+  well as the library; a check that walks `data_dir / job_id / "source.glb"`
+  alone — which is exactly the check this document's own corpus section
+  describes — will keep answering 0 for as long as the assets it wants are the
+  ones a delete carried out. That is a change to *where the corpus is*, not to
+  what the corpus must contain, and the success criterion above is untouched
+  by it.

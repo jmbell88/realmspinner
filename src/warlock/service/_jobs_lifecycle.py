@@ -25,6 +25,7 @@ import shutil
 import time
 from typing import Any
 
+from . import evidence
 from . import verdicts as verdicts_mod
 from ._jobs_list import get_job
 from .core import WarlockService
@@ -40,7 +41,17 @@ log = logging.getLogger(__name__)
 
 
 def prune_jobs(svc: WarlockService, keep: int = 20) -> dict[str, Any]:
-    """Delete everything but the newest ``keep`` jobs. Never touches a running one."""
+    """Delete everything but the newest ``keep`` jobs. Never touches a running one.
+
+    **Evidence is archived on the way out.** :func:`retained_job_ids` keeps an
+    accept, and a labelled reference, exactly where they are; anything else that
+    was judged or was tagged by a campaign has its files copied to
+    ``config.evidence_dir`` first (``service.evidence``, which carries the
+    measured reason). ``archived`` in the result is how many -- reported beside
+    ``deleted`` and ``kept`` for the reason those two are reported apart: three
+    different things happen to three different populations, and one number would
+    describe none of them.
+    """
     if keep < 0:
         raise Invalid("keep must be >= 0", field="keep")
     # Paged with a keyset cursor rather than one MAX_LIST_LIMIT read: a history
@@ -57,6 +68,7 @@ def prune_jobs(svc: WarlockService, keep: int = 20) -> dict[str, Any]:
     # long history would otherwise repeat it per page.
     retained = retained_job_ids(svc)
     kept = 0
+    archived = 0
     cursor: tuple[float, str] | None = None
     while True:
         page = svc.store.list(_facade.MAX_LIST_LIMIT, cursor)
@@ -79,6 +91,15 @@ def prune_jobs(svc: WarlockService, keep: int = 20) -> dict[str, Any]:
             # the other two hundred.
             if worker_is_inside(svc, job["id"]) or dependent_jobs(svc, job["id"]):
                 continue
+            # The archive goes *before* the delete, not after: once the row is
+            # gone there is nothing left to say what these files were, and
+            # ``evidence.archive_all`` reads the row to write its manifest. It
+            # is called per job rather than hoisted out of the walk because a
+            # prune pages through a history that may be tens of thousands of
+            # rows long, and hoisting would mean building the whole delete list
+            # before deleting any of it -- the single huge read this loop was
+            # given a keyset cursor to avoid.
+            archived += evidence.archive_all(svc, [job["id"]], reason="prune")
             # Conditional in the DB, not against this page's snapshot: a
             # queued job can be claimed in the gap, and deleting it then
             # rmtrees a directory a live reconstruction is writing into.
@@ -86,7 +107,7 @@ def prune_jobs(svc: WarlockService, keep: int = 20) -> dict[str, Any]:
                 continue
             shutil.rmtree(svc.job_dir(job["id"]), ignore_errors=True)
             deleted += 1
-    return {"deleted": deleted, "kept": kept}
+    return {"deleted": deleted, "kept": kept, "archived": archived}
 
 
 def clean_jobs(svc: WarlockService) -> dict[str, Any]:

@@ -38,6 +38,7 @@ Boolean variables accept `1`, `true` or `on`; anything else is off.
 | `WARLOCK_GLTFPACK` | `vendor/gltfpack/gltfpack.exe` | The mesh optimiser binary. Vendored by hand like the engine — `vendor/` is git-ignored, so a fresh clone has neither (see [gltfpack](39-installation.md#gltfpack)). Point this elsewhere to use another copy; without it jobs ship the raw reconstruction rather than failing. |
 | `WARLOCK_MESH_PROFILE` | `raw` | Default triangle profile for a new job. `raw` means no second pass — the engine has already simplified the mesh to about 300k faces (see `WARLOCK_TRELLIS_DECIM`). The decimating tiers all run now, but none has been qualified, so `raw` stays the default and the only tier the generate form offers. Set this to try one; the inspector's **Triangle budget** panel is the safer place to. |
 | `WARLOCK_BENCH_DIR` | `~/.warlock/bench` | Where the benchmark writes its runs. Outside the data directory on purpose, so a run survives pruning. |
+| `WARLOCK_EVIDENCE_DIR` | `~/.warlock/evidence` | Where a bulk delete copies the files of anything you graded, or a benchmark tagged, before removing it. Outside the data directory for `BENCH_DIR`'s reason, and for a measured one: finishing a grading pass is what fires the automatic sweep cleanup, so it was also what deleted the meshes that pass had just judged. `warlock doctor` prints the size. |
 | `WARLOCK_T2I_ROOT` | `~/.warlock/models` | Where every image model lives, with style LoRAs under its `loras/` subdirectory. |
 | `WARLOCK_T2I_DIR` | unset | Redirects the built-in `turbo` entry (by name; not the default model) at an arbitrary local diffusers directory. It changes *where* that entry loads from and nothing else. |
 | `WARLOCK_T2I_MODEL` | `sdxl_cfg` | The base model key used when a job does not name one. |
@@ -130,6 +131,7 @@ never cloned the repository.
 ~/.warlock/
   assets/                  the library (WARLOCK_DATA_DIR)
   bench/                   benchmark runs (WARLOCK_BENCH_DIR)
+  evidence/                what a bulk delete kept (WARLOCK_EVIDENCE_DIR)
   palettes/                pixel-art palettes you supply (WARLOCK_PALETTE_DIR)
   models/                  every downloaded model weight (WARLOCK_T2I_ROOT)
   MIGRATED.txt             written once, if anything was moved here

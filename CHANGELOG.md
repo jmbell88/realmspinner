@@ -25,6 +25,104 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **The cutout you approve is now the cutout the 3D engine rebuilds from.**
+  Check-the-cutout showed you Warlock's own background removal and then sent
+  the engine the *untouched* reference, which the engine cut again with a
+  different copy of the model in a different directory — so the picture in the
+  panel was a claim about pixels nothing downstream ever saw, unless you had
+  matted the reference by hand in Inker. Accepting now saves that cutout and
+  hands it over with the engine told to keep it. Ask for several candidates and
+  all of them get byte-identical pixels, so a difference between two candidates
+  is the reconstruction seed and nothing else. Edit the reference afterwards and
+  the cutout is remade rather than reused. Every other route to a mesh — an
+  upload, a sweep, Inker's own Send to 3D — is deliberately unchanged, so the
+  measurements taken through them still describe what they measured; the change
+  to the interactive path is pre-registered, with its revert rule, in
+  `docs/measurements/2026-09-08-approved-cutout-as-input.md`.
+- **A soft matte you painted stays soft.** The cutout was rebuilt from a
+  hard threshold every time it was carried, so a feathered edge came back as a
+  hard cut — visible already when Fix matte reopened a reference in Inker.
+- **"Build anyway" now builds.** It skipped the check in front of the queue and
+  was then forgotten, so the job waited its turn and failed two minutes later
+  with the same sentences you had just dismissed — having spent a queue slot to
+  reproduce its own refusal. The override now travels with the job, pinned to
+  those exact pixels: it survives a rerun of the same image and applies to
+  nothing else, and an ordinary composition refusal still stops the job.
+- **Deleting a graded sweep no longer destroys the evidence for the grades.**
+  Filing the last verdict of a sweep is what triggers the automatic cleanup, so
+  finishing a grading pass was also what deleted the meshes it had just judged:
+  a check on 2026-09-07 found nine graded meshes on record and none of them
+  still on disk. Prune and sweep cleanup now copy the reference, the cutout,
+  both meshes and a small file naming the settings and your grade into an
+  evidence archive beside the library, before removing anything. The space you
+  asked to reclaim is still reclaimed; ordinary work you never judged is not
+  archived, **Clean library...** still keeps nothing at all, and `warlock
+  doctor` prints the archive's size.
+
+- **Dissolving or collapsing one edge on a big mesh no longer pays for the
+  whole mesh's face or vertex count.** Dissolve's union-find grouping and
+  collapse's vertex remap each walked every face or vertex to service a
+  selection of one: 654 ms and 175 ms on a roughly 400,000-element mesh, on
+  the frame thread, with no ceiling to refuse it. Both now touch only what the
+  selection names and measure 392 ms and 123 ms; what remains is the mesh
+  rebuild every Clay edit already pays.
+- **A `.wblk` built of a few enormous faces could pass Clay's two-million-
+  triangle ceiling and then hang for minutes anyway.** The reader counted a
+  mesh's *face* count toward the ceiling, so one 3,000,000-corner face counted
+  as 1, opened in 0.39 s and took 216 s to triangulate. It now sums each face's
+  fan-triangulation count, the number `triangulate` actually produces, and the
+  same door guards crash recovery, which reopens a `.wblk` with nobody to ask.
+- **Deleting selected faces or edges across several objects with one Delete
+  now undoes in one step**, instead of one Ctrl+Z restoring one object and
+  leaving the others empty.
+- **A fresh Clay document no longer arrives with Box already "in hand".** The
+  add grid's Box icon and its options preview lit before any add-tool was
+  pressed; nothing lights until a real click.
+- **Clay's Bevel, Inset and Weld dialogs say why Apply is grey during a save**,
+  matching every other saving-gated control in the mode.
+- **The interface zoom is five sizes now, not a slider.** 50, 75, 100, 125 and
+  150%, with 100% meaning the size Windows already asked for. A track could be
+  left anywhere, so an install could be running at 1.13x -- a size nobody had
+  ever looked at, an icon atlas baked at a figure no screenshot covers, and a
+  layout bug reachable only by wherever one person's mouse stopped. A setting
+  written by the old slider is moved to the nearest step on the way in, and a
+  step this display cannot honour is not offered at all rather than snapping
+  back after you pick it.
+- **Muse was drawing two of its four panes.** The recipe column asked for the
+  centre's width *plus* the left sidebar's, and the centre's width already
+  excluded the sidebars -- so it came out wider than the row and the recipe
+  column was left nothing, clipped out of every frame. Separately, the two
+  columns were shortened to leave room for the player strip but the drag handle
+  between them was not, so the handle set the row's height and the strip landed
+  eight pixels below the bottom of the screen. Steps, guidance, the scheduler,
+  the waveform, the playhead, the transport and both loop markers were all
+  present in the code and had never been on screen.
+- **Inker's colour picker is a wheel.** Hue around, saturation outward, with
+  Value and Alpha on their own bars beneath it -- and every number kept: one
+  menu chooses RGBA, HSV, HSL or Gray and shows that space's fields, with the
+  hex always below. The four tabs of sliders it replaces could set a colour but
+  never showed you one, which is most of what a picker is for. Picking on the
+  wheel while Value is 0 lifts it, since every colour at 0 is black and the
+  click would otherwise appear to do nothing.
+- **Clay's tool panel had three different grammars stacked in it.** An
+  unlabelled icon grid, a column of full-width text buttons, and a ragged pair
+  of ghost buttons per row. It is one icon grid now, the selected tool's name
+  heads its own options, and the actions are an even two columns with Delete
+  red on its own row. The figures stay as named rows: of the eight, only
+  "humanoid" has an icon that reads as itself at sixteen pixels, and icons for
+  one in eight would have rebuilt the same inconsistency one level down.
+- **Field names moved above their fields, throughout.** Around ninety controls
+  drew their name to the right of the box, or below it, or not at all, while
+  the pane next door drew the same kind of field with a small-caps name above
+  it. Coordinate rows keep one name over the group with short letters beside
+  each box, and a checkbox whose label reads as a sentence is left alone --
+  those are not fields.
+- **One spelling per button and per icon.** The confirm button of a dialog, the
+  Cancel beside it (four different widths), a destructive delete, an import and
+  an export each had two or three spellings depending on which pane you were
+  standing in. Three labels were also being cut off mid-word by frames too
+  narrow to hold them -- Review's "good-topology", Clay's longest action, and
+  four explanations in Settings that ended "Changes nothi" and "are ke".
 - **A re-rig that landed while you were still posing threw the pose away.**
   Rigging is queued work that can take minutes, and the obvious thing to do
   while you wait is carry on posing the rig you already have. Submitting the

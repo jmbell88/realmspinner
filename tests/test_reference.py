@@ -250,3 +250,34 @@ def test_an_acceptable_report_outranks_every_refusal():
     assert reference.rank_key(good) < reference.rank_key(
         reference.Report(ok=False, codes=("edge",))
     )
+
+
+# --- the composition override -----------------------------------------------
+#
+# One definition, here rather than in either caller, because ``queue.py`` may
+# not import ``service`` and ``service`` must not reach into a queue private.
+# The two ends are exercised where they live: the grant in
+# ``tests/test_matte_preview.py``, the honouring in ``tests/test_queue.py``.
+
+
+def test_an_override_applies_only_to_the_pixels_it_was_granted_for():
+    params: dict = {}
+    reference.grant_override(params, "s99:abc", ("multi_object",))
+
+    assert reference.override_allows(params, "s99:abc")
+    assert not reference.override_allows(params, "s99:def")
+
+
+def test_a_job_with_no_override_allows_nothing():
+    assert not reference.override_allows({}, "s99:abc")
+    assert not reference.override_allows({reference.OVERRIDE_KEY: "yes"}, "s99:abc")
+    assert not reference.override_allows({reference.OVERRIDE_KEY: {}}, "s99:abc")
+
+
+def test_an_override_records_the_codes_it_was_granted_against():
+    """For the reader, not for the check -- see ``override_allows``' docstring
+    on why a subset rule would misfire once the input is an approved cutout."""
+    params: dict = {}
+    reference.grant_override(params, "s1:x", ("edge", "occupancy"))
+
+    assert params[reference.OVERRIDE_KEY]["codes"] == ["edge", "occupancy"]

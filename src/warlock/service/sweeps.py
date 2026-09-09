@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .. import guidance
+from . import evidence
 from . import jobs as jobs_mod
 from .core import WarlockService
 from .errors import Invalid, NotFound, invalid_from
@@ -708,6 +709,16 @@ def cleanup_sweep(
 ) -> dict[str, Any]:
     """Remove a fully judged sweep's assets, retention and all.
 
+    **The files are archived first**, and that is the answer to what this
+    function was measured doing. On 2026-09-07 the mesh probe found zero of nine
+    graded meshes still on disk: filing the last verdict of a sweep is what fires
+    this, and this is what took them, so the loop was consuming the corpus that
+    finishing a pass produces. ``service.evidence`` copies the pixels and the
+    mesh out before the rmtree, and the reclaim below is unchanged -- which is
+    the point, because everything the paragraphs after this one argue about
+    reclaiming disk is still true. What has stopped being true is that the
+    reclaim also destroyed the measurement.
+
     This is the **user-chosen override** of ``retained_job_ids``, and saying so
     out loud is the point: everything ``retained_job_ids`` documents about the
     2026-08-09 incident is still true, and this is not a decision that a bulk
@@ -764,6 +775,17 @@ def _remove_units(
     removed = 0
     remaining = 0
     kept = 0
+    # **Before the loop, and before anything is cancelled.** Everything the
+    # delete is about to take that is evidence gets copied out first -- see
+    # ``service.evidence`` for the measured reason, which is that finishing a
+    # blind grading pass is what was destroying the corpus that pass produced.
+    # Hard links where the volume allows, so this costs nothing until the
+    # rmtree below actually happens.
+    archived = evidence.archive_all(
+        svc,
+        [job["id"] for job in svc.store.sweep_jobs(sweep_id) if job["id"] not in keep],
+        reason=f"sweep-{sweep_id}",
+    )
     for job in svc.store.sweep_jobs(sweep_id):
         if job["id"] in keep:
             # Checked before the cancel: a queued unit is not evidence yet, so
@@ -793,6 +815,18 @@ def _remove_units(
         # accepted units kept their ``sweep_id`` would hide them from the
         # library (``Filters.matches`` excludes sweep units) with nothing left
         # in Review to reach them by.
-        return {"ok": True, "deleted": removed, "remaining": remaining, "kept": kept}
+        return {
+            "ok": True,
+            "deleted": removed,
+            "remaining": remaining,
+            "kept": kept,
+            "archived": archived,
+        }
     svc.store.delete_sweep(sweep_id)
-    return {"ok": True, "deleted": removed, "remaining": 0, "kept": 0}
+    return {
+        "ok": True,
+        "deleted": removed,
+        "remaining": 0,
+        "kept": 0,
+        "archived": archived,
+    }

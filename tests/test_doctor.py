@@ -150,9 +150,13 @@ def test_run_checks_returns_every_check(tmp_path):
     # it until the measurement that picks the model pins a revision. The
     # seventeenth is "Muse (dependencies)": the music weights rows answer for
     # the disk, and nothing answered for the ``music`` extra until a packaged
-    # build shipped Muse with none of it installed.
+    # build shipped Muse with none of it installed. The eighteenth is "evidence
+    # archive": a bulk delete now copies a judged job's pixels and mesh out of
+    # the library before taking them (``service.evidence``), and a tree that
+    # grows with nothing on screen naming it is one whose first reader is the
+    # user's disk.
     expected = (
-        17
+        18
         + len(model_registry.BASE_MODELS)
         + len(model_registry.STYLE_LORAS)
         + len(model_registry.IP_ADAPTERS)

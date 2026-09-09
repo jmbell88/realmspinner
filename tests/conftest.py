@@ -493,6 +493,11 @@ def svc(tmp_path, monkeypatch):
     # unnoticed: nothing was destroyed that could not be recomputed, and nothing
     # recomputed it.
     monkeypatch.setenv("WARLOCK_BENCH_DIR", str(tmp_path / "bench"))
+    # And the evidence archive, for the same reason and one step earlier: it
+    # defaults under the pinned home already, but a developer with
+    # WARLOCK_EVIDENCE_DIR exported would otherwise have the suite archive
+    # invented jobs into a real corpus.
+    monkeypatch.setenv("WARLOCK_EVIDENCE_DIR", str(tmp_path / "evidence"))
     # And the palette directory, for the fifth and last time. Its default is now
     # under the *user's home* rather than the checkout, so a suite that left it
     # unset would read whatever palettes the developer happens to own -- and

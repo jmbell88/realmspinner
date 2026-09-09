@@ -36,6 +36,7 @@ import contextlib
 import logging
 import os
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -133,6 +134,72 @@ _CORNER_PATCH = 16
 # is the right verdict for that, not a shrug -- TRELLIS needs a background
 # either way.
 _LEAK_FLOOR = 0.01
+
+
+# Where a user's "Build anyway" is recorded, and the whole of that mechanism.
+#
+# **It lives here because both ends need it and they may not import each
+# other.** ``service._jobs_resubmit`` grants the override at the door;
+# ``_q_generate`` honours it two minutes of queue later, and ``queue.py`` may
+# not import ``service``. That is the same constraint ``vectors.VECTOR_PARAMS``
+# and ``validation.note_degraded`` already answer, and this answers it the
+# cheaper way: one definition in the module that owns the rules being
+# overridden, imported by both sides, rather than two copies tied together by a
+# test.
+#
+# The incident: ``force`` was a parameter of ``promote_to_model`` and nothing
+# else. It skipped the *door's* check and was then discarded, so the worker
+# re-measured the same image and raised the same sentences the user had just
+# read and dismissed -- a button that spent a queue slot and a directory to
+# reproduce its own refusal.
+OVERRIDE_KEY = "composition_override"
+
+
+def grant_override(
+    params: dict[str, Any], fingerprint: str, codes: Sequence[str] = ()
+) -> None:
+    """Record that a person chose to reconstruct from a refused composition.
+
+    ``fingerprint`` is ``provenance.file_fingerprint`` of the pixels the
+    decision was made about, and pinning it is what stops the grant travelling.
+    A rerun keeps the same ``input.png`` and so keeps the override, which is
+    right -- "run that again" means running the thing that was approved. Any
+    door that writes *different* pixels writes a different fingerprint, and the
+    override silently stops applying rather than having to be remembered and
+    cleared.
+
+    ``codes`` is recorded for the reader, not for the check: see
+    :func:`override_allows`.
+    """
+    params[OVERRIDE_KEY] = {
+        "fingerprint": fingerprint,
+        "codes": [str(c) for c in codes],
+    }
+
+
+def override_allows(params: dict[str, Any], fingerprint: str) -> bool:
+    """Whether these exact pixels carry a composition override.
+
+    **The grant covers every rule in ``REFUSAL_CODES``, not only the codes the
+    user was shown**, and that is a decision rather than an oversight. The
+    door's ``force`` has always meant "reconstruct this anyway" flatly, and a
+    second, narrower meaning at the worker would be two definitions of one
+    button. It would also misfire for a reason nobody could read off the
+    screen: the promoted job measures the *approved cutout* while the modal
+    refused the *reference*, and an alpha mask and a corner flood fill do not
+    find the same connected components -- so a subset-of-codes rule would block
+    a forced build roughly whenever the matte did its job.
+
+    What the override does not touch: whether the file decodes (``measure``
+    never gets that far -- see :func:`unmeasured`, which reports ``ok=True`` and
+    lets trellis be the authority on what it can read), the VRAM admission at
+    both ends, or any ceiling in ``pipelines/trellis.py``. It is a bypass of
+    four composition heuristics and of nothing else.
+    """
+    record = params.get(OVERRIDE_KEY)
+    if not isinstance(record, dict):
+        return False
+    return bool(record.get("fingerprint")) and record["fingerprint"] == fingerprint
 
 
 @dataclass(frozen=True, slots=True)

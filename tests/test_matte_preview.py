@@ -287,12 +287,143 @@ def test_a_matted_reference_promotes_as_an_approved_matte(svc):
 
 
 def test_an_opaque_reference_promotes_without_a_matte_claim(svc):
+    """The doors nobody approved a cutout at: an upload, a sweep, Inker's send.
+
+    ``promote_to_model`` with no ``prepared`` copies ``input.png`` verbatim and
+    claims nothing, exactly as it always did -- which is what keeps every stored
+    corpus a statement about the pipeline that produced it. The *modal's* Accept
+    is the case that changed, and it goes through ``promote_candidates``.
+    """
     job_id = _reference(svc, _subject_rgb())
 
     result = svc_jobs.promote_to_model(svc, job_id, force=True)
     job = svc.require_job(result["id"])
 
     assert "matte" not in job["params"]
+
+
+# --- the approved cutout is the reconstruction ------------------------------
+
+
+def test_the_pixels_the_user_approved_are_the_pixels_trellis_reconstructs_from(svc):
+    """The modal showed a cutout and the engine was handed the original.
+
+    ``preview`` computed the host's BiRefNet cut, drew it, and dropped it;
+    ``promote_to_model`` copied the untouched ``input.png``; ``matte.approve``
+    found no alpha, so ``bg_removal`` stayed ``birefnet`` and the server re-cut
+    the image with a *different copy* of BiRefNet under
+    ``WARLOCK_TRELLIS_MODELS``. The picture in the modal was a claim about
+    pixels nothing downstream ever saw.
+    """
+    job_id = _reference(svc, _subject_rgb())
+
+    preview = svc_matte.preview(svc, job_id)
+    result = svc_jobs.promote_candidates(svc, job_id, force=True)
+    job = svc.require_job(result["id"])
+
+    approved = (svc.job_dir(job_id) / svc_matte.CUTOUT).read_bytes()
+    assert (svc.job_dir(result["id"]) / "input.png").read_bytes() == approved
+    # And the server is told to keep them rather than cut its own.
+    assert job["params"]["matte"] == "approved"
+    assert job["params"]["bg_removal"] == "auto"
+    assert job["params"]["approved_input"]["from"] == job_id
+    assert preview.source == job["params"]["approved_input"]["source"]
+
+
+def test_every_candidate_in_a_group_gets_byte_identical_approved_pixels(svc):
+    """A candidate group is a controlled comparison or it is nothing.
+
+    Cutting once and sharing the file makes "the same reference" an identity
+    rather than a premise about BiRefNet being deterministic.
+    """
+    job_id = _reference(svc, _subject_rgb())
+
+    result = svc_jobs.promote_candidates(svc, job_id, count=3, force=True)
+
+    approved = (svc.job_dir(job_id) / svc_matte.CUTOUT).read_bytes()
+    assert len(result["ids"]) == 3
+    for made in result["ids"]:
+        assert (svc.job_dir(made) / "input.png").read_bytes() == approved
+
+
+def test_a_soft_painted_matte_is_not_hardened_by_approval(svc):
+    """``_cut`` rebuilt alpha from ``matting.mask``, which thresholds at 8.
+
+    So the one matte this module exists to protect -- one a person painted --
+    was flattened to a hard edge by the very functions that carry it. It was
+    already live in the Inker hand-off (``alpha_plane`` reopened the reference
+    with a hardened rim), and it would have become destructive the moment the
+    cutout started being the pixels ``input.png`` is written *from*.
+    """
+    arr = _cutout_rgba()
+    # A feathered rim: two rows of half-transparent pixels across the subject.
+    arr[24:26, 24:72] = (20, 30, 40, 128)
+    job_id = _reference(svc, arr)
+
+    plane, source = svc_matte.alpha_plane(svc, job_id)
+
+    assert source == "alpha"
+    assert int(plane[24, 40]) == 128
+
+    # And it survives all the way onto the job that reconstructs from it.
+    result = svc_jobs.promote_candidates(svc, job_id, force=True)
+    with Image.open(svc.job_dir(result["id"]) / "input.png") as im:
+        assert int(np.asarray(im.convert("RGBA"))[24, 40, 3]) == 128
+
+
+def test_an_approved_promotion_pins_the_preserving_bg_removal_mode(svc):
+    """Even against an explicit override, and that is the documented rule.
+
+    ``birefnet`` would re-cut the cutout, which would make the approval a lie.
+    """
+    job_id = _reference(svc, _subject_rgb())
+
+    result = svc_jobs.promote_candidates(svc, job_id, bg_removal="birefnet", force=True)
+
+    assert svc.require_job(result["id"])["params"]["bg_removal"] == "auto"
+
+
+def test_a_reference_edited_after_approval_is_re_prepared_not_reused(svc):
+    """The Fix-matte round trip, and the revert.
+
+    ``prepared`` is pinned to ``input.png``'s fingerprint, so a save landing
+    behind the modal expires the cutout on its own -- there is no invalidation
+    rule beside each writer for one of them to forget.
+    """
+    job_id = _reference(svc, _subject_rgb())
+    first = svc_matte.prepare(svc, job_id)
+    assert svc_matte.prepared(svc, job_id) is not None
+
+    (svc.job_dir(job_id) / "input.png").write_bytes(_png(_cutout_rgba()))
+
+    assert svc_matte.prepared(svc, job_id) is None
+    again = svc_matte.ensure_prepared(svc, job_id)
+    assert again.src_fingerprint != first.src_fingerprint
+
+    # And a stale one is refused rather than reconstructed from.
+    with pytest.raises(Invalid):
+        svc_jobs.promote_to_model(svc, job_id, prepared=first, force=True)
+
+
+def test_a_cutout_recorded_but_missing_from_disk_reads_as_absent(svc):
+    """The completion gate, from the other side: params without the file."""
+    job_id = _reference(svc, _subject_rgb())
+    svc_matte.prepare(svc, job_id)
+
+    (svc.job_dir(job_id) / svc_matte.CUTOUT).unlink()
+
+    assert svc_matte.prepared(svc, job_id) is None
+
+
+def test_the_cutout_record_does_not_travel_onto_a_promoted_job(svc):
+    """It is about *this* row's pixels, so it is derived. Were it inherited the
+    record would claim the cutout is its own source."""
+    job_id = _reference(svc, _subject_rgb())
+
+    result = svc_jobs.promote_candidates(svc, job_id, force=True)
+
+    assert "cutout" in DERIVED_PARAMS
+    assert svc_matte.CUTOUT_PARAM not in svc.require_job(result["id"])["params"]
 
 
 def test_a_fully_opaque_alpha_channel_is_not_a_matte(svc):
@@ -311,6 +442,60 @@ def test_an_uploaded_cutout_records_the_same_approval(svc):
 
     assert job["params"]["matte"] == "approved"
     assert job["params"]["bg_removal"] == "auto"
+
+
+# --- build anyway, at the door ----------------------------------------------
+
+
+def test_build_anyway_records_an_override_against_the_pixels_it_wrote(svc):
+    """``force`` used to be consumed here and discarded.
+
+    It skipped this function's own soft gate and never travelled, so the worker
+    re-measured and raised the same sentences two minutes of queue later. The
+    grant is pinned to the bytes actually written -- which with an approved
+    cutout are not the reference's -- so the worker can fingerprint its own
+    ``input.png`` and get a match.
+    """
+    from warlock import provenance
+    from warlock.pipelines import reference
+
+    job_id = _reference(svc, _subject_rgb())
+    # A refusal the reference stage recorded: what the modal shows and what the
+    # Build-anyway button is offered against.
+    svc.store.merge_params(
+        job_id,
+        {"reference_report": {"ok": False, "reasons": ["two objects"],
+                              "codes": ["multi_object"]}},
+    )
+
+    result = svc_jobs.promote_candidates(svc, job_id, force=True)
+    params = svc.require_job(result["id"])["params"]
+
+    written = provenance.file_fingerprint(svc.job_dir(result["id"]) / "input.png")
+    assert reference.override_allows(params, written)
+    assert params[reference.OVERRIDE_KEY]["codes"] == ["multi_object"]
+
+
+def test_a_promotion_that_was_not_forced_grants_no_override(svc):
+    job_id = _reference(svc, _subject_rgb())
+
+    result = svc_jobs.promote_candidates(svc, job_id)
+
+    from warlock.pipelines import reference
+
+    assert reference.OVERRIDE_KEY not in svc.require_job(result["id"])["params"]
+
+
+def test_an_unforced_promotion_of_a_refused_reference_is_still_refused(svc):
+    job_id = _reference(svc, _subject_rgb())
+    svc.store.merge_params(
+        job_id,
+        {"reference_report": {"ok": False, "reasons": ["two objects"],
+                              "codes": ["multi_object"]}},
+    )
+
+    with pytest.raises(Invalid):
+        svc_jobs.promote_candidates(svc, job_id)
 
 
 # --- the vocabulary ---------------------------------------------------------

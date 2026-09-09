@@ -121,6 +121,11 @@ def mask(image: PILImage, config: Any = None, *, device: str = "cpu") -> tuple[A
     """
     if is_cutout(image):
         return (subject_mask(image), "alpha")
+    # NOTE: that branch is deliberately a *boolean* mask even though the source
+    # is a real matte, because every caller of ``mask`` wants a boolean. The one
+    # caller that must not lose a soft edge -- ``service.matte._cut``, whose
+    # RGBA now becomes the pixels TRELLIS reconstructs -- asks ``is_cutout``
+    # itself and keeps the channel verbatim rather than rebuilding it from here.
     # An alpha channel that says nothing must not be read by the fill either:
     # subject_mask keys on the *presence* of the channel, so it would take the
     # same branch and hand back the same all-true mask. Dropping it here is

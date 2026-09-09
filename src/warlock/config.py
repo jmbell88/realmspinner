@@ -312,6 +312,17 @@ class Config:
     bench_dir: Path = field(
         default_factory=lambda: _env_path("WARLOCK_BENCH_DIR", _home() / "bench")
     )
+    # Where a bulk delete puts the evidence before it removes the assets. A
+    # sibling of data_dir for bench_dir's reason exactly, and the reason it
+    # exists at all is measured: on 2026-09-07 the mesh probe found 0 of 9
+    # model-stage verdicts still carrying a source.glb, because finishing a
+    # blind grading pass is also what deletes the meshes it graded
+    # (docs/measurements/2026-09-07-mesh-probe-preregistration.md). Retention
+    # keeps an accept *in place*; this keeps everything that was judged
+    # *somewhere*.
+    evidence_dir: Path = field(
+        default_factory=lambda: _env_path("WARLOCK_EVIDENCE_DIR", _home() / "evidence")
+    )
     # Where pixel-art palette files live (.hex from Lospec, .gpl from GIMP).
     # Ships empty: a palette is the user's own art direction, and a bundled one
     # would be a default nobody chose. Absent or empty simply means the palette
@@ -573,6 +584,7 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("data_dir", "WARLOCK_DATA_DIR"),
     ("db_path", "WARLOCK_DB"),
     ("bench_dir", "WARLOCK_BENCH_DIR"),
+    ("evidence_dir", "WARLOCK_EVIDENCE_DIR"),
     ("palette_dir", "WARLOCK_PALETTE_DIR"),
     ("export_dir", "WARLOCK_EXPORT_DIR"),
     ("trellis_server_exe", "WARLOCK_TRELLIS_EXE"),

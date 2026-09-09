@@ -12,8 +12,13 @@ reads the clock to decide whether a stamp is safely in the past, and adopting
 on the frame thread means that read is unambiguously later than the read of the
 pixels the stamp describes.
 
-Nothing here is persisted. A cached cutout outliving the session that measured
-it would be a claim about a file that has had a whole session to change.
+Nothing *here* is persisted, and the emphasis now carries weight. The cutout
+itself is a file -- ``service.matte.prepare`` writes it, keyed to the
+reference's fingerprint, because the promotion has to reconstruct from the same
+bytes the user accepted. What stays in memory is this module's cache of
+``Preview`` objects: a composited thumbnail plus a verdict, which is a *claim
+about* that file and would outlive the session that measured it. The file
+expires by fingerprint; a claim about it cannot, so it is not kept.
 """
 
 from __future__ import annotations
