@@ -1,16 +1,16 @@
-"""The fourteen shapes a user can place, and the registry the panel is built from.
+"""The fifteen shapes a user can place, and the registry the panel is built from.
 
 Each generator is a plain function of its parameters returning a :class:`Mesh`,
 and :data:`GENERATORS` maps a name to ``(defaults, builder)``. The registry is
 the point of the module rather than an index over it: the properties panel is
-generated from those default dictionaries, so adding a fifteenth primitive is
+generated from those default dictionaries, so adding a sixteenth primitive is
 adding a function and one registry line, in the same spirit as "add a skeleton
 by adding a JSON file, never by hardcoding bones in ``blender_worker``". A
 panel that switched on a hardcoded list of shape names would be a second place
 that has to know what a cylinder's parameters are, and the two would drift the
 first time a parameter was renamed.
 
-Four rules hold across all fourteen, and each of them is pinned by a test:
+Four rules hold across all fifteen, and each of them is pinned by a test:
 
 **Every primitive is built centred on the origin.** ``Obj`` carries the
 translation, so geometry that baked its placement in would make the numeric TRS
@@ -18,11 +18,20 @@ panel lie -- a box "at the origin" would sit somewhere else, and moving it back
 would leave the panel reading a position the object is not at. ``plane`` is
 centred too: it lies *in* the XZ plane at y = 0, not on top of it. Every other
 parameter here is an extent -- a size, a radius, a height -- and an extent
-cannot express a position, so this holds for free. The one case that takes
-actual work is a parameter that carries positions rather than extents:
-``lathe``'s ``profile`` is a list of ``[radius, y]`` stations, and its ``y``
-values describe a shape, not a place, so :func:`_clamp_profile` re-centres
-them before a single vertex is placed.
+cannot express a position, so this holds for free. The cases that take actual
+work are the three parameters that carry positions rather than extents --
+``lathe``'s ``profile``, ``sweep``'s ``outline`` and ``tube``'s ``path`` -- and
+each is re-centred by its own normaliser (:func:`_clamp_profile`,
+:func:`_clamp_outline`, :func:`_clamp_path`) before a single vertex is placed,
+because the coordinates in all three describe a shape rather than a place.
+Re-centring in the *normaliser* and never in the generator body is what keeps
+the stored parameters and the built geometry describing the same object; see
+:func:`clamp_params`. Two consequences are worth stating rather than
+discovering: a *measured* bounding box can still be off-centre where the
+geometry is not -- a coarse ring's is, ``sweep``'s ``twist`` makes one, and a
+``tube`` around a path with no point symmetry has one by construction -- and
+none of that is corrected for, because it is a fact about the shape rather
+than about its placement.
 
 **Caps are n-gons, not fans.** The CSR storage exists precisely so a cylinder's
 lid can be one face with sixteen corners, and it matters twice over: a fan cap
@@ -345,6 +354,76 @@ def _clamp_outline(value: Any) -> list[list[float]]:
     return deduped
 
 
+def _clamp_path(value: Any) -> list[list[float]]:
+    """``tube``'s own floor on its array-valued parameter, registered beside
+    :func:`_clamp_profile` and :func:`_clamp_outline` in :data:`_PROFILE_CLAMPS`
+    rather than growing a third copy of either function's shape.
+
+    Four steps:
+
+    1. Coerce to ``[x, y, z]`` float triples. No ``abs()`` on any of the three
+       -- a path carries positions, not extents, the same reasoning
+       :func:`_clamp_outline` step 1 gives for its own ``x``/``y``: a point at
+       a negative coordinate is not a mirrored point, it is a point. Anything
+       that will not unpack this way is treated as no points at all, which
+       step 4 turns into the default path.
+    2. Drop a point coinciding with its predecessor. A zero-length segment has
+       no tangent, so :func:`_tube_frames`'s parallel-transport has nothing to
+       carry forward through it -- the same zero-area-quad failure
+       :func:`_clamp_profile` step 3 and :func:`_clamp_outline` step 2 each
+       exist to prevent for their own array parameter, arriving here through a
+       repeated station instead of a repeated corner. **No wrap-around case**:
+       unlike :func:`_clamp_outline`, a path is *open* rather than closed -- a
+       cable does not join its far end back to its near one -- so there is no
+       "last against first" pair to check as well.
+    3. Re-centre on the bounding-box centre, for the reason step 4 of
+       :func:`_clamp_profile` and step 4 of :func:`_clamp_outline` each
+       re-centre their own array parameter: ``path`` carries positions, and a
+       generator that baked its own placement in would make the numeric TRS
+       panel lie. Re-centring the *path* does not centre the *tube* built
+       around it, though -- see :data:`TUBE_DEFAULT_PATH`'s own docstring for
+       why the default is chosen to make that residual vanish by construction
+       rather than by a second correction applied after the mesh exists.
+    4. Fall back to :data:`TUBE_DEFAULT_PATH` with fewer than two surviving
+       points -- a single point has no tangent and nothing for a tube to be
+       the centreline of.
+
+    **Self-intersection is not clamped here, and it is a different admission
+    from the one ``torus`` makes.** A ``radius`` wider than the path's own
+    tightest turn makes the tube pass through itself, and ``validate`` accepts
+    it happily -- but where ``torus``'s ``tube`` and ``radius`` are two numbers
+    :func:`clamp_params` genuinely clamps against each other before a mesh is
+    ever built, the limit here is a property of the *whole path*, with no
+    cheap general test for it, the same admission :func:`_clamp_outline`'s own
+    docstring makes for a self-crossing outline. Keeping ``radius`` inside what
+    the path can hold without crossing itself is the caller's business, not
+    this function's.
+    """
+    try:
+        points = [[float(x), float(y), float(z)] for x, y, z in value]
+    except (TypeError, ValueError):
+        points = []
+    deduped: list[list[float]] = []
+    for point in points:
+        if deduped and deduped[-1] == point:
+            continue
+        deduped.append(point)
+    if deduped:
+        xs = [p[0] for p in deduped]
+        ys = [p[1] for p in deduped]
+        zs = [p[2] for p in deduped]
+        cx = (min(xs) + max(xs)) / 2.0
+        cy = (min(ys) + max(ys)) / 2.0
+        cz = (min(zs) + max(zs)) / 2.0
+        for point in deduped:
+            point[0] -= cx
+            point[1] -= cy
+            point[2] -= cz
+    if len(deduped) < 2:
+        return [list(point) for point in TUBE_DEFAULT_PATH]
+    return deduped
+
+
 # Which key names the properties panel must clamp before calling a generator,
 # and how -- see clamp_params. Keyed on parameter name rather than generator,
 # because each of these floors is the same operation wherever the name
@@ -361,11 +440,12 @@ _KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
 
 # The array-valued counterpart to :data:`_KEY_CLAMPS`, kept as its own table
 # rather than folded into it because these normalisers return a profile, not
-# an int -- and because ``tube``'s ``path`` is going to want its own entry
-# here too, keyed on name exactly as ``_KEY_CLAMPS`` already is.
+# an int. ``tube``'s ``path`` is the third entry, keyed on name exactly as
+# ``_KEY_CLAMPS`` already is.
 _PROFILE_CLAMPS: dict[str, Callable[[Any], list[list[float]]]] = {
     "profile": _clamp_profile,
     "outline": _clamp_outline,
+    "path": _clamp_path,
 }
 
 
@@ -405,10 +485,11 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     And ``sweep``'s ``taper``: the same positive floor :func:`sweep` applies
     to itself (see :data:`MIN_TAPER`), mirrored here for the reason every
     other branch above is -- a taper of exactly zero is a degenerate mesh, not
-    a shape a properties panel should describe as "taper: 0". ``outline`` and
-    ``sections`` need no branch of their own: they are already covered by
-    :data:`_PROFILE_CLAMPS` and :data:`_KEY_CLAMPS` respectively, the same
-    generic tables ``lathe``'s ``profile`` and ``segments`` go through.
+    a shape a properties panel should describe as "taper: 0". ``outline``,
+    ``sections`` and ``tube``'s own ``path`` need no branch of their own: they
+    are already covered by :data:`_PROFILE_CLAMPS` and :data:`_KEY_CLAMPS`
+    respectively, the same generic tables ``lathe``'s ``profile`` and
+    ``segments`` go through.
     """
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
@@ -661,6 +742,111 @@ def _revolve(
     return positions, faces
 
 
+def _tube_frames(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One perpendicular frame per station of a centreline, by parallel
+    transport -- the rotation-minimising construction :func:`tube` needs and a
+    fixed world "up" cannot give it.
+
+    Three arrays, one row per point in *points*: ``normals[i]`` is station
+    *i*'s ring plane's own unit normal, and ``us[i]``/``vs[i]`` are two unit
+    vectors spanning that plane, chosen right-handed with the normal exactly
+    as :func:`_ring`'s own ``(X, Z, Y)`` triple is -- which is what lets
+    :func:`tube` call :func:`_side_quads` in the same argument order
+    :func:`_revolve` already does, rather than ``sweep``'s reversed one; see
+    :func:`tube`'s own docstring for why that is the right order here and not
+    an assumption carried over unchecked.
+
+    **An interior station's ring sits in the *bisector* plane of its two
+    neighbouring segments**, not either segment's own tangent alone -- a ring
+    square to only the incoming segment leaves a gap on the outside of a turn
+    and a pinch on the inside, visible the moment the path bends by more than
+    a few degrees. The two end stations have only one neighbouring segment
+    each, so that segment's own tangent is the whole answer for them.
+
+    **The in-plane vectors are carried forward by rotation, never recomputed
+    from a fixed axis.** The naive alternative -- ``cross(world_up,
+    normal)`` at each station independently -- gets two things wrong at once:
+    it spins the ring by whatever the bisector happens to be relative to a
+    fixed axis rather than relative to its own neighbour, and it fails
+    outright (a 180-degree flip, or an undefined zero vector) the moment a
+    normal passes near that fixed axis, with nothing in
+    :func:`~warlock.studio.clay.mesh.validate` to notice a tube gone inside
+    out at exactly that station. Parallel transport has no such axis to pass
+    near: ``us[i]`` is ``us[i - 1]`` rotated by the one rotation that carries
+    ``normals[i - 1]`` onto ``normals[i]`` (Rodrigues' formula, since both are
+    unit vectors), defined everywhere except the one case of two neighbouring
+    normals turned a full 180 degrees apart -- not a path this generator's own
+    convexity rule tolerates in the first place, so the branch below is a
+    backstop rather than a case any default or clamp reaches. ``us[0]`` is
+    perpendicular to ``normals[0]`` by construction (Gram-Schmidt against
+    whichever world axis ``normals[0]`` is *least* aligned with, so the
+    projection is never ill-conditioned) and is otherwise arbitrary -- there is
+    no earlier twist for the first station to match, only later ones to stay
+    consistent with it.
+    """
+    n = len(points)
+    seg = np.diff(points, axis=0)
+    seg_len = np.linalg.norm(seg, axis=1)
+    # Guarded rather than assumed: ``tube`` always calls this after its own
+    # ``_clamp_path``, which has already dropped a zero-length segment, but a
+    # caller that bypasses the clamp (``_revolve``'s own docstring names the
+    # same case for a raw profile) gets a defined answer instead of a
+    # division by zero.
+    seg_len = np.where(seg_len > 0.0, seg_len, 1.0)
+    tangents = seg / seg_len[:, None]
+
+    normals = np.empty((n, 3), dtype="f8")
+    normals[0] = tangents[0]
+    normals[-1] = tangents[-1]
+    for i in range(1, n - 1):
+        bisector = tangents[i - 1] + tangents[i]
+        length = np.linalg.norm(bisector)
+        normals[i] = bisector / length if length > 1e-9 else tangents[i]
+
+    axis = np.eye(3)[int(np.argmin(np.abs(normals[0])))]
+    u0 = axis - np.dot(axis, normals[0]) * normals[0]
+    u0 = u0 / np.linalg.norm(u0)
+
+    us = np.empty((n, 3), dtype="f8")
+    us[0] = u0
+    for i in range(1, n):
+        a, b = normals[i - 1], normals[i]
+        cross = np.cross(a, b)
+        sin_t = float(np.linalg.norm(cross))
+        cos_t = float(np.dot(a, b))
+        prev = us[i - 1]
+        if sin_t < 1e-9:
+            if cos_t > 0.0:
+                us[i] = prev  # consecutive normals agree; nothing to rotate
+            else:
+                # 180 degrees apart -- the backstop the docstring above names.
+                fallback = np.eye(3)[int(np.argmin(np.abs(b)))]
+                fresh = fallback - np.dot(fallback, b) * b
+                us[i] = fresh / np.linalg.norm(fresh)
+        else:
+            k = cross / sin_t
+            rotated = prev * cos_t + np.cross(k, prev) * sin_t + k * np.dot(k, prev) * (1.0 - cos_t)
+            us[i] = rotated / np.linalg.norm(rotated)
+
+    vs = np.cross(us, normals)
+    return normals, us, vs
+
+
+def _tube_ring(
+    center: np.ndarray, u: np.ndarray, v: np.ndarray, radius: float, sides: int
+) -> np.ndarray:
+    """``sides`` points on a circle of *radius* about *center*, in the plane
+    spanned by *u* and *v* -- :func:`_ring`'s own construction, generalised
+    from the fixed ``(X, Z)`` plane to whichever plane :func:`_tube_frames`
+    built for this station. Angle zero sits on *u*, running towards *v*, for
+    the same reason :func:`_ring` starts at +X and runs towards +Z: the two
+    functions have to agree, because :func:`_tube_frames` chose *u* and *v* to
+    make ``(u, v, normal)`` the same-handed triple ``(X, Z, Y)`` already is.
+    """
+    theta = np.linspace(0.0, 2.0 * np.pi, sides, endpoint=False)
+    return center + radius * (np.cos(theta)[:, None] * u + np.sin(theta)[:, None] * v)
+
+
 # --- the generators ----------------------------------------------------------
 
 
@@ -828,7 +1014,13 @@ def torus(
     ``radius`` is to the centre of the tube and ``tube`` is the tube's own
     radius, so the outer extent is their sum -- the same pair of numbers
     Blender's torus takes, and the reason the default pair adds to 0.5: every
-    primitive here defaults to fitting a one-metre box.
+    primitive here defaults to fitting a one-metre box. **Not the ``tube``
+    generator** (:func:`tube`, elsewhere in this registry): that is a
+    different shape, a circular cross-section swept along an open path rather
+    than around a closed ring, and it takes the name because "a tube" is the
+    right word for what it builds; the two share a name for the same reason
+    they share a shape, and :func:`tube`'s own docstring makes the same note
+    back.
 
     **A ``tube`` larger than ``radius`` self-intersects and is not refused
     here.** The mesh stays valid, closed and outward-wound -- the tube simply
@@ -1735,6 +1927,149 @@ def sweep(
     return _mesh(positions, faces, uv)
 
 
+TUBE_DEFAULT_PATH: tuple[tuple[float, float, float], ...] = (
+    (-0.40, 0.00, 0.0),
+    (-0.15, -0.12, 0.0),
+    (0.15, 0.12, 0.0),
+    (0.40, 0.00, 0.0),
+)
+"""One period of a shallow S-curve -- the centreline :func:`tube` sweeps a
+circular cross-section along.
+
+**Chosen for point symmetry about the origin, not merely for a re-centred
+bounding box.** ``path`` carries positions, so :func:`_clamp_path` re-centres
+its own bounding box the way :func:`_clamp_profile` and :func:`_clamp_outline`
+already do for theirs -- but re-centring the *path* does not centre the
+*tube* built around it. Around an arc from one flat end through an apex to
+another flat end, the two ends reach no further than the path's own extremes
+while the apex reaches a full ``radius`` beyond it, so the measured box comes
+out asymmetric even though the path underneath it is exactly centred -- the
+same class of residual :func:`test_every_generator_is_centred_on_the_origin`'s
+own docstring already admits for a coarse ring, and the same line ``sweep``'s
+own ``twist`` draws: correcting for it after the mesh exists would be fixing
+a fact about the shape rather than about its placement. A path carried onto
+itself by ``p -> -p`` sidesteps the problem instead of correcting it: every
+station has a mirror station diametrically opposite the origin, built from
+the same radius, so the tube around it is point-symmetric too and its
+bounding box is centred by construction, not by a second pass over it.
+
+Four points, not two straddling the middle -- a straight default would leave
+:func:`_tube_frames`'s parallel-transport code untested by the registry's own
+defaults sweep, the same trap :data:`SWEEP_DEFAULT_OUTLINE` avoids by being
+concave rather than convex when a convex cap would have gone untested by
+:data:`CONCAVE_GENERATORS`'s own gate. Sized to fit the one-metre box every
+default here fits once :func:`tube`'s own default ``radius`` is added to it.
+"""
+
+
+def tube(
+    path: Sequence[Sequence[float]] = TUBE_DEFAULT_PATH,
+    radius: float = 0.1,
+    sides: int = 8,
+) -> Mesh:
+    """A circular cross-section of ``radius``, swept along ``path`` -- the
+    shape a lathe's rotational symmetry and a sweep's straight axis cannot
+    reach between them: a cable, a hose, a handle, a pipe run, a bent exhaust,
+    a horn, a vine, anything that *goes somewhere* rather than sitting on one
+    fixed axis.
+
+    **Not `torus`'s own ``tube`` parameter.** ``GENERATORS["torus"][0]["tube"]``
+    is that shape's own tube radius, a single number; this is a generator
+    name. Both exist because both are "a circular cross-section, swept" --
+    one around a ring, one along an open path -- and a reader meeting either
+    should be told the other exists and is a different thing entirely; see
+    ``torus``'s own docstring for the same note in the other direction.
+
+    **``radius`` is deliberately one scalar, not a per-station profile.** The
+    design this replaces was a free-form variable-thickness curve sweep --
+    ``path`` and a second array of per-station thickness -- and it was
+    rejected on the same ground ``sweep``'s ``taper``/``twist`` already were:
+    two array parameters, no panel affordance for either (the properties panel
+    has no widget yet even for the one array-valued parameter every earlier
+    generator here already carries), and a self-intersection between the path
+    and the thickness that nothing could clamp. One array and one number is
+    what survived that trade.
+
+    **The frames are the whole difficulty, and they are parallel-transported,
+    never recomputed from a fixed world "up" at each station** -- see
+    :func:`_tube_frames`'s own docstring for why the naive alternative flips a
+    tube inside out the moment the path's tangent passes near whatever axis
+    was fixed, with nothing in ``validate`` to notice. An interior station's
+    ring sits in the *bisector* plane of its two neighbouring segments, so a
+    corner does not open a gap on its outside or a pinch on its inside; the
+    two end stations have only one neighbouring segment each and use its
+    tangent directly.
+
+    **Winding follows :func:`_revolve`'s own argument order to
+    :func:`_side_quads`, not ``sweep``'s reversed one.** That is not an
+    assumption carried over -- :func:`_tube_frames` chooses each station's
+    in-plane basis (``u``, ``v``) to make ``(u, v, normal)`` the same-handed
+    triple :func:`_ring`'s own ``(X, Z, Y)`` already is, so "increasing
+    station index, near end to far end" plays the same role here that
+    :func:`_revolve`'s Y-axis stacking does, rather than the different role
+    ``sweep``'s Z-axis extrusion does, which is what earned that generator's
+    reversed call in the first place. The near-end cap is its ring in direct
+    order, exactly as ``_revolve``'s bottom cap is; the far-end cap is that
+    order reversed, exactly as its top cap is.
+
+    **A ``radius`` wider than the path's own tightest turn self-intersects,
+    and it is not clamped here** -- see :func:`_clamp_path`'s own docstring
+    for why that is a different admission from the one ``torus`` makes about
+    its own ``tube``.
+
+    UV follows ``column``'s and ``lathe``'s own layout: the band across the
+    top half of the square, ``v`` by arc length along the path rather than by
+    station index (an authored path's segments are as uneven as a lathe
+    profile's or a sweep outline's own edges), ``u`` around each ring exactly
+    as :func:`cylinder`'s does. Each cap is a genuine circle in its own
+    station's plane, not an arbitrary outline, so it takes :func:`_disc_uv`
+    into its own quadrant exactly as ``cylinder``'s two discs do, rather than
+    :func:`_outline_uv`.
+    """
+    points = np.array(_clamp_path(path), dtype="f8")
+    n = len(points)
+    k = _clamp_segments(sides)
+    r = abs(float(radius))
+
+    _, us, vs = _tube_frames(points)  # only the in-plane basis places a ring
+    rings = [_tube_ring(points[i], us[i], vs[i], r, k) for i in range(n)]
+    positions = np.concatenate(rings)
+
+    def row(j: int) -> int:
+        return j * k
+
+    faces: list[list[int]] = []
+    for j in range(n - 1):
+        faces.extend(_side_quads(row(j), row(j + 1), k))
+    faces.append(list(range(row(0), row(0) + k)))  # near cap, ring order
+    last = row(n - 1)
+    faces.append(list(range(last + k - 1, last - 1, -1)))  # far cap, reversed
+
+    # v by arc length along the path, for the reason column's and lathe's own
+    # v does: a path's stations are as unevenly spaced as a lathe profile's or
+    # a sweep outline's own corners, and an index-parameterised v would
+    # stretch a texture across a long segment and squash it across a short one.
+    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(steps)])
+    total = float(along[-1])
+    v = 0.5 + 0.5 * (along / total if total > 0.0 else np.zeros(len(along)))
+
+    uv: list[list[tuple[float, float]]] = []
+    for j in range(n - 1):
+        uv.extend(
+            [
+                (i / k, float(v[j])),
+                (i / k, float(v[j + 1])),
+                ((i + 1) / k, float(v[j + 1])),
+                ((i + 1) / k, float(v[j])),
+            ]
+            for i in range(k)
+        )
+    uv.append(_disc_uv(k, (0.25, 0.25), 0.24))
+    uv.append(_disc_uv(k, (0.75, 0.25), 0.24, reverse=True))
+    return _mesh(positions, faces, uv)
+
+
 # --- the registry ------------------------------------------------------------
 
 GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
@@ -1773,6 +2108,7 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
         },
         sweep,
     ),
+    "tube": ({"path": TUBE_DEFAULT_PATH, "radius": 0.1, "sides": 8}, tube),
 }
 """Name -> ``(defaults, builder)``. Every default dictionary is a complete call.
 
@@ -1837,14 +2173,14 @@ silhouette with no way to author a reflex corner into it at all.
 CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("primitives", ("box", "plane", "grid", "cylinder", "cone",
                     "uv_sphere", "icosphere", "torus", "capsule")),
-    ("structures", ("pyramid", "arch", "column", "lathe", "sweep")),
+    ("structures", ("pyramid", "arch", "column", "lathe", "sweep", "tube")),
 )
 """The add panel's sections, in the order they are drawn.
 
 The registry says what a shape *is*; this says where it appears, which is a
 different question and one ``GENERATORS`` cannot answer -- a dict has one order
 and the panel wants two headings. It lives here rather than in the pane for the
-same reason the defaults do: a fourth structure should be one line in this file
+same reason the defaults do: a sixth structure should be one line in this file
 and no edit to the pane at all.
 
 It is a **partition**, asserted as one: every generator in exactly one section

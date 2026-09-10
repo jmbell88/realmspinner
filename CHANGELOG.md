@@ -242,6 +242,30 @@ engine stopped being something you download whether or not you ever use it.
   the same admission a tube wider than a torus's own radius already makes —
   so a sweep is the one primitive where a simple outline is on you rather
   than on Warlock.
+- **Clay can run a shape along a path now, which is neither a lathe's turn
+  nor a sweep's straight line.** A **tube** takes a `path` — a list of
+  `[x, y, z]` points — and threads a circular cross-section of one `radius`
+  along it, which is what a cable, a hose, a handle, a bent exhaust or a
+  pipe run needs and neither of the other two families reaches. The ring at
+  each station stays square to the path by parallel transport (carrying the
+  previous ring's own orientation forward by the rotation the path itself
+  turns through) rather than by measuring against a fixed "up" direction —
+  the fixed-direction approach flips a tube inside out the moment the path
+  points near whatever axis was fixed, with nothing in the mesh checker to
+  notice, and a regression test now pins the frame construction itself
+  against exactly that failure. An interior station's ring bisects its two
+  neighbouring segments, so a bend does not open a gap on its outside or
+  pinch its inside. **There is no path editor yet**: Properties shows a
+  placed tube's stations as a read-only line, the same way a lathe's
+  `profile` and a sweep's `outline` already do. `radius` is one number
+  rather than a per-station thickness — a free-form variable-thickness
+  version of this was tried and rejected for the same reason `sweep`'s
+  `taper`/`twist` are plain numbers instead of a second outline: no panel
+  affordance for a second array, and no way to clamp the self-intersection
+  between the two. A `radius` wider than the path's own tightest turn passes
+  through itself uncaught — a different admission from the one `torus`
+  makes about its own `tube` parameter, since a whole path's turning radius
+  has no cheap general test the way two numbers do.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

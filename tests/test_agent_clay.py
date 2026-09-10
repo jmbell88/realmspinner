@@ -322,6 +322,51 @@ def test_a_profile_param_survives_the_whole_agent_door() -> None:
     assert scene_row["params"]["profile"] == new_profile
 
 
+def test_a_tubes_path_survives_the_whole_agent_door() -> None:
+    """``tube``'s ``path`` -- an array of ``[x, y, z]`` triples -- is the
+    second real generator parameter of this shape, after ``lathe``'s
+    ``profile``, and the claim this module's own docstring makes about that
+    widening (``_validate_number_or_vec``/``_params_value_schema`` went
+    generic for *any* array-of-arrays param, not one hand-listed for
+    ``lathe``) is that ``tube`` needed no further edit here to reach the
+    same door. Placed through ``clay_add_primitive``, read back unchanged
+    through ``clay_scene``, and changed through ``clay_set_params`` -- the
+    same three steps
+    :func:`test_a_profile_param_survives_the_whole_agent_door` proves for
+    ``lathe``.
+    """
+    # Already centred on its own bounding box on all three axes -- the same
+    # care ``test_a_profile_param_survives_the_whole_agent_door``'s profile
+    # takes -- so a round trip through ``_clamp_path`` changes nothing here
+    # and the claim is about the door, not about the clamp.
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    path = [[-0.3, -0.1, -0.05], [0.0, 0.05, 0.02], [0.3, 0.1, 0.05]]
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {"generator": "tube", "params": {"path": path}},
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)
+    uid = row["uid"]
+    assert row["params"]["path"] == path
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
+    assert scene_row["params"]["path"] == path
+
+    new_path = [[-0.3, -0.1, -0.05], [0.1, -0.05, 0.03], [0.3, 0.1, 0.05]]
+    changed = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"path": new_path}}
+    )
+    assert changed["isError"] is False, changed
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
+    assert scene_row["params"]["path"] == new_path
+
+
 def test_an_array_of_arrays_param_survives_the_agent_door_for_any_generator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

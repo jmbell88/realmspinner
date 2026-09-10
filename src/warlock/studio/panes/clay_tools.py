@@ -55,9 +55,14 @@ TOOL_ICONS = {
     "scale": icons.SCALING,
 }
 
-# One icon per generator in the registry, with a fallback so a seventh
-# primitive appears the day it is added rather than the day someone remembers
-# to come back here.
+# One icon per generator in the registry. Strict at test time, graceful at
+# runtime -- the same pair ``_sections`` states for ``CATEGORIES``:
+# ``tests/test_clay_wiring.py`` holds this table *bijective* against
+# ``primitives.GENERATORS``, so a sixteenth shape is a red test here rather
+# than a glyph nobody chose, while ``PRIMITIVE_ICONS.get(name, icons.BOX)``
+# at the draw site still gives that shape a button on the day it is written.
+# This comment used to promise only the second half, and read as though
+# forgetting a row here were free; it is not, and the pin is why.
 PRIMITIVE_ICONS = {
     "box": icons.BOX,
     "plane": icons.RECTANGLE,
@@ -68,7 +73,7 @@ PRIMITIVE_ICONS = {
     "grid": icons.GRID,
     "capsule": icons.EGG,
     "icosphere": icons.STAR,
-    # The four structures. The icon set is strained by now -- ``cone`` borrows
+    # The first four structures. The icon set is strained by now -- ``cone`` borrows
     # triangle-alert, and ``uv_sphere`` and ``torus`` are both a circle -- so
     # these are the nearest silhouettes rather than the right glyphs: a magnet
     # is a horseshoe, which is the arch, and a ruler is the tallest thing in
@@ -83,6 +88,11 @@ PRIMITIVE_ICONS = {
     # nearest silhouette this set has for that -- the same "strained by now"
     # trade-off the comment above already makes for the rest of this group.
     "sweep": icons.LAYERS,
+    # Waypoints along a route is the nearest silhouette to a path with rings
+    # threaded along it, and it is otherwise unclaimed here -- Inker's own
+    # polyline tool uses the same glyph, which is fine: the two panes are
+    # never on screen at once, and this set is strained enough already.
+    "tube": icons.WAYPOINTS,
 }
 
 AXES = (("x", "X"), ("y", "Y"), ("z", "Z"))

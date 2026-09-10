@@ -21,13 +21,13 @@ would be worse than saying so.
 
 ## Primitives
 
-Fourteen, in two groups. The primitives: box, plane, cylinder, cone, UV sphere, icosphere, torus,
+Fifteen, in two groups. The primitives: box, plane, cylinder, cone, UV sphere, icosphere, torus,
 capsule and grid. The structures — shapes you would otherwise build out of several primitives —
-pyramid, arch, column, lathe and sweep. Place one and its
+pyramid, arch, column, lathe, sweep and tube. Place one and its
 parameters — radius, height, segments — stay live in the properties panel, so a cylinder can become
-a thinner cylinder without being rebuilt by hand. The exceptions are a lathe's `profile` and a
-sweep's `outline`: neither has a widget of its own yet, so each shows in the properties panel as a
-read-only line rather than fields you can drag.
+a thinner cylinder without being rebuilt by hand. The exceptions are a lathe's `profile`, a
+sweep's `outline` and a tube's `path`: none has a widget of its own yet, so each shows in the
+properties panel as a read-only line rather than fields you can drag.
 
 **Until it freezes.** The first edit that changes topology — an extrude, a bevel, a dissolve —
 discards those parameters permanently, and the panel switches to a plain vertex and face count. It

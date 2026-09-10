@@ -32,11 +32,11 @@ Tools" underneath and a button that drops a box at the origin — rather than le
 empty grid and go looking for the **add** row on your own.
 
 The **add** row is one icon grid, in two groups. **Primitives**: box, plane, grid, cylinder,
-cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column, lathe and
-sweep. Clicking one places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
-another button, primitive or figure, is pressed next. Hovering a button names it. Nothing is lit
-and no preview block shows below the grid until you have pressed one -- a fresh document does not
-arrive with a shape already picked.
+cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column, lathe,
+sweep and tube. Clicking one places it at the origin, selects it, and marks it the tool in
+hand — its icon stays lit until another button, primitive or figure, is pressed next. Hovering
+a button names it. Nothing is lit and no preview block shows below the grid until you have
+pressed one -- a fresh document does not arrive with a shape already picked.
 
 Under the grid, a short block names whichever tool is lit and lists the numbers a fresh press of it
 starts from — a cylinder's `radius`, `height` and `segments`, say. It is a preview of what the next
@@ -45,8 +45,9 @@ in Properties, once it exists.
 
 Shapes arrive with their shading already set, by the same rule the **Shade Auto...** button uses: a
 sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch, a
-column, a lathe and a sweep come in flat (at its default profile or outline — a lathe with a gentler curve and enough
-segments can still come back with its side band smooth, the caps staying flat for the same reason
+column, a lathe, a sweep and a tube come in flat (at its default profile, outline or path and side
+count — a lathe with a gentler curve and enough segments, or a tube with enough sides, can still
+come back with its side band smooth, the caps staying flat for the same reason
 the cylinder's and cone's do, below). A **cylinder and a cone come in flat too**, and that is the
 rule working rather than missing them — every face on the side band meets a flat cap at a right
 angle, and smoothing the band on its own would round the cap's rim, which is the edge the cap is
@@ -77,7 +78,15 @@ to loft into, on purpose — a frustum, a pedestal and a twisted column are what
 and two sliders already reach all three. As with a lathe's `profile`, there is no outline editor
 yet either: Properties shows a placed sweep's corners as a read-only line, and — unlike every other
 shape here — a self-crossing outline (a figure-eight) is not caught, so a sweep is the one primitive
-where keeping the shape simple is on you rather than on Warlock.
+where keeping the shape simple is on you rather than on Warlock. A **tube** is a circular
+cross-section of one `radius`, swept along a `path` — a cable, a hose, a handle, a pipe run, a bent
+exhaust, anything that goes somewhere rather than sitting on one straight or rotational axis, which
+is what neither a lathe nor a sweep reaches on its own. The ring stays square to the path the whole
+way along rather than tipping into the turn, so a bend does not open a gap on its outside or pinch
+its inside. As with a lathe's `profile` and a sweep's `outline`, there is no path editor yet:
+Properties shows a placed tube's stations as a read-only line, and — the same admission a sweep's
+self-crossing outline already makes — a `radius` wider than the path's own tightest turn passes
+through itself uncaught, so a tube is the other primitive where keeping the shape simple is on you.
 
 Three of those are near-duplicates of others and are worth telling apart. **Grid** is a plane cut
 into squares; **plane** is the single quad, which is what a decal or a backdrop wants, and a grid is

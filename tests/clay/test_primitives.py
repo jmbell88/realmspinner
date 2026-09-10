@@ -537,6 +537,7 @@ def test_the_registry_names_every_generator_the_module_exports() -> None:
         "column",
         "lathe",
         "sweep",
+        "tube",
     }
 
 
@@ -1258,3 +1259,128 @@ def test_a_sweeps_sections_are_clamped_to_one_rather_than_to_three() -> None:
     smallest sweep there is, the same reasoning ``grid``'s ``divisions`` floor
     of one (not three) already makes."""
     assert bm.face_count(bp.sweep(sections=0)) == bm.face_count(bp.sweep(sections=1))
+
+
+# --- the tube --------------------------------------------------------------
+
+
+def test_a_tubes_default_path_is_point_symmetric_about_the_origin() -> None:
+    """The default's whole reason for being the shape it is: re-centring
+    ``path`` re-centres the *path*'s own bounding box, not the tube built
+    around it (see :data:`bp.TUBE_DEFAULT_PATH`'s own docstring), so the
+    default is chosen carried onto itself by ``p -> -p`` instead -- every
+    station has a mirror station on the opposite side of the origin, built
+    from the same radius, which is what makes the tube's own bounding box
+    come out centred rather than needing a second correction for it.
+    """
+    path = np.array(bp.TUBE_DEFAULT_PATH, dtype="f8")
+    assert np.allclose(path + path[::-1], 0.0, atol=1e-12)
+
+
+def test_a_tubes_caps_are_single_n_gons_not_fans() -> None:
+    mesh = bp.tube()
+    k = bp.GENERATORS["tube"][0]["sides"]
+    sizes = Counter(int(c) for c in np.diff(mesh.starts))
+    assert sizes == {4: 3 * k, k: 2}
+
+
+def test_a_tubes_z_extent_is_exactly_its_radius_along_the_planar_default_path() -> None:
+    """The default path lies flat in ``z = 0`` (see its own docstring), so
+    every ring normal lies in the XY plane and the world Z axis is exactly
+    perpendicular to all of them -- the axis :func:`bp._tube_frames` picks as
+    its starting in-plane vector, by the "least aligned world axis" rule, and
+    then never has to rotate away from, because every rotation between two
+    in-plane normals pivots about Z itself. So the tube's own reach along Z
+    is exactly ``radius``, with no slack a twist introduced by the frame
+    could add to it -- a claim precise enough to check to float32 precision
+    rather than only in sign.
+    """
+    for radius in (0.05, 0.1, 0.2):
+        lo, hi = bm.bounds(bp.tube(radius=radius))
+        assert lo[2] == pytest.approx(-radius, abs=1e-6)
+        assert hi[2] == pytest.approx(radius, abs=1e-6)
+
+
+def test_a_tubes_frame_does_not_flip_where_a_fixed_up_vector_would() -> None:
+    """The concrete failure :func:`bp._tube_frames`'s own docstring describes
+    for the naive alternative, measured rather than only asserted: this
+    path's three ring normals are ``(0.05, 1, 0)``, ``(0, 1, 0)`` and
+    ``(-0.05, 1, 0)`` (normalised) -- straddling world "up" almost exactly.
+    A per-station ``cross((0, 1, 0), normal)`` gives ``(0, 0, -0.05)`` at the
+    near end, the **zero vector** at the interior station (undefined -- a
+    real implementation of the naive approach has to invent a fallback for
+    it), and ``(0, 0, +0.05)`` at the far end: the in-plane basis flips a full
+    180 degrees end to end, through a station where it is not even defined.
+    Parallel transport has no such axis to straddle: it rotates the frame
+    from one normal to the next by the angle actually between them, which is
+    small at every step here, so ``us`` comes out exactly constant.
+
+    Fails against a `tube` rewritten to recompute ``us[i]`` from
+    ``cross(world_up, normals[i])`` at each station independently instead of
+    carrying it forward from ``us[i - 1]`` by rotation.
+    """
+    path = np.array([[0.0, 0.0, 0.0], [0.015, 0.3, 0.0], [0.0, 0.6, 0.0]])
+    _, us, _ = bp._tube_frames(path)
+    for i in range(1, len(us)):
+        dot = np.dot(us[i - 1], us[i])
+        assert dot > 0.0, f"tube frame flipped between stations {i - 1} and {i}"
+
+    # And the mesh built from it is still a valid, outward-wound, closed
+    # shell -- the property the flip above would break if it reached ``tube``.
+    mesh = bp.tube(path=path, radius=0.05, sides=8)
+    bm.validate(mesh)
+    assert max(_directed_edge_counts(mesh).values()) == 1
+    lo, hi = bm.bounds(mesh)
+    centre = (lo + hi) * 0.5
+    total = sum(
+        float((_centroid(mesh, i) - centre) @ _face_normal(mesh, i))
+        for i in range(bm.face_count(mesh))
+    )
+    assert total > 0.0
+
+
+# --- clamp_params: the path normaliser ---------------------------------------
+
+
+def test_a_paths_adjacent_duplicate_point_is_dropped() -> None:
+    clamped = bp.clamp_params("tube", {"path": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]})
+    assert len(clamped["path"]) == 2
+
+
+def test_a_path_has_no_wrap_around_case_because_it_is_open_not_closed() -> None:
+    """Unlike :func:`bp._clamp_outline`, a path's last point coinciding with
+    its first is not dropped -- a cable does not join its far end back to its
+    near one. All three points survive."""
+    clamped = bp.clamp_params(
+        "tube", {"path": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]}
+    )
+    assert len(clamped["path"]) == 3
+
+
+def test_a_path_is_recentred_on_its_own_bounding_box_on_all_three_axes() -> None:
+    """The one array parameter in the registry whose bounding box is
+    three-dimensional -- ``profile`` and ``outline`` each centre two axes,
+    ``path`` centres all three."""
+    clamped = bp.clamp_params("tube", {"path": [[0.0, 0.0, 0.0], [4.0, 2.0, 6.0]]})
+    assert clamped["path"] == [[-2.0, -1.0, -3.0], [2.0, 1.0, 3.0]]
+
+
+def test_a_path_with_fewer_than_two_surviving_points_falls_back_to_the_default() -> None:
+    clamped = bp.clamp_params("tube", {"path": [[0.2, 0.1, 0.0]]})
+    assert clamped["path"] == [list(p) for p in bp.TUBE_DEFAULT_PATH]
+    # Garbage input -- not even a list of triples -- falls back the same way.
+    clamped = bp.clamp_params("tube", {"path": "not a path"})
+    assert clamped["path"] == [list(p) for p in bp.TUBE_DEFAULT_PATH]
+
+
+def test_a_clamped_path_is_stored_as_the_value_that_was_built() -> None:
+    raw = {
+        "path": [[0.1, -0.2, 0.0], [0.4, 0.1, 0.2], [0.9, -0.3, 0.1]],
+        "radius": 0.08,
+        "sides": 6,
+    }
+    clamped = bp.clamp_params("tube", raw)
+    from_raw = bp.tube(**raw)
+    from_clamped = bp.tube(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
