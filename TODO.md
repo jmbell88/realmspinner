@@ -62,8 +62,14 @@ machine that is not this one, and it draws. What it has still never done is
 Note also that the figures this entry used to carry (2.91 GB payload, 6.61 GB
 installed) were the all-extras shape and are superseded. P26 took the installer
 to `--extra studio` alone with the three heavy extras arriving as packs, and
-`INSTALL.md` now measures that build: **810 MB download (846,950,916 bytes),
-about 1.4 GB installed base**, SHA-256 `254b3af9…`, at v0.0.35.
+`INSTALL.md` measured that build at 810 MB download / about 1.4 GB installed.
+
+**Those figures are superseded again, for a second reason, on 2026-09-10.** The
+reconstruction engine left the installer and became a Settings -> Models
+download: 878,218,576 bytes of `vendor/trellis/` that used to be 62% of the
+installed tree. Every size in `INSTALL.md` is measured against the build that
+carried it, and none of them is this build's any more
+(`docs/measurements/2026-09-10-engine-as-a-download.md`).
 
 **Do:**
 
@@ -90,9 +96,19 @@ about 1.4 GB installed base**, SHA-256 `254b3af9…`, at v0.0.35.
    The resets themselves hit several hosts and are still undiagnosed (F2), but
    F1 is what makes them fatal rather than annoying. When it works: one small row end to end
    (dinov2, 0.4 GB), then SDXL and one reference generation. For TRELLIS, copy
-   an existing `~/.warlock/models/trellis2-gguf` into the scratch home to prove
-   the engine launches from `{app}\vendor`; start the engine download and cancel
-   it mid-flight to prove staging cleanup.
+   an existing `~/.warlock/models/trellis2-gguf` into the scratch home; start
+   the GGUF download and cancel it mid-flight to prove staging cleanup.
+5. **Prove the engine downloads, unpacks and runs on a machine that has never
+   had it.** New on 2026-09-10, and the one step here with no test-suite
+   equivalent: the archive has been verified, extracted through the worker's
+   own code path and matched against all nine of its digests -- but on a
+   machine where `vendor/trellis/` also exists, so what has never been seen is
+   the engine *launching from the downloaded location*, on a card that can hold
+   a reconstruction. Watch for the three things this design claims: `warlock
+   doctor` exits 0 before the download with the engine row as `[SETUP]`; Create
+   ungreys after it **without a restart** (`Config.resolve_trellis_exe` is
+   called at use for exactly this); and Remove takes it away again with the
+   resident server stopped first rather than failing on a locked DLL.
 5. **The three recovery paths, which have only ever run against fakes** (the
    beta audit's H02/M01/M02). Quit the app *during* a pack install and watch
    which half you are in — a download must cancel on the worker's own

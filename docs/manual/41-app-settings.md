@@ -73,8 +73,8 @@ and it still turns off spring motion along with everything else that moves.
 
 ## Models
 
-Every model the app knows about — image models, style LoRAs, the conditioning adapters,
-and the matting, pose and measurement models — as a table of four columns: **Model**, **Size**,
+Every model the app knows about — the reconstruction engine, image models, style LoRAs, the
+conditioning adapters, and the matting, pose and measurement models — as a table of four columns: **Model**, **Size**,
 **Description** and **Actions**. A tick beside the name means the weights are on disk; a hollow mark
 with a checkbox means they are not, and **Install** fetches them. It is the same information the
 startup diagnostics report, in a place you can look at without opening the log. Tick several rows
@@ -123,6 +123,19 @@ directory that looks finished. Free disk is checked against the whole selection 
 selection is refused if it will not fit. Everything is still equally installable by hand — see
 [Model weights](39-installation.md#model-weights) and
 [Adding an image model](45-extending.md#adding-an-image-model).
+
+**The reconstruction engine is two rows, at the top.** *TRELLIS.2 engine* is the program that turns
+a picture into a mesh — about 0.7 GB — and *TRELLIS.2 GGUF weights* is the model it loads, about
+16 GB. You need both before the Mesh stage can run, and neither is installed for you: until
+2026-09-10 the engine was inside the installer, where it was more than half of everything you
+downloaded whether or not you ever made a 3D model. It is a row here now, like everything else on
+this list.
+
+The engine is the one row that does not come from Hugging Face — it is a single archive published by
+trellis.cpp, so the app checks it against a fingerprint rather than a version number, unpacks it, and
+puts it under your Warlock home. It needs an NVIDIA card; there is no version that runs on the
+processor. **Create stays greyed on the rail until both rows are present**, and clicking it brings
+you here with them already ticked.
 
 ### Your style LoRAs
 

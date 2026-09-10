@@ -985,8 +985,17 @@ class GenerateOps:
                 from .pipelines.t2i_client import Text2ImageClient
                 from .pipelines.text2image import Text2Image
             except ImportError as exc:
+                # The backstop, not the door -- ``service.validation.check_pack``
+                # is the door now, and a packaged install never reaches this
+                # line. What still can: a source checkout that queued a text
+                # job without syncing the extra, which is a terminal away from
+                # both remedies, so both are named -- Settings for a build that
+                # somehow shipped without the pack, ``uv sync`` for the checkout
+                # that is actually reachable here.
                 raise RuntimeError(
-                    "text-to-3D requires the text2image extra: uv sync --extra text2image"
+                    "text-to-3D needs the Image generation pack: install it in "
+                    "Settings -> Packs, or from a source checkout: "
+                    "uv sync --extra text2image"
                 ) from exc
             spec = models.BASE_MODELS[base_key]
             build = Text2Image if self.config.t2i_in_process else Text2ImageClient

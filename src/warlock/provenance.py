@@ -192,7 +192,13 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
         "size_m": params.get("size_m"),
         "models": model_fingerprints(
             {
-                "trellis_server_exe": Path(config.trellis_server_exe),
+                # resolve_trellis_exe(), not the trellis_server_exe field: that
+                # field is an override-only Path | None (None is the ordinary
+                # state once the engine is a download), and the fingerprint
+                # below hashes the file's *content* anyway, so a resumed bench
+                # run is unaffected by the engine moving between the vendor
+                # checkout and the downloaded runtime directory.
+                "trellis_server_exe": config.resolve_trellis_exe(),
                 "trellis_models_dir": Path(config.trellis_models_dir),
             }
         ),

@@ -42,6 +42,7 @@ import sys
 import threading
 import time
 import traceback
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,90 @@ def _fetch_url(staging: Path, spec: dict[str, Any]) -> None:
         )
 
 
+def _member_dest(member: str, staging: Path, prefix: str) -> Path:
+    """The path one archive member unpacks to under ``staging``, or refuse it.
+
+    Two refusals, both ``ValueError`` -- already in ``download.AUTHORED``,
+    imported below as ``_TERMINAL``, so both are terminal without a second
+    mechanism: not retried, and the staging tree they turned up in is dropped
+    rather than resumed into.
+
+    * **Zip-slip.** An absolute member (``/etc/passwd``), a drive-lettered one
+      (``C:/Windows/...``) or a UNC one (``\\\\server\\share\\...``, which
+      reads as ``//server/share`` once backslashes are normalised below) is
+      refused *before* it ever reaches a join: pathlib's own ``/`` operator
+      discards the left side entirely when the right side is absolute, so
+      joining ``staging`` with one of these would silently replace it rather
+      than visibly escape it. A relative member that walks out with ``..`` is
+      caught the other way, by resolving the join and checking the result is
+      still inside ``staging`` -- the same check also catches any escape this
+      comment did not think to name.
+    * **Outside the declared prefix.** ``prefix`` is the member prefix read
+      off the *real* asset when the registry entry was written (see
+      ``models.Fetch.extract``), so a member that does not sit under it means
+      either the asset changed under a digest that somehow still matched, or
+      the entry is wrong -- not something to silently reinterpret.
+    """
+    raw = member.replace("\\", "/")
+    if raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
+        raise ValueError(f"{member!r} is an absolute path; refusing to extract it")
+    parts = [p for p in raw.split("/") if p]
+    if prefix == ".":
+        rel_parts = parts
+    else:
+        want = [p for p in prefix.split("/") if p]
+        if parts[: len(want)] != want:
+            raise ValueError(
+                f"{member!r} does not sit under the declared prefix {prefix!r} -- "
+                "either the asset changed under a digest that still matched, or "
+                "the registry entry naming that prefix is wrong"
+            )
+        rel_parts = parts[len(want):]
+    dest = (staging / "/".join(rel_parts)).resolve()
+    if not dest.is_relative_to(staging.resolve()):
+        raise ValueError(f"{member!r} would extract outside the staging directory")
+    return dest
+
+
+def _extract_staged(staging: Path, spec: dict[str, Any]) -> None:
+    """Unpack the archive :func:`_fetch_url` staged, then delete the archive.
+
+    Called only after that function's digest check has already passed --
+    extraction never touches a byte that has not already been proven to match
+    the pin, and has no verification step of its own because it does not need
+    one.
+
+    Not resumable, and does not need to be: unlike the download, this is
+    local-disk work with no network to wait on, so an interruption here is
+    left to the ordinary terminal/non-terminal unwind in ``fetch_one`` to
+    decide whether the staging tree is dropped or kept for the next attempt,
+    the same as any other step would be.
+
+    Every member is validated by :func:`_member_dest` *before* any member is
+    written -- one bad member found on the ninth file of a nine-file archive
+    must not leave the first eight already on disk, which is a half-tree with
+    nothing left to tell it apart from a finished one.
+    """
+    prefix = str(spec.get("extract") or "")
+    name = str(spec.get("filename") or "") or Path(str(spec["url"])).name
+    archive = staging / name
+    with zipfile.ZipFile(archive) as zf:
+        planned = [
+            (info, _member_dest(info.filename, staging, prefix))
+            for info in zf.infolist()
+            if not info.is_dir()
+        ]
+        for info, dest in planned:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # Streamed rather than ``ZipFile.extractall``: one member of this
+            # archive is ~480 MB, and ``ZipFile.open`` hands back a file-like
+            # object precisely so this never holds a whole member in memory
+            # to write it out.
+            with zf.open(info) as src, dest.open("wb") as out:
+                shutil.copyfileobj(src, out, 1 << 20)
+    archive.unlink()
+
+
 #: The resume marker, written inside the staging tree. Named for what it is and
 #: deliberately *not* ``.warlock-fetch.json`` -- that name is the published
 #: manifest in the destination, and one name meaning two things across two
@@ -278,6 +363,10 @@ def _resume_key(spec: dict[str, Any]) -> dict[str, Any]:
         "ignore_patterns": sorted(str(x) for x in (spec.get("ignore_patterns") or ())),
         "url": str(spec.get("url") or ""),
         "sha256": str(spec.get("sha256") or ""),
+        # A spec whose prefix changed describes a different unpacked tree
+        # from the same bytes, and a staging tree extracted under the old
+        # prefix must not be handed back as if it matched the new one.
+        "extract": str(spec.get("extract") or ""),
     }
 
 
@@ -394,6 +483,11 @@ def fetch_one(spec: dict[str, Any]) -> dict[str, Any]:
             # below -- that function reads ``snapshot_download``'s own
             # ``.metadata`` sidecars, which a plain HTTP GET never writes.
             _with_retries(lambda: _fetch_url(staging, spec), spec)
+            if spec.get("extract"):
+                # Only after the line above returns: that is where the digest
+                # is checked, and unpacking is what would turn an unverified
+                # byte into a hundred files on disk if it ran any earlier.
+                _extract_staged(staging, spec)
         else:
             revision = str(spec.get("revision") or "") or None
             # Retried over the same ``local_dir``, which is what makes the

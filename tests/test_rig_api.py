@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from warlock import doctor
 from warlock.service import Invalid, NotFound, NotReady
 from warlock.service import derive as svc_derive
 from warlock.service import jobs as svc_jobs
@@ -237,4 +238,43 @@ def test_adjusting_joints_rejects_a_partial_skeleton(svc, assets):
             svc,
             job_id,
             {"bones": [{"name": fitted[0]["name"], "head": [0, 0, 0], "tail": [0, 0, 1]}]},
+        )
+
+
+# --- the bpy door ------------------------------------------------------------
+#
+# Today the UI hides the Rig button when ``rig_templates``' own probe says bpy
+# is absent, so the only paths that reach ``create_rig``/``adjust_joints`` on
+# such a host are the MCP agent surface (``studio/agent_clay.py``, derived
+# from a tool surface that has no notion of this greying) and a stale frame.
+# Both used to queue a job that could only die in
+# ``pipelines/blender_worker.py`` with exit code 3 minutes later, instead of
+# being refused here, at the door, before anything is written.
+
+
+def test_rigging_without_blender_is_refused_at_the_door(svc, assets, monkeypatch):
+    job_id = _finished_mesh_job(svc, assets)
+    monkeypatch.setattr(
+        doctor, "blender_check", lambda **_kw: doctor.Check(
+            name="Blender (rigging)", ok=False, detail="bpy is not installed", fatal=False,
+        ),
+    )
+    with pytest.raises(Invalid, match="Blender"):
+        svc_rig.create_rig(svc, job_id)
+    # And nothing was queued: the refusal is at the door, not after it.
+    assert len(svc.store.list()) == 1  # only the source mesh job
+
+
+def test_rerigging_without_blender_is_refused_at_the_door(svc, assets, monkeypatch):
+    job_id, fitted = _rigged_job(svc, assets)
+    monkeypatch.setattr(
+        doctor, "blender_check", lambda **_kw: doctor.Check(
+            name="Blender (rigging)", ok=False, detail="bpy is not installed", fatal=False,
+        ),
+    )
+    with pytest.raises(Invalid, match="Blender"):
+        svc_rig.adjust_joints(
+            svc,
+            job_id,
+            {"bones": [{"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in fitted]},
         )

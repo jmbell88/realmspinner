@@ -109,8 +109,15 @@ class Entry:
         """The ``doctor.Check.name`` this row's presence is reported under."""
         if self.kind == "engine":
             # Kept byte-for-byte for scripts and onboarding checks that predate
-            # the engine becoming an installable registry row.
-            return "TRELLIS GGUF weights"
+            # the engine becoming an installable registry row -- and, since the
+            # engine's binaries became a second entry of this kind, *two*
+            # names rather than one. Both are the row names doctor has always
+            # used: ``trellis-server.exe`` was a hand-built fatal row until the
+            # engine became a download, and the installer's own smoke test
+            # greps its transcript for that exact string. A row that renamed
+            # itself the day its status changed would have made a passing build
+            # look like a broken one.
+            return "trellis-server.exe" if self.spec.runtime else "TRELLIS GGUF weights"
         return check_name(self.kind, self.label)
 
     def is_present(self, config: Config) -> bool:
@@ -181,6 +188,48 @@ def base_model_dir(config: Config, spec: models.BaseModel) -> Path:
     return config.t2i_model_root / spec.dir_name
 
 
+def engine_dir(config: Config, spec: Any) -> Path:
+    """Which of the two engine directories this entry's payload lands in.
+
+    The ``engine`` kind covers both halves of the reconstruction engine -- the
+    binaries and the weights they load -- and they land in different places:
+    the binaries under ``config.trellis_runtime_dir``, the weights under
+    ``config.trellis_models_dir``. Four functions in this module used to
+    hardcode the weights directory for the whole kind, which was correct while
+    there was only one entry in it and silently wrong the moment there were
+    two: a second entry would have published its DLLs on top of the GGUFs and
+    every presence probe would have agreed it worked.
+
+    One function so those four cannot drift, and ``EngineModel.runtime`` rather
+    than the key so a third engine entry needs no edit here.
+    """
+    return config.trellis_runtime_dir if spec.runtime else config.trellis_models_dir
+
+
+def engine_probe_dir(config: Config, spec: Any) -> Path:
+    """Where to *look* for this entry's payload, which is not where it lands.
+
+    The two differ for the engine's binaries alone, and only because they have
+    three possible homes: ``Config.resolve_trellis_exe`` answers
+    ``WARLOCK_TRELLIS_EXE`` first, then the downloaded runtime directory, then
+    the checkout's ``vendor/trellis/``. A download can only ever go to the
+    middle one -- which is what :func:`engine_dir` is for -- but a *presence*
+    probe that only asked about the middle one would call the engine missing on
+    a machine that is running it.
+
+    That is not hypothetical: on a source checkout with ``vendor/trellis/``
+    populated, doctor's ``trellis-server.exe`` row (which probes the resolver)
+    said OK while this row said "not downloaded", the Models pane offered a
+    0.7 GB download of something already present, and ``modes.NEEDS_ROWS``
+    would have greyed Create on an empty library over an engine that works.
+    Two surfaces reading the same question must not disagree -- the same rule
+    M04 and pipelines-01 were both about, arrived at from the other side.
+    """
+    if spec.runtime:
+        return config.resolve_trellis_exe().parent
+    return config.trellis_models_dir
+
+
 def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     """Where ``one`` actually lands, as opposed to what its command string says.
 
@@ -192,7 +241,7 @@ def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     """
     spec = entry.spec
     if entry.kind == "engine":
-        return config.trellis_models_dir
+        return engine_dir(config, spec)
     is_base = entry.kind == "base"
     return models.fetch_dests(
         (one,),
@@ -315,6 +364,13 @@ class Job:
     url: str = ""
     sha256: str = ""
     filename: str = ""
+    # The archive member prefix to strip once the bytes are verified, "" for a
+    # record that is not an archive. Carried through for ``url``'s reason: one
+    # string, one owner, registry entry to worker.
+    extract: str = ""
+    # What the unpacked tree costs, on top of ``size_gib``. Read only by
+    # ``disk_refusal`` -- ``size_gib`` stays the progress bar's denominator.
+    unpack_gib: float = 0.0
 
     def spec(self) -> dict[str, Any]:
         """The JSON the worker reads on stdin.
@@ -335,6 +391,7 @@ class Job:
             "url": self.url,
             "sha256": self.sha256,
             "filename": self.filename,
+            "extract": self.extract,
         }
 
 
@@ -389,6 +446,8 @@ def _merge(into: Job, one: models.Fetch) -> Job:
         url=into.url or one.url,
         sha256=into.sha256 or one.sha256,
         filename=into.filename or one.filename,
+        extract=into.extract or one.extract,
+        unpack_gib=into.unpack_gib + one.unpack_gib,
     )
 
 
@@ -433,6 +492,8 @@ def plan(config: Config, chosen: list[Entry]) -> list[Job]:
                 url=one.url,
                 sha256=one.sha256,
                 filename=one.filename,
+                extract=one.extract,
+                unpack_gib=one.unpack_gib,
             )
     return [jobs[k] for k in order]
 
@@ -523,7 +584,14 @@ def disk_refusal(jobs: list[Job]) -> str | None:
     """
     if not jobs:
         return None
-    short = volume_refusal([(Path(job.dest), job.size_gib) for job in jobs])
+    # ``size_gib + unpack_gib``, because an archive and the tree it unpacks to
+    # coexist until the archive is deleted -- the peak is the sum, and a
+    # refusal that budgeted only the download would admit a plan that runs the
+    # volume out halfway through extracting it. ``unpack_gib`` is 0.0 for every
+    # entry that is not an archive, so this is the old sum for all of them.
+    short = volume_refusal(
+        [(Path(job.dest), job.size_gib + job.unpack_gib) for job in jobs]
+    )
     if short is None:
         return None
     where = f" on {short.volume}" if short.volumes > 1 else ""
@@ -571,7 +639,7 @@ def claims(config: Config, entry: Entry) -> tuple[Path, ...]:
     root = config.t2i_model_root
     spec = entry.spec
     if entry.kind == "engine":
-        return (config.trellis_models_dir,)
+        return (engine_dir(config, spec),)
     if entry.kind == "base":
         out = [base_model_dir(config, spec)]
         if spec.base_lora:
@@ -632,7 +700,15 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
                 "first if you really want it gone."
             )
     try:
-        roots = (config.t2i_model_root.resolve(), config.trellis_models_dir.resolve())
+        roots = (
+            config.t2i_model_root.resolve(),
+            config.trellis_models_dir.resolve(),
+            # The engine's binaries are downloaded, so they are removable --
+            # and without this root every Remove of that row is refused as
+            # "outside the model root", which is the one refusal a user cannot
+            # act on because the directory is exactly where Warlock put it.
+            config.trellis_runtime_dir.resolve(),
+        )
         outside = [
             p for p in wanted if not any(p.resolve().is_relative_to(root) for root in roots)
         ]
@@ -810,7 +886,11 @@ def verify_all(config: Config) -> list[Verification]:
     "is what is installed intact", and a directory installed by a registry row
     that has since been renamed is still a directory on this disk.
     """
-    roots = (Path(config.t2i_model_root), Path(config.trellis_models_dir).parent)
+    roots = (
+        Path(config.t2i_model_root),
+        Path(config.trellis_models_dir).parent,
+        Path(config.trellis_runtime_dir).parent,
+    )
     dests = sorted(
         {
             p.parent
@@ -840,7 +920,7 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     out: list[str] = []
     root = config.t2i_model_root
     if kind == "engine":
-        candidates = [config.trellis_models_dir / name for name in spec.probe]
+        candidates = [engine_probe_dir(config, spec) / name for name in spec.probe]
         for path in candidates:
             try:
                 if path.exists() and path.stat().st_size == 0:
@@ -887,7 +967,8 @@ def present(config: Config, kind: str, spec: Any) -> bool:
     """
     root = config.t2i_model_root
     if kind == "engine":
-        return all((config.trellis_models_dir / name).is_file() for name in spec.probe)
+        base = engine_probe_dir(config, spec)
+        return all((base / name).is_file() for name in spec.probe)
     if kind == "base":
         return base_model_state(config, spec)[0]
     if kind == "lora":

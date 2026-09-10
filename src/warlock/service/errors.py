@@ -22,6 +22,7 @@ class ServiceError(Exception):
         *,
         field: str | None = None,
         rows: tuple[str, ...] = (),
+        packs: tuple[str, ...] = (),
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -35,6 +36,16 @@ class ServiceError(Exception):
         # the brittleness this field exists to avoid. Empty for every refusal
         # that is not about missing weights, which is most of them.
         self.rows = tuple(rows)
+        # ``rows``' sibling for the *other* thing a job can be short of. A pack
+        # (``packs.Pack.key``) is not a registry row -- there is nothing to
+        # download, and nothing ``downloads.needed_gib`` can size -- so it gets
+        # its own carrier rather than being folded into ``rows`` and losing the
+        # distinction the pane needs to draw the right button (an "Install the
+        # X pack" offer that routes to Settings -> Packs, not Settings ->
+        # Models). Same shape, same reason: structure the pane reads rather
+        # than a second parse of ``message``. Empty for every refusal that is
+        # not "the code for this is not installed", which is most of them.
+        self.packs = tuple(packs)
 
 
 class NotFound(ServiceError):

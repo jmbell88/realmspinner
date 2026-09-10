@@ -225,10 +225,31 @@ HANDLED: frozenset[str] = frozenset(
 
 
 def start(ctx: Any, key: str) -> None:
-    """Begin a tour. Unknown keys are ignored rather than raising."""
+    """Begin a tour. Unknown keys are ignored rather than raising.
 
-    if find_tour(key) is None:
+    The other half of ``landing._tour_offer``'s guard: that stops the card
+    from being *offered* for a tour whose mode is gated, and this stops it
+    being *started* by any other route -- the palette's asset actions, a
+    manual chapter's link, a direct call from a test. Same question
+    (``Tour.mode`` and ``model_gate.mode_gate``), asked again here rather than
+    trusted from the caller, because the first step would otherwise wait on a
+    ``mode_is`` condition ``state.set_mode`` refuses to ever satisfy -- the
+    tour hangs on step 1 with no way forward. A toast names the reason rather
+    than the card opening and then never advancing.
+    """
+
+    tour = find_tour(key)
+    if tour is None:
         return
+    if tour.mode:
+        from . import model_gate
+
+        where, _keys = model_gate.mode_gate(ctx, tour.mode)
+        if where:
+            reason = model_gate.mode_reason(ctx, tour.mode)
+            fallback = f"{tour.title} needs a mode this machine hasn't unlocked yet."
+            ctx.toast(reason or fallback, "warn")
+            return
     ctx.state.tour.start(key)
 
 

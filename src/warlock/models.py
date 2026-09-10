@@ -218,7 +218,26 @@ class Fetch:
     # A post step: (name-as-downloaded, name-it-must-have). loras/ is flat, so
     # a repo's default-named adapter would otherwise overwrite another's.
     rename: tuple[str, str] | None = None
+    # A post step for a ``url`` record whose artifact is an archive: the member
+    # prefix to strip, or ``"."`` for an archive that is already flat. Empty
+    # means "not an archive", which is every entry but the engine.
+    #
+    # A field rather than "unzip anything that ends in .zip", because the strip
+    # is not guessable: a release that packs its files under a versioned
+    # directory and one that packs them at the root are the same filename, and
+    # guessing wrong publishes a tree whose every presence probe fails. The
+    # value is read off the actual asset once, when the entry is written.
+    extract: str = ""
     size_gib: float = 0.0
+    # What the *unpacked* tree costs, for an ``extract`` record only.
+    #
+    # Separate from ``size_gib`` because the two figures answer to different
+    # readers, and collapsing them would break one of them. ``size_gib`` is the
+    # progress bar's denominator and has to stay the download; the free-disk
+    # refusal has to budget both, because the archive and the tree it unpacks
+    # to coexist for the length of the extraction. Understating either weakens
+    # the refusal and never causes a wrong one, which is the direction to err.
+    unpack_gib: float = 0.0
     # A trailing non-shell instruction, reproduced verbatim. Only BiRefNet has
     # one, and it names a `uv sync` rather than a download.
     note: str = ""
@@ -267,6 +286,12 @@ class Fetch:
             # which is exactly the drift ``revision`` in the rendered command
             # exists to prevent.
             out.append(f"then check its sha256 is {self.sha256}")
+        if self.extract:
+            # Before the rename line, because that is the order the worker
+            # does them in: an archive's members cannot be renamed until they
+            # exist. No entry uses both today; the ordering is here so that the
+            # first one that does gets instructions it can follow.
+            out.append(f"then unpack it into {self.dest_text(dest)}")
         if self.rename is not None:
             src, dst = self.rename
             out.append(f"then rename {self.dest_text(dest)}/{src} to {dst}")
@@ -550,13 +575,32 @@ class ControlNet:
 
 @dataclass(frozen=True, slots=True)
 class EngineModel:
-    """A native reconstruction engine's non-Python model payload."""
+    """One half of a native reconstruction engine: its binaries, or its weights.
+
+    Both halves are the ``engine`` kind and both appear under the same
+    "Reconstruction engine" heading, because to a user they are one thing that
+    happens to arrive in two downloads. ``runtime`` is which half this is, and
+    the only thing it decides is *where the payload lands* -- ``fetch.py``
+    resolves it to ``config.trellis_runtime_dir`` or
+    ``config.trellis_models_dir``. It is a flag on the record rather than a
+    second registry table for the reason ``Fetch.revision`` is: the fact
+    travels with the thing it is about.
+    """
 
     key: str
     label: str
     probe: tuple[str, ...]
     fetch: tuple[Fetch, ...] = ()
     description: str = ""
+    #: True for the engine's own binaries, False for the weights it loads.
+    runtime: bool = False
+    #: sha256 by filename, for a ``runtime`` entry. The archive's own digest
+    #: already pins the whole artifact and is what the worker verifies before
+    #: it unpacks; these turn "the download is wrong" into "*this file* is
+    #: wrong" for a tree that was damaged after it landed, which is what
+    #: ``warlock doctor --verify`` is asked and what the installer's
+    #: ``runtime-manifest.json`` used to answer while the engine was staged.
+    digests: tuple[tuple[str, str], ...] = ()
 
     @property
     def download(self) -> str:
@@ -580,7 +624,82 @@ TRELLIS_GGUF_FILES = (
     "tex_flow_512.gguf",
 )
 
+# The engine's own binaries, as the one release asset they are published in.
+#
+# **Measured, not guessed** (2026-09-10, against the real asset): the zip is
+# 728,541,568 bytes and unpacks flat -- nine members, no directory to strip --
+# to 878,218,576 bytes. Its nine files were confirmed CRC-identical to the copy
+# that used to be vendored, so the digests below are the same numbers
+# ``installer/runtime-manifest.json`` pinned while the installer staged them.
+TRELLIS_RUNTIME_VERSION = "v0.6.0"
+TRELLIS_RUNTIME_ASSET = "trellis-cuda-windows-x64.zip"
+TRELLIS_RUNTIME_URL = (
+    f"https://github.com/pwilkin/trellis.cpp/releases/download/"
+    f"{TRELLIS_RUNTIME_VERSION}/{TRELLIS_RUNTIME_ASSET}"
+)
+# The SHA-256 GitHub publishes for that exact asset, verified against a real
+# download of it. This is the one unsigned third-party binary in the whole
+# setup and the digest is the only thing standing between a user and whatever
+# that URL serves, so **both move together or neither moves**: bumping the
+# version without re-reading the digest is worse than publishing none, because
+# a mismatch then reads as tampering rather than as a stale constant. The
+# fetch worker treats a mismatch as terminal, so getting this wrong fails every
+# user's first download identically and for ever.
+TRELLIS_RUNTIME_SHA256 = (
+    "4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2"
+)
+TRELLIS_RUNTIME_FILES = (
+    "cublas64_13.dll",
+    "cublasLt64_13.dll",
+    "cudart64_13.dll",
+    "ggml-base.dll",
+    "ggml-cpu.dll",
+    "ggml-cuda.dll",
+    "ggml.dll",
+    "trellis-cli.exe",
+    "trellis-server.exe",
+)
+TRELLIS_RUNTIME_DIGESTS: tuple[tuple[str, str], ...] = (
+    ("cublas64_13.dll", "101ae2b98be62704ec96e90a3c49373b76122fc6b502497a7b6fae9ab0f01564"),
+    ("cublasLt64_13.dll", "517b6a69ac9faa7354cffcbd92179aec0cc18a8f6237d36b28d9adfe8c912d8d"),
+    ("cudart64_13.dll", "352ba4ebe61e9a3b171f357a3daf5dd15b6af4a9857673ff893bd6fd2964c075"),
+    ("ggml-base.dll", "876048c25fcffff85eaa3fb38657960f31b87dcdda4f86e5e18cdedd8ebe1099"),
+    ("ggml-cpu.dll", "dfbb08d83a6550cf207f0c36590cc1f7d4193caf944656c1246b9116c21dc8d5"),
+    ("ggml-cuda.dll", "f4c3de9de67410cac14f1befa5a287580ee43ac32a3a3cb67e8a815b7a8189ab"),
+    ("ggml.dll", "5115ba590271034f5008ba000adfa80b61c207ba6244226e8a4f41e4a5f7c9bd"),
+    ("trellis-cli.exe", "e3d075612388a42fcb9bea73377feac4149e3a463cff2d2e11b24975e85d427d"),
+    ("trellis-server.exe", "e7d5b94a7bea2635e93616eddcb81fe52ca3e0eef31e843c3f1063874a6c0653"),
+)
+
 ENGINE_MODELS: dict[str, EngineModel] = _table(
+    EngineModel(
+        "trellis_runtime",
+        "TRELLIS.2 engine",
+        TRELLIS_RUNTIME_FILES,
+        fetch=(
+            Fetch(
+                "",
+                "trellis-runtime",
+                url=TRELLIS_RUNTIME_URL,
+                sha256=TRELLIS_RUNTIME_SHA256,
+                filename=TRELLIS_RUNTIME_ASSET,
+                extract=".",
+                size_gib=0.68,
+                unpack_gib=0.82,
+            ),
+        ),
+        runtime=True,
+        digests=TRELLIS_RUNTIME_DIGESTS,
+        description=(
+            "The engine itself: trellis-server.exe and the CUDA libraries it "
+            "runs on.\n\n"
+            "Until 2026-09-10 this shipped inside the installer, and it was "
+            "838 MB of every download -- more than half the installed app -- "
+            "for a program most of whose workspaces never start it. It is a "
+            "download now, so a machine that only draws pixel art never "
+            "fetches it. Needs an NVIDIA card; there is no CPU build."
+        ),
+    ),
     EngineModel(
         "trellis_gguf",
         "TRELLIS.2 GGUF weights",
@@ -601,7 +720,7 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
             "app that makes geometry -- without it the Mesh stage has nothing to "
             "run, and every other model here is optional beside it."
         ),
-    )
+    ),
 )
 
 

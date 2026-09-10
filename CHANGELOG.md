@@ -25,7 +25,57 @@ and Troupe — closed a hundred and eleven defects between them, and the
 cutout you approve became the cutout the 3D engine actually rebuilds from.
 Alongside them the app grew an agent: an MCP client already running on your
 machine can build in Clay for you, and be shown the picture you want matched.
+The installer also lost four fifths of its weight, because the reconstruction
+engine stopped being something you download whether or not you ever use it.
 
+
+- **The installer no longer carries the 3D engine, and the download went from
+  853 MB to 170 MB.** `trellis-server.exe` and the CUDA libraries it runs on
+  were 838 MB inside every download — 62% of the installed application, and,
+  because they are already-optimised native code that barely compresses,
+  **80% of the installer** — and `cublasLt64_13.dll` alone was 480 MB of that.
+  The engine itself is 3 MB;
+  the rest is linear algebra it links against. On a machine that only ever
+  draws in Inker, builds tile maps in Plotter, packs atlases in Packwright or
+  writes tunes in Sirens, none of it was ever started. So it is a download now,
+  in **Settings → Models**, listed as *TRELLIS.2 engine* beside the weights it
+  loads, and a first-time user can install Warlock, open it and use most of it
+  before deciding whether to fetch the generative half at all. Nothing about
+  the app's offline promise changed: the download rides the same separate
+  process that has always fetched model weights, so the app process still never
+  becomes able to reach the network. The archive is pinned by fingerprint
+  rather than by version number, checked before it is unpacked, and refused
+  outright if a file inside it tries to write anywhere but where it belongs.
+  The installed application is 539 MB now instead of 1.4 GB, most of what
+  remains being the Python runtime Warlock brings with it.
+
+- **A freshly installed Warlock no longer reports itself as broken.** Missing
+  the engine used to be a **fatal** startup check — a red banner, a count of
+  issues on Home, and `warlock doctor` exiting with an error — on the reasoning
+  that the installer put it there, so its absence could only mean damage. That
+  reasoning ended when it became a download: a machine that has not fetched it
+  yet is an ordinary new machine. It now reports as a **setup** row like every
+  other download, and a correct fresh install has **no fatal rows at all**. The
+  model weights made the same move in the previous release, for the same
+  reason. Downloading the engine also takes effect immediately — Create ungreys
+  and the next 3D job uses it, with no restart.
+
+- **The "Set up this PC" panel stopped offering you 24 GB that could not run.**
+  It listed the model weights and said nothing about the *Image generation*
+  pack those weights need in order to do anything, so it was possible to accept
+  everything it offered, wait for a very large download, and still find Create
+  greyed out. It now names the missing pack too, and its button sends you to
+  the pack **first** — the pack is the code and the weights are what that code
+  reads, so the smaller download is also the one that has to happen first. The
+  rail already worked this way; the panel did not.
+
+- **Two more ways to walk into a locked door are closed.** Home's **New 2D
+  image** and **New 3D model** opened Create directly, ignoring the greying on
+  the rail beside them; they now take you to whatever is actually missing. And
+  the *Generating a track in Muse* tour was offered on machines without Muse's
+  model, where its first step waited for a mode the app was refusing to open —
+  so it sat on step one with nothing to do. A tour whose workspace is gated is
+  no longer offered, and starting one anyway says why instead of hanging.
 
 - **Deleting a Clay object from the outliner no longer keeps its mesh, and
   Bridge Loops no longer freezes on two huge rims.** The outliner row's trash

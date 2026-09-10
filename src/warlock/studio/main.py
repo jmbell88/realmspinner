@@ -1614,7 +1614,13 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                             # figure is a courtesy: an unknown row must not
                             # cost the user the button as well as the number.
                             log.exception("could not size a refusal's install")
-                    ctx.state.note_field_error(named, done.message or "", rows, gib)
+                    # ``ServiceError.packs`` is ``rows``' sibling for "the code
+                    # for this is not installed" (F4's job-door half). No gib
+                    # to size: a pack has no ``downloads.needed_gib`` entry,
+                    # only Settings -> Packs' own figure, which the pane reads
+                    # off ``ctx.pack_rows`` when it draws the button.
+                    packs = tuple(getattr(done.error, "packs", ()) or ())
+                    ctx.state.note_field_error(named, done.message or "", rows, gib, packs)
                 elif done.key == "submit":
                     # A refusal with no control to point at -- the VRAM door is
                     # the one of these, by its own recorded argument. It is

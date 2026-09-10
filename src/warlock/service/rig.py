@@ -67,6 +67,16 @@ def create_rig(svc: WarlockService, job_id: str, *, template: str | None = None)
     if source["status"] != "done" or not (svc.job_dir(job_id) / "model.glb").exists():
         raise Invalid("job has no finished mesh to rig")
     params = {"source_job": job_id, "template": valid_template(template, svc.config.rig_template)}
+    # After every other refusal, and still before the row is written: this UI
+    # hides the Rig button when ``rig_templates``' own probe says bpy is
+    # absent, so the only paths that reach here on such a host are the MCP
+    # agent surface and a stale frame -- exactly the reachable-by-an-agent case
+    # worth refusing at the door rather than leaving to queue a job that dies
+    # in ``pipelines/blender_worker.py`` with exit code 3. ``troupe.py``'s own
+    # gate's sentence, verbatim, so the app has one wording for "this needs
+    # Blender" wherever it is met.
+    if not doctor.blender_check().ok:
+        raise Invalid("Rigging needs Blender, which is not installed.")
     new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "template": params["template"]}
@@ -90,6 +100,10 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
     except ValueError as exc:
         raise invalid_from(exc, "Those joint positions cannot be used") from exc
 
+    # Same door as ``create_rig``'s, for the same reason: a re-rig queues a
+    # fresh job that runs Blender exactly like the first one did.
+    if not doctor.blender_check().ok:
+        raise Invalid("Rigging needs Blender, which is not installed.")
     params = {
         "source_job": job_id,
         "template": template.key,

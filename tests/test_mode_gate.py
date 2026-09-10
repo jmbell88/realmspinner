@@ -62,6 +62,24 @@ def test_a_mode_with_its_weights_present_is_not_blocked():
     assert model_gate.mode_reason(ctx, "muse") == ""
 
 
+def test_create_is_gated_when_only_the_runtime_engine_row_is_missing():
+    """``engine:trellis_runtime`` (the reconstruction engine's own binaries,
+    unshipped from the installer 2026-09-10) joined ``NEEDS_ROWS["create"]``
+    beside the GGUF weights and the base checkpoint. A machine with both of
+    those already present but no engine binaries can generate a reference and
+    then has nothing that can turn it into a mesh, so Create must stay shut on
+    that row alone."""
+    ctx = SimpleNamespace(
+        model_rows=[
+            {"row_key": "engine:trellis_gguf", "present": True, "size_gib": 16.1},
+            {"row_key": "engine:trellis_runtime", "present": False, "size_gib": 0.68},
+            {"row_key": "base:sdxl_cfg", "present": True, "size_gib": 6.5},
+        ],
+        cache=SimpleNamespace(total=0),
+    )
+    assert model_gate.mode_block(ctx, "create") == ("engine:trellis_runtime",)
+
+
 def test_an_ungated_workspace_is_never_blocked():
     ctx = _ctx(present=False)
     for key in ("inker", "clay", "plotter", "packwright", "sirens", "settings"):

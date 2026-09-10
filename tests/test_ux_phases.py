@@ -267,6 +267,17 @@ def test_the_frame_loop_carries_the_refusals_address_to_the_state():
 
     source = inspect.getsource(main.App._collect_tasks)
     assert "note_field_error" in source
+
+
+def test_the_frame_loop_carries_the_refusals_pack_too():
+    """``ServiceError.packs`` is ``rows``' sibling (F4's job-door half), and
+    the same one place every task failure passes through has to read it, or a
+    pack refusal reaches the toast with no Install-the-pack button under its
+    ring the way a missing-weights refusal already gets."""
+    from warlock.studio import main
+
+    source = inspect.getsource(main.App._collect_tasks)
+    assert "done.error" in source and ".packs" in source
     # And the toast still goes up: the ring says *which control*, not *that
     # something happened*, and the pane may not even be on screen.
     assert "ctx.toast(" in source

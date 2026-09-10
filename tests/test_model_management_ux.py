@@ -65,6 +65,52 @@ def test_the_offer_draws_nothing_for_a_refusal_that_is_not_about_weights():
     assert model_gate.install_offer(ctx, "seed") is False
 
 
+# --- the refusal's pack twin (F4's job-door half) ---------------------------
+#
+# A pack (``packs.Pack.key``) is not a registry row: there is nothing for
+# ``downloads.needed_gib`` to size, and the pane's button routes to
+# Settings -> Packs rather than Settings -> Models. ``ServiceError.packs`` is
+# ``rows``' sibling and ``field_error_packs`` is ``field_error_rows``' --
+# the same shape, checked the same way, because a refusal never carries both
+# on the same field (``validation.check_pack`` refuses before the weights
+# check that would populate rows even runs).
+
+
+def _state_with_pack(field_name: str, message: str, packs=()) -> AppState:
+    state = AppState()
+    state.note_field_error(field_name, message, packs=packs)
+    return state
+
+
+def test_a_pack_refusal_carries_its_key():
+    state = _state_with_pack("base_model", "not installed", ("text2image",))
+    assert state.field_errors["base_model"] == "not installed"
+    assert state.field_error_packs["base_model"] == ("text2image",)
+
+
+def test_a_pack_refusal_with_nothing_to_install_displaces_an_earlier_one():
+    state = _state_with_pack("base_model", "not installed", ("text2image",))
+    state.note_field_error("base_model", "that is not a number")
+    assert "base_model" not in state.field_error_packs
+
+
+def test_editing_the_control_forgets_the_pack_offer_with_the_ring():
+    state = _state_with_pack("base_model", "not installed", ("text2image",))
+    state.clear_field_error("base_model")
+    assert not state.field_error_packs
+
+
+def test_a_new_submit_clears_every_pack_offer():
+    state = _state_with_pack("base_model", "not installed", ("text2image",))
+    state.clear_field_errors()
+    assert not state.field_error_packs
+
+
+def test_the_offer_draws_nothing_for_a_pack_control_with_no_refusal():
+    ctx = SimpleNamespace(state=AppState())
+    assert model_gate.install_offer(ctx, "base_model") is False
+
+
 def test_the_offer_draws_nothing_for_a_control_with_no_refusal():
     ctx = SimpleNamespace(state=AppState())
     assert model_gate.install_offer(ctx, "base_model") is False

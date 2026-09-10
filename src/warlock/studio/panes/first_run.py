@@ -30,7 +30,16 @@ POPUP = "Welcome to Warlock"
 #: Packwright, Sirens and the rest) open and work with none of it on disk. The
 #: old name was read as "the app requires these", which is what put a red
 #: banner and a blocking-looking panel in front of a healthy first launch.
-GENERATION_ROWS: tuple[str, str] = ("engine:trellis_gguf", "base:sdxl_cfg")
+#:
+#: ``engine:trellis_runtime`` joined 2026-09-10, beside ``modes.NEEDS_ROWS``'s
+#: own addition: it is a *weights* row (a ``fetch`` entry with a size), so it
+#: belongs on this list. The *pack* half of the same defect -- the 3.3 GB of
+#: Python this panel says nothing about -- is not a row at all, which is why
+#: :func:`snapshot` reads ``model_gate.missing_packs`` separately rather than
+#: adding a fourth thing here that ``fetch.find`` cannot resolve.
+GENERATION_ROWS: tuple[str, ...] = (
+    "engine:trellis_gguf", "engine:trellis_runtime", "base:sdxl_cfg",
+)
 
 
 def marker_path(config: Any) -> Path:
@@ -88,6 +97,15 @@ def snapshot(ctx: Any) -> dict[str, Any]:
     total = getattr(plan, "total_gib", None)
     free = getattr(device, "free_gib", None)
     gpu_name = str(getattr(device, "name", "") or getattr(ctx, "gpu_name", "") or "")
+    # The pack half of "needed to generate" (F4's defect, found again here
+    # 2026-09-10): ``rows`` above is weights, all of them ``fetch`` entries
+    # with a size on disk, and until now that was the whole panel. A pack is
+    # code rather than weights -- read from ``ctx.pack_rows`` through
+    # ``model_gate``'s own reader rather than the disk, for its reason: this
+    # runs on the frame thread. Keyed on "create" because every row in
+    # ``GENERATION_ROWS`` is what Create needs; Muse's own pack has no row
+    # here to sit beside.
+    packs = model_gate.missing_packs(ctx, "create")
     return {
         "gpu_name": gpu_name or ("CUDA GPU" if cuda and cuda.ok else "No CUDA GPU detected"),
         "vram_total_gib": total,
@@ -120,6 +138,14 @@ def snapshot(ctx: Any) -> dict[str, Any]:
             ),
         },
         "rows": rows,
+        "packs": [
+            {
+                "key": row.get("key"),
+                "label": row.get("label"),
+                "download_gib": row.get("download_gib"),
+            }
+            for row in packs
+        ],
         "total_gib": fetch.total_gib(jobs),
         "download_gib": fetch.total_gib(missing_jobs),
         "disk_refusal": fetch.disk_refusal(missing_jobs),
@@ -150,6 +176,17 @@ def dismiss(ctx: Any) -> bool:
 def download_models(ctx: Any) -> None:
     if dismiss(ctx):
         model_gate.request_install(ctx, GENERATION_ROWS)
+
+
+def install_packs(ctx: Any, packs: tuple[dict[str, Any], ...]) -> None:
+    """Packs first (F4's ordering, found again here): a pack is the code and
+    the weights are what the code reads, so offering ~23 GB of weights before
+    the 3.3 GB pack that makes them do anything is the expensive way to find
+    that out. Reuses ``model_gate.request_pack`` -- this is the same door the
+    rail and the palette already send a gated mode through, not a third one.
+    """
+    if dismiss(ctx):
+        model_gate.request_pack(ctx, tuple(str(row["key"]) for row in packs))
 
 
 def take_the_tour(ctx: Any) -> None:
@@ -198,8 +235,8 @@ def draw(ctx: Any) -> None:
         "Warlock runs locally. Nothing here is needed to start work: drawing, "
         "modelling, tile maps, atlases and the tracker all work right now, "
         "with nothing downloaded. Generating references, meshes and music "
-        "needs the models below, and you can fetch them whenever you like -- "
-        "here, or later from Settings -> Models."
+        "needs the pieces below, and you can fetch them whenever you like -- "
+        "here, or later from Settings -> Packs or Models."
     )
 
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -222,6 +259,11 @@ def draw(ctx: Any) -> None:
     # here is required to run the app -- only to generate -- and the word was
     # the panel's main reason for reading as a toll rather than an offer.
     widgets.field_label("Needed to generate")
+    packs = tuple(info.get("packs") or ())
+    for row in packs:
+        gib = row.get("download_gib")
+        suffix = f" (~{float(gib):.1f} GB)" if gib else ""
+        imgui.text_wrapped(f"{row.get('label')} pack — not installed{suffix}")
     for row in info.get("rows") or ():
         suffix = "installed" if row.get("present") else "not downloaded"
         imgui.text_wrapped(f"{row.get('label')} — {suffix}")
@@ -230,9 +272,20 @@ def draw(ctx: Any) -> None:
         widgets.text_colored(theme.ERR, str(refusal))
 
     download_gib = float(info.get("download_gib", info.get("total_gib")) or 0.0)
-    label = f"Download models (~{download_gib:.0f} GB)"
-    if widgets.primary_button(label, (-1, sp(36))):
-        download_models(ctx)
+    # Packs before weights, in the button as well as in the list above: see
+    # ``install_packs``. The figure is the packs' own -- the smaller number,
+    # deliberately, because it is also the download that has to happen first.
+    if packs:
+        pack_gib = sum(float(row.get("download_gib") or 0.0) for row in packs)
+        names = ", ".join(str(row.get("label") or row.get("key")) for row in packs)
+        noun = "pack" if len(packs) == 1 else "packs"
+        label = f"Install the {names} {noun} (~{pack_gib:.1f} GB)"
+        if widgets.primary_button(label, (-1, sp(36))):
+            install_packs(ctx, packs)
+    else:
+        label = f"Download models (~{download_gib:.0f} GB)"
+        if widgets.primary_button(label, (-1, sp(36))):
+            download_models(ctx)
     # Not a deferral of something owed: it dismisses the panel for good and
     # leaves a fully usable app. Home keeps a quiet row offering the same
     # download, so declining here loses nothing.

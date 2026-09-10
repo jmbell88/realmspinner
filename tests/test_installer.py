@@ -29,15 +29,6 @@ def test_runtime_manifest_covers_every_shipped_vendor_file_once() -> None:
     named = [entry["path"] for entry in payload["files"]]
     assert len(named) == len(set(named))
     assert set(named) == {
-        "vendor/trellis/cublas64_13.dll",
-        "vendor/trellis/cublasLt64_13.dll",
-        "vendor/trellis/cudart64_13.dll",
-        "vendor/trellis/ggml-base.dll",
-        "vendor/trellis/ggml-cpu.dll",
-        "vendor/trellis/ggml-cuda.dll",
-        "vendor/trellis/ggml.dll",
-        "vendor/trellis/trellis-cli.exe",
-        "vendor/trellis/trellis-server.exe",
         "vendor/gltfpack/gltfpack.exe",
         "vendor/warlockc/warlockc.dll",
     }
@@ -49,12 +40,24 @@ def test_runtime_manifest_covers_every_shipped_vendor_file_once() -> None:
         "torch_cuda": "12.8",
     }
     assert payload["roots"] == [
-        "vendor/trellis",
         "vendor/gltfpack",
         "vendor/warlockc",
     ]
     assert all(entry["size"] > 0 for entry in payload["files"])
     assert all(re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) for entry in payload["files"])
+
+
+def test_runtime_manifest_no_longer_pins_the_downloadable_trellis_engine() -> None:
+    """The engine (trellis-server.exe, ggml, the CUDA DLLs) stopped being a
+    staged installer payload on 2026-09-10 -- it is a Settings -> Models
+    download now (``models.ENGINE_MODELS["trellis_runtime"]``, pinned by
+    ``models.TRELLIS_RUNTIME_DIGESTS``), not a file this manifest ships. A
+    manifest that still named ``vendor/trellis`` as a root would fail every
+    developer checkout under the unpinned-files rule the moment its files were
+    dropped without dropping the root too (see the two tests below)."""
+    payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    assert "vendor/trellis" not in payload["roots"]
+    assert not any(entry["path"].startswith("vendor/trellis/") for entry in payload["files"])
 
 
 def test_the_provisioned_native_runtime_matches_every_size_and_hash_pin() -> None:
@@ -66,13 +69,47 @@ def test_the_provisioned_native_runtime_matches_every_size_and_hash_pin() -> Non
     assert all(path.is_file() for path in targets), "a provisioned runtime may not be partial"
     actual = {
         path.relative_to(ROOT).as_posix()
-        for directory in ("trellis", "gltfpack", "warlockc")
+        for directory in ("gltfpack", "warlockc")
         for path in (ROOT / "vendor" / directory).rglob("*")
         if path.is_file()
     }
     assert actual == {entry["path"] for entry in payload["files"]}
     verified = verifier.verify_runtime(ROOT, MANIFEST)
-    assert len(verified) == 11
+    assert len(verified) == 2
+
+
+def test_a_stage_without_the_trellis_engine_verifies_clean(tmp_path: Path) -> None:
+    """A base installer stage never carries ``vendor/trellis`` at all (see
+    ``installer/build.ps1``'s staging loop). Verification against the real
+    manifest must succeed on a tree shaped exactly like that -- no fatal
+    'runtime file is missing' and no fatal 'unpinned files', because the
+    engine is simply not part of what this manifest describes any more."""
+    verifier = _verifier()
+    for directory, name, payload in (
+        ("gltfpack", "gltfpack.exe", (ROOT / "vendor/gltfpack/gltfpack.exe").read_bytes()),
+        ("warlockc", "warlockc.dll", (ROOT / "vendor/warlockc/warlockc.dll").read_bytes()),
+    ):
+        target_dir = tmp_path / "vendor" / directory
+        target_dir.mkdir(parents=True)
+        (target_dir / name).write_bytes(payload)
+    verified = verifier.verify_runtime(tmp_path, MANIFEST)
+    assert len(verified) == 2
+
+
+def test_a_checkout_with_vendor_trellis_present_is_not_failed_by_the_unpinned_files_rule() -> None:
+    """Every developer checkout keeps ``vendor/trellis`` on disk (gitignored,
+    never deleted -- ``Config.resolve_trellis_exe()`` falls back to it) even
+    though the installer stopped staging it. ``verify_runtime`` fails on any
+    unpinned file found under a *declared* root, so this only stays true
+    because ``vendor/trellis`` was dropped from ``roots`` as well as from
+    ``files`` -- a manifest that dropped only the files would fail this exact
+    checkout, on this exact tree, every time."""
+    verifier = _verifier()
+    trellis_dir = ROOT / "vendor" / "trellis"
+    if not trellis_dir.is_dir() or not any(trellis_dir.iterdir()):
+        pytest.skip("this checkout has no vendor/trellis to prove is ignored")
+    verified = verifier.verify_runtime(ROOT, MANIFEST)
+    assert len(verified) == 2
 
 
 def test_runtime_verification_refuses_a_tampered_file(tmp_path: Path) -> None:

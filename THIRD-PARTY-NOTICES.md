@@ -14,18 +14,43 @@ a repository somewhere.
 ## Bundled native binaries
 
 Pinned by SHA-256 in `installer/runtime-manifest.json` and verified at build
-time. All are redistributed unmodified.
+time. Both are redistributed unmodified.
+
+| Component | Files | Upstream | Licence |
+|---|---|---|---|
+| meshoptimizer | `gltfpack.exe` | <https://github.com/zeux/meshoptimizer> | MIT |
+| warlockc | `warlockc.dll` | this repository (`native/`) | GPL-3.0-or-later, as part of this program |
+
+`warlockc.dll` is optional: every kernel in it has a NumPy fallback and the
+application runs without the DLL present.
+
+## The reconstruction engine, which is downloaded and not redistributed
+
+**Until 2026-09-10 the three components below were in the table above.** They
+were 838 MB of every installer — more than half the installed application — so
+they became a download instead: `Settings → Models` fetches
+`trellis-cuda-windows-x64.zip` from trellis.cpp's own GitHub release, verifies
+the SHA-256 that `src/warlock/models.py` pins against it, and unpacks it under
+the user's Warlock home.
+
+That is a change of legal posture and not only of download size, so it is worth
+stating plainly: **Warlock no longer redistributes these files.** The bytes
+travel from trellis.cpp's release page to the user, and this project ships a URL
+and a digest. The notices are kept here anyway — the app fetches them on the
+user's behalf and runs them, which is enough reason for the terms to be
+somewhere the user can find them, and this file is installed at the application
+root whether or not the engine is ever downloaded.
 
 | Component | Files | Upstream | Licence |
 |---|---|---|---|
 | trellis.cpp | `trellis-server.exe`, `trellis-cli.exe` | <https://github.com/pwilkin/trellis.cpp> | MIT |
 | ggml | `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-cuda.dll` | <https://github.com/ggml-org/ggml> | MIT |
 | NVIDIA CUDA runtime | `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` | NVIDIA CUDA Toolkit 12.8 redistributables | NVIDIA CUDA Toolkit EULA — redistribution permitted under the "Attachment A" redistributable list |
-| meshoptimizer | `gltfpack.exe` | <https://github.com/zeux/meshoptimizer> | MIT |
-| warlockc | `warlockc.dll` | this repository (`native/`) | GPL-3.0-or-later, as part of this program |
 
-`warlockc.dll` is optional: every kernel in it has a NumPy fallback and the
-application runs without the DLL present.
+A source checkout is the one case where these files still arrive by hand, into
+`vendor/trellis/` — see `README.md`. Nothing is redistributed there either: the
+directory is gitignored and the developer downloads the same archive from the
+same place.
 
 ## Bundled Python runtime
 

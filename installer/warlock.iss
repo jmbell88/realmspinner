@@ -29,8 +29,14 @@ OutputBaseFilename=WarlockSetup-v{#AppVersion}
 ; terms at all, which -- for everyone who installs rather than clones -- is the
 ; same posture as having no licence. The third-party notices are not shown
 ; here (a wizard pane renders Markdown as raw text); they are staged into the
-; install root and beside vendor\, which is what MIT and the NVIDIA
-; redistributable EULA actually require -- see installer\build.ps1.
+; install root and beside vendor\, which is what MIT requires for the two
+; binaries this installer still carries (gltfpack, warlockc) -- see
+; installer\build.ps1. The reconstruction engine (trellis.cpp/ggml, MIT, plus
+; the NVIDIA CUDA redistributables under NVIDIA's own EULA) no longer travels
+; with the installer as of 2026-09-10 -- it is a Settings -> Models download,
+; fetched from trellis.cpp's own release page -- so this project no longer
+; redistributes it and the notice is documentation rather than an obligation.
+; THIRD-PARTY-NOTICES.md still describes it, and is staged either way.
 LicenseFile={#ProjectRoot}\LICENSE
 ; A genuine multi-size Windows ICO (16-256 px), and it has to be a separate
 ; file: src\warlock\assets\icon.ico is a 1024x1024 PNG despite its extension,

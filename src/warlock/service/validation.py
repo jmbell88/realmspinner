@@ -13,7 +13,7 @@ import re
 import secrets
 from typing import Any
 
-from .. import rigging, vram
+from .. import packs, rigging, vram
 from .errors import Invalid, NotFound, invalid_from
 
 ALLOWED_RESOLUTIONS = {512, 1024, 1536}
@@ -471,6 +471,82 @@ def install_remedy(label: str, download: str) -> str:
     )
 
 
+# Which studio mode a job kind's weights speak for -- not a kind -> pack table
+# in its own right, because that table already exists as ``packs.PACKS[*]
+# .modes`` and a second one beside it is exactly the drift F4 was: the pack
+# half of a mode's door was read in one place (a label inside Settings) while
+# the weights half was checked everywhere. Only the kinds ``check_weights``
+# itself inspects need an entry -- no other kind loads SDXL or torch at all,
+# so no other kind can be short a pack.
+_KIND_MODE: dict[str, str] = {
+    "text": "create",
+    "music": "muse",
+    # Stem separation runs ``torchaudio.models.hdemucs_high`` -- a class the
+    # ``music`` extra already installs for ACE-Step (see
+    # ``pipelines/separation_worker.py``'s own docstring) -- so it is short
+    # the same pack a missing music model is, even though it is reached from
+    # a *finished* take rather than from Muse's generate door.
+    "separate": "muse",
+}
+
+
+def _pack_for_kind(kind: str) -> packs.Pack | None:
+    """The pack that gates ``kind``'s weights, or ``None`` if none does.
+
+    Derived from ``Pack.modes`` rather than a second kind -> pack literal:
+    ``_KIND_MODE`` names which mode a kind's weights belong to, and this asks
+    the registry which pack claims that mode, the same question
+    ``model_gate.missing_packs`` asks per mode. A mode two packs both claimed
+    would be a registry mistake, not a case to resolve here.
+    """
+    mode = _KIND_MODE.get(kind)
+    if mode is None:
+        return None
+    for pack in packs.PACKS:
+        if mode in pack.modes:
+            return pack
+    return None
+
+
+def check_pack(
+    svc: Any, kind: str, params: dict[str, Any], *, field: str | None = None
+) -> None:
+    """Refuse a job whose dependency pack is not installed (F4's other door).
+
+    Beside ``check_weights``, and called before it for the same kind: a pack
+    is the code and the weights are what the code reads, so weights installed
+    without their pack buy the user nothing, and 23 GB is an expensive way to
+    find that out -- the same ordering ``model_gate.mode_gate`` already uses
+    for the *pane*. This is the *submit*'s half: today a mode with one
+    finished job in the library opens with a fully live form whose worker then
+    dies on the missing import, because ``mode_gate`` only greys a mode on an
+    otherwise-empty library.
+
+    ``svc`` is accepted but not read: presence is ``packs.installed``, which
+    probes the running interpreter directly (``importlib.util.find_spec``) and
+    has no notion of a config to consult. Taken anyway, for ``check_weights``'
+    own shape -- every check at this door takes ``svc`` first, and a caller
+    should not have to remember which ones use it.
+
+    The sentence names Settings, not ``uv``. This message is what a submit's
+    refusal carries to the desktop toast, and its reader is whoever is running
+    the packaged app -- someone who has never opened a terminal and could not
+    act on ``pack.install_hint`` if it were printed. That line is not lost: it
+    is ``RuntimeError``'s to print, in the worker this door exists to make
+    unreachable, for the one reader who *is* at a terminal -- a source
+    checkout that queued the job without syncing the pack's extra.
+    """
+    pack = _pack_for_kind(kind)
+    if pack is None or packs.installed(pack):
+        return
+    raise Invalid(
+        f'This needs the "{pack.label}" pack, which is not installed. '
+        "Install it in Settings -> Packs.",
+        field=field,
+        packs=(pack.key,),
+    )
+
+
 def check_base_model_weights(
     svc: Any, base: Any, *, rows: tuple[str, ...] | None = None
 ) -> None:
@@ -540,6 +616,12 @@ def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
         #
         # Refused rather than degraded, unlike a missing pose or matting model:
         # Muse has no fallback, and is not supposed to have one.
+        #
+        # The pack door first, on the same control: torch not being installed
+        # is a different fact from the checkpoint not being downloaded, and a
+        # user sent to download 8+ GB of ACE-Step weights before Muse can even
+        # import torch would find that out only after paying for it.
+        check_pack(svc, kind, params, field="music_model")
         from .. import fetch, models
 
         spec = models.MUSIC_MODELS.get(
@@ -566,6 +648,11 @@ def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
         # missing separation model refuses only the separation, because every
         # take still generates, plays, exports and imports into Sirens. What is
         # lost is four extra files.
+        #
+        # Same pack as the music branch above -- see ``_KIND_MODE``'s comment
+        # on "separate": the class this loads ships with ``music``, not with a
+        # pack of its own.
+        check_pack(svc, kind, params, field="separation_model")
         from .. import fetch, models
 
         spec = models.SEPARATION_MODELS.get(
@@ -590,6 +677,11 @@ def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
         return
     if kind != "text":
         return
+    # The pack door before the weights door, for ``check_pack``'s reason: the
+    # base checkpoint is what ``base_model`` names, so a missing ``text2image``
+    # pack is refused on the same control rather than surfacing only once the
+    # checkpoint is also confirmed present.
+    check_pack(svc, kind, params, field="base_model")
     from .. import fetch, models
 
     check_base_model_weights(svc, models.BASE_MODELS.get(str(params.get("base_model") or "")))

@@ -1045,6 +1045,14 @@ class AppState:
     # the ring pre-ticks exact registry rows.
     field_error_rows: dict[str, tuple[str, ...]] = field(default_factory=dict)
     field_error_gib: dict[str, float] = field(default_factory=dict)
+    # ``ServiceError.packs`` for the same refusals, when it is a dependency
+    # pack rather than a weights download that is missing. Its own dict rather
+    # than folded into ``field_error_rows``: a pack key is not a registry row,
+    # ``downloads.needed_gib`` cannot size it, and the pane has to draw a
+    # different button (Settings -> Packs, not Settings -> Models) -- keeping
+    # them apart is what lets it ask "which one" with a dict lookup instead of
+    # re-deriving the answer from the key's own shape.
+    field_error_packs: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # The keyboard focus ring (UX.md Phase 3), per pane: which control the
     # cursor is on, what this frame's tab order is, and whether the cursor just
     # moved -- see :mod:`.focus`, which owns every rule about them. Here rather
@@ -1399,6 +1407,7 @@ class AppState:
         message: str,
         rows: tuple[str, ...] = (),
         gib: float = 0.0,
+        packs: tuple[str, ...] = (),
     ) -> bool:
         """Remember that ``field_name`` is why the last submit was refused.
 
@@ -1418,6 +1427,12 @@ class AppState:
         else:
             self.field_error_rows.pop(str(field_name), None)
             self.field_error_gib.pop(str(field_name), None)
+        # Same rule, for the pack half: a refusal that names no pack must not
+        # leave a stale "Install the X pack" button under an unrelated ring.
+        if packs:
+            self.field_error_packs[str(field_name)] = tuple(packs)
+        else:
+            self.field_error_packs.pop(str(field_name), None)
         return True
 
     def clear_field_error(self, field_name: str) -> None:
@@ -1430,12 +1445,14 @@ class AppState:
         self.field_errors.pop(field_name, None)
         self.field_error_rows.pop(field_name, None)
         self.field_error_gib.pop(field_name, None)
+        self.field_error_packs.pop(field_name, None)
 
     def clear_field_errors(self) -> None:
         """Forget all of them: a new submit is about to be judged on its own."""
         self.field_errors.clear()
         self.field_error_rows.clear()
         self.field_error_gib.clear()
+        self.field_error_packs.clear()
 
     # -- history -----------------------------------------------------------
 

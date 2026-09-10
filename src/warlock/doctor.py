@@ -24,7 +24,12 @@ from .pipelines import matting
 
 # Same reasoning: ``service.evidence`` imports json, shutil and ``provenance``
 # and nothing else, so naming the archive's size here costs no import weight.
-from .service import evidence
+#
+# ``validation`` costs only ``rigging``, ``vram`` and its own ``errors`` module
+# -- ``install_remedy`` is the one sentence this file needs from it, and a
+# second copy of that sentence's wording is exactly the kind of drift this
+# import avoids.
+from .service import evidence, validation
 
 MIN_FREE_DISK_GB = 5.0
 
@@ -128,6 +133,7 @@ def static_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
         _warlockc_check(),
         _cuda_check(probe=probe_slow),
         *_t2i_checks(config),
+        text2image_deps_check(probe=probe_slow),
         *_matting_checks(config, probe_slow=probe_slow),
         *_text_checks(config),
         *_pose_checks(config, probe_slow=probe_slow),
@@ -347,42 +353,10 @@ def _probe_blender() -> Check:
     return Check("Blender (rigging)", True, f"bpy {proc.stdout.strip()}", fatal=False)
 
 
-# The remedies for the only two fatal rows (F54). Every non-fatal model row has
-# carried its exact ``hf download`` line since it was written; the two rows that
-# actually stop the app said "not found at <path>" and stopped -- so the two
-# failures a first run is most likely to hit were the two with no way forward.
-#
-# They are different *kinds* of remedy, which is why neither is a Fetch entry.
-# The exe is a third-party release zip unpacked by hand (a fetcher would have to
-# know how to unzip a GitHub release, and ``fetch_worker`` speaks one protocol,
-# to one host); the GGUF weights are an ordinary ``hf download`` that is
-# deliberately not in ``models.FETCHES`` because the app is unusable without
-# them, so they belong in the install instructions rather than behind a button
-# in a pane that cannot be reached until the app starts.
-#
-# The version is pinned in the URL rather than left to "the releases page",
-# for ``TRELLIS_GGUF_REVISION``'s reason one paragraph down: this is a *fatal*
-# row, so the remedy is the only path a fresh install has, and an unpinned one
-# hands the user whatever shipped this week.
-TRELLIS_EXE_VERSION = "v0.6.0"
-TRELLIS_EXE_ASSET = "trellis-cuda-windows-x64.zip"
-TRELLIS_EXE_URL = (
-    f"https://github.com/pwilkin/trellis.cpp/releases/download/"
-    f"{TRELLIS_EXE_VERSION}/{TRELLIS_EXE_ASSET}"
-)
-# The SHA-256 GitHub publishes for that exact asset. This is the one unsigned
-# third-party binary in the whole setup, and a remedy that sent the user to a
-# page with no digest gave them nothing to check a download against -- so the
-# number travels with the URL, and **both move together or neither moves**:
-# bumping ``TRELLIS_EXE_VERSION`` without re-reading the digest is worse than
-# publishing none, because a mismatch then reads as tampering rather than as a
-# stale constant.
-TRELLIS_EXE_SHA256 = "4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2"
-TRELLIS_EXE_HINT = (
-    f"download {TRELLIS_EXE_ASSET} from {TRELLIS_EXE_URL} and unpack it there "
-    f"(vendored build: {TRELLIS_EXE_VERSION}; sha256 {TRELLIS_EXE_SHA256}), "
-    "or point WARLOCK_TRELLIS_EXE at your own copy"
-)
+# The GGUF weights' remedy (F54). The app is unusable without them, so they
+# are deliberately not in ``models.FETCHES``: they belong in the install
+# instructions rather than behind a button in a pane that cannot be reached
+# until the app starts.
 def trellis_gguf_hint(config: Config) -> str:
     """The ``hf download`` line, landing in *this* install's models directory.
 
@@ -394,6 +368,27 @@ def trellis_gguf_hint(config: Config) -> str:
     spaces on any ordinary Windows profile.
     """
     return fetch.download_text(config, "engine", models.ENGINE_MODELS["trellis_gguf"])
+
+
+def _trellis_runtime_hint(config: Config) -> str:
+    """The engine binaries' remedy: Settings -> Models first, then the
+    pinned download command.
+
+    Until 2026-09-10 this was ``TRELLIS_EXE_HINT``, a doctor-side copy of the
+    release URL, asset name, version and sha256 -- the exact four facts
+    ``models.ENGINE_MODELS["trellis_runtime"]`` now carries as
+    ``TRELLIS_RUNTIME_URL``/``TRELLIS_RUNTIME_ASSET``/``TRELLIS_RUNTIME_VERSION``/
+    ``TRELLIS_RUNTIME_SHA256``, because the binaries stopped being a
+    fatal-only path the day the installer stopped staging them and became an
+    ordinary registry row instead. Two owners of one pin is exactly what
+    ``TRELLIS_GGUF_REVISION``'s rule warns against, so this reads the
+    registry's copy through ``fetch.download_text`` rather than keeping a
+    second one here -- and ``validation.install_remedy`` for the same reason:
+    the in-app route is one sentence with one owner now, not a phrase this
+    file and ``service.validation`` each got to word differently.
+    """
+    spec = models.ENGINE_MODELS["trellis_runtime"]
+    return validation.install_remedy(spec.label, fetch.download_text(config, "engine", spec))
 
 
 def _registry_row(config: Config, kind: str, spec: Any, ok: bool, detail: str) -> Check:
@@ -432,22 +427,73 @@ def _registry_row(config: Config, kind: str, spec: Any, ok: bool, detail: str) -
 
 
 def _exe_check(config: Config) -> Check:
-    path = config.trellis_server_exe
+    """The engine's binaries: trellis-server.exe, ggml, and the CUDA DLLs.
+
+    **Not fatal since 2026-09-10.** Until then this row was hand-built and
+    ``fatal=True``: the installer staged the exe, so its absence meant a
+    broken install and nothing in the app could fix it. The binaries are a
+    registry row now (``models.ENGINE_MODELS["trellis_runtime"]``, 838 MB,
+    optional so a machine that only draws pixel art never fetches it), so
+    their absence is the ordinary state of a fresh install -- the exact
+    distinction ``docs/INVARIANTS.md`` draws under "A model you have not
+    downloaded is not a fault". Reporting it fatal put a red banner and a
+    non-zero exit code on a healthy first launch, which is the incident the
+    GGUF weights row beside it was already fixed for; this row had been left
+    behind because the exe was still staged by the installer at the time.
+
+    Probes ``config.resolve_trellis_exe()`` and not ``trellis_server_exe``
+    alone: that method is the three-way search (an explicit override, the
+    download, the checkout's ``vendor/``) the app itself uses to find the
+    binary, and a row that only read the override field would report "not
+    found" on a machine that has the download and no override set.
+    """
+    path = config.resolve_trellis_exe()
+    if path.is_file():
+        # M04's zero-byte downgrade, done directly on the one file this row
+        # names rather than through ``fetch.suspect_files`` -- that helper
+        # checks the *downloaded* location (``engine_dir``), which is not
+        # where this row is looking once an override or the checkout's
+        # ``vendor/`` is in play. Treated as ``pending_install`` rather than a
+        # plain warning: a zero-byte binary is what a killed download or a
+        # killed unpack leaves behind, and the fix is the same "go install
+        # it" as an absent one, not a filesystem repair.
+        if path.stat().st_size == 0:
+            return Check(
+                "trellis-server.exe",
+                False,
+                f"{path} is 0 bytes and will not run -- remove it and "
+                f"reinstall. {_trellis_runtime_hint(config)}",
+                fatal=False,
+                pending_install=True,
+            )
+        return Check("trellis-server.exe", True, str(path), fatal=False)
     # L01: ``.exists()`` is true of a directory as well as a file, so a
     # broken unpack that left a *folder* named ``trellis-server.exe`` (an
     # archive extracted one level too shallow, or a leftover from a previous
-    # attempt) passed this check and then failed to launch with no row
-    # naming why. ``.is_file()`` plus a distinct message for the directory
-    # case turns that into a damaged-install diagnostic instead of a second
-    # "not found".
-    ok = path.is_file()
-    if ok:
-        detail = str(path)
-    elif path.exists():
-        detail = f"{path} exists but is not a file -- {TRELLIS_EXE_HINT}"
-    else:
-        detail = f"not found at {path} -- {TRELLIS_EXE_HINT}"
-    return Check("trellis-server.exe", ok, detail, fatal=True)
+    # attempt) passed a bare ``.exists()`` and then failed to launch with no
+    # row naming why. Kept as a plain warning -- neither fatal nor
+    # ``pending_install`` -- because "you have not downloaded this" is untrue
+    # of it: something is on disk, damaged, and the remedy is "remove and
+    # reinstall" rather than "install". A row that called this
+    # ``pending_install`` would drop out of every failure counter
+    # (``docs/INVARIANTS.md``'s rule) and hide the one case that is a real
+    # defect on this machine.
+    if path.exists():
+        return Check(
+            "trellis-server.exe",
+            False,
+            f"{path} exists but is not a file -- a damaged unpack, not a "
+            f"missing download; remove it and reinstall. "
+            f"{_trellis_runtime_hint(config)}",
+            fatal=False,
+        )
+    return Check(
+        "trellis-server.exe",
+        False,
+        f"not found at {path} -- {_trellis_runtime_hint(config)}",
+        fatal=False,
+        pending_install=True,
+    )
 
 
 def _gguf_check(config: Config) -> Check:
@@ -509,15 +555,29 @@ def _birefnet_check(config: Config) -> Check:
         empty = str(path) in fetch.suspect_files(config, "engine", spec)
         if empty:
             ok = False
+    # **Both failing branches name the remedy, and the remedy is the sibling
+    # row's download** -- this file arrives inside `trellis2-gguf`, so there is
+    # nothing to fetch on its own. Stating only the consequence ("matting falls
+    # back to a threshold cutout") was F54's defect wearing a friendlier face:
+    # this is a `pending_install` row, which by definition asks the user to do
+    # something, and it asked without saying what.
+    # `tests/test_onboarding.py::test_every_failing_check_names_a_remedy` is the
+    # gate, narrowed to `pending_install` rows on 2026-09-10 so it stays a real
+    # claim rather than one satisfied by any prose at all.
     if empty:
         detail = (
             f"{path} is empty and will not load -- background matting "
-            "falls back to a threshold cutout"
+            "falls back to a threshold cutout; download the TRELLIS GGUF "
+            "weights again to replace it"
         )
     elif ok:
         detail = str(path)
     else:
-        detail = f"missing at {path} -- background matting falls back to a threshold cutout"
+        detail = (
+            f"missing at {path} -- background matting falls back to a threshold "
+            "cutout; it arrives with the TRELLIS GGUF weights, so install "
+            "those in Settings -> Models"
+        )
     # Named for the process that loads it: there is a second BiRefNet on the
     # host now (see _matting_checks) and the two are different downloads.
     #
@@ -1029,6 +1089,76 @@ def _probe_music_deps() -> Check:
         )
     return Check(
         "Muse (dependencies)", True, "the ACE-Step pipeline imports in a child", fatal=False
+    )
+
+
+T2I_PROBE_TIMEOUT = 120.0
+T2I_INSTALL_HINT = "install this pack from Settings -> Packs"
+
+_t2i_deps: Check | None = None
+_t2i_deps_lock = threading.Lock()
+_T2I_DEPS_PENDING = Check(
+    "Create (dependencies)", True,
+    "still checking in the background -- Create appears when it finishes",
+    fatal=False,
+)
+
+
+def text2image_deps_check(*, probe: bool = True) -> Check:
+    """Is the ``text2image`` pack actually installed? Probed in a child.
+
+    :func:`music_deps_check`'s shape, for the one pack that had no row of its
+    own. Its absence used to be visible only folded into ``_matting_checks``
+    and ``_text_checks`` -- both of which probe a *subset* of these same
+    imports, but neither runs at all on a host that has never downloaded a
+    matting or Flourish weight, which is most fresh installs, since both of
+    those are themselves optional downloads. A machine missing the whole pack
+    could see every row that would have said so stay silent, and Create's own
+    refusal at the door names no pack the way ``queue``'s music refusal does.
+
+    Probes ``packs.PACKS``' ``text2image`` entry rather than a second list of
+    module names -- the pane, the installer and this row must agree on what
+    "the pack" means, and a fourth copy here is a fourth place for that list
+    to drift from the other three.
+
+    In a child for ``_cuda_check``'s reason: torch is seconds to import and
+    this process must not pay for it merely to answer this row. The hint
+    names Settings -> Packs and not ``uv sync``: a packaged install has no
+    venv for a user to run that command against, and the pack is downloaded
+    from inside the app now.
+    """
+    global _t2i_deps
+    if _t2i_deps is not None:
+        return _t2i_deps
+    if not probe:
+        return _T2I_DEPS_PENDING
+    with _t2i_deps_lock:
+        if _t2i_deps is None:
+            _t2i_deps = _probe_t2i_deps()
+        return _t2i_deps
+
+
+def _probe_t2i_deps() -> Check:
+    pack = packs.find("text2image")
+    modules = pack.probe if pack is not None else ()
+    script = "; ".join(f"import {name}" for name in modules)
+    try:
+        # winjob.run for the bpy/music probes' reason: this can fire from
+        # startup, the import is seconds, and killing Warlock mid-probe used
+        # to strand the child.
+        proc = winjob.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=T2I_PROBE_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return Check("Create (dependencies)", False, f"probe failed: {exc}", fatal=False)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or ["import failed"]
+        return Check(
+            "Create (dependencies)", False, f"{detail[0]} -- {T2I_INSTALL_HINT}", fatal=False
+        )
+    return Check(
+        "Create (dependencies)", True, "the text2image pack imports in a child", fatal=False
     )
 
 

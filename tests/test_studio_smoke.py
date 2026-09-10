@@ -4528,6 +4528,44 @@ def test_requesting_an_install_ticks_the_rows_and_opens_settings(app_ctx):
     assert app_ctx.state.previous_mode == "create"
 
 
+# --- the refusal's install offer, and its pack twin (F4's job-door half) ----
+
+
+def test_the_install_offer_draws_a_button_for_a_rows_refusal(app_ctx, imgui_ctx):
+    """The ring's own offer, over a real frame -- ``install_offer`` reads
+    ``imgui.get_item_rect_*`` internals nothing else here exercises."""
+    from warlock.studio.panes import model_gate
+
+    app_ctx.state.note_field_error("base_model", "not downloaded", ("base:sdxl_cfg",), 7.0)
+    drew: list[bool] = []
+    _frame(imgui_ctx, lambda: drew.append(model_gate.install_offer(app_ctx, "base_model")))
+    assert drew == [True]
+
+
+def test_the_install_offer_draws_a_pack_button_when_only_a_pack_is_missing(app_ctx, imgui_ctx):
+    """``install_offer``'s pack twin: a refusal that named a pack rather than
+    rows -- ``validation.check_pack``'s shape -- still draws a button, and
+    must not be mistaken for "nothing to offer" the way a rows-only reader
+    would leave it."""
+    from warlock.studio.panes import model_gate
+
+    app_ctx.state.note_field_error("base_model", "not installed", packs=("text2image",))
+    drew: list[bool] = []
+    _frame(imgui_ctx, lambda: drew.append(model_gate.install_offer(app_ctx, "base_model")))
+    assert drew == [True]
+
+
+def test_requesting_a_pack_offer_opens_settings_at_packs(app_ctx):
+    """The click body, without a frame -- the pack twin of
+    ``request_install``, which routes to Models rather than Packs."""
+    from warlock.studio.panes import app_settings, model_gate
+
+    app_ctx.state.mode = "muse"
+    model_gate.request_pack(app_ctx, ("music",))
+    assert app_ctx.state.mode == "settings"
+    assert app_ctx.state.preview[app_settings.CATEGORY_SLOT] == "packs"
+
+
 def test_the_sprite_form_locks_its_submit_while_weights_are_missing(app_ctx, imgui_ctx):
     """The pane half, through the real ``_submit``: with the pixel LoRA absent
     the gate draws and the button is disabled."""

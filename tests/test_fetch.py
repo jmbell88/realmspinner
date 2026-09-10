@@ -8,11 +8,14 @@ thing the offline invariant exists to prevent.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -364,6 +367,15 @@ def _config(tmp_path: Path, turbo: Path | None = None) -> Config:
     cfg = Config()
     cfg.t2i_model_root = tmp_path / "models"
     cfg.t2i_turbo_dir = turbo
+    # The engine's two locations, pinned inside ``tmp_path`` so "a fresh root"
+    # is actually fresh. The engine's binaries have a *third* home the model
+    # root knows nothing about -- ``Config.resolve_trellis_exe`` falls back to
+    # the checkout's ``vendor/trellis/`` -- so without these two lines this
+    # helper describes a fresh machine on CI and a machine with the engine
+    # already installed on any developer's box, and the ``engine:trellis_runtime``
+    # row reads present on one and absent on the other.
+    cfg.trellis_runtime_dir = tmp_path / "engine" / "trellis"
+    cfg.trellis_server_exe = cfg.trellis_runtime_dir / "trellis-server.exe"
     return cfg
 
 
@@ -1346,8 +1358,14 @@ def test_every_claim_is_something_present_would_have_looked_at(tmp_path):
     cfg = _config(tmp_path)
     for entry in fetch.entries():
         for path in fetch.claims(cfg, entry):
-            assert path.is_relative_to(cfg.t2i_model_root) or path.is_relative_to(
-                cfg.trellis_models_dir
+            assert (
+                path.is_relative_to(cfg.t2i_model_root)
+                or path.is_relative_to(cfg.trellis_models_dir)
+                # The engine's binaries are the third root, and they are not
+                # under the model root on purpose: ``models/`` is walked by the
+                # disk report, the sweeps and ``verify_all``, all of which
+                # reason about weights.
+                or path.is_relative_to(cfg.trellis_runtime_dir)
             ), entry.row_key
 
 
@@ -1366,3 +1384,203 @@ def test_the_doctors_gguf_hint_names_the_commit_the_registry_pins(tmp_path):
     pins = {one.repo_id: one.revision for e in fetch.entries() for one in e.fetch}
     for repo, revision in found:
         assert pins.get(repo) == revision, (repo, revision, pins.get(repo))
+
+
+# --- unpacking a fetched archive (the trellis engine's own transport) -------
+#
+# ``trellis_runtime`` is a ``url`` record whose asset is a zip: the digest
+# transport ``_fetch_url`` already exercises above, plus a post-step that
+# unpacks it. None of these tests touch a socket -- ``download.open_url`` is
+# stubbed to hand back an in-memory zip -- and none may run through a
+# subprocess the way the ``snapshot_download`` tests above do, because the
+# thing being stubbed here is a function *inside* ``fetch_worker`` itself
+# rather than a module it imports by name, and there is no clean way to swap
+# that out from outside the process without a second stub file to maintain.
+
+
+def _import_fetch_worker():
+    """Import ``fetch_worker`` and put ``HF_HUB_OFFLINE`` back the way it was.
+
+    Importing it sets the flag to "0" in this process -- correct for the
+    child it is written to be, and the one thing the offline invariant
+    forbids in the pytest process that runs every test after this one. Same
+    guard as ``test_a_real_child_in_no_publish_mode_stages_and_installs_nothing``
+    above, needed again here because these tests call ``fetch_one`` directly.
+    """
+    before = os.environ.get("HF_HUB_OFFLINE")
+    from warlock.pipelines import fetch_worker
+
+    if before is None:
+        os.environ.pop("HF_HUB_OFFLINE", None)
+    else:
+        os.environ["HF_HUB_OFFLINE"] = before
+    return fetch_worker
+
+
+def _zip_bytes(members: dict[str, bytes]) -> bytes:
+    """A zip in memory, with whatever member names the test wants -- including
+    ones no honest archiver would produce, since that is exactly what the
+    zip-slip and wrong-prefix tests need to hand the worker. ``zipfile``
+    performs no sanitising of the names it is asked to write."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, body in members.items():
+            zf.writestr(name, body)
+    return buf.getvalue()
+
+
+class _FakeResponse:
+    """What ``download.open_url`` would hand back, without a socket."""
+
+    def __init__(self, data: bytes) -> None:
+        self._buf = io.BytesIO(data)
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buf.read(size)
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+def _archive_spec(
+    tmp_path: Path, data: bytes, *, extract: str, sha256: str | None = None
+) -> tuple[dict, Path]:
+    dest = tmp_path / "models" / "trellis"
+    spec = {
+        "repo_id": "",
+        "dest": str(dest),
+        "url": "https://example.invalid/trellis-cuda-windows-x64.zip",
+        "sha256": sha256 if sha256 is not None else hashlib.sha256(data).hexdigest(),
+        "filename": "trellis-cuda-windows-x64.zip",
+        "extract": extract,
+        "size_gib": 0.01,
+        "retries": 1,
+    }
+    return spec, dest
+
+
+def _stub_open_url(monkeypatch, worker, data: bytes) -> None:
+    monkeypatch.setattr(
+        worker.download, "open_url", lambda url, timeout=None: _FakeResponse(data)
+    )
+
+
+def test_a_flat_archive_publishes_every_member_to_the_destination(tmp_path, monkeypatch):
+    """``extract="."`` -- the real trellis asset's own shape (measured
+    2026-09-10): nine files at the archive root and no directory to strip."""
+    worker = _import_fetch_worker()
+    data = _zip_bytes(
+        {"trellis-server.exe": b"binary", "lib/ggml.dll": b"dll bytes"}
+    )
+    spec, dest = _archive_spec(tmp_path, data, extract=".")
+    _stub_open_url(monkeypatch, worker, data)
+
+    result = worker.fetch_one(spec)
+
+    assert result["ok"] is True
+    assert (dest / "trellis-server.exe").read_bytes() == b"binary"
+    assert (dest / "lib" / "ggml.dll").read_bytes() == b"dll bytes"
+    # The archive is not one of the things it unpacked into -- only the
+    # unpacked tree is published, per the spec of this feature.
+    assert not (dest / "trellis-cuda-windows-x64.zip").exists()
+    assert "trellis-cuda-windows-x64.zip" not in result["files"]
+
+
+def test_a_rooted_archive_has_its_declared_prefix_stripped(tmp_path, monkeypatch):
+    """A release that packs its files under one versioned top directory --
+    the shape ``extract`` exists to describe, and the shape the real trellis
+    asset is *not*, which is exactly why the value is read off the asset
+    rather than guessed."""
+    worker = _import_fetch_worker()
+    data = _zip_bytes(
+        {
+            "trellis-cuda-windows-x64/trellis-server.exe": b"binary",
+            "trellis-cuda-windows-x64/lib/ggml.dll": b"dll bytes",
+        }
+    )
+    spec, dest = _archive_spec(tmp_path, data, extract="trellis-cuda-windows-x64")
+    _stub_open_url(monkeypatch, worker, data)
+
+    result = worker.fetch_one(spec)
+
+    assert result["ok"] is True
+    assert (dest / "trellis-server.exe").read_bytes() == b"binary"
+    assert (dest / "lib" / "ggml.dll").read_bytes() == b"dll bytes"
+    # The stripped directory itself does not survive as an extra layer.
+    assert not (dest / "trellis-cuda-windows-x64").exists()
+
+
+def test_a_zip_slip_member_is_refused_and_nothing_is_kept_to_resume(tmp_path, monkeypatch):
+    """A member that walks out of the staging tree with ``..`` must not be
+    written anywhere on this disk, and (unlike a transport hiccup) the tree it
+    was found in must not survive for a retry to resume into -- an archive
+    that tries this once will try it again."""
+    worker = _import_fetch_worker()
+    data = _zip_bytes({"trellis-server.exe": b"binary", "../evil.txt": b"escaped"})
+    spec, dest = _archive_spec(tmp_path, data, extract=".")
+    _stub_open_url(monkeypatch, worker, data)
+
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        worker.fetch_one(spec)
+
+    assert not dest.exists()
+    assert not (tmp_path / "models" / "evil.txt").exists()
+    assert not list((tmp_path / "models").glob("*.fetch.part")), (
+        "a tree with a zip-slip member was kept for a retry to trip over"
+    )
+
+
+def test_a_member_outside_the_declared_prefix_is_refused(tmp_path, monkeypatch):
+    """The prefix is read off the real asset when the registry entry is
+    written, so a member that does not sit under it means either the asset
+    changed under a digest that somehow still matched, or the entry is wrong
+    -- either way, not something the worker should silently reinterpret."""
+    worker = _import_fetch_worker()
+    data = _zip_bytes(
+        {
+            "trellis-cuda-windows-x64/trellis-server.exe": b"binary",
+            "some-other-dir/evil.txt": b"unexpected",
+        }
+    )
+    spec, dest = _archive_spec(tmp_path, data, extract="trellis-cuda-windows-x64")
+    _stub_open_url(monkeypatch, worker, data)
+
+    with pytest.raises(ValueError, match="does not sit under the declared prefix"):
+        worker.fetch_one(spec)
+
+    assert not dest.exists()
+    assert not list((tmp_path / "models").glob("*.fetch.part"))
+
+
+def test_a_digest_mismatch_is_still_terminal_with_extract_set(tmp_path, monkeypatch):
+    """The digest check in ``_fetch_url`` has to run, and fail, before
+    ``extract`` ever gets a look at the bytes: a corrupt archive must not be
+    opened as a zip at all, and the tree it landed in must not be kept for a
+    retry to re-verify forever."""
+    worker = _import_fetch_worker()
+    data = _zip_bytes({"trellis-server.exe": b"binary"})
+    spec, dest = _archive_spec(tmp_path, data, extract=".", sha256="0" * 64)
+    _stub_open_url(monkeypatch, worker, data)
+
+    with pytest.raises(ValueError, match="is not the .* this build pins"):
+        worker.fetch_one(spec)
+
+    assert not dest.exists()
+    assert not list((tmp_path / "models").glob("*.fetch.part")), (
+        "a digest mismatch left a tree behind for a retry to re-verify forever"
+    )
+
+
+def test_resume_key_changes_when_the_extract_prefix_changes():
+    """A staging tree unpacked under one prefix must not be handed back to a
+    later fetch that declares a different one -- the same rule ``_resume_key``
+    already applies to ``revision``, ``url`` and ``sha256``."""
+    worker = _import_fetch_worker()
+    base = {"url": "https://example.invalid/x.zip", "sha256": "a" * 64}
+    flat = worker._resume_key({**base, "extract": "."})
+    rooted = worker._resume_key({**base, "extract": "trellis-cuda-windows-x64"})
+    assert flat != rooted
+    assert worker._resume_key({**base, "extract": "."}) == flat

@@ -98,17 +98,37 @@ def install_offer(ctx: Any, field: str) -> bool:
     The figure here is deduped (``downloads.needed_gib``, computed once when
     the refusal arrived), so unlike ``draw``'s sum it does not count a shared
     checkpoint twice.
+
+    ``rows``' pack twin is checked when there are no rows to offer, never
+    both: ``service.validation.check_pack`` refuses before the weights check
+    runs at all (F4's job-door half, packs first), so a refusal that named a
+    pack never also carries rows on the same field.
     """
     rows = (getattr(ctx.state, "field_error_rows", None) or {}).get(field) or ()
-    if not rows:
+    if rows:
+        gib = float((getattr(ctx.state, "field_error_gib", None) or {}).get(field) or 0.0)
+        noun = "model" if len(rows) == 1 else "models"
+        label = f"Install {len(rows)} {noun}"
+        if gib > 0.0:
+            label += f" (~{gib:.1f} GB)"
+        if controls.small_button(label):
+            request_install(ctx, tuple(rows))
+        return True
+    pack_keys = (getattr(ctx.state, "field_error_packs", None) or {}).get(field) or ()
+    if not pack_keys:
         return False
-    gib = float((getattr(ctx.state, "field_error_gib", None) or {}).get(field) or 0.0)
-    noun = "model" if len(rows) == 1 else "models"
-    label = f"Install {len(rows)} {noun}"
-    if gib > 0.0:
-        label += f" (~{gib:.1f} GB)"
+    from ... import packs as packs_registry
+
+    labels = [
+        pack.label
+        for pack in (packs_registry.find(key) for key in pack_keys)
+        if pack is not None
+    ]
+    if not labels:
+        return False
+    label = f"Install the {' and '.join(labels)} pack{'s' if len(labels) > 1 else ''}"
     if controls.small_button(label):
-        request_install(ctx, tuple(rows))
+        request_pack(ctx, tuple(pack_keys))
     return True
 
 

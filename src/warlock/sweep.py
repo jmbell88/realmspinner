@@ -83,7 +83,7 @@ async def run_band(
     # A fresh server per value, and stopped before the next one starts: --band
     # is fixed at launch, and two 16 GB servers do not coexist.
     server = TrellisServer(
-        config.trellis_server_exe,
+        config.resolve_trellis_exe,
         config.trellis_models_dir,
         config.trellis_port,
         log_path=out_dir / f"trellis-band-{label}.log",

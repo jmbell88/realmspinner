@@ -897,8 +897,14 @@ class Worker(
     def __init__(self, config: Config, store: JobStore) -> None:
         self.config = config
         self.store = store
+        # The resolver, not a resolved Path: this Worker -- and the TrellisServer
+        # it owns -- is built once at startup, but the engine can land as a
+        # download well into the session. A Path captured here would still
+        # name the (then-empty) vendor directory after a successful download,
+        # so the user's very next Generate would fail with "trellis-server not
+        # found" against a path that was correct an hour ago.
         self.trellis = TrellisServer(
-            config.trellis_server_exe,
+            config.resolve_trellis_exe,
             config.trellis_models_dir,
             config.trellis_port,
             log_path=config.data_dir / "trellis.log",

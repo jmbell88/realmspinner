@@ -364,8 +364,17 @@ class MusicOps:
             try:
                 from .pipelines.music_client import MusicClient
             except ImportError as exc:
+                # The backstop, not the door -- ``service.validation.check_pack``
+                # is the door now, and a packaged install never reaches this
+                # line. What still can: a source checkout that queued a music
+                # job without syncing the extra, which is a terminal away from
+                # both remedies, so both are named -- Settings for a build that
+                # somehow shipped without the pack, ``uv sync`` for the checkout
+                # that is actually reachable here.
                 raise RuntimeError(
-                    "Muse requires the music extra: uv sync --extra music"
+                    "Muse needs the Music generation pack: install it in "
+                    "Settings -> Packs, or from a source checkout: "
+                    "uv sync --extra music"
                 ) from exc
             self._music_client = MusicClient(
                 spec, self.config.t2i_model_root / spec.dir_name

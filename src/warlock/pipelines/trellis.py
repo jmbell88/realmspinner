@@ -101,7 +101,7 @@ def _port_in_use(port: int) -> bool:
 class TrellisServer:
     def __init__(
         self,
-        exe: Path,
+        exe: Path | Callable[[], Path],
         models_dir: Path,
         port: int,
         log_path: Path | None = None,
@@ -114,6 +114,15 @@ class TrellisServer:
         decim: int | None = None,
         atlas: int | None = None,
     ) -> None:
+        # A Path or a resolver. queue.Worker builds exactly one TrellisServer at
+        # startup and keeps it for the app's whole life, so a bare Path would
+        # freeze the engine's location at whatever config.resolve_trellis_exe()
+        # answered before the user ever opened Settings -> Models. A user who
+        # downloads the engine mid-session and then presses Generate would get
+        # "trellis-server not found" against a path that was empty an hour
+        # earlier -- the pack landing's "restart before it can use it" failure,
+        # avoided for free by asking the filesystem at use instead of caching
+        # the answer. See ``_resolve_exe``.
         self._exe = exe
         self._models_dir = models_dir
         self._port = port
@@ -160,9 +169,21 @@ class TrellisServer:
         proc = self._proc
         return proc is not None and proc.poll() is None
 
+    def _resolve_exe(self) -> Path:
+        """The engine path, asked fresh every call -- never cached on self.
+
+        ``_exe`` is a plain ``Path`` in tests that hand this class a fixed
+        location, and ``config.resolve_trellis_exe`` (a bound method, so a
+        ``Callable[[], Path]``) in the real app: resolving it here rather than
+        once in ``__init__`` is what lets a download that lands after this
+        long-lived server object was constructed be found on the very next
+        ``ensure_started`` instead of only after a restart.
+        """
+        return self._exe() if callable(self._exe) else self._exe
+
     def _argv(self) -> list[str]:
         argv = [
-            str(self._exe),
+            str(self._resolve_exe()),
             "--models", str(self._models_dir),
             "--host", "127.0.0.1",
             "--port", str(self._port),
@@ -269,8 +290,9 @@ class TrellisServer:
             if self.running:
                 return
             self._check_backoff()
-            if not self._exe.exists():
-                raise RuntimeError(f"trellis-server not found at {self._exe}")
+            exe = self._resolve_exe()
+            if not exe.exists():
+                raise RuntimeError(f"trellis-server not found at {exe}")
             if not self._models_dir.exists():
                 raise RuntimeError(f"TRELLIS GGUF models not found at {self._models_dir}")
             # Bind-precheck. /health returns a bare ok with no identity field,
@@ -463,7 +485,7 @@ class TrellisServer:
                 "`Get-Process trellis-server` and stop it before retrying."
             )
         path = winjob.image_path(pid)
-        ours = self._exe.resolve()
+        ours = self._resolve_exe().resolve()
         if path is None or os.path.normcase(path) != os.path.normcase(str(ours)):
             raise RuntimeError(
                 f"port {self._port} is held by pid {pid} ({path or 'unknown program'}), "

@@ -127,7 +127,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **Windows 10/11, 64-bit, and an NVIDIA GPU with CUDA.** There is no macOS or Linux build and no CPU fallback — without a CUDA device the 3D path cannot run at all.
 - **16 GB VRAM** for 3D reconstruction (`vram.py`'s `TRELLIS_GIB = 16.0`). Tested on an RTX 5090 / 32 GB; a 4080/5080-class card or better is the comfortable range.
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
-- **~23 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights plus 7.0 GB for SDXL 1.0 — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
+- **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
 - **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the eight workspaces get cramped.
 - [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `warlock doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
@@ -154,17 +154,23 @@ uv sync --extra studio --extra text2image --extra rig --extra music
 # 2. trellis.cpp CUDA server binary -> vendor/trellis/
 #    https://github.com/pwilkin/trellis.cpp/releases (trellis-cuda-windows-x64.zip)
 #    vendored build: v0.6.0 (2026-08-19)
+#    A checkout step only. The packaged app downloads this same archive from
+#    Settings -> Models and unpacks it under ~/.warlock/engine/trellis, and a
+#    downloaded copy wins over this one; WARLOCK_TRELLIS_EXE beats both.
 ```
 
-Then start the app. **It will offer you the ~23 GB of model weights on first
-run, and nothing is owed if you decline** — a first-run panel names your GPU and its VRAM, lists exactly what needs
+Then start the app. **It will offer you the ~24 GB of engine and model
+downloads on first run, and nothing is owed if you decline** — a first-run panel names your GPU and its VRAM, lists exactly what needs
 downloading with the combined size, and refuses up front if the disk cannot
 hold it. The same rows live in **Settings → Models** afterwards, where you can
 add or remove individual models; a removal tells you what it would actually
 free before you confirm, which matters because four of the registered recipes
 share one 7 GB checkpoint.
 
-Nothing above is required to *run* Warlock. Seven of the eight workspaces --
+Nothing above is required to *run* Warlock, and since 2026-09-10 that includes
+the reconstruction engine: it is a registry row like a model, so the installer
+no longer carries its 838 MB and a machine that only draws pixel art never
+fetches it. Seven of the eight workspaces --
 Inker, Clay, Poser, Troupe, Plotter, Packwright and the Sirens tracker -- open
 and work with an empty model directory, and `warlock doctor` exits 0 on a
 machine that has downloaded none of it, reporting the absent rows as `[SETUP]`

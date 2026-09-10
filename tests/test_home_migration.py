@@ -31,6 +31,8 @@ _ROOT_VARS = (
     "WARLOCK_PALETTE_DIR",
     "WARLOCK_T2I_ROOT",
     "WARLOCK_TRELLIS_MODELS",
+    "WARLOCK_TRELLIS_EXE",
+    "WARLOCK_TRELLIS_RUNTIME",
 )
 
 
@@ -81,14 +83,55 @@ def test_every_generated_root_defaults_under_the_home(home):
     assert config.trellis_models_dir == home / "models" / "trellis2-gguf"
 
 
-def test_the_vendored_binaries_stay_with_the_checkout(home):
-    """They ship *with* the source tree; moving them would break a checkout
-    that has them and fix nothing for one that does not."""
+def test_the_vendored_binary_stays_with_the_checkout(home):
+    """``gltfpack.exe`` ships *with* the source tree; moving it would break a
+    checkout that has it and fix nothing for one that does not.
+
+    ``trellis-server.exe`` used to be pinned the same way, but it is now an
+    838 MB optional download rather than a vendored asset -- see
+    ``test_resolve_trellis_exe_tries_override_then_download_then_vendor``
+    below for what replaced this half of the claim.
+    """
     from warlock.config import PROJECT_ROOT
 
     config = Config()
-    assert config.trellis_server_exe.is_relative_to(PROJECT_ROOT)
     assert config.gltfpack_exe.is_relative_to(PROJECT_ROOT)
+
+
+def test_resolve_trellis_exe_tries_override_then_download_then_vendor(tmp_path, home):
+    """``resolve_trellis_exe`` is not the checkout-relative constant
+    ``trellis_server_exe`` used to be -- it is a three-step probe, and this is
+    the order: an unset override falls all the way back to the vendored
+    checkout path; a file landing in the downloaded runtime directory beats
+    that fallback; and an explicit ``WARLOCK_TRELLIS_EXE`` still beats the
+    download, because it is the sideload path for a machine that cannot reach
+    GitHub at all.
+    """
+    from warlock.config import PROJECT_ROOT, TRELLIS_SERVER_NAME
+
+    config = Config()
+
+    # Nothing set anywhere: the vendored checkout path, present or not.
+    assert config.trellis_server_exe is None
+    assert (
+        config.resolve_trellis_exe()
+        == PROJECT_ROOT / "vendor" / "trellis" / TRELLIS_SERVER_NAME
+    )
+
+    # A download lands in the runtime directory: it wins over the vendored
+    # path. Probed on the filesystem, not assumed -- so the file has to
+    # actually be there.
+    downloaded = config.trellis_runtime_dir / TRELLIS_SERVER_NAME
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"exe")
+    assert config.resolve_trellis_exe() == downloaded
+
+    # An explicit override still wins over the download.
+    override = tmp_path / "sideload" / TRELLIS_SERVER_NAME
+    override.parent.mkdir(parents=True)
+    override.write_bytes(b"exe")
+    config.trellis_server_exe = override
+    assert config.resolve_trellis_exe() == override
 
 
 def test_warlock_home_moves_every_root_at_once(tmp_path, home, monkeypatch):

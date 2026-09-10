@@ -301,7 +301,13 @@ MATURITY_NOTE: dict[str, str] = {
 #: gated -- Settings is where the download lives, so gating it would lock the
 #: user out of the only thing that unlocks anything.
 NEEDS_ROWS: dict[str, tuple[str, ...]] = {
-    "create": ("engine:trellis_gguf", "base:sdxl_cfg"),
+    # ``engine:trellis_runtime`` joined this tuple 2026-09-10, when the
+    # reconstruction engine's own binaries (``trellis-server.exe`` and the
+    # ggml/CUDA libraries beside it) stopped shipping in the installer and
+    # became a download of their own. Without it Create's rail item, refusal
+    # and palette row all read the GGUF weights as sufficient and let the
+    # user in to a mode that cannot actually reconstruct anything.
+    "create": ("engine:trellis_gguf", "engine:trellis_runtime", "base:sdxl_cfg"),
     "muse": ("music:ace_step_v1",),
 }
 

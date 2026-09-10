@@ -204,16 +204,36 @@ Copy-Item -LiteralPath (Join-Path $Root "src\warlock") -Destination (Join-Path $
 New-Item -ItemType Directory -Path (Join-Path $Stage "docs") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $Root "docs\manual") -Destination (Join-Path $Stage "docs") -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $Stage "vendor") -Force | Out-Null
-foreach ($RuntimeDir in @("trellis", "gltfpack", "warlockc")) {
+# `trellis` is deliberately not staged here any more. It was 838 MB of every
+# installer -- the single largest item in the stage -- for a native engine
+# most workspaces never start; it is now a Settings -> Models download that
+# lands under the user's home (`Config.trellis_runtime_dir`), fetched via
+# `models.ENGINE_MODELS["trellis_runtime"]`. A developer's checkout keeps
+# working unchanged: `Config.resolve_trellis_exe()` falls back to this
+# `vendor\trellis` directory when it exists, which is why it is not deleted
+# here -- only left out of what gets copied into the stage.
+foreach ($RuntimeDir in @("gltfpack", "warlockc")) {
     Copy-Item -LiteralPath (Join-Path $Root "vendor\$RuntimeDir") -Destination (Join-Path $Stage "vendor") -Recurse -Force
 }
 # LICENSE and THIRD-PARTY-NOTICES.md are not optional paperwork here. This
-# installer packs GPL-3.0 `bpy` and eleven vendored binaries -- MIT trellis.cpp
-# and ggml, MIT gltfpack, and three NVIDIA CUDA redistributables -- into one
-# executable. MIT requires its notice to travel *with the binary*, the NVIDIA
-# redistributable EULA carries its own terms, and the GPL requires the licence
-# to reach whoever receives the program. Until 2026-08-24 the binaries were
+# installer packs GPL-3.0 `bpy` and two vendored binaries -- MIT gltfpack and
+# a small MIT native kernel (`warlockc`) -- into one executable. MIT requires
+# its notice to travel *with the binary*, and the GPL requires the licence to
+# reach whoever receives the program. Until 2026-08-24 the binaries were
 # copied bare and no licence text was staged at all.
+#
+# The engine -- MIT trellis.cpp and ggml, plus three NVIDIA CUDA
+# redistributables under NVIDIA's own EULA -- no longer travels with the
+# installer at all, and **that makes its notice a smaller obligation rather
+# than a homeless one**. MIT and the NVIDIA EULA bind a redistributor, and
+# after 2026-09-10 this project is not one: the bytes go from trellis.cpp's
+# own GitHub release to the user, and what Warlock ships is a URL and a
+# digest. So no notice has to travel beside the fetched DLLs, and inventing a
+# mechanism to put one there would be paperwork for an obligation nobody has.
+# THIRD-PARTY-NOTICES.md keeps the three components documented anyway, in a
+# section that says exactly this, because the app fetches them on the user's
+# behalf and runs them -- and it is staged at the install root below whether
+# or not the engine is ever downloaded.
 foreach ($Document in @("pyproject.toml", "CHANGELOG.md", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md")) {
     Copy-Item -LiteralPath (Join-Path $Root $Document) -Destination $Stage -Force
 }
@@ -273,20 +293,21 @@ try {
     $env:WARLOCK_HOME = $SmokeHome
     $DoctorOutput = (& $StagedPython -m warlock doctor 2>&1 | Out-String)
     $DoctorExit = $LASTEXITCODE
-    # Exit 0, and that is the assertion. A stage with no model weights is a
-    # *healthy* install -- weights are first-run downloads and the exe is
-    # staged -- so anything non-zero here means a fatal row this build should
-    # not have. This asserted exit 1 until 2026-09-04, back when absent
-    # weights were fatal; that made "the installer works" and "the machine has
-    # no models yet" indistinguishable.
+    # Exit 0, and that is the assertion. A stage with no model weights and no
+    # engine is a *healthy* install -- weights and the engine are all
+    # first-run downloads now -- so anything non-zero here means a fatal row
+    # this build should not have. This asserted exit 1 until 2026-09-04, back
+    # when absent weights were fatal; that made "the installer works" and
+    # "the machine has no models yet" indistinguishable.
     if ($DoctorExit -ne 0) {
         throw "staged doctor should be healthy with no weights (exit 0), got $DoctorExit`n$DoctorOutput"
     }
-    # The exe is staged, so it must be OK. The two weight rows must be present
-    # and marked SETUP: this is what proves no model weights were staged, so
-    # the strings stay even though the exit code no longer depends on them.
-    if ($DoctorOutput -notmatch "\[OK\] trellis-server\.exe") {
-        throw "staged doctor did not report trellis-server.exe as OK"
+    # The exe is no longer staged at all -- it is a Settings -> Models
+    # download like the weights beside it -- so all three rows must read as
+    # pending setup, not fatal. This is what proves a base install without
+    # the engine is still a *healthy* install.
+    if ($DoctorOutput -notmatch "\[SETUP\] trellis-server\.exe") {
+        throw "staged doctor did not report trellis-server.exe as SETUP"
     }
     foreach ($Expected in @("[SETUP] TRELLIS GGUF weights", "SDXL 1.0")) {
         if (-not $DoctorOutput.Contains($Expected)) {

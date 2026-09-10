@@ -8,56 +8,10 @@
     "torch_cuda": "12.8"
   },
   "roots": [
-    "vendor/trellis",
     "vendor/gltfpack",
     "vendor/warlockc"
   ],
   "files": [
-    {
-      "path": "vendor/trellis/cublas64_13.dll",
-      "size": 51569776,
-      "sha256": "101ae2b98be62704ec96e90a3c49373b76122fc6b502497a7b6fae9ab0f01564"
-    },
-    {
-      "path": "vendor/trellis/cublasLt64_13.dll",
-      "size": 480693360,
-      "sha256": "517b6a69ac9faa7354cffcbd92179aec0cc18a8f6237d36b28d9adfe8c912d8d"
-    },
-    {
-      "path": "vendor/trellis/cudart64_13.dll",
-      "size": 540784,
-      "sha256": "352ba4ebe61e9a3b171f357a3daf5dd15b6af4a9857673ff893bd6fd2964c075"
-    },
-    {
-      "path": "vendor/trellis/ggml-base.dll",
-      "size": 637952,
-      "sha256": "876048c25fcffff85eaa3fb38657960f31b87dcdda4f86e5e18cdedd8ebe1099"
-    },
-    {
-      "path": "vendor/trellis/ggml-cpu.dll",
-      "size": 788480,
-      "sha256": "dfbb08d83a6550cf207f0c36590cc1f7d4193caf944656c1246b9116c21dc8d5"
-    },
-    {
-      "path": "vendor/trellis/ggml-cuda.dll",
-      "size": 338211840,
-      "sha256": "f4c3de9de67410cac14f1befa5a287580ee43ac32a3a3cb67e8a815b7a8189ab"
-    },
-    {
-      "path": "vendor/trellis/ggml.dll",
-      "size": 67072,
-      "sha256": "5115ba590271034f5008ba000adfa80b61c207ba6244226e8a4f41e4a5f7c9bd"
-    },
-    {
-      "path": "vendor/trellis/trellis-cli.exe",
-      "size": 2732544,
-      "sha256": "e3d075612388a42fcb9bea73377feac4149e3a463cff2d2e11b24975e85d427d"
-    },
-    {
-      "path": "vendor/trellis/trellis-server.exe",
-      "size": 2976768,
-      "sha256": "e7d5b94a7bea2635e93616eddcb81fe52ca3e0eef31e843c3f1063874a6c0653"
-    },
     {
       "path": "vendor/gltfpack/gltfpack.exe",
       "size": 2966528,

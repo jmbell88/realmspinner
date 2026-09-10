@@ -575,21 +575,18 @@ def _tour_offer(ctx: Any) -> None:
     readers would therefore never be offered at all. It is now the set of tours
     that have been declined, and a legacy ``"1"`` still means all of them, so an
     installed user who already pressed it does not get the card back.
-    """
-    from ..tour import scripts as tour_scripts
 
+    **A tour whose mode is gated is not offered.** ``muse-basics`` is every
+    step naming ``mode="muse"``, and its first step waits on
+    ``Condition("mode_is", "muse")`` -- which ``state.set_mode`` refuses
+    outright while Muse's weights or pack are missing (H14). Offering it
+    anyway put the reader on step 1 with a card that would never advance and
+    no door in it back to Settings. See :func:`_offerable_tour`.
+    """
     state = getattr(ctx.state, "tour", None)
     if state is None or state.running:
         return
-    dismissed = _dismissed(ctx)
-    offer = next(
-        (
-            one
-            for one in tour_scripts.TOURS
-            if one.key not in state.finished and one.key not in dismissed
-        ),
-        None,
-    )
+    offer = _offerable_tour(ctx)
     if offer is None:
         return
     widgets.section("New here?")
@@ -600,7 +597,38 @@ def _tour_offer(ctx: Any) -> None:
         tour_pane.start(ctx, offer.key)
     imgui.same_line()
     if controls.button("Not now##tour-offer", role=controls.ButtonRole.GHOST):
-        ctx.settings.set(TOUR_DISMISSED_KEY, sorted(dismissed | {offer.key}))
+        ctx.settings.set(TOUR_DISMISSED_KEY, sorted(_dismissed(ctx) | {offer.key}))
+
+
+def _offerable_tour(ctx: Any) -> Any:
+    """The first tour Home may offer, or ``None``. No drawing, so this is the
+    testable half of :func:`_tour_offer` -- the selection question, asked
+    without an imgui frame to answer it in.
+
+    Skips a tour whose mode is gated: ``muse-basics`` is every step naming
+    ``mode="muse"``, and its first step waits on
+    ``Condition("mode_is", "muse")`` -- which ``state.set_mode`` refuses
+    outright while the mode is shut (H14), so offering it anyway would hang
+    the card on step 1 with no way forward. ``Tour.mode`` derives the one
+    mode a tour is about, or ``None`` when it touches more than one
+    (``first-hour``, which starts on Home and only later visits Create); a
+    tour with no single mode is never gated on that basis.
+    """
+    from ..tour import scripts as tour_scripts
+    from . import model_gate
+
+    state = ctx.state.tour
+    dismissed = _dismissed(ctx)
+    return next(
+        (
+            one
+            for one in tour_scripts.TOURS
+            if one.key not in state.finished
+            and one.key not in dismissed
+            and not (one.mode and model_gate.mode_gate(ctx, one.mode)[0])
+        ),
+        None,
+    )
 
 
 def _dismissed(ctx: Any) -> set[str]:
@@ -1117,12 +1145,37 @@ def _resume_cell(
 # --- the actions ------------------------------------------------------------
 
 
+def _create_door(ctx: Any) -> bool:
+    """Whether Create's door is open. False also sends the user through it.
+
+    Both New... entries below reach Create through ``create_stages.go``,
+    which does honour the gate -- it ends in ``state.set_mode``, the one door
+    (H14) -- but it does so *silently*: ``set_mode`` returns ``False`` and
+    nothing else happens, after this function's callers have already reset
+    the form and cleared the selection. On a fresh install that read as the
+    menu item doing nothing at all, where the rail greys the item, names the
+    reason and routes to Settings, and the palette's "Go to Create" row does
+    the same (``palette._mode_commands``, ``rail.draw``). Checked first, and
+    routed the same way (``model_gate.request_for_mode``), so Home's menu
+    stops being the one door with no handle on it.
+    """
+    from . import model_gate
+
+    where, _keys = model_gate.mode_gate(ctx, "create")
+    if not where:
+        return True
+    model_gate.request_for_mode(ctx, "create")
+    return False
+
+
 def start_2d(ctx: Any) -> None:
     """A clean prompt form at the Reference stage.
 
     ``default_form_2d`` rolls its own seed, so this is genuinely a fresh start
     rather than last session's form with the prompt cleared.
     """
+    if not _create_door(ctx):
+        return
     ctx.state.form_2d = default_form_2d()
     ctx.state.select(None)
     create_stages.go(ctx, "reference")
@@ -1135,6 +1188,8 @@ def start_3d(ctx: Any) -> None:
     one mode: "I have an image and I want a mesh of it" is a different errand
     from "I want a picture of a barrel", and the menu is a list of errands.
     """
+    if not _create_door(ctx):
+        return
     ctx.state.form_3d = dict(DEFAULT_FORM_3D)
     ctx.state.select(None)
     create_stages.go(ctx, "mesh")

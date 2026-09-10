@@ -4,16 +4,16 @@ This guide walks you through downloading, installing, and confirming that Warloc
 
 This covers the packaged Windows installer only. If you want to run Warlock Studio from source or contribute to it, see `README.md` instead.
 
-**The installer changed on 2026-09-04.** It used to stage every heavy dependency (image generation, rigging, music) up front. It now ships a slim **base runtime** — the app, the window, and nothing that needs a GPU-sized Python stack — and you add the pieces you actually want afterward from **Settings → Packs**, in-app. Model weights are a separate step again, from **Settings → Models**, exactly as before. This guide describes that new flow.
+**The installer changed on 2026-09-04, and again on 2026-09-10.** It used to stage every heavy dependency (image generation, rigging, music) up front; it now ships a slim **base runtime** — the app, the window, and nothing that needs a GPU-sized Python stack — and you add the pieces you actually want afterward from **Settings → Packs**, in-app. The second change took the **3D reconstruction engine** out of it too: `trellis-server.exe` and the CUDA libraries it runs on were 838 MB of every download, more than half the installed application, in a program whose drawing, tile-map, atlas and tracker workspaces never start it. It is a row in **Settings → Models** now, like the model weights beside it. This guide describes that flow.
 
 ## What you'll need
 
 - **Windows 10 or 11, 64-bit.** There is no macOS or Linux build, and no CPU-only mode — an NVIDIA GPU is required for image generation and 3D reconstruction, though the base app runs without one.
 - **An NVIDIA GPU with CUDA, 16 GB VRAM or more**, for 3D reconstruction and image generation. Tested on an RTX 5090 (32 GB); a 4080/5080-class card or better is a comfortable fit. Keep your NVIDIA driver up to date via the NVIDIA app or GeForce Experience.
 - **32 GB of system RAM**, recommended. Windows counts the GPU's memory allocation against your system RAM as well as VRAM, so a low-RAM machine can refuse to start jobs even when VRAM is free.
-- **Free disk space** for four things, each sized separately below: the installer download, the installed base runtime, whichever dependency packs you choose, and whichever model weights you choose. All four together were roughly 35 GB under the old all-in-one installer; the base install alone is much smaller now, and the exact figures for this build are:
-  - Installer download: **about 810 MB** (846,946,556 bytes)
-  - Installed base runtime: **about 1.4 GB** — most of it the vendored TRELLIS and CUDA binaries (840 MB) and the bundled Python runtime (425 MB)
+- **Free disk space** for four things, each sized separately below: the installer download, the installed base runtime, whichever dependency packs you choose, and whichever model weights you choose. All four together were roughly 35 GB under the old all-in-one installer; the base install alone is a small fraction of that now, and the exact figures for this build are:
+  - Installer download: **about 170 MB** (169,666,529 bytes) — a fifth of what it was before 2026-09-10, when the 3D engine left it
+  - Installed base runtime: **about 539 MB** — most of it the bundled Python runtime (446 MB), then the pack wheels that cannot be downloaded (48 MB) and the application itself (41 MB)
   - Dependency packs: see [Step 4](#step-4-add-dependency-packs), sized per pack
   - Model weights: see [First launch](#first-launch), sized per model
 - **A 1920×1080 or larger display** at 100% scaling. The app window opens at 1600×950.
@@ -22,8 +22,8 @@ This covers the packaged Windows installer only. If you want to run Warlock Stud
 ## Step 1: Download Warlock Studio
 
 1. Go to the **Releases** page of the [Warlock Studio GitHub repository](https://github.com/jmbell88/warlock-studio) and open the latest release.
-2. Under **Assets**, download `WarlockSetup-v0.0.42.exe` (version numbers change between releases) — a single file, the same **about 810 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. Its SHA-256 is **`56bf81b311811505b3d5944118831d59d08eca3bc61695e5cdfe0c425e84cd46`**; the release page lists the current build's actual hash.
-3. Wait for the download to finish before opening it. Your browser may warn that a file this large is unusual; that's expected for an installer that carries its own Python runtime and GPU libraries.
+2. Under **Assets**, download `WarlockSetup-v0.0.42.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. Its SHA-256 is **`341571afea241560248f5a97721b72b0a36795f96cbca43ee2d10435407727f1`**; the release page lists the current build's actual hash.
+3. Wait for the download to finish before opening it.
 
 ## Step 2: Install Warlock Studio
 
@@ -42,7 +42,7 @@ This covers the packaged Windows installer only. If you want to run Warlock Stud
 The base install you just did gets you a working window, the tile/atlas/pose-library workspaces, and diagnostics — but not yet image generation, rigging, or music. That's by design: two separate, optional downloads finish the picture, and they are not the same kind of thing.
 
 - **Dependency packs** (Settings → Packs) are *code* — Python packages such as `torch` and `diffusers` that a workspace needs in order to run at all. Without the matching pack, a mode like Create, Poser, Troupe, or Muse says what it's missing instead of opening.
-- **Model weights** (Settings → Models) are *data* — the actual trained checkpoints (SDXL, TRELLIS.2, and the rest) that a pack's code loads and runs. A pack with no weights fetched yet will tell you so at the door.
+- **Model weights** (Settings → Models) are *data* — the actual trained checkpoints (SDXL, TRELLIS.2, and the rest) that a pack's code loads and runs. A pack with no weights fetched yet will tell you so at the door. **The 3D reconstruction engine lives on this screen too**, as *TRELLIS.2 engine*, about 0.7 GB. It is a program rather than a checkpoint, so it is the one row here that is not really "weights" — but it is a download you choose exactly like them, and it sits beside the weights it loads.
 
 You need a pack *and* its weights, in either order, before the workspace it unlocks does anything. Both are downloaded once, kept under your Warlock home, and reused by every later install or upgrade that still matches their pinned digests — see [Where things are stored](#where-things-are-stored) below.
 
@@ -72,19 +72,22 @@ It runs three live checks against your actual GPU, VRAM, and installed packs —
 
 | Check | What it means |
 |---|---|
-| 3D reconstruction | Whether your GPU has enough free VRAM for the 3D pipeline, and whether the weights are present |
+| 3D reconstruction | Whether your GPU has enough free VRAM for the 3D pipeline, and whether the engine and its weights are present |
 | Image generation | Whether the Image generation pack is installed and the image model fits your VRAM budget |
 | Rigging | Whether the Rigging pack is installed |
 
-Below that, it lists the model downloads *generation* needs, with sizes, and tells you up front if your disk doesn't have room:
+Below that, it lists what *generation* still needs, with sizes, and tells you up front if your disk doesn't have room:
 
+- **TRELLIS.2 engine** — about 0.7 GB
 - **TRELLIS.2 GGUF weights** — about 16 GB
 - **SDXL 1.0** — about 7 GB
 
+It also names any **dependency pack** those downloads would be useless without, which the panel did not do before 2026-09-10 — it was possible to accept everything it offered, wait for 24 GB, and still find Create greyed out because the Image generation pack was never installed.
+
 Two buttons:
 
-- **Download models** — starts both downloads in the background. The app stays fully usable (and offline apart from this and pack downloads) throughout.
-- **Not now** — skip for good, not just for now. Nothing is owed: the app is fully usable without either download, and the same rows are always reachable at **Settings → Models**. The Home screen keeps one quiet line offering them again.
+- **The first depends on what is missing, and the order is deliberate.** With a pack absent it reads **Install the Image generation pack** and takes you to Settings → Packs; otherwise it reads **Download models** and starts the downloads in the background. Packs come first because a pack is the code and the models are what that code reads, so the smaller download is also the one that has to happen first. The app stays fully usable (and offline apart from this and pack downloads) throughout.
+- **Not now** — skip for good, not just for now. Nothing is owed: the app is fully usable without any of it, and the same rows are always reachable at **Settings → Models** and **Settings → Packs**. The Home screen keeps one quiet line offering them again.
 
 A few things worth knowing so you don't worry unnecessarily:
 
@@ -102,6 +105,7 @@ Everything Warlock Studio downloads or creates lives under your Warlock home, `%
 
 - `assets/`, `palettes/` — your own work.
 - `models/` — model **weights** fetched from Settings → Models. Multi-gigabyte, and specific to the checkpoints you chose.
+- `engine/` — the **3D reconstruction engine** fetched from the same screen, about 0.8 GB unpacked. Separate from `models/` because it is a program rather than a checkpoint, and kept under your Warlock home rather than in the application folder so that upgrading Warlock does not cost you the download again.
 - `packs/` — the **wheel cache** for dependency packs fetched from Settings → Packs. This is separate from the app's own runtime (`%LOCALAPPDATA%\Programs\Warlock Studio`), where the packages actually get installed to run — the cache exists so that reinstalling or upgrading the app doesn't re-download a pack whose files still match what's already been verified.
 
 ## Upgrading

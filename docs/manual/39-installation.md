@@ -85,18 +85,24 @@ The reconstruction engine is `trellis-server.exe`, a compiled CUDA binary from
 `trellis-cuda-windows-x64.zip` from that project's releases and unpack it into `vendor/trellis/`, so
 that `vendor/trellis/trellis-server.exe` exists.
 
-The vendored build is **v0.6.0** (2026-08-19). If you keep the binary somewhere else, point
-`WARLOCK_TRELLIS_EXE` at it — see [Environment variables](40-configuration.md#environment-variables).
+The pinned build is **v0.6.0** (2026-08-19). Unpacking it by hand is a **source-checkout step
+only**: since 2026-09-10 the installed app downloads that same archive itself, from **Settings →
+Models**, and unpacks it under `~/.warlock/engine/trellis`. A downloaded copy wins over a vendored
+one, and `WARLOCK_TRELLIS_EXE` beats both — see
+[Environment variables](40-configuration.md#environment-variables). That variable is also the way to
+install the engine on a machine that cannot reach GitHub: unpack the archive anywhere and point the
+variable at the executable.
 
-A missing binary is a **fatal** startup check: no reconstruction engine means no mesh, and there is
-nothing to degrade to. The binary ships with the installer, so on an installed copy its absence
-means something is genuinely broken. The only other fatal row is the VRAM budget, and that one is
-fatal only when the budget cannot hold a lone reconstruction, so on a card large enough it never
-fires.
+**Neither the engine nor its weights is a fatal startup check, and the engine stopped being one on
+2026-09-10.** It used to be, on the grounds that the installer staged it — so its absence could only
+mean a broken install. That reasoning ended when it became a download: a machine that has not
+fetched it yet is an ordinary fresh machine, not a broken one, so both rows are reported as **setup**
+rows rather than red ones and `warlock doctor` exits 0. The weights made the same move on
+2026-09-04, for the same reason.
 
-The TRELLIS GGUF weights are **not** fatal, and were until 2026-09-04. They are a download you have
-not made yet rather than a fault: a fresh install has none of them, which is normal, so they are
-reported as a **setup** row instead of a red one. See [Checking the install](#checking-the-install) below.
+The only fatal row left is the VRAM budget, and that one fires only when the budget cannot hold a
+lone reconstruction — so on a card large enough it never does. **A correct, freshly installed
+Warlock now has no fatal rows at all.** See [Checking the install](#checking-the-install) below.
 
 ## gltfpack
 

@@ -328,7 +328,13 @@ def test_health_reports_the_worker_and_the_doctor_checks(svc, worker):
     # library before removing it. Derived rather than hardcoded past that, so
     # adding a model does not fail an assertion about something else.
     assert len(body["checks"]) == (
-        18
+        # 19 since 2026-09-10: "Create (dependencies)" joined "Muse
+        # (dependencies)" and "Blender (rigging)", so all three dependency
+        # packs are equally legible rather than two of them being visible only
+        # folded into the matting and text rows. The engine becoming a second
+        # ``ENGINE_MODELS`` entry added no row here -- doctor builds both engine
+        # rows by hand rather than from the table.
+        19
         + len(models.BASE_MODELS)
         + len(models.STYLE_LORAS)
         + len(models.IP_ADAPTERS)

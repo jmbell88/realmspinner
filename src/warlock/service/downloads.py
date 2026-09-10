@@ -14,6 +14,7 @@ the pane dispatches it through ``TaskRunner``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -130,8 +131,24 @@ def rows(svc: WarlockService) -> list[dict[str, Any]]:
         # task-done path. Cheap enough; measure again if the pane hitches.
         if row["present"]:
             removal = fetch_mod.removal_plan(config, [entry])
-            row["removable"] = bool(removal.paths)
-            row["freed_gib"] = removal.freed_gib
+            # **The plan is pure; whether there is anything to delete is not.**
+            # ``removal_plan`` answers about the registry -- which paths this
+            # row claims that no other row also claims -- and deliberately
+            # never asks the disk, so a row can plan a removal of a path that
+            # is not there. For every other row that gap is invisible, because
+            # its claims exist whenever it reads present.
+            #
+            # The engine's binaries are the exception this change created:
+            # presence resolves through ``resolve_trellis_exe`` (which on a
+            # source checkout finds ``vendor/trellis/``) while the claim is the
+            # download location, because that is the only place Warlock may
+            # delete from. So a checkout offered Delete on its vendored engine,
+            # staged nothing, and reported 0.7 GB freed -- a false success,
+            # which is worse than a refusal. Asked here instead, where the row
+            # is already answering disk questions for ``present``.
+            on_disk = tuple(path for path in removal.paths if path.exists())
+            row["removable"] = bool(on_disk)
+            row["freed_gib"] = removal.freed_gib if on_disk else 0.0
         out.append(row)
     return out
 
@@ -666,21 +683,36 @@ def _sweep_trash(root: Path) -> None:
             shutil.rmtree(path, ignore_errors=True) if path.is_dir() else path.unlink()
 
 
-async def _unload_if_idle(worker: Any) -> bool:
-    """Drop the resident pipe, but only if nothing is running. Loop-side.
+async def _release_if_idle(worker: Any, *, stop_engine: bool = False) -> bool:
+    """Let go of what this process is holding, if nothing is running. Loop-side.
 
-    The re-check and the unload have to be the same loop-side callable, because
-    what makes the answer trustworthy is that no other coroutine runs between
-    them: ``current_job_id`` is set and cleared on this thread. Checking from
-    the service thread and unloading in a second hop would reintroduce exactly
-    the gap it is here to close.
+    The re-check and the release have to be the same loop-side callable,
+    because what makes the answer trustworthy is that no other coroutine runs
+    between them: ``current_job_id`` is set and cleared on this thread.
+    Checking from the service thread and releasing in a second hop would
+    reintroduce exactly the gap it is here to close.
 
     Returns False when a job is in flight, so the caller can refuse instead of
-    deleting weights a live pipe is reading.
+    deleting files a live pipe or a live server is reading.
+
+    **``stop_engine`` is conditional, and deliberately not the default.** The
+    resident pipe has to be dropped for any weight removal, because on Windows
+    a mapped safetensors file cannot be deleted while this process holds the
+    mapping. The reconstruction engine is a *different* process holding a
+    different set of files, and stopping it costs a multi-gigabyte reload the
+    next time anything reconstructs -- so it is stopped only when the removal
+    is actually of the engine's own directory. Doing it unconditionally would
+    make deleting an unused style LoRA evict the engine.
     """
     if worker.current_job_id is not None:
         return False
     await worker.unload_text2image()
+    if stop_engine:
+        # Every other caller of ``stop`` goes through ``to_thread`` for the
+        # same reason: it blocks for up to ~25 s in the worst case (terminate,
+        # wait, kill, wait, join the reader), and the frame loop is on the
+        # other side of this loop never blocking.
+        await asyncio.to_thread(worker.trellis.stop)
     return True
 
 
@@ -742,8 +774,19 @@ def uninstall(
     # asked again from inside the callable that runs *on the loop thread*, where
     # ``current_job_id`` cannot change under the read, and the unload is
     # abandoned rather than racing it (MDL-01).
+    # Whether this removal is of the engine's own binaries, in which case the
+    # thing holding them open is not this process at all but the resident
+    # ``trellis-server.exe``. Windows will not rename a directory containing a
+    # running image, so without this the staged removal fails with a sharing
+    # violation, rolls itself back, and reports an error about a file the user
+    # can see is exactly where Warlock put it.
+    engine_dir = svc.config.trellis_runtime_dir.resolve()
+    stop_engine = any(
+        path.resolve() == engine_dir or engine_dir in path.resolve().parents
+        for path in removal.paths
+    )
     if svc.worker is not None and not svc.call_on_loop(
-        lambda: _unload_if_idle(svc.worker)
+        lambda: _release_if_idle(svc.worker, stop_engine=stop_engine)
     ):
         raise Conflict(
             "A job started while the model was being removed. Nothing has "

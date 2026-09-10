@@ -27,6 +27,48 @@ one-resident-at-a-time (a 32 GB card holds trellis plus a single SDXL-class pipe
 switching between jobs costs a reload; style LoRAs are adapters on the resident pipe and switch
 for free.
 
+## The reconstruction engine
+
+**Two rows, and they are the one thing Create cannot do without.** Both live under
+*Reconstruction engine* in Settings → Models, and both are ordinary downloads — the second of them
+only since 2026-09-10.
+
+| Row | What it is | Size |
+|---|---|---|
+| **TRELLIS.2 engine** | `trellis-server.exe` and the libraries it links: four `ggml` DLLs and three NVIDIA CUDA redistributables | 0.68 GB down, 0.82 GB on disk |
+| **TRELLIS.2 GGUF weights** | the model that engine loads, quantised | ~16 GB |
+
+The engine used to ship inside the installer, where it was **838 MB of a 1.4 GB install** — more
+than half of it — for a program most of whose workspaces never start it. `trellis-server.exe` is
+3 MB of that; the rest is `cublasLt64_13.dll` (480 MB) and `ggml-cuda.dll` (338 MB), linear algebra
+it links against. So it became a download, and a machine that only draws pixel art in Inker now
+fetches none of it. The figures and the verification are in
+[docs/measurements/2026-09-10-engine-as-a-download.md](measurements/2026-09-10-engine-as-a-download.md).
+
+It is the one entry on this page that is **not a Hugging Face repository**: it is a single archive
+published on trellis.cpp's own GitHub releases, so it is pinned by SHA-256 rather than by a commit
+revision — which is the stronger pin of the two, since a revision names an immutable commit and a
+digest *is* the artifact. The stem-separation checkpoint further down uses the same transport for
+the same reason.
+
+Nothing here needs a terminal, but the paste-able form is what `warlock doctor` prints beside the
+row, as with every other entry:
+
+```powershell
+curl -L -o $HOME/.warlock/engine/trellis/trellis-cuda-windows-x64.zip `
+  https://github.com/pwilkin/trellis.cpp/releases/download/v0.6.0/trellis-cuda-windows-x64.zip
+# then check its sha256 is 4d08ab27e83094035fd8349aaf34d3460738df0466ef9c4991ddd958c0344bc2
+# then unpack it into $HOME/.warlock/engine/trellis
+```
+
+**An NVIDIA card is required and there is no CPU build.** A source checkout keeps its own copy in
+`vendor/trellis/` (README step 2); a downloaded copy wins over that one, and `WARLOCK_TRELLIS_EXE`
+beats both — which is the sideload path for a machine that cannot reach GitHub.
+
+Licences: the engine is MIT (trellis.cpp and ggml) over NVIDIA's redistributable CUDA libraries,
+and because you now fetch it from upstream rather than receiving it from us, Warlock redistributes
+none of it. The terms are in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) either way.
+
 ## Licences, and what you may do with the output
 
 **Read this before you sell anything you generated.** These weights are not part

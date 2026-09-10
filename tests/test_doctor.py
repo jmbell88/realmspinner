@@ -28,17 +28,79 @@ def _config(tmp_path, **overrides) -> Config:
     return Config(**kwargs)
 
 
-def test_exe_check_reports_missing_exe_as_fatal(tmp_path):
+def test_exe_check_reports_missing_exe_as_pending_install(tmp_path):
+    """Since 2026-09-10 the engine's binaries are a download like the GGUF
+    weights beside them, not something the installer stages -- so an absent
+    exe is the ordinary state of a fresh install, not a fault.
+
+    This asserted ``fatal is True`` before that date: the installer staged
+    the exe, so its absence meant a broken install and nothing in the app
+    could fix it. Reporting it fatal now would put a red banner and a
+    non-zero ``doctor`` exit code on a healthy first launch that has simply
+    not fetched the 838 MB engine yet.
+    """
     checks = {c.name: c for c in run_checks(_config(tmp_path))}
-    assert checks["trellis-server.exe"].ok is False
-    assert checks["trellis-server.exe"].fatal is True
+    row = checks["trellis-server.exe"]
+    assert row.ok is False
+    assert row.fatal is False
+    assert row.pending_install is True
+
+
+def test_exe_check_names_settings_models_before_the_manual_command(tmp_path):
+    """The detail leads with the in-app remedy, not only a paste-able command.
+
+    Before this the row's only remedy was a bare release URL -- there was no
+    in-app route, because the exe was staged by the installer. Now that it is
+    an ordinary registry row, the sentence has to say so first."""
+    checks = {c.name: c for c in run_checks(_config(tmp_path))}
+    detail = checks["trellis-server.exe"].detail
+    assert "Settings -> Models" in detail
+    assert detail.index("Settings -> Models") < detail.index("curl")
+
+
+def test_exe_check_finds_the_downloaded_runtime_with_no_override_set(tmp_path):
+    """It probes ``config.resolve_trellis_exe()``, not the override field.
+
+    A row that read ``trellis_server_exe`` directly would report "not found"
+    on exactly the machine that just finished the download and never set an
+    override -- the ordinary shape of a install once the pack lands.
+    """
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "trellis-server.exe").write_bytes(b"binary")
+    checks = {
+        c.name: c
+        for c in run_checks(
+            _config(tmp_path, trellis_server_exe=None, trellis_runtime_dir=runtime_dir)
+        )
+    }
+    row = checks["trellis-server.exe"]
+    assert row.ok is True
+    assert row.fatal is False
 
 
 def test_exe_check_passes_when_exe_exists(tmp_path):
     exe = tmp_path / "trellis-server.exe"
-    exe.write_bytes(b"")
+    exe.write_bytes(b"binary")
     checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_server_exe=exe))}
     assert checks["trellis-server.exe"].ok is True
+
+
+def test_exe_check_treats_a_zero_byte_exe_as_pending_install(tmp_path):
+    """M04's zero-byte downgrade, reached even though this row probes a
+    single resolved file rather than a registry-row directory: a killed
+    download or a killed unpack leaves an empty file behind exactly as
+    readily as it leaves a missing one, and the fix is the same "go install
+    it" -- not a filesystem repair, so this is ``pending_install`` rather
+    than a plain warning."""
+    exe = tmp_path / "trellis-server.exe"
+    exe.write_bytes(b"")
+    checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_server_exe=exe))}
+    row = checks["trellis-server.exe"]
+    assert row.ok is False
+    assert row.fatal is False
+    assert row.pending_install is True
+    assert "0 bytes" in row.detail
 
 
 def test_exe_check_reports_a_directory_distinctly_from_a_missing_file(tmp_path):
@@ -46,13 +108,20 @@ def test_exe_check_reports_a_directory_distinctly_from_a_missing_file(tmp_path):
     broken unpack that left a *folder* named ``trellis-server.exe`` used to
     read exactly like the exe was never staged at all -- same row, same
     sentence, no way to tell "download it" from "your install is damaged"
-    apart."""
+    apart.
+
+    Neither fatal nor ``pending_install`` since 2026-09-10: "you have not
+    downloaded this yet" is untrue of a damaged unpack, so it stays a plain
+    warning rather than joining the row's new pending-install state -- a row
+    that read ``pending_install`` here would drop out of every failure
+    counter and hide the one case that is a real defect on this machine."""
     exe = tmp_path / "trellis-server.exe"
     exe.mkdir()
     checks = {c.name: c for c in run_checks(_config(tmp_path, trellis_server_exe=exe))}
     row = checks["trellis-server.exe"]
     assert row.ok is False
-    assert row.fatal is True
+    assert row.fatal is False
+    assert row.pending_install is False
     assert "exists but is not a file" in row.detail
     assert "not found at" not in row.detail
 
@@ -99,17 +168,31 @@ def test_a_check_may_not_be_both_broken_and_merely_uninstalled(tmp_path):
 
 
 def test_nothing_is_fatal_on_a_host_that_has_simply_downloaded_nothing(tmp_path):
-    """The whole point of the change, asserted end to end.
+    """The headline claim, asserted end to end over every row ``run_checks``
+    returns -- not just the one row this change touches.
 
     ``_config`` points every root at an empty directory, which is exactly the
-    shape of a machine five minutes after the installer finishes. The only
-    fatal row left is the vendored exe, and that one is present in a real
-    install because the installer stages it.
+    shape of a machine five minutes after the installer finishes. Until
+    2026-09-10 the vendored exe was the one fatal row that state could never
+    avoid, because the installer no longer stages it and every other
+    download-shaped row was already ``pending_install``. Now that the
+    engine's binaries are a download too, this exact machine state must
+    produce no fatal row at all.
     """
     checks = run_checks(_config(tmp_path))
     fatal = [c.name for c in checks if not c.ok and c.fatal]
-    assert fatal == ["trellis-server.exe"], fatal
+    assert fatal == [], fatal
     assert any(c.pending_install for c in checks)
+
+
+def test_no_check_is_ever_both_fatal_and_pending_install(tmp_path):
+    """``Check.__post_init__``'s exclusivity, swept over every row a real run
+    produces rather than only the hand-built ``Check`` the constructor test
+    uses -- the engine row included, since it is the row this change moved
+    from one claim to the other."""
+    checks = run_checks(_config(tmp_path))
+    for c in checks:
+        assert not (c.fatal and c.pending_install), c.name
 
 
 def test_birefnet_check_is_not_fatal_when_missing(tmp_path):
@@ -154,9 +237,13 @@ def test_run_checks_returns_every_check(tmp_path):
     # archive": a bulk delete now copies a judged job's pixels and mesh out of
     # the library before taking them (``service.evidence``), and a tree that
     # grows with nothing on screen naming it is one whose first reader is the
-    # user's disk.
+    # user's disk. The nineteenth is "Create (dependencies)": music_deps_check's
+    # sibling for the ``text2image`` pack, which had no row of its own and was
+    # visible only folded into the matting and text rows -- neither of which
+    # runs on a host that has never downloaded either of those optional
+    # weights.
     expected = (
-        18
+        19
         + len(model_registry.BASE_MODELS)
         + len(model_registry.STYLE_LORAS)
         + len(model_registry.IP_ADAPTERS)
@@ -1023,3 +1110,54 @@ def test_matting_row_treats_a_zero_byte_checkpoint_as_missing_not_healthy(tmp_pa
     row = checks[f"host matting: {spec.label}"]
     assert row.ok is False
     assert "empty" in row.detail
+
+
+# --- text2image pack dependencies --------------------------------------------
+
+
+def test_text2image_deps_check_with_probe_false_returns_the_pending_row(monkeypatch):
+    """``probe=False`` never spawns -- ``music_deps_check``'s shape, reused."""
+    monkeypatch.setattr(doctor, "_t2i_deps", None)
+    row = doctor.text2image_deps_check(probe=False)
+    assert row.name == "Create (dependencies)"
+    assert row.ok is True
+    assert row.fatal is False
+
+
+def test_text2image_deps_check_names_settings_packs_on_a_failed_import(monkeypatch):
+    """A missing pack -- the exact defect this row exists for -- names
+    Settings -> Packs. A packaged install has no venv for a ``uv sync`` line
+    to mean anything, and the pack is downloaded from inside the app now."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(doctor, "_t2i_deps", None)
+    monkeypatch.setattr(
+        doctor.winjob, "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=1, stdout="", stderr="ModuleNotFoundError: No module named 'torch'"
+        ),
+    )
+    row = doctor.text2image_deps_check(probe=True)
+    assert row.ok is False
+    assert row.fatal is False
+    assert "Settings -> Packs" in row.detail
+    assert "ModuleNotFoundError" in row.detail
+
+
+def test_text2image_deps_check_passes_when_the_pack_imports(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(doctor, "_t2i_deps", None)
+    monkeypatch.setattr(
+        doctor.winjob, "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    row = doctor.text2image_deps_check(probe=True)
+    assert row.ok is True
+    assert row.fatal is False
+
+
+def test_text2image_deps_check_appears_in_run_checks(monkeypatch, tmp_path):
+    monkeypatch.setattr(doctor, "_t2i_deps", None)
+    checks = {c.name: c for c in run_checks(_config(tmp_path), probe_slow=False)}
+    assert checks["Create (dependencies)"].fatal is False

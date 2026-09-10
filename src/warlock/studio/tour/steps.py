@@ -105,3 +105,22 @@ class Tour:
         if 0 <= index < len(self.steps):
             return self.steps[index]
         return None
+
+    @property
+    def mode(self) -> str | None:
+        """The one mode this tour is about, or ``None`` when it touches more
+        than one (or none at all).
+
+        Derived from the steps' own ``mode`` field rather than a second table
+        naming it per tour -- ``landing._tour_offer`` reads this to skip a
+        tour whose door is shut, and a hand-kept copy of "which tour is which
+        mode" is exactly the kind of table this codebase has already paid for
+        once (Muse, Troupe, the grid kind, ``PUBLISHERS``). ``muse-basics`` is
+        every step naming ``"muse"``, so it derives to that; ``first-hour``
+        opens on Home and walks the reader into Create, so it names two and
+        derives to ``None`` -- a tour that already promises every step runs
+        "on a machine with no GPU and no weights" is not one this should gate
+        on a single stage of its own journey.
+        """
+        modes = {step.mode for step in self.steps if step.mode is not None}
+        return modes.pop() if len(modes) == 1 else None

@@ -78,7 +78,12 @@ def _model_fingerprints(config: Any, recipe: Any) -> dict[str, str]:
     from .. import models
 
     paths: dict[str, Path | None] = {
-        "trellis_server_exe": Path(config.trellis_server_exe),
+        # resolve_trellis_exe(), not the trellis_server_exe field: that field
+        # is override-only (Path | None, None once the engine is a download
+        # rather than vendored), and provenance.file_fingerprint hashes the
+        # file's *content*, so a bench resume survives the engine moving
+        # between the vendor checkout and the downloaded runtime directory.
+        "trellis_server_exe": config.resolve_trellis_exe(),
         "trellis_models_dir": Path(config.trellis_models_dir),
     }
     gltfpack = Path(config.gltfpack_exe)

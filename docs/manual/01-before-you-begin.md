@@ -25,7 +25,7 @@ chapters instead walk one path through it and explain what you are looking at as
   nothing at all, quietly. The app then hides its rig controls and
   `warlock doctor` reports rigging unavailable; everything else works unchanged. If posing and
   character sheets are why you are here, use 3.13.
-- **About 23 GB of disk for weights**, plus room for what you make.
+- **About 24 GB of disk for the engine and its weights**, plus room for what you make.
 
 A machine that misses some of this still runs a useful amount of the app. There is a table of
 exactly how much further down.
@@ -43,11 +43,16 @@ renderer, `text2image` is text-to-3D, `rig` is rigging, posing and character she
 `uv sync` prunes all three, so pass them.
 [Python dependencies](39-installation.md#python-dependencies) explains what skipping each one costs.
 
-One thing that is not a Python package: the reconstruction engine is a native binary that belongs in
-`vendor/trellis/`, and it is a manual download.
+One thing that is not a Python package: the reconstruction engine is a native binary. In a source
+checkout it belongs in `vendor/trellis/` and you fetch it yourself;
 [The trellis binary](39-installation.md#the-trellis-binary) has the link and the build this version
-was tested against. Without it the app starts normally and every 3D job fails, so do it before you
-go looking for a bug.
+was tested against. Do it before you go looking for a bug — without it the app starts normally,
+Create is greyed on the rail, and every 3D job would fail.
+
+The installed app does not need that step: since 2026-09-10 the engine is a row in **Settings →
+Models** like a model, and it downloads and unpacks itself. It stopped being part of the installer
+because at 838 MB it was more than half of everything a first-time user downloaded, in an app whose
+drawing, tile-map, atlas and tracker workspaces never start it.
 
 A Windows installer lives in the repository and produces the same layout — Warlock requires a
 *checkout-shaped* root either way, which is why nothing in it needs an installed-only code path. It
@@ -71,14 +76,27 @@ than guessed:
 | **Image generation** | Whether the default image model fits the VRAM budget. Both "Ready" and "Ready (the image model and reconstruction run separately)" are fine — the second means they take turns rather than sharing the card. |
 | **Rigging** | Whether Blender is importable, which is the Python 3.13 question from above. |
 
-Under them it lists the two model packages the app needs, what they cost, and whether the volume has
-room. Then two buttons. **Download models** takes you to Settings with both rows already ticked and
-starts the fetch. **Not now** closes the panel and leaves you to it. Either way the panel is done;
-the same rows are always reachable at Settings → Models.
+Under them it lists what generation still needs, what it costs, and whether the volume has room.
+Then two buttons. **Not now** closes the panel and leaves you to it; the panel is done either way,
+and everything it offers is always reachable again from Settings.
 
-The two packages are the TRELLIS.2 GGUF weights — about 16 GB, the reconstruction engine's own
-weights — and SDXL 1.0, about 7 GB, the image model that draws your reference. Roughly 23 GB between
-them.
+The other button depends on what is missing, and **the order is deliberate**. If a dependency pack
+is absent it reads **Install the Image generation pack** and takes you to Settings → Packs;
+otherwise it reads **Download models** and takes you to Settings → Models with the rows already
+ticked. Packs come first because a pack is the *code* and the models are what that code reads —
+downloading 24 GB of weights onto a machine with no image-generation pack buys you nothing at all,
+and that is an expensive way to find out.
+
+Three downloads are listed once you get to them:
+
+| | About | What it is |
+| --- | --- | --- |
+| **TRELLIS.2 engine** | 0.7 GB | the program that turns a picture into a mesh |
+| **TRELLIS.2 GGUF weights** | 16 GB | the model that engine loads |
+| **SDXL 1.0** | 7 GB | the image model that draws your reference |
+
+The first of those was part of the installer until 2026-09-10, where it was more than half of
+everything you downloaded whether or not you ever made a 3D model. It is a row like the others now.
 
 That download is the only network use there is, and the mechanism is deliberate rather than
 incidental. The app process sets `HF_HUB_OFFLINE=1` at import and keeps it for its entire life; the
@@ -90,7 +108,7 @@ never becomes online-capable — not even briefly. To run the downloads yourself
 
 ## What works before the downloads finish
 
-Quite a lot, which is worth knowing if you are reading this while 23 GB arrives.
+Quite a lot, which is worth knowing if you are reading this while 24 GB arrives.
 
 | Works right now | Needs weights, a GPU, or both |
 | --- | --- |

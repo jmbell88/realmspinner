@@ -38,12 +38,33 @@ def source_checkout() -> bool:
     """
     return (PROJECT_ROOT / "pyproject.toml").is_file()
 
+#: The engine binary's filename, spelled once because three things resolve it:
+#: the download's presence probe, ``Config.resolve_trellis_exe`` and doctor.
+TRELLIS_SERVER_NAME = "trellis-server.exe"
+
 # None on purpose, and confirmed by measurement -- see Config.trellis_band.
 DEFAULT_TRELLIS_BAND: int | None = None
 
 
 def _env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name, default)).resolve()
+
+
+def _env_opt_path(name: str) -> Path | None:
+    """A path variable with no default, so "unset" is answerable.
+
+    ``_env_path`` cannot express that: it needs a default, and a default is
+    exactly what an *override* does not have. ``WARLOCK_TRELLIS_EXE`` names a
+    copy of the engine the user is pointing at by hand, and the difference
+    between "pointing at one" and "not" is what ``Config.resolve_trellis_exe``
+    branches on. An empty or whitespace-only value reads as unset, matching
+    ``_env_opt_float``: a variable set to nothing is a variable somebody meant
+    to clear.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return Path(raw.strip()).resolve()
 
 
 def _home() -> Path:
@@ -195,9 +216,11 @@ class Config:
     # palettes and the model weights. A user's work is not a part of the source
     # tree: it has to survive a reinstall, a second checkout and a `git clean`,
     # and it has to be findable by somebody who never cloned the repo. The one
-    # exception is the vendored native binaries (trellis-server.exe,
-    # gltfpack.exe, warlockc.dll), which ship *with* the checkout and so stay
-    # repo-relative below.
+    # exception is the vendored native binaries (gltfpack.exe, warlockc.dll),
+    # which ship *with* the checkout and so stay repo-relative below. The
+    # reconstruction engine used to be the third of them and is not any more:
+    # it is 838 MB, it is downloaded from Settings -> Models like a model, and
+    # ``resolve_trellis_exe`` below is where the checkout and the download meet.
     home: Path = field(default_factory=_home)
     data_dir: Path = field(
         default_factory=lambda: _env_path("WARLOCK_DATA_DIR", _home() / "assets")
@@ -208,11 +231,16 @@ class Config:
     db_path: Path = field(
         default_factory=lambda: _env_path("WARLOCK_DB", _home() / "assets" / "jobs.sqlite")
     )
-    trellis_server_exe: Path = field(
-        default_factory=lambda: _env_path(
-            "WARLOCK_TRELLIS_EXE",
-            PROJECT_ROOT / "vendor" / "trellis" / "trellis-server.exe",
-        )
+    # **An override, not a location.** ``None`` means "nobody has said where
+    # the engine is", which is the ordinary state: ``resolve_trellis_exe``
+    # then looks in the downloaded runtime directory and falls back to the
+    # checkout's ``vendor/``. Read this field only to ask whether the user
+    # pointed somewhere by hand; every consumer that wants the *path* calls
+    # the method, because the answer changes the moment a download lands and a
+    # value resolved at startup would still name the empty vendor directory an
+    # hour later.
+    trellis_server_exe: Path | None = field(
+        default_factory=lambda: _env_opt_path("WARLOCK_TRELLIS_EXE")
     )
     # Optional: a project folder assets can be copied straight into (e.g. a
     # Godot project's assets/). Unset means the feature is off and its routes
@@ -334,6 +362,20 @@ class Config:
     trellis_models_dir: Path = field(
         default_factory=lambda: _env_path(
             "WARLOCK_TRELLIS_MODELS", _home() / "models" / "trellis2-gguf"
+        )
+    )
+    # The engine's own binaries -- trellis-server.exe, ggml, and the three
+    # NVIDIA CUDA redistributables -- once they have been downloaded.
+    #
+    # Under ``engine/`` rather than ``models/`` because it is not a model and
+    # nothing about it is loadable: ``models/`` is walked by the disk-usage
+    # report, by the sweeps and by ``verify_all``, all of which reason about
+    # weights. It is under the *home* rather than the install root for the
+    # reason every other download is -- it has to survive a reinstall, and an
+    # upgrade that replaced the app runtime would otherwise cost 838 MB again.
+    trellis_runtime_dir: Path = field(
+        default_factory=lambda: _env_path(
+            "WARLOCK_TRELLIS_RUNTIME", _home() / "engine" / "trellis"
         )
     )
     trellis_port: int = field(
@@ -552,6 +594,37 @@ class Config:
         default_factory=lambda: _env_float("WARLOCK_SEPARATION_TIMEOUT", 1800.0)
     )
 
+    def resolve_trellis_exe(self) -> Path:
+        """Where ``trellis-server.exe`` actually is, asked fresh every time.
+
+        Three places, in this order, and the order is the design:
+
+        1. ``WARLOCK_TRELLIS_EXE``, if the user set it. An explicit answer wins
+           over both discovered ones -- it is the sideload path for a machine
+           that cannot reach GitHub, and the way a developer runs against a
+           build of their own.
+        2. ``trellis_runtime_dir``, the downloaded engine. Probed rather than
+           assumed, because the row can be removed again from Settings.
+        3. ``vendor/trellis/`` in the checkout, which is where a developer's
+           copy has always lived and still does. The installer no longer stages
+           it, so on a packaged install this is a directory that does not
+           exist -- and a path that does not exist is the right answer to
+           return, because ``doctor`` and the mode gate both report *that*
+           rather than guessing.
+
+        **Called at use, never cached.** ``Config`` is built once at startup and
+        the engine is a download, so a value resolved into a field would name
+        the empty vendor path for the whole session after a successful install
+        -- the "restart before it can use it" failure the pack landing exists
+        to avoid, arrived at for free by asking the filesystem instead.
+        """
+        if self.trellis_server_exe is not None:
+            return self.trellis_server_exe
+        downloaded = self.trellis_runtime_dir / TRELLIS_SERVER_NAME
+        if downloaded.is_file():
+            return downloaded
+        return PROJECT_ROOT / "vendor" / "trellis" / TRELLIS_SERVER_NAME
+
     @property
     def autosave_dir(self) -> Path:
         """Where Inker's crash-safety copies live.
@@ -589,6 +662,7 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("export_dir", "WARLOCK_EXPORT_DIR"),
     ("trellis_server_exe", "WARLOCK_TRELLIS_EXE"),
     ("trellis_models_dir", "WARLOCK_TRELLIS_MODELS"),
+    ("trellis_runtime_dir", "WARLOCK_TRELLIS_RUNTIME"),
     ("trellis_port", "WARLOCK_TRELLIS_PORT"),
     ("trellis_idle_timeout", "WARLOCK_TRELLIS_IDLE"),
     ("trellis_webp", "WARLOCK_TRELLIS_WEBP"),
