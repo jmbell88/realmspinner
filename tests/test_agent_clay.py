@@ -1939,6 +1939,21 @@ def test_the_instructions_tell_an_agent_which_timed_out_calls_are_safe_to_retry(
     assert "still completes" not in text
 
 
+def test_the_instructions_tell_an_agent_a_started_call_can_now_be_recovered() -> None:
+    from warlock.studio import agent_host
+
+    text = agent_clay.instructions()
+
+    # Resending the identical call is a replay, not a second run of it.
+    assert "replayed rather than run a second time" in text
+    # warlock_status is the other way to ask, named by the constant it
+    # actually publishes under -- never a hand-typed copy of that string.
+    assert agent_host.STATUS_TOOL in text
+    # This only recovers a call whose answer never arrived -- stated
+    # plainly, not left for the agent to infer.
+    assert "two identical calls that both got answered stay two calls" in text
+
+
 # --- guards for a capability that did not previously exist --------------------
 #
 # Before this change an agent could never leave object mode, so

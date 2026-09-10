@@ -156,15 +156,24 @@ engine stopped being something you download whether or not you ever use it.
   or booleaning them is now refused while a document is in an element mode
   instead of quietly manufacturing an object "selected" with nothing selected
   inside it.
-- **A call an agent gives up on before Warlock starts it is now cancelled,
-  not run late.** A timed-out call used to still complete — the job stayed
-  queued and ran exactly once regardless of whether anything was still
-  listening for the answer — so the only safe recovery from a timeout was to
-  re-read the scene before doing anything else; a retry could silently place
-  the same box twice. Warlock now tells the two situations apart: a call it
-  had not started yet is dropped, and the reply says so — nothing changed,
-  send it again. A call already running finishes on its own, and that reply
-  says that instead — re-read the scene rather than retry.
+- **A call an agent gives up on is no longer a dead end.** A timed-out call
+  used to still complete — the job stayed queued and ran exactly once,
+  whenever the window got round to it, regardless of whether anything was
+  still listening for the answer — so a timeout told an agent nothing at
+  all: it could not tell "nothing happened" from "it happened after I stopped
+  listening." The only safe recovery was to re-read the whole scene before
+  touching anything, and a retry could silently place the same box twice.
+  Warlock now tells the two situations apart and says which happened. A call
+  it had not started yet is cancelled outright — nothing changed, send it
+  again. A call already running finishes on its own, and its answer is no
+  longer lost with the timeout: the agent can send the identical call a
+  second time and be handed the result it missed rather than doing the work
+  twice, or ask a new tool, `warlock_status`, what became of it — which
+  answers even while Warlock is busy with something else, because it is the
+  one tool that never waits on the window at all. The limit there is
+  deliberate: only an answer that never arrived is ever handed back, so two
+  identical calls that both genuinely got answered — two boxes placed on
+  purpose — stay two calls, never folded into one.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

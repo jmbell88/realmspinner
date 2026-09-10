@@ -265,8 +265,11 @@ very next call operates on them with nothing re-selected in between.
 If an agent gives up waiting on a call Warlock has not started yet, that call is cancelled rather
 than run later, so a retry does not place the same box twice — the agent is told nothing changed
 and it is safe to send the same call again. If the call had already started, it finishes on its
-own instead; the agent is told that too, so it knows to look at what changed rather than send the
-same request a second time.
+own instead, and the agent no longer has to guess what became of it: it can ask what happened, or
+simply send the same request again and be handed the answer it missed rather than doing the work a
+second time. That only ever applies to an answer that never arrived, though — two identical
+requests you meant to send twice, and that both got answered, are still two things, so asking for
+the same box twice on purpose still gives you two boxes.
 
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
@@ -319,6 +322,16 @@ first place, and the selection tools (`clay_element_mode`, `clay_select_elements
 step would move the history head, and a document would ask to be saved again because somebody looked
 at a different object. The two differ in one way worth keeping straight: a reference never touches
 the `ClayDoc` at all, while a selection tool genuinely changes the document and still pushes nothing.
+
+There is a third possibility, and it belongs to neither list because it does not belong to Clay at
+all: a tool that answers about the bridge itself rather than about a document, the way `warlock_status`
+answers what became of a call. That kind is published by `agent_host`, not `agent_clay.tools()`, and
+answered on the listener thread directly rather than ever being queued for the frame thread to pick
+up — which is the whole reason it exists, since the situation it answers in is precisely the one
+where the frame thread is busy with something else. The test-visible consequence is deliberate: such
+a tool is never an entry in `_HANDLERS`, which is what keeps the derived-catalogue test honest rather
+than quietly widened to cover a tool `agent_clay` never owned. The price of that is real, too — a
+tool built this way gets no frame thread of its own, ever, and so may not touch a document.
 
 ## Writing manual chapters
 

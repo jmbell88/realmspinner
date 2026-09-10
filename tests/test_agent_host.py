@@ -40,6 +40,27 @@ is about that seam holding, with no real GL and no real app:
   compare-and-set (a job that finishes in the gap after the wait gives up but
   before the waiter's own lock hold) answers with the result rather than a
   timeout refusal.
+* A retry of a call that *did* run, but whose answer never reached the peer
+  because the peer had already stopped waiting for it, is answered from
+  memory instead of run a second time -- proven by driving ``_call`` twice
+  with a stubbed ``agent_clay.call`` and counting how many times it actually
+  ran. What makes two calls "the same" is never the JSON-RPC id a client
+  attaches (a retry has no reason to reuse one it made up); it is a
+  fingerprint of the tool name and its arguments, which is also why two
+  calls that both genuinely got answered -- two identical boxes placed on
+  purpose -- are never folded into one. A replay says so in the reply's own
+  words, not only in ``structuredContent`` a client's model might never
+  render, and never mutates the payload it was built from. A call still
+  running (or still queued) when the retry arrives is refused by name rather
+  than replayed or run again; one dropped before it ever started is simply
+  run for real; and a remembered render is re-run rather than handed back
+  stale, because a picture costs nothing to retake and everything to keep.
+* ``warlock_status`` answers what became of a call -- including one still
+  running -- on the listener thread, without ever being queued, which is
+  the one claim above that a busy frame thread cannot get in the way of.
+  Both timeout refusals now name the operation to ask about, it is never
+  itself remembered as an operation (asking twice never dedups), and it is
+  published alongside ``agent_clay.tools()`` rather than living inside it.
 
 Every wait below is bounded (``conn.poll(timeout=...)`` before every
 ``recv_bytes``, and explicit ``join`` timeouts), so a regression that makes
@@ -49,6 +70,7 @@ it past pytest's own timeout.
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -62,6 +84,17 @@ from warlock.studio import agent_clay, agent_host
 #: in this file -- comfortably under pytest's 120 s default and comfortably
 #: over what a healthy host ever takes.
 WAIT = 5.0
+
+#: The shortened ``_call`` timeout the tests below use when they need a job
+#: to be genuinely *inside* ``run()`` at the moment the waiter gives up. It
+#: is wall-clock, and the thing it races is ``pump`` on a background thread
+#: claiming the job at all -- so it is deliberately several times longer
+#: than the ~10 ms that loop actually needs, because this file runs in one
+#: xdist worker while seven others compete for the same cores and a margin
+#: that is merely sufficient on an idle box is what makes a suite flaky
+#: under load. It never costs the wall-clock it names: every test using it
+#: holds the job open on an ``Event`` until well past the timeout anyway.
+RUNNING_WAIT = 0.5
 
 
 class _Ctx:
@@ -367,7 +400,7 @@ def test_a_call_the_frame_thread_already_started_is_not_dropped_and_still_comple
     outcome: dict[str, object] = {}
 
     def waiter() -> None:
-        outcome["result"] = host._run_on_frame(job, timeout=0.2)
+        outcome["result"] = host._run_on_frame(job, timeout=RUNNING_WAIT)
 
     stop_pumping = threading.Event()
 
@@ -382,11 +415,11 @@ def test_a_call_the_frame_thread_already_started_is_not_dropped_and_still_comple
     waiter_thread.start()
     try:
         # Bounded by WAIT, not a sleep: proceeds the moment the job is
-        # genuinely inside run(), which is what makes the 0.2s wait below
+        # genuinely inside run(), which is what makes the wait below
         # expire while the job is RUNNING rather than still QUEUED.
         assert started.wait(WAIT), "job never started"
         waiter_thread.join(timeout=WAIT)
-        assert not waiter_thread.is_alive(), "the 0.2s wait never returned"
+        assert not waiter_thread.is_alive(), "the shortened wait never returned"
 
         _result, _error, state = outcome["result"]
         assert state == agent_host.RUNNING  # not dropped -- it was already running
@@ -444,36 +477,595 @@ def test_a_call_that_finished_in_the_gap_after_the_wait_gave_up_answers_with_its
 
 def test_a_dropped_call_tells_the_agent_nothing_changed(tmp_path, monkeypatch) -> None:
     host = agent_host.AgentHost(_Ctx(), tmp_path)
+    # ``_call`` now calls the four-tuple ``_run_on_frame_job`` (it needs the
+    # ``_Job`` itself to track a still-live operation for the dedup store),
+    # so that is what gets monkeypatched -- ``_run_on_frame`` is now a thin
+    # wrapper over it and no longer the seam ``_call`` reads through.
     monkeypatch.setattr(
-        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.DROPPED)
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.DROPPED)
     )
 
-    result = host._call(agent_clay.Session(), "clay_scene", {})
+    result = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})
     text = result["content"][0]["text"]
 
     assert "nothing changed" in text
     assert "send it again" in text
 
 
-def test_a_call_that_started_tells_the_agent_to_re_read_rather_than_retry(
+def test_a_call_that_started_tells_the_agent_to_ask_or_retry_rather_than_assume_nothing_happened(
     tmp_path, monkeypatch
 ) -> None:
     host = agent_host.AgentHost(_Ctx(), tmp_path)
 
+    # A fresh ``_Calls()`` per call: this test is about the wording for two
+    # different states, not about the dedup store, so each call is its own
+    # first-ever attempt at its intent rather than a retry of the other.
     monkeypatch.setattr(
-        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.DROPPED)
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.DROPPED)
     )
-    dropped_text = host._call(agent_clay.Session(), "clay_scene", {})["content"][0]["text"]
+    dropped_text = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})[
+        "content"
+    ][0]["text"]
 
     monkeypatch.setattr(
-        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.RUNNING)
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.RUNNING)
     )
-    started_text = host._call(agent_clay.Session(), "clay_scene", {})["content"][0]["text"]
+    started_text = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})[
+        "content"
+    ][0]["text"]
 
-    assert "clay_scene" in started_text
-    assert "re-read" in started_text.lower()
+    # The recovery this refusal now points at: ask warlock_status about the
+    # named operation, or send the same call again to be handed its result.
+    assert agent_host.STATUS_TOOL in started_text
+    assert "op-1" in started_text
     assert "send it again" not in started_text
     # One sentence answering both conditions was the defect this change fixes.
     assert started_text != dropped_text
+
+
+# --- dedup: a retry of a call that ran but never answered replays instead ---
+# --- of running twice, and two genuinely-answered calls stay two calls -----
+
+# The genuine, unpatched ``_run_on_frame_job``, cached the first time any
+# test below asks for it -- not at import/collection time, so a codebase
+# that does not have it yet fails each test individually (a clear
+# AttributeError from the test that needed it) rather than failing every
+# test in this file at collection. Cached rather than re-fetched every call
+# so that a test calling ``_shorten_call_timeout`` twice (a shorter timeout,
+# then a longer one) always rewraps the true original, never a
+# already-wrapped version from its own earlier call.
+_real_run_on_frame_job_cache: list = []
+
+
+def _real_run_on_frame_job():
+    if not _real_run_on_frame_job_cache:
+        _real_run_on_frame_job_cache.append(agent_host.AgentHost._run_on_frame_job)
+    return _real_run_on_frame_job_cache[0]
+
+
+def _shorten_call_timeout(monkeypatch, host: agent_host.AgentHost, timeout: float) -> None:
+    """Make ``host._call`` give up waiting on a running job after *timeout*
+    seconds instead of the real ``CALL_TIMEOUT`` (30 s). ``_call`` has no
+    timeout parameter of its own for a test to pass a smaller one through,
+    so this substitutes one by wrapping the genuine ``_run_on_frame_job``
+    (preserving its real job-tracking behaviour) and overriding only how
+    long it waits before giving up.
+    """
+    real = _real_run_on_frame_job()
+
+    def _short(self, run, timeout_arg=agent_host.CALL_TIMEOUT):  # noqa: ARG001
+        return real(self, run, timeout=timeout)
+
+    monkeypatch.setattr(agent_host.AgentHost, "_run_on_frame_job", _short)
+
+
+def _pump_loop(host: agent_host.AgentHost, stop: threading.Event) -> None:
+    """Drains *host*'s queue on a background thread the way ``App.frame``
+    would, until *stop* is set. The same small pattern the round-trip tests
+    above already use, factored out because every test below needs it."""
+    while not stop.is_set():
+        host.pump(budget=0.01)
+        time.sleep(0.005)
+
+
+def test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_of_running_again(
+    monkeypatch,
+) -> None:
+    """The central claim: a call that outran the timeout while it was
+    already running finishes, its answer never reaches the peer, and a
+    retry of the same intent gets that answer handed back -- without
+    ``agent_clay.call`` running a second time."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    call_count = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "the answer"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        outcome: dict[str, object] = {}
+
+        def first_call() -> None:
+            outcome["first"] = host._call(session, calls, "clay_scene", {})
+
+        first_thread = threading.Thread(target=first_call, daemon=True)
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive(), "the shortened wait never returned"
+        first_text = outcome["first"]["content"][0]["text"]
+        # The "already started" refusal, not "dropped" -- the job was
+        # genuinely running when the wait gave up.
+        assert "already started" in first_text.lower()
+        assert "op-1" in first_text
+
+        # Let the real call actually finish, and wait for pump() to have
+        # observed that (rather than sleeping a guessed amount).
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        second = host._call(session, calls, "clay_scene", {})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert call_count["n"] == 1  # agent_clay.call never ran a second time
+    assert second["content"][0]["text"] == "the answer"
+
+
+def test_a_replayed_result_says_in_words_that_it_was_not_run_again(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    started = threading.Event()
+    release = threading.Event()
+    remembered_payload = {"content": [{"type": "text", "text": "the answer"}], "isError": False}
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return remembered_payload
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        replay = host._call(session, calls, "clay_scene", {})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert replay["structuredContent"]["replayed"] is True
+    assert replay["structuredContent"]["operation_id"] == "op-1"
+    text_blocks = [b.get("text", "") for b in replay["content"] if b.get("type") == "text"]
+    assert any("op-1" in t and "not run again" in t for t in text_blocks)
+    # The remembered object itself was never mutated -- a later replay of
+    # the same op must not find flags already baked into it.
+    assert "replayed" not in remembered_payload
+
+
+def test_a_third_identical_call_runs_for_real_because_the_replay_was_delivered(
+    monkeypatch,
+) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    call_count = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "the answer"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        host._call(session, calls, "clay_scene", {})  # the replay
+        assert call_count["n"] == 1
+
+        host._call(session, calls, "clay_scene", {})  # the third, identical call
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert call_count["n"] == 2  # ran for real -- the replay had already delivered
+
+
+def test_two_identical_calls_that_both_answered_are_two_calls_not_one(monkeypatch) -> None:
+    """Dedup must not fire on two calls that both genuinely got answered --
+    an agent placing two identical boxes in a row must place two boxes, not
+    one box and a memory of it."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=2.0)
+
+    call_count = {"n": 0}
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        return {"content": [{"type": "text", "text": "placed"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        args = {"generator": "box"}
+        host._call(session, calls, "clay_add_primitive", args)
+        host._call(session, calls, "clay_add_primitive", args)
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert call_count["n"] == 2
+
+
+def test_a_retry_of_a_dropped_call_runs_rather_than_replaying_nothing(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    call_count = {"n": 0}
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        return {"content": [{"type": "text", "text": "placed"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    # Nothing pumps this call at all: Event.wait(0.0) returns False
+    # immediately, so the job is still QUEUED when _call's wait gives up --
+    # DROPPED, per the cancel-on-timeout behaviour this store must not
+    # paper over by pretending a dropped call is something to replay.
+    _shorten_call_timeout(monkeypatch, host, timeout=0.0)
+    first = host._call(session, calls, "clay_scene", {})
+    assert "send it again" in first["content"][0]["text"]
+    assert call_count["n"] == 0  # nothing ran
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    try:
+        _shorten_call_timeout(monkeypatch, host, timeout=2.0)  # give the retry room to run
+        second = host._call(session, calls, "clay_scene", {})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert call_count["n"] == 1  # the retry actually ran
+    assert second["content"][0]["text"] == "placed"
+
+
+def test_a_retry_while_the_original_is_still_running_is_refused_by_name(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "done"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        # The job is still RUNNING (blocked on release) when this retry
+        # arrives -- it must be refused, never replayed and never run again.
+        retry = host._call(session, calls, "clay_scene", {})
+    finally:
+        release.set()
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert retry["isError"] is True
+    text = retry["content"][0]["text"]
+    assert "op-1" in text
+    assert "twice" in text
+
+
+def test_a_remembered_render_is_re_run_rather_than_replayed(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    call_count = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+    render_reply = {
+        "content": [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}],
+        "isError": False,
+    }
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return render_reply
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_render", {"view": "front"}),
+            daemon=True,
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        host._call(session, calls, "clay_render", {"view": "front"})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert call_count["n"] == 2  # re-run rather than handed back a stale picture
+
+
+def test_the_same_arguments_in_a_different_key_order_are_one_intent() -> None:
+    same_a = agent_host._fingerprint("clay_x", {"a": 1, "b": 2})
+    same_b = agent_host._fingerprint("clay_x", {"b": 2, "a": 1})
+    assert same_a == same_b
+
+    different = agent_host._fingerprint("clay_x", {"a": 1, "b": 3})
+    assert different != same_a
+
+
+def test_the_remembered_calls_are_bounded_and_evict_oldest_first() -> None:
+    calls = agent_host._Calls()
+    total = agent_host.MAX_REMEMBERED_CALLS + 4
+    for i in range(total):
+        calls.mint("clay_scene", {"i": i})
+
+    assert len(calls.recent(total)) == agent_host.MAX_REMEMBERED_CALLS
+    assert calls.get("op-1") is None  # the earliest, evicted
+    newest_id = f"op-{total}"
+    assert calls.get(newest_id) is not None
+
+
+# --- warlock_status: the transport tool answered without a frame thread -----
+
+
+def test_warlock_status_answers_while_the_frame_thread_is_busy() -> None:
+    """The load-bearing claim: warlock_status is answered on the listener
+    thread directly, never queued for pump() -- proven by staging a job
+    genuinely inside run() and blocked, with a second job queued behind it
+    that nothing drains, and confirming the status call answers promptly
+    anyway, without that trailing job ever being touched."""
+    host = _bare_host()
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_job():
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return "the blocked job's own result"
+
+    host._queue.put(agent_host._Job(blocking_job))
+    # One pump() call, on its own thread, claims and blocks inside this job.
+    pumper = threading.Thread(target=host.pump, kwargs={"budget": 1.0}, daemon=True)
+    pumper.start()
+    try:
+        assert started.wait(WAIT), "the blocking job never started running"
+
+        # Queued behind it, and left untouched below -- proof that the
+        # queue was never drained to answer warlock_status.
+        trailing = agent_host._Job(lambda: "never reached")
+        host._queue.put(trailing)
+
+        calls = agent_host._Calls()
+        began = time.monotonic()
+        result = host._call(agent_clay.Session(), calls, agent_host.STATUS_TOOL, {})
+        elapsed = time.monotonic() - began
+
+        assert result["isError"] is False
+        assert elapsed < 2.0, "warlock_status waited on the busy frame thread"
+        assert host._queue.qsize() == 1  # the trailing job is still sitting there
+        assert not trailing.event.is_set()  # ... and was never run
+    finally:
+        release.set()
+        pumper.join(timeout=WAIT)
+
+
+def test_warlock_status_reports_an_operation_that_ran_but_never_delivered(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "the answer"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive(), "the shortened wait never returned"
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        status = host._call(session, calls, agent_host.STATUS_TOOL, {"operation_id": "op-1"})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert status["isError"] is False
+    payload = json.loads(status["content"][0]["text"])
+    assert payload["operation_id"] == "op-1"
+    assert payload["tool"] == "clay_scene"
+    assert payload["delivered"] is False
+    assert payload["state"] in (agent_host.DONE, agent_host.RAISED)
+    assert "waiting" in payload["note"].lower()
+    assert "again" in payload["note"].lower()
+
+
+def test_warlock_status_refuses_an_operation_id_it_never_minted() -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+
+    result = host._call(
+        agent_clay.Session(), calls, agent_host.STATUS_TOOL, {"operation_id": "op-999"}
+    )
+
+    assert result["isError"] is True
+    assert "op-999" in result["content"][0]["text"]
+    assert result["structuredContent"]["field"] == "operation_id"
+
+
+def test_warlock_status_is_offered_to_a_bridge_but_is_not_one_of_clays_tools() -> None:
+    transport_names = {t.name for t in agent_host._transport_tools()}
+    clay_names = {t.name for t in agent_clay.tools()}
+
+    assert agent_host.STATUS_TOOL in transport_names
+    assert agent_host.STATUS_TOOL not in clay_names
+    assert agent_host.STATUS_TOOL not in agent_clay._HANDLERS
+    # Every name a bridge publishes, across the two catalogues, is unique.
+    assert not (transport_names & clay_names)
+
+
+def test_warlock_status_is_never_remembered_as_an_operation() -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+
+    host._call(agent_clay.Session(), calls, agent_host.STATUS_TOOL, {})
+    host._call(agent_clay.Session(), calls, agent_host.STATUS_TOOL, {})
+
+    assert calls.recent(agent_host.MAX_REMEMBERED_CALLS) == []
+
+
+def test_a_timeout_refusal_names_the_operation_to_ask_about(tmp_path, monkeypatch) -> None:
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.DROPPED)
+    )
+    dropped_text = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})[
+        "content"
+    ][0]["text"]
+    assert "op-1" in dropped_text
+
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.RUNNING)
+    )
+    started_text = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})[
+        "content"
+    ][0]["text"]
+    assert "op-1" in started_text
+    assert agent_host.STATUS_TOOL in started_text
 
 

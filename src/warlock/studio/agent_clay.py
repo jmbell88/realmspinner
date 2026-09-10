@@ -132,11 +132,16 @@ document and still pushes nothing.
 **A call that outruns ``agent_host.CALL_TIMEOUT`` is dropped if the frame
 thread has not started it, and finishes if it has.** The two outcomes tell
 an agent different things and want different recoveries: a dropped call
-changed nothing, so sending it again is safe; a started call is already
-running and will finish on its own, so the right move is to re-read
-``clay_scene`` and see what it did rather than sending it again. See
+changed nothing, so sending it again is safe. A started call is already
+running and will finish on its own, and its answer is not lost along with
+the refusal -- ``warlock_status`` says what became of it even while the
+window is still busy, and sending the identical call again once it has
+finished replays that answer rather than running the call a second time.
+Only a call whose answer never reached the client is replayed that way: two
+identical calls that both got answered are two calls, on purpose. See
 :mod:`.agent_host`'s own module docstring for the compare-and-set that makes
-the two outcomes mutually exclusive rather than a race.
+the two outcomes mutually exclusive rather than a race, and for the intent
+fingerprint that recognises the retry.
 
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
@@ -804,8 +809,13 @@ def instructions() -> str:
         "which. If Warlock had not started the call yet, it is dropped and "
         "nothing changed -- it is safe to send the same call again. If "
         "Warlock had already started it, the call keeps running and will "
-        "finish on its own; do not send it again, re-read clay_scene "
-        "instead to see what it did.\n\n"
+        "finish on its own; send the identical call again and, if its "
+        "answer never reached you, it is replayed rather than run a second "
+        f"time, or ask {agent_host.STATUS_TOOL} with the operation id the "
+        "refusal named, or re-read clay_scene if you would rather see the "
+        "document than the call's own answer. This only works for a call "
+        "whose answer never arrived -- two identical calls that both got "
+        "answered stay two calls, deliberately.\n\n"
         "Known generators: " + _generator_catalog()
     )
 
