@@ -16,7 +16,13 @@ Four rules hold across all thirteen, and each of them is pinned by a test:
 translation, so geometry that baked its placement in would make the numeric TRS
 panel lie -- a box "at the origin" would sit somewhere else, and moving it back
 would leave the panel reading a position the object is not at. ``plane`` is
-centred too: it lies *in* the XZ plane at y = 0, not on top of it.
+centred too: it lies *in* the XZ plane at y = 0, not on top of it. Every other
+parameter here is an extent -- a size, a radius, a height -- and an extent
+cannot express a position, so this holds for free. The one case that takes
+actual work is a parameter that carries positions rather than extents:
+``lathe``'s ``profile`` is a list of ``[radius, y]`` stations, and its ``y``
+values describe a shape, not a place, so :func:`_clamp_profile` re-centres
+them before a single vertex is placed.
 
 **Caps are n-gons, not fans.** The CSR storage exists precisely so a cylinder's
 lid can be one face with sixteen corners, and it matters twice over: a fan cap
@@ -152,13 +158,13 @@ def _clamp_profile(value: Any) -> list[list[float]]:
     own normaliser beside it in :data:`_PROFILE_CLAMPS` rather than growing a
     second copy of this function's shape.
 
-    Five steps, in the order ``docs/INVARIANTS.md``'s generator paragraph
+    Six steps, in the order ``docs/INVARIANTS.md``'s generator paragraph
     states the first four of them:
 
     1. Coerce to ``[radius, y]`` pairs and take ``abs()`` of every radius --
        the module's "sizes are taken as magnitudes" rule. Anything that will
        not unpack this way (the wrong shape, a non-numeric value) is treated
-       as no stations at all, which step 5 turns into the default profile.
+       as no stations at all, which step 6 turns into the default profile.
     2. Clamp ``y`` **non-decreasing**, each station raised to at least its
        predecessor's. A pair that can cross inverts a band's winding through
        two perfectly positive numbers -- the same negative-extent failure a
@@ -169,15 +175,23 @@ def _clamp_profile(value: Any) -> list[list[float]]:
        quad passes ``validate`` and reaches the exporter; step 2 is exactly
        what can manufacture one, by raising a station's ``y`` up to meet a
        predecessor whose radius already matched.
-    4. Floor a **middle** station's radius to :data:`MIN_PROFILE_RADIUS`,
+    4. Re-centre the survivors' ``y`` about zero, shifting every station by
+       the midpoint of the range steps 2-3 left behind. A profile's ``y`` is
+       *relative* -- it describes the shape a silhouette traces, not where
+       that silhouette sits, and where it sits is ``Obj.translation``'s job,
+       exactly the division every other generator's parameters already obey
+       without having to state it: an extent cannot express a position, and a
+       station can. Nothing here touches ``x``/``z`` -- a revolve is centred
+       on its axis by construction.
+    5. Floor a **middle** station's radius to :data:`MIN_PROFILE_RADIUS`,
        leaving only the first and last stations free to be poles -- a zero
        radius in the middle pinches the surface to a single non-manifold
        point with no modelling meaning, which a lathe's two true ends do have
        (a finial, a droplet, a chess pawn).
-    5. Fall back to :data:`LATHE_DEFAULT_PROFILE` when fewer than two
+    6. Fall back to :data:`LATHE_DEFAULT_PROFILE` when fewer than two
        stations survive, *or* when no station has a positive radius at all.
        The second half is not the ``len == 2`` case it can only actually
-       arise from today (step 4 already guarantees a positive radius at
+       arise from today (step 5 already guarantees a positive radius at
        every *middle* station, so this can only fire when a profile has no
        middle stations to floor) -- it is stated as the general fact rather
        than that special case, because a profile with no positive radius
@@ -201,6 +215,10 @@ def _clamp_profile(value: Any) -> list[list[float]]:
         if deduped and deduped[-1] == station:
             continue
         deduped.append(station)
+    if deduped:
+        mid = (min(y for _, y in deduped) + max(y for _, y in deduped)) / 2.0
+        for station in deduped:
+            station[1] -= mid
     for i in range(1, len(deduped) - 1):
         if deduped[i][0] <= 0.0:
             deduped[i][0] = MIN_PROFILE_RADIUS

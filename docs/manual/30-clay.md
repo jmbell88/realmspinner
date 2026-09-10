@@ -62,10 +62,13 @@ with a fixed shape: `base` and `capital` are the *heights* of the plinth and the
 and setting both to zero leaves a plain shaft. A **lathe** is the general case of a column — a
 `profile` of `[radius, y]` stations, bottom to top, revolved into whatever silhouette they trace,
 which is what a bottle, a vase, a goblet, a handle or a turned finial needs and a column's two fixed
-numbers cannot reach. A station of zero radius at either end comes to a point rather than a flat
-cap, which is how a lathe reaches a finial or a chess pawn's rounded top. There is no profile editor
-yet: Properties shows a placed lathe's numbers as a read-only line rather than fields you can drag,
-the same way any parameter shape nobody has built a widget for yet is shown.
+numbers cannot reach. The `y` values are read as a shape, not a place — Warlock re-centres them for
+you, so a profile running 0 to 1 builds the same silhouette as one running -0.5 to 0.5 and the
+object still sits wherever Properties says it does. A station of zero radius at either end comes to
+a point rather than a flat cap, which is how a lathe reaches a finial or a chess pawn's rounded top.
+There is no profile editor yet: Properties shows a placed lathe's numbers as a read-only line rather
+than fields you can drag, the same way any parameter shape nobody has built a widget for yet is
+shown.
 
 Three of those are near-duplicates of others and are worth telling apart. **Grid** is a plane cut
 into squares; **plane** is the single quad, which is what a decal or a backdrop wants, and a grid is

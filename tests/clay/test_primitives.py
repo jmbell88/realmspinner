@@ -136,6 +136,14 @@ def test_every_generator_is_centred_on_the_origin(name: str) -> None:
     A three-segment cylinder has one vertex at +r and two at -r/2, so its
     measured box is off-centre while its geometry is not. Every default segment
     count here is divisible by four, where the two coincide.
+
+    Defaults-only is also why this gate cannot see ``lathe``: its
+    ``profile`` is the one parameter in this registry that can express a
+    *position* rather than an extent, so a profile that does not itself
+    straddle zero is a case this test never builds. That claim is
+    ``test_a_lathe_from_a_profile_that_does_not_straddle_zero_still_sits_at_the_origin``,
+    and it lives with the other lathe tests because it is about one
+    generator rather than about all of them.
     """
     lo, hi = bm.bounds(_default(name))
     assert np.allclose(lo + hi, 0.0, atol=1e-6)
@@ -716,6 +724,24 @@ def test_a_lathes_default_profile_reads_as_a_goblet_with_a_pointed_foot() -> Non
     assert len(at_bottom) == 1
 
 
+def test_a_lathe_from_a_profile_that_does_not_straddle_zero_still_sits_at_the_origin() -> None:
+    """The module's first rule, stated unconditionally: ``Obj`` carries the
+    translation, so a generator that bakes its own placement in makes the
+    numeric TRS panel lie. Every other generator takes only extents, which
+    cannot encode a position, so centring falls out for free; ``profile`` is
+    the first parameter that carries positions, and nothing adapted when it
+    landed. A goblet-shaped profile whose stations happen to run 0..1 in
+    ``y`` built a mesh sitting half a metre above the origin while the panel
+    read ``(0, 0, 0)`` -- precisely the lie this rule exists to prevent.
+
+    Fails today: the built mesh's centre is ``[0, 0.5, 0]``.
+    """
+    profile = [[0.3, 0.0], [0.4, 0.5], [0.2, 1.0]]
+    mesh = bp.lathe(profile=profile, segments=8)
+    lo, hi = bm.bounds(mesh)
+    assert np.allclose((lo + hi) / 2.0, 0.0, atol=1e-6)
+
+
 # --- clamp_params: the profile normaliser --------------------------------------
 
 
@@ -736,9 +762,12 @@ def test_a_profiles_y_is_clamped_non_decreasing() -> None:
 def test_a_profile_station_that_now_coincides_with_its_predecessor_is_dropped() -> None:
     """Raising ``y`` to be non-decreasing can manufacture an exact duplicate
     of the station before it -- a zero-area quad that passes ``validate`` and
-    reaches the exporter."""
+    reaches the exporter. The surviving pair's ``y`` values are ``0.0`` and
+    ``1.0`` before centring, so the claim this test makes -- two stations in,
+    one dropped -- shows up as ``[-0.5, 0.5]``, the same pair re-centred about
+    zero rather than the raw values the duplicate was dropped from."""
     clamped = bp.clamp_params("lathe", {"profile": [[0.2, 0.0], [0.2, -0.5], [0.4, 1.0]]})
-    assert clamped["profile"] == [[0.2, 0.0], [0.4, 1.0]]
+    assert clamped["profile"] == [[0.2, -0.5], [0.4, 0.5]]
 
 
 def test_a_profiles_middle_radius_is_floored_but_its_ends_may_be_poles() -> None:

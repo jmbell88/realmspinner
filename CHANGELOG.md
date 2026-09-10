@@ -213,12 +213,15 @@ engine stopped being something you download whether or not you ever use it.
   yet**: Properties shows a placed lathe's stations as a read-only line, the
   way it shows any parameter shape nobody has built a widget for — a lathe is
   placed and retuned from the agent interface or from a saved document until
-  one exists. Two guards came with it, both for failures the mesh checker
+  one exists. Three guards came with it, all for failures the mesh checker
   cannot see: a profile whose stations run backwards is straightened before it
   can turn a band of the surface inside out through two perfectly positive
-  numbers, and a profile that is really a line — no radius anywhere — is
-  refused rather than built into a shape with no volume and every face
-  zero-area.
+  numbers, a profile that is really a line — no radius anywhere — is refused
+  rather than built into a shape with no volume and every face zero-area, and
+  the stations' `y` is re-centred about zero — `profile` is the first
+  parameter here that carries a position rather than an extent, so without
+  this a profile running 0 to 1 built a lathe sitting half a metre off the
+  origin while Properties' translation read `(0, 0, 0)`.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a
