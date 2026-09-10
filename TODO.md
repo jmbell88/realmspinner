@@ -1006,7 +1006,9 @@ the choice is missing.
     spite of it. `LIMB_RINGS` went 3→4 and the torus default `sides` 12→16
     because both had been stepping by exactly the 30-degree threshold and came
     back a third smooth; silhouettes did not move. A parameter rebuild
-    preserves shading (`clay_props._carry_shading`).
+    preserves shading (`clay/regen.carry_over`, since 2026-09-10 — it moved
+    out of `clay_props._carry_shading` when that rebuild also started
+    carrying per-face material).
     **Still open:** whether Flat/Smooth should be offered as a control *at*
     insertion, rather than applied by the rule and overridden afterwards.
 7. **Decide whether a figure keeps its identity after placement.**

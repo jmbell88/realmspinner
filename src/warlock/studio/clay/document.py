@@ -624,6 +624,26 @@ class ClayDoc:
         if mesh is not obj.mesh:
             was_mesh, obj.mesh = obj.mesh, mesh
             edits.append(MeshEdit(uid, was_mesh, mesh))
+            # A params rebuild is the one path that shrinks a mesh *outside*
+            # undo: every other way an object loses faces -- Delete, a mesh
+            # op, an undo/redo -- goes through ``set_mesh`` or is caught by
+            # ``_forget_elements`` on the way back, but this method replaces
+            # ``obj.mesh`` directly and pushes a brand-new step, not a
+            # reversal. A face selection made before a segment-count edit
+            # therefore used to survive verbatim into a mesh with fewer
+            # faces, holding indices the overlay build and every element-mode
+            # tool would index straight past the end of. ``el.restrict`` is
+            # exactly the guard for this -- see its own docstring, which
+            # until now had to admit no caller used it -- and going through
+            # ``set_element_sel`` rather than writing ``self.element_sel``
+            # directly keeps the derived-selection invariant this module's
+            # own docstring states: an emptied restriction also drops the
+            # uid from ``selection``, the same as every other path that
+            # touches ``element_sel``. Not undoable, same as every other
+            # selection change: it pushes nothing of its own.
+            existing = self.element_sel.get(uid)
+            if existing is not None:
+                self.set_element_sel(uid, el.restrict(mesh, existing))
         if not edits:
             return False
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))

@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -475,6 +476,66 @@ def test_material_repaints_every_face_of_the_mesh_not_only_the_objects_default_s
     # one group at the *old*, default material instead.
     assert len(prims) == 1
     assert prims[0].material.base_color_factor == (1.0, 0.0, 0.0, 1.0)
+
+
+# --- a rebuild carries per-face material and shading, the same as the panel ---
+
+
+def test_clay_set_params_keeps_per_face_material_through_a_rebuild() -> None:
+    """The defect this closes: every generator funnels through
+    ``primitives._mesh``, which stamps a fresh all-zero ``material`` array on
+    every call, and ``_h_set_params`` used to rebuild with a bare
+    ``shading.auto_smooth(bp.GENERATORS[obj.generator][1](**merged))`` -- no
+    carry at all. There is no per-face paint tool over MCP yet (``clay_material``
+    repaints every face of an object, not a selection within one -- see the
+    module docstring's "everyday behaviour" claim), so face 2 is painted
+    directly the way a face-mode paint op would leave it, then a same-face-
+    count params edit is sent through the real tool and face 2's slot is
+    checked. Fails today: it comes back 0.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = tab.doc.by_uid(uid)
+    painted = np.array(obj.mesh.material)
+    painted[2] = 1
+    tab.doc.set_mesh(uid, replace(obj.mesh, material=painted), keep_generator=True)
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"size": [2.0, 1.0, 1.0]}}
+    )
+    assert result["isError"] is False, result
+
+    obj = tab.doc.by_uid(uid)
+    assert int(obj.mesh.material[2]) == 1, "a size edit must not grey out a painted face"
+
+
+def test_clay_set_params_keeps_per_face_shading_through_a_rebuild() -> None:
+    """Same rebuild, for ``smooth``. A box reads flat under
+    ``shading.auto_smooth`` on its own, so re-deriving from scratch (what
+    ``_h_set_params`` did before this fix) happens to look right on an
+    untouched box -- the defect only shows once a face's shading has been
+    hand-picked *away* from what the angle rule would choose, which is
+    forced here by smoothing every face of a box, something ``auto_smooth``
+    itself would never produce. Fails today: a same-face-count rebuild
+    re-derives instead of carrying, so the hand-picked flags come back false.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = tab.doc.by_uid(uid)
+    hand_picked = np.ones(len(obj.mesh.smooth), dtype="?")
+    tab.doc.set_mesh(uid, replace(obj.mesh, smooth=hand_picked), keep_generator=True)
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"size": [2.0, 1.0, 1.0]}}
+    )
+    assert result["isError"] is False, result
+
+    obj = tab.doc.by_uid(uid)
+    assert obj.mesh.smooth.tolist() == hand_picked.tolist()
 
 
 # --- refusals name their field where one is knowable --------------------------

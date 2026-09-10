@@ -207,7 +207,10 @@ something takes it out of what you are working on, so nothing you select can act
 
 **Element selection is transient.** It is not saved with the document, and an undo that changes
 geometry drops it — the indices it named describe a mesh that no longer exists. An undo that only
-moves or renames something keeps it, because those cannot invalidate it.
+moves or renames something keeps it, because those cannot invalidate it. A properties-panel or agent
+edit that rebuilds a shape from its own parameters is different again: if the face count comes out
+the same the selection is carried through unchanged, and if it shrinks the selection is *restricted*
+to whatever indices still exist rather than left pointing past the end of a smaller mesh.
 
 ### Selecting more than one thing
 
@@ -542,6 +545,15 @@ entirely flat.** Shading here is a per-face flag, so a face is smooth only when 
 at all — and every side quad of a cylinder meets a cap at a right angle. That is also the right
 answer for this renderer rather than a gap: smoothing the band while the caps stayed flat would
 average the cap normals into the rim and round the very edge the caps are there to define.
+
+Changing a generator's numbers rebuilds the mesh from nothing, and what a rebuild keeps depends on
+what changed. A field that only moves a radius, a height or a position leaves the same faces in the
+same order, so a hand-picked Shade Smooth and a hand-painted per-face colour both come back exactly
+as they were. A field that changes how many faces there are — a segment or ring count — does not:
+those are not the same faces any more, so the mesh repaints to the object's own material slot and its
+shading is re-derived by the same rule a shape gets when it is first placed, rather than either one
+quietly reverting to grey and flat. That is true whichever door asked for the rebuild — typing into
+this panel or an agent building in Clay over MCP behave identically here.
 
 Clay paints no textures — but it **carries** them. A material that arrived with an imported asset
 keeps its baked maps: they render in the viewport, they are stored in the `.wblk`, and they are

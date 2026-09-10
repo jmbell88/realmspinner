@@ -27,7 +27,7 @@ from _ui_context import imgui_context
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import mesh as bm
 from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import shading
+from warlock.studio.clay import regen, shading
 from warlock.studio.clay.adjacency import adjacency
 from warlock.studio.panes import clay_props, clay_tools
 
@@ -224,12 +224,14 @@ def test_a_figures_capsule_limbs_come_out_smooth_rather_than_beaded() -> None:
 #
 # ``clay_props._generator`` rebuilds the mesh from edited params and calls
 # ``set_generator_params``; the rebuilt mesh always arrives flat (every
-# generator does), so without ``_carry_shading`` a Shade Smooth the user had
-# applied -- or the shading an insertion door had already given the object --
-# would be silently discarded the moment any field was touched. ``_widget`` is
-# monkeypatched to report "changed" without a live imgui frame typing into a
-# field: the panel does not care whether the change came from a keystroke or
-# from this fixed answer, only from ``_widget``'s return.
+# generator does), so without ``clay.regen.carry_over`` a Shade Smooth the
+# user had applied -- or the shading an insertion door had already given the
+# object -- would be silently discarded the moment any field was touched.
+# (``regen.carry_over`` also carries per-face *material* now; see
+# ``test_clay_props_regen.py`` for that half.) ``_widget`` is monkeypatched to
+# report "changed" without a live imgui frame typing into a field: the panel
+# does not care whether the change came from a keystroke or from this fixed
+# answer, only from ``_widget``'s return.
 
 
 def _placed_box(doc: bd.ClayDoc) -> bd.Obj:
@@ -324,11 +326,17 @@ def test_a_rebuild_that_changes_face_count_re_derives_shading_by_the_rule(monkey
 
 
 def test_carry_shading_keeps_the_old_array_verbatim_when_face_count_matches() -> None:
-    """The pure half of the rebuild rule, independent of imgui entirely."""
+    """The pure half of the rebuild rule, independent of imgui entirely.
+
+    ``_carry_shading`` moved to ``clay.regen.carry_over`` (and now carries
+    ``material`` too -- ``test_regen.py`` is the module's own test); this
+    keeps pinning the shading half by the name this file already searches
+    for it under.
+    """
     old = bp.box()
     old = replace(old, smooth=np.array([True, False, True, False, True, False]))
     rebuilt = bp.box(size=(2.0, 1.0, 1.0))
-    carried = clay_props._carry_shading(old, rebuilt)
+    carried = regen.carry_over(old, rebuilt, material=0)
     assert np.array_equal(carried.smooth, old.smooth)
 
 
@@ -336,6 +344,6 @@ def test_carry_shading_re_derives_when_face_count_differs() -> None:
     old = bp.cylinder(segments=8)
     old = replace(old, smooth=np.ones(bm.face_count(old), dtype=bool))
     rebuilt = bp.cylinder(segments=16)
-    carried = clay_props._carry_shading(old, rebuilt)
+    carried = regen.carry_over(old, rebuilt, material=0)
     assert bm.face_count(carried) == bm.face_count(rebuilt)
     assert np.array_equal(carried.smooth, shading.auto_smooth(rebuilt).smooth)

@@ -145,7 +145,7 @@ from . import clay_mode, clay_ops
 from .clay import diagnose as clay_diagnose
 from .clay import mesh as bm
 from .clay import ops as clay_geom_ops
-from .clay import ops_boolean, presets, shading
+from .clay import ops_boolean, presets, regen, shading
 from .clay import primitives as bp
 from .clay.elements import OpError
 from .clay_view import ClayView
@@ -1545,7 +1545,18 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # mandatory for this caller.
     was = {"params": dict(obj.params)}
     merged = bp.clamp_params(obj.generator, {**obj.params, **params})
-    mesh = shading.auto_smooth(bp.GENERATORS[obj.generator][1](**merged))
+    # ``regen.carry_over`` rather than a bare rebuild-and-``auto_smooth``: this
+    # handler used to call ``shading.auto_smooth`` directly on every rebuild,
+    # which re-derives shading from scratch and never touched ``material`` at
+    # all -- so an object painted through ``clay_material`` or given a
+    # hand-picked Shade Smooth by a prior tool call came back grey and flat
+    # the moment its numbers changed here. ``panes/clay_props.py``'s own
+    # rebuild carried shading (never material) through the same two-case rule
+    # this module now shares rather than reimplements, which is exactly how
+    # the two doors built two different meshes for the same edit before this.
+    mesh = regen.carry_over(
+        obj.mesh, bp.GENERATORS[obj.generator][1](**merged), material=obj.material
+    )
     changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
     # Reported back rather than echoed: a caller that asked for segments=2
     # learns here that clamp_params raised it to the generator's own floor.

@@ -538,6 +538,47 @@ def test_a_generator_edit_that_changes_nothing_records_nothing() -> None:
     )
 
 
+def test_a_params_edit_that_shrinks_a_mesh_restricts_the_element_selection_instead_of_leaving_it_dangling() -> None:  # noqa: E501
+    """``set_generator_params`` changes the mesh outside the one path
+    ``_forget_elements`` guards -- that helper only runs on undo/redo, and a
+    params rebuild pushes a brand-new step rather than reversing one. Before
+    this fix a face selection made before the edit survived verbatim into a
+    mesh with fewer faces, holding indices past the end of the arrays the
+    element-mode tools and the overlay build both index directly with no
+    bounds check of their own.
+    """
+    doc = bd.ClayDoc()
+    obj = doc.add_object(
+        _obj(
+            "Cyl",
+            bp.cylinder(segments=16),
+            generator="cylinder",
+            params={"radius": 0.5, "height": 1.0, "segments": 16},
+        )
+    )
+    old_face_count = bm.face_count(obj.mesh)  # 18: 16 sides + 2 caps
+    doc.set_element_mode("face")
+    doc.set_element_sel(obj.uid, el.select_all(obj.mesh, "face"))
+    assert doc.element_sel[obj.uid].faces.tolist() == list(range(old_face_count))
+
+    rebuilt = bp.cylinder(segments=8)  # 10 faces: not the same faces any more
+    doc.set_generator_params(
+        obj.uid,
+        {"radius": 0.5, "height": 1.0, "segments": 8},
+        rebuilt,
+        was={"params": {"radius": 0.5, "height": 1.0, "segments": 16}},
+    )
+
+    new_face_count = bm.face_count(doc.by_uid(obj.uid).mesh)
+    assert new_face_count < old_face_count, "the rebuild must have actually shrunk"
+    sel = doc.element_sel.get(obj.uid)
+    assert sel is not None, "some faces still exist -- the selection must not vanish entirely"
+    assert sel.faces.tolist() == list(range(new_face_count)), (
+        "every surviving index is below the new face count, and no higher one lingers"
+    )
+    assert obj.uid in doc.selection, "the derived-selection invariant: still selected"
+
+
 def test_every_mesh_the_document_converts_is_valid() -> None:
     doc = bd.ClayDoc()
     for name, (defaults, build) in bp.GENERATORS.items():

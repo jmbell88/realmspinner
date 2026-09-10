@@ -239,17 +239,22 @@ def invert(mesh: Mesh, sel: ElementSel, mode: str) -> ElementSel:
 def restrict(mesh: Mesh, sel: ElementSel) -> ElementSel:
     """Drop elements a mesh no longer has.
 
-    **Not currently called from any live path** -- the 2026-09-08 audit's
-    clay-09 found this docstring claiming to be how the codebase handles "a
-    delete followed by an undo", but the actual mechanism for that is
-    :meth:`ClayDoc._forget_elements`, which drops the whole per-object
-    ``element_sel`` entry on undo/redo rather than restricting it in place.
-    Kept, and unit-tested (:mod:`tests.clay.test_elements`), because it is the
-    right tool the day something shrinks a mesh *without* going through the
-    undo path that ``_forget_elements`` already guards -- at which point an
-    out-of-range face index would otherwise take down the overlay build
-    rather than the op. Wire it in there rather than assuming this docstring
-    already means it is reachable.
+    Called from :meth:`ClayDoc.set_generator_params`, the one path that
+    shrinks a mesh *outside* the undo mechanism: every other way an object
+    loses faces (Delete, a mesh op, an undo or redo) goes through
+    :meth:`ClayDoc.set_mesh` or is caught by :meth:`ClayDoc._forget_elements`
+    on the way back, but a properties-panel or agent params edit -- a segment
+    count dropped while faces are selected -- replaces ``obj.mesh`` directly
+    and pushes a brand-new step rather than reversing one, so
+    ``_forget_elements`` never runs and a selection recorded against the old
+    mesh would otherwise survive verbatim into one with fewer faces, holding
+    indices the overlay build and every element-mode tool index straight past
+    the end of. Until the 2026-09-10 fix that closed this, the docstring here
+    said plainly that no such caller existed (the 2026-09-08 audit's clay-09
+    finding, which is why the sentence used to be about what this function
+    was *not* wired into) -- a state that ``tests/clay/test_elements.py``'s
+    own self-adjusting gate kept honest rather than one this file could drift
+    away from unnoticed.
     """
     n_verts, n_faces = len(mesh.positions), len(mesh.starts) - 1
     edges = sel.edges

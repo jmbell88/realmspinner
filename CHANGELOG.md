@@ -192,6 +192,16 @@ engine stopped being something you download whether or not you ever use it.
 - **Deleting selected faces or edges across several objects with one Delete
   now undoes in one step**, instead of one Ctrl+Z restoring one object and
   leaving the others empty.
+- **Changing a shape's numbers no longer greys out the object you had
+  painted.** A generator rebuild always threw away whatever the object was
+  wearing: the properties panel carried back the shading you had hand-picked
+  but never the palette slot you had painted a face into, and an agent
+  editing the same object through MCP carried neither — a box painted red
+  came back the default palette colour the moment its size changed, from
+  either door. Both now share one rule: a rebuild that keeps the same faces
+  keeps exactly what they were shaded and coloured, and one that changes how
+  many faces there are repaints to the object's own material slot and
+  re-derives shading by the same rule a shape gets the moment it is placed.
 - **A fresh Clay document no longer arrives with Box already "in hand".** The
   add grid's Box icon and its options preview lit before any add-tool was
   pressed; nothing lights until a real click.

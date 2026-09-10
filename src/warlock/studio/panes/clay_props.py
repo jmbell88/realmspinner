@@ -27,6 +27,7 @@ from imgui_bundle import imgui
 
 from .. import clay_mode, controls, icons, tokens, widgets
 from ..clay import primitives as bp
+from ..clay import regen
 from ..manual import render as manual_render
 from ..tokens import sp
 
@@ -276,7 +277,15 @@ def _generator(doc: Any, obj: Any) -> None:
         log.debug("generator %r refused %r", getattr(build, "__name__", build), edited,
                   exc_info=True)
         return
-    mesh = _carry_shading(obj.mesh, mesh)
+    # ``regen.carry_over`` is what keeps a rebuild from silently discarding a
+    # hand-picked Shade Smooth/Flat or a hand-painted per-face material the
+    # moment any generator field is touched -- see that module's own
+    # docstring for the two-case rule and why it now lives there rather than
+    # here (``agent_clay._h_set_params`` is the other door that rebuilds a
+    # generator's mesh, and it used to carry neither attribute at all, so the
+    # rule had to move somewhere both could reach rather than staying a
+    # method on this pane).
+    mesh = regen.carry_over(obj.mesh, mesh, material=obj.material)
     # One step, not two. The numbers and the mesh they build are one act, and
     # a lone Ctrl+Z restoring half the pair showed the old mesh in the viewport
     # while this panel still read the new radius -- and ``InputFloat`` fires
@@ -285,39 +294,6 @@ def _generator(doc: Any, obj: Any) -> None:
     # precisely what the generator builds from the edited parameters, which is
     # the one case where the object's generator claim is still true.
     doc.set_generator_params(obj.uid, edited, mesh, was={"params": params})
-
-
-def _carry_shading(old: Any, mesh: Any) -> Any:
-    """The rebuilt *mesh*, with the shading a rebuild must not silently lose.
-
-    A generator always builds flat (``primitives.py``'s own docstring); every
-    shading an object actually wears was decided at insertion or by a manual
-    Shade Smooth/Flat, and a params edit rebuilding the mesh from scratch would
-    otherwise throw that away on the very next keystroke -- the 2026-09-06
-    audit's organic-shapes decision explicitly asked for this to survive.
-
-    Two cases, because "the same faces" is only sometimes true of a rebuild:
-
-    * **Face count unchanged** -- a radius or a position moved, not a segment
-      count -- means the rebuilt mesh has the same faces in the same order
-      ``primitives.py``'s generators always emit them in, so the old
-      ``smooth`` array is carried over verbatim. This is what makes a
-      hand-picked per-face Shade Smooth in face mode survive a numeric tweak
-      exactly, not merely approximately.
-    * **Face count changed** -- a segment slider moved, so the faces are not
-      the same faces any more and there is no old flag to carry to a face that
-      did not exist a moment ago -- re-derives shading with
-      ``clay.shading.auto_smooth``, the identical rule that gave the object
-      its shading the moment it was placed.
-    """
-    from ..clay import mesh as bm
-    from ..clay import shading
-
-    if bm.face_count(mesh) == bm.face_count(old):
-        from dataclasses import replace
-
-        return replace(mesh, smooth=old.smooth)
-    return shading.auto_smooth(mesh)
 
 
 def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
