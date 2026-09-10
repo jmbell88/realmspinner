@@ -1,6 +1,6 @@
 """What Clay's agent tool surface (``studio/agent_clay.py``) promises to hold.
 
-Three claims are pinned here, each stated in that module's own docstring.
+Four claims are pinned here, each stated in that module's own docstring.
 
 **The bidirectional derivation gate.** ``tools()`` builds its enums from
 ``primitives.GENERATORS``, ``presets.ASSEMBLIES`` and ``clay_ops.OPS`` rather
@@ -31,6 +31,23 @@ documented exceptions, ``clay_batch`` and ``clay_undo``/``clay_redo``), a
 clamp is reported back rather than silently applied, ``clay_material``
 repaints every face rather than only the object's default slot, a refusal
 names its ``field`` where one is knowable, and ``call()`` truly never raises.
+
+**The structured-results claim.** Every tool's JSON answer is duplicated into
+``structuredContent`` (``_json``, the shape most of this module's tools
+answer through), so a client can branch on a field instead of re-parsing the
+text block a model reads -- except a result that carries a picture, which
+never duplicates its header into ``structuredContent``: ``clay_render``
+(``ok(header, *pngs)``) and ``clay_reference_get`` (``ok(text(...),
+image_png(...))``) both build their result directly rather than through
+``_json``, because an image block has no JSON to duplicate. Stated
+structurally rather than as a name or a count, and pinned exhaustively --
+walking every entry in ``_HANDLERS`` rather than a hand-kept subset -- by
+``test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture``.
+Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
+-- also declare an ``outputSchema`` describing that shape, and none declares
+``required`` or ``additionalProperties: false``, because a refusal shares
+the same result envelope and its ``structuredContent`` is only ever whatever
+``field`` it names.
 
 ``clay_render`` needs a real moderngl context to build its private viewport
 (``ctx.viewer.ctx``); this suite runs with no GL at all. Most of its tests
@@ -347,6 +364,90 @@ def test_every_tool_is_covered_by_the_dead_tab_and_session_only_lists() -> None:
     assert {n for n, _ in _NEEDS_A_TAB} | set(_SESSION_ONLY) | {
         n for n, _ in _MINTS_A_TAB
     } == set(agent_clay._HANDLERS)
+
+
+# The four ``_SESSION_ONLY`` tools carry no ready-made args table the way
+# ``_NEEDS_A_TAB``/``_MINTS_A_TAB`` do -- that list is only names, on purpose
+# (see its own comment) -- so this is the one small table the test below adds,
+# built from the same inline-base64 helpers the B8 reference tests already
+# use rather than anything new. ``clay_reference_get`` names "ref1", added by
+# the test itself before this table is walked; ``clay_reference_add`` and
+# ``clay_reference_remove`` name a second reference of their own so the
+# add/remove pair does not fight over the same slot.
+_SESSION_ONLY_ARGS = {
+    "clay_reference_add": {
+        "name": "exhaustive_ref",
+        "png_base64": base64.b64encode(_tiny_png()).decode("ascii"),
+    },
+    "clay_reference_list": {},
+    "clay_reference_get": {"name": "ref1"},
+    "clay_reference_remove": {"name": "exhaustive_ref"},
+}
+
+
+def test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture(
+    monkeypatch: pytest.MonkeyPatch, svc
+) -> None:
+    """The rule the module docstring states: a result that carries a picture
+    (an image content block) never duplicates its header into
+    ``structuredContent``, and every other successful reply's
+    ``structuredContent`` is ``json.loads`` of its own first text block.
+    Walked exhaustively over every entry in ``agent_clay._HANDLERS`` -- not a
+    hand-kept subset -- so a tool added later is covered with nobody having
+    to remember to extend a list for it.
+
+    Reuses ``_NEEDS_A_TAB`` and ``_MINTS_A_TAB``'s own (name, args) pairs
+    rather than inventing a second "call every tool with minimal arguments"
+    table -- a second copy of that machinery is exactly the drift this file's
+    own module docstring warns about. Those args are deliberately minimal
+    (just enough to pass whatever a handler checks before it resolves a tab),
+    so several handlers refuse outright with them -- ``clay_transform`` with
+    no uid, say. A refusal is not a counterexample to the rule (see the
+    module docstring's own refusal-envelope paragraph), so it is skipped
+    rather than asserted on either way -- but the number of successes this
+    walk actually produced is asserted with a hard floor, so a future
+    regression that turned every reply into a refusal could not make this
+    test pass having proven nothing.
+    """
+    ctx = _Ctx(svc=svc)
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)  # a real, open tab with one object on it
+    _add_inline_reference(ctx, session, "ref1")  # so clay_reference_get can succeed too
+    _install_fake_view(monkeypatch)  # so clay_render can succeed too, image and all
+
+    covered = {n for n, _ in _NEEDS_A_TAB} | {n for n, _ in _MINTS_A_TAB} | set(_SESSION_ONLY)
+    assert covered == set(agent_clay._HANDLERS)
+
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
+
+    successes = 0
+    image_successes = 0
+    for name, args in calls:
+        result = agent_clay.call(ctx, session, name, args)
+        if result["isError"]:
+            continue
+        successes += 1
+        carries_image = any(block.get("type") == "image" for block in result["content"])
+        if carries_image:
+            image_successes += 1
+            assert "structuredContent" not in result, name
+        else:
+            assert "structuredContent" in result, name
+            assert result["structuredContent"] == json.loads(result["content"][0]["text"]), name
+
+    # A floor, not a target: proves the walk actually exercised the rule on a
+    # real mix of tools rather than skipping (almost) everything as
+    # refusals. Both image-carrying tools reach a real success here:
+    # clay_render because of the fake view installed above, and
+    # clay_reference_get because "ref1" already exists by the time this walk
+    # reaches it. Measured at 15 successes (2 of them image-carrying) out of
+    # 25 calls on this tree; the bound below leaves headroom rather than
+    # pinning that exact count, since a handler gaining one more required
+    # argument tomorrow should not make this test start failing for an
+    # unrelated reason.
+    assert successes >= 12
+    assert image_successes >= 2
 
 
 @pytest.mark.parametrize("name,args", _MINTS_A_TAB, ids=[n for n, _ in _MINTS_A_TAB])
@@ -1997,3 +2098,144 @@ def test_clay_boolean_refuses_in_an_element_mode_rather_than_breaking_the_derive
 
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     assert len(tab.doc.objects) == 2
+
+
+# ==============================================================================
+# Structured results -- every tool answers its JSON payload twice
+# ==============================================================================
+#
+# See the module docstring's structured-results claim. `_json` is what nearly
+# every tool here answers through; a reply that carries a picture is the
+# exclusion, stated as a rule rather than a list of names.
+
+
+def test_every_tool_answers_with_its_json_payload_as_structured_content_too() -> None:
+    """The claim, driven for a representative handful
+    (``clay_scene``, ``clay_add_primitive`` and a tool with a small payload,
+    ``clay_rename``) through the real call path, ``.get`` rather than
+    subscripting so a HEAD with no ``structuredContent`` at all fails this
+    assertion cleanly instead of raising ``KeyError``."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    assert scene["isError"] is False, scene
+    assert scene.get("structuredContent") == _payload(scene)
+
+    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "cylinder"})
+    assert added["isError"] is False, added
+    assert added.get("structuredContent") == _payload(added)
+
+    renamed = agent_clay.call(ctx, session, "clay_rename", {"uid": uid, "name": "the box"})
+    assert renamed["isError"] is False, renamed
+    assert renamed.get("structuredContent") == _payload(renamed)
+
+
+def test_a_render_does_not_duplicate_its_header_into_structured_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deliberate exclusion, driven through a real ``clay_render`` call
+    via ``_install_fake_view`` (the file already has a way to fake the GL
+    this test cannot reach -- see the module docstring), plus a check at the
+    source of truth: ``_h_render`` never calls ``_json`` at all, which is
+    what makes the exclusion structural rather than an accident of what its
+    header happens to contain."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _install_fake_view(monkeypatch)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"view": "front"})
+    assert result["isError"] is False, result
+    assert "structuredContent" not in result
+
+    import inspect
+
+    source = inspect.getsource(agent_clay._h_render)
+    assert "_json(" not in source
+
+
+def test_the_three_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
+    """The test that catches a schema drifting from ``_scene_row`` (or from
+    ``_h_scene``/``_h_diagnose``'s own payload): every key a real call's
+    ``structuredContent`` actually carries must appear in that tool's own
+    declared ``outputSchema['properties']``."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    tools = {t.name: t for t in agent_clay.tools()}
+
+    scene_schema = getattr(tools["clay_scene"], "output_schema", None)
+    assert scene_schema is not None
+    scene_result = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_structured = scene_result.get("structuredContent") or {}
+    assert scene_structured, "clay_scene answered with no structuredContent at all"
+    # Exact, not a subset: every key ``_h_scene`` builds is unconditional, so
+    # equality catches drift in *both* directions -- a key the handler gained
+    # and the schema does not describe, and a key the schema claims that the
+    # handler does not actually answer with.
+    assert set(scene_structured) == set(scene_schema["properties"])
+
+    add_schema = getattr(tools["clay_add_primitive"], "output_schema", None)
+    assert add_schema is not None
+    add_result = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    add_structured = add_result.get("structuredContent") or {}
+    assert add_structured, "clay_add_primitive answered with no structuredContent at all"
+    # Exact for the same reason: this tool answers with ``_scene_row``, whose
+    # every key is unconditional, so a row key added without touching the
+    # shared schema helper fails here.
+    assert set(add_structured) == set(add_schema["properties"])
+
+    diag_schema = getattr(tools["clay_diagnose"], "output_schema", None)
+    assert diag_schema is not None
+    diag_result = agent_clay.call(ctx, session, "clay_diagnose", {})
+    diag_structured = diag_result.get("structuredContent") or {}
+    assert diag_structured, "clay_diagnose answered with no structuredContent at all"
+    # A subset here, deliberately, and the one of the three where it has to
+    # be: ``selected`` appears only when the call asked for a finding to be
+    # selected, which needs a mesh that actually has one -- that half is
+    # already pinned by
+    # ``test_diagnose_hands_back_a_selection_the_agent_can_act_on``.
+    assert set(diag_structured) <= set(diag_schema["properties"])
+    assert "objects" in diag_schema["properties"]
+
+
+def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
+    None
+):
+    """None of the three declared schemas names a ``required`` list or sets
+    ``additionalProperties: false`` -- proven alongside the reason itself: a
+    refusal from one of these same tools really does put ``field`` in
+    ``structuredContent`` and nothing else, which a ``required`` list on the
+    success shape would make non-conforming."""
+    tools = {t.name: t for t in agent_clay.tools()}
+    for name in ("clay_scene", "clay_add_primitive", "clay_diagnose"):
+        schema = getattr(tools[name], "output_schema", None)
+        assert schema is not None
+        assert "required" not in schema
+        assert schema.get("additionalProperties") is not False
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    refusal = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "not-a-real-generator"}
+    )
+    assert refusal["isError"] is True
+    assert refusal["structuredContent"] == {"field": "generator"}
+
+
+def test_the_object_row_schema_is_shared_by_the_scene_and_the_primitive_tools() -> None:
+    """``clay_scene``'s ``objects`` items and ``clay_add_primitive``'s own
+    declared schema use the same row shape -- the one shared helper, not a
+    hand-written second copy of it."""
+    tools = {t.name: t for t in agent_clay.tools()}
+
+    add_schema = getattr(tools["clay_add_primitive"], "output_schema", None)
+    assert add_schema is not None
+    assert add_schema == agent_clay._object_row_output_schema()
+
+    scene_schema = getattr(tools["clay_scene"], "output_schema", None)
+    assert scene_schema is not None
+    assert scene_schema["properties"]["objects"]["items"] == agent_clay._object_row_output_schema()

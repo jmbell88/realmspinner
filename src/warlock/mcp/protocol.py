@@ -57,6 +57,14 @@ class Tool(NamedTuple):
     title: str
     description: str
     schema: dict[str, Any]  # JSON Schema for the tool's arguments
+    output_schema: dict[str, Any] | None = None
+    """JSON Schema for `structuredContent`, when a tool declares one. `None`
+    (the default) for every tool that does not -- which is what keeps
+    `_tool_json` leaving `outputSchema` off the wire entirely for it, rather
+    than sending `null`, so a tool that declares none produces exactly the
+    JSON this module emitted before this field existed. Declaring one is the
+    rare, deliberate case; see `agent_clay.py`'s module docstring for which
+    three tools do and why the rest do not."""
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -95,8 +103,27 @@ def image_png(data: bytes) -> dict[str, str]:
     }
 
 
-def ok(*content: dict[str, Any]) -> dict[str, Any]:
-    return {"content": list(content), "isError": False}
+def ok(*content: dict[str, Any], structured: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A tool result that succeeded.
+
+    `content` is the text (and image) blocks a model actually reads --
+    always present, never optional. `structured` is the same answer again,
+    as data, for a client that wants to branch on a field instead of
+    re-parsing prose out of `content[0]["text"]` -- the successful-result
+    counterpart to `fail`'s own `extra` below. Per MCP, `structuredContent`
+    is an **object**, never a list or a scalar, which is why this takes a
+    `dict` rather than whatever shape a payload happens to be; `agent_clay.
+    _json` checks that before it ever passes one. Keyword-only because
+    `*content` is already variadic -- a positional argument after it would
+    be ambiguous about which content block it belonged to. Left `None` (the
+    default), the key is omitted from the result entirely rather than sent
+    as `null`, so every caller written before this parameter existed still
+    produces a byte-identical result.
+    """
+    result: dict[str, Any] = {"content": list(content), "isError": False}
+    if structured is not None:
+        result["structuredContent"] = structured
+    return result
 
 
 def fail(message: str, **extra: Any) -> dict[str, Any]:
@@ -114,12 +141,15 @@ def fail(message: str, **extra: Any) -> dict[str, Any]:
 
 
 def _tool_json(tool: Tool) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "name": tool.name,
         "title": tool.title,
         "description": tool.description,
         "inputSchema": tool.schema,
     }
+    if tool.output_schema is not None:
+        result["outputSchema"] = tool.output_schema
+    return result
 
 
 def _result(msg_id: Any, result: dict[str, Any]) -> dict[str, Any]:

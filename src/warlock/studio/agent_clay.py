@@ -143,6 +143,39 @@ identical calls that both got answered are two calls, on purpose. See
 the two outcomes mutually exclusive rather than a race, and for the intent
 fingerprint that recognises the retry.
 
+**Every tool answers the same JSON twice, on purpose.** :func:`_json` -- what
+most of this module's tools return through -- puts *payload* in the result
+as text (``json.dumps``, what an agent's model actually reads) and again as
+``structuredContent`` (the same data, for a client that wants to branch on a
+field instead of re-parsing prose out of the text block). Duplication, not
+an oversight: a model and a client are two different readers of one answer,
+and neither can stand in for the other.
+
+**A result that carries a picture does not duplicate its header into
+``structuredContent``** -- the rule, stated once, rather than a list of tool
+names it happens to apply to today. ``clay_render`` builds its result
+directly with ``ok(header, *pngs)`` and ``clay_reference_get`` with
+``ok(text(json.dumps(meta)), image_png(...))``, both bypassing :func:`_json`
+for the same reason: an image block has no JSON to duplicate. It matters
+most for ``clay_render``, whose header is already checked twice against
+``protocol.MAX_FRAME`` before it leaves (see the render paragraph below) --
+giving that header a second life in ``structuredContent`` would spend frame
+budget on bytes nothing reads. :func:`.agent_host._carries_an_image` asks
+this exact question -- does this result's ``content`` include an image
+block -- to decide whether a remembered reply is worth replaying rather than
+re-run; two decisions, in two modules, arriving at the same structural test,
+neither one a hand-kept list of picture-shaped tools.
+
+Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
+-- go one step further and declare an ``outputSchema`` describing that
+structured shape; the rest deliberately do not, because a schema for a uid
+and a count is authorship with no reader. None of the three declares
+``required``: a refusal shares this same result envelope (``protocol.fail``'s
+own ``structuredContent`` is whatever ``field`` it was given, nothing more),
+so a ``required`` list on the success shape would make every refusal of
+these tools non-conforming for a client validating strictly against its
+schema.
+
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
 its views before a single frame is drawn, and the base64-encoded result is
@@ -411,8 +444,8 @@ def _protocol() -> Any:
     return protocol
 
 
-def ok(*content: dict) -> dict:
-    return _protocol().ok(*content)
+def ok(*content: dict, structured: dict | None = None) -> dict:
+    return _protocol().ok(*content, structured=structured)
 
 
 def fail(message: str, **extra: Any) -> dict:
@@ -428,7 +461,39 @@ def image_png(data: bytes) -> dict:
 
 
 def _json(payload: Any) -> dict:
-    return ok(text(json.dumps(payload)))
+    """The shape every tool whose reply carries no picture answers in:
+    *payload* as text (``json.dumps``, what a model actually reads) and,
+    duplicated, as ``structuredContent`` (what a client branches on instead
+    of re-parsing that text) -- see the module docstring's structured-results
+    paragraph for the reasoning in full, and for the rule (a result that
+    carries a picture does not duplicate its header) that excludes the two
+    tools which do. The duplication is deliberate, not an oversight to
+    dedupe away later.
+
+    ``structured=payload`` only when *payload* is a ``dict`` -- MCP requires
+    an object there, never a list or a scalar. Every one of this file's own
+    call sites already passes a dict, so this guard is a floor for whatever
+    calls ``_json`` next, not a case any of them actually hits today.
+    Routed through the already-serialized text (``json.loads`` of the same
+    ``json.dumps`` the text block uses) rather than *payload* itself, so a
+    tuple or a numpy scalar buried in ``params`` reaches ``structuredContent``
+    as the plain list or number the wire format would have turned it into
+    anyway -- the two blocks are meant to be the same JSON, not merely
+    ``==``-comparable Python objects that happen to serialize the same way.
+
+    ``clay_render`` and ``clay_reference_get`` never call this -- both answer
+    with an image block, which is not JSON to duplicate, so each builds its
+    own result directly with ``ok(...)`` instead. It matters most for
+    ``clay_render``, whose header is already checked twice against
+    ``protocol.MAX_FRAME`` (``RENDER_PIXEL_BUDGET``, ``RENDER_FRAME_RESERVE``)
+    before it is returned -- giving that header a second life in
+    ``structuredContent`` would spend frame budget on bytes with no reader.
+    See :func:`_h_render`'s and :func:`_h_reference_get`'s own returns for
+    where that exclusion is made.
+    """
+    encoded = json.dumps(payload)
+    structured = json.loads(encoded) if isinstance(payload, dict) else None
+    return ok(text(encoded), structured=structured)
 
 
 # --- Euler XYZ, for clay_transform and clay_scene ----------------------------
@@ -853,6 +918,7 @@ def tools() -> list[Any]:
                 "whether it has unsaved changes."
             ),
             schema={"type": "object", "properties": {}, "additionalProperties": False},
+            output_schema=_clay_scene_output_schema(),
         ),
         protocol.Tool(
             name="clay_add_primitive",
@@ -894,6 +960,7 @@ def tools() -> list[Any]:
                 "required": ["generator"],
                 "additionalProperties": False,
             },
+            output_schema=_object_row_output_schema(),
         ),
         protocol.Tool(
             name="clay_add_figure",
@@ -1307,6 +1374,7 @@ def tools() -> list[Any]:
                 },
                 "additionalProperties": False,
             },
+            output_schema=_clay_diagnose_output_schema(),
         ),
         protocol.Tool(
             name="clay_export",
@@ -1492,6 +1560,187 @@ def _vec3_schema(unit: str) -> dict:
         "minItems": 3,
         "maxItems": 3,
         "description": unit,
+    }
+
+
+# --- output schemas -----------------------------------------------------------
+#
+# Only three tools below declare an ``outputSchema`` at all -- ``clay_scene``,
+# ``clay_add_primitive`` and ``clay_diagnose``. Every other tool's result is
+# small and self-explanatory (a uid, a count, a list of names); writing a
+# schema for each would be schema authoring with no reader, so this file
+# deliberately does not. These three are the ones whose shape is worth
+# writing down once rather than making a client work it back out of a
+# sample reply.
+#
+# None of the three declares ``required``, and none sets
+# ``additionalProperties: false``. That is not an oversight -- a refusal
+# from any of these tools answers through the *same* result envelope
+# (``protocol.fail``), and a refusal's own ``structuredContent`` is whatever
+# ``fail``'s ``**extra`` was given -- ``{"field": "uids"}`` and nothing else.
+# A ``required`` list on the success shape would make every refusal of
+# these tools non-conforming for a client that validates strictly against
+# ``outputSchema``, and MCP's own wording on whether an ``isError`` result
+# must still conform to it is not explicit enough to bet a client's error
+# handling on that reading. Declaring ``properties`` still documents the
+# shape for a reader -- it just never claims a key the envelope cannot
+# promise to keep filled.
+
+
+def _sel_counts_schema() -> dict:
+    """The shape :func:`_sel_counts` returns -- three counts, shared by the
+    object row schema below and ``clay_diagnose``'s own ``selected`` field,
+    exactly as the one ``_sel_counts`` function is shared by both callers."""
+    return {
+        "type": "object",
+        "properties": {
+            "verts": {"type": "integer"},
+            "edges": {"type": "integer"},
+            "faces": {"type": "integer"},
+        },
+    }
+
+
+def _object_row_output_schema() -> dict:
+    """The JSON Schema for one row of :func:`_scene_row` -- read that
+    function, not this one, when deciding what belongs here: every key it
+    returns must appear below with the right type, or this schema has
+    drifted from the function that actually builds the row. That is the
+    drift class this module's own docstring warns about for a hand-written
+    second copy of a shape a real function already owns, so this helper is
+    the one place it is written, used by both :func:`_clay_scene_output_schema`
+    (inside ``objects``) and ``clay_add_primitive``'s own declared schema,
+    which *is* this schema -- its result is one row, unwrapped.
+
+    ``bbox``, ``size`` and ``center`` admit ``null``: :func:`_scene_row`
+    reports all three as ``None`` for an object with no box. ``params`` is
+    an open object -- what is in it depends on ``generator``, which this
+    schema has no way to branch on. See the module comment above for why
+    nothing here is ``required``.
+    """
+    vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+    nullable_vec3 = {"anyOf": [{"type": "null"}, vec3]}
+    return {
+        "type": "object",
+        "properties": {
+            "uid": {"type": "integer"},
+            "name": {"type": "string"},
+            "visible": {"type": "boolean"},
+            "generator": {"type": "string"},
+            "params": {"type": "object"},
+            "faces": {"type": "integer"},
+            "material": {"type": "integer"},
+            "bbox": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "min": {"type": "array", "items": {"type": "number"}},
+                            "max": {"type": "array", "items": {"type": "number"}},
+                        },
+                    },
+                ]
+            },
+            "translation": vec3,
+            "rotation": vec3,
+            "scale": vec3,
+            "size": nullable_vec3,
+            "center": nullable_vec3,
+            "verts": {"type": "integer"},
+            "stamp": {"type": "integer"},
+            "selected": _sel_counts_schema(),
+        },
+    }
+
+
+def _clay_scene_output_schema() -> dict:
+    """``clay_scene``'s declared ``outputSchema`` -- built from what
+    :func:`_h_scene` actually returns (``objects``, ``selection``,
+    ``element_mode``, ``dirty``, ``object_count``, ``bounds``, ``materials``),
+    with ``objects`` built from the one shared :func:`_object_row_output_schema`
+    rather than a second, hand-written copy of the row shape."""
+    vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+    return {
+        "type": "object",
+        "properties": {
+            "objects": {"type": "array", "items": _object_row_output_schema()},
+            "selection": {"type": "array", "items": {"type": "integer"}},
+            "element_mode": {"type": "string"},
+            "dirty": {"type": "boolean"},
+            "object_count": {"type": "integer"},
+            "bounds": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "min": vec3,
+                            "max": vec3,
+                            "size": vec3,
+                            "center": vec3,
+                        },
+                    },
+                ]
+            },
+            "materials": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "color": {"type": "array", "items": {"type": "number"}},
+                        "metallic": {"type": "number"},
+                        "roughness": {"type": "number"},
+                    },
+                },
+            },
+        },
+    }
+
+
+def _clay_diagnose_output_schema() -> dict:
+    """``clay_diagnose``'s declared ``outputSchema`` -- built from what
+    :func:`_h_diagnose` actually returns: ``objects`` always, ``selected``
+    only when ``select`` was given and matched a finding."""
+    return {
+        "type": "object",
+        "properties": {
+            "objects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "uid": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "clean": {"type": "boolean"},
+                        "findings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"type": "string"},
+                                    "label": {"type": "string"},
+                                    "count": {"type": "integer"},
+                                    "mode": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            "selected": {
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "kind": {"type": "string"},
+                    "mode": {"type": "string"},
+                    "stamp": {"type": "integer"},
+                    "selected": _sel_counts_schema(),
+                },
+            },
+        },
     }
 
 
@@ -2676,6 +2925,11 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         )
 
     header = text(json.dumps({"views": [label for label, _ in parsed], "size": size, "grid": grid}))
+    # Deliberately not `_json` -- an image block has no JSON to duplicate,
+    # and this header is already checked twice against `protocol.MAX_FRAME`
+    # above (`RENDER_PIXEL_BUDGET`, `RENDER_FRAME_RESERVE`) before it leaves,
+    # so a second copy in `structuredContent` would spend frame budget on
+    # bytes nothing reads. See `_json`'s own docstring for the same claim.
     return ok(header, *(image_png(png) for png in pngs))
 
 
@@ -2971,12 +3225,31 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     completed = len(results) - (1 if stopped_at is not None else 0)
     payload = {"completed": completed, "stopped_at": stopped_at, "results": results}
-    result = ok(text(json.dumps(payload)))
+    # Routed through the same encode-then-decode ``_json`` uses, rather than
+    # handing *payload* to ``structured=`` as-is: ``results`` is a list of
+    # whole tool results, each already built by ``ok()``/``fail()``/``_json``
+    # -- so its own ``structuredContent`` (or ``fail``'s flat extras) is
+    # already plain-JSON, and today nothing this handler adds on top
+    # (``completed``, ``stopped_at``) is anything but a plain int or ``None``
+    # either. Doing the round trip anyway is what keeps that true by
+    # construction rather than by audit: a future field on *this* payload
+    # that was not itself JSON-native would otherwise reach
+    # ``structuredContent`` unrounded while the text block beside it had
+    # already been normalised by ``json.dumps`` -- the same "same JSON, not
+    # merely comparable" guarantee ``_json``'s own docstring keeps, applied
+    # by hand here because this is the one JSON payload in the file built
+    # without going through ``_json`` itself.
+    encoded = json.dumps(payload)
+    result = ok(text(encoded), structured=json.loads(encoded))
     # Set by hand rather than through ``fail()``: a batch that stopped early
     # is a failure the agent must notice, but the payload it needs in order
     # to recover -- the successful prefix, and the failing call's own message
     # -- is a JSON result block, and ``fail()`` can only carry a message plus
-    # flat ``structuredContent``, not both of those.
+    # flat ``structuredContent``, not both of those. Because this bypasses
+    # ``_json``, its ``structuredContent`` duplication is not inherited for
+    # free the way every other tool's is -- it is passed explicitly above,
+    # which is also why this is the one JSON-answering tool that would have
+    # been left without a structured twin had this call not been written out.
     result["isError"] = stopped_at is not None
     return result
 
@@ -3108,6 +3381,11 @@ def _h_reference_get(ctx: Any, session: Session, args: dict) -> dict:
         "view": ref.view,
         "source": ref.source,
     }
+    # Deliberately not `_json` -- this reply carries a picture, the same
+    # image-carrying exclusion `clay_render` is answered with (see `_json`'s
+    # own docstring): an image block has no JSON to duplicate, so `meta`
+    # exists only as text here, never a second time as `structuredContent`.
+    # This is the second, not the only, place that rule applies.
     return ok(text(json.dumps(meta)), image_png(agent_refs.bounded_png(ref.png)))
 
 

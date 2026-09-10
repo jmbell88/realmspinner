@@ -333,6 +333,18 @@ a tool is never an entry in `_HANDLERS`, which is what keeps the derived-catalog
 than quietly widened to cover a tool `agent_clay` never owned. The price of that is real, too — a
 tool built this way gets no frame thread of its own, ever, and so may not touch a document.
 
+A new tool gets the structured-result shape for free the moment it answers through `_json` the
+way every other verb does: its JSON payload lands as text, which is what a model reads, and again
+as `structuredContent`, which is what a client branches on instead of re-parsing that text. The
+one exception is a tool whose reply carries a picture — `clay_render` and `clay_reference_get`
+both bypass `_json` and build their result directly, because an image block has no JSON to
+duplicate, so a new tool answering with an image should follow their lead rather than call `_json`
+at all. Declaring an `outputSchema` for it is a separate, deliberate choice, not something that comes
+along for the ride — today only `clay_scene`, `clay_add_primitive` and `clay_diagnose` have one,
+because writing a schema for a result as small as a uid or a count is authorship with no reader.
+Reach for one only when a client would actually be validating or generating against the shape;
+otherwise leave it off, the same as every other tool in this file already does.
+
 ## Writing manual chapters
 
 The chapters are markdown files in `docs/manual/`, named `NN-name.md`. They are readable on GitHub

@@ -715,10 +715,13 @@ class AgentHost:
           four-field row, under a bounded list this connection's store can
           hold (:data:`MAX_REMEMBERED_CALLS`).
 
-        The reply is always ``ok(text(json.dumps(payload)))`` -- the same
-        shape ``agent_clay._json`` builds for every Clay tool, so a client
-        sees one consistent result shape across the whole bridge rather than
-        a special case for this one transport-level tool.
+        The reply is always ``ok(text(json.dumps(payload)), structured=payload)``
+        -- the same text-plus-``structuredContent`` duplication
+        ``agent_clay._json`` builds for every Clay tool, so a client sees one
+        consistent result shape across the whole bridge rather than a
+        special case for this one transport-level tool. ``warlock_status``
+        declares no ``outputSchema`` of its own, for the same "no reader"
+        reason ``agent_clay``'s own undeclared tools do not either.
         """
         from ..mcp import protocol
 
@@ -740,7 +743,7 @@ class AgentHost:
                     "Its result is still waiting -- sending the same call again will hand "
                     "it back rather than run it a second time."
                 )
-            return protocol.ok(protocol.text(json.dumps(payload)))
+            return protocol.ok(protocol.text(json.dumps(payload)), structured=payload)
 
         payload = {"operations": [self._op_row(op) for op in calls.recent(MAX_REMEMBERED_CALLS)]}
         q = self._queue
@@ -753,7 +756,7 @@ class AgentHost:
             # entries on the queue right now -- and never claims to be a
             # count of work still to run.
             payload["queue_depth"] = q.qsize()
-        return protocol.ok(protocol.text(json.dumps(payload)))
+        return protocol.ok(protocol.text(json.dumps(payload)), structured=payload)
 
     def _replay(self, prior: _Op) -> dict | None:
         """Whether a retry of *prior*'s intent should be answered from memory

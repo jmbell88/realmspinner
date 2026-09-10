@@ -50,7 +50,10 @@ is about that seam holding, with no real GL and no real app:
   calls that both genuinely got answered -- two identical boxes placed on
   purpose -- are never folded into one. A replay says so in the reply's own
   words, not only in ``structuredContent`` a client's model might never
-  render, and never mutates the payload it was built from. A call still
+  render, and merges its two flags into whatever ``structuredContent`` the
+  tool's own answer already carried rather than starting from ``{}`` --
+  proven by remembering a payload shaped the way ``agent_clay._json`` builds
+  one -- and never mutates the payload it was built from. A call still
   running (or still queued) when the retry arrives is refused by name rather
   than replayed or run again; one dropped before it ever started is simply
   run for real; and a remembered render is re-run rather than handed back
@@ -61,6 +64,9 @@ is about that seam holding, with no real GL and no real app:
   Both timeout refusals now name the operation to ask about, it is never
   itself remembered as an operation (asking twice never dedups), and it is
   published alongside ``agent_clay.tools()`` rather than living inside it.
+  Its own reply carries the same ``structuredContent`` duplication every
+  Clay tool's does (``ok(text(...), structured=payload)``), so it is not the
+  one inconsistent result shape on the bridge.
 
 Every wait below is bounded (``conn.poll(timeout=...)`` before every
 ``recv_bytes``, and explicit ``join`` timeouts), so a regression that makes
@@ -682,6 +688,75 @@ def test_a_replayed_result_says_in_words_that_it_was_not_run_again(monkeypatch) 
     # The remembered object itself was never mutated -- a later replay of
     # the same op must not find flags already baked into it.
     assert "replayed" not in remembered_payload
+
+
+def test_a_replayed_result_keeps_the_tools_own_structured_payload_alongside_the_replay_flag(
+    monkeypatch,
+) -> None:
+    """A replayed reply's ``structuredContent`` is a merge, not a
+    replacement: before a tool's own result ever carried ``structuredContent``
+    of its own, the merge in ``_replay`` started from ``{}`` and this was
+    trivially true. Now it starts from the tool's real payload -- proven
+    here by remembering a payload that already carries one (the shape
+    ``agent_clay._json`` builds) and checking the replay still has both the
+    original keys and the two replay flags, with the remembered object
+    itself still untouched."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    started = threading.Event()
+    release = threading.Event()
+    remembered_payload = {
+        "content": [{"type": "text", "text": '{"uid": 7, "name": "Box"}'}],
+        "isError": False,
+        "structuredContent": {"uid": 7, "name": "Box"},
+    }
+    original_structured = dict(remembered_payload["structuredContent"])
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return remembered_payload
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        replay = host._call(session, calls, "clay_scene", {})
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    structured = replay["structuredContent"]
+    assert structured["uid"] == 7
+    assert structured["name"] == "Box"
+    assert structured["replayed"] is True
+    assert structured["operation_id"] == "op-1"
+    # Never mutated: the remembered object's own structuredContent gained
+    # no "replayed"/"operation_id" keys, and still holds its original ones.
+    assert remembered_payload["structuredContent"] == original_structured
+    assert "replayed" not in remembered_payload["structuredContent"]
 
 
 def test_a_third_identical_call_runs_for_real_because_the_replay_was_delivered(

@@ -135,6 +135,49 @@ def test_tools_list_renders_every_tool_into_the_mcp_json_shape() -> None:
     ]
 
 
+def test_a_tool_that_declares_no_output_schema_does_not_emit_the_key() -> None:
+    """Through a real `dispatch({"method": "tools/list", ...})`, not by
+    calling `_tool_json` directly -- `output_schema=None`, the field's own
+    default, spelled out explicitly rather than left off the call, so this
+    exercises the same declared-but-empty path `Tool`'s default takes rather
+    than a construction a `Tool` with no such field at all would answer
+    identically anyway."""
+    catalogue = [
+        p.Tool(
+            name="clay.bevel",
+            title="Bevel",
+            description="Bevel the selected edge.",
+            schema={},
+            output_schema=None,
+        )
+    ]
+    reply = p.dispatch(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        tools=lambda: catalogue,
+        call=lambda n, a: p.ok(),
+    )
+    assert "outputSchema" not in reply["result"]["tools"][0]
+
+
+def test_a_declared_output_schema_reaches_the_tools_list() -> None:
+    schema = {"type": "object", "properties": {"uid": {"type": "integer"}}}
+    catalogue = [
+        p.Tool(
+            name="clay.scene",
+            title="Scene",
+            description="Describe the scene.",
+            schema={},
+            output_schema=schema,
+        )
+    ]
+    reply = p.dispatch(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        tools=lambda: catalogue,
+        call=lambda n, a: p.ok(),
+    )
+    assert reply["result"]["tools"][0]["outputSchema"] == schema
+
+
 def test_a_tools_callback_that_raises_is_minus_32603_and_never_propagates() -> None:
     def exploding_tools():
         raise RuntimeError("catalogue is not built yet")
@@ -311,6 +354,17 @@ def test_ok_carries_content_and_is_not_an_error() -> None:
     result = p.ok(p.text("done"))
     assert result["isError"] is False
     assert result["content"] == [{"type": "text", "text": "done"}]
+
+
+def test_ok_carries_structured_content_only_when_it_is_given() -> None:
+    """Both directions: a bare `ok(text(...))` has no `structuredContent` key
+    at all -- not `None` -- and one given a dict carries it verbatim, the
+    same "omitted, never null" convention `fail`'s own `extra` follows."""
+    bare = p.ok(p.text("hi"))
+    assert "structuredContent" not in bare
+
+    given = p.ok(p.text("hi"), structured={"uid": 3})
+    assert given["structuredContent"] == {"uid": 3}
 
 
 def test_fail_carries_extra_as_structured_content() -> None:

@@ -174,6 +174,16 @@ engine stopped being something you download whether or not you ever use it.
   deliberate: only an answer that never arrived is ever handed back, so two
   identical calls that both genuinely got answered — two boxes placed on
   purpose — stay two calls, never folded into one.
+- **An MCP client can read an agent tool's answer as data now, not only as
+  prose.** Every Clay tool already said what happened in words, for whatever
+  model was reading it; it now says the same thing again as structured JSON
+  alongside that text, so a client that wants to branch on a field — did the
+  primitive land, what uid did it get — no longer has to re-parse the
+  sentence a model was meant to read. `clay_scene`, `clay_add_primitive` and
+  `clay_diagnose` also publish a schema describing that shape; the rest
+  deliberately do not, and any answer that carries a picture — a render, a
+  fetched reference — still answers with pictures only, never a second copy
+  of its own header.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a
