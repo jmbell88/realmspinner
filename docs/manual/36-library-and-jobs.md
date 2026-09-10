@@ -31,6 +31,11 @@ reference that has not finished generating — appears dimmed rather than missin
 under it; a workspace this kind of asset could never reach is left off the list entirely. The card's
 overflow menu offers exactly the same run, for when you would rather not select the card first.
 
+Selecting a **follow-up** row — a rig, a sprite sheet, a retexture, a remesh — offers the same list
+as the mesh it belongs to, not an empty one: a follow-up writes its files beside its source rather
+than into a directory of its own, so the destinations on offer are the source mesh's, and pressing
+one opens that mesh, not the row you selected.
+
 ## The job lifecycle
 
 A job moves through a small set of states, shown as a coloured pill on its card:

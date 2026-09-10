@@ -509,6 +509,11 @@ def new_popup(ctx: Any) -> None:
             ctx.state.preview[key] = size
 
     widgets.divider()
+    # ``field_label`` above, ``W``/``H`` still beside each box -- the shape
+    # ``plotter_canvas.setup_popup`` cites *this* popup as the precedent for.
+    # It had drifted from its own precedent (no caption at all here) until
+    # the 2026-09-08 label-above pass put it back.
+    widgets.field_label("Canvas size, in pixels")
     imgui.set_next_item_width(sp(72))
     changed_w, width = controls.input_int("W##newcanvas", width, 0)
     imgui.same_line()

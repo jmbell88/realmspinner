@@ -233,11 +233,79 @@ def test_settings_labels_no_field_outside_the_form():
     assert offenders == [], offenders
 
 
+def test_no_sidebar_sentence_is_drawn_with_the_helper_that_cannot_wrap():
+    """``muted`` does not wrap, and a sidebar is 300 dp wide.
+
+    That pairing is the defect the refreshed screenshots found in Settings'
+    Maintenance group -- four sentences cut mid-word by the child, no ellipsis,
+    no scrollbar to reach the rest. It is not special to that pane: ``muted``
+    is the *right* helper for a short status line ("0 jobs - 0 B", "Measuring
+    the trash...") and the wrong one for a sentence explaining what a button
+    does, and nothing separated the two except the author's memory.
+
+    Sixty characters is the line: at the body face a 300 dp column holds
+    roughly that, so a longer literal is one a sidebar cannot show. The scan is
+    over string *literals* only -- an f-string's source is far longer than what
+    it draws, and judging those by source length is how a short status line
+    ("{n} jobs - {size}") gets flagged as prose.
+    """
+    import ast
+
+    from warlock import studio
+
+    root = Path(inspect.getfile(studio)).resolve().parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "muted"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and len(node.args[0].value) > 60
+            ):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == [], offenders
+
+
+def test_the_maintenance_help_wraps_and_both_bulk_deletes_look_alike():
+    """Two defects the refreshed screenshot corpus found in one block.
+
+    Settings' body is capped at ``CONTENT_W`` (640 dp) so that a line of prose
+    is a readable measure rather than the width of the monitor. ``widgets.muted``
+    does not wrap -- deliberately, because most of its callers are short status
+    lines -- so every explanatory sentence in the Maintenance group ran off that
+    cap and was clipped mid-word by the child: "Changes nothi", "regenerated
+    from t", "are ke", "is meas". ``muted_wrapped`` exists for exactly this and
+    the four sentences now use it.
+
+    And "Prune..." was a plain button sitting three lines above a red "Clean
+    library...". Both delete assets off the disk and no undo reaches either, so
+    painting one as an ordinary action was the Maintenance group telling the
+    user the two are different kinds of thing. They are drawn alike now; they
+    stay on separate rows, which is what that block's own comment was actually
+    arguing for.
+    """
+    source = _app_settings_source()
+    # The Maintenance group only. The figures above it -- "0 jobs - 0 B",
+    # "Measuring the trash..." -- are short status lines and stay unwrapped,
+    # which is the case ``muted`` exists for; every line below the heading is
+    # a sentence explaining what a button does.
+    body = source[source.index('widgets.section("Maintenance")') : source.index("# --- models")]
+    assert "widgets.muted(" not in body, "a Maintenance sentence still cannot wrap"
+    assert body.count("widgets.muted_wrapped(") >= 4
+    assert 'destructive_button("Prune..."' in body
+    assert 'destructive_button("Clean library..."' in body
+
+
 def test_settings_ui_scale_and_the_licence_box_are_form_fields():
     """The two migrated call sites, named, so a revert is a failure rather
     than a silently absent assertion."""
     source = _app_settings_source()
-    assert 'form_ui.slider(\n        "ui_scale",\n        "UI scale",' in source
+    assert 'form_ui.combo(\n        "ui_scale",\n        "UI scale",' in source
     assert 'form_ui.switch(\n            "commercial", "Licensed for commercial use"' in source
 
 
@@ -357,3 +425,156 @@ def test_modal_bounds_centres_every_frame():
     source = inspect.getsource(widgets.modal_bounds)
     assert "set_next_window_pos(" in source
     assert "Cond_.always" in source
+
+
+# --- item 8: labels above inputs/selections/drop downs, when feasible -------
+#
+# The user's own wording. ``widgets.field_label`` plus ``labeled_combo`` /
+# ``labeled_slider_int`` / ``labeled_slider_float`` / ``labeled_drag_int`` are
+# the house idiom (``widgets.py`` lines 2920-3110); this item is nine Inker
+# pane files an inventory found still drawing a raw ``controls.*`` call with
+# its name beside the control, imgui's own placement, instead. It is
+# ``_LABELLED_RAW`` (item 6, above) read onto a different set of files, with
+# its own kind list and its own allow-list -- the two are independent tables
+# because the exemptions differ: Settings had none, and this pass has the
+# W/H-pair precedent and two fixed-height rows.
+
+_INKER_LABEL_ABOVE_FILES = (
+    "inker_flourish.py",
+    "inker_bridge.py",
+    "inker_timeline.py",
+    "inker_generate.py",
+    "inker_canvas.py",
+    "inker_tiles.py",
+    "inker_context.py",
+    "inker_tools.py",
+    "inker_menu.py",
+)
+
+#: A raw ``controls.*`` data-entry call whose first argument -- literal or an
+#: f-string -- is captured whole (quotes and any ``f`` prefix included), so
+#: ``_inker_field_is_hidden`` can tell a control that draws nothing beside
+#: itself (the id starts ``##`` right after the quote) from one that still
+#: does. ``checkbox`` and ``color_edit4`` are left out of the kind list on
+#: purpose: a checkbox already reads its own name as the control (the "a
+#: checkbox stays" exemption every file in this pass was held to), and no
+#: colour swatch in these nine files carries a beside-label to begin with.
+_INKER_LABELLED_RAW = re.compile(
+    r'controls\.(slider_float|slider_int|input_int|input_float|combo|drag_int'
+    r'|input_text|input_text_multiline|input_text_with_hint)'
+    r'\(\s*\n?\s*(f?"[^"]*")',
+)
+
+
+def _inker_field_is_hidden(literal: str) -> bool:
+    body = literal[1:] if literal[0] == "f" else literal
+    return body[1:].startswith("##")
+
+
+#: Every deliberate exception the pass found, as ``(filename, exact literal)``
+#: -- the longer reason for each is the comment at its own call site.
+_INKER_LABEL_ABOVE_ALLOWED = {
+    # ``_wh_row``'s ``W``/``H`` pair: the house precedent
+    # (``plotter_canvas.setup_popup``, which cites this function by name) is
+    # one ``field_label`` above the pair with a short *visible* letter beside
+    # each box, not a hidden field with nothing on the row to read at all.
+    ("inker_bridge.py", 'f"{label}##{prefix}{tag}"'),
+    # ``inker_canvas``'s New canvas popup and ``inker_tiles``'s Convert-to-
+    # tilemap popup: the same ``W``/``H`` precedent, one caption per pair.
+    ("inker_canvas.py", '"W##newcanvas"'),
+    ("inker_canvas.py", '"H##newcanvas"'),
+    ("inker_tiles.py", '"W"'),
+    ("inker_tiles.py", '"H"'),
+    # ``inker_canvas._transform_row``: a single pinned toolbar line -- its own
+    # docstring measures its width as exactly one row's worth of five fields
+    # plus a Link checkbox -- with no room for a stacked label under any of
+    # them.
+    ("inker_canvas.py", '"Angle"'),
+    ("inker_canvas.py", '"X##inkscalex"'),
+    ("inker_canvas.py", '"Y##inkscaley"'),
+    ("inker_canvas.py", '"H##inkshearx"'),
+    ("inker_canvas.py", '"V##inksheary"'),
+    # ``inker_timeline._frame_trailing``'s duration box: the transport row's
+    # own trailing measurement, on the row its docstring calls "the worst
+    # same_line chain in the app" -- no room for a second text line.
+    ("inker_timeline.py", '"ms"'),
+}
+
+
+def test_inker_fields_are_labelled_above_not_beside():
+    """``labels need to be above inputs/selections/drop downs when
+    feasible`` -- the user's own instruction for the 2026-09-08 pass.
+
+    Every remaining raw ``controls.*`` call in the nine files the inventory
+    named must either hide its own id (``field_label`` draws the name above
+    it instead) or be one of the deliberate, reasoned exceptions in
+    ``_INKER_LABEL_ABOVE_ALLOWED``. An id that is merely hidden and not also
+    given a ``field_label`` line would still pass this scan -- it is the
+    beside-label anti-pattern this test rules out, the same scope
+    ``_LABELLED_RAW`` has for Settings.
+    """
+    sources = _pane_sources()
+    offenders = []
+    for name in _INKER_LABEL_ABOVE_FILES:
+        source = sources[name]
+        for match in _INKER_LABELLED_RAW.finditer(source):
+            literal = match.group(2)
+            if _inker_field_is_hidden(literal):
+                continue
+            if (name, literal) in _INKER_LABEL_ABOVE_ALLOWED:
+                continue
+            offenders.append((name, literal))
+    assert offenders == []
+
+
+def test_every_inker_label_above_exception_is_still_in_its_file():
+    """The allow-list is not a place to park a stale entry: every string in
+    it must still be the exact literal at some call site, or the exception it
+    documents has drifted from the code it was written against."""
+    sources = _pane_sources()
+    for name, literal in _INKER_LABEL_ABOVE_ALLOWED:
+        assert literal in sources[name], (name, literal)
+
+
+def test_flourish_generic_param_widget_labels_above_its_field():
+    """The one call the scan above cannot reach: ``_param_control`` and
+    ``_asset_control`` build their hidden id into a variable
+    (``control_id``) rather than passing a literal straight to
+    ``controls.*``, so ``_INKER_LABELLED_RAW`` never sees the call at all --
+    pinned by name instead.
+    """
+    from warlock.studio.panes import inker_flourish
+
+    param_source = inspect.getsource(inker_flourish._param_control)
+    assert 'widgets.field_label(name, tip or None)' in param_source
+    assert 'control_id = f"##{name}##fl-p-{name}"' in param_source
+    # The label is drawn *before* the control it labels, or a caller reading
+    # top to bottom would see the control before its name.
+    assert param_source.index("field_label(") < param_source.index("controls.slider_float(")
+
+    asset_source = inspect.getsource(inker_flourish._asset_control)
+    assert 'widgets.field_label(name)' in asset_source
+    assert 'f"##{name}##fl-p-{name}"' in asset_source
+    assert asset_source.index("field_label(") < asset_source.index("controls.combo(")
+
+
+def test_the_wh_precedent_still_reads_field_label_above_wh_below():
+    """``_wh_row``, the New canvas popup and the Convert-to-tilemap popup all
+    draw one ``field_label`` before their ``W``/``H`` pair -- the shape
+    ``plotter_canvas.setup_popup`` cites ``inker_canvas`` as the precedent
+    for. A caption that moved *after* the pair, or vanished, would still pass
+    the id-hiding scan above (``W``/``H`` were never hidden) so this pins the
+    caption's position directly instead.
+    """
+    sources = _pane_sources()
+    bridge = sources["inker_bridge.py"]
+    wh_row = bridge[bridge.index("def _wh_row(") : bridge.index("def _scale_dialog(")]
+    assert wh_row.index("widgets.field_label(caption)") < wh_row.index('controls.input_int(')
+
+    canvas = sources["inker_canvas.py"]
+    new_canvas = canvas[canvas.index('"New canvas")') : canvas.index('"W##newcanvas"')]
+    assert 'widgets.field_label("Canvas size, in pixels")' in new_canvas
+
+    tiles = sources["inker_tiles.py"]
+    tile_popup = tiles[tiles.index("def _tile_size_popup(") : tiles.index('"W", int(tile_w)')]
+    assert 'widgets.field_label("Tile size, in pixels")' in tile_popup

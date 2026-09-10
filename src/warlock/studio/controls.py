@@ -25,13 +25,25 @@ from .tokens import sp
 
 
 class ButtonRole(StrEnum):
-    """Visual hierarchy for an action."""
+    """Visual hierarchy for an action.
+
+    No ``ICON`` member (removed 2026-09-08): every call site that once drew a
+    selected glyph button as ``controls.button(role=ButtonRole.ICON)`` -- purely
+    to get the selection wash and ring, since a labelled role button was the
+    only thing that carried them -- had already moved to
+    ``widgets.icon_button``'s own ``selected`` flag by the time of the
+    2026-09-08 button-vocabulary audit (see its docstring and ``toolbar._draw``,
+    both of which still narrate the move). The grep that audit ran found zero
+    remaining readers of ``ButtonRole.ICON`` in ``src/`` or ``tests/`` -- an
+    enum member every caller had already left is worse than one that was never
+    added, since it is one more shape ``_button_colours`` has to keep painting
+    correctly forever on the strength of no call site at all.
+    """
 
     PRIMARY = "primary"
     SECONDARY = "secondary"
     GHOST = "ghost"
     DESTRUCTIVE = "destructive"
-    ICON = "icon"
 
 
 class ControlSize(StrEnum):
@@ -268,7 +280,7 @@ def _button_colours(
         normal = theme.rgba(theme.ERR, 0.90)
         hovered = theme.rgba(theme.ERR)
         active = theme.mix(theme.ERR, theme.BG, tokens.PRESSED_WASH_ALPHA)
-    elif role in (ButtonRole.GHOST, ButtonRole.ICON):
+    elif role is ButtonRole.GHOST:
         normal = theme.rgba(theme.ACCENT, tokens.SELECTION_WASH_ALPHA) if selected else (0, 0, 0, 0)
         hovered = theme.rgba(theme.ELEV_2)
         active = theme.rgba(theme.ACCENT, tokens.PRESSED_WASH_ALPHA)

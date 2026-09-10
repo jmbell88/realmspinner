@@ -19,9 +19,27 @@ from warlock.studio.panes import inspector, library
 from warlock.studio.state import AppState
 
 
+class FakeCache:
+    """The one method ``_mesh_for`` calls on ``ctx.cache`` -- a dict the test
+    populates by hand, not ``svc.store`` itself: the real ``JobsCache.get``
+    answers from the loaded *page*, already carrying ``files``
+    (``attach_files``' doing), and a bare ``store.get`` row does not carry
+    that column at all -- it would make a resolved mesh look fileless no
+    matter what the test built. A dict of exactly the rows a test wants
+    "loaded" is what actually stands in for the cache's contract.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+
+    def get(self, job_id: Any) -> Any:
+        return self.rows.get(job_id)
+
+
 class FakeCtx:
     def __init__(self, svc: Any, mode: str = "library", stage: str = "reference") -> None:
         self.svc = svc
+        self.cache = FakeCache()
         self.state = AppState()
         self.state.mode = mode
         self.state.create_stage = stage
@@ -54,6 +72,16 @@ def _charsheet(svc, source_id: str, *, status: str = "done") -> dict:
         svc, "charsheet", stage="model", status=status,
         params={"source_job": source_id, "sheet_id": "s1"},
     )
+    job["files"] = []
+    return job
+
+
+def _rig_followup(svc, source_id: str, *, status: str = "done") -> dict:
+    """A rig job row, the shape ``asset_open``'s docstring names: minted with
+    ``params["source_job"]``, writing into the *source*'s directory, so its
+    own ``files`` is empty and its own ``stage`` is the ``model`` column
+    default it never earned."""
+    job = _job(svc, "rig", stage="model", status=status, params={"source_job": source_id})
     job["files"] = []
     return job
 
@@ -142,17 +170,85 @@ def test_a_rigged_mesh_dims_nothing(svc):
     assert not any(dimmed for _label, dimmed in by_mode.values())
 
 
+def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, monkeypatch):
+    """A rig row is a dead end on its own -- ``asset_open``'s own docstring:
+    its artifacts land beside the mesh, never in its own directory -- so
+    selecting it must offer exactly what its *mesh* reaches, and a press on
+    Poser must open the mesh the rig belongs to, never the rig row itself
+    (the door is invoked with the selected row, ``exit_.open(ctx, job)``, so
+    a door that read its own ``job`` argument would get this wrong)."""
+    from warlock.studio.panes import pose_panel
+
+    mesh = _mesh(svc, rigged=True)
+    rig_row = _rig_followup(svc, mesh["id"])
+    ctx = FakeCtx(svc)
+    ctx.cache.rows[mesh["id"]] = mesh
+    exits = asset_exits.exits_for(ctx, rig_row)
+    by_mode = _labels(exits)
+    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert not any(dimmed for _label, dimmed in by_mode.values())
+
+    opened: list = []
+    monkeypatch.setattr(pose_panel, "open_in_poser", lambda ctx, job: opened.append(job))
+    poser = next(e for e in exits if e.mode == "poser")
+    poser.open(ctx, rig_row)
+    assert opened and opened[0]["id"] == mesh["id"], "the door must open the source mesh"
+
+
+def test_a_rig_row_over_an_unrigged_mesh_dims_poser_with_the_mesh_reason(svc):
+    """The near-miss reason has to be the *mesh*'s, not a generic one --
+    ``asset_exits``'s own near-miss rule names why: a dimmed button without a
+    reason is noise."""
+    mesh = _mesh(svc, rigged=False)
+    rig_row = _rig_followup(svc, mesh["id"])
+    ctx = FakeCtx(svc)
+    ctx.cache.rows[mesh["id"]] = mesh
+    exits = asset_exits.exits_for(ctx, rig_row)
+    by_mode = _labels(exits)
+    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert by_mode["clay"][1] is False
+    assert by_mode["troupe"][1] is False
+    assert by_mode["poser"][1] is True
+    poser = next(e for e in exits if e.mode == "poser")
+    assert "Rig" in poser.reason
+
+
+def test_a_rig_row_whose_source_is_not_in_the_cache_offers_nothing_at_all(svc):
+    """A source that has fallen off the loaded page -- or was never a real
+    row -- is the honest floor ``asset_open.open_asset`` already takes for
+    the same reason: a row this module cannot see is a row it offers nothing
+    for, not a crash and not a guess."""
+    rig_row = _rig_followup(svc, "000000000000")
+    ctx = FakeCtx(svc)
+    assert asset_exits.exits_for(ctx, rig_row) == []
+
+
 def test_a_charsheet_offers_only_the_way_back_into_troupe(svc):
     """Regression: a charsheet row carries ``stage == "model"`` -- the column
     default every follow-up product wears, per ``asset_open``'s own docstring
-    -- and without excluding rows that carry a ``source_job`` this showed a
-    dimmed "Send to Troupe" for the mesh a character sheet does not have."""
+    -- and it also carries ``params["source_job"]``, the same field a rig or a
+    sheet carries. ``charsheet`` is deliberately not a key of
+    ``asset_open.FOLLOWUP_STAGES`` (it opens in Troupe, not in Create), so
+    ``_mesh_for`` must not hop for it even when its source mesh really is in
+    the cache -- a version of that gate keyed on ``source_job`` alone did hop,
+    resolving straight back to the mesh and offering Clay and Poser it has no
+    files to back, plus a *second*, duplicate "Open in Troupe" beside
+    ``_troupe_out``'s own. The mesh is loaded into the cache here on purpose:
+    an empty cache only proves the fallback branch (no mesh found), not that
+    the kind gate actually holds when a hop is otherwise possible."""
     ctx = FakeCtx(svc)
-    exits = asset_exits.exits_for(ctx, _rows(svc)["charsheet"])
+    mesh = _mesh(svc, rigged=True)
+    ctx.cache.rows[mesh["id"]] = mesh
+    exits = asset_exits.exits_for(ctx, _charsheet(svc, mesh["id"]))
     by_mode = _labels(exits)
     assert set(by_mode) == {"troupe"}
     assert by_mode["troupe"][1] is False
     assert by_mode["troupe"][0] == verbs.open_in("troupe")
+    # ``_labels`` collapses by mode, which is exactly why a second "Open in
+    # Troupe" from a resolved mesh's own ``_troupe_in`` would be invisible to
+    # the assertions above -- checked separately, on the unfiltered list.
+    troupe_exits = [e for e in exits if e.mode == "troupe"]
+    assert len(troupe_exits) == 1, "a resolved mesh must not add a second Troupe door"
 
 
 def test_an_authored_map_offers_both_plotter_doors_plus_inker_and_packwright(svc):

@@ -49,9 +49,11 @@ from _appharness import close_popups as _close_popups  # noqa: E402
 from _appharness import seed as _seed  # noqa: E402
 from _appharness import seed_asset as _seed_asset  # noqa: E402
 from _appharness import seed_matte as _seed_matte  # noqa: E402
+from _appharness import seed_muse as _seed_muse  # noqa: E402
 from _appharness import seed_palette as _seed_palette  # noqa: E402
 from _appharness import seed_review as _seed_review  # noqa: E402
 from _appharness import seed_sheet_form as _seed_sheet_form  # noqa: E402
+from _appharness import seed_sirens as _seed_sirens  # noqa: E402
 from _appharness import seed_tile as _seed_tile  # noqa: E402
 from _appharness import seed_troupe as _seed_troupe  # noqa: E402
 
@@ -159,6 +161,59 @@ def _capture_popups(app, out: Path, theme_name: str) -> None:
     _capture(app, out / f"{theme_name}-modal-new-map.png")
     _close_popups(app)
     ctx.state.mode = create_stages.MODE
+
+
+#: Settings pages this pass will not photograph, and why each is refused.
+#:
+#: ``health`` is the older of the two and its whole argument is in
+#: ``_capture_popups`` above: the page's *content* is the absolute paths it
+#: probed, so no ``WARLOCK_HOME`` isolation makes a capture of it safe -- an
+#: isolated home only swaps one real machine's paths for another's, and the
+#: three images that once shipped carried a developer's username about eight
+#: times each.
+#:
+#: ``advanced`` is refused for exactly the same reason, found while adding this
+#: function: it draws ``app_settings.config_table``, which prints every
+#: effective setting's *value*, and those values are paths -- the home, the
+#: model roots, the sqlite store. On a harness run they are the throwaway
+#: home's, which means the capture's own temp directory down to its session
+#: GUID. Same leak, second door.
+SETTINGS_REFUSED = frozenset({"health", "advanced"})
+
+
+def _capture_settings(app, out: Path, theme_name: str) -> None:
+    """One capture per Settings page, less the two that cannot be taken.
+
+    The mode walk photographs Settings on whichever page it opens, which is
+    always Appearance -- so a pane with seven pages in it had one picture, and
+    Models, Packs, Updates and Storage were the largest unphotographed surfaces
+    left in the app. Derived from ``CATEGORIES`` rather than written out, for
+    the reason the mode list is derived from ``modes.KEYS``: a page added to
+    that table should not need this script edited to be looked at.
+
+    Appearance is skipped because ``{theme}-settings.png`` already is it.
+    """
+    from warlock.studio.panes import app_settings
+
+    ctx = app.app_ctx
+    ctx.state.mode = "settings"
+    slot = app_settings.CATEGORY_SLOT
+    before = ctx.state.preview.get(slot)
+    try:
+        for key, _label in app_settings.CATEGORIES:
+            if key in SETTINGS_REFUSED or key == app_settings.CATEGORIES[0][0]:
+                continue
+            ctx.state.preview[slot] = key
+            _capture(app, out / f"{theme_name}-settings-{key}.png")
+    finally:
+        # Restored, or the light and pixel passes would draw their own
+        # ``settings.png`` on whatever page the dark pass left open -- the
+        # wrong-screen-under-the-right-filename failure this file records
+        # twice already.
+        if before is None:
+            ctx.state.preview.pop(slot, None)
+        else:
+            ctx.state.preview[slot] = before
 
 
 #: The sheet arms of Create's 2D form, and what each one has to be told before
@@ -320,6 +375,16 @@ def main() -> int:
         "empty-state panes",
     )
     ap.add_argument(
+        "--music",
+        action="store_true",
+        help=(
+            "open a song in Sirens and put two finished takes in Muse, so the "
+            "two audio modes are photographed with work in them. Both draw "
+            "nothing but an empty state otherwise -- ten panes between them, "
+            "none of which had ever been in a capture."
+        ),
+    )
+    ap.add_argument(
         "--sheets",
         action="store_true",
         help=(
@@ -360,6 +425,16 @@ def main() -> int:
             "navigation rail. The mode pass is derived from modes.KEYS, so "
             "none of them is reachable by it: a screen that is not a mode "
             "is a screen nobody would look at."
+        ),
+    )
+    ap.add_argument(
+        "--settings",
+        action="store_true",
+        help=(
+            "also capture each Settings page. The mode pass draws whichever "
+            "page Settings opens on -- always Appearance -- so six of the "
+            "pane's seven had no picture. Health and Advanced are refused: "
+            "printing absolute paths is what both of them are for."
         ),
     )
     ap.add_argument(
@@ -429,6 +504,13 @@ def main() -> int:
         # both handoffs greyed. Everything the preview reads is a file, so
         # this costs no GPU (see ``_appharness.seed_troupe``).
         _seed_troupe(app)
+    if args.music:
+        # Sirens' tab and Muse's decoded player both survive a theme switch,
+        # so this belongs with the other one-shot seeds rather than inside the
+        # loop -- and Muse's rows go through the job store, which a second
+        # call would simply duplicate.
+        _seed_sirens(app)
+        _seed_muse(app)
     if args.sheets:
         # Before the theme loop, because the folder listing behind the Palette
         # combo is read once per frame and a palette written mid-pass would
@@ -555,6 +637,8 @@ def main() -> int:
                 palette_pane.toggle(app.app_ctx)
                 _capture(app, args.out / f"{name}-palette.png")
                 palette_pane.close(app.app_ctx)
+            if args.settings:
+                _capture_settings(app, args.out, name)
             if args.components:
                 from warlock.studio import component_gallery
 

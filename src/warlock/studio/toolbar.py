@@ -345,11 +345,14 @@ def toolbar(
             # required tooltip exists to prevent, and a compacted button is
             # exactly where it would come back.
             # One call for both states. A selected item used to abandon this
-            # button for ``controls.button(role=ICON)`` purely to get the
-            # selection paint -- which cost the compacted item the glyph
+            # button for ``controls.button(role=ButtonRole.ICON)`` purely to get
+            # the selection paint -- which cost the compacted item the glyph
             # centring this button exists for, and left the two states drawn
             # by two different widgets. ``icon_button`` carries ``selected``
-            # now, so the branch is gone rather than tidied.
+            # now, so the branch is gone rather than tidied, and the migration
+            # is finished: the 2026-09-08 button-vocabulary audit found no
+            # remaining reader of ``ButtonRole.ICON`` anywhere and the member
+            # itself is gone from ``controls.py``.
             hit = widgets.icon_button(
                 f"{item.icon}{ident}",
                 item.tooltip or item.label,
@@ -368,8 +371,16 @@ def toolbar(
                 tooltip=item.tooltip,
             )
         elif item.role is controls.ButtonRole.DESTRUCTIVE:
+            # ``reason=``/``tooltip=`` now reach ``destructive_button`` (the
+            # 2026-09-08 button-vocabulary pass gave it the same contract
+            # ``primary_button``/``ghost_button`` already have below) -- before
+            # this, a destructive toolbar item's ``reason`` was accepted onto
+            # ``Item`` and then dropped on the floor the moment it was drawn.
             hit = widgets.destructive_button(
-                f"{item.label}{ident}", enabled=item.enabled
+                f"{item.label}{ident}",
+                enabled=item.enabled,
+                reason=item.reason,
+                tooltip=item.tooltip,
             )
         elif item.role is controls.ButtonRole.PRIMARY:
             hit = widgets.primary_button(

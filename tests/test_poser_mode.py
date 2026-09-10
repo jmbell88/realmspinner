@@ -1420,3 +1420,148 @@ def test_the_shipped_humanoid_library_is_delta_so_the_conversion_is_load_bearing
 
     library = rigging.clip_library("humanoid")
     assert library["space"] == "delta"
+
+
+# --- the "Rigged assets" picker (B2) -----------------------------------------
+#
+# Poser had no way to open an asset from inside the mode itself -- the only
+# doors in were the inspector's Pose panel link and, once B1 closed it, the
+# library/inspector exits list, both of which mean leaving whatever the user
+# was looking at. ``can_open_in_poser``/``riggable_assets`` are
+# ``troupe_mode.can_send_to_troupe``/``sendable_meshes``'s pattern, reused
+# line for line.
+
+
+def _mesh_row(*, rigged: bool = True, status: str = "done", deleted: bool = False) -> dict:
+    job = {"id": "abcdef012345", "stage": "model", "status": status}
+    job["files"] = ["model.glb", "rig.glb"] if rigged else ["model.glb"]
+    if deleted:
+        job["deleted_at"] = 12345.0
+    return job
+
+
+def test_can_open_in_poser_table(svc):
+    ctx = FakeCtx(svc)
+    assert poser_mode.can_open_in_poser(ctx, _mesh_row(rigged=True)) is True, "rigged mesh: yes"
+    assert poser_mode.can_open_in_poser(ctx, _mesh_row(rigged=False)) is False, (
+        "unrigged mesh: no"
+    )
+    rig_followup = {
+        "id": "112233445566",
+        "stage": "model",
+        "status": "done",
+        "files": [],
+        "params": {"source_job": "abcdef012345"},
+    }
+    assert poser_mode.can_open_in_poser(ctx, rig_followup) is False, (
+        "a rig row's own files are always empty -- asset_open's own docstring"
+    )
+    assert poser_mode.can_open_in_poser(ctx, _mesh_row(rigged=True, deleted=True)) is False, (
+        "deleted: no"
+    )
+    assert poser_mode.can_open_in_poser(ctx, _mesh_row(rigged=True, status="running")) is False, (
+        "unfinished: no"
+    )
+
+
+def test_riggable_assets_is_throttled_page_capped_and_passes_a_files_cache(svc, monkeypatch):
+    """``sendable_meshes``'s two costs, paid here too: a second call inside the
+    throttle window must not re-list, the page cap is ``troupe_mode``'s own
+    constant reused rather than restated, and ``files_cache`` is handed to
+    ``list_jobs`` so the picker is not a stat per listed name per row every
+    frame its header is open."""
+    from warlock.service import jobs as svc_jobs
+    from warlock.studio import troupe_mode
+
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+
+    calls: list[tuple] = []
+    original = svc_jobs.list_jobs
+
+    def counted(service, limit=100, before=None, *, files_cache=None):
+        calls.append((limit, files_cache))
+        return original(service, limit=limit, before=before, files_cache=files_cache)
+
+    monkeypatch.setattr(svc_jobs, "list_jobs", counted)
+
+    first = poser_mode.riggable_assets(ctx)
+    for _ in range(10):
+        poser_mode.riggable_assets(ctx)
+
+    assert len(calls) == 1, "a second call inside the throttle window must not re-list"
+    assert poser_mode.riggable_assets(ctx) == first
+    assert first and first[0]["id"] == job_id
+
+    limit, files_cache = calls[0]
+    assert limit == troupe_mode.SCAN_LIMIT, "the same page cap, reused rather than restated"
+    state = poser_mode.ensure(ctx)
+    assert files_cache is state.riggable_files, "the caller must own the files_cache dict"
+
+
+def test_invalidate_riggable_makes_the_next_call_relist(svc):
+    _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    poser_mode.riggable_assets(ctx)
+    state = poser_mode.ensure(ctx)
+    assert state.riggable_cache is not None
+
+    poser_mode.invalidate_riggable(ctx)
+    assert state.riggable_cache is None
+
+
+def test_the_picker_row_carries_what_open_asset_reads_back(svc):
+    """The 2026-09-09 review defect: a first cut of ``riggable_assets``
+    trimmed its rows to ``sendable_meshes``' shape (``id``/``prompt``/
+    ``created_at``) without checking that its consumer is different --
+    ``send_to_troupe`` re-reads a picked row through the service before
+    acting, ``open_asset`` reads the dict it is handed and never again. Every
+    session opened from the picker silently lost the asset's recorded front
+    (``params["front_yaw"]``) and opened facing yaw 0 regardless of what
+    ``poser_mode.set_front`` had recorded. Also pins the label: ``open_asset``
+    prefers ``name`` over ``prompt``, so a job with a name set must not lose
+    it to the picker's row shape either.
+    """
+    job_id = svc.store.create(
+        "image", "a prop", {"front_yaw": 137.5}, stage="model", status="done"
+    )
+    svc.store.set_meta(job_id, name="Test Prop")
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"glTF-not-really")
+    (job_dir / "rig.glb").write_bytes(b"glTF-not-really")
+    (job_dir / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "humanoid", "bones": []}), "utf-8"
+    )
+
+    ctx = FakeCtx(svc)
+    row = poser_mode.riggable_assets(ctx)[0]
+    assert row["id"] == job_id
+
+    poser_mode.open_asset(ctx, row)
+    state = poser_mode.ensure(ctx)
+    assert state.job_id == job_id
+    assert state.asset_front_yaw == pytest.approx(137.5), (
+        "the picker's row must carry front_yaw through to open_asset, not 0.0"
+    )
+    assert state.asset_label == "Test Prop", (
+        "and the asset's name, which open_asset prefers over its prompt"
+    )
+
+
+def test_the_rigged_assets_picker_click_reaches_open_asset_with_the_row(svc, monkeypatch):
+    """``poser_library._pick`` is named on purpose so a click is callable with
+    no imgui frame at all -- what is pinned is that it hands the picker's own
+    row straight to ``open_asset``, unmodified, and does not re-implement the
+    dirty-editor guard or the template-switch discard confirm that function
+    already carries."""
+    from warlock.studio.panes import poser_library
+
+    job_id = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    row = poser_mode.riggable_assets(ctx)[0]
+    assert row["id"] == job_id
+
+    poser_library._pick(ctx, row)
+    state = poser_mode.ensure(ctx)
+    assert state.job_id == job_id, "the click must open the row it was drawn from"

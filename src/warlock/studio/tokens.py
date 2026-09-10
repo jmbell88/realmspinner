@@ -24,6 +24,23 @@ SCALE_RANGE = (0.5, 4.0)
 UI_SCALE_RANGE = (0.5, 2.0)
 
 
+#: The zoom steps the Appearance pane offers, and the only values a stored
+#: ``ui_scale`` is allowed to be.
+#:
+#: **A slider used to stand here and it was the wrong control.** Zoom is not a
+#: continuous quantity a user has an opinion about to two decimal places: it is
+#: a handful of sizes, and a track that can be left on 1.13x produces a build
+#: nobody has ever looked at, a font atlas re-baked at a figure no screenshot
+#: pass covers, and a layout bug reachable only by whoever's mouse stopped
+#: there. Five steps is a set a person can be shown and a set the capture pass
+#: can enumerate.
+#:
+#: 1.0 is in the middle deliberately -- it is the size the monitor already
+#: asked for, so the two steps either side read as "a bit smaller" and "a bit
+#: bigger" rather than as an absolute typeface size.
+UI_SCALE_STEPS = (0.5, 0.75, 1.0, 1.25, 1.5)
+
+
 def set_scale(value: float) -> None:
     global SCALE
     SCALE = max(SCALE_RANGE[0], min(float(value), SCALE_RANGE[1]))
@@ -44,6 +61,41 @@ def ui_scale_bounds(monitor_scale: float) -> tuple[float, float]:
     # a degenerate range would make the slider unusable rather than merely
     # limited, so it collapses to the one value that is honoured.
     return (lo, hi) if lo <= hi else (hi, hi)
+
+
+def ui_scale_steps(monitor_scale: float) -> tuple[float, ...]:
+    """The :data:`UI_SCALE_STEPS` this monitor can actually honour.
+
+    :func:`ui_scale_bounds`' argument, applied to a discrete set instead of to
+    a track's ends: ``set_scale`` clamps the *product*, so on a 250 % display a
+    1.5x step would silently come out as 1.6x/2.5x and the combo would show a
+    value the app is not at. Offering only the steps inside the bounds means
+    every option in the list is a value the user will get.
+
+    Never empty. A monitor scaled past the ceiling leaves no step in range, and
+    a combo with nothing in it is worse than one with a single entry -- so the
+    bound itself is offered, which is the one value that *is* honoured.
+    """
+    lo, hi = ui_scale_bounds(monitor_scale)
+    inside = tuple(step for step in UI_SCALE_STEPS if lo <= step <= hi)
+    return inside or (hi,)
+
+
+def nearest_ui_scale(value: float, monitor_scale: float = 1.0) -> float:
+    """``value`` snapped to the closest offerable step.
+
+    Every reader of the stored setting goes through this, which is what makes
+    "no value but a step" true of *existing* installs too: a settings file
+    written by the old slider carries 1.13x, and a build that honoured it would
+    be drawing at a size the pane can no longer show or explain. Ties go to the
+    smaller step, because the failure mode of too large is clipped controls.
+    """
+    steps = ui_scale_steps(monitor_scale)
+    try:
+        wanted = float(value)
+    except (TypeError, ValueError):
+        wanted = 1.0
+    return min(steps, key=lambda step: (abs(step - wanted), step))
 
 
 def sp(n: float) -> float:

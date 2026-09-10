@@ -653,8 +653,11 @@ def _pixelate(ctx: Any, job_id: str, sheet: Any) -> None:
                 [(str(n), f"{n} colours") for n in svc_sheets.PIXEL_COLOR_CHOICES],
             )
         )
+        # Label above, matching "Pixel size"/"Colours" above it (2026-09-08
+        # consistency pass); id kept stable, "Strength" -> "##Strength".
+        widgets.field_label("Strength")
         changed, value = controls.slider_float(
-            "Strength",
+            "##Strength",
             form["strength"],
             models.IMG2IMG_STRENGTH_MIN,
             models.IMG2IMG_STRENGTH_MAX,

@@ -9,6 +9,7 @@ the app, and there are eight panels.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import inspect
 from pathlib import Path
@@ -5568,8 +5569,12 @@ def test_go_to_coordinate_draws_a_dialog_that_moves_the_view(app_ctx, imgui_ctx)
     labels = _drawn_labels(
         imgui, lambda: plotter_canvas.goto_popup(app_ctx, state, tab), "##goto"
     )
-    assert _index_of(labels, "Column##goto-x") >= 0, labels
-    assert _index_of(labels, "Row##goto-y") >= 0, labels
+    # "Column"/"Row" beside two boxes became one field_label("Coordinate")
+    # above short letters (2026-09-08 consistency pass, matching this same
+    # file's own ``_setup_body`` W/H precedent), so the ids to look for
+    # shrank to "X##goto-x"/"Y##goto-y".
+    assert _index_of(labels, "X##goto-x") >= 0, labels
+    assert _index_of(labels, "Y##goto-y") >= 0, labels
 
     app_ctx.state.preview[f"plotter_goto:{tab.uid}"] = {"x": 6, "y": 5}
     original = widgets.primary_button
@@ -6247,6 +6252,70 @@ def test_a_corrupt_job_database_reaches_run_locked_as_store_unreadable(svc, monk
 
     with pytest.raises(StoreUnreadable):
         app.run()
+
+
+def test_muse_draws_all_four_of_its_panes(app_ctx, imgui_ctx, monkeypatch):
+    """Two of them never drew at all, in any build or any screenshot.
+
+    Muse is a brief bar, a take tray, a recipe column and a player strip, and
+    only the first two were ever on screen. Both causes are arithmetic that
+    nothing could have noticed:
+
+    * the centre column asked for ``centre_width() + sidebar_width("left")``,
+      but ``centre_width`` already answers "what is left once the right sidebar
+      is reserved" -- and Muse draws no left column, so the left sidebar's
+      width was counted twice. The centre came out 2443 px wide inside a
+      2466 px row and the recipe column was left 0 px, clipped out of every
+      frame. That is the empty right-hand third of every Muse screenshot.
+    * the columns were shortened by the strip's height, but the boundary
+      splitter between them was not told, and it defaults to the *whole*
+      remaining height. The handle set the row's height, the strip was pushed
+      8 px past the bottom of the content region, and ``begin_child`` returned
+      false -- 148 dp reserved for a band with no waveform, no playhead, no
+      transport and no loop markers in it.
+
+    A pane that returns false still submits, still reserves its space and still
+    logs nothing, which is why neither showed up as an error anywhere. What
+    this test watches is the one thing that tells them apart: what
+    ``layout.pane`` handed back.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from warlock.studio import layout as layout_mod
+    from warlock.studio.main import App
+    from warlock.studio.muse_state import Player as MusePlayer
+    from warlock.studio.panes import muse_player
+
+    ctx = app_ctx
+    ctx.state.mode = "muse"
+    # A decoded take, because ``should_draw`` keeps the strip off screen until
+    # one has been auditioned -- so without this the test would pass on a frame
+    # that never asked for the strip at all.
+    from warlock.studio import muse_mode
+
+    state = muse_mode.ensure(ctx)
+    state.player = MusePlayer(
+        job="take", pcm=np.zeros((512, 2), dtype=np.int16), rate=44100, duration=1.0
+    )
+    assert muse_player.should_draw(ctx)
+
+    seen: dict[str, bool] = {}
+    real_pane = layout_mod.pane
+
+    @contextlib.contextmanager
+    def _watch(pane_id, *args, **kwargs):
+        with real_pane(pane_id, *args, **kwargs) as visible:
+            seen[pane_id] = bool(visible)
+            yield visible
+
+    monkeypatch.setattr(layout_mod, "pane", _watch)
+    stub = SimpleNamespace(app_ctx=ctx, layouts=ctx.settings)
+    _frame(imgui_ctx, lambda: App._muse_workspace(stub))
+
+    for pane_id in ("muse-brief", "muse-centre", "muse-recipe", "muse-player"):
+        assert seen.get(pane_id) is True, f"{pane_id} reserved its space and drew nothing"
 
 
 def test_a_failed_loop_search_clears_finding_instead_of_spinning_forever():

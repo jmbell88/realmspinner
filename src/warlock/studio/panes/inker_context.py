@@ -445,9 +445,10 @@ def _symmetry_popup(ctx: Any, state: Any) -> None:
             _symmetry_hit(ctx, state, f"sym/{RADIAL_AXIS}")
             axes = brush.axes_of(state.symmetry)
         if RADIAL_AXIS in axes:
+            widgets.field_label("Ways")
             imgui.set_next_item_width(sp(90))
             changed, count = controls.slider_int(
-                "Ways", int(state.radial_count), brush.MIN_RADIAL, brush.MAX_RADIAL
+                "##Ways", int(state.radial_count), brush.MIN_RADIAL, brush.MAX_RADIAL
             )
             if changed:
                 state.radial_count = int(count)
@@ -548,8 +549,15 @@ def _view_popup(ctx: Any, state: Any) -> None:
             return
         for key in ("toggle_grid", "toggle_snap"):
             _op_row(ctx, inker_ops, key)
+        # Judged, not merely converted: a menu row's fixed height is what
+        # elsewhere in this pass leaves a control's label beside it, but
+        # ``VIEW_POPUP`` is a free-flowing popover (checkable rows and
+        # dividers) rather than a single toolbar line, so there is room for a
+        # caption above this one the way there is for the ``Ways`` slider in
+        # the symmetry popover just above.
+        widgets.field_label("Grid size")
         imgui.set_next_item_width(sp(80))
-        changed, size = controls.input_int("Grid size##viewgrid", state.grid_size, 0)
+        changed, size = controls.input_int("##Grid size##viewgrid", state.grid_size, 0)
         if changed:
             state.grid_size = max(2, min(512, size))
         if imgui.is_item_deactivated_after_edit():

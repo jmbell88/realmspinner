@@ -12,6 +12,9 @@ a saved width has the same meaning on every display scale.
 
 from __future__ import annotations
 
+import logging
+import os
+from collections import deque
 from contextlib import contextmanager
 from enum import StrEnum
 from typing import Any
@@ -21,6 +24,8 @@ from imgui_bundle import imgui
 from . import guard, motion, theme, tokens
 from .settings import as_dict
 from .tokens import sp
+
+log = logging.getLogger(__name__)
 
 # Legacy global width presets remain as fallback seeds for untouched v1
 # workspaces. Explicit splitter edits are stored per workspace in layout v2.
@@ -672,6 +677,8 @@ def pane(
         # so a pane on its way to the crash dialog draws nothing extra.
         if visible and (failed or guard.tripped(pane_id)):
             guard.placeholder(pane_id, title or pane_id)
+        if TRACE_ENABLED and visible:
+            _trace_pane(pane_id)
         imgui.end_child()
         _divider(resolved_edge)
 
@@ -828,6 +835,108 @@ def begin_frame(editing: bool = False) -> None:
 
     FRAME_PANES.clear()
     _EDITING = bool(editing)
+
+
+# --- the scrollbar-feedback oscillation detector -----------------------------
+#
+# ``widgets.stable_width``'s docstring has the incident in full: ``pane`` opens
+# every scrolling child with no ``no_scrollbar`` flag, and Dear ImGui decides a
+# child's scrollbar from the *previous* frame's content size -- so a widget
+# whose drawn height grows with the pane's width can feed its own height back
+# into next frame's scrollbar decision and oscillate forever, with nothing in
+# the log. Three sites were found and fixed only because a user happened to
+# say "the right side flickers"; this is what makes the next one findable
+# without a user watching for it.
+
+#: Sampled once, at import, exactly as ``probe.ENABLED`` is (see its
+#: docstring) -- an ordinary run must pay nothing for a detector nobody asked
+#: for, and re-reading the environment every pane every frame would be most of
+#: the cost the gate exists to avoid.
+TRACE_ENABLED = os.environ.get("WARLOCK_LAYOUT_TRACE") == "1"
+
+#: How many trailing frames of one pane's geometry are kept. Bounded rather
+#: than a growing list: the detector only ever looks at the tail, and a pane
+#: that lives for a whole session would otherwise accumulate one entry a frame
+#: for as long as the app runs.
+_TRACE_LEN = 10
+
+#: The last few frames' geometry per pane id -- ``(cursor_y, has_scrollbar,
+#: avail_x)``, each rounded to 1dp so imgui's own float jitter cannot masquerade
+#: as a third state. Module state for the reason ``FRAME_PANES`` above is: a
+#: detector threaded through every caller of :func:`pane` would be the same
+#: bookkeeping duplicated at every call site instead of kept once, here.
+_TRACE: dict[str, deque[tuple[float, bool, float]]] = {}
+
+#: How many of the trailing samples must strictly alternate between exactly two
+#: states before this is called an oscillation rather than a coincidence -- a
+#: pane that happens to change once between two frames (a resize, a selection
+#: change) is not the bug this exists to catch; eight frames locked in
+#: A-B-A-B-A-B-A-B is.
+_TRACE_MIN_RUN = 8
+
+#: Pane ids already logged, for the life of the process -- ``main.py``'s
+#: ``_unclaimed`` set is the same idiom for the same reason: several panes
+#: redraw every frame, and a line a frame is a log nobody can read.
+_TRACE_REPORTED: set[str] = set()
+
+
+def reset_trace() -> None:
+    """Forget every recorded sample and every pane already reported. Tests only."""
+
+    _TRACE.clear()
+    _TRACE_REPORTED.clear()
+
+
+def oscillations() -> list[str]:
+    """Pane ids the detector has warned about, in the order they were caught."""
+
+    return list(_TRACE_REPORTED)
+
+
+def trace_samples(pane_id: str) -> list[tuple[float, bool, float]]:
+    """``pane_id``'s recorded geometry history, oldest first. Tests only.
+
+    Kept separate from :func:`oscillations` so a test can assert on the actual
+    numbers -- frame 3 and frame 4 must be identical -- rather than only on
+    the detector's own verdict, which is what makes the regression meaningful
+    even if the detector's alternation rule is later tuned.
+    """
+
+    return list(_TRACE.get(pane_id, ()))
+
+
+def _trace_pane(pane_id: str) -> None:
+    """Record this frame's geometry for ``pane_id`` and warn once if it has
+    been oscillating.
+
+    Called from :func:`pane`'s ``finally``, just before ``end_child`` -- the
+    last moment this frame's cursor position, scrollbar and available width
+    are all still the ones this pane actually drew with.
+    """
+
+    sample = (
+        round(imgui.get_cursor_pos_y(), 1),
+        imgui.get_scroll_max_y() > 0,
+        round(imgui.get_content_region_avail().x, 1),
+    )
+    history = _TRACE.setdefault(pane_id, deque(maxlen=_TRACE_LEN))
+    history.append(sample)
+    if pane_id in _TRACE_REPORTED or len(history) < _TRACE_MIN_RUN:
+        return
+    tail = list(history)[-_TRACE_MIN_RUN:]
+    states = list(dict.fromkeys(tail))
+    if len(states) != 2:
+        return
+    if all(sample == states[index % 2] for index, sample in enumerate(tail)):
+        _TRACE_REPORTED.add(pane_id)
+        log.warning(
+            "pane %r is oscillating between %r and %r every frame -- see "
+            "widgets.stable_width's docstring for the feedback chain "
+            "(WARLOCK_LAYOUT_TRACE=1)",
+            pane_id,
+            states[0],
+            states[1],
+        )
 
 
 def drag_seed(lay: Layout, key: str, height: float, avail: float) -> float:

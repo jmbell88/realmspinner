@@ -158,7 +158,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     imgui.same_line()
     stems = muse_mode.has_stems(ctx, job)
     if widgets.ghost_button(
-        "Stems" if not stems else "Stems ✓",
+        "Stems" if not stems else f"{icons.CHECK} Stems",
         enabled=ready and not stems,
         reason="this take has already been split" if stems else _ready_reason(ready),
         tooltip=(

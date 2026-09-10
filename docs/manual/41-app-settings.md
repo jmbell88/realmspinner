@@ -316,6 +316,16 @@ interface at its size, fonts included — you do not have to restart. Your *UI s
 against the new monitor rather than carried across as a number of pixels, so a zoom that had to be
 capped on one display is offered in full again on a display with room for it.
 
+**AI agents.** *Allow AI agents to drive the Studio* lets a program that speaks the Model Context
+Protocol build in Clay for you. It is off on a fresh install and nothing listens until you switch it
+on. Doing so writes a key into `mcp.token` in your Warlock home and opens a local named pipe: there
+is no port, no firewall prompt, and nothing off your machine can reach it. Warlock still runs no
+language model of its own and still connects to nothing — an agent already running on this computer
+connects to *it*. While one is attached the status bar says so. An agent works in a Clay tab it opens
+for itself and cannot address any other document, so nothing you have open is at risk; see
+[Extending Warlock Studio](45-extending.md#driving-warlock-from-an-ai-agent) for the tools it is
+given and how to point one at the app.
+
 **Configuration.** *Effective configuration* lists every environment variable the app reads and what
 this process resolved it to, with the ones actually set by the environment first and named by their
 variable. It is the same table `warlock doctor` prints and the same one behind the status bar's

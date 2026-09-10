@@ -169,8 +169,13 @@ def _export_options(ctx: Any, tab: Any) -> None:
     is where they already lived.
     """
     state = ctx.state.inker
-    scale = widgets.combo(
-        "Scale##inkerscale",
+    # ``labeled_combo``, not ``widgets.combo`` with a visible label: the
+    # anti-pattern ``widgets.combo``'s own docstring warns about -- a combo's
+    # label draws to its *right* at a fixed default width, and both this and
+    # ``Arrange`` below were doing exactly that (the 2026-09-08 label-above
+    # pass).
+    scale = widgets.labeled_combo(
+        "Scale",
         str(int(state.export_scale)),
         list(inker_export.EXPORT_SCALES),
         sp(72),
@@ -185,8 +190,8 @@ def _export_options(ctx: Any, tab: Any) -> None:
             "Packwright are not scaled."
         )
     arrange_key = state.export_arrange or "grid"
-    chosen = widgets.combo(
-        "Arrange##inkerarrange",
+    chosen = widgets.labeled_combo(
+        "Arrange",
         arrange_key,
         list(inker_export.ARRANGE_OPTIONS),
         sp(120),
@@ -201,8 +206,9 @@ def _export_options(ctx: Any, tab: Any) -> None:
             "layout (turnaround, walk) keeps that fixed grid instead."
         )
     if state.export_arrange in sheetout.COUNTED_ARRANGES:
+        widgets.field_label("Count")
         imgui.set_next_item_width(sp(72))
-        changed, value = controls.input_int("Count##inkerwrap", state.export_wrap, 1, 1)
+        changed, value = controls.input_int("##inkerwrap", state.export_wrap, 1, 1)
         if changed:
             state.export_wrap = max(1, int(value))
     changed, value = widgets.toggle("Merge", state.export_merge, tag="inker-export-merge")
@@ -242,11 +248,14 @@ def _export_options(ctx: Any, tab: Any) -> None:
             "where that came from in the full frame, for an importer "
             "that wants to put it back."
         )
-    # Real captions here, not the ``##`` hidden ids the toolbar row needed: a
-    # column can afford a label, where the row could not and lost Ext and the
-    # help button off its end for it.
-    imgui.set_next_item_width(sp(72))
-    changed, value = controls.drag_int("Padding", state.export_padding, 1, 0, 64)
+    # A column can afford a caption, where the toolbar row this replaced could
+    # not and lost Ext and the help button off its end for it -- and since the
+    # 2026-09-08 label-above pass, the caption is ``field_label`` over the
+    # field rather than imgui's own trailing label beside it, ``_wh_row``'s
+    # shape.
+    changed, value = widgets.labeled_drag_int(
+        "Padding", state.export_padding, 0, 64, speed=1.0
+    )
     if changed:
         state.export_padding = max(0, int(value))
     if imgui.is_item_hovered():
@@ -254,8 +263,9 @@ def _export_options(ctx: Any, tab: Any) -> None:
             "A border around the atlas and a gutter between every cell, in "
             "pixels. Zero is the sheet this always packed."
         )
-    imgui.set_next_item_width(sp(72))
-    changed, value = controls.drag_int("Extrude", state.export_extrude, 1, 0, 32)
+    changed, value = widgets.labeled_drag_int(
+        "Extrude", state.export_extrude, 0, 32, speed=1.0
+    )
     if changed:
         state.export_extrude = max(0, int(value))
     if imgui.is_item_hovered():

@@ -95,7 +95,7 @@ def draw(ctx: Any) -> None:
     # Primary, as Clay's is: the same verb is the same rank in every bridge.
     # The chord is in the tooltip, where every other control keeps its own.
     if widgets.primary_button(
-        f"{icons.UPLOAD} {verbs.EXPORT_TO_LIBRARY}",
+        f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}",
         (-1, 0),
         enabled=ready and packed,
         reason=busy_why if not ready else packed_why,

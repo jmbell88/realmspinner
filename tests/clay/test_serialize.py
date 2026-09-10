@@ -297,6 +297,37 @@ def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monke
         ser.read_wblk(data)
 
 
+def test_read_wblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_triangulated(
+    monkeypatch,
+) -> None:
+    """clay-09 (the 2026-09-08 audit's second run): the ceiling used to add
+    ``len(mesh.starts) - 1`` -- the *face* count -- toward ``MAX_TRIANGLES``,
+    which undercounts an n-gon-heavy mesh by however many corners each face
+    has past three. A single octagon face is one face (under a ceiling of 4)
+    but fans into 6 triangles (over it), so the old, face-counting check let
+    this document through and the fixed, fan-triangle-counting one refuses
+    it."""
+    from warlock.studio.clay import glbimport
+
+    monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
+
+    angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+    octagon = bm.Mesh(
+        positions=[[np.cos(a), np.sin(a), 0.0] for a in angles],
+        loops=list(range(8)),
+        starts=[0, 8],
+        material=[0],
+        smooth=[False],
+    )
+    doc = bd.ClayDoc()
+    doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Octagon", mesh=octagon))
+
+    data = ser.wblk_bytes(doc)
+
+    with pytest.raises(ValueError, match="more than 4.*triangles"):
+        ser.read_wblk(data)
+
+
 def test_an_object_with_no_uid_is_refused_as_a_document_problem() -> None:
     """A bare ``KeyError`` out of here reaches the mode layer as a crash rather
     than as "this file is broken", which is what the user can act on."""

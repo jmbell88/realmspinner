@@ -66,7 +66,7 @@ def draw(ctx: Any, job: Any) -> None:
     manual_render.help_button(ctx, "remesh")
 
     if not _blender_available(ctx):
-        widgets.muted("A remesh runs in Blender, which is not installed (the rig extra).")
+        widgets.muted_wrapped("A remesh runs in Blender, which is not installed (the rig extra).")
         return
 
     job_id = job["id"]

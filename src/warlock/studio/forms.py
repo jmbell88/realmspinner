@@ -456,23 +456,24 @@ class Form:
         # two groups goes through.
         widgets.divider()
         clicked: str | None = None
-        if reset is not None and controls.button(reset[0], role=controls.ButtonRole.GHOST):
+        # Reset/Cancel/primary go through ``widgets``' own role helpers now
+        # (the 2026-09-08 button-vocabulary pass) rather than hand-spelling
+        # ``controls.button(role=...)`` here -- the shared layer is one of the
+        # places the audit found repeating what ``ghost_button``/
+        # ``primary_button`` already say, and it is the layer every pane's
+        # hand-spelling was copying the shape of.
+        if reset is not None and widgets.ghost_button(reset[0]):
             reset[1]()
             clicked = "reset"
         if cancel is not None:
             if reset is not None:
                 imgui.same_line()
-            if controls.button(cancel[0], role=controls.ButtonRole.GHOST):
+            if widgets.ghost_button(cancel[0]):
                 cancel[1]()
                 clicked = "cancel"
         if reset is not None or cancel is not None:
             imgui.same_line()
-        if controls.button(
-            primary[0],
-            role=controls.ButtonRole.PRIMARY,
-            enabled=enabled,
-            reason=reason,
-        ):
+        if widgets.primary_button(primary[0], enabled=enabled, reason=reason):
             primary[1]()
             clicked = "primary"
         return clicked

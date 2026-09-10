@@ -19,6 +19,26 @@ argument ``inker_open.can_edit_job``'s docstring makes about the toolbar. A row
 that has fallen out of date by the next frame is no worse than any other piece
 of cached UI state in this app.
 
+**A follow-up row resolves one hop through the cache -- kind-scoped, not
+``source_job``-scoped.** A rig, a sheet, a retexture and a remesh all carry
+``params["source_job"]`` and write their artifacts into *that* job's
+directory, never their own (:func:`_is_mesh`'s docstring names the trap), so
+selecting one of them used to offer nothing at all -- every mesh-shaped
+builder gated on the row in hand and that row has no ``model.glb``.
+:func:`_mesh_for` resolves ``source_job`` through ``ctx.cache.get`` -- still a
+cached-row read, not a filesystem call -- for exactly the kinds
+``asset_open.FOLLOWUP_STAGES`` already names as a mesh's own product, never on
+``source_job`` alone: a character sheet carries that same field but is not
+one of them (it opens in Troupe, not in Create), and hopping for it too
+resolved it straight back to the mesh it was rendered from -- offering Clay
+and Poser on a row that has neither, plus a second, duplicate "Open in
+Troupe" beside :func:`_troupe_out`'s own. The three mesh-shaped builders
+(Clay, Poser, Troupe-in) read every gate off the *resolved* mesh, closing
+their door over it rather than over the selected row. A source that has
+fallen off the loaded page, or a kind the hop does not cover, answers None,
+the same floor ``asset_open.open_asset`` already takes for the identical
+reason.
+
 **Every door is the mode's own, called verbatim.** This module does not
 reimplement Clay's 200k-triangle confirm or Troupe's skeleton question; it
 calls the function that already asks them, so an exit taken from here behaves
@@ -145,6 +165,51 @@ def _is_mesh(job: Any) -> bool:
     return job.get("stage") == "model" and not _params(job).get("source_job")
 
 
+def _mesh_for(ctx: Any, job: Any) -> Any:
+    """The mesh this row is about: itself, or the source it wrote into.
+
+    ``job`` when :func:`_is_mesh` already agrees. Otherwise the hop is gated
+    on membership of ``asset_open.FOLLOWUP_STAGES`` -- **kind-scoped, not
+    ``source_job``-scoped** -- because a bare "carries a ``source_job``" test
+    also matches ``charsheet``, whose own row is not a mesh follow-up at all:
+    it opens in Troupe, never in Create (``FOLLOWUP_STAGES``'s own comment
+    says so). Gating on ``source_job`` alone hopped for a charsheet too and
+    resolved it straight back to the mesh it was rendered from, so a
+    charsheet row offered Clay and Poser it has no business offering, *and* a
+    second, duplicate "Open in Troupe" beside ``_troupe_out``'s own --
+    exactly the outcome ``_is_mesh``'s docstring already names as the trap
+    this module exists to avoid, reintroduced one layer down. Importing the
+    mapping (lazily, as every other cross-module read here is) means the
+    charsheet exclusion is inherited from the one place that already states
+    it, rather than restated and risking a second copy that drifts.
+
+    Resolved through ``ctx.cache.get`` -- a cached-row read, not a ``stat`` or
+    a service call, so this survives the same filesystem ban every other gate
+    in this module does -- guarded the way ``create_stages.parent`` guards the
+    identical lookup: a ``ctx`` with no ``cache`` (the palette, a profile
+    sheet) answers "no mesh" rather than raising. None when the row's kind is
+    not in ``FOLLOWUP_STAGES``, there is no ``source_job``, the cache has
+    never loaded that row, or the resolved row is not itself a mesh (a
+    follow-up of a follow-up, or a source that has since been trashed) -- the
+    honest floor ``asset_open.open_asset`` already takes for the same reason:
+    a row this module cannot see is a row it offers nothing for.
+    """
+    if _is_mesh(job):
+        return job
+    from .asset_open import FOLLOWUP_STAGES
+
+    if job.get("kind") not in FOLLOWUP_STAGES:
+        return None
+    source = str(_params(job).get("source_job") or "")
+    if not source:
+        return None
+    getter = getattr(getattr(ctx, "cache", None), "get", None)
+    mesh = getter(source) if callable(getter) else None
+    if mesh is None or not _is_mesh(mesh):
+        return None
+    return mesh
+
+
 # --- Inker --------------------------------------------------------------
 
 
@@ -183,22 +248,28 @@ def _inker(ctx: Any, job: Any) -> Exit | None:
 
 
 def _clay(ctx: Any, job: Any) -> Exit | None:
-    if not _is_mesh(job):
+    mesh = _mesh_for(ctx, job)
+    if mesh is None:
         return None
     from . import clay_mode
     from .panes import inspector
 
     hint = "Opens the authored document when there is one, else the mesh."
 
-    def door(ctx: Any, job: Any) -> None:
-        clay_mode.edit_asset_in_clay(ctx, job)
+    # Closed over ``mesh``, not the selected row: both call sites invoke
+    # ``exit_.open(ctx, job)`` with the row the user actually picked, which
+    # for a follow-up row is the rig/sheet/etc, not the mesh it belongs to --
+    # a door that read its ``job`` argument would open Clay on a row with no
+    # ``model.glb`` of its own.
+    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
+        clay_mode.edit_asset_in_clay(ctx, _mesh)
 
-    if inspector.can_edit_in_clay(job):
+    if inspector.can_edit_in_clay(mesh):
         return Exit("clay", verbs.open_in("clay"), hint, "", "", door)
 
-    if job.get("status") != "done":
-        reason = _status_reason(job)
-    elif "model.glb" not in _files(job):
+    if mesh.get("status") != "done":
+        reason = _status_reason(mesh)
+    elif "model.glb" not in _files(mesh):
         reason = "This mesh has no model yet."
     else:
         return None
@@ -209,20 +280,25 @@ def _clay(ctx: Any, job: Any) -> Exit | None:
 
 
 def _poser(ctx: Any, job: Any) -> Exit | None:
-    if not _is_mesh(job):
+    mesh = _mesh_for(ctx, job)
+    if mesh is None:
         return None
     from .panes import pose_panel
 
     hint = "Pose this mesh's own rig, or author clips for its skeleton."
 
-    def door(ctx: Any, job: Any) -> None:
-        pose_panel.open_in_poser(ctx, job)
+    # Closed over ``mesh``, ``_clay``'s reason: the selected row a rig job's
+    # own door is opened with (``exit_.open(ctx, job)``) is the rig row, and
+    # ``pose_panel.open_in_poser`` needs the *mesh* id -- that is what
+    # ``poser_mode.open_asset`` binds the session to.
+    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
+        pose_panel.open_in_poser(ctx, _mesh)
 
-    if "rig.glb" in _files(job):
+    if "rig.glb" in _files(mesh):
         return Exit("poser", verbs.open_in("poser"), hint, "", "", door)
 
-    if job.get("status") != "done":
-        reason = _status_reason(job)
+    if mesh.get("status") != "done":
+        reason = _status_reason(mesh)
     else:
         reason = "Rig this mesh first -- Poser edits poses on a rig."
     return Exit("poser", verbs.open_in("poser"), hint, "", reason, door)
@@ -241,12 +317,13 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
     CPU behind a button that is not called "Rig", and a user who is not told
     reads the quiet as a hang.
     """
-    if not _is_mesh(job):
+    mesh = _mesh_for(ctx, job)
+    if mesh is None:
         return None
     from . import troupe_mode
     from .panes import troupe_send
 
-    rigged = "rig.glb" in _files(job)
+    rigged = "rig.glb" in _files(mesh)
     hint = (
         "Render a character sheet from this mesh, on the skeleton it is "
         "already rigged on. Asks for the sprite size first."
@@ -260,15 +337,19 @@ def _troupe_in(ctx: Any, job: Any) -> Exit | None:
     )
     label = f"{verbs.send_to('troupe')}..."
 
-    def door(ctx: Any, job: Any) -> None:
-        troupe_send.ask(ctx, job)
+    # Closed over ``mesh``, ``_clay``'s and ``_poser``'s reason: a follow-up
+    # row's own send would ask Troupe to rig or sheet a row with no
+    # ``model.glb``, since the mesh it actually needs is the one this door
+    # already resolved to.
+    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
+        troupe_send.ask(ctx, _mesh)
 
-    if troupe_mode.can_send_to_troupe(ctx, job):
+    if troupe_mode.can_send_to_troupe(ctx, mesh):
         return Exit("troupe", label, hint, tooltip, "", door)
 
-    if job.get("status") != "done":
-        reason = _status_reason(job)
-    elif "model.glb" not in _files(job):
+    if mesh.get("status") != "done":
+        reason = _status_reason(mesh)
+    elif "model.glb" not in _files(mesh):
         reason = "This mesh has no model yet."
     else:
         return None

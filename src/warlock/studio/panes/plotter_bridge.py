@@ -137,7 +137,7 @@ def _exits(ctx: Any, tab: Any) -> None:
     widgets.exits()
     ready = bool(tab.doc.tilesets) and not tab.busy
     if widgets.disabled_button(
-        f"{icons.UPLOAD} {verbs.EXPORT_TO_LIBRARY}",
+        f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}",
         ready,
         (-1, 0),
         reason="This map is being written." if tab.doc.tilesets else "Add a tileset first.",

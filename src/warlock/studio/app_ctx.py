@@ -254,6 +254,12 @@ class Ctx:
     first_run: bool = False
     first_run_info: dict[str, Any] = field(default_factory=dict)
     gpu_name: str = ""
+    # The MCP listener for driving Clay from an external agent
+    # (``studio/agent_host.py``), attached by the App once it is built --
+    # ``clay_view``'s own reason above applies here too: the Settings pane
+    # calls ``ctx.agent_host.start()``/``.stop()`` by ``getattr``, so a field
+    # nothing assigned yet reads as "not available" instead of raising.
+    agent_host: Any = None
 
     # -- shorthands --------------------------------------------------------
 

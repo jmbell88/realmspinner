@@ -106,9 +106,24 @@ class Camera:
         angles = self.AXIS_VIEWS.get(name)
         if angles is None:
             return False
-        self.theta, self.phi = angles
-        self._goal_theta, self._goal_phi = angles
+        self.look_angles(*angles)
         return True
+
+    def look_angles(self, theta: float, phi: float) -> None:
+        """Snap to a free azimuth/polar pair, in radians -- ``look_along``'s
+        angle-only half, generalised past the six named views.
+
+        Keeps the target and the distance for the same reason ``look_along``
+        does, and sets both the live angles and their damping goals, because
+        those two shadow fields are exactly the coupling a second caller
+        outside this class must not have to restate (``update`` chases the
+        goal every frame; skip it here and the camera would visibly animate
+        back to wherever it was before this call, rather than snapping).
+        ``look_along`` is now a lookup into ``AXIS_VIEWS`` followed by a call
+        here, so the six named views and a free pair go through one place.
+        """
+        self.theta, self.phi = theta, phi
+        self._goal_theta, self._goal_phi = theta, phi
 
     # -- framing -----------------------------------------------------------
 

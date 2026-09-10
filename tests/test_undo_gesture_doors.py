@@ -298,14 +298,21 @@ def test_a_picker_drag_over_a_free_colour_opens_no_gesture(monkeypatch, frames):
 @pytest.mark.parametrize(
     "func,field,write",
     [
-        (inker_timeline._group_menu, 'slider_float(\n        "Opacity##group"', "set_group_props("),
-        (inker_timeline._cell_menu, '"Opacity##cel"', "set_cel_opacity("),
-        (inker_timeline._cell_menu, '"Z##cel"', "set_cel_z("),
+        # The three Inker rows' ids gained a "##" prefix in the 2026-09-08
+        # label-above pass (the visible label moved to a ``field_label`` line
+        # above each field), so the anchor strings below match the id as it
+        # reads now rather than the pre-fix source.
+        (inker_timeline._group_menu, '"##Opacity##group"', "set_group_props("),
+        (inker_timeline._cell_menu, '"##Opacity##cel"', "set_cel_opacity("),
+        (inker_timeline._cell_menu, '"##Z##cel"', "set_cel_z("),
         (inker_colors._slots, 'color_edit4("Slot"', "recolour_slot("),
         # The four the 2026-09-04 audit found still unfolded: none of these
         # files called ``fold_undo`` at all, and each setter pushes per report.
-        (clay_props._material, '"base colour##bm"', "doc.set_material("),
-        (clay_props._material, '"metallic##bm"', "doc.set_material("),
+        # Ids gained a "##" prefix in the 2026-09-08 consistency pass (the
+        # visible label moved to a field_label line above), so the anchor
+        # strings below matched the fix, not the pre-fix source.
+        (clay_props._material, '"##base colour##bm"', "doc.set_material("),
+        (clay_props._material, '"##metallic##bm"', "doc.set_material("),
         (plotter_layers._layer_table, '"##layer-opacity"', "doc.set_layer_props("),
         (plotter_layers._layer_table, '"##layer-tint"', "doc.set_layer_props("),
         (plotter_layers._object_fields, '"##obj-opacity"', "doc.set_object("),

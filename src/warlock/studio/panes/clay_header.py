@@ -197,11 +197,15 @@ def _snap_popup(state: Any) -> None:
         imgui.begin_disabled(not state.snap)
         # "%.4f", because the grid steps by 1/16 m and imgui's default "%.3f"
         # drew that as 0.063 -- a field that disagrees with its own step button.
+        # Label above, unit kept in it (2026-09-08 consistency pass); ids
+        # kept stable, "grid (m)##snapt" -> "##grid (m)##snapt".
+        widgets.field_label("grid (m)")
         _, state.snap_translate = controls.input_float(
-            "grid (m)##snapt", state.snap_translate, 0.0625, 0.0, "%.4f"
+            "##grid (m)##snapt", state.snap_translate, 0.0625, 0.0, "%.4f"
         )
+        widgets.field_label("angle (deg)")
         _, state.snap_rotate = controls.input_float(
-            "angle (deg)##snapr", state.snap_rotate, 5.0, 0.0
+            "##angle (deg)##snapr", state.snap_rotate, 5.0, 0.0
         )
         imgui.end_disabled()
         # Outside the disable, because it is a *separate* switch rather than a
@@ -242,8 +246,9 @@ def _proportional_popup(state: Any) -> None:
             "nearest selected vertex."
         )
         imgui.begin_disabled(not state.proportional)
+        widgets.field_label("radius (m)")
         _, state.proportional_radius = controls.input_float(
-            "radius (m)##propr", state.proportional_radius, 0.05, 0.0, "%.3f"
+            "##radius (m)##propr", state.proportional_radius, 0.05, 0.0, "%.3f"
         )
         imgui.end_disabled()
         # Clamped rather than validated, the grid's rule: zero is the off switch

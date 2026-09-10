@@ -196,7 +196,10 @@ def test_the_view_aids_are_one_press_from_the_canvas(ui, monkeypatch):
     for label in (
         "Grid",
         "Snap to grid",
-        "Grid size",
+        # ``##``-prefixed since the 2026-09-08 label-above pass: the visible
+        # "Grid size" text moved to a ``field_label`` line drawn above the
+        # field, and the id underneath it did not otherwise change.
+        "##Grid size",
         "Rulers",
         "Pixel grid",
         "Layer edges",

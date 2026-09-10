@@ -269,18 +269,21 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
 
 
 def _cell_pair(value: tuple[int, int]) -> tuple[int, int]:
-    """Two small integer fields on one row -- ``inker_bridge._pair``'s shape."""
+    """Two small integer fields on one row, name above -- ``inker_bridge._pair``'s
+    shape (2026-09-08 consistency pass: the name used to sit as muted text
+    below-and-right of the pair, after both boxes on the same line; moved
+    above them, matching the fix landing on ``inker_bridge._pair`` the same
+    day so the two stay in agreement)."""
     from imgui_bundle import imgui
 
     from ..tokens import sp
 
+    widgets.field_label("tile size")
     imgui.set_next_item_width(sp(70))
     _changed_x, x = controls.input_int("##tilew", int(value[0]), 1, 8)
     imgui.same_line()
     imgui.set_next_item_width(sp(70))
     _changed_y, y = controls.input_int("##tileh", int(value[1]), 1, 8)
-    imgui.same_line()
-    widgets.muted("tile size")
     return (max(1, int(x)), max(1, int(y)))
 
 

@@ -15,10 +15,13 @@ that returns.
 2026-09-06 audit (clay-03).** ``save_to``, ``save_as`` and ``export_asset``
 each called the zip-and-PNG build (``serialize.wblk_bytes``, and
 ``export_asset``'s ``glbwrite.write_glb``) on the calling thread, before
-``ctx.submit`` ever ran -- only the disk write was inside the closure. Each
-now takes a cheap snapshot on the frame thread (``serialize.snapshot``, and
-``export_asset``'s own call to ``document.to_model``) and encodes it inside
-``run()``, the shape ``packwright_io.save_to`` already used.
+``ctx.submit`` ever ran -- only the disk write was inside the closure.
+``save_to`` and ``save_as`` now take a cheap snapshot on the frame thread
+(``serialize.snapshot``) and encode it inside ``run()``, the shape
+``packwright_io.save_to`` already used. ``export_asset``'s document reads and
+encodes both moved into ``build_asset`` (2026-09-09), called from ``run()``,
+so the same one chain also serves the agent's synchronous export -- see its
+docstring.
 
 Two consequences follow, and both were bugs in the raster editor before they
 were rules here.
@@ -435,6 +438,48 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
 # --- export -----------------------------------------------------------------
 
 
+def build_asset(
+    svc: Any, doc: Any, *, title: str, prompt: str | None = None, view: Any = None
+) -> str:
+    """The one document -> finished ``model`` row chain.
+
+    **Both the interactive export (``export_asset``) and the agent's
+    (``agent_clay._h_export``) go through this rather than each keeping a hand
+    copy of it** -- the two had drifted into exactly that before the
+    2026-09-09 audit found them, and a step added to one (a new sidecar, a
+    thumbnail, a different normalisation) would silently not happen for the
+    other. Landing it here means it happens for both.
+
+    ``to_model`` and ``serialize.snapshot`` are the two reads of the live
+    ``doc``, taken first and immediately followed by the encodes -- so nothing
+    downstream ever sees a document that changed halfway through this call.
+    ``to_model`` copies every transform and rebuilds every primitive's arrays
+    fresh, and a snapshot holds only references INVARIANTS 312 says are safe
+    to keep. The mesh (``import_mesh``) is written before the ``.wblk``
+    source sidecar (``save_clay_source``) for the reason ``export_asset``
+    always kept: a crash between them leaves the sidecar absent rather than
+    lying about a mesh it did not produce.
+
+    Takes a ``WarlockService`` rather than a ``ctx`` -- the house convention
+    (see ``src/warlock/service/``) -- so this is callable from anywhere a
+    document exists, headlessly included, with no tab, toast or task runner
+    anywhere in it.
+    """
+    from ..service import files as svc_files
+    from ..service import jobs as svc_jobs
+    from .clay import document as bd
+    from .clay import serialize
+    from .viewer import glbwrite
+
+    model = bd.to_model(doc)
+    snap = serialize.snapshot(doc, view=view)
+    glb = glbwrite.write_glb(model)
+    result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
+    job_id = result["id"]
+    svc_files.save_clay_source(svc, job_id, serialize.snapshot_bytes(snap))
+    return job_id
+
+
 def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     """Mint an ordinary asset from the document: the point of Clay.
 
@@ -442,24 +487,14 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
     the triangle retarget and every mesh export work on it with none of those
     paths learning that Clay exists.
 
-    The mesh is written first and the ``.wblk`` sidecar second, so a crash
-    between them leaves the sidecar absent rather than lying about a mesh it
-    did not produce.
-
-    ``to_model`` and ``serialize.snapshot`` are the two reads of the live
-    document, both taken on the frame thread for the reason ``save_as``
-    states; each already hands back something that owes the document nothing
-    further -- ``to_model`` copies every transform and rebuilds every
-    primitive's arrays fresh, and a snapshot holds only references INVARIANTS
-    312 says are safe to keep. **The actual encodes -- ``glbwrite.write_glb``
-    and ``serialize.snapshot_bytes`` -- run inside ``run()`` now.** The
-    2026-09-06 audit (clay-03) found both running here, on the calling
-    thread, before ``ctx.submit`` was ever reached.
+    The document -> model-row chain itself is :func:`build_asset` now; see
+    its docstring for the read/encode ordering it owns. What stays here is
+    what only the interactive path needs: the "nothing visible" refusal,
+    the camera pulled from the live viewport (``camera_of``, GL-thread-bound,
+    so it is read before the task runs rather than inside it), and the
+    task-thread split -- ``build_asset``'s reads and encodes both now run
+    inside ``run()``, off the frame thread entirely.
     """
-    from .clay import document as bd
-    from .clay import serialize
-    from .viewer import glbwrite
-
     tab = tab or active(ctx)
     if tab is None or tab.saving:
         return
@@ -471,17 +506,10 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         ctx.toast("There is nothing visible to export.", "error")
         return
 
-    model = bd.to_model(doc)
-    snap = serialize.snapshot(doc, view=camera_of(ctx, tab))
+    view = camera_of(ctx, tab)
 
     def run() -> dict[str, Any]:
-        from ..service import files as svc_files
-        from ..service import jobs as svc_jobs
-
-        glb = glbwrite.write_glb(model)
-        result = svc_jobs.import_mesh(ctx.svc, glb, name=title, prompt=title)
-        job_id = result["id"]
-        svc_files.save_clay_source(ctx.svc, job_id, serialize.snapshot_bytes(snap))
+        job_id = build_asset(ctx.svc, doc, title=title, view=view)
         return {"job_id": job_id, "exported": True}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)

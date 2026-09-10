@@ -313,8 +313,15 @@ def goto_popup(ctx: Any, state: Any, tab: Any) -> None:
         ctx.state.preview[key] = form
     widgets.popup_title("Go to coordinate")
     widgets.muted(f"0, 0 to {int(doc.width) - 1}, {int(doc.height) - 1}")
-    _, form["x"] = controls.input_int("Column##goto-x", int(form["x"]), 1)
-    _, form["y"] = controls.input_int("Row##goto-y", int(form["y"]), 1)
+    # One label above the pair, short letters beside each box -- this file's
+    # own ``_setup_body`` precedent for a coordinate row (2026-09-08
+    # consistency pass), rather than "Column"/"Row" read beside the boxes.
+    widgets.field_label("Coordinate")
+    imgui.set_next_item_width(sp(80))
+    _, form["x"] = controls.input_int("X##goto-x", int(form["x"]), 1)
+    imgui.same_line()
+    imgui.set_next_item_width(sp(80))
+    _, form["y"] = controls.input_int("Y##goto-y", int(form["y"]), 1)
     imgui.dummy((0, sp(tokens.SP_1)))
     if widgets.primary_button("Go##goto-apply", (-1, 0)):
         # Through the mode's door, not by writing ``state.goto_cell`` here: the

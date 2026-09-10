@@ -138,14 +138,23 @@ def _joint(ctx: Any, viewer: Any) -> None:
         degrees = _quat_to_euler_degrees(current)
         new_degrees = list(degrees)
         edited = False
-        for axis, axis_label in enumerate(("Rotate X", "Rotate Y", "Rotate Z")):
+        # One label above the XYZ triple, short axis letters beside each box
+        # -- ``plotter_canvas``'s coordinate-row precedent (2026-09-08
+        # consistency pass) -- rather than "Rotate X"/"Rotate Y"/"Rotate Z"
+        # spelled out on each. Ids kept stable: the "##poser-joint-rot-{axis}"
+        # suffix, the load-bearing half, is unchanged.
+        widgets.field_label("Rotate")
+        for axis, letter in enumerate(("X", "Y", "Z")):
+            if axis:
+                imgui.same_line()
+            imgui.set_next_item_width(sp(80))
             # ``commit=True``: undoable, the gizmo-drag rule -- per-keystroke
             # would push one undo step per digit typed.
             settled, value = controls.input_float(
-                f"{axis_label}##poser-joint-rot-{axis}",
+                f"{letter}##poser-joint-rot-{axis}",
                 float(degrees[axis]),
                 commit=True,
-                tooltip=f"{axis_label.split()[-1]} rotation, in degrees, Euler XYZ.",
+                tooltip=f"{letter} rotation, in degrees, Euler XYZ.",
             )
             if settled:
                 new_degrees[axis] = value
@@ -251,11 +260,17 @@ def _root(viewer: Any) -> None:
             )
     new_offset = list(offset)
     edited = False
-    for axis, axis_label in enumerate(("Offset X", "Offset Y", "Offset Z")):
+    # Same coordinate-row shape as the rotate triple above (2026-09-08
+    # consistency pass); id suffix unchanged.
+    widgets.field_label("Offset")
+    for axis, letter in enumerate(("X", "Y", "Z")):
+        if axis:
+            imgui.same_line()
+        imgui.set_next_item_width(sp(80))
         # ``commit=True`` for the joint fields' reason: undoable, so only the
         # settled value should push a step.
         settled, value = controls.input_float(
-            f"{axis_label}##poser-root-offset-{axis}",
+            f"{letter}##poser-root-offset-{axis}",
             float(offset[axis]),
             commit=True,
             tooltip="Character heights, Blender axes -- what the bake reads.",

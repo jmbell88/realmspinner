@@ -227,8 +227,19 @@ class ClayState:
     # second home for one switch is two places that can disagree about it.
     overlays: dict[str, bool] = field(default_factory=lambda: {"wire": False})
 
-    # What the properties panel offers when the user adds something.
-    generator: str = "box"
+    # What the properties panel offers when the user adds something -- the
+    # key of whichever add-tool (a primitive or a figure) was last pressed.
+    #
+    # ``""`` means *nothing yet*, not Box. clay-12 (2026-09-08 audit, second run): this
+    # used to default to ``"box"``, so a session that had never touched an
+    # add-tool showed the grid's Box icon lit and its defaults printed in the
+    # options block below it -- state that reads as a click nobody made. No
+    # key in ``primitives.GENERATORS`` or ``presets.ASSEMBLIES`` is ever the
+    # empty string, so this sentinel can never collide with a real tool's name
+    # and every reader that compares against a key (the icon grid's
+    # "selected" highlight, ``clay_tools._options_for``) already treats it as
+    # "select nothing" without needing to know it is special.
+    generator: str = ""
     # The object whose name is being edited in the outliner, or 0. A uid rather
     # than an index, for the reason every address in this package is one: the
     # outliner reorders and a rename in flight must not follow the position.

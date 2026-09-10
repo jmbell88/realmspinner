@@ -326,7 +326,12 @@ def _size(ctx: Any, form: dict[str, Any]) -> None:
     """
     value = float(form["size_m"])
     fmt = "unset - keeps the reference's" if value <= 0.0 else "%.2f m"
-    changed, size = controls.drag_float("Size", value, SIZE_DRAG_SPEED, *SIZE_NO_BOUND, fmt)
+    # Label above, matching the rest of the pane (2026-09-08 consistency
+    # pass); the id is kept stable ("Size" visible -> "##Size" hidden) and
+    # the unit stays in ``fmt``, which is the whole reason this is a drag and
+    # not a slider (see the module comment above).
+    widgets.field_label("Size")
+    changed, size = controls.drag_float("##Size", value, SIZE_DRAG_SPEED, *SIZE_NO_BOUND, fmt)
     if changed:
         # Floored here rather than by the widget: unbounded means unbounded in
         # both directions, and a negative size is not a smaller asset.
@@ -391,8 +396,9 @@ def _budget(ctx: Any, form: dict[str, Any]) -> None:
         # the same condition (K95). It is the widget ``custom_triangles`` never
         # had: the field was submitted, validated and recorded with no way to
         # set it, which is a form field that exists only for the API.
+        widgets.field_label("Triangles")
         imgui.set_next_item_width(sp(140))
-        changed, value = controls.input_int("Triangles", int(form["custom_triangles"]), 0, 0)
+        changed, value = controls.input_int("##Triangles", int(form["custom_triangles"]), 0, 0)
         if changed:
             form["custom_triangles"] = max(0, value)
 
@@ -564,7 +570,9 @@ def _mesh_source(ctx: Any, mesh: dict[str, Any]) -> None:
         # The parent has scrolled out of the loaded page (create_stages.parent's
         # own caveat) or the mesh predates parent_id being recorded at all.
         widgets.muted(f"mesh - {mesh['id']}")
-    widgets.muted("This mesh is already built. Make 3D below rebuilds it from that reference.")
+    widgets.muted_wrapped(
+        "This mesh is already built. Make 3D below rebuilds it from that reference."
+    )
 
 
 def _effective_source(ctx: Any, source: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -641,7 +649,7 @@ def _engine(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     opened = controls.collapsing_header("Engine (advanced)##engine")
     if not opened:
         return
-    widgets.muted(
+    widgets.muted_wrapped(
         "Launch flags for the reconstruction engine itself, not the mesh. "
         "Changing any of these restarts it for this job."
     )
@@ -1238,7 +1246,16 @@ def _matte_image(ctx: Any, preview: Any) -> None:
     # buttons and the reasons still have room.
     width = float(preview.width)
     height = float(preview.height)
-    avail = imgui.get_content_region_avail().x
+    # Not the live avail: this is the same shape as ``inspector.py``'s three
+    # sites (see ``widgets.stable_width``'s docstring for the feedback chain
+    # in full) -- ``layout.pane`` opens every pane as a scrolling child with no
+    # ``no_scrollbar`` flag, and an aspect-preserving image sized off this
+    # frame's avail feeds its own drawn height back into next frame's
+    # scrollbar decision. The ``sp(480)``/``limit`` clamp below is not always
+    # the binding constraint -- exactly ``inspector.py``'s own argument about
+    # its 192 dp cap -- so a width that only sometimes reaches the threshold
+    # is still the bug this pane can reach.
+    avail = widgets.stable_content_width()
     if avail <= 1.0:
         avail = sp(480)
     limit = widgets.modal_max_height(float(imgui.get_main_viewport().size.y)) * 0.5

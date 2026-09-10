@@ -136,7 +136,10 @@ def params_popup(ctx: Any, state: Any, tab: Any) -> None:
         imgui.pop_text_wrap_pos()
         imgui.dummy((0, sp(tokens.SP_1)))
     for param in op.params:
-        label = f"{param.label}##{op.name}-{param.name}"
+        # Label above the field (2026-09-08 consistency pass); id kept
+        # stable, "Foo##op-name" -> "##Foo##op-name".
+        widgets.field_label(param.label)
+        label = f"##{param.label}##{op.name}-{param.name}"
         if param.integer:
             # Honoured rather than declared. Smooth's "levels" is the only
             # integer parameter and it was drawn as a float field, so it
@@ -158,7 +161,18 @@ def params_popup(ctx: Any, state: Any, tab: Any) -> None:
             widgets.secondary(param.warn)
     # Greyed rather than drawn live and ignored, which is what "and not
     # tab.saving" after the click amounted to.
-    if widgets.disabled_button(f"Apply##{op.name}", not tab.saving):
+    #
+    # clay-13 (2026-09-08 audit, second run): this call passed no ``reason=``, unlike every
+    # other saving-gated control in Clay (the tools-pane actions, the header's
+    # mode field, the context-menu rows) -- so a user who opened this popup
+    # mid-save saw Apply grey with nothing on screen saying why. ``widgets``
+    # already carries the one wording every one of those uses
+    # (``inker_export.BUSY_WHY``, ``inker_tiles.BUSY_WHY`` and
+    # ``clay_header._SAVING`` are the same sentence copied three times);
+    # reused here rather than defining a fourth copy local to this file.
+    if widgets.disabled_button(
+        f"Apply##{op.name}", not tab.saving, reason=widgets.DOCUMENT_SAVING_WHY
+    ):
         clay_ops.run(ctx, tab.doc, op, **values)
         state.pending_op = ""
         imgui.close_current_popup()

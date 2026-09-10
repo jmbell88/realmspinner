@@ -635,11 +635,15 @@ def _slices(ctx: Any, state: Any, tab: Any) -> None:
 
 def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
     doc = tab.doc
+    widgets.field_label("Name")
     imgui.set_next_item_width(sp(140))
     # Committed when the field is let go of, not on every keystroke -- the same
     # rule the layer opacity slider beside it follows, and for the same reason:
     # typing "hitbox" is one rename, not six undo steps.
-    _changed, name = controls.input_text(f"Name##slice{entry.uid}", entry.name)
+    #
+    # ``##``-prefixed onto the unchanged ``Name##slice{uid}`` id: the label
+    # moved above and the per-slice id must not move at all.
+    _changed, name = controls.input_text(f"##Name##slice{entry.uid}", entry.name)
     if imgui.is_item_deactivated_after_edit() and name.strip():
         doc.set_slice(entry.uid, name=name.strip()[:MAX_SLICE_NAME])
 
@@ -936,7 +940,12 @@ def _gradient_stops(state: Any) -> None:
         # colour rather than raising, but a list with none in it has no
         # gradient to draw and no way back to the preset except this button.
         if widgets.disabled_button(
-            "x",
+            # ``icons.TRASH`` and not a literal "x": this deletes a row, and
+            # every other row delete in the app -- the timeline's cels, the
+            # Plotter's layers, Clay's outliner -- is a trash glyph. ``X`` is
+            # the app's cancel/dismiss/clear mark, so spelling a delete with
+            # it made one glyph mean two opposite things in the same pane.
+            icons.TRASH,
             len(state.gradient_stops) > 1,
             reason="A gradient needs at least two stops.",
             tooltip="Delete this stop.",
@@ -1074,7 +1083,9 @@ def _presets(ctx: Any, state: Any) -> None:
     remove = ""
     for saved_name, saved in list(state.presets.items()):
         imgui.push_id(f"inkpreset{saved_name}")
-        if controls.small_button("x"):
+        # The row-delete glyph, for the reason the gradient-stop button above
+        # records: ``X`` is dismiss, ``TRASH`` is destroy.
+        if controls.small_button(icons.TRASH):
             remove = saved_name
         imgui.same_line()
         label = inker_state.tool_label(saved["tool"])

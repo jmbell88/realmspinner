@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -337,8 +338,6 @@ def pane_header(
     form/footer inside the pane owns its one primary action.
     """
 
-    from . import controls
-
     room = imgui.get_content_region_avail().x
     with fonts.heading(imgui):
         label_width = imgui.calc_text_size(label).x
@@ -361,7 +360,12 @@ def pane_header(
         for index, (key, text, callback) in enumerate(entries):
             if index:
                 imgui.same_line()
-            if controls.button(text, role=controls.ButtonRole.GHOST):
+            # ``ghost_button`` rather than a hand-spelled
+            # ``controls.button(role=GHOST)`` (the 2026-09-08 vocabulary pass):
+            # this module defines the helper, and a trailing-action row that
+            # spelled the role out by hand was the shared layer setting the
+            # example every pane's own hand-spelling was copying.
+            if ghost_button(text):
                 callback()
                 clicked = key
     imgui.dummy((0, sp(tokens.SP_2)))
@@ -2086,7 +2090,7 @@ def button_width(label: str) -> float:
     return imgui.calc_text_size(label.split("##")[0]).x + imgui.get_style().frame_padding.x * 2
 
 
-def grid_width(columns: int) -> float:
+def grid_width(columns: int, *, avail: float | None = None) -> float:
     """The per-button width of an ``n``-across grid laid out with ``same_line``.
 
     Asks the style for the gap rather than assuming one. Every call site used to
@@ -2101,9 +2105,33 @@ def grid_width(columns: int) -> float:
 
     The same reasoning as ``same_line_or_wrap``: ask the layout, do not
     remember its numbers per call site.
+
+    ``avail`` overrides the live ``get_content_region_avail().x`` -- for a
+    caller measuring against :func:`stable_content_width` instead, the way
+    :func:`tag_toggles` does. ``None`` (every call site but that one) keeps
+    reading the live avail exactly as before.
     """
     gap = imgui.get_style().item_spacing.x
-    return (imgui.get_content_region_avail().x - gap * (columns - 1)) / columns
+    total = imgui.get_content_region_avail().x if avail is None else avail
+    return (total - gap * (columns - 1)) / columns
+
+
+#: The width of a dialog's secondary action -- Cancel, and the wider labels a
+#: refusal-aware Cancel wears ("Keep editing", "Discard"). The 2026-09-08
+#: button-vocabulary audit found four different numbers doing this job across
+#: the app: ``sp(90)`` at eleven call sites, ``sp(100)`` at one, ``sp(110)`` at
+#: three and ``sp(120)`` at three -- the same button, drawn to four widths
+#: depending on which pane happened to type the literal.
+#:
+#: ``110`` rather than the more common ``90``: :data:`dialogs.CANCEL_LABELS`
+#: carries "Keep editing" for the two larger confirmations, and that label does
+#: not fit inside a 90 dp button -- ``imgui.button`` does not wrap or shrink a
+#: label to its frame, it renders past the edge -- so the majority width would
+#: have clipped the very Cancel this constant exists to standardise. ``120`` is
+#: wide enough for every label this app draws but wider than "Cancel" needs to
+#: be for the common case, and ``110`` is the narrowest of the four candidates
+#: that still clears "Keep editing".
+CANCEL_WIDTH = 110.0
 
 
 def stable_width(avail: float, scrollbar: float, has_bar: bool) -> float:
@@ -2229,6 +2257,82 @@ def grade_key_hint(grade: int) -> str:
     return f"Keys: R then {abs(grade)}"
 
 
+def grid_columns_for(
+    *groups: Sequence[str], maximum: int = 0, avail: float | None = None
+) -> int:
+    """How many columns the longest label in ``groups`` leaves room for.
+
+    :func:`grid_width_for`'s answer before it is turned into a width. A caller
+    that lays its grid out with an explicit ``same_line`` every *n* items needs
+    the count as well, and needs it to be the **same** count the width came
+    from: Clay's action grid took the fitted width and went on wrapping every
+    two, so when the width came back as one full-width column the second button
+    of each pair was drawn beside it and off the edge of the pane. A width and a
+    stride that disagree is a worse grid than either mistake alone.
+
+    ``avail`` overrides the live ``get_content_region_avail().x``, for the same
+    reason and the same one caller as :func:`grid_width`'s own override --
+    :func:`tag_toggles` against :func:`stable_content_width`.
+    """
+    style = imgui.get_style()
+    labels = [label for group in groups for label in group]
+    longest = max((imgui.calc_text_size(label).x for label in labels), default=0.0)
+    needed = longest + style.frame_padding.x * 2.0
+    total = imgui.get_content_region_avail().x if avail is None else avail
+    gap = style.item_spacing.x
+    columns = max(1, int((total + gap) // (needed + gap)) if needed > 0 else 1)
+    columns = min(columns, min((len(group) for group in groups if group), default=1))
+    return min(columns, maximum) if maximum > 0 else columns
+
+
+def grid_width_for(
+    *groups: Sequence[str], maximum: int = 0, avail: float | None = None
+) -> float:
+    """:func:`grid_width` sized by the **longest label that has to fit in it**.
+
+    ``grid_width(n)`` answers "an n-across grid", and every caller had to guess
+    ``n``. imgui neither wraps nor shrinks a button's label to its frame -- it
+    draws straight past the edge and the child clips it -- so a guess that is
+    one column too generous does not look tight, it loses the end of a word.
+    Both of the first callers had shipped that:
+
+    * Review's tag chips asked for three columns and drew "good-topology" as
+      "good-topolog" in a 300 dp sidebar -- in the one pane whose whole job is
+      choosing between words that differ by three characters
+      (``good-texture`` / ``bad-texture``).
+    * Clay's action grid asked for two and drew "Smooth (Catmull-Clark)"
+      without its closing bracket, on the same day the grid was made even.
+
+    So the count is derived from what has to fit: as many columns as the widest
+    label allows, never fewer than one, and never more than the smallest group
+    can fill. It also holds at UI scale 1.5, where ``calc_text_size`` grows with
+    the atlas -- a fixed count clips sooner there, which is the failure class
+    ``grid_width``'s own docstring records from the other direction.
+
+    **Several groups are measured together and get one width between them.**
+    Sizing each row to its own longest word gave Review's Good row two columns
+    and its Bad row three, stacked directly on top of each other: nothing
+    clipped, and the block still read as ragged, which is the same complaint one
+    level up from the one being fixed. Rows that read as one control get one
+    grid.
+
+    ``maximum`` caps the count where a caller wants a shape rather than a fit --
+    a two-column block of actions stays two columns on a wide pane instead of
+    stretching to nine.
+
+    Returned as a width rather than a count because that is what most callers
+    pass to ``same_line_or_wrap`` and to the button. :func:`tag_toggles` needs
+    the count too, for the reason on its own ``avail`` comment, and gets it by
+    calling :func:`grid_columns_for` again with the same arguments -- a second
+    call to a pure function of the same inputs, not a second guess.
+
+    ``avail`` is forwarded to both, so a caller sizing against
+    :func:`stable_content_width` gets a width and (if it also calls
+    :func:`grid_columns_for`) a matching column count.
+    """
+    return grid_width(grid_columns_for(*groups, maximum=maximum, avail=avail), avail=avail)
+
+
 def tag_toggles(id_prefix: str, pending: list[str], enabled: bool) -> str | None:
     """The two tag vocabularies as toggle rows. -> the tag clicked, or ``None``.
 
@@ -2247,18 +2351,41 @@ def tag_toggles(id_prefix: str, pending: list[str], enabled: bool) -> str | None
     from ..service import verdicts as verdicts_mod
 
     clicked: str | None = None
-    for label, vocabulary, modifier in (
+    rows = (
         ("Good", verdicts_mod.GOOD_TAGS, "Ctrl"),
         ("Bad", verdicts_mod.BAD_TAGS, "Shift"),
-    ):
+    )
+    groups = tuple(vocabulary for _label, vocabulary, _mod in rows)
+    # Against ``stable_content_width()``, not the live avail ``grid_width_for``
+    # reads by default -- this is the mesh-stage "Was this any good?" section,
+    # open by default on every ungraded mesh, so it is drawn on the very frame
+    # ``layout.pane`` is still deciding whether last frame's taller content
+    # needs a scrollbar. A live avail alternates 456/446 px (a bare pane's
+    # width less ``style.scrollbar_size``) across exactly that decision, and at
+    # this vocabulary's label widths that crossed a column boundary -- 3 across
+    # with no scrollbar, 2 with one -- worth 74 px of height, which is what fed
+    # the scrollbar decision back into itself and never settled (four users'
+    # worth of "the right side flickers", widgets.stable_width's docstring).
+    # Measured once, outside the loop, so the two rows share a grid.
+    stable_avail = stable_content_width()
+    columns = grid_columns_for(*groups, avail=stable_avail)
+    width = grid_width_for(*groups, avail=stable_avail)
+    for label, vocabulary, modifier in rows:
         # No colon. A ``field_label`` is small-caps chrome above the thing it
         # names, and its punctuation is the layout -- "GOOD:" was the only one
         # in the app wearing a colon, two rows under "THEME" and "SKELETON".
         field_label(label)
-        width = grid_width(3)
         for index, tag in enumerate(vocabulary):
-            if index:
-                same_line_or_wrap(width)
+            # Counted, not ``same_line_or_wrap`` -- the same fix and the same
+            # reason ``grade_buttons`` already wraps this way: a live avail
+            # crosses this fit's own boundary by a few px inside a single row
+            # (imgui places two items, drops the third to the epsilon left
+            # over from `columns` widths plus their gaps), giving a *third*
+            # column count neither ``grid_columns_for`` above nor the stable
+            # width agreed to. Wrapping at a fixed stride can't do that: the
+            # row always breaks after exactly ``columns`` items.
+            if index % columns:
+                imgui.same_line()
             # The chord, on a hover for ``grade_key_hint``'s reason: the row is
             # already three columns of whole words in a 260 px sidebar, and the
             # position in it *is* the digit.
@@ -2813,8 +2940,12 @@ def _glyph_button(
     ``selected`` is the *shared* selection treatment -- an accent wash plus
     ``controls``' boundary ring -- and not a fill of accent. It exists here so
     that a toolbar of glyph buttons can say which one is in hand without
-    abandoning this button for ``controls.button(role=ICON)`` purely to get
-    the paint, which is what ``toolbar._draw`` used to do.
+    abandoning this button for ``controls.button(role=ButtonRole.ICON)`` purely
+    to get the paint, which is what ``toolbar._draw`` used to do before this
+    parameter existed. The migration is finished, not just under way: the
+    2026-09-08 button-vocabulary audit found no call site anywhere in ``src/``
+    or ``tests/`` still reaching for that role, so ``ButtonRole.ICON`` itself
+    is gone from ``controls.py`` rather than kept as a shape nothing draws.
     """
     # ``imgui.get_id`` folds in the current id stack, so two rows that push
     # their own id (a layers panel's per-row ``push_id``) and then draw the
@@ -3196,7 +3327,12 @@ def ghost_button(
 
 
 def destructive_button(
-    label: str, size: tuple[float, float] = (0, 0), *, enabled: bool = True
+    label: str,
+    size: tuple[float, float] = (0, 0),
+    *,
+    enabled: bool = True,
+    reason: str = "",
+    tooltip: str = "",
 ) -> bool:
     """Red where it acts, not where it cancels.
 
@@ -3205,9 +3341,19 @@ def destructive_button(
     enabled:`` draws a live red button that swallows the click, which is the
     one button in the app where "nothing happened" is hardest to tell from
     "something irreversible happened".
+
+    ``reason``/``tooltip`` match :func:`ghost_button` and :func:`primary_button`'s
+    contract (the 2026-09-08 button-vocabulary pass): before this, a pane whose
+    destructive action needed to explain a disabled state had no argument for
+    it here and had to reach past this function -- ``plotter_layers.py`` hand-
+    rolled ``controls.button(..., role=ButtonRole.DESTRUCTIVE)`` with a comment
+    naming exactly this gap, and ``clay_tools.py`` carried a whole second
+    ``_destructive_button`` wrapper that re-implemented the disabled-reason
+    tooltip beside this one because this one could not take a ``reason``.
+    Routed through :func:`_button_with_note`, the same chokepoint the other two
+    role buttons use, so the probe census and the disabled-reason tooltip both
+    see this button the way they see every other one.
     """
-    if not enabled:
-        imgui.begin_disabled()
     key = f"destructive/{label}"
     fill = imgui.ImVec4(*theme.rgba(theme.ERR, 0.85 + 0.15 * _hover_amount(key)))
     imgui.push_style_color(imgui.Col_.button.value, fill)
@@ -3216,12 +3362,10 @@ def destructive_button(
         imgui.Col_.button_active.value, imgui.ImVec4(*theme.rgba(theme.ERR, 0.7))
     )
     with fonts.label(imgui):
-        clicked = imgui.button(label, size)
-    note_hover(key, enabled and imgui.is_item_hovered())
+        clicked, hovered = _button_with_note(label, enabled, size, reason=reason, tooltip=tooltip)
+    note_hover(key, enabled and hovered)
     imgui.pop_style_color(3)
-    if not enabled:
-        imgui.end_disabled()
-    return clicked and enabled
+    return clicked
 
 
 @contextmanager

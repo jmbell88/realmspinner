@@ -98,15 +98,19 @@ def _params_popup(ctx: Any, state: Any) -> None:
             widgets.muted(op.hint)
             imgui.pop_text_wrap_pos()
         for param in op.params:
+            widgets.field_label(param.label)
             imgui.set_next_item_width(sp(120))
             current = float(values.get(param.name, param.default))
+            # ``##``-prefixed onto the unchanged ``{param.label}##{PARAM_
+            # POPUP}/{param.name}`` id: the label moved above and the id
+            # stays the string it always was.
             if param.integer:
                 changed, value = controls.input_int(
-                    f"{param.label}##{PARAM_POPUP}/{param.name}", int(current)
+                    f"##{param.label}##{PARAM_POPUP}/{param.name}", int(current)
                 )
             else:
                 changed, value = controls.input_float(
-                    f"{param.label}##{PARAM_POPUP}/{param.name}", current
+                    f"##{param.label}##{PARAM_POPUP}/{param.name}", current
                 )
             if changed:
                 values[param.name] = min(max(float(value), param.low), param.high)

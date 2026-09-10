@@ -422,6 +422,43 @@ def test_the_ui_scale_preference_never_reaches_the_minimum_window_size():
         tokens.set_scale(before)
 
 
+def test_the_zoom_is_five_named_steps_and_a_stored_odd_value_snaps_to_one():
+    """A slider let an install run at a size nobody has ever looked at.
+
+    The Appearance pane's zoom used to be a track over 0.5..2.0, so a settings
+    file could carry 1.13x -- a size no screenshot pass covers, no reviewer has
+    seen, and no report can be reproduced from, reachable only by wherever a
+    mouse happened to stop. It is five steps now, and this asserts both halves:
+    the set that is offered, and that an existing install carrying a slider's
+    value is moved onto one of them rather than honoured.
+    """
+    from warlock.studio import tokens
+    from warlock.studio.main import _ui_scale
+
+    assert tokens.UI_SCALE_STEPS == (0.5, 0.75, 1.0, 1.25, 1.5)
+    # Every step is a value the product clamp will actually honour on an
+    # ordinary display, which is the property ``ui_scale_bounds`` buys and the
+    # reason the offered list is filtered rather than fixed.
+    assert tokens.ui_scale_steps(1.0) == tokens.UI_SCALE_STEPS
+    # 300 % leaves room for 1.33x, so the top step is not offerable there and
+    # is not offered -- a combo entry that cannot be honoured is the discrete
+    # form of the slider snapping back under the cursor.
+    assert 1.5 not in tokens.ui_scale_steps(3.0)
+    assert tokens.ui_scale_steps(8.0), "a combo with nothing in it is not an answer"
+
+    class _Stored:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self, _key, default=None):
+            return self.value
+
+    # The slider's leftovers, and the shapes a settings file can otherwise
+    # hold. Every one of them comes back as a step.
+    for stored in (1.13, 0.62, 1.9, 2.0, 0.1, "junk", None):
+        assert _ui_scale(_Stored(stored)) in tokens.UI_SCALE_STEPS, stored
+
+
 def test_the_ui_scale_slider_can_only_offer_a_zoom_that_survives_the_clamp():
     """set_scale clamps the *product*, so an unbounded control lied.
 

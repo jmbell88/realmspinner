@@ -384,12 +384,17 @@ class ConfirmQueue:
         # a destructive question a coin toss.
         confirmed = widgets.destructive_button(confirm.confirm_label, (sp(BUTTON_W), 0))
         imgui.same_line()
-        cancelled = controls.button(
-            confirm.cancel_label,
-            (sp(BUTTON_W), 0),
-            role=controls.ButtonRole.SECONDARY,
-            _imgui=imgui,
-        )
+        # ``widgets.ghost_button`` rather than a hand-spelled
+        # ``controls.button(role=SECONDARY)`` (the 2026-09-08 button-vocabulary
+        # pass): SECONDARY was never the register a Cancel wants -- ghost is,
+        # by ``ghost_button``'s own worked example -- and this file's Prompt
+        # modal already draws its Cancel as GHOST two dialogs down. No test
+        # drives ``ConfirmQueue.draw`` against a fake ``dialogs.imgui`` (only
+        # ``PromptQueue.draw`` is, in ``test_dialogs_prompt.py``), so dropping
+        # ``_imgui=`` here -- which ``ghost_button`` has no parameter for --
+        # costs nothing today; see ``PromptQueue.draw`` below for the pair of
+        # buttons that could not make the same move.
+        cancelled = widgets.ghost_button(confirm.cancel_label, (sp(widgets.CANCEL_WIDTH), 0))
         # Focus lands on the *safe* button, and Enter activates that one.
         #
         # It used to land on the destructive one, with Enter confirming it --
@@ -563,6 +568,19 @@ class PromptQueue:
                 # sentence in the modal that says why Save will not work, so it is
                 # the last copy in the app that should be drawn at 3.20:1.
                 imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.MUTED)), "Name required.")
+        # Save and Cancel stay on ``controls.button(role=...)`` rather than
+        # moving to ``widgets.primary_button``/``ghost_button`` (the
+        # 2026-09-08 button-vocabulary pass converted every other role= call
+        # in this module's reach that could move). This pair is the one place
+        # that cannot: ``test_dialogs_prompt.py`` drives this exact draw call
+        # against a fake swapped in as ``dialogs.imgui`` and reads the click
+        # through ``_imgui=``, precisely the escape hatch ``controls.button``
+        # carries and the ``widgets`` helpers do not -- they always call the
+        # real ``imgui_bundle.imgui`` (see ``_button_with_note``). Moving
+        # these two would not fail loudly; it would make four headless tests
+        # reach for a GL context that is not there. Cancel's *width* still
+        # takes the new one-Cancel-width constant, since that argument does
+        # not touch which function draws the button.
         saved = controls.button(
             "Save",
             (sp(BUTTON_W), 0),
@@ -576,7 +594,7 @@ class PromptQueue:
         cancelled = (
             controls.button(
                 "Cancel",
-                (sp(BUTTON_W), 0),
+                (sp(widgets.CANCEL_WIDTH), 0),
                 role=controls.ButtonRole.GHOST,
                 _imgui=imgui,
             )

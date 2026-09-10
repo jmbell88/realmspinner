@@ -44,6 +44,7 @@ import contextlib
 import copy
 import logging
 import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -231,6 +232,18 @@ class PoserState:
     #: the whole reason they live on the session's own state.
     rerig_open: bool = False
     rerig_choice: str = ""
+
+    # -- the "Rigged assets" picker --------------------------------------------
+    #
+    # ``troupe_mode.sendable_meshes``'s two costs, paid the same way here:
+    # ``can_open_in_poser`` reads ``files``, which is ``attach_files``' one
+    # stat per listed name per row and not a column, and ``poser_library``
+    # asks for this list every frame its own header is open. ``riggable_files``
+    # is ``attach_files``'s own ``{job: (stamp, names)}`` cache, owned here
+    # because the caller is required to own it.
+    riggable_cache: list[dict[str, Any]] | None = None
+    riggable_next: float = 0.0
+    riggable_files: dict[str, Any] = field(default_factory=dict)
 
     def find_asset_pose(self, pose_id: Any) -> dict[str, Any] | None:
         return next((p for p in self.asset_poses if p.get("id") == pose_id), None)
@@ -438,6 +451,102 @@ def set_template(ctx: Any, template: str) -> None:
         )
         return
     guarded()
+
+
+# --- the "Rigged assets" picker -----------------------------------------------
+#
+# The 2026-09-09 gap: Poser had no way to open an asset from inside the mode
+# at all -- the only doors in were the inspector's Pose panel link and, once
+# B1 closed it, the library/inspector exits list, both of which mean leaving
+# whatever the user was looking at. This is Poser's own picker's data half,
+# modelled line for line on ``troupe_mode.can_send_to_troupe`` /
+# ``sendable_meshes`` -- see both docstrings for the two costs paid here too.
+
+
+def can_open_in_poser(ctx: Any, job: Any) -> bool:
+    """Whether this row belongs in the "Rigged assets" picker.
+
+    From the cached row alone -- no filesystem -- ``troupe_mode.can_send_to_troupe``'s
+    shape and its reason: the pane asks this every frame its own header is
+    open. ``rig.glb`` in ``files``, not a rig *row*: a rig job's own row
+    carries no files of its own (``asset_open``'s docstring names the trap),
+    so it is the *mesh* a rig lands beside that belongs in this picker --
+    ``asset_exits._mesh_for`` makes the identical argument for the exits list.
+    """
+    del ctx
+    return bool(
+        job
+        and job.get("stage") == "model"
+        and job.get("status") == "done"
+        and not job.get("deleted_at")
+        and "rig.glb" in (job.get("files") or [])
+    )
+
+
+def riggable_assets(ctx: Any) -> list[dict[str, Any]]:
+    """Every rigged mesh the picker may offer, newest first. Throttled.
+
+    ``sendable_meshes``'s pattern, reused rather than restated: the page cap
+    and the refresh cadence are ``troupe_mode``'s own constants, over the same
+    store, for the same reason a second set of numbers would just be a second
+    answer to a question already answered. ``can_open_in_poser`` reads
+    ``files``, which is ``attach_files``' one-stat-per-listed-name-per-row
+    doing and not a column -- ``files_cache`` is what ``list_jobs`` offers for
+    exactly this, and the throttle is what keeps a 400-row page from being
+    thousands of stats a frame on the thread that must not block.
+
+    **This row shape is not ``sendable_meshes``'s, on purpose.** That picker's
+    rows are read by ``troupe_send.ask``/``send_to_troupe``, which re-reads
+    the row through the service before acting, so a display-only trim (``id``,
+    a merged ``prompt``, ``created_at``) costs nothing. This picker's rows are
+    handed straight to :func:`open_asset`, which reads the dict it is given
+    and never re-reads it -- ``job.get("id")``, ``job.get("name") or
+    job.get("prompt")`` for the label, and ``(job.get("params") or
+    {}).get("front_yaw")`` for the asset's recorded facing. The 2026-09-09
+    review defect this fixes: a first cut copied ``sendable_meshes``' trim
+    without checking its consumer, so every session opened from this picker
+    silently lost the asset's front and faced yaw 0 regardless of what
+    ``poser_mode.set_front`` had recorded for it. ``name`` and ``prompt`` are
+    carried raw (not merged, unlike ``sendable_meshes``' display-only
+    ``prompt``) so ``open_asset``'s own name-then-prompt preference reads the
+    same row the exits list would have handed it; ``params`` is carried whole
+    rather than just ``front_yaw`` because it is already a parsed dict on
+    every row ``list_jobs`` returns and a second, narrower shape would only
+    be one more thing for this and ``open_asset`` to agree about by hand.
+    """
+    from ..service import jobs as svc_jobs
+    from . import troupe_mode
+
+    state = ensure(ctx)
+    now = time.monotonic()
+    if state.riggable_cache is None or now >= state.riggable_next:
+        out = [
+            {
+                "id": str(row["id"]),
+                "name": row.get("name") or "",
+                "prompt": row.get("prompt") or "",
+                "created_at": row.get("created_at"),
+                "params": row.get("params") or {},
+            }
+            for row in svc_jobs.list_jobs(
+                ctx.svc, limit=troupe_mode.SCAN_LIMIT, files_cache=state.riggable_files
+            )
+            if can_open_in_poser(ctx, row)
+        ]
+        out.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        state.riggable_cache = out
+        state.riggable_next = now + troupe_mode.CAST_REFRESH_LIVE
+    return state.riggable_cache
+
+
+def invalidate_riggable(ctx: Any) -> None:
+    """Drop the throttled rigged-asset list so the next draw re-reads it.
+
+    ``troupe_mode.invalidate_sendable``'s sibling, called from the same kind
+    of place: a rig landing while Poser's own picker is open is exactly the
+    event that makes the throttled list stale before its interval is up.
+    """
+    ensure(ctx).riggable_cache = None
 
 
 # --- the asset session ---------------------------------------------------------

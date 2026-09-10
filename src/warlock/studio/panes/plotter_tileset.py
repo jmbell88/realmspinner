@@ -340,7 +340,11 @@ def _tile_form(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
     # ``set_tile_meta`` pushed a step per report until ``fold_undo`` below
     # folded them into one (2026-09-05 consistency pass).
     controls.fold_undo(tab.doc.history)
-    changed, probability = controls.input_float("Probability", float(meta.probability))
+    # Label above (2026-09-08 consistency pass); id kept stable,
+    # "Probability" -> "##Probability". Also fixed identically in
+    # ``plotter_tileset_editor.py``'s near-duplicate of this panel.
+    widgets.field_label("Probability")
+    changed, probability = controls.input_float("##Probability", float(meta.probability))
     controls.fold_undo(tab.doc.history)
     if class_name != meta.class_name or changed:
         tab.doc.set_tile_meta(

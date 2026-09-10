@@ -1340,3 +1340,10 @@ Decisions with arguments beside them, not backlog:
   endpoint would be the first socket in the app besides the trellis client,
   and it would break `HF_HUB_OFFLINE=1`. The user approves a *picture*, which
   is a better interface than a manifest.
+  **This bullet is about Warlock calling out, and it stays refused.** The MCP
+  server (`src/warlock/mcp/`, 2026-09-09) is the opposite arrow and is not a
+  counter-example: an agent already running on the machine connects *in*, over
+  a named pipe, and drives Clay through the same doors a pane does. Warlock
+  ships no model, runs no inference, opens no socket and reaches no endpoint;
+  `HF_HUB_OFFLINE=1` is untouched. What was refused was the app acquiring an
+  appetite for a service somewhere else, and it still has none.

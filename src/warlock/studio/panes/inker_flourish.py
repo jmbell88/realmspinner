@@ -253,14 +253,16 @@ def restyle_popup(ctx: Any, tab: Any) -> None:
         state.flourish_restyle_subject,
     )
     state.flourish_restyle_subject = subject
+    widgets.field_label("Strength")
     imgui.set_next_item_width(sp(200))
     _c, strength = controls.slider_float(
-        "strength##fl-restyle", float(state.flourish_restyle_strength), 0.1, 0.95, "%.2f"
+        "##strength##fl-restyle", float(state.flourish_restyle_strength), 0.1, 0.95, "%.2f"
     )
     state.flourish_restyle_strength = float(strength)
+    widgets.field_label("Keyframes")
     imgui.set_next_item_width(sp(200))
     _c, anchors = controls.slider_int(
-        "keyframes##fl-restyle", int(state.flourish_restyle_anchors), 2, 6
+        "##keyframes##fl-restyle", int(state.flourish_restyle_anchors), 2, 6
     )
     state.flourish_restyle_anchors = int(anchors)
     widgets.muted_wrapped(
@@ -339,27 +341,44 @@ def draw_inspector(ctx: Any, tab: Any) -> None:
     config = getattr(getattr(ctx, "svc", None), "config", None)
     widgets.muted("model" if inker_flourish.text_model_available(config) else "keywords")
 
+    # Each field is its own group -- label above, control below -- so the row
+    # still reads left to right the way the four used to as bare same-lined
+    # controls, but every one of them now says what it is (the 2026-09-08
+    # label-above pass).
     changed = False
+    imgui.begin_group()
+    widgets.field_label("Seed")
     imgui.set_next_item_width(sp(120))
-    seed_changed, seed = controls.input_int("Seed##fl", int(recipe.seed), 1, 10)
+    seed_changed, seed = controls.input_int("##Seed##fl", int(recipe.seed), 1, 10)
+    imgui.end_group()
     if seed_changed:
         recipe = replace(recipe, seed=max(0, int(seed)))
         changed = True
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("FPS")
     imgui.set_next_item_width(sp(120))
-    fps_changed, fps = controls.slider_int("fps##fl", int(recipe.fps), 1, 60)
+    fps_changed, fps = controls.slider_int("##fps##fl", int(recipe.fps), 1, 60)
+    imgui.end_group()
     if fps_changed:
         recipe = replace(recipe, fps=int(fps))
         changed = True
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Mode")
+    imgui.set_next_item_width(sp(120))
     mode_changed, mode = controls.combo("##fl-mode", recipe.mode, list(MODE_OPTIONS))
+    imgui.end_group()
     if mode_changed:
         recipe = replace(recipe, mode=mode)
         changed = True
     if recipe.mode == "pixel":
         imgui.same_line()
+        imgui.begin_group()
+        widgets.field_label("Colours")
         imgui.set_next_item_width(sp(120))
-        col_changed, colors = controls.slider_int("colours##fl", int(recipe.colors), 2, 64)
+        col_changed, colors = controls.slider_int("##colours##fl", int(recipe.colors), 2, 64)
+        imgui.end_group()
         if col_changed:
             recipe = replace(recipe, colors=int(colors))
             changed = True
@@ -403,10 +422,13 @@ def _phases(recipe: Any) -> tuple[Any, bool]:
     changed = False
     phases = list(recipe.phases)
     for i, phase in enumerate(phases):
+        imgui.begin_group()
+        widgets.field_label(phase.name)
         imgui.set_next_item_width(sp(110))
         f_changed, frames = controls.slider_int(
-            f"{phase.name}##fl-phase-{i}", int(phase.frames), 1, 60
+            f"##{phase.name}##fl-phase-{i}", int(phase.frames), 1, 60
         )
+        imgui.end_group()
         imgui.same_line()
         l_changed, loop = controls.checkbox(f"Loop##fl-loop-{i}", bool(phase.loop))
         if f_changed or l_changed:
@@ -428,8 +450,11 @@ def _layer_block(state: Any, group: int, recipe: Any) -> tuple[Any, bool]:
     options = [
         (str(layer.uid), f"{layer.name} ({layer.kind})") for layer in reversed(recipe.layers)
     ]
+    imgui.begin_group()
+    widgets.field_label("Layer")
     imgui.set_next_item_width(sp(220))
     _c, picked = controls.combo("##fl-layer", str(current), options, tooltip="Which layer to edit.")
+    imgui.end_group()
     current = int(picked)
     state.flourish_layer[group] = current
     layer = recipe.layer(current)
@@ -441,10 +466,13 @@ def _layer_block(state: Any, group: int, recipe: Any) -> tuple[Any, bool]:
         layer = replace(layer, visible=bool(visible))
         changed = True
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Opacity")
     imgui.set_next_item_width(sp(100))
     o_changed, opacity = controls.slider_float(
-        "opacity##fl-op", float(layer.opacity), 0.0, 1.0, "%.2f"
+        "##opacity##fl-op", float(layer.opacity), 0.0, 1.0, "%.2f"
     )
+    imgui.end_group()
     if o_changed:
         layer = replace(layer, opacity=float(opacity))
         changed = True
@@ -466,31 +494,40 @@ def _layer_block(state: Any, group: int, recipe: Any) -> tuple[Any, bool]:
 
 
 def _param_control(name: str, spec: Any, value: Any) -> tuple[Any, bool]:
-    label = f"{name}##fl-p-{name}"
     tip = spec.label or ""
+    if spec.kind == "bool":
+        # A checkbox already reads its own name as the label -- the "a
+        # checkbox stays" exemption of the 2026-09-08 label-above pass -- so
+        # it keeps drawing beside itself rather than under a field label.
+        changed, got = controls.checkbox(f"{name}##fl-p-{name}", bool(value), tooltip=tip)
+        return bool(got), bool(changed)
+    # Hidden and re-shown above by ``field_label``: the id keeps the exact
+    # string every other param control here has always used (``name`` and
+    # the ``fl-p-`` differentiator), just prefixed with ``##`` so imgui stops
+    # drawing it beside the control (``widgets.field_label``'s docstring, and
+    # the house rule that hiding a label may not also rename its id).
+    control_id = f"##{name}##fl-p-{name}"
+    widgets.field_label(name, tip or None)
     imgui.set_next_item_width(sp(160))
     if spec.kind == "float":
         changed, got = controls.slider_float(
-            label, float(value), float(spec.lo), float(spec.hi), "%.2f", tooltip=tip
+            control_id, float(value), float(spec.lo), float(spec.hi), "%.2f", tooltip=tip
         )
         return float(got), bool(changed)
     if spec.kind == "int":
         changed, got = controls.slider_int(
-            label, int(value), int(spec.lo), int(spec.hi), tooltip=tip
+            control_id, int(value), int(spec.lo), int(spec.hi), tooltip=tip
         )
         return int(got), bool(changed)
-    if spec.kind == "bool":
-        changed, got = controls.checkbox(label, bool(value), tooltip=tip)
-        return bool(got), bool(changed)
     if spec.kind == "choice":
         changed, got = controls.combo(
-            label, str(value), [(c, c) for c in spec.choices], tooltip=tip
+            control_id, str(value), [(c, c) for c in spec.choices], tooltip=tip
         )
         return str(got), bool(changed)
     if spec.kind == "color":
         rgba = prims.parse_color(str(value))
         changed, got = controls.color_edit4(
-            label, [float(c) for c in rgba], inker_colors.FLAGS, tooltip=tip
+            control_id, [float(c) for c in rgba], inker_colors.FLAGS, tooltip=tip
         )
         if changed:
             return "#" + "".join(f"{int(round(c * 255)):02X}" for c in got), True
@@ -508,8 +545,6 @@ def _param_control(name: str, spec: Any, value: Any) -> tuple[Any, bool]:
     b_changed, b = controls.slider_float(
         f"##fl-c1-{name}", float(last), lo, hi, "%.1f", tooltip=f"{name} at the end"
     )
-    imgui.same_line()
-    widgets.muted(name if not tip else f"{name} ({tip})")
     if not (a_changed or b_changed):
         return value, False
     if len(curve.keys) == 1:
@@ -522,9 +557,13 @@ def _param_control(name: str, spec: Any, value: Any) -> tuple[Any, bool]:
 def _asset_control(name: str, value: Any, asset_ids: list[str]) -> tuple[Any, bool]:
     options = [("", "(none)"), *((a, a) for a in asset_ids)]
     current = str(value or "") if str(value or "") in asset_ids else ""
+    widgets.field_label(name)
     imgui.set_next_item_width(sp(160))
     changed, got = controls.combo(
-        f"{name}##fl-p-{name}",
+        # ``##`` prefixed onto the same ``{name}##fl-p-{name}`` id
+        # ``_param_control`` uses, for its reason: the label moved above and
+        # the id must not move at all.
+        f"##{name}##fl-p-{name}",
         current,
         options,
         tooltip="A texture of this effect: from the selection, or generated.",

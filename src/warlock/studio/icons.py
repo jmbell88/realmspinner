@@ -10,6 +10,28 @@ as a missing-glyph box, which is cosmetic, not a crash.
 The font is merged into every Inter face (:mod:`.fonts`), so an icon is just a
 character in a string: ``f"{icons.STAR} Favourite"``.
 
+**One concept, one glyph -- stated once, here, instead of at every call site**
+(a 2026-09-08 inventory found the same meaning drawn with three different
+icons across the app, because the rule lived nowhere written down):
+
+- ``DOWNLOAD`` means "out of here, into a file or the library" (export).
+- ``FOLDER_OPEN`` means "in from a file" (import/open).
+- ``UPLOAD`` is used for neither -- it reads backwards for both, since this
+  app never sends anything to a remote server. Prefer ``DOWNLOAD`` or
+  ``FOLDER_OPEN`` by the rule above; if a use genuinely needs a third glyph,
+  it is not this one.
+- Row/element deletion (an item leaves a list) is ``TRASH``; ``X`` is
+  cancel/dismiss/clear (a transient state goes away, nothing is deleted).
+- "This is already done/present" is ``CHECK``, drawn as a prefix --
+  ``f"{icons.CHECK} {label}"`` -- never a literal ``"✓"``: the glyph comes
+  from the vendored font like every other icon, so it scales and themes with
+  the rest of the atlas instead of falling back to whatever the OS has for
+  that codepoint.
+- An "add" control's plus is ``PLUS``, drawn as a prefix --
+  ``f"{icons.PLUS} {label}"`` -- never a literal ``"+"``: same reasoning,
+  plus a literal ``+`` in a button label reads as a keyboard hint next to a
+  real one (Ctrl+E, Alt+drag) rather than as an icon.
+
 **This is a catalogue, and an unreferenced constant here is not dead code.**
 The numbers are transcribed from a named release's ``info.json`` and are only
 ever regenerated wholesale from a later one, so a name with no call site today

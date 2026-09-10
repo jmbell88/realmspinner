@@ -13,6 +13,7 @@ asserted headlessly.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -22,6 +23,7 @@ from warlock.studio import clay_view
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import primitives as bp
 from warlock.studio.viewer import math3d as m3
+from warlock.studio.viewer.camera import Camera
 
 
 class _State:
@@ -1662,3 +1664,108 @@ def test_the_alt_state_is_consumed_so_a_later_release_is_not_a_click(view) -> No
     view._alt_click(doc)
     assert view._alt_at is None
     assert not view._alt_click(doc)
+
+
+# --- render_png: the agent surface (bounds/angles/grid) -----------------------
+
+
+def test_render_png_defaults_are_the_picture_the_trellis_path_already_got(view) -> None:
+    """The default path has to stay byte-identical to what it drew before
+    ``angles``/``bounds``/``grid`` existed -- ``_render_clay_reference`` and
+    every stored-corpus comparison keyed on its input depend on it."""
+    doc = _doc(count=1)
+    assert view.render_png(doc) == view.render_png(doc, angles=None, bounds=None, grid=False)
+
+
+def test_render_png_with_angles_does_not_move_the_cameras_own_state(view) -> None:
+    """The same promise ``frame``/``view`` already made, extended to the third
+    way this method can move the camera: whatever ``render_png`` does to take
+    the picture, the user's own camera is exactly where it was before the call
+    once the ``finally`` restore runs."""
+    doc = _doc(count=1)
+    view.frame_selection(doc)
+    before = {
+        key: (value.copy() if hasattr(value, "copy") else value)
+        for key, value in vars(view.camera).items()
+    }
+
+    view.render_png(doc, angles=(0.3, 1.2))
+
+    after = vars(view.camera)
+    assert after.keys() == before.keys()
+    for key, was in before.items():
+        now = after[key]
+        if hasattr(was, "copy"):
+            assert np.allclose(now, was), key
+        else:
+            assert now == was, key
+
+
+def test_render_png_with_angles_matching_a_named_view_draws_the_same_picture(view) -> None:
+    """Pins the yaw/pitch mapping against ``Camera.AXIS_VIEWS`` itself, not
+    against a comment: ``(0.0, pi/2)`` is exactly what ``AXIS_VIEWS["front"]``
+    holds, so the two framings must produce the identical draw."""
+    doc = _doc(count=1)
+    view.frame_selection(doc)
+
+    by_view = view.render_png(doc, view="front")
+    by_angles = view.render_png(doc, angles=(0.0, math.pi / 2))
+
+    assert by_view == by_angles
+
+
+def test_render_png_with_a_grid_draws_something_the_gridless_render_does_not(view) -> None:
+    doc = _doc(count=1)
+    view.frame_selection(doc)
+
+    without = view.render_png(doc)
+    with_grid = view.render_png(doc, grid=True)
+
+    assert with_grid != without
+
+
+def test_render_png_with_bounds_frames_those_bounds_rather_than_the_whole_document(view) -> None:
+    """The renderer has no per-node alpha -- everything still draws -- so the
+    only observable effect of ``bounds`` is the camera framing a subset of the
+    document instead of the whole thing, which is exactly what should make
+    the two pictures differ."""
+    doc = _doc(count=2)  # boxes at x=0 and x=3; the second is well outside a
+    # box framed on the first alone.
+    lo, hi = np.array([-0.5, -0.5, -0.5]), np.array([0.5, 0.5, 0.5])
+
+    whole_document = view.render_png(doc)
+    just_the_first_object = view.render_png(doc, bounds=(lo, hi))
+
+    assert whole_document != just_the_first_object
+
+
+# --- Camera.look_angles: the split that keeps look_along's coupling in one place --
+
+
+def test_look_angles_moves_the_damping_goals_with_the_angles() -> None:
+    """``look_along`` was already careful to move ``theta``/``phi`` and their
+    damping shadows together -- a caller that moved only the live pair would
+    see the camera visibly animate back to the old angle on the very next
+    ``update()``. ``look_angles`` is that same pairing, generalised past the
+    six named views, and this is the property that makes it safe for a second
+    caller (``render_png``'s ``angles``) to reach for instead of writing
+    ``theta``/``phi`` by hand."""
+    cam = Camera()
+    cam.look_angles(0.7, 1.1)
+    assert cam.theta == 0.7
+    assert cam.phi == 1.1
+    assert cam._goal_theta == 0.7
+    assert cam._goal_phi == 1.1
+
+
+def test_look_along_still_answers_false_for_a_name_it_does_not_know() -> None:
+    """``look_along`` is now a lookup into ``AXIS_VIEWS`` followed by a call to
+    ``look_angles`` -- this pins that the lookup still runs first, so an
+    unknown name is refused before it can reach ``look_angles`` with
+    nonsense, and nothing about the camera moves."""
+    cam = Camera()
+    before = (cam.theta, cam.phi, cam._goal_theta, cam._goal_phi)
+
+    assert cam.look_along("not-a-real-view") is False
+
+    assert (cam.theta, cam.phi, cam._goal_theta, cam._goal_phi) == before

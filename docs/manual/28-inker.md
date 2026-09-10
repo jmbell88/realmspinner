@@ -574,26 +574,42 @@ The `I` **Pick** tool samples a colour from the canvas into the foreground.
 
 ### The colour picker
 
-Under the palette is the **picker**: a tab strip over **RGB**, **HSV**, **HSL** and **Gray**, a
-slider per channel, an alpha slider in every tab, and a hex field. It is a panel rather than a
-popup, which is the whole reason it exists — a swatch's own picker closes on the next click, so
-nudging a channel and looking at the canvas meant reopening it every time.
+Under the palette is the **picker**: a hue/saturation wheel, a **Value** bar and an **Alpha** bar
+under it, a **Space** combo, and a numeric row that shows whichever space the combo is set to. It is
+a panel rather than a popup, which is the whole reason it exists — a swatch's own picker (the one
+described above, opened by clicking a swatch) closes on the next click, so nudging a channel and
+looking at the canvas meant reopening it every time.
 
-**Foreground** / **Background** at the top says which of the two colours the sliders edit. The alpha
-slider is drawn in all four tabs deliberately: a semi-transparent brush is a colour here, not a
-separate mode, and a channel you have to change tabs to reach is one you forget you have.
+**Foreground** / **Background** at the top says which of the two colours the wheel and the bars
+edit. Click or drag anywhere on the wheel to set hue and saturation — angle is hue, distance from
+the centre is saturation — and a drag that leaves the wheel keeps tracking the pointer's angle at
+the rim rather than stopping, the way Aseprite's own wheel does. The wheel is drawn at full
+brightness on purpose: brightness is the **Value** bar underneath it, so the wheel's own picture
+never has to be redrawn while you drag that bar, only the ring marker moves. **Alpha** is its own
+bar below Value for the same reason the old picker gave it a slider in every tab: a semi-transparent
+brush is a colour here, not a separate mode.
+
+**Space** chooses what the numeric row under the two bars shows — **RGBA**, **HSV**, **HSL** or
+**Gray** — each a single-letter field beside its box (`R`, `G`, `B`, `A`, and so on). This is the
+picker's older self: before the wheel, these four were tabs with a slider stack apiece, and every
+one of them is still here, just inline under one combo instead of stacked one tab at a time. Which
+space you last chose is remembered for the session, the way the settings panel remembers which
+category you were looking at. The **HSV** row's Hue and Saturation are the same two numbers the
+wheel is showing — dragging the wheel moves them and typing into them moves the marker — because
+a hue picked one way and a hue read the other are one number, not two that happen to agree until one
+of them moves.
 
 The hex field takes `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, with or without the hash, and is
 applied when you press Enter rather than as you type — half a typed triple is also a colour, and
 applying it would repaint the brush three times on the way to the one you meant. Anything that is
 not a hex colour is ignored and the field goes back to showing what the colour actually is.
 
-On an **indexed** document, with a colour picked out of the palette, the sliders edit that *entry* —
-the row above them says which. That is Aseprite's behaviour and it follows from what an indexed
-document is: the pixels are slot numbers, so a colour that is not in the table is not a colour the
-drawing can hold. Every pixel painted in that slot changes with it, in one undo step. Pick a colour
-any other way — the wheel, the `I` tool, a session swatch — and the sliders go back to editing the
-brush's own colour.
+On an **indexed** document, with a colour picked out of the palette, the wheel, the bars and the
+numeric row all edit that *entry* — the row above them says which. That is Aseprite's behaviour and
+it follows from what an indexed document is: the pixels are slot numbers, so a colour that is not in
+the table is not a colour the drawing can hold. Every pixel painted in that slot changes with it, in
+one undo step. Pick a colour any other way — a swatch's own picker, the `I` tool, a session swatch —
+and the wheel and the bars go back to editing the brush's own colour.
 
 ### Colour modes
 

@@ -171,6 +171,74 @@ def test_the_health_page_is_never_photographed():
         assert not list(corpus.glob("*settings-health*")), "a health capture is in the corpus"
 
 
+def test_the_two_audio_modes_are_photographed_with_work_in_them():
+    """Sirens and Muse were the last modes whose every picture was empty.
+
+    Ten panes between them draw an empty state until something is open: the
+    tracker's grid, instruments, envelopes and order, and Muse's take tray with
+    its Play, Open in Sirens, Make more and Stems controls. That is the gap
+    ``--seed`` closes for Inker, Clay, Plotter and Packwright and ``--troupe``
+    closes for Troupe, and the harness's own rule says it plainly -- a mode
+    with no seed is a picture of nothing.
+
+    **Neither seeder may open an audio device.** A capture has nothing to hear,
+    and ``sirens_audio`` is the one module that touches ``pygame.mixer``; a
+    screenshot pass that started sound would be a side effect on the machine
+    that ran it. Muse's player is therefore built the way ``on_task_done``
+    builds it and stops short of ``sirens_audio.play``.
+    """
+    harness = _load("_appharness")
+    for name in ("seed_sirens", "seed_muse"):
+        assert hasattr(harness, name), name
+    # Asked of the compiled function rather than of the file's text, so that
+    # the paragraph above -- which names the module it is forbidding -- cannot
+    # fail its own test.
+    for name in ("seed_sirens", "seed_muse", "_write_demo_figure"):
+        used = getattr(harness, name).__code__.co_names
+        assert "sirens_audio" not in used, f"{name} is starting the mixer"
+    shots = (SCRIPTS / "screenshot_modes.py").read_text(encoding="utf-8")
+    assert "args.music" in shots
+
+
+def test_every_settings_page_is_photographed_but_the_two_that_leak():
+    """Seven pages, one picture: the mode walk only ever opens Appearance.
+
+    Settings is one mode and seven screens, and the pass derived from
+    ``modes.KEYS`` draws whichever page the pane opens on -- always the first.
+    So Models, Packs, Updates and Storage were the largest surfaces in the app
+    with no picture of them anywhere, and a regression on any of the four
+    would have been invisible to the corpus that exists to answer "did anybody
+    look at this".
+
+    The refusal is asserted in the same breath because it is the same subject.
+    ``health`` prints the absolute paths it probed; ``advanced`` draws
+    ``app_settings.config_table``, which prints every effective setting's
+    *value*, and those values are the home, the model roots and the sqlite
+    store. Neither is fixed by an isolated home -- that only swaps one real
+    machine's paths for another's, and on a harness run it substitutes the
+    capture's own temp directory down to its session GUID.
+    """
+    from warlock.studio.panes import app_settings
+
+    shots = _load("screenshot_modes")
+    assert set(shots.SETTINGS_REFUSED) == {"advanced", "health"}
+    keys = [key for key, _label in app_settings.CATEGORIES]
+    # Derived from the pane's own table, so a page added there is enrolled
+    # here without this test being edited -- the rule the mode list follows.
+    wanted = [k for k in keys[1:] if k not in shots.SETTINGS_REFUSED]
+    assert wanted, "the refusal set has swallowed every page"
+    corpus = SCRIPTS.parent / "screenshots"
+    if not corpus.is_dir():
+        return
+    for theme in ("dark", "light", "pixel"):
+        for key in wanted:
+            assert (corpus / f"{theme}-settings-{key}.png").is_file(), f"{theme}/{key}"
+        # Appearance keeps the bare name it has always had rather than gaining
+        # a second file under a page-suffixed one.
+        assert (corpus / f"{theme}-settings.png").is_file(), theme
+        assert not (corpus / f"{theme}-settings-appearance.png").exists(), theme
+
+
 def test_the_sheet_arms_of_the_create_form_are_photographed():
     """``--asset`` seeds a mesh, so the form's sheet branches need their own.
 

@@ -73,10 +73,21 @@ class _Union:
         if ra != rb:
             self.parent[ra] = rb
 
-    def groups(self) -> list[list[int]]:
+    def groups(self, subset: np.ndarray | None = None) -> list[list[int]]:
+        """Group indices by root, over *subset* rather than every index.
+
+        The 2026-09-08 audit's second run (clay-08) found this enumerating
+        ``range(len(self.parent))`` -- every face in the whole mesh -- for all three
+        dissolve ops, so dissolving one edge on a 408,321-face mesh cost 654 ms of Python
+        ``find()`` calls the selection never asked for; a face `union()` never
+        touched keeps its own singleton root anyway, so it never needed
+        visiting. Callers now pass the exact set a `union()` call could have
+        moved.
+        """
         out: dict[int, list[int]] = {}
-        for i in range(len(self.parent)):
-            out.setdefault(self.find(i), []).append(i)
+        indices = range(len(self.parent)) if subset is None else subset
+        for i in indices:
+            out.setdefault(self.find(int(i)), []).append(int(i))
         return list(out.values())
 
 
@@ -237,11 +248,17 @@ def dissolve_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     faces_by_edge = a.corner_face[order]
     lo = np.searchsorted(by_edge, ids, side="left")
     hi = np.searchsorted(by_edge, ids, side="right")
+    touched: list[int] = []
     for start, stop in zip(lo.tolist(), hi.tolist(), strict=True):
         # ``_check_edges`` has already refused anything but a manifold pair, so
         # the slice is exactly two.
-        union.union(int(faces_by_edge[start]), int(faces_by_edge[stop - 1]))
-    return merge_groups(mesh, [np.array(g) for g in union.groups()])
+        pair = faces_by_edge[start:stop]
+        union.union(int(pair[0]), int(pair[-1]))
+        touched.extend(pair.tolist())
+    # Only the faces a selected edge actually names can end up grouped with
+    # anything -- see ``_Union.groups``'s docstring for the incident.
+    subset = np.unique(np.asarray(touched, dtype="i8")) if touched else np.empty(0, dtype="i8")
+    return merge_groups(mesh, [np.array(g) for g in union.groups(subset)])
 
 
 def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
@@ -259,7 +276,9 @@ def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
         if chosen[other]:
             union.union(int(a.corner_face[corner]), other)
 
-    groups = [np.array(g) for g in union.groups() if chosen[g[0]]]
+    # Every union() above is between two ``chosen`` faces, so the selection
+    # itself is the exact set worth enumerating -- see ``_Union.groups``.
+    groups = [np.array(g) for g in union.groups(np.flatnonzero(chosen))]
     return merge_groups(mesh, groups)
 
 
@@ -294,5 +313,7 @@ def dissolve_verts(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 
     touched = np.zeros(face_count(mesh), dtype=bool)
     touched[a.corner_face[np.concatenate([a.vertex_corners(int(v)) for v in sel.verts])]] = True
-    groups = [np.array(g) for g in union.groups() if touched[g[0]]]
+    # Only the faces in each vertex's fan could have been unioned -- see
+    # ``_Union.groups``.
+    groups = [np.array(g) for g in union.groups(np.flatnonzero(touched))]
     return merge_groups(mesh, groups)

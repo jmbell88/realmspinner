@@ -117,7 +117,7 @@ def _elsewhere(ctx: Any, viewer: Any) -> None:
     names, and two jobs on one template have the same ones).
     """
     widgets.text_colored(theme.ACCENT, "Pose editing - another asset")
-    widgets.muted(
+    widgets.muted_wrapped(
         "The pose editor is open on the asset in the viewport, not this one. "
         "Select it again to carry on, or leave the editor."
     )

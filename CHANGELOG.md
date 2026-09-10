@@ -2,15 +2,15 @@
 
 Hand-written, newest first. Nothing here is derived from git: most commit
 subjects name what changed and why, but a changelog built from them would
-still be commit-shaped — one entry per change, in developer language, with no
+still be commit-shaped â€” one entry per change, in developer language, with no
 editorial judgment about what a player actually needs to know. This file is
 the curated record instead. The top heading's version must match
-`pyproject.toml` — a test asserts it, so a release bump cannot leave this file
+`pyproject.toml` â€” a test asserts it, so a release bump cannot leave this file
 behind.
 
 **A note on how this reads.** These entries are written for whoever maintains
 this next, which means they name the measurement that made a default wrong, the
-review score that condemned a mode, and what a crash actually was — in the
+review score that condemned a mode, and what a crash actually was â€” in the
 belief that a fix nobody can audit is a fix nobody should trust. A long run of
 "fixed: X crashed" is therefore a record of things *found and closed*, usually
 by the project's own test suite or its own audits, and not a weather report on
@@ -18,12 +18,14 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
-## 0.0.41 — 2026-09-07
+## 0.0.42 — 2026-09-10
 
-Review stopped being a place where judgements go to be recorded and became
-the place they come back from: the settings a sweep ranked can now be applied
-to a real job, offered at the control that holds them, and filtered for in
-the library.
+Two audits — one reading all fourteen slices at once, one over Clay, Poser
+and Troupe — closed a hundred and eleven defects between them, and the
+cutout you approve became the cutout the 3D engine actually rebuilds from.
+Alongside them the app grew an agent: an MCP client already running on your
+machine can build in Clay for you, and be shown the picture you want matched.
+
 
 - **Deleting a Clay object from the outliner no longer keeps its mesh, and
   Bridge Loops no longer freezes on two huge rims.** The outliner row's trash
@@ -55,6 +57,41 @@ the library.
   no server and still speaks to nothing on the internet. The tools an agent is
   offered are generated from Clay's own tables of shapes and operations, so they
   cannot drift from what the mode can actually do.
+- **Placing an object for an agent went from four calls to one, and the rest of
+  the surface grew to match.** An agent used to add a primitive bare, then move
+  it, then scale it, then paint it — four round trips, and four undo steps for
+  one object you would only ever want as a whole — before it could look at what
+  it had made; placing a primitive or a figure now takes its position, its
+  rotation, its scale, its name and its colour in the same call, validated
+  together before anything appears, and lands as the single undo step it always
+  should have been. Up to thirty-two calls can be folded the same way through a
+  new batch tool, so a whole block-out backs out with one Ctrl+Z instead of one
+  per primitive. An agent can now read back exactly what it placed — position,
+  rotation, scale, size, centre and vertex count, for every object, alongside
+  the document's own bounds and palette — and undo, delete and rename objects
+  by name rather than by whatever happens to be selected; delete used to run
+  through the same door as an ordinary keyboard delete, which meant it removed
+  faces instead of objects whenever the mode was in a face or edge selection
+  state. Render can now look from several angles in one call, with an optional
+  ground grid as the only scale cue in what had been a flat white square, and a
+  focus that frames one part of the scene without hiding the rest of it. And
+  the escape hatch that runs an arbitrary Clay operation by name no longer
+  reaches the real viewport: it used to receive the same context the keyboard
+  does, so an agent running Frame Selection through it could yank the camera
+  out from under whoever was looking through it mid-gesture; it now runs
+  against a sandboxed stand-in that does the real work but touches no camera,
+  and a refusal that used to become a toast only the person at the keyboard saw
+  now comes back to the agent as a message it can act on.
+- **An agent can now be shown the picture you want it to match.** A reference
+  image comes from a Library job's id — copied from the card's own **Copy job
+  id** — or pasted in directly, up to eight held on the session at a time, and
+  is never written into the document or the file on disk: it exists only to be
+  looked at. `clay_render` can put its own render beside a reference or blend
+  the two together, so an agent working from a picture rather than a
+  description can see how close it got instead of only being told the
+  coordinates it chose. Deliberately absent: any way for the agent to name a
+  file path of its own, which would make this a tool that reads whatever else
+  is on your disk.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a
@@ -329,6 +366,27 @@ the library.
   cache accumulated one preview per reference opened for the life of the
   session; opening a different job's preview now evicts the last
   (create-07).
+- **Selecting a rig, a sheet or a retexture row now offers what its mesh can
+  reach, and Poser has a way in of its own.** Every one of those rows writes
+  its artifacts into the *mesh's* directory rather than its own, so
+  "Take it somewhere" — in the library, the inspector and its overflow menu —
+  used to offer nothing at all for one: no Clay, no Poser, no Troupe, even
+  when the mesh one hop away was finished and rigged. Selecting a follow-up
+  row now offers exactly what its mesh reaches, dimmed the same way the
+  mesh's own row would be, and a press opens the mesh, not the row you
+  clicked. And Poser no longer requires the Library to get there: a
+  **Rigged assets** section at the top of its own sidebar, above the
+  skeleton block, lists every rigged mesh newest first, with the one you
+  have open marked, and a click opens it — the inspector's Pose panel link
+  and the exits list are still there, just no longer the only two doors.
+
+## 0.0.41 — 2026-09-07
+
+Review stopped being a place where judgements go to be recorded and became
+the place they come back from: the settings a sweep ranked can now be applied
+to a real job, offered at the control that holds them, and filtered for in
+the library.
+
 - **The seven `trellis_*` engine axes reach an ordinary Create job, not only a
   sweep.** A findings sweep could already set Band, Texture resolution, the two
   guidance strengths, the token budget, Decimation and Atlas resolution — they
@@ -430,19 +488,6 @@ the library.
   fills the New sweep form's axis and exactly enough fresh seeds to close the
   gap while leaving the captured baseline and the prompt untouched — a
   suggestion is "run this contrast again," not "start over."
-- **Selecting a rig, a sheet or a retexture row now offers what its mesh can
-  reach, and Poser has a way in of its own.** Every one of those rows writes
-  its artifacts into the *mesh's* directory rather than its own, so
-  "Take it somewhere" — in the library, the inspector and its overflow menu —
-  used to offer nothing at all for one: no Clay, no Poser, no Troupe, even
-  when the mesh one hop away was finished and rigged. Selecting a follow-up
-  row now offers exactly what its mesh reaches, dimmed the same way the
-  mesh's own row would be, and a press opens the mesh, not the row you
-  clicked. And Poser no longer requires the Library to get there: a
-  **Rigged assets** section at the top of its own sidebar, above the
-  skeleton block, lists every rigged mesh newest first, with the one you
-  have open marked, and a click opens it — the inspector's Pose panel link
-  and the exits list are still there, just no longer the only two doors.
 
 
 ## 0.0.40 — 2026-09-07

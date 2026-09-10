@@ -1,7 +1,8 @@
 """Entry point: `warlock` opens the desktop app.
 
 `warlock doctor` checks dependencies and configuration; `warlock sweep`
-measures mesh quality across trellis-server's --band values.
+measures mesh quality across trellis-server's --band values; `warlock mcp`
+relays MCP JSON-RPC between an AI agent and a running Studio.
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ from pathlib import Path
 def main() -> None:
     parser = argparse.ArgumentParser(description="Warlock Studio — local AI 3D asset generator")
     parser.add_argument(
-        "command", nargs="?", choices=["doctor", "sweep"], default=None,
+        "command", nargs="?", choices=["doctor", "sweep", "mcp"], default=None,
         help="omit to open the app; 'doctor' checks dependencies and configuration; "
-             "'sweep' measures mesh quality across trellis --band values",
+             "'sweep' measures mesh quality across trellis --band values; "
+             "'mcp' relays MCP JSON-RPC between an AI agent and a running Studio "
+             "(Settings -> Advanced -> Allow AI agents to drive the Studio)",
     )
     # sweep only. Kept as plain options rather than a subparser so the
     # no-command default (open the app) stays exactly as it was.
@@ -54,6 +57,14 @@ def main() -> None:
     if args.command == "sweep":
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
         _run_sweep(args)
+        return
+    if args.command == "mcp":
+        # No basicConfig here, unlike doctor/sweep above: this command's own
+        # stdout *is* the MCP wire protocol -- an agent's tool runner reads it
+        # as newline-delimited JSON-RPC -- and a stray log record on stdout
+        # would land inside a frame and corrupt every message after it.
+        # Anything worth logging goes to stderr; see mcp.bridge.main.
+        _run_mcp()
         return
 
     # No basicConfig on the app path: studio.main._setup_logging owns the root
@@ -109,6 +120,19 @@ def _run_sweep(args: argparse.Namespace) -> None:
         )
     )
     sweep_mod.print_table(rows, args.audit_resolution)
+
+
+def _run_mcp() -> None:
+    """`warlock mcp`: relay MCP JSON-RPC between an agent's stdio and the app.
+
+    Imported here, not at module scope, for the same reason as the app path
+    below: this has to keep working on a machine with no display, so nothing
+    that pulls in pygame or moderngl belongs at import time. `mcp/` itself is
+    pure stdlib for exactly this reason -- see its package docstring.
+    """
+    from .mcp import bridge
+
+    raise SystemExit(bridge.main())
 
 
 def _run_doctor(*, verify: bool = False) -> None:

@@ -257,14 +257,22 @@ def _end_dialog() -> None:
 
 
 def _wh_row(
-    prefix: str, value: tuple[float, float], *, integer: bool, step: float
+    prefix: str, value: tuple[float, float], *, integer: bool, step: float, caption: str
 ) -> tuple[str, tuple[float, float]]:
     """Width and Height side by side. -> ``(which axis moved, the new pair)``.
 
     **Which axis, not a bare "changed" flag.** The proportion chain has to know
     what the user typed, or whichever field is read second wins and typing a
     width silently rewrites it from the height that has not moved.
+
+    **One ``field_label`` above the pair, ``W``/``H`` still beside each box.**
+    ``plotter_canvas.setup_popup`` cites this function's own new-canvas layout
+    as the precedent for that shape, and until the 2026-09-08 label-above pass
+    this file had stopped following it -- the row drew ``W``/``H`` with
+    nothing above them, while the precedent it was cited as keeps a caption
+    over the pair. ``caption`` restores it.
     """
+    widgets.field_label(caption)
     axis = ""
     out = [float(value[0]), float(value[1])]
     for index, (label, tag) in enumerate((("W", "w"), ("H", "h"))):
@@ -331,13 +339,14 @@ def _scale_dialog(ctx: Any, tab: Any, *, opening: bool = False) -> None:
     if state.scale_units == "percent":
         axis, typed = _wh_row(
             "scale", transform.size_percent(old, (width, height)),
-            integer=False, step=0.0,
+            integer=False, step=0.0, caption="Size, in percent",
         )
         if axis:
             width, height = transform.percent_size(old, typed)
     else:
         axis, typed = _wh_row(
-            "scale", (float(width), float(height)), integer=True, step=0
+            "scale", (float(width), float(height)), integer=True, step=0,
+            caption="Size, in pixels",
         )
         if axis:
             width, height = int(typed[0]), int(typed[1])
@@ -446,13 +455,14 @@ def _canvas_dialog(ctx: Any, tab: Any, *, opening: bool = False) -> None:
     if state.canvas_relative:
         axis, typed = _wh_row(
             "canvas", (float(width - old[0]), float(height - old[1])),
-            integer=True, step=0,
+            integer=True, step=0, caption="Change, in pixels",
         )
         if axis:
             width, height = old[0] + int(typed[0]), old[1] + int(typed[1])
     else:
         axis, typed = _wh_row(
-            "canvas", (float(width), float(height)), integer=True, step=0
+            "canvas", (float(width), float(height)), integer=True, step=0,
+            caption="New size, in pixels",
         )
         if axis:
             width, height = int(typed[0]), int(typed[1])
@@ -603,18 +613,22 @@ def _inpaint_popup(ctx: Any, tab: Any) -> None:
     if not imgui.begin_popup(INPAINT_POPUP):
         return
     widgets.popup_chrome(_imgui=imgui)
-    widgets.muted("Redraw what is selected, from a prompt. Everything outside stays.")
+    widgets.muted_wrapped("Redraw what is selected, from a prompt. Everything outside stays.")
     _changed, state.inpaint_prompt = controls.input_text(
         "##inpaint_prompt", state.inpaint_prompt
     )
+    widgets.field_label(
+        "Strength",
+        "How far from the current pixels the model may go inside the selection.",
+    )
     changed, value = controls.slider_float(
-        "Strength##inpaint", float(state.inpaint_strength), 0.3, 0.65
+        # ``##``-prefixed onto the same ``Strength##inpaint`` id: the label
+        # moved above, and the house rule is that hiding it may not also
+        # rename it.
+        "##Strength##inpaint", float(state.inpaint_strength), 0.3, 0.65
     )
     if changed:
         state.inpaint_strength = value
-    widgets.help_marker(
-        "How far from the current pixels the model may go inside the selection."
-    )
     imgui.dummy((0, sp(tokens.SP_1)))
     problems = []
     if not state.inpaint_prompt.strip():
@@ -912,8 +926,12 @@ def _filter_control(
             values[key] = next(c for c in choices if str(c) == picked)
         return
     low, high = filters.RANGES.get(key, (0.0, 1.0))
+    widgets.field_label(label)
     imgui.set_next_item_width(sp(160))
-    changed, value = controls.slider_float(f"{label}##{key}", float(values[key]), low, high)
+    # ``##``-prefixed onto the same ``{label}##{key}`` id every other kind of
+    # parameter row here carries -- the label moved above, and the id must
+    # not move at all.
+    changed, value = controls.slider_float(f"##{label}##{key}", float(values[key]), low, high)
     if changed:
         values[key] = float(value)
 
@@ -1011,14 +1029,20 @@ SHEET_IMPORT_POPUP = "inker-sheet-import"
 
 
 def _pair(label: str, value: tuple[int, int], low: int = 0) -> tuple[int, int]:
-    """Two small integer fields on one row. -> the pair, floored at ``low``."""
+    """Two small integer fields on one row, captioned above. -> the pair,
+    floored at ``low``.
+
+    The caption used to trail the pair as a ``same_line``d ``widgets.muted``,
+    which is a label below and to the right of its own control -- the
+    2026-09-08 audit's label-above pass moves it in front, ``_wh_row``'s
+    shape one function over.
+    """
+    widgets.field_label(label)
     imgui.set_next_item_width(sp(70))
     _changed_x, x = controls.input_int(f"##{label}x", int(value[0]), 1, 8)
     imgui.same_line()
     imgui.set_next_item_width(sp(70))
     _changed_y, y = controls.input_int(f"##{label}y", int(value[1]), 1, 8)
-    imgui.same_line()
-    widgets.muted(label)
     return (max(low, int(x)), max(low, int(y)))
 
 
@@ -1044,8 +1068,9 @@ def _sheet_import_popup(ctx: Any, state: Any) -> None:
     state.sheet_cell = _pair("cell", state.sheet_cell, low=1)
     state.sheet_offset = _pair("offset", state.sheet_offset)
     state.sheet_padding = _pair("padding", state.sheet_padding)
+    widgets.field_label("Frames (0 = all)")
     imgui.set_next_item_width(sp(70))
-    _changed, count = controls.input_int("frames (0 = all)", int(state.sheet_count), 1, 8)
+    _changed, count = controls.input_int("##frames (0 = all)", int(state.sheet_count), 1, 8)
     state.sheet_count = max(0, int(count))
 
     # The count the numbers above actually produce, computed every frame from
@@ -1273,8 +1298,7 @@ def convert_popup(ctx: Any, tab: Any) -> None:
         "Dither", state.convert_method, [(key, key) for key in dither.METHODS]
     )
     if not tab.doc.palette:
-        imgui.set_next_item_width(sp(160))
-        changed, value = controls.slider_int("Colours", int(state.convert_max), 2, 64)
+        changed, value = widgets.labeled_slider_int("Colours", int(state.convert_max), 2, 64)
         if changed:
             state.convert_max = int(value)
         if imgui.is_item_deactivated_after_edit():

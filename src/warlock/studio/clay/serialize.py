@@ -626,7 +626,18 @@ def read_wblk(data: bytes) -> ClayDoc:
                 ) from exc
             reserve_uid(uid)
             mesh = _read_mesh(zf, uid)
-            triangles += max(len(mesh.starts) - 1, 0)
+            # The 2026-09-08 audit's second run, clay-09: this used to add
+            # ``len(mesh.starts) - 1`` -- the *face* count -- toward
+            # ``MAX_TRIANGLES``. The CSR format stores n-gons untriangulated, so
+            # a single 3,000,000-corner face counted as 1 here, passed the
+            # ceiling in well under a second, and then cost 216s the first time
+            # something fan-triangulated it (``triangulate``, and every render
+            # pass). Counting ``starts[i+1] - starts[i] - 2`` per face is the
+            # number of triangles `mesh.triangulate` actually produces for a
+            # convex fan; a degenerate face with fewer than 3 corners
+            # contributes 0 rather than a negative count.
+            counts = np.diff(mesh.starts).astype("i8") - 2
+            triangles += int(np.clip(counts, 0, None).sum())
             if triangles > MAX_TRIANGLES:
                 raise ValueError(
                     f"this clay document has more than {MAX_TRIANGLES:,} "

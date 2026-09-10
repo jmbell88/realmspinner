@@ -303,3 +303,60 @@ def test_the_ceiling_is_far_above_any_ordinary_dissolve() -> None:
     out, sel = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1, 3, 4]))
     bm.validate(out)
     assert len(sel.faces) == 1
+
+
+# --- the 2026-09-08 audit, second run: cost must track the selection, not the mesh ------
+
+
+def _padded(m: bm.Mesh, n_extra: int) -> bm.Mesh:
+    """*m* plus ``n_extra`` disconnected triangles nothing else touches.
+
+    Every extra triangle gets its own three fresh vertices, so it shares no
+    edge with anything -- it exists only to inflate ``face_count`` the way a
+    dense, unrelated part of a real mesh would, without needing to build one.
+    """
+    extra_positions = np.zeros((n_extra * 3, 3), dtype="f4")
+    base_v = len(m.positions)
+    extra_loops = np.arange(base_v, base_v + n_extra * 3, dtype="i4")
+    counts = list(np.diff(m.starts)) + [3] * n_extra
+    return bm.Mesh(
+        positions=np.concatenate([m.positions, extra_positions]),
+        loops=np.concatenate([m.loops, extra_loops]),
+        starts=topo.starts_from_counts(counts),
+        material=np.concatenate([m.material, np.zeros(n_extra, dtype="i4")]),
+        smooth=np.concatenate([m.smooth, np.zeros(n_extra, dtype=bool)]),
+    )
+
+
+def test_dissolving_one_edge_does_not_walk_the_whole_meshs_face_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-08 audit's second run (clay-08) found ``_Union.groups()`` built with
+    ``for i in range(len(self.parent))`` in all three dissolve ops -- every
+    face in the whole mesh, not the selection -- so one edge dissolved
+    measured 3.5 ms at 2,401 faces and 654 ms at 408,321, linear in mesh size
+    with no refusal, which broke ``docs/INVARIANTS.md``'s promise that every
+    Clay op's cost tracks what it grows.
+
+    Proven structurally rather than by wall clock (flaky under xdist): a mesh
+    with 20,000 disconnected faces the selection never names should call
+    ``find()`` a handful of times, not 20,000-plus.
+    """
+    m = _padded(_grid(2, 1), n_extra=20_000)
+    a = adj.adjacency(m)
+    shared = a.edge_verts[a.edge_uses == 2]
+    assert len(shared) == 1, "only the grid's shared edge, none of the padding"
+
+    calls = 0
+    original = dis._Union.find
+
+    def counting_find(self: dis._Union, x: int) -> int:
+        nonlocal calls
+        calls += 1
+        return original(self, x)
+
+    monkeypatch.setattr(dis._Union, "find", counting_find)
+    out, sel = dis.dissolve_edges(m, el.ElementSel(edges=shared))
+    bm.validate(out)
+    assert bm.face_count(out) == 20_001, "the two grid faces merged, the padding untouched"
+    assert calls < 50, f"dissolving one edge called find() {calls} times on 20,002 faces"

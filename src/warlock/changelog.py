@@ -45,7 +45,19 @@ FILENAME = "CHANGELOG.md"
 # what keeps "## 0.0.15" and "## v0.0.15 - unreleased" both readable.
 _HEADING = re.compile(r"^##\s+v?(?P<version>[0-9][^\s]*)\s*(?:[-–—]\s*(?P<date>.+))?$")
 _BULLET = re.compile(r"^[-*]\s+(?P<text>.+)$")
-_EMPHASIS = re.compile(r"\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_EMPHASIS = re.compile(
+    r"\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+    # ``re.S``, because a bullet is a *wrapped paragraph* and its bolded
+    # lead sentence routinely runs over the line. Without it ``.`` stopped
+    # at the newline, the opening ``**`` found no partner, and the markers
+    # went to the screen -- which is the exact failure this function's
+    # docstring says it exists to prevent. v0.0.41's third bullet shipped
+    # that way, drawn across Home's What's new card in every theme, and
+    # the screenshot pass is what found it. Whether a bullet happens to
+    # wrap is a property of the prose, so the flag is the fix rather than
+    # rewrapping CHANGELOG.md.
+    re.S,
+)
 
 
 def _plain(text: str) -> str:
@@ -110,8 +122,20 @@ def parse(text: str) -> list[Release]:
     bullets: list[str] = []
 
     def flush() -> None:
+        # **Emphasis is stripped from the assembled bullet, not from each line
+        # as it arrives.** Doing it per line is what this used to do, and it
+        # cannot work: the file is hard-wrapped at 80 columns, so a bolded lead
+        # sentence longer than one line puts its opening ``**`` on one line and
+        # its partner on the next, and neither half is a match on its own. The
+        # markers then went to the screen, which is the exact failure
+        # :func:`_plain` exists to prevent -- v0.0.41's third bullet shipped
+        # that way and was drawn across Home's What's new card in every theme
+        # until the screenshot pass found it. Joining first and stripping
+        # afterwards is what makes the pattern see the sentence as written.
         if version:
-            out.append(Release(version=version, date=date, bullets=tuple(bullets)))
+            out.append(
+                Release(version=version, date=date, bullets=tuple(_plain(b) for b in bullets))
+            )
 
     for raw in text.splitlines():
         line = raw.strip()
@@ -126,14 +150,14 @@ def parse(text: str) -> list[Release]:
         # A bullet before any heading belongs to no release, so it is dropped
         # rather than attached to the first one that comes along.
         if bullet is not None and version:
-            bullets.append(_plain(bullet.group("text").strip()))
+            bullets.append(bullet.group("text").strip())
             continue
         # An indented continuation of the bullet above it. Indentation in the
         # *raw* line, not the stripped one: an unindented paragraph after a
         # bullet is prose the file is allowed to carry, and folding that into
         # the last bullet is how a note becomes a release note.
         if bullets and line and raw[:1] in (" ", "\t"):
-            bullets[-1] = f"{bullets[-1]} {_plain(line)}"
+            bullets[-1] = f"{bullets[-1]} {line}"
     flush()
     return out
 

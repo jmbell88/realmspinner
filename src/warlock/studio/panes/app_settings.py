@@ -144,6 +144,11 @@ SEARCH_INDEX: tuple[SearchRow, ...] = (
     SearchRow("advanced", "Layout", "Pane sizes, collapsed sections, the sidebar width."),
     SearchRow("advanced", "Workspace layouts", "Which panes are in which column."),
     SearchRow(
+        "advanced",
+        "Allow AI agents to drive the Studio",
+        "Let a Model Context Protocol client build in Clay for you.",
+    ),
+    SearchRow(
         "advanced", "Effective configuration", "Every setting this process actually runs on.",
     ),
 )
@@ -337,6 +342,7 @@ def _category_body(ctx: Any, category: str) -> None:
     elif category == "advanced":
         _layout(ctx)
         _layouts(ctx)
+        _agents(ctx)
         _config(ctx)
     else:
         _interface(ctx)
@@ -355,39 +361,40 @@ def _interface(ctx: Any, form_ui: forms.Form | None = None) -> None:
     # No section heading: the lit segment above already says "Appearance", and a
     # heading repeating it is a second answer to a question nobody asked. The
     # categories that hold *more than one* group keep theirs.
-    lo, hi = tokens.ui_scale_bounds(_base(ctx))
+    base = _base(ctx)
+    steps = tokens.ui_scale_steps(base)
     stored = _scale_of(ctx)
-    # Through the form rather than a raw slider with a trailing label: this
-    # pane was drawing three registers at once, and the sanctioned one is
-    # ``forms.Form``'s small-caps ``field_label``.
-    changed, value = form_ui.slider(
+    # **A combo of named steps, not a track.** The slider that stood here could
+    # be left anywhere, so an install could be running at 1.13x -- a size no
+    # screenshot pass covers, no reviewer has seen, and no bug report can be
+    # reproduced from. Zoom is a choice between a few sizes; a continuous
+    # control said otherwise and bought nothing for saying it. The options come
+    # from ``tokens.ui_scale_steps`` rather than a list here, so a monitor that
+    # cannot honour a step is simply not offered it.
+    _changed, chosen = form_ui.combo(
         "ui_scale",
         "UI scale",
-        float(stored),
-        float(lo),
-        float(hi),
-        fmt="%.2fx",
+        _scale_key(stored),
+        [(_scale_key(step), _scale_label(step)) for step in steps],
         help_text=(
-            "On top of what the monitor already scales by, so 1.00x is the "
+            "On top of what the monitor already scales by, so 100% is the "
             "size Windows asked for rather than 96 dpi."
         ),
     )
-    if changed:
-        # Live, so dragging shows what it will look like -- but only committed
-        # on release: every intermediate value would otherwise be a settings
-        # write and a full style rebuild per mouse-move.
+    if chosen != _scale_key(stored):
+        value = float(chosen)
         _apply_scale(ctx, value)
-    if imgui.is_item_deactivated_after_edit():
-        ctx.settings.set("ui_scale", round(float(value), 2))
-        # On release only (K99): re-baking the atlas per mouse-move would be a
-        # font rebuild sixty times a second, and the flag is consumed between
-        # frames rather than here for the reason ``fonts.reload`` gives.
+        ctx.settings.set("ui_scale", round(value, 2))
+        # Between frames rather than here, for the reason ``fonts.reload``
+        # gives: ``clear_fonts`` invalidates every ``ImFont`` handle and those
+        # are pushed and popped all through ``_build_ui``.
         ctx.state.fonts_dirty = True
-    if hi < tokens.UI_SCALE_RANGE[1]:
-        widgets.muted(
-            f"This display already scales by {_base(ctx):.2f}x, which leaves room for {hi:.2f}x."
+    if steps[-1] < tokens.UI_SCALE_STEPS[-1]:
+        widgets.muted_wrapped(
+            f"This display already scales by {base:.2f}x, which leaves room for "
+            f"{_scale_label(steps[-1])}."
         )
-    widgets.muted("Icons and text re-bake when you let go of the slider.")
+    widgets.muted("Icons and text re-bake when you pick a size.")
 
     # M105. The palette is a table of names in ``tokens`` and every pane reads
     # ``theme.NAME``, so switching is this plus a re-``apply`` -- imgui's style
@@ -515,6 +522,27 @@ def _apply_theme(ctx: Any, name: str) -> None:
     ctx.settings.set("theme", applied)
 
 
+def _scale_key(value: float) -> str:
+    """A zoom step as the string a combo addresses it by.
+
+    Two decimals, which is what ``ui_scale`` is stored rounded to -- so a
+    stored value and a step key are the same string for the same size, and the
+    combo's "is this the current one" test is a string compare rather than a
+    float compare with an epsilon nobody would agree on.
+    """
+    return f"{float(value):.2f}"
+
+
+def _scale_label(value: float) -> str:
+    """A zoom step as the percentage a person reads.
+
+    Percent rather than ``1.25x``: every other size in this app that a user
+    picks -- a layer's opacity, a preview's zoom -- is a percentage, and the
+    multiplier spelling was this pane's alone.
+    """
+    return f"{round(float(value) * 100)}%"
+
+
 def _base(ctx: Any) -> float:
     """The monitor's own scale, sampled at startup and never folded back in."""
     return float(getattr(ctx, "dpi_scale", 1.0)) or 1.0
@@ -619,6 +647,59 @@ def _layouts(ctx: Any) -> None:
     widgets.muted_wrapped(
         "A layout can only reorder and hide panes -- never delete one -- and a "
         "hidden pane is always listed here with one click to bring it back."
+    )
+
+
+def _agents(ctx: Any) -> None:
+    """Whether a program on this machine may drive Clay through Warlock.
+
+    Off on a fresh install, matching `docs/manual/41-app-settings.md`'s own
+    claim: nothing listens until this switches on. Toggling it takes effect
+    in the same frame, not on the next launch -- ``ctx.agent_host`` is built
+    once, in ``main.setup_context``, and lives for the app's whole session
+    regardless of what this setting says, so there is always an instance
+    here to call ``start()``/``stop()`` on.
+    """
+    from .. import main as main_mod
+
+    widgets.section("AI agents")
+    allowed = bool(ctx.settings.get(main_mod.AGENT_SERVER_SETTING, False))
+    with forms.Form("application-settings/agents") as form_ui:
+        changed, allowed = form_ui.switch(
+            "agent_server",
+            "Allow AI agents to drive the Studio",
+            allowed,
+            help_text=(
+                "Lets a program that speaks the Model Context Protocol -- "
+                "Claude Code, Codex, anything with an MCP client already "
+                "running on this machine -- build in Clay for you. Warlock "
+                "still runs no language model of its own and reaches no "
+                "endpoint; an agent that is already running connects to it, "
+                "never the other way round."
+            ),
+            helper="Takes effect at once -- no restart.",
+        )
+    if changed:
+        ctx.settings.set(main_mod.AGENT_SERVER_SETTING, allowed)
+        host = getattr(ctx, "agent_host", None)
+        if host is not None:
+            if allowed:
+                host.start()
+            else:
+                host.stop()
+    if not allowed:
+        return
+    from ...mcp import pipe
+
+    config = getattr(getattr(ctx, "svc", None), "config", None)
+    address = pipe.address_for(config.home) if config is not None else ""
+    if address:
+        widgets.muted(f"Pipe: {address}")
+    widgets.muted_wrapped(
+        "The key that proves an agent is allowed to connect lives in "
+        "mcp.token in your Warlock home, written the moment this switches "
+        "on -- a program that cannot read your files cannot connect either. "
+        "Turning this off (or deleting that file) revokes it at once."
     )
 
 
@@ -1045,7 +1126,7 @@ def _storage(ctx: Any) -> None:
     # make it less alright.
     if controls.button("Check library"):
         ctx.submit("library-verify", svc_library.verify, ctx.svc)
-    widgets.muted(
+    widgets.muted_wrapped(
         "Looks for assets whose files are gone, folders no asset claims, and "
         "reviews whose asset was deleted. Changes nothing."
     )
@@ -1059,15 +1140,22 @@ def _storage(ctx: Any) -> None:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         dest = Path(ctx.svc.config.home) / "backups" / stamp
         ctx.submit("library-backup", svc_library.backup, ctx.svc, dest)
-    widgets.muted(
+    widgets.muted_wrapped(
         "Copies the database holding every prompt, seed, name, tag and review "
         "-- the part that cannot be regenerated from the files -- into a "
         "stamped folder under your library."
     )
     imgui.dummy((0, sp(tokens.SP_1)))
-    if controls.button("Prune..."):
+    # Destructive, like the button three lines below it and for the same
+    # reason: this deletes assets off the disk and no undo reaches them. It was
+    # a plain button while "Clean library..." was red, so the Maintenance group
+    # showed a user two irreversible deletes painted as different kinds of
+    # thing, one screen apart. The comment below already argued they are "not a
+    # pair of equals" -- that is an argument for separate *rows*, which it
+    # still gets, and never was an argument for one of them looking harmless.
+    if widgets.destructive_button("Prune...", (0, 0)):
         library.ask_prune(ctx)
-    widgets.muted(
+    widgets.muted_wrapped(
         "Deletes everything but the newest few assets from disk. Running jobs, "
         "and anything you accepted or labelled, are kept."
     )
@@ -1077,7 +1165,7 @@ def _storage(ctx: Any) -> None:
     # invites the wrong click of the two.
     if widgets.destructive_button("Clean library...", (0, 0)):
         library.ask_clean(ctx)
-    widgets.muted(
+    widgets.muted_wrapped(
         "Deletes every asset, trashed or not -- including the accepted ones and "
         "the labelled images the quality judge is measured against."
     )
@@ -1211,7 +1299,7 @@ def _models(ctx: Any) -> None:
     # What the button does and does not do. The offline contract is the app's
     # single most load-bearing property, so the one place that breaks it says so
     # rather than leaving the user to infer it.
-    widgets.muted(
+    widgets.muted_wrapped(
         "A download runs in a separate process; this one stays offline. The "
         "startup diagnostics still give the exact command for a missing model."
     )
@@ -1239,7 +1327,9 @@ def _loras(ctx: Any) -> None:
     manual_render.help_button(ctx, "loras")
     rows = generation.load_lora_manifests(ctx.svc.config)
     if not rows:
-        widgets.muted("None yet. Import a .safetensors adapter, or train one from your own art.")
+        widgets.muted_wrapped(
+            "None yet. Import a .safetensors adapter, or train one from your own art."
+        )
     busy = ctx.tasks.any_busy("lora:")
     for row in rows:
         weight = f"{row.tuned_weight:.2f}"
@@ -1414,7 +1504,7 @@ def _lora_train_form(ctx: Any) -> None:
         # deduped, capped result.
         images = form["images"]
         sources = summary["sources"]
-        widgets.muted(
+        widgets.muted_wrapped(
             f"{len(images)} images ({summary['dropped_duplicates']} near-duplicates "
             f"dropped; from {sources['favourites']} favourites, "
             f"{sources['accepted_references']} accepted references, "
@@ -1431,7 +1521,7 @@ def _lora_train_form(ctx: Any) -> None:
             form["images"] = training_images(Path(form["folder"]))
             form["scanned_folder"] = form["folder"]
         images = form["images"]
-        widgets.muted(
+        widgets.muted_wrapped(
             f"Training from {Path(form['folder']).name}: {len(images)} images "
             f"({lora_train.MIN_IMAGES} to {lora_train.MAX_IMAGES})"
         )
@@ -1855,7 +1945,7 @@ def _cancel(ctx: Any, key: str) -> None:
     # it rather than starting over (F1, 2026-09-05). Said here so Cancel does
     # not read as "throw away the last twenty minutes".
     imgui.same_line()
-    widgets.muted("Cancel keeps what has downloaded. Installing again resumes from here.")
+    widgets.muted_wrapped("Cancel keeps what has downloaded. Installing again resumes from here.")
 
 
 def _start(ctx: Any, row_keys: list[str], *, key: str) -> None:

@@ -77,7 +77,9 @@ def draw(ctx: Any, job: Any) -> None:
     options = list(TIERS) if available else [TIERS[0]]
     if not available:
         form["profile"] = "raw"
-        widgets.muted("Only the engine's own output is available: gltfpack is not installed.")
+        widgets.muted_wrapped(
+            "Only the engine's own output is available: gltfpack is not installed."
+        )
     # Form.help_text renders widgets.help_marker beside the owning label.
     #
     # **The field id is the refusal's address.** ``optimize_job`` (via

@@ -95,10 +95,21 @@ Two limits come with it, both about where the offset shows up:
 
 ## Posing a real asset directly
 
-The inspector's Pose panel can open a rigged asset's actual mesh here instead of the bare template
-armature — its own **Open in Poser** link (see [Posing](25-rigging-and-posing.md#posing)) — so you
-can use the Poser's own view controls and clip editor against the real thing rather than the
-template preview. While a session is bound to an asset this way:
+Poser can open a rigged asset's actual mesh here instead of the bare template armature, so you can
+use its own view controls and clip editor against the real thing rather than the template preview.
+There are three doors in:
+
+- The inspector's Pose panel, on the asset itself — its own **Open in Poser** link (see
+  [Posing](25-rigging-and-posing.md#posing)).
+- The **"Take it somewhere"** section on any rigged mesh, wherever the library shows one (see
+  [The library and jobs](36-library-and-jobs.md)) — including a rig row you have selected directly,
+  which offers the same list its mesh does.
+- The **Rigged assets** picker at the top of Poser's own sidebar, above the skeleton block. It lists
+  every rigged mesh newest first, with the one you currently have open marked, and a click opens it
+  — the way in when you are already sitting in Poser and want a different asset, with nothing to find
+  in the Library first. Nothing rigged yet points you at Create's Rig stage instead of a button.
+
+While a session is bound to an asset this way:
 
 - The skeleton picker above the library is replaced by a fact — the template's name followed by
   **"(from this asset's rig)"**, for example "Humanoid (from this asset's rig)" — because the

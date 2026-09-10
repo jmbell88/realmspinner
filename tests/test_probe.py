@@ -26,7 +26,13 @@ from warlock.studio import controls, probe
 #: draws with ``imgui.button`` because ``primary_button`` and ``ghost_button``
 #: push their own fill around it, and it records itself instead. What this
 #: number measures is what the driver cannot reach, not what avoided one import.
-RAW_IMGUI_CONTROLS = 10
+#:
+#: Lowered 9 <- 10 by the 2026-09-08 button-vocabulary pass:
+#: ``widgets.destructive_button`` drew its own raw ``imgui.button`` because it
+#: had nowhere to route a disabled ``reason`` through -- now it takes one and
+#: goes through ``_button_with_note`` like its two siblings, so its click is
+#: self-recorded rather than raw.
+RAW_IMGUI_CONTROLS = 9
 
 _RAW_WIDGETS = {
     "button",

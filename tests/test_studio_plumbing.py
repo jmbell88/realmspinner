@@ -1104,11 +1104,44 @@ def test_clay_persists_its_recent_list_and_no_mode():
 
 def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
     """trellis is being handed a *subject*. A grid line in the picture is a
-    subject too, and it comes back as geometry nobody asked for."""
-    source = inspect.getsource(main.App._render_clay_reference)
-    assert "show_grid=False" in source
+    subject too, and it comes back as geometry nobody asked for.
+
+    ``show_grid`` became a parameter -- ``grid`` -- rather than a hardcoded
+    ``False`` when the agent surface grew a second caller for the same draw
+    that *does* want a ground plane, as a scale cue an agent has no ruler or
+    viewport to get any other way (see ``ClayView.render_png``'s own
+    docstring). So the literal ``"show_grid=False" in source`` this test used
+    to assert is gone -- it would now be false of correct code, not just of
+    broken code. What still has to be pinned for trellis is the two halves of
+    the same claim restated where they are now true: the *default* is still
+    off, and the draw still honours whatever the caller asked for rather than
+    a hardcoded ``True`` that would silently put a grid back into every build
+    reference. Plus the delegation, because "no grid by default" would be
+    vacuously true of a ``_render_clay_reference`` that had quietly stopped
+    calling ``render_png`` at all.
+    """
+    from warlock.studio.clay_view import ClayView
+
+    assert inspect.signature(ClayView.render_png).parameters["grid"].default is False
+    source = inspect.getsource(ClayView.render_png)
+    assert "show_grid=grid" in source
     assert "overlays=[]" in source
     assert "flat=True" in source
+    assert "render_png" in inspect.getsource(main.App._render_clay_reference)
+
+
+def test_the_send_to_3d_render_keeps_the_users_own_camera():
+    """**The picture trellis rebuilds from is the angle the user was looking
+    at**, and that is why this path passes ``frame=False``.
+
+    ``render_png`` frames the subject by default because an agent asking for a
+    picture has no camera of its own. Taking that default here would silently
+    change the input to every future reconstruction -- and reconstruction
+    quality in this project is measured against stored corpora keyed on their
+    inputs, so the comparisons already taken would stop describing what they
+    measured. Cheap to assert, expensive to notice any other way.
+    """
+    assert "frame=False" in inspect.getsource(main.App._render_clay_reference)
 
 
 def test_the_send_to_3d_render_happens_on_the_frame_thread():

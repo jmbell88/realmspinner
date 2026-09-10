@@ -1587,7 +1587,7 @@ def _matte_note(ctx: Any, manifest: Any) -> None:
         return
     if matting.available(ctx.svc.config):
         return
-    widgets.muted(
+    widgets.muted_wrapped(
         "Cutouts use the corner fill -- edges are rougher than the matting "
         "model's. See the matting row under Settings for the one-time download."
     )
@@ -1610,7 +1610,9 @@ def _manifest_summary(manifest: Any) -> None:
     if manifest is None:
         return
     if manifest.get("hand_edited"):
-        widgets.muted("hand-edited -- the recipe describes the generated image, not these pixels")
+        widgets.muted_wrapped(
+            "hand-edited -- the recipe describes the generated image, not these pixels"
+        )
     for name, entry in sorted((manifest.get("artifacts") or {}).items()):
         if not isinstance(entry, dict):
             continue

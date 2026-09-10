@@ -1061,7 +1061,7 @@ def _target_cell(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     changed, number = form_ui.number("target_cell_px_custom", "Custom cell size", number)
     if changed:
         form["target_cell_px"] = str(number)
-    widgets.muted("Blank preserves the 256px/512px working cell; reduction never upscales.")
+    widgets.muted_wrapped("Blank preserves the 256px/512px working cell; reduction never upscales.")
 
 
 def _findings_hint(
@@ -1502,8 +1502,12 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         "##ip_adapter", form["ip_adapter"], _options(ctx, "ip_adapter")
     )
     if form["ip_adapter"]:
+        # A sub-field of "appearance" above, not a section of its own: one
+        # small-caps name line, id kept stable (2026-09-08 consistency pass,
+        # "Strength##ip" visible -> "##Strength##ip" hidden).
+        widgets.field_label("Strength")
         changed, value = controls.slider_float(
-            "Strength##ip", float(form["ip_scale"]), *_range(ctx, "ip_scale_range", 0.0, 1.5)
+            "##Strength##ip", float(form["ip_scale"]), *_range(ctx, "ip_scale_range", 0.0, 1.5)
         )
         if changed:
             form["ip_scale"] = value
@@ -1530,8 +1534,9 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
     if changed:
         form["init_image"] = on
     if form.get("init_image"):
+        widgets.field_label("Strength")
         changed, value = controls.slider_float(
-            "Strength##init",
+            "##Strength##init",
             float(form.get("init_strength") or 0.45),
             *_range(ctx, "init_strength_range", 0.3, 0.65),
         )
@@ -1549,16 +1554,18 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         return
     form["control"] = widgets.combo("##control", form["control"], _options(ctx, "control"))
     if form["control"]:
+        widgets.field_label("Strength")
         changed, value = controls.slider_float(
-            "Strength##cn",
+            "##Strength##cn",
             float(form["control_scale"]),
             *_range(ctx, "control_scale_range", 0.0, 2.0),
         )
         if changed:
             form["control_scale"] = value
         _hint(ctx, form, "control_scale", form["control_scale"])
+        widgets.field_label("Until")
         changed, value = controls.slider_float(
-            "Until##cn", float(form["control_end"]), *_range(ctx, "control_end_range", 0.0, 1.0)
+            "##Until##cn", float(form["control_end"]), *_range(ctx, "control_end_range", 0.0, 1.0)
         )
         if changed:
             form["control_end"] = value
@@ -2035,7 +2042,11 @@ def _lora_strength(
     """The advanced half of the style choice."""
     if not form.get("style_lora"):
         return
-    changed, value = controls.slider_float("Strength", form["lora_weight"], 0.0, 1.5)
+    # A sub-field of "Style LoRA" above (2026-09-08 consistency pass): the
+    # combo already carries the field_label, so this slider gets its own
+    # name line rather than repeating the sentence-case label beside it.
+    widgets.field_label("Strength")
+    changed, value = controls.slider_float("##Strength", form["lora_weight"], 0.0, 1.5)
     if changed:
         form["lora_weight"] = value
     widgets.muted_wrapped(f"tuned default: {lora_default_weight(form['style_lora']):g}")

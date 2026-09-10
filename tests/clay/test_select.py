@@ -276,6 +276,41 @@ def test_deleting_several_selected_objects_undoes_in_one_step():
     assert len(doc.objects) == 3, "one Ctrl+Z must restore every object the keystroke removed"
 
 
+# The 2026-09-08 audit's second run, finding clay-10: the element-mode branch of
+# delete_selected pushed one MeshEdit (via doc.set_mesh) per affected object
+# instead of bundling the whole keystroke into one step the way the
+# object-mode branch above it does. Three boxes, all faces selected, one
+# Delete pushed three undo steps; one Ctrl+Z restored one box and left two
+# empty -- a state the user never produced.
+
+
+def test_deleting_selected_faces_across_several_objects_undoes_in_one_step():
+    from warlock.studio.clay import elements as el
+    from warlock.studio.clay import selection
+
+    doc = _three_boxes()
+    doc.set_element_mode("face")
+    for obj in doc.objects:
+        doc.set_element_sel(obj.uid, el.select_all(obj.mesh, "face"))
+    doc.history.clear()  # the three set_element_sel calls push no steps; be explicit anyway
+
+    face_counts_before = [len(obj.mesh.starts) - 1 for obj in doc.objects]
+    assert all(count > 0 for count in face_counts_before)
+
+    steps_before = len(doc.history)
+    refusals = selection.delete_selected(doc)
+
+    assert refusals == []
+    assert len(doc.history) - steps_before == 1, "one keystroke, one undo step"
+    assert all(len(obj.mesh.starts) - 1 == 0 for obj in doc.objects), "every box's faces are gone"
+
+    doc.undo()
+
+    assert [len(obj.mesh.starts) - 1 for obj in doc.objects] == face_counts_before, (
+        "one Ctrl+Z must restore every object's faces the keystroke removed"
+    )
+
+
 def test_duplicating_several_selected_objects_undoes_in_one_step():
     from warlock.studio.clay import selection
 

@@ -16,6 +16,10 @@ from warlock import changelog
 
 REPO = Path(__file__).resolve().parents[1]
 
+#: A newline, spelled once: this file builds changelog fixtures by
+#: concatenation so that a bullet's own line breaks are visible in the source.
+NL = chr(10)
+
 FIXTURE = """\
 # Changelog
 
@@ -62,6 +66,32 @@ def test_unindented_prose_after_a_bullet_is_not_folded_into_it():
     note nobody wrote."""
     releases = changelog.parse("## 1.0.0\n\n- a bullet\n\nA paragraph.\n")
     assert releases[0].bullets == ("a bullet",)
+
+
+def test_bold_that_wraps_a_line_still_comes_back_without_its_markers():
+    """The one shape of emphasis the old stripper could not see.
+
+    ``_plain`` ran on each line as it was read, and the file is hard-wrapped at
+    80 columns -- so a bolded lead sentence longer than one line put its
+    opening ``**`` on one line and its partner on the next, and neither half
+    matched. v0.0.41's third bullet shipped that way and was drawn across
+    Home's What's new card, markers and all, in every theme. Stripping the
+    assembled bullet instead is what this pins; the single-line case below it
+    is the one that already worked, kept so a fix that trades one for the other
+    fails here rather than on somebody's screen.
+    """
+    text = (
+        "## 9.9.9" + NL
+        + "- **A lead sentence long enough that its bold" + NL
+        + "  run has to wrap before it closes.** And the argument for it." + NL
+        + "- **A short bold lead.** With its own argument." + NL
+    )
+    first, second = changelog.parse(text)[0].bullets
+    assert "*" not in first, first
+    assert "*" not in second, second
+    assert changelog.lead(first) == (
+        "A lead sentence long enough that its bold run has to wrap before it closes."
+    )
 
 
 def test_a_bullet_before_any_heading_belongs_to_no_release():

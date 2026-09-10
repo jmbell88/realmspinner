@@ -695,6 +695,14 @@ def _frame_trailing(ctx: Any, tab: Any, index: int) -> tuple[float, Any]:
         # ``commit=True``: this writes history. Without it every keystroke was
         # its own undo step, so typing "120" took three Ctrl+Z to reverse and
         # the first one landed on "12".
+        #
+        # **Left beside the box, not above it.** This is ``_transport``'s own
+        # trailing measurement -- "the worst same_line chain in the app" its
+        # docstring calls the row it sits on -- and ``draw_it`` is sized in
+        # ``_frame_trailing`` to the counter's and the box's width alone. A
+        # field label is another whole text line the pinned single-height
+        # transport row has no room to grow into (the 2026-09-08 label-above
+        # pass's exception for a fixed-height row).
         changed, value = controls.input_int(
             "ms", anim.frames[index].duration_ms, 10, 50, commit=True
         )
@@ -730,18 +738,27 @@ def _onion_controls(state: Any) -> None:
     """
     if not state.onion:
         return
+    imgui.begin_group()
+    widgets.field_label("Back")
     imgui.set_next_item_width(sp(70))
-    changed, value = controls.input_int("back", state.onion_before, 1, 1)
+    changed, value = controls.input_int("##back", state.onion_before, 1, 1)
+    imgui.end_group()
     if changed:
         state.onion_before = max(0, min(int(value), MAX_ONION))
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Ahead")
     imgui.set_next_item_width(sp(70))
-    changed, value = controls.input_int("ahead", state.onion_after, 1, 1)
+    changed, value = controls.input_int("##ahead", state.onion_after, 1, 1)
+    imgui.end_group()
     if changed:
         state.onion_after = max(0, min(int(value), MAX_ONION))
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("Fade")
     imgui.set_next_item_width(sp(90))
-    changed, alpha = controls.slider_float("fade", state.onion_alpha, 0.05, 1.0, "%.2f")
+    changed, alpha = controls.slider_float("##fade", state.onion_alpha, 0.05, 1.0, "%.2f")
+    imgui.end_group()
     if changed:
         state.onion_alpha = min(1.0, max(0.05, float(alpha)))
     # Its own row, not ``same_line``d onto the three above: that row already
@@ -774,8 +791,11 @@ def _constant_rate(state: Any) -> None:
     if tab is None:
         return
     imgui.same_line()
+    imgui.begin_group()
+    widgets.field_label("FPS")
     imgui.set_next_item_width(sp(90))
-    changed, value = controls.input_int("fps", int(tab.constant_rate), 1, 1)
+    changed, value = controls.input_int("##fps", int(tab.constant_rate), 1, 1)
+    imgui.end_group()
     if changed:
         tab.constant_rate = max(0, min(int(value), 120))
     if imgui.is_item_hovered():
@@ -1473,8 +1493,12 @@ def _group_menu(ctx: Any, tab: Any, doc: Any, group_uid: int) -> None:
     imgui.begin_disabled(tab.busy)
     if controls.selectable("Rename", False)[0]:
         _ask_group_rename(ctx, doc, group_uid)
+    widgets.field_label("Opacity")
     changed, opacity = controls.slider_float(
-        "Opacity##group", float(node.opacity), 0.0, 1.0, "%.2f"
+        # ``##``-prefixed onto the unchanged ``Opacity##group`` id -- the
+        # label moved above to match its neighbour ``Blend``, which already
+        # goes through ``labeled_combo``.
+        "##Opacity##group", float(node.opacity), 0.0, 1.0, "%.2f"
     )
     controls.fold_undo(doc.history)
     if changed:
@@ -1910,8 +1934,13 @@ def _cell_menu(
         # and this multiplies it for this slot alone. A linked cel gets one of
         # these per slot, which is the point -- the engine keys the value by
         # ``(track uid, frame uid)`` rather than by the shared ``Layer``.
+        widgets.field_label("Opacity")
         changed, alpha = controls.slider_float(
-            "Opacity##cel",
+            # ``##``-prefixed onto the unchanged ``Opacity##cel`` id: this
+            # exact string is what ``test_timeline_cel_opacity_input.py``
+            # locates the slider by through the probe census, so the label
+            # moved above without renaming the id underneath it.
+            "##Opacity##cel",
             float(doc.anim.cel_alpha(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid)),
             0.0,
             1.0,
@@ -1932,8 +1961,12 @@ def _cell_menu(
         # value out of somebody else's file round-trips rather than being
         # clamped by a control the user never touched.
         reach = max(1, len(doc.anim.tracks))
+        widgets.field_label("Z")
         changed, zed = controls.slider_int(
-            "Z##cel",
+            # ``##``-prefixed onto the unchanged ``Z##cel`` id, for
+            # ``Opacity##cel``'s reason just above -- ``test_timeline_cel_
+            # z_input.py`` finds it by this exact string.
+            "##Z##cel",
             int(doc.anim.cel_zindex(doc.anim.tracks[ti].uid, doc.anim.frames[fi].uid)),
             -reach,
             reach,
@@ -2074,9 +2107,10 @@ def _range_menu(ctx: Any, tab: Any) -> None:
         doc.remove_range(f0, f1)
 
     widgets.divider()
+    widgets.field_label("Duration, in ms")
     imgui.set_next_item_width(sp(90))
     changed, value = controls.input_int(
-        "ms##rangems", state.range_ms, 10, 50, enabled=has_range, reason=no_range
+        "##ms##rangems", state.range_ms, 10, 50, enabled=has_range, reason=no_range
     )
     if changed:
         state.range_ms = max(animation.MIN_DURATION_MS, int(value))
@@ -2264,11 +2298,12 @@ def _tag_menu(ctx: Any, tab: Any, index: int, tag: Any) -> None:
     # Straight onto ``set_tag``, which snapshots the whole tag list into a
     # ``TagsEdit`` -- so a repeat count is undoable for free and needs no edit
     # type of its own. 0 hands the question back to the Loop flag above.
+    widgets.field_label("Repeat")
     imgui.set_next_item_width(sp(90))
     # ``commit=True``, for ``_frame_duration``'s reason: ``set_tag`` snapshots
     # the whole tag list into a ``TagsEdit``, so a per-keystroke write is a
     # per-keystroke undo step.
-    changed, value = controls.input_int("repeat", repeat, 1, 1, commit=True)
+    changed, value = controls.input_int("##repeat", repeat, 1, 1, commit=True)
     if changed:
         doc.set_tag(index, repeat=max(0, int(value)))
     widgets.help_marker(

@@ -95,6 +95,14 @@ def items(ctx: Any) -> list[StatusItem]:
         except (AttributeError, ImportError):
             pass
 
+    agent_host = getattr(ctx, "agent_host", None)
+    if agent_host is not None and agent_host.connected:
+        # Not a warning: an attached agent is an ordinary, invited state (the
+        # setting that allows it says so at length), so this reads in the
+        # same muted register as "workspace" and "document" rather than the
+        # amber "health" chip's.
+        out.append(StatusItem("agent", "Agent connected"))
+
     jobs = list(getattr(getattr(ctx, "cache", None), "jobs", []) or [])
     queued = sum(1 for job in jobs if job.get("status") == "queued")
     running_jobs = [job for job in jobs if job.get("status") in ("running", "processing")]

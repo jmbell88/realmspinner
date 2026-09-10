@@ -175,13 +175,36 @@ def draw(ctx: Any) -> None:
 # *view* draws. The trash's bulk bar has two buttons where the workshop's has
 # three, so a constant could not have been right for both.
 #
-# One frame late by construction, and that is fine: the footer's height changes
-# when a tick is added or the view is switched, both of which redraw for many
-# frames afterwards. The seed is the old no-bulk-bar constant, so the very
-# first frame is exactly what it always was -- carried up by 2 with the type
-# ramp (the UI redesign, wave 1), since the row it seeds is one line of text plus
-# ``frame_padding`` and both grew.
+# One frame late by construction -- the footer's true height cannot be known
+# until it has been drawn, so this reservation is always last frame's answer.
+# That used to be "fine" on the assumption the footer's height is independent
+# of the pane's width, which it is not: ``_bulk``'s toolbar drops items into
+# an overflow by available width, and ``_storage``/``_load_more`` wrap text.
+# And the pane's width is not independent of *this* reservation either --
+# ``layout.pane`` opens the library workspace as a scrolling child with no
+# ``no_scrollbar`` flag (the incident ``widgets.stable_width`` documents in
+# full), and whether its scrollbar is up depends on the pane's total content
+# height, which this reservation is part of. So a footer that grows when the
+# pane narrows closes the same loop: no bar -> wide pane -> short footer ->
+# reservation too small -> content overflows -> bar appears -> narrow pane ->
+# tall footer -> next frame's reservation overshoots -> content fits -> bar
+# disappears -> repeat, forever, with nothing in the log.
+#
+# Latched rather than merely damped: within one (scale, stable pane width)
+# regime the reservation only ever *grows*, never shrinks, so the smaller of
+# the two alternating heights can never again undercut the reservation that
+# would trigger the overflow -- the loop runs out of the difference it was
+# feeding on. The width half of the regime key is ``widgets.stable_content_
+# width()``, not the live avail: it is defined to answer the same figure
+# whether or not the pane's scrollbar happens to be up this frame (see its own
+# docstring), so a scrollbar toggling this reservation caused does not itself
+# look like a new regime and reset the latch it exists to hold. The regime
+# still resets on a *real* width or scale change (a window resize, a splitter
+# drag, the UI scale) -- the trade is a few reserved px the footer is not
+# using, the same one ``stable_width`` makes, for a layout that converges
+# instead of alternating.
 _footer_px = [36.0]
+_footer_regime: list[tuple[float, float] | None] = [None]
 
 
 def _footer_reserve() -> float:
@@ -190,10 +213,17 @@ def _footer_reserve() -> float:
 
 def _measure_footer(top: float) -> None:
     height = imgui.get_cursor_pos_y() - top
-    if height > 0:
-        # Back into design pixels, because ``sp`` is applied on the way out and
-        # the UI scale can change between frames (K99).
-        _footer_px[0] = height / max(tokens.SCALE, 0.01)
+    if height <= 0:
+        return
+    # Back into design pixels, because ``sp`` is applied on the way out and
+    # the UI scale can change between frames (K99).
+    design_height = height / max(tokens.SCALE, 0.01)
+    regime = (round(tokens.SCALE, 3), round(widgets.stable_content_width(), 1))
+    if regime != _footer_regime[0]:
+        _footer_regime[0] = regime
+        _footer_px[0] = design_height
+    else:
+        _footer_px[0] = max(_footer_px[0], design_height)
 
 
 def _empty(ctx: Any) -> None:
@@ -373,7 +403,7 @@ def _load_more(ctx: Any) -> None:
             theme.WARN,
             f"Filtering the newest {loaded} of {total}.",
         )
-        widgets.muted("Load older to bring the rest of your history into these filters.")
+        widgets.muted_wrapped("Load older to bring the rest of your history into these filters.")
     # O119. The window only ever grows, and after a few presses "newest N" is a
     # page nobody wants to scroll back through -- and the only way back was to
     # restart the app.
@@ -2290,8 +2320,11 @@ def ask_prune(ctx: Any) -> None:
     _prune_keep[0] = PRUNE_KEEP_DEFAULT
 
     def body() -> None:
+        # Label above (2026-09-08 consistency pass); id kept stable, "Keep
+        # the newest" -> "##Keep the newest".
+        widgets.field_label("Keep the newest")
         imgui.set_next_item_width(sp(120))
-        changed, value = controls.input_int("Keep the newest", _prune_keep[0], 1, 10)
+        changed, value = controls.input_int("##Keep the newest", _prune_keep[0], 1, 10)
         if changed:
             # Floored at zero because the service refuses a negative, and a
             # question that can be answered unanswerably is worse than one that

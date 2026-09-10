@@ -188,7 +188,7 @@ def draw(ctx: Any, height: float = 0.0) -> None:
         elif active is None:
             # Only reachable from a caller that draws the tray without asking
             # ``should_draw`` first; the shell always asks.
-            widgets.muted(
+            widgets.muted_wrapped(
                 "Your completed generations will appear here for comparison "
                 "and variation."
             )
@@ -269,7 +269,7 @@ def _candidate_grid(ctx: Any, group: Any) -> None:
     the grid is put in a scrolling child rather than being cut short.
     """
     widgets.secondary("Compare candidates")
-    widgets.muted(
+    widgets.muted_wrapped(
         "Choose one when every candidate settles. Seeds and scores stay with each result."
     )
     if not imgui.begin_child("generation-candidate-scroll", (0, 0), False):

@@ -206,6 +206,88 @@ entirely and holds no opinions about syntax.
 The pattern generalises. If a rule is worth enforcing, put the thing it governs somewhere a test can
 reach without a display.
 
+## Driving Warlock from an AI agent
+
+Warlock speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
+Code, Codex, anything with an MCP client — can build in Clay for you. It is off until you switch it
+on, in Settings under Advanced. Point the agent at it with a command like
+`claude mcp add warlock -- uv run warlock mcp`, and it will find the running app.
+
+The arrow only ever points inwards. Warlock ships no language model, runs no inference and reaches
+no endpoint; an agent that is already running connects to it. The transport is a local named pipe
+rather than a port, so there is nothing to open in a firewall and nothing off your machine can
+reach it. The pipe's key lives in `mcp.token` in your Warlock home and is written when you switch
+the setting on, so a program that cannot read your files cannot connect either.
+
+**An agent gets a Clay tab of its own, and can reach no other.** It opens one when it connects, and
+every tool it has addresses that tab by name. A document you already have open is not merely
+unlikely to be touched; there is no request the agent can make that names it. What the agent does
+goes onto that document's ordinary undo stack, one step per action, so taking over means switching
+to its tab and pressing Ctrl+Z as often as you want to. It also arrives already knowing Warlock's
+units and conventions — metres, which way is up, that a generator stands on the ground rather than
+straddling it — rather than working them out by trial, which is why its first attempt at something
+now usually stands on the ground instead of floating above it or growing up out of the floor.
+
+The tools are the ones you would reach for yourself, but most of them now do in one call what used
+to take several. Placing a primitive or a figure sets its size, its position, its rotation, its
+scale, its name and its palette colour all at once, validated before anything appears and landing as
+a single undo step — it used to take four round trips to place one sized, positioned, named, coloured
+object. **Batch** folds up to thirty-two calls, a whole block-out, into that same one step, so backing
+the attempt out is one Ctrl+Z rather than one per primitive. Undo, delete and rename all work by
+name, the way you would type them yourself, rather than by whatever the agent last happened to have
+selected. The one that makes the rest work is still **render** — it can now look from several angles
+in a single call, with an optional ground grid switched on as the only scale cue in what would
+otherwise be a flat white square, and a focus that frames the object under discussion while leaving
+the rest of the scene drawn around it. An agent that can only read coordinates builds things that are
+plausible in numbers and wrong on screen; one that can look at what it made corrects itself the way
+you would — and that is now also the argument for reference images: an agent shown the picture you
+want matched can put its own render beside it, or blend the two together, and see the difference
+instead of only being told about it.
+
+A picture reaches the agent one of two ways. You can point it at a Library row — right-click the
+card and choose **Copy job id**, and hand the agent that id — or hand it image data directly,
+however your agent client lets you paste or attach one. There is deliberately no third way, where the
+agent names a file path on your machine and Warlock opens it: a tool that will open any path it is
+given is a tool that reads whatever else is on your disk, and this one does not. What you see of a
+reference landing, for now, is a toast the moment the agent adds one — a thumbnail strip in Clay and
+a reference plane in the 3D view, so you could see what it is comparing against without having to ask
+it, are wanted and not yet built.
+
+Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
+entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
+posing, sprite sheets and every mesh export work on it exactly as they work on anything else.
+
+### Adding a tool
+
+`studio/agent_clay.py` is the surface and `studio/agent_host.py` is the plumbing. The important
+thing about the first is that **most of it is not written down**: the shapes an agent may place come
+from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, and the operations from
+`clay_ops.OPS` — the same three tables the add panel and the context menu are drawn from. A
+thirteenth generator added to Clay appears in the agent's tool list with no edit here at all, and a
+test asserts that in both directions, so the two cannot drift apart.
+
+So adding a *shape* or an *operation* is not an edit to the agent surface. Only a genuinely new
+verb — something Clay's own registry has no entry for — is, and it goes in beside the others as a
+function that takes the context, the session and the arguments, and returns content.
+
+Two rules bind anything you add. It runs on the frame thread, drained under a time budget, because
+that is the only thread that may touch a document or the graphics context — the listener never
+touches either, and an operation that takes a long time will drop frames rather than corrupt
+anything. And it must not raise: a refusal is a result an agent can read, and where Warlock knows
+which argument was wrong it says so by name, which is a thing the old HTTP interface had nowhere to
+put.
+
+A new tool is also two decisions, both of which the test suite makes you take. Name it in
+`BATCH_EXCLUDED` if it belongs there — the only two reasons anything is on that list are that its
+result is a picture a client has to see as an image, which is not a shape a batch's own result can
+carry, or that it is deliberately one-shot, an action nothing should ever want folded silently into
+somebody else's block-out. And `tests/test_agent_clay.py` gates the other list: every handler has to
+appear in either the tools that need a tab already open or the tools a session can run without one,
+and a handler that answers to neither fails the suite instead of quietly falling through — you cannot
+add a tool without deciding which kind it is. The reference tools are the one family that pushes no
+undo step at all, because adding, listing, fetching or removing a picture never touches the document
+in the first place.
+
 ## Writing manual chapters
 
 The chapters are markdown files in `docs/manual/`, named `NN-name.md`. They are readable on GitHub

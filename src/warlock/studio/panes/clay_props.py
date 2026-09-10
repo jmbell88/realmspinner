@@ -232,6 +232,11 @@ def _generator(doc: Any, obj: Any) -> None:
     edited = dict(params)
     changed = False
     for key, default in defaults.items():
+        # A name line per param (2026-09-08 consistency pass): the block
+        # label above names the generator, not its individual fields, and
+        # the old beside-the-box text was the only place a param's name
+        # appeared.
+        widgets.field_label(key.replace("_", " "))
         was, changed_here = _widget(key, params.get(key, default), default)
         # The 2026-09-07 audit's clay-01: a generator field fired
         # ``set_generator_params`` -- also an unconditional ``history.push`` --
@@ -316,8 +321,14 @@ def _carry_shading(old: Any, mesh: Any) -> Any:
 
 
 def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
-    """One widget for one parameter, chosen from the default's type."""
-    label = f"{key.replace('_', ' ')}##gen{key}"
+    """One widget for one parameter, chosen from the default's type.
+
+    The visible name moved to the ``field_label`` line the loop above draws
+    (2026-09-08 consistency pass); hidden here the same way a previously
+    visible control is hidden elsewhere in this pass -- "Foo" becomes
+    "##Foo", not a new id -- so the id stays recognisably the old one.
+    """
+    label = f"##{key.replace('_', ' ')}##gen{key}"
     if isinstance(default, bool):
         return controls.checkbox(label, bool(value))[::-1]
     if isinstance(default, int):
@@ -418,18 +429,23 @@ def _material(doc: Any, obj: Any) -> None:
     index = min(max(int(obj.material), 0), len(doc.materials) - 1)
     material = doc.materials[index]
     _texture_chip(material)
+    # Each a sub-field of the "slot" combo above, named on its own line
+    # (2026-09-08 consistency pass); ids kept stable, "Foo##bm" -> "##Foo##bm".
+    widgets.field_label("base colour")
     changed, colour = controls.color_edit4(
-        "base colour##bm", list(material.base_color_factor)
+        "##base colour##bm", list(material.base_color_factor)
     )
     # One gesture, one step: a drag reports on every frame the pointer moves,
     # and ``set_material`` pushes a step per report without this.
     controls.fold_undo(doc.history)
+    widgets.field_label("metallic")
     metal_changed, metallic = controls.slider_float(
-        "metallic##bm", float(material.metallic_factor), 0.0, 1.0
+        "##metallic##bm", float(material.metallic_factor), 0.0, 1.0
     )
     controls.fold_undo(doc.history)
+    widgets.field_label("roughness")
     rough_changed, roughness = controls.slider_float(
-        "roughness##bm", float(material.roughness_factor), 0.0, 1.0
+        "##roughness##bm", float(material.roughness_factor), 0.0, 1.0
     )
     controls.fold_undo(doc.history)
     if changed or metal_changed or rough_changed:

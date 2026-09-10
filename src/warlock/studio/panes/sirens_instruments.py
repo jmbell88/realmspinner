@@ -200,7 +200,7 @@ def _sample(ctx: Any, tab: Any, selected: Any) -> None:
 
     width = widgets.grid_width(2)
     if widgets.disabled_button(
-        f"{icons.UPLOAD} Import...",
+        f"{icons.FOLDER_OPEN} Import...",
         editable,
         (width, 0),
         reason=_BUSY_WHY,

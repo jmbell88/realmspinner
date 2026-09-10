@@ -100,7 +100,7 @@ def _existing_mesh(ctx: Any, form: dict[str, Any]) -> None:
         return
     meshes = troupe_mode.sendable_meshes(ctx)
     if not meshes:
-        widgets.muted("No finished meshes yet. Anything with a mesh can come in here.")
+        widgets.muted_wrapped("No finished meshes yet. Anything with a mesh can come in here.")
         return
     current = str(ctx.state.preview.get(_PICK_SLOT) or "")
     if current not in {mesh["id"] for mesh in meshes}:

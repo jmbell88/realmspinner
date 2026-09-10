@@ -161,7 +161,11 @@ def _tiles_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
     # fixed for -- this copy's own comment claimed it "already does" fold,
     # which was false (the 2026-09-07 audit, plotter-01).
     controls.fold_undo(tab.doc.history)
-    changed, probability = controls.input_float("Probability", float(meta.probability))
+    # Label above (2026-09-08 consistency pass); id kept stable,
+    # "Probability" -> "##Probability". Fixed identically in
+    # ``plotter_tileset.py``'s near-duplicate of this panel.
+    widgets.field_label("Probability")
+    changed, probability = controls.input_float("##Probability", float(meta.probability))
     controls.fold_undo(tab.doc.history)
     if class_name != meta.class_name or changed:
         tab.doc.set_tile_meta(
@@ -621,7 +625,7 @@ def _animation_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None
         ):
             write(moved_frame(frames, at, 1))
         imgui.same_line()
-        if widgets.icon_button(f"x##tsdel{at}", "Delete this frame", borderless=True):
+        if widgets.icon_button(f"{icons.TRASH}##tsdel{at}", "Delete this frame", borderless=True):
             write([f for pos, f in enumerate(frames) if pos != at])
         imgui.pop_id()
     if controls.button(f"Add this tile as a frame##tsaddf{local}", (-1, 0)):
@@ -1046,6 +1050,12 @@ def _wang_colours(
         # both report on every frame, and ``set_wang_colour`` pushes a step
         # per report without this (2026-09-05 audit).
         controls.fold_undo(tab.doc.history)
+        # Left beside the swatch rather than moved above it (2026-09-08
+        # consistency pass): unlike the per-tile "Probability" field in
+        # ``_tiles_tab``, this one is a cell in a repeated list row (name,
+        # swatch, probability, one row per colour) -- a label line here would
+        # double every row's height across the whole list for a field a
+        # colour-name text box and a swatch already sit beside.
         weighed, probability = controls.input_float(
             "Probability", float(colour.probability)
         )
@@ -1065,7 +1075,7 @@ def _wang_colours(
             )
             imgui.pop_id()
             return
-        if widgets.icon_button("x##drop", "Delete this colour", borderless=True):
+        if widgets.icon_button(f"{icons.TRASH}##drop", "Delete this colour", borderless=True):
             remove_wang_colour(state, tab, index, at, slot)
             imgui.pop_id()
             return

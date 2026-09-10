@@ -127,6 +127,10 @@ LAYOUT_ONLY = {
     # Its own settings never leave the process, and the nested call is a
     # re-entry of the same draw with the parent's form context.
     "application-settings/interface": "no service call behind it",
+    # One switch, and what it toggles is a listener this process owns -- it
+    # starts or stops ``ctx.agent_host`` inline and raises nothing a service
+    # refusal could address, so there is no field for an error ring to land on.
+    "application-settings/agents": "no service call behind it",
     # Read-only: one ``form_ui.readonly`` row per recorded parameter.
     "generation-settings": "readonly rows",
     # The label grid alone -- these three draw no typed field at all.

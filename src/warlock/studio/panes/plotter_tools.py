@@ -677,7 +677,11 @@ def map_settings_popup(ctx: Any, state: Any, tab: Any) -> None:
         if index != doc.stagger_index:
             doc.set_map_settings(stagger_index=index)
     if doc.projection == project.HEXAGONAL:
-        changed, side = controls.input_int("Hex side", int(doc.hex_side))
+        # Label above, matching "Stagger axis"/"Stagger index" just above it
+        # (2026-09-08 consistency pass); id kept stable, "Hex side" ->
+        # "##Hex side".
+        widgets.field_label("Hex side")
+        changed, side = controls.input_int("##Hex side", int(doc.hex_side))
         # One gesture, one step (the 2026-09-07 audit, plotter-03).
         controls.fold_undo(doc.history)
         if changed:

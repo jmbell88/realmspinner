@@ -930,7 +930,7 @@ def _start(ctx: Any) -> None:
     # reconstructed or built in Clay, and a dropped ``.glb`` reached Clay
     # alone, which refuses a rigged one because it has no skinning.
     imgui.same_line()
-    if widgets.ghost_button(f"{icons.BOX} Import mesh..."):
+    if widgets.ghost_button(f"{icons.FOLDER_OPEN} Import mesh..."):
         from . import library
 
         library.pick_and_import_mesh(ctx)

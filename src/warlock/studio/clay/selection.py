@@ -86,6 +86,25 @@ def delete_selected(doc: Any) -> list[str]:
     recorded in *descending* index order for ``join_objects``'s own reason: a
     ``CompoundEdit`` undoes in reverse, which re-inserts them ascending, which
     is the only order in which every recorded index is still correct.
+
+    The element-mode branch below folds the same way, but through
+    ``UndoStack.mark``/``collapse_since`` rather than a hand-built
+    ``CompoundEdit``: each object's ``doc.set_mesh`` call already pushes its
+    own step (a ``MeshEdit``, plus a generator-freeze ``ObjectPropsEdit`` when
+    that object had one), and there is no "build the edit but do not push it"
+    form of ``set_mesh`` to collect from instead. The 2026-09-08 audit
+    (second run, finding clay-10) found that with three boxes and every face selected, one
+    Delete pushed three of those steps and one Ctrl+Z restored one box while
+    leaving two empty -- the direct-call twin of clay-01, reachable from
+    ``tests/clay/test_select.py`` and any other caller that reaches this
+    function without going through ``clay_ops.run`` (which already folds
+    everything an op pushes, but only for callers that go through it -- see
+    the 2026-09-07 audit's clay-02 in ``clay_mode.py``). ``mark``/
+    ``collapse_since`` is the primitive built for exactly this composed-op
+    shape (its own docstring in ``studio/undo.py`` names "delete these eight
+    rows"), and it already folds nothing into nothing: a single touched
+    object still pushes the one plain step ``set_mesh`` always pushed, so the
+    existing single-object undo tests are unaffected.
     """
     from . import ops_topo
     from .edits import ObjectRemoveEdit
@@ -107,6 +126,7 @@ def delete_selected(doc: Any) -> list[str]:
         doc.touch()
         return []
     refusals: list[str] = []
+    mark = doc.history.mark()
     for uid in list(doc.element_sel):
         obj = doc.by_uid(uid)
         faces = el.convert(obj.mesh, doc.element_sel_of(uid), "face")
@@ -118,6 +138,7 @@ def delete_selected(doc: Any) -> list[str]:
             refusals.append(str(error))
             continue
         doc.set_mesh(uid, mesh, select=sel)
+    doc.history.collapse_since(mark)
     return refusals
 
 

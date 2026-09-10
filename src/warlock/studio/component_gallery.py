@@ -123,7 +123,7 @@ _BAR_ITEMS = (
     toolbar.Item("new", "New", icon=icons.PLUS, role=controls.ButtonRole.PRIMARY),
     toolbar.Item("open", "Open", icon=icons.FOLDER_OPEN),
     toolbar.Item("save", "Save", icon=icons.SAVE, priority=1),
-    toolbar.Item("export", "Export", icon=icons.UPLOAD, priority=1),
+    toolbar.Item("export", "Export", icon=icons.DOWNLOAD, priority=1),
     toolbar.Item(
         "delete",
         "Delete",
@@ -147,7 +147,7 @@ def _toolbars() -> None:
     # middle bar has already spent its glyphs on the two lowest groups while
     # the top one still has its words. So the rows are labelled by the width
     # they were given, and the tiers are named in the sentence above them.
-    widgets.muted(
+    widgets.muted_wrapped(
         "The same five actions at three widths: labels, then glyphs, then an overflow menu."
     )
     for width, tier in _BAR_WIDTHS:

@@ -92,7 +92,11 @@ def test_both_doors_ask_the_same_question():
     on the single builder they share.
     """
     source = inspect.getsource(asset_exits._troupe_in)
-    assert "troupe_send.ask(ctx, job)" in source
+    # ``ctx, _mesh`` since B1 (2026-09-09): a follow-up row's own exits close
+    # over the *resolved* mesh (``asset_exits._mesh_for``), not the selected
+    # row -- both call sites invoke ``exit_.open(ctx, job)`` with whatever the
+    # user actually picked, which for a rig row is not a mesh at all.
+    assert "troupe_send.ask(ctx, _mesh)" in source
     assert asset_exits._troupe_in in asset_exits._BUILDERS
 
 

@@ -116,7 +116,7 @@ def _picker(ctx: Any, state: Any) -> None:
     if picked != state.clip:
         poser_mode.select_clip(ctx, picked)
     if state.clips.get("edited"):
-        widgets.muted("edited - this skeleton is using your clips, not the shipped ones")
+        widgets.muted_wrapped("edited - this skeleton is using your clips, not the shipped ones")
 
 
 def _keys(ctx: Any, state: Any) -> None:
@@ -263,8 +263,12 @@ def _timing(ctx: Any, state: Any) -> None:
     segments = list(record.get("segments") or ())
     index = min(state.key_index, len(segments) - 1) if segments else -1
     if index >= 0:
+        # Label above, matching "Easing" below it (2026-09-08 consistency
+        # pass); id kept stable, "Frames after this key" -> "##Frames after
+        # this key".
+        widgets.field_label("Frames after this key")
         changed, value = controls.input_int(
-            "Frames after this key", int(segments[index])
+            "##Frames after this key", int(segments[index])
         )
         if changed:
             poser_mode.set_segment(ctx, index, value)
@@ -319,6 +323,11 @@ def _scrubber(ctx: Any, state: Any) -> None:
         return
     count = len(state.frames)
     current = state.frame if state.frame >= 0 else 0
+    # Left beside the slider rather than moved above it (2026-09-08
+    # consistency pass): this is the only control under "Play", so the
+    # section heading already names it, and the label's own text is the
+    # live frame range rather than a fixed field name -- reading it beside
+    # the track keeps it next to the value it is describing.
     changed, value = controls.slider_int(
         f"Frame 1-{count}", int(current), 0, count - 1
     )

@@ -1295,7 +1295,22 @@ def _register_defaults() -> None:
     register(
         Op(
             name="smooth",
-            label="Smooth (Catmull-Clark)...",
+            # **The algorithm's name is a hint, not a label.** "Smooth
+            # (Catmull-Clark)..." was the longest string in the actions grid by
+            # a wide margin, and a grid sized to fit it is a grid one column
+            # wide -- thirteen full-width buttons stacked down a 300 dp
+            # sidebar. Sized to anything narrower, imgui drew it straight past
+            # its frame and the child clipped the closing bracket off. Nobody
+            # picks this op *because* it is Catmull-Clark; they pick it because
+            # they want the shape rounded, and the surface that answers "which
+            # smoothing is this" is the tooltip, which every op in this grid
+            # already carries and this one had left empty.
+            label="Smooth...",
+            hint=(
+                "Rounds the shape by subdividing it (Catmull-Clark), so the "
+                "silhouette moves. 'Subdivide' splits the same faces without "
+                "changing it, and 'Shade Smooth' changes no geometry at all."
+            ),
             modes=ALL_MODES,
             run=_smooth,
             enabled=lambda doc: bool(doc.selection),

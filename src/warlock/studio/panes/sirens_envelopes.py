@@ -301,6 +301,13 @@ def _header(
     from imgui_bundle import imgui
 
     editable = not tab.busy
+    # Left as one fixed-height row rather than moved onto its own label line
+    # (2026-09-08 consistency pass): this is a graph's title bar, not a form
+    # field -- the step count sits between the graph's name and the Loop/Tail
+    # marker buttons on the one line every envelope (Volume, Pitch, ...)
+    # spends on its header so the graph itself keeps the vertical room. A
+    # label line here would separate the step count from the title it
+    # belongs beside without freeing anything the graph needs.
     imgui.text(label)
     imgui.same_line()
     imgui.set_next_item_width(sp(46))

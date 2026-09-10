@@ -529,6 +529,45 @@ def test_collapse_points_a_vertex_selection_at_weld() -> None:
         ops.collapse(prim.box(), el.empty())
 
 
+def test_collapsing_one_edge_does_not_walk_the_whole_meshs_vertex_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-08 audit's second run (clay-11) found ``collapse``'s remap built with
+    ``np.array([find(i) for i in range(n_verts)])`` -- a Python loop over
+    every vertex in the whole mesh -- while ``weld`` right above it already
+    scatters into an identity remap sized to the selection. One edge collapsed
+    measured 1.2 ms at 2,500 vertices and 175 ms at 409,600, linear in mesh
+    size, for an op with no ceiling.
+
+    Proven structurally rather than by wall clock: pad the mesh with 50,000
+    vertices no face references at all, so an O(mesh) walk still pays for
+    them, and assert ``_find`` is called only a handful of times.
+    """
+    m = prim.box()
+    padded = bm.Mesh(
+        positions=np.concatenate([m.positions, np.zeros((50_000, 3), dtype="f4")]),
+        loops=m.loops,
+        starts=m.starts,
+        material=m.material,
+        smooth=m.smooth,
+    )
+    edge = [int(m.loops[0]), int(m.loops[1])]
+
+    calls = 0
+    original = ops._find
+
+    def counting_find(parent: np.ndarray, x: int) -> int:
+        nonlocal calls
+        calls += 1
+        return original(parent, x)
+
+    monkeypatch.setattr(ops, "_find", counting_find)
+    out, _ = ops.collapse(padded, el.ElementSel(edges=[edge]))
+    bm.validate(out)
+    assert len(out.positions) == 7, "the collapsed pair merged, the padding untouched"
+    assert calls < 50, f"collapsing one edge called _find() {calls} times on 50,008 vertices"
+
+
 # --- fill_hole --------------------------------------------------------------
 
 

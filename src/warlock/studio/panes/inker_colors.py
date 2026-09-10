@@ -12,7 +12,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import anchors, controls, inker_mode, theme, tokens, widgets
+from .. import anchors, controls, icons, inker_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_bridge
@@ -88,7 +88,7 @@ def draw(ctx: Any) -> None:
     if controls.button("Swap (X)"):
         state.swap_colours()
     imgui.same_line()
-    if controls.button("+ swatch"):
+    if controls.button(f"{icons.PLUS} swatch"):
         state.add_swatch(state.fg)
         inker_mode.persist(ctx)
 
@@ -317,7 +317,7 @@ def _slots(ctx: Any, state: Any, tab: Any) -> None:
     controls.fold_undo(doc.history)
     if changed and doc.recolour_slot(slot, _to_rgba(value)):
         state.palette_moved()
-    if controls.button("+ from colour") and doc.add_slot(state.fg):
+    if controls.button(f"{icons.PLUS} from colour") and doc.add_slot(state.fg):
         state.palette_slot = len(doc.palette) - 1
         state.palette_usage = None
     imgui.same_line()

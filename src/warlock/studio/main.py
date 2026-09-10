@@ -294,15 +294,23 @@ def _takes_pointer(target: Any, hovered: bool) -> bool:
 
 
 def _ui_scale(settings: Any) -> float:
-    """The stored multiplier, clamped. A junk value must not brick the window."""
+    """The stored multiplier, snapped to a step. Junk must not brick the window.
+
+    **Snapped rather than clamped**, since the zoom control became a combo of
+    named steps: a settings file written by the slider that used to stand there
+    carries values like 1.13x, and honouring one would run the app at a size the
+    Appearance pane can no longer show, explain, or offer a way back from. The
+    monitor's own scale is not known here -- this is read before the window
+    exists -- so the snap is against the unbounded step list and the product
+    clamp in ``tokens.set_scale`` still has the last word.
+    """
     from . import tokens
 
-    lo, hi = tokens.UI_SCALE_RANGE
     try:
         value = float(settings.get("ui_scale") or 1.0)
     except (TypeError, ValueError):
         return 1.0
-    return min(max(value, lo), hi)
+    return tokens.nearest_ui_scale(value)
 
 
 def _split_column(
@@ -417,15 +425,25 @@ def _right_column(
     )
 
 
-def _column_boundary(library: Any, workspace: str, side: str) -> None:
-    """The draggable boundary between a side column and the centre anchor."""
+def _column_boundary(library: Any, workspace: str, side: str, *, length: float = 0.0) -> None:
+    """The draggable boundary between a side column and the centre anchor.
+
+    ``length`` is the handle's height, and forwarding it is not optional for a
+    workspace that keeps a row under its columns. Left at 0 the splitter takes
+    ``get_content_region_avail().y`` -- **the whole remainder**, not the height
+    the columns were given -- so the handle, and not the columns, is what sets
+    the row's height. Muse is the workspace that found this: it shortens its
+    columns to leave 148 dp for the player strip, the splitter went on claiming
+    the full height anyway, and the strip was pushed 8 px past the bottom of
+    the content region, where ``begin_child`` returns false and draws nothing.
+    """
 
     from imgui_bundle import imgui
 
     from . import layout as layout_mod
 
     imgui.same_line()
-    layout_mod.column_splitter(library, workspace, side)
+    layout_mod.column_splitter(library, workspace, side, length=length)
     imgui.same_line()
 
 
@@ -495,6 +513,12 @@ STARTUP_HOME = "home"
 STARTUP_LAST = "last"
 LAST_WORKSPACE_SETTING = "last_workspace"
 
+#: Whether an external MCP agent may drive Clay through ``agent_host.
+#: AgentHost``. Matches ``CONTRACT.md``'s own name for this key exactly --
+#: the Settings pane and ``setup_context`` both read it by this constant so
+#: the two cannot drift onto different spellings.
+AGENT_SERVER_SETTING = "agent_server"
+
 
 def initial_mode(settings: Any, available: Callable[[str], bool]) -> str:
     """Which mode a fresh window opens on.
@@ -560,6 +584,13 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         self.imgui_renderer = None
         self.viewer = None
         self.app_ctx = None
+        # The MCP listener for driving Clay from an external agent. ``None``
+        # until ``setup_context`` builds it (it needs ``app_ctx`` and the GL
+        # context to exist first) -- ``frame`` and ``teardown`` both guard on
+        # that with ``getattr``/``is not None`` rather than assuming it, for
+        # the same reason ``clay_view`` is guarded: teardown also runs after
+        # a setup that failed before reaching this line.
+        self.agent_host = None
         self.eta = None
         self._running = False
         # H02: set while a quit was asked for during a pack install's commit
@@ -940,6 +971,18 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
 
         tour_pane.restore(self.app_ctx)
         self.viewer.on_pose_dirty = self._on_pose_dirty
+        # The agent host is constructed unconditionally, not only when the
+        # setting is on: the Settings pane calls ``ctx.agent_host.start()``/
+        # ``.stop()`` on this same instance at runtime (toggling must take
+        # effect immediately, never on next launch), so there has to be one
+        # to call before the setting is ever true. ``start()`` itself is the
+        # part that is conditional -- it opens the pipe only when asked.
+        from .agent_host import AgentHost
+
+        self.agent_host = AgentHost(self.app_ctx, self.svc.config.home)
+        self.app_ctx.agent_host = self.agent_host
+        if bool(settings.get(AGENT_SERVER_SETTING, False)):
+            self.agent_host.start()
 
     def _load_static_answers(self) -> None:
         """Read the things that cannot change without a restart, once."""
@@ -1440,6 +1483,14 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             # rather than reading a confident 0.
             self.resources.tick(fps=self.fps.fps if self.fps.frames else None)
         self._collect_tasks()
+        # Right here and nowhere else: this is the frame thread, the only one
+        # allowed to touch a document or the GL context, which is exactly
+        # what a queued agent tool call needs to do (``agent_host.AgentHost``'s
+        # own module docstring). ``None`` until ``setup_context`` builds the
+        # host -- see ``self.agent_host``'s own comment for why teardown and
+        # this both guard on it rather than assume it.
+        if self.agent_host is not None:
+            self.agent_host.pump()
         self._refresh()
         # Before ``_events``, which is where the keys are read: whether the
         # arrows reach imgui at all is a property of the surface they arrive
@@ -2101,6 +2152,14 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                 # A rendered sheet is side data, not a job-row change, so the
                 # cache invalidation above does not bring it back.
                 self._refresh_rig_side_data()
+            if key.startswith(("rig:", "joints:")):
+                # Poser's own "Rigged assets" picker is throttled like
+                # ``troupe_mode.sendable_meshes`` -- up to CAST_REFRESH_LIVE
+                # stale on its own -- but a rig landing while the mode is
+                # already open should not need a restart to appear in it.
+                from . import poser_mode
+
+                poser_mode.invalidate_riggable(ctx)
             return
         if key == VIEWER_KEY:
             self._adopt_model(done)
@@ -4078,25 +4137,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         settings_3d.upload_bytes(ctx, png)
 
     def _render_clay_reference(self, tab: Any, size: int = 1024) -> bytes:
-        """One offscreen 1024-square draw of the document, as PNG bytes."""
-        from .viewer import capture, glctx
+        """One offscreen square draw of the document, as PNG bytes.
 
-        view = self._ensure_build_view()
-        view.sync(tab.doc)
-        target = glctx.Viewport(self.ctx, (size, size))
-        try:
-            view.renderer.draw(
-                target,
-                view.camera,
-                view._composite(tab.doc),
-                flat=True,
-                show_grid=False,
-                background=(1.0, 1.0, 1.0, 1.0),
-                overlays=[],
-            )
-            return capture.png_bytes(target)
-        finally:
-            target.release()
+        ``frame=False`` because this is the build-to-trellis path: it has
+        always drawn through whatever camera the user was looking through
+        rather than reframing, so the picture trellis reconstructs from is
+        the angle the user chose, not one this call picks for them.
+        ``ClayView.render_png`` reframes by default for the opposite reason
+        -- an agent asking for a picture has no camera of its own -- and
+        letting that default leak into this call would silently change the
+        input to every future reconstruction, which invalidates comparisons
+        against the stored corpora reconstruction quality is measured
+        against (see its own docstring).
+        """
+        return self._ensure_build_view().render_png(tab.doc, size=size, frame=False)
 
     def _inker_workspace(self) -> None:
         """Colour / canvas / tools, with the timeline along the bottom.
@@ -4342,25 +4396,42 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             if visible:
                 muse_brief.draw(ctx)
 
-        # The two columns are bounded rather than filling, so the strip has a
-        # row to be in. Measured here rather than passed as a negative height:
-        # the strip is conditional, and "what is left" has to be the whole
-        # remainder on the frames where there is no strip at all.
+        # **The row's height is one number, and everything in the row gets it.**
+        # The strip is conditional, so what is left over has to be measured;
+        # what cannot be left to chance is that the two columns *and the
+        # boundary handle between them* are all told the same figure. They were
+        # not: the splitter defaults to ``get_content_region_avail().y``, so it
+        # claimed the whole remainder while the columns were shortened by the
+        # strip's height, and the handle is what the row then sized itself to.
+        # ``muse_player.draw`` ran with -8 px left (measured, 2560x1369),
+        # ``begin_child`` returned false, and the mode reserved 148 dp for a
+        # band that drew nothing at all -- no waveform, no playhead, no
+        # transport, no loop markers -- in every build and every screenshot
+        # this repo has ever taken of Muse.
         strip = muse_player.should_draw(ctx)
+        gap = imgui.get_style().item_spacing.y
         body = imgui.get_content_region_avail().y
-        body_h = body - tokens.sp(muse_player.STRIP_H) if strip else 0.0
+        body_h = max(body - (tokens.sp(muse_player.STRIP_H) + gap), 1.0) if strip else body
 
         flags = imgui.WindowFlags_.no_scroll_with_mouse.value
         with layout_mod.pane(
             "muse-centre",
-            (layout_mod.centre_width() + layout_mod.sidebar_width("left"), body_h),
+            # ``centre_width()`` alone. It already answers "what is left once
+            # the right sidebar is reserved", measured from a cursor with no
+            # left sidebar drawn before it -- so adding the left sidebar's
+            # width **counted the space Muse does not use twice**, and the
+            # centre came out 2443 px wide inside a 2466 px row. That left 0 px
+            # for the recipe column: it was clipped out of every frame, which
+            # is why the right-hand third of every Muse screenshot in this repo
+            # is empty. Muse has no left column to give the space back from.
+            (layout_mod.centre_width(), body_h),
             layout_mod.PaneRole.CONTENT,
             window_flags=flags,
         ) as visible:
             if visible:
                 muse_results.draw(ctx)
 
-        _column_boundary(self.layouts, "muse", "right")
+        _column_boundary(self.layouts, "muse", "right", length=body_h)
         with layout_mod.pane(
             "muse-recipe",
             (right_w, body_h),
@@ -5048,6 +5119,18 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         poser_viewer = getattr(self, "poser_viewer", None)
         if poser_viewer is not None:
             _step("release poser viewer", poser_viewer.release)
+        # ``getattr``, for ``clay_view``'s own reason above: a setup that
+        # failed before ``setup_context`` built this must not skip
+        # ``runtime.shutdown`` over an ``AttributeError``. Stopped before its
+        # view is released, not after: a call still in flight when the host
+        # stops must not be racing ``agent_clay.release`` for the same GL
+        # objects.
+        agent_host = getattr(self, "agent_host", None)
+        if agent_host is not None:
+            _step("stop agent host", agent_host.stop)
+        from . import agent_clay
+
+        _step("release agent view", agent_clay.release)
         if self.imgui_renderer is not None:
             _step("shutdown imgui", self.imgui_renderer.shutdown)
         _step("pygame.quit", pygame.quit)

@@ -575,31 +575,36 @@ def test_a_clamped_zoom_is_not_baked_in_by_moving(
 ) -> None:
     """The trap in recovering the user's zoom by division.
 
-    ``set_scale`` clamps the *product* to 4.0, so on a 250% display a stored
-    2.0x zoom is really drawn at 1.6x. Dividing the scale in force by the old
-    monitor scale to recover "the zoom" would read back 1.6, and each move
+    ``set_scale`` clamps the *product* to 4.0, so on a 300% display a stored
+    150% zoom is really drawn at 133%. Dividing the scale in force by the old
+    monitor scale to recover "the zoom" would read back 1.33, and each move
     between two such monitors would shrink the UI again -- permanently, since
     nothing ever writes it back up. Re-reading the stored preference is what
     makes the operation repeatable.
+
+    The monitor moved from 250% to 300% when zoom became a five-step combo:
+    the top step is 150% rather than the old slider's 200%, so 250% x 150% is
+    3.75 and the ceiling no longer bites there. A test whose premise has
+    stopped holding passes for the wrong reason, which is worse than failing.
     """
     from warlock.studio import dpi, tokens
 
     try:
-        monkeypatch.setattr(dpi, "window_scale", lambda _p: 2.5)
-        app = _ScaleApp(monitor=1.0, ui_scale=2.0)
+        monkeypatch.setattr(dpi, "window_scale", lambda _p: 3.0)
+        app = _ScaleApp(monitor=1.0, ui_scale=1.5)
         app._resample_display_scale()
-        # 2.0x is not offerable at 250%: the product ceiling leaves room for
-        # 1.6x, so this is the clamp biting.
+        # 150% is not offerable at 300%: the product ceiling leaves room for
+        # 133%, so this is the clamp biting.
         assert pytest.approx(4.0) == tokens.SCALE
 
         # The discriminating move. Recovering the zoom by division would read
-        # 4.0 / 2.5 == 1.6 and draw the 100% monitor at 1.6x; re-reading the
-        # stored preference gives the 2.0x the user actually asked for. Both
+        # 4.0 / 3.0 == 1.33 and draw the 100% monitor at 133%; re-reading the
+        # stored preference gives the 150% the user actually asked for. Both
         # implementations agree on every other value in this test, which is
         # what makes this the only assertion that proves anything.
         monkeypatch.setattr(dpi, "window_scale", lambda _p: 1.0)
         app._resample_display_scale()
-        assert pytest.approx(2.0) == tokens.SCALE, "the clamp was baked in"
+        assert pytest.approx(1.5) == tokens.SCALE, "the clamp was baked in"
     finally:
         tokens.set_scale(1.0)
 

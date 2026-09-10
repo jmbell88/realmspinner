@@ -32,6 +32,8 @@ def draw(ctx: Any) -> None:
         widgets.muted("Posing needs Blender, which is not installed.")
         return
 
+    _rigged_assets(ctx, state)
+
     if state.job_id:
         # The skeleton follows the bound asset's own rig -- shown as a fact,
         # not a combo, because changing it here does not edit anything in
@@ -66,6 +68,77 @@ def draw(ctx: Any) -> None:
         _asset_poses(ctx, state)
     _library(ctx, state)
     _presets(ctx, state)
+
+
+def _rigged_assets(ctx: Any, state: Any) -> None:
+    """The mode's own door in: every rigged mesh, newest first, with the
+    currently bound one marked. Drawn above the skeleton block, the same
+    order the picker gates in -- which asset is open decides which skeleton's
+    library the rest of the pane shows.
+
+    The pane draws, the controller decides (this module's own docstring): a
+    click calls :func:`poser_mode.open_asset` and nothing here re-asks the
+    dirty-editor guard or the template-switch discard confirm that function
+    already carries.
+
+    **A section, not a collapsing header**, like the three lists below it.
+    This shipped as a ``widgets.header`` and
+    ``tests/test_ux_consistency_pass2.py`` caught it by name: the 2026-09-05
+    consistency pass unfolded Poser's panes out from under collapsing headers
+    and pins that none of its three pane modules may reintroduce one. The
+    reason survives the pin -- this sidebar is a column of peer lists (this
+    asset's poses, the library, the shipped presets), and a fourth that alone
+    could be folded away would be the odd one out in the one place a user
+    looks for "what can I open".
+    """
+    widgets.section("Rigged assets")
+    assets = poser_mode.riggable_assets(ctx)
+    if not assets:
+        # No button here on purpose (docs/INVARIANTS.md's "one empty-state
+        # vocabulary" exempts a hint that points at a control worked
+        # elsewhere): the control that fixes this is Create's Rig stage, not
+        # anything this pane owns.
+        widgets.empty_state(
+            icons.PERSON_STANDING,
+            "Nothing rigged yet",
+            "Rig a mesh from Create's Rig stage, then it appears here.",
+        )
+        imgui.dummy((0, sp(tokens.SP_1)))
+        return
+    needle = widgets.list_filter(ctx, "poser-rigged-assets", len(assets))
+    shown = 0
+    for asset in assets:
+        asset_id = str(asset.get("id") or "")
+        # ``open_asset``'s own preference order (``poser_mode.riggable_assets``'
+        # docstring): ``name`` and ``prompt`` are carried raw on this row, not
+        # pre-merged, so the label shown here must apply the same order it
+        # applies rather than silently reading ``prompt`` alone.
+        name = str(asset.get("name") or asset.get("prompt") or asset_id)
+        if needle and needle not in name.lower():
+            continue
+        shown += 1
+        imgui.push_id(f"rigged-asset-{asset_id}")
+        if controls.selectable_row(
+            f"rigged-asset-{asset_id}", name, selected=asset_id == state.job_id
+        ):
+            _pick(ctx, asset)
+        imgui.pop_id()
+    widgets.no_matches(needle, shown)
+    imgui.dummy((0, sp(tokens.SP_1)))
+
+
+def _pick(ctx: Any, asset: dict[str, Any]) -> None:
+    """One row's click. Named rather than inlined so it is callable with no
+    imgui frame at all -- ``tests/test_poser_mode.py``'s own idiom for a
+    pane's click, proving the row a click reaches, not merely that the
+    button exists.
+
+    Hands off whole: ``open_asset`` already carries the dirty-editor guard
+    and the template-switch discard confirm, and this module's own docstring
+    is "the pane draws, the controller decides" -- reimplementing either
+    guard here would be the second copy that rule exists to prevent.
+    """
+    poser_mode.open_asset(ctx, asset)
 
 
 def _rerig(ctx: Any, state: Any) -> None:

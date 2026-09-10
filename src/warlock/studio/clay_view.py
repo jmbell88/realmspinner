@@ -498,6 +498,155 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
     def screenshot(self) -> Any:
         return capture.image(self.viewport)
 
+    def render_png(
+        self,
+        doc: Any,
+        *,
+        size: int = 1024,
+        view: str | None = None,
+        frame: bool = True,
+        angles: tuple[float, float] | None = None,
+        bounds: tuple[Any, Any] | None = None,
+        grid: bool = False,
+    ) -> bytes:
+        """One offscreen square draw of *doc*, flat on white, as PNG bytes.
+
+        Lifted from ``main.py:_render_clay_reference`` (build-to-trellis) and
+        generalised for a second caller with a different question: trellis
+        always wants the standard three-quarter framing, an MCP client asking
+        "what does this look like from the front" wants a named axis. Both are
+        answered by the same draw -- frame first, then optionally rotate onto
+        an axis without reframing, which is exactly what :meth:`Camera.
+        look_along` promises (it "keeps the target and the distance").
+
+        Deliberately **not** ``self.draw``: this always allocates its own
+        render target rather than the viewport's live one, because the live
+        target is sized to whatever pane is on screen this frame and a second
+        caller mid-frame (an agent call queued between two draws) would either
+        race the resize or hand back a picture at the wrong resolution. Flat
+        shading and a white background always; no gizmos and no overlays
+        always, for the reason ``_render_clay_reference`` already stated:
+        trellis and an agent are both being shown a *subject*. The grid is the
+        one of those four that a caller can now ask for -- see ``grid`` below
+        for why that is not a contradiction of the same sentence.
+
+        **Taking a picture may not move the camera the user is looking
+        through, and `frame` is why both of those are true at once.** This
+        borrows the view's own camera rather than constructing a second one --
+        a second camera would be a second place the framing rules in
+        ``viewer/camera.py`` have to be kept in sync with -- so every field
+        ``frame``/``look_along``/``look_angles`` write is snapshotted and put
+        back in the ``finally`` below. Generically, by name, rather than as a
+        list of the coupled fields: ``frame`` writes the near and far planes,
+        the orbit limits, the target and the spherical triple, *and* the
+        damping goals that shadow them, and an explicit list is one field away
+        from being wrong. That is also why ``angles`` below is applied through
+        :meth:`Camera.look_angles` rather than by writing ``theta``/``phi``
+        here directly -- this method already has no business knowing that a
+        snap has to move two shadow goal fields as well as the two live ones,
+        and restating that coupling at a second call site is exactly the bug
+        ``look_along``'s own split into ``look_angles`` exists to prevent. No
+        extra restore code is needed for either: the snapshot above and the
+        ``vars(self.camera).update(saved)`` below already cover every field
+        either method touches, generically.
+
+        ``frame=False`` is the build-to-trellis path and is not a stylistic
+        choice. ``_render_clay_reference`` has always drawn through whatever
+        camera the user had, so the picture trellis reconstructs from is the
+        angle the user was looking at when they pressed the button. Framing it
+        here would quietly change the input to every future reconstruction --
+        and reconstruction quality in this project is measured against stored
+        corpora keyed on their inputs, so a silent change to what the engine
+        is handed invalidates comparisons against every measurement already
+        taken. An agent asking for a picture has no camera of its own and
+        wants the subject to fill the square, so it takes the default.
+
+        ``bounds``, when given, is a ``(lo, hi)`` world AABB framed in place of
+        the document's own -- consulted only when ``frame`` is true. This is
+        the only way an agent can ask for a picture of *part* of a document:
+        the renderer has no per-node alpha, so nothing here can make the rest
+        of the scene invisible, and "focus" can only mean "point the camera at
+        these objects" rather than hiding the others. The rest still draws.
+
+        ``angles``, when given, is a free ``(theta, phi)`` pair in **radians**
+        applied after framing, in place of ``view``. ``view`` is ignored
+        whenever ``angles`` is given -- ``agent_clay`` refuses a request that
+        supplies both, so this method is never the place that has to decide
+        which one wins.
+
+        ``grid``, passed straight through as ``show_grid`` to
+        ``Renderer.draw``, is the one exception to "a grid line is a subject
+        too" stated above, and the reason is what an agent lacks that a user
+        does not: a ruler and a viewport it can walk around in. Handed a
+        picture alone, it cannot tell a 10 cm box from a 10 m one -- the grid
+        is a **scale cue**, not decoration, and it is the one legitimate
+        reason this call ever draws one. When it is true *and* framing found
+        bounds to draw (``bounds`` or the document's own), ``renderer.
+        fit_grid(lo, hi)`` runs first, the same pairing :meth:`BoundsOps.
+        frame_selection` already does before every interactive draw, so the
+        ground plane is sized to the subject rather than left at whatever span
+        the previous draw set. Sized the way every grid in this app is:
+        ``viewer/grid.py``'s ``DIVISIONS = 16`` cells across a span
+        ``span_for`` rounds up to a power of ten containing 2.5x the
+        footprint, so one cell reads as span/16 metres.
+
+        The default path -- no ``angles``, no ``bounds``, ``grid=False`` -- is
+        byte-identical to what this method drew before any of the three
+        existed: ``_render_clay_reference`` and every stored-corpus comparison
+        keyed on its input depend on that, and it is pinned by
+        ``test_render_png_defaults_are_the_picture_the_trellis_path_already_got``.
+        """
+        self.sync(doc)
+        # Shallow-copied, with arrays copied: ``target`` and ``_goal_target``
+        # are numpy vectors that ``frame``/``look_angles`` rebind, but a caller
+        # that wrote through one in place would otherwise see the restore
+        # alias it.
+        saved = {
+            key: (value.copy() if hasattr(value, "copy") else value)
+            for key, value in vars(self.camera).items()
+        }
+        lo = hi = None
+        if frame:
+            lo, hi = bounds if bounds is not None else self.world_bounds(doc)
+            if lo is not None:
+                self.camera.frame(lo, hi)
+                # ``frame`` aims at half the box's *height* above the origin,
+                # which centres a **grounded** subject -- the asset viewer's
+                # models sit with their feet on y=0, and that is what it was
+                # written for. A Clay document has no such promise: every
+                # generator in ``primitives`` is centred on the origin, so a
+                # freshly placed cylinder spans -h/2..+h/2 and the camera ends
+                # up looking a full half-height over its top. Re-aiming at the
+                # measured centre of the box is what makes an agent's render a
+                # picture of the thing rather than of the air above it, and it
+                # is done here rather than in ``camera.frame`` because the
+                # grounded assumption is right for that method's other callers.
+                self.camera.set_target((np.asarray(lo) + np.asarray(hi)) * 0.5)
+        if angles is not None:
+            # ``view`` is not even inspected in this branch: ``agent_clay``
+            # refuses a call that supplies both, so there is no case here
+            # where the two could disagree about which one wins.
+            self.camera.look_angles(*angles)
+        elif view and view != "three_quarter":
+            self.camera.look_along(view)
+        target = glctx.Viewport(self.ctx, (size, size))
+        try:
+            if grid and lo is not None:
+                self.renderer.fit_grid(lo, hi)
+            self.renderer.draw(
+                target,
+                self.camera,
+                self._composite(doc),
+                flat=True,
+                show_grid=grid,
+                background=(1.0, 1.0, 1.0, 1.0),
+                overlays=[],
+            )
+            return capture.png_bytes(target)
+        finally:
+            target.release()
+            vars(self.camera).update(saved)
+
     def release(self) -> None:
         self.clear()
         self._release_overlays()

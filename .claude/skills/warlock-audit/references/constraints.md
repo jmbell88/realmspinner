@@ -14,6 +14,15 @@ These rules are not advice. Each one is a recorded incident in this repository.
   `git stash` to compare pre-fix behaviour and reverted nine other agents' edits and the
   user's uncommitted work; recovery took `git fsck`. To see the committed version of a
   file, read `git show HEAD:<path>`. To see what has changed, read `git diff -- <path>`.
+- **Writing `HEAD`'s content over a working file is checking it out by hand.** Restoring
+  the committed text so you can watch your regression fail, then re-applying your fix, is
+  the 2026-09-04 incident in different clothes: on 2026-09-09 a fixer did it to
+  `panes/clay_outliner.py` while that file carried the user's uncommitted work, which
+  survived by luck rather than by method. To see how the unfixed code behaves, load the old
+  source as a **throwaway module in your scratchpad** — write `git show HEAD:<path>` to a
+  scratch file, import it under another name, and exercise it there; two fixers in that same
+  pass did exactly this and proved the same thing without touching the tree. A file in the
+  tree only ever moves forwards.
 - **Never run the full test suite.** Run only the test files your brief names, and only
   as `uv run pytest <files> -n 0`. Never a bare `uv run pytest`, never `-n auto`, never
   `--dist load`, never `-m gpu`, never `-m perf`. Several tests read module source while

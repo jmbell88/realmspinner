@@ -105,7 +105,10 @@ def _laid_out(imgui, build, frames=2):
 
 
 def _slider(controls):
-    found = [c for c in controls if c.label == "Z##cel"]
+    # ``##``-prefixed since the 2026-09-08 label-above pass moved the visible
+    # "Z" text to a ``field_label`` line drawn above the slider; the id
+    # underneath it did not otherwise change.
+    found = [c for c in controls if c.label == "##Z##cel"]
     assert found, [c.label for c in controls]
     return found[0]
 
@@ -199,7 +202,7 @@ def test_an_empty_slot_offers_no_z_slider(ui):
         inker_timeline._cell_menu(ctx, tab, 0, 0, False, False)
 
     controls = _laid_out(ui, build)
-    assert not [c for c in controls if c.label == "Z##cel"]
+    assert not [c for c in controls if c.label == "##Z##cel"]
 
 
 def test_the_menu_is_still_a_balanced_frame(ui):

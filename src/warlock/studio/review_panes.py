@@ -996,7 +996,9 @@ class ReviewPanes:
         # and seeds by hand.
         suggestions = review_mode.suggest_sweeps(doc)
         if suggestions:
-            widgets.muted("Sweep suggestions (a few more matched pairs would settle these):")
+            widgets.muted_wrapped(
+                "Sweep suggestions (a few more matched pairs would settle these):"
+            )
             state = review_mode.ensure(ctx)
             for s in suggestions:
                 imgui.text_wrapped(findings_lib.suggestion_line(s))

@@ -299,7 +299,12 @@ def test_pressing_a_disabled_arrow_writes_nothing(monkeypatch, tab_scene):
 
 def test_the_remove_button_still_works(monkeypatch, tab_scene):
     _ctx, _state, _tab, doc = tab_scene
-    _run(monkeypatch, tab_scene, icon="x##tsdel1")
+    # Through ``editor.icons`` like every other row button here, rather than
+    # the literal glyph this used to name: the icon is a *rendering* of the
+    # action and the id after ``##`` is the action, so a test pinning the glyph
+    # fails silently-shaped -- the fake never matches, nothing is pressed, and
+    # the assertion reports an unchanged document rather than a missing button.
+    _run(monkeypatch, tab_scene, icon=f"{editor.icons.TRASH}##tsdel1")
     assert _order(doc) == (0, 2)
 
 

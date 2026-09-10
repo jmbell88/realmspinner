@@ -192,6 +192,11 @@ def _tile_size_popup(ctx: Any, state: Any, tab: Any) -> None:
     widgets.popup_chrome(_imgui=imgui)
     key = f"inker_tile_size:{tab.uid}"
     tile_w, tile_h = ctx.state.preview.get(key) or (state.grid_size, state.grid_size)
+    # ``field_label`` above, ``W``/``H`` beside each box -- the same family as
+    # the New canvas and Canvas size popups (see ``inker_canvas`` and
+    # ``inker_bridge``, and the precedent both are cited against in
+    # ``plotter_canvas.setup_popup``).
+    widgets.field_label("Tile size, in pixels")
     imgui.set_next_item_width(sp(90))
     changed_w, tile_w = controls.input_int("W", int(tile_w), 0)
     imgui.same_line()
@@ -370,7 +375,7 @@ def _files(ctx: Any, state: Any, tab: Any, uid: int | None) -> None:
     ready = not tab.busy
     why = BUSY_WHY
     if widgets.disabled_button(
-        f"{icons.UPLOAD} Export tileset...",
+        f"{icons.DOWNLOAD} Export tileset...",
         ready and uid is not None,
         (width, 0),
         reason=why if not ready else "This document has no tileset yet.",

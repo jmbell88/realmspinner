@@ -195,11 +195,27 @@ def test_the_atlas_is_rebuilt_between_frames_and_never_inside_one():
     assert "clear_fonts" in inspect.getsource(fonts.reload)
 
 
-def test_the_scale_slider_only_asks_for_a_rebake_on_release():
-    """Per mouse-move it would be a font rebuild sixty times a second."""
+def test_the_zoom_asks_for_a_rebake_only_when_the_size_actually_changed():
+    """A rebake per *frame* is a font rebuild sixty times a second.
+
+    This used to be a slider, and a slider's guard is release: without it,
+    every intermediate value dragged through was a settings write and a full
+    atlas rebuild. The control is a combo of named steps now (50/75/100/125/
+    150%), so there are no intermediate values to guard against and
+    ``is_item_deactivated_after_edit`` has nothing to say -- but the frame
+    *after* a pick still redraws with the same value selected, so the guard
+    that remains is the one that matters: the size has to have changed.
+
+    Asserted against the source rather than by drawing, because what is being
+    pinned is that the flag sits *inside* the change branch. A version that
+    raised it unconditionally would draw identically and re-bake the atlas
+    forever, which is exactly the failure a screenshot cannot show.
+    """
     source = inspect.getsource(app_settings._interface)
-    guard = source.split("is_item_deactivated_after_edit", 1)[1]
+    guard = source.split("if chosen != _scale_key(stored):", 1)[1]
     assert "fonts_dirty = True" in guard
+    before = source.split("if chosen != _scale_key(stored):", 1)[0]
+    assert "fonts_dirty" not in before, "the atlas is re-baked whether or not the size moved"
 
 
 # --- K100: one configuration table -------------------------------------------
