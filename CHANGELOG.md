@@ -142,6 +142,20 @@ engine stopped being something you download whether or not you ever use it.
   coordinates it chose. Deliberately absent: any way for the agent to name a
   file path of its own, which would make this a tool that reads whatever else
   is on your disk.
+- **An agent can now touch a single face.** It could place primitives and
+  boolean them together, but three of Clay's own operations — Inset, Bevel
+  and Extrude among them — refused every time with "switch to face mode
+  first," and nothing it could say ever switched a mode: an agent's document
+  could never leave object mode at all. It can now switch to vertex, edge or
+  face mode, select by index or by a question ("the faces pointing up," "the
+  loop through this edge," "everything painted with this slot"), and run the
+  same operations the context menu offers. What it selected comes back after
+  every one of them — counts, never the raw indices — so an extrude followed
+  by an inset is two calls rather than four: extrude hands back its own new
+  caps, and the very next call needs nothing re-selected. Selecting objects
+  or booleaning them is now refused while a document is in an element mode
+  instead of quietly manufacturing an object "selected" with nothing selected
+  inside it.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

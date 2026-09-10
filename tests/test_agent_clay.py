@@ -217,6 +217,56 @@ def test_a_ninth_figure_reaches_the_agent_surface_with_no_edit_here(
     assert "ninth_figure" in tools["clay_add_figure"].schema["properties"]["key"]["enum"]
 
 
+def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() -> None:
+    from warlock.studio.clay import elements as clay_elements
+
+    tools = {t.name: t for t in agent_clay.tools()}
+    enum = set(tools["clay_element_mode"].schema["properties"]["mode"]["enum"])
+    assert enum == set(clay_elements.MODES)
+
+
+def test_every_query_name_is_a_clay_select_by_enum_option_and_vice_versa() -> None:
+    from warlock.studio.clay import select as clay_select_mod
+
+    tools = {t.name: t for t in agent_clay.tools()}
+    enum = set(tools["clay_select_by"].schema["properties"]["query"]["enum"])
+    assert enum == set(clay_select_mod.QUERIES)
+
+
+def test_a_seventh_query_reaches_the_agent_surface_with_no_edit_here(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same live-gate shape as the thirteenth-generator and ninth-figure
+    tests above, for the fourth derived registry: monkeypatch a new entry
+    into ``select.QUERIES``, restored automatically, and assert it shows up
+    in ``clay_select_by``'s own enum with no code here touched at all."""
+    from warlock.studio.clay import elements as clay_elements
+    from warlock.studio.clay import select as clay_select_mod
+
+    fake = clay_select_mod.Query(
+        name="seventh",
+        modes=("face",),
+        args=("slot",),
+        run=lambda mesh, slot: clay_elements.ElementSel(),
+        hint="a fake seventh query",
+    )
+    monkeypatch.setitem(clay_select_mod.QUERIES, "seventh", fake)
+    tools = {t.name: t for t in agent_clay.tools()}
+    assert "seventh" in tools["clay_select_by"].schema["properties"]["query"]["enum"]
+
+
+def test_every_query_argument_name_has_a_schema_fragment_and_vice_versa() -> None:
+    """``select.py`` holds no JSON-schema knowledge of its own (its own
+    module docstring's rule) -- ``agent_clay._QUERY_ARG_SCHEMAS`` is the one
+    place that vocabulary is spelled out, and this gate is what stops a query
+    growing an argument nobody here can express, or an entry here nothing
+    asks for any more."""
+    from warlock.studio.clay import select as clay_select_mod
+
+    all_args = {a for q in clay_select_mod.QUERIES.values() for a in q.args}
+    assert all_args == set(agent_clay._QUERY_ARG_SCHEMAS)
+
+
 def test_every_tool_not_excluded_from_batching_is_in_the_batch_name_enum() -> None:
     tools = {t.name: t for t in agent_clay.tools()}
     call_schema = tools["clay_batch"].schema["properties"]["calls"]["items"]
@@ -248,13 +298,15 @@ def test_every_tool_schema_is_a_plausible_json_schema_object() -> None:
 # would test argument validation instead of the blast-radius gate.
 _NEEDS_A_TAB = [
     ("clay_scene", {}),
-    ("clay_add_primitive", {"generator": "box"}),
-    ("clay_add_figure", {"key": sorted(presets.ASSEMBLIES)[0]}),
     ("clay_transform", {}),
     ("clay_set_params", {}),
     ("clay_material", {}),
     ("clay_boolean", {}),
     ("clay_select", {}),
+    ("clay_element_mode", {}),
+    ("clay_select_elements", {}),
+    ("clay_select_by", {}),
+    ("clay_elements", {}),
     ("clay_op", {}),
     ("clay_render", {}),
     ("clay_diagnose", {}),
@@ -278,9 +330,45 @@ _SESSION_ONLY = [
     "clay_reference_remove",
 ]
 
+# The two tools that can start a document from nothing, and are therefore the
+# two that a *dead* pin must not refuse: the refusal every other tool gives
+# names these as the way out, and while they refused too that sentence was
+# impossible to follow, which bricked the session for the rest of the
+# connection. They mint rather than substitute -- what arrives is a new empty
+# document, never one already open -- so the one-tab blast radius the list
+# above gates is unchanged. See ``_tab``'s own comment.
+_MINTS_A_TAB = [
+    ("clay_add_primitive", {"generator": "box"}),
+    ("clay_add_figure", {"key": sorted(presets.ASSEMBLIES)[0]}),
+]
+
 
 def test_every_tool_is_covered_by_the_dead_tab_and_session_only_lists() -> None:
-    assert {n for n, _ in _NEEDS_A_TAB} | set(_SESSION_ONLY) == set(agent_clay._HANDLERS)
+    assert {n for n, _ in _NEEDS_A_TAB} | set(_SESSION_ONLY) | {
+        n for n, _ in _MINTS_A_TAB
+    } == set(agent_clay._HANDLERS)
+
+
+@pytest.mark.parametrize("name,args", _MINTS_A_TAB, ids=[n for n, _ in _MINTS_A_TAB])
+def test_a_session_whose_document_was_closed_can_start_another(name: str, args: dict) -> None:
+    """The recovery the other tools' refusal names, actually reachable.
+
+    Before ``_tab`` released a dead pin, this call took the same branch the
+    refusal came from and answered with the identical sentence -- so an agent
+    told to "call clay_add_primitive to start a new one" did exactly that and
+    was refused again, with no way out short of reconnecting.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    closed = session.tab_uid
+    state = clay_mode.ensure(ctx)
+    assert state.close(closed)
+
+    result = agent_clay.call(ctx, session, name, args)
+    assert result["isError"] is False
+    assert session.tab_uid and session.tab_uid != closed
+    assert state.get(session.tab_uid) is not None
 
 
 @pytest.mark.parametrize("name,args", _NEEDS_A_TAB, ids=[n for n, _ in _NEEDS_A_TAB])
@@ -975,7 +1063,17 @@ def test_clay_undo_pushes_no_new_step_of_its_own() -> None:
     assert len(tab.doc.history) == before - 1
 
 
-def test_clay_delete_deletes_objects_even_in_face_mode() -> None:
+def test_clay_delete_still_works_in_an_element_mode() -> None:
+    """A guard for a capability this change adds, not a regression test for
+    one that broke: ``clay_select`` and ``clay_boolean`` now refuse in an
+    element mode because they *write* object uids into ``doc.selection``,
+    which can manufacture "selected with nothing selected inside it" the
+    moment element mode is reachable at all. ``clay_delete`` is deliberately
+    not given the same refusal -- it works from the uids given and only ever
+    *removes* from ``selection``, which cannot manufacture that state -- so
+    this extends the original face-mode delete test to also assert the
+    derived-selection invariant holds afterwards.
+    """
     ctx = _Ctx()
     session = agent_clay.Session()
     uid = _new_agent_tab(ctx, session, "box")
@@ -985,6 +1083,7 @@ def test_clay_delete_deletes_objects_even_in_face_mode() -> None:
     result = agent_clay.call(ctx, session, "clay_delete", {"uids": [uid]})
     assert result["isError"] is False, result
     assert len(tab.doc.objects) == 0
+    assert all(u in tab.doc.element_sel for u in tab.doc.selection)
 
 
 def test_clay_delete_of_several_objects_is_one_undo_step() -> None:
@@ -1438,3 +1537,436 @@ def test_clay_render_compare_refuses_more_than_one_view() -> None:
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "views"
+
+
+# ==============================================================================
+# B9 -- the mesh, taken apart: element mode, explicit index, query, the read
+# ==============================================================================
+
+
+def test_clay_op_inset_refuses_until_the_agent_switches_to_face_mode_and_then_runs() -> None:
+    """The headline capability this change adds. Before it, nothing in
+    ``agent_clay.py`` ever called ``doc.set_element_mode`` or
+    ``doc.set_element_sel``, so ``clay_op`` refused ``inset``/``bevel``/
+    ``extrude`` unconditionally, forever -- an agent could place and boolean
+    shapes but could never touch a single face. Fails today at the second
+    half: the refusal text matches ``clay_ops.reason_for``, but there is no
+    way to reach the run.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "inset"})
+    assert refused["isError"] is True
+    op = clay_ops.get("inset")
+    assert refused["content"][0]["text"] == clay_ops.reason_for(op, tab.doc)
+
+    mode_result = agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    assert mode_result["isError"] is False, mode_result
+    sel_result = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]}
+    )
+    assert sel_result["isError"] is False, sel_result
+
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "inset"})
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+
+
+@pytest.mark.parametrize(
+    "op_name,mode,select_kwargs",
+    [
+        ("bevel", "edge", {"edges": [[0, 1]]}),
+        ("extrude", "face", {"faces": [0]}),
+    ],
+)
+def test_clay_op_bevel_and_extrude_become_reachable_the_same_way(
+    op_name: str, mode: str, select_kwargs: dict
+) -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": op_name})
+    assert refused["isError"] is True
+
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": mode})
+    sel = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, **select_kwargs}
+    )
+    assert sel["isError"] is False, sel
+
+    result = agent_clay.call(ctx, session, "clay_op", {"name": op_name})
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+
+
+def test_clay_select_elements_replaces_adds_and_subtracts() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")  # 6 faces: 0..5
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+
+    r1 = agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0, 1]})
+    assert _payload(r1)["selected"]["faces"] == 2
+
+    r2 = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "faces": [2], "how": "add"}
+    )
+    assert _payload(r2)["selected"]["faces"] == 3
+
+    r3 = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "faces": [0], "how": "subtract"}
+    )
+    assert _payload(r3)["selected"]["faces"] == 2
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert sorted(tab.doc.element_sel_of(uid).faces.tolist()) == [1, 2]
+
+
+def test_clay_select_elements_refuses_a_face_index_the_mesh_does_not_have_and_selects_nothing() -> (
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")  # 6 faces: 0..5
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+
+    result = agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [99]})
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "faces"
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert tab.doc.element_sel_of(uid).faces.tolist() == []
+
+
+def test_clay_select_elements_refuses_a_vertex_pair_that_is_not_an_edge() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})
+
+    # face 0 is [0, 1, 2, 3] -- 0 and 2 are a diagonal of that quad, not an edge.
+    result = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "edges": [[0, 2]]}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "edges"
+    assert "[0, 2]" in result["content"][0]["text"]
+
+
+def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would() -> None:
+    """Assert equality with ``select.edge_loop`` called directly, so the tool
+    cannot drift from the verb it wraps."""
+    from warlock.studio.clay import select as clay_select_mod
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    mesh = tab.doc.by_uid(uid).mesh
+    expected = clay_select_mod.edge_loop(mesh, (0, 1))
+
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})
+    result = agent_clay.call(
+        ctx, session, "clay_select_by", {"uid": uid, "query": "loop", "edge": [0, 1]}
+    )
+    assert result["isError"] is False, result
+
+    got = tab.doc.element_sel_of(uid).edges
+    assert got.tolist() == expected.tolist()
+
+
+def test_clay_select_by_normal_takes_the_upward_faces_of_a_rotated_object_in_world_space() -> (
+    None
+):
+    from warlock.studio.clay import select as clay_select_mod
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_transform", {"uid": uid, "rotation": [90.0, 0.0, 0.0]})
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = tab.doc.by_uid(uid)
+
+    # The naive (uncorrected) answer, straight in local space -- if the tool
+    # forgot to convert 'direction' through ``local_direction`` it would find
+    # this instead, which after a 90 degree rotation is not what faces world
+    # up any more.
+    naive = set(clay_select_mod.faces_by_normal(obj.mesh, (0.0, 1.0, 0.0)).tolist())
+    local_dir = agent_clay.clay_geom_ops.local_direction(obj, (0.0, 1.0, 0.0))
+    expected = set(clay_select_mod.faces_by_normal(obj.mesh, local_dir).tolist())
+    assert expected != naive, "the rotation has to actually matter for this test to prove anything"
+
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_select_by",
+        {"uid": uid, "query": "normal", "direction": [0.0, 1.0, 0.0]},
+    )
+    assert result["isError"] is False, result
+    got = set(tab.doc.element_sel_of(uid).faces.tolist())
+    assert got == expected
+
+
+def test_clay_select_by_refuses_a_query_the_current_mode_cannot_answer() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)  # still object mode
+
+    result = agent_clay.call(
+        ctx, session, "clay_select_by", {"uid": uid, "query": "material", "slot": 0}
+    )
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == clay_ops._in_mode_reason("face")(tab.doc)
+
+
+def test_clay_diagnose_can_select_the_finding_it_reports() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = tab.doc.by_uid(uid)
+    original_vert_count = len(obj.mesh.positions)
+    # An unreferenced vertex, appended after every real one -- the cheapest
+    # defect to manufacture by hand: the mesh's topology (starts/loops) does
+    # not reference it, so ``clay_diagnose`` reports it as "unused".
+    positions = np.concatenate([obj.mesh.positions, np.zeros((1, 3), dtype="f4")])
+    tab.doc.set_mesh(uid, replace(obj.mesh, positions=positions), keep_generator=True)
+
+    diag = agent_clay.call(ctx, session, "clay_diagnose", {"uid": uid})
+    assert diag["isError"] is False, diag
+    findings = _payload(diag)["objects"][0]["findings"]
+    assert any(f["kind"] == "unused" for f in findings)
+
+    result = agent_clay.call(
+        ctx, session, "clay_diagnose", {"select": {"uid": uid, "kind": "unused"}}
+    )
+    assert result["isError"] is False, result
+    assert tab.doc.element_mode == "vertex"
+    assert tab.doc.element_sel_of(uid).verts.tolist() == [original_vert_count]
+
+
+def test_an_element_selection_reports_a_stamp_that_changes_when_an_op_replaces_the_mesh() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    r1 = agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]})
+    stamp1 = _payload(r1)["stamp"]
+
+    op_result = agent_clay.call(ctx, session, "clay_op", {"name": "extrude"})
+    assert op_result["isError"] is False, op_result
+    changed = _payload(op_result)["changed"]
+    assert changed and changed[0]["uid"] == uid
+    assert changed[0]["stamp"] != stamp1
+
+
+def test_clay_select_elements_with_a_stale_expect_stamp_is_refused_and_changes_nothing() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    r1 = agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]})
+    stamp1 = _payload(r1)["stamp"]
+    agent_clay.call(ctx, session, "clay_op", {"name": "extrude"})  # replaces the mesh
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = tab.doc.element_sel_of(uid)
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_select_elements",
+        {"uid": uid, "faces": [0], "expect_stamp": stamp1},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "expect_stamp"
+    assert tab.doc.element_sel_of(uid).same_as(before)
+
+
+@pytest.mark.parametrize(
+    "name,needs_face_mode,make_args",
+    [
+        ("clay_element_mode", False, lambda uid: {"mode": "face"}),
+        ("clay_select_elements", False, lambda uid: {"uid": uid, "mode": "face", "faces": [0]}),
+        (
+            "clay_select_by",
+            # clay_select_by has no 'mode' of its own -- unlike
+            # clay_select_elements, it only checks the mode already in
+            # effect (see its own refusal test) -- so this case switches
+            # mode first, through clay_element_mode, and includes that call
+            # in what "no undo step" is checked against too.
+            True,
+            lambda uid: {"uid": uid, "query": "material", "slot": 0},
+        ),
+        ("clay_select", False, lambda uid: {"uids": [uid]}),
+    ],
+    ids=["clay_element_mode", "clay_select_elements", "clay_select_by", "clay_select"],
+)
+def test_the_selection_tools_push_no_undo_step(
+    name: str, needs_face_mode: bool, make_args: Any
+) -> None:
+    """Sibling of ``test_reference_add_pushes_no_undo_step`` -- see the module
+    docstring's undo enumeration. A capability this change adds rather than a
+    regression: before it, nothing in this module ever called
+    ``set_element_mode`` or ``set_element_sel``, so there was no selection
+    tool to make this claim about at all.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = len(tab.doc.history)
+
+    if needs_face_mode:
+        mode_result = agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+        assert mode_result["isError"] is False, mode_result
+        assert len(tab.doc.history) == before
+
+    result = agent_clay.call(ctx, session, name, make_args(uid))
+    assert result["isError"] is False, result
+    assert len(tab.doc.history) == before
+
+
+def test_clay_op_extrude_returns_the_caps_it_selected_so_the_next_call_needs_no_round_trip() -> (
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]})
+
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "extrude"})
+    assert result["isError"] is False, result
+    changed = _payload(result)["changed"]
+    assert changed and changed[0]["uid"] == uid
+    assert changed[0]["selected"]["faces"] > 0
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert tab.doc.element_sel_of(uid).faces.tolist() != []
+
+    # No re-selection in between: the caps ``set_mesh(select=...)`` handed
+    # back are exactly what the very next op call needs.
+    inset_result = agent_clay.call(ctx, session, "clay_op", {"name": "inset"})
+    assert inset_result["isError"] is False, inset_result
+
+
+def test_clay_op_reports_which_objects_meshes_changed_and_which_did_not() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    uid2 = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    )["uid"]
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid1, "faces": [0]})
+
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "extrude"})
+    assert result["isError"] is False, result
+    changed_uids = {row["uid"] for row in _payload(result)["changed"]}
+    assert changed_uids == {uid1}
+    assert uid2 not in changed_uids
+
+
+def test_clay_op_never_returns_raw_element_indices() -> None:
+    """The context bound the module docstring names, made executable: an
+    op's own result is a diff read off the mesh -- counts, a stamp, whether
+    it pushed -- never the element indices themselves. ``clay_elements``
+    exists, paged, for the rarer moment an agent has to reason about which
+    ones."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    agent_clay.call(ctx, session, "clay_select_elements", {"uid": uid, "faces": [0]})
+
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "extrude"})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["changed"], "the test needs at least one changed row to check"
+    for row in payload["changed"]:
+        assert isinstance(row["faces"], int)
+        assert isinstance(row["verts"], int)
+        assert set(row["selected"]) == {"verts", "edges", "faces"}
+        for value in row["selected"].values():
+            assert isinstance(value, int)
+
+
+def test_clay_elements_pages_a_large_selection_and_reports_the_total() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "cylinder")
+    agent_clay.call(ctx, session, "clay_set_params", {"uid": uid, "params": {"segments": 64}})
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    agent_clay.call(ctx, session, "clay_op", {"name": "select-all"})
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    total_faces = len(tab.doc.element_sel_of(uid).faces)
+    assert total_faces > 10, "the fixture needs to actually be a large selection"
+
+    result = agent_clay.call(
+        ctx, session, "clay_elements", {"uid": uid, "kind": "face", "limit": 5, "offset": 3}
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)["objects"][0]
+    assert row["total"] == total_faces
+    assert row["offset"] == 3
+    assert len(row["indices"]) == 5
+    assert row["indices"] == sorted(tab.doc.element_sel_of(uid).faces.tolist())[3:8]
+
+
+def test_the_instructions_name_the_call_timeout_the_host_actually_uses() -> None:
+    from warlock.studio import agent_host
+
+    assert str(int(agent_host.CALL_TIMEOUT)) in agent_clay.instructions()
+
+
+# --- guards for a capability that did not previously exist --------------------
+#
+# Before this change an agent could never leave object mode, so
+# ``clay_select`` and ``clay_boolean`` writing object uids straight into
+# ``doc.selection`` was harmless -- the element mode that write could
+# contradict was unreachable. These are not regression tests for something
+# that broke; they pin a refusal this change had to add the moment element
+# mode became reachable at all.
+
+
+def test_clay_select_refuses_object_uids_while_the_document_is_in_an_element_mode() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = set(tab.doc.selection)
+
+    result = agent_clay.call(ctx, session, "clay_select", {"uids": [uid]})
+    assert result["isError"] is True
+    assert "clay_element_mode" in result["content"][0]["text"]
+    assert tab.doc.selection == before
+
+
+def test_clay_boolean_refuses_in_an_element_mode_rather_than_breaking_the_derived_selection_invariant() -> (  # noqa: E501
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    uid2 = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    )["uid"]
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+
+    result = agent_clay.call(
+        ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1, uid2]}
+    )
+    assert result["isError"] is True
+    assert "clay_element_mode" in result["content"][0]["text"]
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.objects) == 2

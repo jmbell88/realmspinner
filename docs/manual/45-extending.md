@@ -253,6 +253,15 @@ reference landing, for now, is a toast the moment the agent adds one — a thumb
 a reference plane in the 3D view, so you could see what it is comparing against without having to ask
 it, are wanted and not yet built.
 
+The agent can now take a mesh apart the way you can, rather than only place and boolean whole
+objects. It switches to vertex, edge or face mode, selects by index or by a question — "the faces
+pointing up", "the loop through this edge", "everything painted with this slot" — and then runs the
+same operations the context menu offers: inset, bevel, extrude and the rest, which used to refuse
+unconditionally because nothing could ever switch the mode they gate on. What it selected is
+reported back after every operation, counts rather than the indices themselves, so an extrude
+followed by an inset is two calls rather than four — extrude hands back its own new caps, and the
+very next call operates on them with nothing re-selected in between.
+
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
 posing, sprite sheets and every mesh export work on it exactly as they work on anything else.
@@ -261,10 +270,11 @@ posing, sprite sheets and every mesh export work on it exactly as they work on a
 
 `studio/agent_clay.py` is the surface and `studio/agent_host.py` is the plumbing. The important
 thing about the first is that **most of it is not written down**: the shapes an agent may place come
-from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, and the operations from
-`clay_ops.OPS` — the same three tables the add panel and the context menu are drawn from. A
-thirteenth generator added to Clay appears in the agent's tool list with no edit here at all, and a
-test asserts that in both directions, so the two cannot drift apart.
+from `primitives.GENERATORS`, the figures from `presets.ASSEMBLIES`, the operations from
+`clay_ops.OPS`, and the selection questions `clay_select_by` can answer from `select.QUERIES` — the
+same tables the add panel, the context menu and the selection menu are drawn from. A thirteenth
+generator, a new op or a seventh query added to Clay appears in the agent's tool list with no edit
+here at all, and a test asserts that in both directions, so the two cannot drift apart.
 
 So adding a *shape* or an *operation* is not an edit to the agent surface. Only a genuinely new
 verb — something Clay's own registry has no entry for — is, and it goes in beside the others as a
@@ -296,9 +306,13 @@ carry, or that it is deliberately one-shot, an action nothing should ever want f
 somebody else's block-out. And `tests/test_agent_clay.py` gates the other list: every handler has to
 appear in either the tools that need a tab already open or the tools a session can run without one,
 and a handler that answers to neither fails the suite instead of quietly falling through — you cannot
-add a tool without deciding which kind it is. The reference tools are the one family that pushes no
-undo step at all, because adding, listing, fetching or removing a picture never touches the document
-in the first place.
+add a tool without deciding which kind it is. Two families push no undo step at all: the reference
+tools, because adding, listing, fetching or removing a picture never touches the document in the
+first place, and the selection tools (`clay_element_mode`, `clay_select_elements`, `clay_select_by`,
+`clay_select`), because selection is not undoable by design — an undoable one would push a step, the
+step would move the history head, and a document would ask to be saved again because somebody looked
+at a different object. The two differ in one way worth keeping straight: a reference never touches
+the `ClayDoc` at all, while a selection tool genuinely changes the document and still pushes nothing.
 
 ## Writing manual chapters
 

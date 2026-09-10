@@ -3,15 +3,43 @@
 **The tool list is derived, never hand-written.** Every schema in :func:`tools`
 is built from a registry that already exists for a human surface --
 ``primitives.GENERATORS`` for what a primitive is and what it defaults to,
-``presets.ASSEMBLIES`` for which figures exist, and ``clay_ops.OPS`` for the
-whole of what an object or an element can be told to do. A thirteenth
-primitive, a ninth figure or a new op in the registry needs no edit here: it
+``presets.ASSEMBLIES`` for which figures exist, ``clay_ops.OPS`` for the whole
+of what an object or an element can be told to do, and ``select.QUERIES`` for
+the handful of selection verbs that answer from a seed or a parameter rather
+than acting on what is already selected. A thirteenth primitive, a ninth
+figure, a new op or a seventh query in its registry needs no edit here: it
 shows up in the next ``tools()`` call because the source it is drawn from
 changed, which is the same property ``clay_ops.menu`` already gives the
 context menu, the tools pane and the key handler -- one list, so nothing here
-can drift out of step with what Clay can actually do. ``clay_batch``'s own
-name enum is derived the same way, from ``_HANDLERS`` minus ``BATCH_EXCLUDED``
--- see that constant for which tools are left out and why.
+can drift out of step with what Clay can actually do. Writing a query enum out
+by hand would have been a *fifth* place to remember one exists, beside those
+same three surfaces and ``OPS`` itself. ``clay_batch``'s own name enum is
+derived the same way, from ``_HANDLERS`` minus ``BATCH_EXCLUDED`` -- see that
+constant for which tools are left out and why.
+
+**An agent may take a mesh apart the way a person can, once it has a
+selection to work from.** ``clay_element_mode`` switches vertex/edge/face
+mode (and back to object mode); ``clay_select_elements`` and ``clay_select_by``
+write what is selected inside one object, either by explicit index or by a
+seed/parameter through :data:`select.QUERIES`; and every element-gated
+``clay_op`` row -- ``inset``, ``bevel``, ``extrude`` and the rest -- reads
+that selection exactly as the keyboard and the context menu do. Before this,
+nothing in this module ever called ``ClayDoc.set_element_mode`` or
+``set_element_sel``, so those rows refused unconditionally, forever, and an
+agent could place and boolean shapes but never touch a single face. **The
+derived-selection invariant is what makes ``clay_select``/``clay_boolean``
+refuse in an element mode instead of silently breaking it**: ``document.py``'s
+own module docstring says ``selection`` is *derived* from ``element_sel`` once
+the document leaves object mode, and those two tools write object uids
+straight into ``selection`` -- so refusing by name, and pointing at
+``clay_element_mode``, is what keeps a still-truthy ``selection`` from ever
+naming an object with nothing selected inside it. An element selection is
+indices into one mesh, and the document is what keeps it from going stale --
+dropped on an undo that changes geometry, restricted to what survives a
+params rebuild, replaced outright by whatever an op produces -- and
+``mesh_stamp`` is how an agent detects the one case that leaves both of those
+untouched: the human at the keyboard editing the agent's own tab in between
+two of its calls.
 
 **An agent reaches exactly one document, and never by falling back to
 whichever tab the user has open.** ``Session.tab_uid`` names the one
@@ -19,15 +47,29 @@ whichever tab the user has open.** ``Session.tab_uid`` names the one
 every call, through ``clay_mode.ensure(ctx).get(session.tab_uid)`` -- read
 *through* the same ``ClayState`` the interactive UI uses rather than a
 snapshot taken once, so a document closed from the keyboard mid-session is
-seen as gone on the very next call. A missing tab is a refusal, never a
-substitution: an agent with no document of its own must never be handed the
-user's, because that is the one way a scripted client could edit, export or
-close something the person at the keyboard never offered it. The empty
-default (``tab_uid == ""``) means "this session owns nothing yet," and only
-the two tools that can start a document from nothing (:func:`clay_add_primitive`,
+seen as gone on the very next call. A missing tab is never a *substitution*:
+an agent with no document of its own must never be handed the user's, because
+that is the one way a scripted client could edit, export or close something
+the person at the keyboard never offered it. The empty default
+(``tab_uid == ""``) means "this session owns nothing yet," and only the two
+tools that can start a document from nothing (:func:`clay_add_primitive`,
 :func:`clay_add_figure`) are allowed to mint one and adopt it into the session
 -- ``clay_batch`` is a documented third way in, but only because its first
 call is one of those two; see its own docstring.
+
+**A closed document is a refusal for every tool that needs an existing one,
+and a fresh start for the two that do not.** Those same two creators release
+the dead pin and mint a new document rather than refusing, which is not a
+softening of the rule above: minting is the opposite of substituting -- what
+arrives is an empty document this session has just been given, never one that
+was already open and belongs to somebody else, so the blast radius is
+unchanged at exactly one tab. The refusal every *other* tool gives names
+those two as the way out, and until this branch existed that sentence was
+impossible to follow: ``clay_add_primitive`` arrives with ``create=True``,
+but a still-truthy ``tab_uid`` sent it back out with the identical refusal,
+so a session whose document the user closed was bricked for the rest of the
+connection -- every tool refusing, and the one the refusal named refusing
+the same way.
 
 **Rendering owns a private viewport.** ``ClayView`` is a real GL object --
 buffers, gizmos, a camera -- and the one already on screen
@@ -69,9 +111,23 @@ that wants to block out a scene one primitive at a time pays one round trip
 per primitive and, worse, one Ctrl+Z per primitive for a user who wants to
 back the whole attempt out; ``clay_batch`` runs up to ``BATCH_MAX`` calls
 through :func:`call` under one ``history.mark()``/``collapse_since`` pair,
-stopping at the first refusal and keeping the successful prefix. It is
-itself the documented exception that makes "one tool call is one undo step"
-true rather than approximately true.
+stopping at the first refusal and keeping the successful prefix.
+
+**The undo enumeration, in full.** Together with ``clay_undo``/``clay_redo``
+(which move the history head rather than pushing one of their own),
+``clay_batch`` is one of two exceptions that fold or move a step -- what
+makes "one tool call is one undo step" true rather than approximately true.
+Two families push none at all instead: references (``clay_reference_add``
+and friends), because nothing in the document changes when a picture is
+merely held on the session, and the selection tools (``clay_element_mode``,
+``clay_select_elements``, ``clay_select_by``, ``clay_select``), because
+selection is not undoable by design (``document.py``'s own module docstring)
+-- an undoable selection would push a step, the step would move
+``history.head``, and a document would ask to be saved again because
+somebody looked at a different object. The two families differ from each
+other in one way worth stating rather than blurring: a reference never
+touches the ``ClayDoc`` at all, while a selection tool genuinely changes the
+document and still pushes nothing.
 
 **A call that outruns ``agent_host.CALL_TIMEOUT`` still completes.** The
 timeout lives on the listener thread, which gives up waiting and answers
@@ -95,8 +151,9 @@ keeps a picture in memory on :class:`Session`, in memory only -- never in the
 ``ClayDoc`` and never in the ``.wblk``, because a :class:`~.clay_state.ClayTab`
 outlives the session that opened it and putting pictures in it would drag in
 journal and serialisation questions the format's VERSION 2 has no answer for.
-Adding one pushes no undo step either, the second documented exception to
-"one tool call is one undo step": nothing in the document changed.
+Adding one pushes no undo step either -- one of the two families that push
+none at all; see the ``clay_batch`` paragraph above for the whole
+enumeration.
 
 **Two intentional departures from calling ``clay_mode.save_to`` and
 ``clay_mode.export_asset`` by name**, both because those functions hand their
@@ -143,10 +200,13 @@ from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
 from . import clay_mode, clay_ops
 from .clay import diagnose as clay_diagnose
+from .clay import elements as el
 from .clay import mesh as bm
 from .clay import ops as clay_geom_ops
 from .clay import ops_boolean, presets, regen, shading
 from .clay import primitives as bp
+from .clay import select as bsel
+from .clay.adjacency import adjacency
 from .clay.elements import OpError
 from .clay_view import ClayView
 from .panes import clay_tools as pane_clay_tools
@@ -204,6 +264,32 @@ render's base64-encoded payload will fit in one reply frame. The JSON
 envelope around the image blocks costs bytes of its own; without this an
 encode that is over by a few hundred bytes would reach ``send_bytes`` and
 fail there, past the point a refusal could explain itself."""
+
+ELEMENT_PAGE_MAX = 4096
+"""The most element indices one ``clay_elements`` call may hand back for one
+kind, per object. This is **not** a wire limit the way ``RENDER_PIXEL_BUDGET``
+and ``protocol.MAX_FRAME`` are -- a mesh's entire face list is real image-sized
+data with nowhere smaller to fit, and a whole one would clear the frame budget
+with room to spare. The bound here is the *reader*: four thousand bare
+integers is on the order of twenty thousand tokens dropped into the context of
+whatever is about to act on them, and an agent that genuinely needs that many
+at once is reasoning about the document a different way than one call's reply
+can serve -- ``offset``/``limit`` paging is the answer, not a bigger ceiling."""
+
+ELEMENT_PAGE_DEFAULT = 256
+"""``clay_elements``'s own default ``limit`` when none is given -- small
+enough that the common case ("what did that extrude just make") comes back as
+a paragraph rather than a printout, and still a small fraction of
+``ELEMENT_PAGE_MAX`` for the rarer caller that has to page through more."""
+
+_OBJECT_SELECTION_DERIVED_REFUSAL = (
+    "The object selection is derived from the element selection in "
+    "vertex/edge/face mode. Call clay_element_mode with mode='object' first."
+)
+"""What ``clay_select`` and ``clay_boolean`` say in an element mode, verbatim
+in both -- see each handler's own comment for why they refuse rather than
+guess, and :func:`_h_delete`'s docstring for why it is deliberately not a
+third."""
 
 
 @dataclass
@@ -271,10 +357,25 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
         tab = state.get(session.tab_uid)
         if tab is not None:
             return tab, None
-        return None, fail(
-            "This session's document was closed. Call clay_add_primitive or "
-            "clay_add_figure to start a new one."
-        )
+        if not create:
+            return None, fail(
+                "This session's document was closed. Call clay_add_primitive "
+                "or clay_add_figure to start a new one."
+            )
+        # The pin is released here rather than left standing, because leaving
+        # it made the refusal above impossible to follow. It named
+        # ``clay_add_primitive`` as the way out, but that tool is exactly the
+        # one that arrives with ``create=True`` -- and a truthy ``tab_uid``
+        # sent it straight back into this branch and out with the same
+        # sentence, forever. A session whose document the user closed was
+        # therefore bricked for the rest of the connection: every tool
+        # refused, and the one the refusal told it to call refused
+        # identically. Clearing the pin first is what makes the mint below
+        # reachable, and it keeps the blast-radius rule intact rather than
+        # widening it -- the session still owns exactly one tab and still
+        # cannot name anybody else's, it is simply allowed to be handed a new
+        # one after the old one is provably gone.
+        session.tab_uid = ""
     if not create:
         return None, fail(
             "This session has no document yet. Call clay_add_primitive or "
@@ -287,11 +388,16 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
 
 # --- protocol glue ------------------------------------------------------------
 #
-# Imported lazily inside functions rather than at module scope: ``warlock.mcp``
-# is built alongside this module by a different pass over the same plan (see
-# ``CONTRACT.md``), and importing it at module scope would make every other
-# caller of ``studio.agent_clay`` -- ``panes.clay_tools`` tests among them --
-# fail at collection time on however far that sibling module has got.
+# Imported lazily inside functions rather than at module scope. The original
+# reason was that ``warlock.mcp`` was still being written alongside this
+# module and a module-scope import would have failed at collection time on
+# however far that sibling had got; both modules exist now, so that reason is
+# spent and is not what keeps this here. What keeps it is the direction of the
+# dependency: ``studio.agent_clay`` is imported by panes and by their tests
+# -- ``panes.clay_tools`` among them -- none of which want the protocol leaf
+# loaded to ask this module a question about Clay, and ``mcp/`` is a leaf that
+# must never learn about ``studio`` in return (``tests/mcp/test_mcp_imports.py``
+# pins that). One accessor, below, is the whole of the coupling.
 
 
 def _protocol() -> Any:
@@ -567,6 +673,13 @@ def _round(value: Any, dp: int = 4) -> Any:
     return value
 
 
+def _sel_counts(sel: el.ElementSel) -> dict:
+    """One ``ElementSel``'s size, per kind -- the shape every element-mode
+    result in this module reports instead of the indices themselves (see
+    ``clay_elements`` for the one tool that hands those back, paged)."""
+    return {"verts": len(sel.verts), "edges": len(sel.edges), "faces": len(sel.faces)}
+
+
 def _scene_row(doc: Any, obj: Any) -> dict:
     """Everything ``clay_scene`` says about one object -- and everything
     ``clay_add_primitive``/``clay_add_figure`` hand back too, so an agent that
@@ -594,6 +707,11 @@ def _scene_row(doc: Any, obj: Any) -> dict:
         "size": size,
         "center": center,
         "verts": len(obj.mesh.positions),
+        # Purely additive -- see the module's element-mode paragraph. An
+        # agent that has just switched mode or selected something does not
+        # need a second call to learn what came across on this object.
+        "stamp": doc.mesh_stamp(obj.uid),
+        "selected": _sel_counts(doc.element_sel_of(obj.uid)),
     }
 
 
@@ -606,12 +724,22 @@ def instructions() -> str:
     Read once, by whatever model is driving the bridge, before its first tool
     call -- so this is where the conventions no single schema field can carry
     live: which units, which axis is up, that a rotation is always degrees and
-    never a quaternion, that undo is call-scoped with two named exceptions,
-    and the working loop an agent that skips straight to numbers tends to
-    get wrong. A function rather than a module constant, so ``BATCH_MAX`` and
-    the live generator catalogue are embedded fresh rather than duplicated --
+    never a quaternion, that undo is call-scoped with two named exceptions
+    (plus two families that push none at all), the working loop an agent that
+    skips straight to numbers tends to get wrong, element mode, selection
+    staleness and what a timeout does and does not mean. A function rather
+    than a module constant, so ``BATCH_MAX``, the live generator catalogue and
+    ``agent_host.CALL_TIMEOUT`` are embedded fresh rather than duplicated --
     the same reason ``tools()`` itself is rebuilt every time it is asked for.
+
+    ``agent_host`` is imported lazily, inside the function body, rather than
+    at module scope: it imports this module at *its* module scope (to reach
+    :func:`call`), so a module-scope import back would be a cycle.
+    :func:`_protocol` is this file's own established precedent for the same
+    move, one section up.
     """
+    from . import agent_host
+
     return (
         "Warlock's Clay, over MCP. Units are metres; the axes are glTF's -- "
         "Y is up, Z is toward the viewer, and the ground is y=0. Every "
@@ -623,12 +751,38 @@ def instructions() -> str:
         "object, and every other tool that names an object takes one. "
         "Names are for humans and may be renamed (clay_rename); a uid never "
         "changes.\n\n"
-        "One tool call is one undo step, with exactly two documented "
-        "exceptions: clay_batch folds its whole run into one step, and "
-        "clay_undo/clay_redo move the history head rather than pushing a "
-        "step of their own. Adding a reference (clay_reference_add) pushes "
-        "nothing either, because nothing in the document changed -- "
-        "references live on this session, never in the document.\n\n"
+        "One tool call is one undo step, with two exceptions that fold or "
+        "move steps -- clay_batch folds its whole run into one, and "
+        "clay_undo/clay_redo move the history head rather than pushing one "
+        "of their own -- and two families that push none at all: adding a "
+        "reference (clay_reference_add) touches nothing in the document, and "
+        "the selection tools (clay_element_mode, clay_select_elements, "
+        "clay_select_by, clay_select) change the document without pushing a "
+        "step, because selection is not undoable by design.\n\n"
+        "Element mode is document state, not a per-call flag. clay_op's "
+        "inset/bevel/extrude and the rest of the element-only rows refuse by "
+        "name (\"Switch to face mode first.\") until it is set; "
+        "clay_element_mode sets it on its own, and clay_select_elements and "
+        "clay_select_by can set it in the same call as the selection they "
+        "make. Entering vertex/edge/face mode from object mode selects "
+        "nothing, which is what makes clay_op's seedless rows -- select-all, "
+        "select-none, select-invert, select-linked, select-more, "
+        "select-less, select-boundary -- reachable with no seed at all; "
+        "clay_select_by is the door for the rest of clay_op's element menu, "
+        "the ones that need one (a loop, a face, a material slot, a "
+        "direction, a box). clay_select, clay_boolean and every tool that "
+        "addresses a whole object want object mode, and refuse by name "
+        "rather than switch back for you if the document is not in it.\n\n"
+        "A selection is indices into one mesh, and indices go stale the "
+        "moment the mesh they describe is replaced: an undo drops it, a "
+        "params rebuild that changes the face count restricts it to what "
+        "still exists, and an op replaces it outright with whatever the op "
+        "produced -- extrude hands back its own new caps, so inset is "
+        "usually the very next call with nothing to re-select. Every "
+        "element-selection result carries a stamp; pass one back as "
+        "expect_stamp on clay_select_elements or clay_select_by if anything "
+        "might have touched the mesh since it was read, and a stale one is "
+        "refused rather than acted on.\n\n"
         "The working loop that avoids building something plausible in "
         "numbers and wrong on screen: block out with primitives, "
         "clay_render from three_quarter and front, adjust, boolean, "
@@ -645,6 +799,13 @@ def instructions() -> str:
         f"Up to {BATCH_MAX} tool calls can be folded into one clay_batch "
         "call; it stops at the first refusal and keeps everything that "
         "already ran.\n\n"
+        f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
+        "second timeout still completes: the listener stops waiting and "
+        "answers \"no answer in time\", but the job it already queued runs "
+        "exactly once on the frame thread regardless of whether anything is "
+        "still waiting for the result. Do not retry blindly after one -- "
+        "re-read clay_scene first, because \"no answer\" and \"nothing "
+        "happened\" are not the same claim.\n\n"
         "Known generators: " + _generator_catalog()
     )
 
@@ -652,9 +813,11 @@ def instructions() -> str:
 def tools() -> list[Any]:
     """Every tool Clay's agent surface offers, built fresh from the registries
     named in the module docstring. Called once per ``tools/list`` request, so
-    rebuilding it from ``GENERATORS``/``ASSEMBLIES``/``OPS``/``_HANDLERS`` each
-    time costs nothing and can never go stale against an edit to any of
-    them."""
+    rebuilding it from ``GENERATORS``/``ASSEMBLIES``/``OPS``/``QUERIES``/
+    ``_HANDLERS`` each time costs nothing and can never go stale against an
+    edit to any of them -- a query enum written out by hand would have been a
+    fifth place to remember one exists, beside the menu, the tools pane, the
+    key handler and ``OPS`` itself."""
 
     protocol = _protocol()
     primitive_names = sorted(bp.GENERATORS)
@@ -662,6 +825,8 @@ def tools() -> list[Any]:
     op_names = [op.name for op in clay_ops.OPS]
     axis_views = sorted(Camera.AXIS_VIEWS) + ["three_quarter"]
     batch_names = sorted(set(_HANDLERS) - BATCH_EXCLUDED)
+    element_modes = list(el.MODES)
+    query_names = sorted(bsel.QUERIES)
 
     return [
         protocol.Tool(
@@ -846,7 +1011,9 @@ def tools() -> list[Any]:
                 "that comes first in the document's own object order -- not "
                 "the order given here, which only says which objects take "
                 "part. A closed-solid requirement applies to all three; the "
-                "refusal names which object is not one."
+                "refusal names which object is not one. Refused in "
+                "vertex/edge/face mode for the same reason clay_select is -- "
+                "call clay_element_mode with mode='object' first."
             ),
             schema={
                 "type": "object",
@@ -865,11 +1032,152 @@ def tools() -> list[Any]:
         protocol.Tool(
             name="clay_select",
             title="Set the object selection",
-            description="Replace the document's object selection. An empty list clears it.",
+            description=(
+                "Replace the document's object selection. An empty list "
+                "clears it. Refused in vertex/edge/face mode: the object "
+                "selection is derived from the element selection there, so "
+                "this tool would either be overwritten by it or manufacture "
+                "an object 'selected' with nothing selected inside it. Call "
+                "clay_element_mode with mode='object' first."
+            ),
             schema={
                 "type": "object",
                 "properties": {"uids": {"type": "array", "items": {"type": "integer"}}},
                 "required": ["uids"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_element_mode",
+            title="Switch object/vertex/edge/face mode",
+            description=(
+                "Switch the document's element mode, converting whatever is "
+                "already selected into the new mode's own currency -- going "
+                "down (face to edge to vertex) is everything touched; going "
+                "up, only an element every one of whose lower parts is "
+                "selected. Entering vertex/edge/face mode from object mode "
+                "selects nothing, which is what makes clay_op's seedless "
+                "rows (select-all, select-boundary and the rest) reachable "
+                "with no prior selection. Every element-gated clay_op row -- "
+                "inset, bevel, extrude and the rest -- refuses by name until "
+                "this has been called at least once; clay_select_elements "
+                "and clay_select_by can switch mode in the same call "
+                "instead of a separate one. Not undoable -- element mode is "
+                "document state, never an edit. Returns the new mode plus, "
+                "per object that still has something selected, its uid, "
+                "stamp and per-kind counts."
+            ),
+            schema={
+                "type": "object",
+                "properties": {"mode": {"type": "string", "enum": element_modes}},
+                "required": ["mode"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_select_elements",
+            title="Select vertices, edges or faces by index",
+            description=(
+                "Set what is selected inside one object, by explicit "
+                "vertex/edge/face index. 'mode' switches the document's "
+                "element mode first, converting whatever was already "
+                "selected -- the order matters for how='add', since the "
+                "prior selection is converted into the new mode's currency "
+                "before the union runs. 'how' is replace/add/subtract, the "
+                "same three click modifiers the viewport's Shift and Ctrl "
+                "give. Every index is validated, never clamped: a vertex or "
+                "face past the mesh's own count is refused by name, and "
+                "every edge is a [vertex, vertex] pair that must actually be "
+                "an edge of this mesh -- an unchecked pair would draw an "
+                "overlay line between two vertices with nothing between "
+                "them, and an out-of-range face would take the overlay "
+                "build down. 'expect_stamp' refuses the whole call, "
+                "unchanged, if the mesh has moved on since that stamp was "
+                "read (clay_scene, clay_element_mode, an op's own result) -- "
+                "see clay_elements for reading indices back."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "mode": {"type": "string", "enum": element_modes},
+                    "verts": {"type": "array", "items": {"type": "integer"}},
+                    "edges": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                    },
+                    "faces": {"type": "array", "items": {"type": "integer"}},
+                    "how": {"type": "string", "enum": ["replace", "add", "subtract"]},
+                    "expect_stamp": {"type": "integer"},
+                },
+                "required": ["uid"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_select_by",
+            title="Select elements by a question, not an index",
+            description=(
+                "Answer a selection from a seed or a parameter instead of "
+                "listing indices by hand -- the loop or ring through an "
+                "edge, the strip of faces through one, everything painted "
+                "with a material slot, the faces facing a direction, or "
+                "everything inside a box. Refused when the document's "
+                "current element mode cannot answer the query named -- "
+                "switch with clay_element_mode, or clay_select_elements's "
+                "own 'mode', first. 'how' and 'expect_stamp' work exactly as "
+                "they do on clay_select_elements. The seven seedless verbs "
+                "(select-all, select-none, select-invert, select-linked, "
+                "select-more, select-less, select-boundary) are clay_op "
+                "rows, not here -- this tool is only for a query that needs "
+                "a seed or a parameter to answer. Known queries: "
+                + _query_catalog()
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "query": {"type": "string", "enum": query_names},
+                    "how": {"type": "string", "enum": ["replace", "add", "subtract"]},
+                    "expect_stamp": {"type": "integer"},
+                    **_QUERY_ARG_SCHEMAS,
+                },
+                "required": ["uid", "query"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_elements",
+            title="Read one object's element indices, paged",
+            description=(
+                "Per object -- the named uid, or every object that "
+                "currently has something selected -- the element mode's own "
+                "per-kind counts, and, when 'kind' ('vertex', 'edge' or "
+                "'face') is given, a bounded page of that kind's raw indices "
+                "with its own total and offset. Omit 'kind' for counts "
+                "alone: most of what an agent needs is already in "
+                "clay_scene, clay_element_mode or an op's own 'selected' "
+                "field, and this exists for the rarer moment it has to "
+                f"reason about which ones. At most {ELEMENT_PAGE_MAX:,} "
+                f"indices a call; default limit {ELEMENT_PAGE_DEFAULT}."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "kind": {"type": "string", "enum": ["vertex", "edge", "face"]},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": ELEMENT_PAGE_MAX,
+                    },
+                },
                 "additionalProperties": False,
             },
         ),
@@ -967,11 +1275,26 @@ def tools() -> list[Any]:
             description=(
                 "Holes, non-manifold or flipped edges, duplicate faces and "
                 "unused vertices -- for one object, or every visible object "
-                "when none is named."
+                "when none is named. Pass 'select' with the uid and the "
+                "'kind' of one finding this call reported (or a prior one) "
+                "to switch to that finding's own element mode and select "
+                "exactly the elements it names -- refused if that object has "
+                "no finding of that kind right now."
             ),
             schema={
                 "type": "object",
-                "properties": {"uid": {"type": "integer"}},
+                "properties": {
+                    "uid": {"type": "integer"},
+                    "select": {
+                        "type": "object",
+                        "properties": {
+                            "uid": {"type": "integer"},
+                            "kind": {"type": "string"},
+                        },
+                        "required": ["uid", "kind"],
+                        "additionalProperties": False,
+                    },
+                },
                 "additionalProperties": False,
             },
         ),
@@ -1197,6 +1520,106 @@ def _generator_catalog() -> str:
         fields = ", ".join(f"{key}={value!r}" for key, value in defaults.items())
         parts.append(f"{name} [{fields}]")
     return "; ".join(parts)
+
+
+def _query_catalog() -> str:
+    """Every ``clay_select_by`` query's own argument names and its hint,
+    folded into one sentence.
+
+    Built from :data:`select.QUERIES` rather than written out, so a seventh
+    query appears here the next time ``tools()`` is called and nowhere needs
+    editing for it to -- the same rule :func:`_op_catalog` and
+    :func:`_generator_catalog` already follow for their own registries.
+    """
+    parts = []
+    for name in sorted(bsel.QUERIES):
+        query = bsel.QUERIES[name]
+        args = ", ".join(query.args)
+        parts.append(f"{name} [{args}]: {query.hint}")
+    return " ".join(parts)
+
+
+# The one mapping from a query argument's *name* to the JSON-schema fragment
+# that describes it -- ``select.py`` holds no JSON-schema knowledge at all
+# (its own module docstring's rule), so this is where that vocabulary is
+# spelled out, once, for every query that shares an argument name rather than
+# once per query. Keys are the union of every ``Query.args`` tuple in
+# :data:`select.QUERIES`; ``test_every_query_argument_name_has_a_schema_
+# fragment_and_vice_versa`` gates both directions, so a query that grows an
+# argument nobody here can express -- or an entry here nothing asks for any
+# more -- fails the suite instead of drifting quietly.
+_QUERY_ARG_SCHEMAS: dict[str, dict] = {
+    "edge": {
+        "type": "array",
+        "items": {"type": "integer"},
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "A [vertex, vertex] pair naming one edge -- the seed "
+        "to walk the loop or ring from.",
+    },
+    "face": {
+        "type": "integer",
+        "description": "A face index -- the seed to walk the face loop from.",
+    },
+    "slot": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "A palette material index -- see clay_scene's 'materials'.",
+    },
+    "direction": _vec3_schema(
+        "world-space; need not be unit length. Converted into the object's "
+        "own local frame before the query runs -- see clay_scene's "
+        "'rotation'/'scale' for the transform an agent read this out of."
+    ),
+    "max_angle": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 180.0,
+        "description": "Degrees off 'direction' still counted as facing it. Default 45.",
+    },
+    "min": _vec3_schema("metres, the box's lower corner"),
+    "max": _vec3_schema("metres, the box's upper corner"),
+    "space": {
+        "type": "string",
+        "enum": ["world", "local"],
+        "description": "Which frame 'min'/'max' are given in. Default 'world'.",
+    },
+}
+
+# The two query arguments that are optional -- ``max_angle`` (``_q_normal``'s
+# own default) and ``space`` (this file's own default of "world", see
+# ``_h_select_by``). Every other name in ``_QUERY_ARG_SCHEMAS`` is required
+# whenever a query declares it.
+_QUERY_OPTIONAL_ARGS = frozenset({"max_angle", "space"})
+
+
+def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
+    """One ``clay_select_by`` argument, validated against the fixed
+    vocabulary :data:`_QUERY_ARG_SCHEMAS` describes -- the one place a query
+    argument's shape is checked before it reaches a pure ``clay.select``
+    function that has no JSON-schema knowledge of its own to check it with.
+    """
+    if name == "edge":
+        if not isinstance(value, list) or len(value) != 2:
+            return None, fail(f"{name} must be a [vertex, vertex] pair.", field=name)
+        try:
+            return [int(v) for v in value], None
+        except (TypeError, ValueError):
+            return None, fail(f"{name} must be a [vertex, vertex] pair.", field=name)
+    if name in ("face", "slot"):
+        try:
+            return int(value), None
+        except (TypeError, ValueError):
+            return None, fail(f"{name} must be an integer.", field=name)
+    if name in ("direction", "min", "max"):
+        return _validate_vec3(value, name)
+    if name == "max_angle":
+        return _validate_number(value, name)
+    if name == "space":
+        if value not in ("world", "local"):
+            return None, fail("space must be 'world' or 'local'.", field="space")
+        return value, None
+    return None, fail(f"unknown query argument {name!r}.", field=name)  # pragma: no cover
 
 
 # --- dispatch -----------------------------------------------------------------
@@ -1630,6 +2053,16 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     if failure:
         return failure
     doc = tab.doc
+    # This op writes object uids straight into ``doc.selection`` a few lines
+    # down -- harmless before this change, because an agent could never leave
+    # object mode at all. The moment element mode is reachable that write can
+    # manufacture "selected with nothing selected inside it", the state
+    # ``document.py``'s module docstring says the derived-selection invariant
+    # forbids in an element mode. Refused rather than auto-switched: silently
+    # changing the document's mode under a call that did not ask for it is
+    # the hidden state change this codebase refuses instead of guessing at.
+    if doc.element_mode != "object":
+        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL)
     kind = args.get("kind")
     if kind not in ops_boolean.KINDS:
         return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
@@ -1658,15 +2091,325 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
 
 
 def _h_select(ctx: Any, session: Session, args: dict) -> dict:
+    """Replace the *object* selection. Refused in an element mode -- see
+    :data:`_OBJECT_SELECTION_DERIVED_REFUSAL` and :func:`_h_boolean`'s own
+    comment, which this shares the exact reason and the exact wording with.
+    """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
     doc = tab.doc
+    if doc.element_mode != "object":
+        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL)
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
     if failure:
         return failure
     doc.select(uids)
     return _json({"selection": sorted(doc.selection)})
+
+
+def _h_element_mode(ctx: Any, session: Session, args: dict) -> dict:
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+    mode = args.get("mode")
+    if mode not in el.MODES:
+        return fail(f"mode must be one of {', '.join(el.MODES)}.", field="mode")
+    doc.set_element_mode(mode)
+    objects = [
+        {"uid": uid, "stamp": doc.mesh_stamp(uid), "selected": _sel_counts(sel)}
+        for uid, sel in doc.element_sel.items()
+    ]
+    return _json({"mode": doc.element_mode, "objects": objects})
+
+
+def _h_select_elements(ctx: Any, session: Session, args: dict) -> dict:
+    """Select vertices, edges or faces of one object by explicit index. See
+    the tool's own description in :func:`tools` for the full contract --
+    everything is validated against *this object's own mesh* before anything
+    is switched or written, the same "validate everything before the first
+    mutation" rule every other handler in this module follows.
+    """
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+    obj, failure = _resolve_uid(doc, args)
+    if failure:
+        return failure
+
+    mode = args.get("mode")
+    if mode is not None and mode not in el.MODES:
+        return fail(f"mode must be one of {', '.join(el.MODES)}.", field="mode")
+
+    how = args.get("how", "replace")
+    if how not in ("replace", "add", "subtract"):
+        return fail("how must be 'replace', 'add' or 'subtract'.", field="how")
+
+    expect_stamp = args.get("expect_stamp")
+    if expect_stamp is not None:
+        _, failure = _check_expect_stamp(doc, obj.uid, expect_stamp)
+        if failure:
+            return failure
+
+    n_verts = len(obj.mesh.positions)
+    n_faces = bm.face_count(obj.mesh)
+
+    verts_arg = args.get("verts")
+    vert_arr: list[int] | None = None
+    if verts_arg is not None:
+        try:
+            vert_arr = [int(v) for v in verts_arg]
+        except (TypeError, ValueError):
+            return fail("verts must be a list of integers.", field="verts")
+        bad = [v for v in vert_arr if not (0 <= v < n_verts)]
+        if bad:
+            return fail(
+                f"vertex index {bad[0]} is out of range for this mesh "
+                f"(0..{n_verts - 1}).",
+                field="verts",
+            )
+
+    faces_arg = args.get("faces")
+    face_arr: list[int] | None = None
+    if faces_arg is not None:
+        try:
+            face_arr = [int(f) for f in faces_arg]
+        except (TypeError, ValueError):
+            return fail("faces must be a list of integers.", field="faces")
+        bad = [f for f in face_arr if not (0 <= f < n_faces)]
+        if bad:
+            return fail(
+                f"face index {bad[0]} is out of range for this mesh (0..{n_faces - 1}).",
+                field="faces",
+            )
+
+    edges_arg = args.get("edges")
+    edge_arr: list[list[int]] | None = None
+    if edges_arg is not None:
+        try:
+            pairs = [[int(a), int(b)] for a, b in edges_arg]
+        except (TypeError, ValueError):
+            return fail("edges must be a list of [vertex, vertex] pairs.", field="edges")
+        if pairs:
+            # ``ElementSel`` accepts any vertex pair with no complaint -- it
+            # is only an overlay index buffer once it reaches the viewport --
+            # so an unchecked pair would draw a line between two vertices
+            # with nothing between them, and a face index past the mesh's
+            # count would take the overlay build down rather than refuse
+            # cleanly. Mapped through the mesh's own adjacency and refused by
+            # naming the first pair that is not really an edge here instead.
+            ids = adjacency(obj.mesh).edge_ids(np.asarray(pairs, dtype="i4"))
+            bad_at = next((i for i, e in enumerate(ids) if e < 0), None)
+            if bad_at is not None:
+                return fail(f"{pairs[bad_at]} is not an edge of this mesh.", field="edges")
+        edge_arr = pairs
+
+    # Mode switches *first*, converting whatever was already selected -- and
+    # only after every index above has been checked against the unchanged
+    # mesh, so a refused call has touched neither the mode nor the selection.
+    # The order matters for how="add": switching first is what puts the
+    # prior selection into the new mode's own currency before the union
+    # below runs, rather than unioning arrays that describe two different
+    # element kinds.
+    if mode is not None:
+        doc.set_element_mode(mode)
+
+    requested = el.ElementSel(verts=vert_arr, edges=edge_arr, faces=face_arr)
+    current = doc.element_sel_of(obj.uid)
+    doc.set_element_sel(obj.uid, el.combine(current, requested, how))
+
+    return _json(
+        {
+            "uid": obj.uid,
+            "mode": doc.element_mode,
+            "stamp": doc.mesh_stamp(obj.uid),
+            "selected": _sel_counts(doc.element_sel_of(obj.uid)),
+        }
+    )
+
+
+def _check_expect_stamp(
+    doc: Any, uid: int, expect_stamp: Any
+) -> tuple[int | None, dict | None]:
+    """*expect_stamp* as an int, or a refusal naming ``field="expect_stamp"``
+    if it does not match ``doc.mesh_stamp(uid)`` right now. Shared by
+    :func:`_h_select_elements` and :func:`_h_select_by`, both of which refuse
+    a stale stamp before touching the mode or the selection."""
+    try:
+        expect_stamp = int(expect_stamp)
+    except (TypeError, ValueError):
+        return None, fail("expect_stamp must be an integer.", field="expect_stamp")
+    current = doc.mesh_stamp(uid)
+    if expect_stamp != current:
+        return None, fail(
+            f"expect_stamp {expect_stamp} does not match this object's "
+            f"current stamp {current} -- the mesh changed since that stamp "
+            "was read; call clay_elements or clay_scene to see what it is "
+            "now.",
+            field="expect_stamp",
+        )
+    return expect_stamp, None
+
+
+def _h_select_by(ctx: Any, session: Session, args: dict) -> dict:
+    """Select elements by a seed or a parameter, through :data:`select.
+    QUERIES`. See the tool's own description in :func:`tools`, and the
+    module-level ``_QUERY_ARG_SCHEMAS``/``_validate_query_arg`` for the one
+    mapping from a query argument's name to what it is checked against --
+    ``select.py`` itself holds no JSON-schema knowledge, by that module's own
+    design.
+    """
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+    obj, failure = _resolve_uid(doc, args)
+    if failure:
+        return failure
+
+    name = args.get("query")
+    query = bsel.QUERIES.get(name)
+    if query is None:
+        return fail(
+            f"query must be one of {', '.join(sorted(bsel.QUERIES))}.", field="query"
+        )
+    if doc.element_mode not in query.modes:
+        # ``_in_mode_reason``'s own wording, not a paraphrase of it -- an
+        # agent reading this refusal and a person reading the same query's
+        # greyed-out menu row must never be told two different sentences for
+        # the same gate.
+        return fail(clay_ops._in_mode_reason(*query.modes)(doc), field="query")
+
+    how = args.get("how", "replace")
+    if how not in ("replace", "add", "subtract"):
+        return fail("how must be 'replace', 'add' or 'subtract'.", field="how")
+
+    expect_stamp = args.get("expect_stamp")
+    if expect_stamp is not None:
+        _, failure = _check_expect_stamp(doc, obj.uid, expect_stamp)
+        if failure:
+            return failure
+
+    values: dict[str, Any] = {}
+    for arg_name in query.args:
+        if arg_name == "space":
+            continue  # resolved below, never passed to a pure query function
+        if arg_name not in args:
+            if arg_name in _QUERY_OPTIONAL_ARGS:
+                continue
+            return fail(f"give a value for {arg_name!r}.", field=arg_name)
+        value, failure = _validate_query_arg(arg_name, args[arg_name])
+        if failure:
+            return failure
+        values[arg_name] = value
+
+    if "direction" in values:
+        # An agent reads translation/rotation/scale off clay_scene in world
+        # space, so a direction it names ("up", "the way this object is
+        # facing") is in that same frame -- and a face *normal* transforms by
+        # the inverse-transpose of the object's matrix, not by its rotation
+        # alone the moment the object carries a non-uniform scale. See
+        # ``clay_geom_ops.local_direction``'s own docstring for the one that
+        # is easy to get wrong.
+        values["direction"] = clay_geom_ops.local_direction(obj, values["direction"])
+
+    if name == "bounds":
+        space = args.get("space", "world")
+        if space not in ("world", "local"):
+            return fail("space must be 'world' or 'local'.", field="space")
+        lo = np.asarray(values["min"], dtype="f8")
+        hi = np.asarray(values["max"], dtype="f8")
+        # ``_q_bounds`` (this query's own ``run``) always measures against
+        # the mesh's own local positions -- it has no ``positions=`` hook to
+        # ask it for anything else -- so "world" is resolved here instead,
+        # the way the module docstring's ``clay_select_by`` paragraph says:
+        # passing ``clay_geom_ops.world_positions(obj)`` in for the mesh's
+        # own local ``positions`` before the same box test ``_q_bounds`` and
+        # ``select.faces_in_bounds`` already run.
+        positions = clay_geom_ops.world_positions(obj) if space == "world" else None
+        pts = np.asarray(obj.mesh.positions if positions is None else positions, dtype="f8")
+        if len(pts) == 0:
+            sel = el.empty()
+        else:
+            inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+            sel = el.ElementSel(
+                verts=np.flatnonzero(inside).astype("i4"),
+                faces=bsel.faces_in_bounds(obj.mesh, lo, hi, positions=positions),
+            )
+    else:
+        sel = query.run(obj.mesh, **values)
+
+    current = doc.element_sel_of(obj.uid)
+    doc.set_element_sel(obj.uid, el.combine(current, sel, how))
+
+    return _json(
+        {
+            "uid": obj.uid,
+            "query": name,
+            "mode": doc.element_mode,
+            "stamp": doc.mesh_stamp(obj.uid),
+            "selected": _sel_counts(doc.element_sel_of(obj.uid)),
+        }
+    )
+
+
+def _h_elements(ctx: Any, session: Session, args: dict) -> dict:
+    """The read side of the element-selection tools -- paged raw indices, for
+    the rarer moment an agent has to reason about which ones rather than how
+    many. See :data:`ELEMENT_PAGE_MAX`."""
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    kind = args.get("kind")
+    if kind is not None and kind not in ("vertex", "edge", "face"):
+        return fail("kind must be 'vertex', 'edge' or 'face'.", field="kind")
+
+    offset = args.get("offset", 0)
+    try:
+        offset = int(offset)
+    except (TypeError, ValueError):
+        return fail("offset must be an integer.", field="offset")
+    if offset < 0:
+        return fail("offset must not be negative.", field="offset")
+
+    limit = args.get("limit", ELEMENT_PAGE_DEFAULT)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        return fail("limit must be an integer.", field="limit")
+    if not (1 <= limit <= ELEMENT_PAGE_MAX):
+        return fail(f"limit must be between 1 and {ELEMENT_PAGE_MAX}.", field="limit")
+
+    if args.get("uid") is not None:
+        obj, failure = _resolve_uid(doc, args)
+        if failure:
+            return failure
+        targets = [obj]
+    else:
+        targets = [doc.by_uid(uid) for uid in doc.element_sel]
+
+    field_name = {"vertex": "verts", "edge": "edges", "face": "faces"}.get(kind)
+    rows = []
+    for obj in targets:
+        sel = doc.element_sel_of(obj.uid)
+        row: dict[str, Any] = {
+            "uid": obj.uid,
+            "stamp": doc.mesh_stamp(obj.uid),
+            "counts": _sel_counts(sel),
+        }
+        if field_name is not None:
+            arr = getattr(sel, field_name)
+            row["kind"] = kind
+            row["total"] = len(arr)
+            row["offset"] = offset
+            row["indices"] = arr[offset : offset + limit].tolist()
+        rows.append(row)
+
+    return _json({"mode": doc.element_mode, "objects": rows})
 
 
 @dataclass
@@ -1694,6 +2437,11 @@ class _OpCtx:
 
 
 def _h_op(ctx: Any, session: Session, args: dict) -> dict:
+    """Run one op by name. See the module docstring's ``clay_op`` paragraph
+    for the sandboxed proxy, and the "counts, never raw indices" rule this
+    result follows: an agent does not need a 200k-element array back from a
+    ``select-all``, it needs to know that something changed and by how much.
+    """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
@@ -1712,8 +2460,37 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         return fail(clay_ops.reason_for(op, doc))
     params = args.get("params") or {}
     proxy = _OpCtx(state=getattr(ctx, "state", None))
+    # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
+    # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
+    # one ``set_mesh`` and ``mesh_stamp`` both rely on identity for), so
+    # ``obj.mesh is before.get(obj.uid)`` after the call is a read of what the
+    # op actually touched, not a second bookkeeping mechanism running beside
+    # it. An object absent from ``before`` (an op like Duplicate makes one) is
+    # "changed" too: there is no prior mesh for it to equal.
+    before = {obj.uid: obj.mesh for obj in doc.objects}
+    head = doc.history.head
     ran = clay_ops.run(proxy, doc, op, **params)
-    return _json({"op": op.name, "ran": ran, "messages": proxy.messages})
+    changed = [
+        {
+            "uid": obj.uid,
+            "stamp": doc.mesh_stamp(obj.uid),
+            "faces": bm.face_count(obj.mesh),
+            "verts": len(obj.mesh.positions),
+            "selected": _sel_counts(doc.element_sel_of(obj.uid)),
+        }
+        for obj in doc.objects
+        if before.get(obj.uid) is not obj.mesh
+    ]
+    return _json(
+        {
+            "op": op.name,
+            "ran": ran,
+            "pushed": doc.history.head != head,
+            "element_mode": doc.element_mode,
+            "messages": proxy.messages,
+            "changed": changed,
+        }
+    )
 
 
 def _parse_view_entry(entry: Any, valid_views: set[str]) -> tuple[str, dict, dict | None]:
@@ -1893,6 +2670,19 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
 
 
 def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
+    """Report what is wrong with one or every visible mesh, and -- given
+    ``select`` -- act on one finding the way the properties pane's own click
+    handler does.
+
+    ``clay_diagnose.Finding`` already carries the ``ElementSel`` that fixes
+    each defect; before this, that was thrown away the moment it was turned
+    into a JSON row, and an agent could describe a hole but never point at
+    one. ``select`` closes that loop with the same three-call template
+    ``panes/clay_props.py``'s ``_select_finding`` uses, for the same reason
+    named there: the object selection must not be set by hand, because in an
+    element mode it is *derived*, and the clear is what stops this finding's
+    selection landing beside a stale one on another object.
+    """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
@@ -1905,9 +2695,12 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
         targets = [obj]
+
+    reports: dict[int, list] = {}
     report = []
     for obj in targets:
         rows = clay_diagnose.findings(obj.mesh)
+        reports[obj.uid] = rows
         report.append(
             {
                 "uid": obj.uid,
@@ -1919,7 +2712,46 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
                 ],
             }
         )
-    return _json({"objects": report})
+
+    select_arg = args.get("select")
+    selected = None
+    if select_arg is not None:
+        if not isinstance(select_arg, dict):
+            return fail("select must be an object with uid and kind.", field="select")
+        sel_obj, failure = _resolve_uid(doc, select_arg, "uid")
+        if failure:
+            return failure
+        kind = select_arg.get("kind")
+        rows = reports.get(sel_obj.uid)
+        if rows is None:
+            # The object this call was asked to select in was not among this
+            # call's own targets (a narrower ``uid`` was given, or it is
+            # hidden) -- measured fresh rather than refused for a technicality
+            # this call could answer on its own.
+            rows = clay_diagnose.findings(sel_obj.mesh)
+        row = next((r for r in rows if r.kind == kind), None)
+        if row is None:
+            available = sorted({r.kind for r in rows})
+            return fail(
+                f"{sel_obj.name!r} has no {kind!r} finding right now"
+                + (f" -- it has {available}." if available else " -- it is clean."),
+                field="select",
+            )
+        doc.set_element_mode(row.mode)
+        doc.clear_element_sel()
+        doc.set_element_sel(sel_obj.uid, row.sel)
+        selected = {
+            "uid": sel_obj.uid,
+            "kind": row.kind,
+            "mode": doc.element_mode,
+            "stamp": doc.mesh_stamp(sel_obj.uid),
+            "selected": _sel_counts(row.sel),
+        }
+
+    payload: dict[str, Any] = {"objects": report}
+    if selected is not None:
+        payload["selected"] = selected
+    return _json(payload)
 
 
 def _h_export(ctx: Any, session: Session, args: dict) -> dict:
@@ -2016,6 +2848,17 @@ def _h_delete(ctx: Any, session: Session, args: dict) -> dict:
     deletion. Working from the uids given, in whatever element mode the
     document happens to be in, is what keeps "delete these objects" meaning
     that regardless.
+
+    **Deliberately not given the same element-mode refusal as ``clay_select``
+    and ``clay_boolean``.** Those two *write* object uids straight into
+    ``doc.selection``, which in an element mode can manufacture "selected
+    with nothing selected inside it" -- the state the derived-selection
+    invariant forbids. This handler never does: :meth:`~.document.ClayDoc.
+    remove_object` only ever *removes* a uid from ``selection`` (and from
+    ``element_sel``, on the same line), and removing an entry from a set
+    cannot put it into the forbidden state that only a write can create.
+    Refusing here would be refusing a call that was never capable of the
+    defect the refusal exists to prevent.
     """
     tab, failure = _tab(ctx, session)
     if failure:
@@ -2276,6 +3119,10 @@ _HANDLERS = {
     "clay_material": _h_material,
     "clay_boolean": _h_boolean,
     "clay_select": _h_select,
+    "clay_element_mode": _h_element_mode,
+    "clay_select_elements": _h_select_elements,
+    "clay_select_by": _h_select_by,
+    "clay_elements": _h_elements,
     "clay_op": _h_op,
     "clay_render": _h_render,
     "clay_diagnose": _h_diagnose,
