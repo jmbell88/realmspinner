@@ -1927,6 +1927,18 @@ def test_the_instructions_name_the_call_timeout_the_host_actually_uses() -> None
     assert str(int(agent_host.CALL_TIMEOUT)) in agent_clay.instructions()
 
 
+def test_the_instructions_tell_an_agent_which_timed_out_calls_are_safe_to_retry() -> None:
+    text = agent_clay.instructions()
+
+    # A dropped call (never started) changed nothing, so retrying is safe.
+    assert "dropped" in text
+    assert "safe to send the same call again" in text
+    # A started call keeps running and wants a fresh clay_scene, not a retry.
+    assert "re-read clay_scene" in text
+    # The old claim this change overturns must not still be here.
+    assert "still completes" not in text
+
+
 # --- guards for a capability that did not previously exist --------------------
 #
 # Before this change an agent could never leave object mode, so

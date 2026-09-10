@@ -262,6 +262,12 @@ reported back after every operation, counts rather than the indices themselves, 
 followed by an inset is two calls rather than four — extrude hands back its own new caps, and the
 very next call operates on them with nothing re-selected in between.
 
+If an agent gives up waiting on a call Warlock has not started yet, that call is cancelled rather
+than run later, so a retry does not place the same box twice — the agent is told nothing changed
+and it is safe to send the same call again. If the call had already started, it finishes on its
+own instead; the agent is told that too, so it knows to look at what changed rather than send the
+same request a second time.
+
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
 posing, sprite sheets and every mesh export work on it exactly as they work on anything else.

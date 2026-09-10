@@ -48,6 +48,32 @@ directly rather than inventing a fake tool name for it -- ``_tab`` with
 ``create=True`` is already the one function that knows how to mint a
 document for a session that owns nothing yet, because the two creator tools
 call it themselves.
+
+**A call the frame thread has not started is dropped when the listener stops
+waiting for it; one it has started is not, and cannot be.** This overturns
+the rule this module used to follow: a call that outran ``CALL_TIMEOUT``
+still ran exactly once, late, because the job was already queued and running
+it anyway was judged the honest thing to do. That was deliberate, and its
+cost was real -- an agent that saw a timeout had no way to tell "nothing
+happened" from "it happened after I stopped listening," so the only safe
+recovery was to re-read ``clay_scene`` before doing anything else, and a
+retry could silently repeat the same edit. The mechanism is five states on
+``_Job`` (``QUEUED``, ``RUNNING``, ``DONE``, ``RAISED``, ``DROPPED``), one
+lock on the host (``self._job_lock``), and a compare-and-set on each side:
+:meth:`AgentHost.pump` claims ``QUEUED -> RUNNING`` before it calls
+``job.run()``, and a waiter that has given up abandons ``QUEUED -> DROPPED``
+instead; whichever thread gets the lock first wins, and the other sees the
+state that thread left behind. A bare boolean flag cannot do this --
+``queue.Queue.get_nowait`` takes a job off the queue but not out of the
+listener's reach, so "check the flag, then run" is a check-then-act race
+that a plain flag cannot close. The lock is held only long enough to compare
+and set one field, never across ``run()`` itself, so a slow call cannot
+block the listener thread waiting on it. The agent-visible consequence: the
+two refusals a timeout can now produce say different things, and only one of
+them is safe to retry -- see :meth:`AgentHost._call`. One more thing changes
+along with it: a dropped job stays on the queue as a tombstone until a
+``pump`` call pops and discards it, so ``self._queue.qsize()`` is no longer a
+count of live work.
 """
 
 from __future__ import annotations
@@ -80,6 +106,19 @@ STOP_JOIN_TIMEOUT = 2.0
 #: contract (``"agent_server"`` in ``ctx.settings``, bool, default False).
 SETTING = "agent_server"
 
+#: A ``_Job``'s five states, read and written only under ``AgentHost.
+#: _job_lock``. Plain strings, not an enum private to this module, because
+#: the strings themselves are the vocabulary a caller reads -- a planned
+#: status tool answers in exactly these words. ``RAISED`` is "ran and
+#: raised", kept distinct from ``DONE`` because a waiter reads ``error`` in
+#: one case and ``result`` in the other. ``DROPPED`` is "abandoned before it
+#: ever ran, and never will".
+QUEUED = "queued"
+RUNNING = "running"
+DONE = "done"
+RAISED = "raised"
+DROPPED = "dropped"
+
 
 @dataclass
 class _Job:
@@ -87,12 +126,17 @@ class _Job:
     :meth:`AgentHost.pump`. ``event`` is always created, even for the
     fire-and-forget toasts :meth:`AgentHost._toast` queues, because a single
     shape here is simpler than an optional one and the cost of an unwaited
-    ``Event`` is nothing."""
+    ``Event`` is nothing.
+
+    ``state`` is only ever read or written under ``AgentHost._job_lock`` --
+    it is the single fact both the listener thread and the frame thread have
+    to agree on to make a drop and a run mutually exclusive."""
 
     run: Any
     event: threading.Event = field(default_factory=threading.Event)
     result: Any = None
     error: BaseException | None = None
+    state: str = QUEUED
 
 
 class AgentHost:
@@ -123,6 +167,15 @@ class AgentHost:
         # ``recv_bytes`` -- closing the *Listener* (``pipe.Server.close``)
         # does not touch a ``Connection`` already accepted from it.
         self._active_conn: Any = None
+        # One lock for the host's whole life -- created here, once, and never
+        # reassigned by start()/stop(), unlike self._queue. A job abandoned
+        # across a stop() must not be racing a lock that was replaced out
+        # from under it. One host-level lock rather than one per job: the
+        # contended window is two comparisons long, only one connection is
+        # ever served at a time (pipe.py's v1 decision), so no more than two
+        # threads can ever contend for it, and a per-job lock would be an
+        # allocation on every call to protect a window nothing else shares.
+        self._job_lock = threading.Lock()
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -203,7 +256,16 @@ class AgentHost:
     def _fail_pending(self) -> None:
         """Wake every call still sitting in the queue with a failure, so a
         bridge blocked in :meth:`_call` is not left waiting out the full
-        ``CALL_TIMEOUT`` once nothing will ever service the queue again."""
+        ``CALL_TIMEOUT`` once nothing will ever service the queue again.
+
+        Each job is marked ``DROPPED`` under ``_job_lock`` before its event
+        is set -- ``DROPPED`` is the truthful state here (the job never ran
+        and never will), and it is why the waiter still gets a failure
+        result stamped onto it rather than the generic timeout refusal
+        ``_run_on_frame`` would otherwise have to invent for a job with no
+        result at all. A job already claimed by ``pump`` (state no longer
+        ``QUEUED``) is left alone -- it is mid-``run()`` or finished, and
+        this method has no business overwriting either outcome."""
         from ..mcp import protocol
 
         q = self._queue
@@ -214,7 +276,11 @@ class AgentHost:
                 job = q.get_nowait()
             except queue.Empty:
                 return
-            job.result = protocol.fail("Warlock's agent server was switched off.")
+            with self._job_lock:
+                if job.state != QUEUED:
+                    continue
+                job.state = DROPPED
+                job.result = protocol.fail("Warlock's agent server was switched off.")
             job.event.set()
 
     # -- the listener thread ---------------------------------------------------
@@ -293,30 +359,68 @@ class AgentHost:
         an answer lands or ``CALL_TIMEOUT`` passes."""
         from ..mcp import protocol
 
-        result, error, timed_out = self._run_on_frame(
+        result, error, state = self._run_on_frame(
             lambda: agent_clay.call(self.ctx, session, name, arguments)
         )
-        if timed_out:
-            return protocol.fail("Warlock did not answer in time; the window may be busy.")
         if error is not None:
             # ``agent_clay.call`` promises never to raise; this is the same
             # backstop ``protocol.dispatch`` keeps around its own call site,
             # for the day that promise is broken anyway.
             return protocol.fail(f"{type(error).__name__}: {error}")
-        return result
+        # Checked before ``state``: ``agent_clay.call`` is contracted never to
+        # return ``None`` (it always answers with a result dict, even a
+        # refusal), so a result in hand means the job genuinely answered --
+        # including the "switched off" refusal ``_fail_pending`` stamps onto
+        # a job that never ran at all. That answer outranks any state.
+        if result is not None:
+            return result
+        if state == DROPPED:
+            return protocol.fail(
+                f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the window is busy. "
+                "The call was dropped before it ran, so nothing changed -- send it again."
+            )
+        return protocol.fail(
+            f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the call had already "
+            "started and will finish on its own. Re-read clay_scene to see what it did rather "
+            "than sending it again."
+        )
 
-    def _run_on_frame(self, run: Any, timeout: float = CALL_TIMEOUT) -> tuple[Any, Any, bool]:
+    def _run_on_frame(self, run: Any, timeout: float = CALL_TIMEOUT) -> tuple[Any, Any, str]:
         """Queue *run* for :meth:`pump` and block until it executes, until
         *timeout* passes, or until :meth:`stop` gives up on this thread's
-        behalf. Returns ``(result, error, timed_out)``."""
+        behalf. Returns ``(result, error, state)``.
+
+        The caller can see three states here. ``DONE``/``RAISED`` means the
+        job ran to completion (or raised) before *timeout* elapsed, or in the
+        gap after it elapsed but before this thread could claim the lock --
+        either way, a result is already sitting on the job and is worth more
+        than a timeout refusal. ``DROPPED`` means this thread gave up first
+        and the job will never run. A result in hand always outranks the
+        state; see :meth:`_call` for how a caller is expected to use that.
+        """
         q = self._queue
         if q is None or self._stopped.is_set():
-            return None, None, True
+            # Never queued, so nothing ran -- and this is the same situation
+            # ``_fail_pending`` answers, so it gets the same sentence rather
+            # than a second wording for one condition.
+            from ..mcp import protocol
+
+            return protocol.fail("Warlock's agent server was switched off."), None, DROPPED
         job = _Job(run)
         q.put(job)
-        if not job.event.wait(timeout):
-            return None, None, True
-        return job.result, job.error, False
+        if job.event.wait(timeout):
+            with self._job_lock:
+                return job.result, job.error, job.state
+        with self._job_lock:
+            # Two comparisons, one lock hold, and never across ``run()``:
+            # still queued means this thread wins and the job is dropped
+            # before the frame thread can claim it; anything else means the
+            # frame thread got there first -- and if it has already
+            # finished, the result is right here and is worth more than a
+            # timeout refusal.
+            if job.state == QUEUED:
+                job.state = DROPPED
+            return job.result, job.error, job.state
 
     def _toast(self, text: str) -> None:
         """Queue a toast for :meth:`pump` to raise. ``ctx.toast`` reaches
@@ -339,6 +443,17 @@ class AgentHost:
         permanently over budget for other reasons must not starve an agent's
         calls forever, and the ceiling on any single call's own cost is
         whatever the op it runs already costs, not this number.
+
+        A job the listener already dropped is skipped, not run: ``get_nowait``
+        takes it off the queue but not out of the listener's reach, so this
+        claims each job (``QUEUED -> RUNNING``) under ``_job_lock`` before
+        touching it, and a job that is no longer ``QUEUED`` is a tombstone --
+        the listener abandoned it first. A tombstone is woken and skipped
+        without spending the one-job floor above, so it cannot starve the
+        next real job behind it. One consequence follows from this:
+        ``self._queue.qsize()`` is no longer a count of live work, because a
+        dropped job stays on the queue as a tombstone until a ``pump`` call
+        pops it.
         """
         q = self._queue
         if q is None:
@@ -350,6 +465,14 @@ class AgentHost:
                 job = q.get_nowait()
             except queue.Empty:
                 return
+            with self._job_lock:
+                if job.state != QUEUED:
+                    # A tombstone: the listener gave up waiting and dropped
+                    # it. Not work, so it does not spend the one-job floor,
+                    # and the drain keeps going.
+                    job.event.set()
+                    continue
+                job.state = RUNNING
             ran_one = True
             try:
                 job.result = job.run()
@@ -360,6 +483,11 @@ class AgentHost:
                 # the tab-open at connect).
                 job.error = exc
                 log.exception("agent host: a queued call raised")
+                with self._job_lock:
+                    job.state = RAISED
+            else:
+                with self._job_lock:
+                    job.state = DONE
             finally:
                 job.event.set()
 

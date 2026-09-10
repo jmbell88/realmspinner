@@ -29,10 +29,17 @@ is about that seam holding, with no real GL and no real app:
   by reading it back out of a real ``initialize`` reply rather than off the
   source. This is the one place this file's title bends: it does not care
   *what* Clay's conventions say, only that whatever ``agent_clay.
-  instructions()`` returns is what a bridge actually receives. One of the two
-  tests exercising it is red with ``AttributeError`` until agent B lands that
-  function in ``studio/agent_clay.py`` -- expected, and not a claim about
-  threads breaking.
+  instructions()`` returns is what a bridge actually receives.
+* A call the frame thread has not started yet is **dropped**, not run late,
+  once the listener stops waiting for it -- proven with no pump running at
+  all, so the job is provably still ``QUEUED`` when the wait gives up. A call
+  already inside ``run()`` is not dropped and cannot be: the waiter observes
+  ``RUNNING`` and the job still finishes. A dropped job is a tombstone, not a
+  removal -- it stays on the queue and costs ``pump`` nothing but a skip, and
+  does not spend the one-job floor a real job would. And the second
+  compare-and-set (a job that finishes in the gap after the wait gives up but
+  before the waiter's own lock hold) answers with the result rather than a
+  timeout refusal.
 
 Every wait below is bounded (``conn.poll(timeout=...)`` before every
 ``recv_bytes``, and explicit ``join`` timeouts), so a regression that makes
@@ -173,8 +180,14 @@ def test_stop_unblocks_a_pending_call_rather_than_waiting_out_call_timeout(tmp_p
         # Bounded by STOP_JOIN_TIMEOUT, and nowhere near the 30s CALL_TIMEOUT
         # the waiter asked for -- that gap is exactly the claim under test.
         assert elapsed < agent_host.CALL_TIMEOUT / 2
-        _result, _error, timed_out = outcome["result"]
-        assert timed_out is False  # answered by _fail_pending, not abandoned
+        result, _error, state = outcome["result"]
+        # Nothing ran, and never will -- DROPPED is the truthful state, not
+        # a generic timeout. But the waiter still gets an answer: stop()'s
+        # own _fail_pending stamps a result onto the job before waking it,
+        # rather than leaving _run_on_frame to invent a refusal for a job
+        # with none.
+        assert state == agent_host.DROPPED
+        assert result is not None
     finally:
         host.stop()
 
@@ -304,5 +317,163 @@ def test_the_initialize_reply_carries_agent_clay_supplied_instructions(
         stop_pumping.set()
         pumper.join(timeout=WAIT)
         host.stop()
+
+
+# --- cancel-on-timeout: a call not yet started is dropped, one already ------
+# --- running is not, and the two refusals say which -------------------------
+
+
+def test_a_call_that_times_out_before_it_runs_is_dropped_rather_than_run_late() -> None:
+    host = _bare_host()
+    ran: list[str] = []
+
+    # Nothing pumps this: Event.wait(0.0) returns False immediately, so the
+    # job is still QUEUED when _run_on_frame gives up. Deterministic, no
+    # sleep needed.
+    result, error, state = host._run_on_frame(lambda: ran.append("x"), timeout=0.0)
+
+    assert state == agent_host.DROPPED
+    assert result is None
+    assert error is None
+
+    host.pump(budget=1.0)
+    assert ran == []  # the tombstone was skipped, never run
+
+
+def test_a_dropped_job_is_a_tombstone_and_does_not_spend_pumps_one_job_floor() -> None:
+    host = _bare_host()
+    host._run_on_frame(lambda: None, timeout=0.0)  # drop one, per the test above
+    ran: list[str] = []
+    host._queue.put(agent_host._Job(lambda: ran.append("good")))
+
+    # Today the tombstone would run and consume the one-job floor, so the
+    # good job behind it would not run at budget 0.
+    host.pump(budget=0.0)
+
+    assert ran == ["good"]
+
+
+def test_a_call_the_frame_thread_already_started_is_not_dropped_and_still_completes() -> None:
+    host = _bare_host()
+    started = threading.Event()
+    release = threading.Event()
+    finished: list[str] = []
+
+    def job() -> None:
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        finished.append("done")
+
+    outcome: dict[str, object] = {}
+
+    def waiter() -> None:
+        outcome["result"] = host._run_on_frame(job, timeout=0.2)
+
+    stop_pumping = threading.Event()
+
+    def pump_loop() -> None:
+        while not stop_pumping.is_set():
+            host.pump(budget=0.01)
+            time.sleep(0.005)
+
+    pumper = threading.Thread(target=pump_loop, daemon=True)
+    pumper.start()
+    waiter_thread = threading.Thread(target=waiter, daemon=True)
+    waiter_thread.start()
+    try:
+        # Bounded by WAIT, not a sleep: proceeds the moment the job is
+        # genuinely inside run(), which is what makes the 0.2s wait below
+        # expire while the job is RUNNING rather than still QUEUED.
+        assert started.wait(WAIT), "job never started"
+        waiter_thread.join(timeout=WAIT)
+        assert not waiter_thread.is_alive(), "the 0.2s wait never returned"
+
+        _result, _error, state = outcome["result"]
+        assert state == agent_host.RUNNING  # not dropped -- it was already running
+
+        release.set()
+        deadline = time.monotonic() + WAIT
+        while not finished and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert finished == ["done"]  # it still finished on its own
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+
+def test_a_call_that_finished_in_the_gap_after_the_wait_gave_up_answers_with_its_result(
+    monkeypatch,
+) -> None:
+    """The second compare-and-set: the frame thread claims and finishes the
+    job in the gap between the waiter's ``Event.wait`` giving up and the
+    waiter taking ``_job_lock`` for itself. Staged deterministically instead
+    of relying on real scheduling to land in that gap."""
+    host = _bare_host()
+    real_job_cls = agent_host._Job
+
+    class _NeverWaits(threading.Event):
+        """Stands in for a real ``Event`` whose ``wait()`` would return
+        ``True`` only once ``CALL_TIMEOUT`` had genuinely elapsed -- this one
+        always reports "not yet", so ``_run_on_frame`` takes its timeout
+        branch immediately rather than after a real wait."""
+
+        def wait(self, timeout=None):  # noqa: ARG002 -- match Event.wait's shape
+            return False
+
+    def _job_factory(run):
+        return real_job_cls(run, event=_NeverWaits())
+
+    monkeypatch.setattr(agent_host, "_Job", _job_factory)
+
+    class _RunsPumpOnPut(queue.Queue):
+        """Stands in for the frame thread reaching ``pump()`` in the real gap
+        between this thread's ``put()`` and its own timeout check -- a race
+        that only shows up under real scheduling, forced to happen every
+        time instead."""
+
+        def put(self, item, *args, **kwargs):
+            super().put(item, *args, **kwargs)
+            host.pump(budget=1.0)
+
+    host._queue = _RunsPumpOnPut()
+
+    result, error, state = host._run_on_frame(lambda: "the real answer", timeout=0.0)
+
+    assert (result, error, state) == ("the real answer", None, agent_host.DONE)
+
+
+def test_a_dropped_call_tells_the_agent_nothing_changed(tmp_path, monkeypatch) -> None:
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    monkeypatch.setattr(
+        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.DROPPED)
+    )
+
+    result = host._call(agent_clay.Session(), "clay_scene", {})
+    text = result["content"][0]["text"]
+
+    assert "nothing changed" in text
+    assert "send it again" in text
+
+
+def test_a_call_that_started_tells_the_agent_to_re_read_rather_than_retry(
+    tmp_path, monkeypatch
+) -> None:
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+
+    monkeypatch.setattr(
+        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.DROPPED)
+    )
+    dropped_text = host._call(agent_clay.Session(), "clay_scene", {})["content"][0]["text"]
+
+    monkeypatch.setattr(
+        host, "_run_on_frame", lambda run, timeout=None: (None, None, agent_host.RUNNING)
+    )
+    started_text = host._call(agent_clay.Session(), "clay_scene", {})["content"][0]["text"]
+
+    assert "clay_scene" in started_text
+    assert "re-read" in started_text.lower()
+    assert "send it again" not in started_text
+    # One sentence answering both conditions was the defect this change fixes.
+    assert started_text != dropped_text
 
 

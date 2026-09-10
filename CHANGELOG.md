@@ -156,6 +156,15 @@ engine stopped being something you download whether or not you ever use it.
   or booleaning them is now refused while a document is in an element mode
   instead of quietly manufacturing an object "selected" with nothing selected
   inside it.
+- **A call an agent gives up on before Warlock starts it is now cancelled,
+  not run late.** A timed-out call used to still complete — the job stayed
+  queued and ran exactly once regardless of whether anything was still
+  listening for the answer — so the only safe recovery from a timeout was to
+  re-read the scene before doing anything else; a retry could silently place
+  the same box twice. Warlock now tells the two situations apart: a call it
+  had not started yet is dropped, and the reply says so — nothing changed,
+  send it again. A call already running finishes on its own, and that reply
+  says that instead — re-read the scene rather than retry.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

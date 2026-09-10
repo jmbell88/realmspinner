@@ -129,14 +129,14 @@ other in one way worth stating rather than blurring: a reference never
 touches the ``ClayDoc`` at all, while a selection tool genuinely changes the
 document and still pushes nothing.
 
-**A call that outruns ``agent_host.CALL_TIMEOUT`` still completes.** The
-timeout lives on the listener thread, which gives up waiting and answers
-"no answer in time" -- but the job it queued is still sitting on the frame
-thread's queue and :meth:`~.agent_host.AgentHost.pump` will run it exactly
-once, on schedule, whether or not anyone is still waiting for the result.
-An agent that sees a timeout must not retry blindly: the right recovery is
-to re-read ``clay_scene`` and see what actually happened, because "no
-answer" and "nothing happened" are not the same claim.
+**A call that outruns ``agent_host.CALL_TIMEOUT`` is dropped if the frame
+thread has not started it, and finishes if it has.** The two outcomes tell
+an agent different things and want different recoveries: a dropped call
+changed nothing, so sending it again is safe; a started call is already
+running and will finish on its own, so the right move is to re-read
+``clay_scene`` and see what it did rather than sending it again. See
+:mod:`.agent_host`'s own module docstring for the compare-and-set that makes
+the two outcomes mutually exclusive rather than a race.
 
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
@@ -800,12 +800,12 @@ def instructions() -> str:
         "call; it stops at the first refusal and keeps everything that "
         "already ran.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
-        "second timeout still completes: the listener stops waiting and "
-        "answers \"no answer in time\", but the job it already queued runs "
-        "exactly once on the frame thread regardless of whether anything is "
-        "still waiting for the result. Do not retry blindly after one -- "
-        "re-read clay_scene first, because \"no answer\" and \"nothing "
-        "happened\" are not the same claim.\n\n"
+        "second timeout is handled one of two ways, and the reply says "
+        "which. If Warlock had not started the call yet, it is dropped and "
+        "nothing changed -- it is safe to send the same call again. If "
+        "Warlock had already started it, the call keeps running and will "
+        "finish on its own; do not send it again, re-read clay_scene "
+        "instead to see what it did.\n\n"
         "Known generators: " + _generator_catalog()
     )
 
