@@ -571,6 +571,19 @@ def weld(mesh: Mesh, sel: ElementSel, *, eps: float = 1e-4) -> tuple[Mesh, Eleme
     return out, empty()
 
 
+def _find(parent: np.ndarray, x: int) -> int:
+    """Union-find root lookup, path-compressing as it goes.
+
+    A module-level function rather than a closure so ``collapse`` can be
+    reasoned about (and tested) call-by-call -- see the 2026-09-08 audit
+    incident in ``collapse``'s own body.
+    """
+    while parent[x] != x:
+        parent[x] = parent[parent[x]]
+        x = int(parent[x])
+    return x
+
+
 def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Pull each selected edge or face down to a single vertex at its centre.
 
@@ -591,23 +604,29 @@ def collapse(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     n_verts = len(mesh.positions)
     parent = np.arange(n_verts, dtype="i8")
 
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = int(parent[x])
-        return x
-
     groups: list[np.ndarray] = [sel.edges.astype("i8")]
     starts = mesh.starts.astype("i8")
     for f in sel.faces.astype("i8").tolist():
         loop = mesh.loops[starts[f] : starts[f + 1]].astype("i8")
         groups.append(np.stack([loop, np.roll(loop, -1)], axis=1))
-    for a_v, b_v in np.concatenate(groups).tolist():
-        ra, rb = find(int(a_v)), find(int(b_v))
+    pairs = np.concatenate(groups)
+    for a_v, b_v in pairs.tolist():
+        ra, rb = _find(parent, int(a_v)), _find(parent, int(b_v))
         if ra != rb:
             parent[ra] = rb
 
-    remap = np.array([find(i) for i in range(n_verts)], dtype="i8")
+    # The 2026-09-08 audit's second run (clay-11) found this building ``remap`` with
+    # ``[find(i) for i in range(n_verts)]`` -- a Python loop over every vertex
+    # in the whole mesh, not the selection -- so one collapsed edge measured
+    # 175 ms at 409,600 vertices, linear in mesh size, unlike ``weld`` right
+    # above whose remap is already scattered from an identity array sized to
+    # the selection. Only a vertex named by a selected edge or face corner can
+    # ever move, so only those need ``_find``; everything else keeps its
+    # identity root untouched.
+    remap = np.arange(n_verts, dtype="i8")
+    selected = np.unique(pairs.reshape(-1)) if len(pairs) else np.empty(0, dtype="i8")
+    if len(selected):
+        remap[selected] = np.array([_find(parent, int(v)) for v in selected.tolist()], dtype="i8")
     positions = mesh.positions.astype("f8").copy()
     sums = accumulate(remap, mesh.positions.astype("f8"), n_verts)
     hits = np.zeros(n_verts)
@@ -926,6 +945,31 @@ def _bridge_offset(a_pos: np.ndarray, b_pos: np.ndarray) -> int:
     )
 
 
+#: The largest single ring bridge_edges will pair up.
+#:
+#: Every other walking op in this package refuses before an unbounded input
+#: turns into unbounded work -- ops_bevel.MAX_BEVELED_CORNERS,
+#: ops_dissolve.MAX_DISSOLVED_RING, ops_subdiv.MAX_SUBDIVIDED_FACES,
+#: ops_boolean.MAX_BOOLEAN_TRIANGLES -- and the 2026-09-09 audit's clay-01
+#: found bridge_edges had none, even though _bridge_offset's rotation search,
+#: run whenever both rims being joined are closed, does a full array
+#: subtraction over the *whole* ring on every one of its n candidate
+#: rotations: O(n^2) in the ring length, in Python, with
+#: clay_ops.run_mesh_op calling bridge_edges synchronously on the frame
+#: thread -- exactly the stall every ceiling in this package exists to
+#: prevent.
+#:
+#: Measured bridging two closed rims of matched size (the audit's own probe,
+#: an open cylinder with no caps): 235 ms at 8,000 vertices a ring, 345 ms at
+#: 10,000, 481 ms at 12,000, 593 ms at 14,000, 784 ms at 16,000 -- clean
+#: quadratic growth, matching the audit's own figures (220 ms / 748 ms at
+#: 8,000 / 16,000). Ten thousand keeps a single bridge click well under a
+#: second, the same "well under a second" bar MAX_DISSOLVED_RING and
+#: MAX_BEVELED_CORNERS use, with room under the point (around 16,000) where
+#: "well under" stops being true.
+MAX_BRIDGED_RING = 10_000
+
+
 def bridge_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     """Join two selected boundary loops with a strip of quads.
 
@@ -941,7 +985,10 @@ def bridge_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     asked to lose. Everything else refused here is genuinely ambiguous: a
     selection that is not exactly two runs, two runs of different lengths, a
     fork, a self-crossing run, or one closed loop against one open chain, which
-    have no correspondence at all.
+    have no correspondence at all. One more is refused before any of that is
+    even checked: past :data:`MAX_BRIDGED_RING` vertices a ring, because
+    ``_bridge_offset``'s rotation search over two closed rims is quadratic in
+    the ring length -- see that constant's own comment for the measurements.
 
     **The winding needs no decision and no measurement.** Each loop is ordered
     by the direction its own faces traverse it, and every quad then traverses
@@ -954,6 +1001,21 @@ def bridge_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     corners it grew between, which puts the strip in the same region of the
     texture as the surfaces it joins.
     """
+    # The 2026-09-09 audit's clay-01: refuse before _boundary_owner,
+    # _directed_runs or _bridge_offset do any work at all. Bridge only ever
+    # succeeds on exactly two equal-length rings, so the whole selection is
+    # twice either ring's length in that case -- a bound cheap enough to
+    # check straight off sel.edges, before the walk that would tell us the
+    # exact split.
+    n_selected = len(sel.edges)
+    if n_selected > 2 * MAX_BRIDGED_RING:
+        raise OpError(
+            f"Bridging {n_selected:,} boundary edges means as many as "
+            f"{n_selected // 2:,} vertices a ring, past the "
+            f"{MAX_BRIDGED_RING:,} Bridge can pair up without stalling. "
+            "Bridge a smaller pair of loops."
+        )
+
     a, _ids, corners = _boundary_owner(mesh, sel, "bridge")
     nxt = a.next_corner[corners].astype("i8")
     v_a, v_b = mesh.loops[corners].astype("i8"), mesh.loops[nxt].astype("i8")

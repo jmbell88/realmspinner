@@ -392,6 +392,47 @@ def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
     return [i for i in range(len(nodes)) if i not in parented]
 
 
+def _check_int_index(value: Any, what: str) -> None:
+    """Refuse a non-integer index before it reaches ``<=`` or list indexing.
+
+    The 2026-09-09 audit, finding clay-04: every index-shaped field this
+    loader reads out of a GLB's JSON was bounds-checked with ``0 <= x < n``
+    (create-01, clay-06, clay-09, create2-01 all hardened the out-of-range
+    case at these same boundaries) but never checked to *be* an integer, so a
+    string, float or list value reached Python's own ``<=``/list-indexing
+    operators and raised a bare, un-messaged ``TypeError`` instead of the
+    named ``ValueError`` every one of these boundaries otherwise raises.
+    ``bool`` is an ``int`` subclass but is never a legitimate index, so it is
+    refused here too; a float that happens to be integral (``2.0``) is still
+    not a valid glTF index.
+    """
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{what} must be a whole number, got {value!r}")
+
+
+def _trs(
+    node: dict, name: str, key: str, n: int, default: tuple[float, ...] | None = None
+) -> np.ndarray:
+    """One fixed-length TRS field off a node's JSON, or a refusal by name.
+
+    The 2026-09-09 audit, finding clay-05: ``node()`` read ``translation``,
+    ``rotation``, ``scale`` and ``matrix`` straight off the JSON with no shape
+    check at all, unlike every other malformed field in this loader. A
+    three-element "rotation" (a quaternion with its ``w`` silently dropped)
+    used to reach ``Model.update_world()`` -- called from inside
+    ``Model.__init__``, itself inside ``load()`` -- and fail deep in
+    ``math3d.compose``/``quat_to_mat4`` with a bare unpacking error rather
+    than a refusal naming the node and the field. Mirrors
+    ``clay.serialize._vector``, which guards the same shape of field for the
+    on-disk ``.wblk`` format.
+    """
+    raw = node[key] if default is None else node.get(key, default)
+    value = np.asarray(raw, dtype="f8")
+    if value.shape != (n,):
+        raise ValueError(f"node {name!r} has a {key} of {value.size} numbers, not {n}")
+    return value
+
+
 class _Reader:
     def __init__(self, gltf: dict, buffer: bytes) -> None:
         self.gltf = gltf
@@ -440,6 +481,11 @@ class _Reader:
             )
 
     def accessor(self, index: int) -> np.ndarray:
+        # clay-04 (2026-09-09): checked before the dict lookup below, which
+        # raises a bare ``TypeError`` for a non-hashable value (a list) and
+        # otherwise leaves a string or float cached and indexed straight into
+        # ``self.gltf["accessors"]`` a few lines down.
+        _check_int_index(index, "an accessor reference")
         cached = self._accessors.get(index)
         if cached is not None:
             # Already charged and decoded once; a second primitive naming the
@@ -531,6 +577,11 @@ class _Reader:
         skin-weight path below already did this by hand for the one case that
         turned up in practice; this is the same rule for every attribute.
         """
+        # clay-04 (2026-09-09): this indexes ``accessors`` directly, ahead of
+        # ``accessor()``'s own check below, for a primitive's POSITION/NORMAL/
+        # TEXCOORD_0/JOINTS_0/WEIGHTS_0 -- reproduced with a string
+        # ``attributes.POSITION`` raising a bare ``TypeError`` here.
+        _check_int_index(index, "an accessor reference")
         acc = self.gltf["accessors"][index]
         raw = self.accessor(index)
         if not acc.get("normalized") or raw.dtype.kind not in "iu":
@@ -695,8 +746,21 @@ class _Reader:
         # falling back to the default -- no error, no log, no toast. The
         # sibling reader, ``clay.document._material_at``, already got this
         # right with an explicit ``0 <= index`` check; this is the same rule.
-        if "material" in prim and 0 <= prim["material"] < len(materials):
-            out.material = materials[prim["material"]]
+        # clay-04 (2026-09-09): a non-integer "material" (a string, say) hit
+        # the same ``<=`` operator clay-06 already covers for the negative
+        # case, as a bare ``TypeError`` rather than the silent fallback an
+        # out-of-range value gets. Extended, not raised: this boundary's own
+        # rule (clay-06, just above) is that a bad material index is a
+        # cosmetic loss -- the default material -- never a refused load, and
+        # a wrong-*type* index is no different a defect than a wrong-range
+        # one for that purpose.
+        material_index = prim.get("material")
+        if (
+            isinstance(material_index, int)
+            and not isinstance(material_index, bool)
+            and 0 <= material_index < len(materials)
+        ):
+            out.material = materials[material_index]
         return out
 
     def material(self, mat: dict) -> Material:
@@ -790,6 +854,10 @@ class _Reader:
         # touched, in the same message shape ``node()``/``skin()`` use.
         textures = self.gltf.get("textures", [])
         index = ref["index"]
+        # The 2026-09-09 audit, finding clay-04: checked for range just below
+        # since clay-09, but never for type -- a string/float/list "index"
+        # reached the ``<=`` comparison as a bare TypeError.
+        _check_int_index(index, "a material's texture reference")
         if not 0 <= index < len(textures):
             raise ValueError(
                 f"a material references texture {index}, but this GLB "
@@ -806,6 +874,11 @@ class _Reader:
         if "source" not in tex:
             raise ValueError(f"texture {index} has no source image")
         source = tex["source"]
+        # The 2026-09-09 audit, finding clay-04: same gap as the texture
+        # index just above -- range-checked (clay-09) but not type-checked,
+        # and a non-hashable value (a list) would also fail the ``self.
+        # _images`` cache lookup a few lines down before ever reaching it.
+        _check_int_index(source, f"texture {index}'s source image reference")
         images = self.gltf.get("images", [])
         if not 0 <= source < len(images):
             raise ValueError(
@@ -871,6 +944,10 @@ class _Reader:
         # ``node()`` already draws.
         n_nodes = len(self.gltf.get("nodes", []))
         for joint in joints:
+            # The 2026-09-09 audit, finding clay-04: range-checked just below
+            # since create2-01, but never type-checked, so a non-integer
+            # joint entry hit the ``<=`` comparison as a bare TypeError.
+            _check_int_index(joint, "a skin's joint (node) index")
             if not 0 <= joint < n_nodes:
                 raise ValueError(
                     f"a skin references joint (node) index {joint}, but this "
@@ -910,20 +987,27 @@ class _Reader:
         # inside ``load()``, means no GPU resource is ever created for a file
         # that will not finish loading -- the same ceiling ``prim["material"]``
         # already gets a few lines below.
+        name = node.get("name", "") or "<unnamed>"
         mesh = node.get("mesh")
         if mesh is not None:
+            # The 2026-09-09 audit, finding clay-04: range-checked just below
+            # since create-01, but never type-checked, so a non-integer
+            # "mesh" (a string, say) hit the ``<=`` comparison as a bare
+            # TypeError instead of this same refusal.
+            _check_int_index(mesh, f"node {name!r}'s mesh reference")
             n_meshes = len(self.gltf.get("meshes", []))
             if not 0 <= mesh < n_meshes:
                 raise ValueError(
-                    f"node {node.get('name', '') or '<unnamed>'!r} references mesh "
+                    f"node {name!r} references mesh "
                     f"{mesh}, but this GLB declares {n_meshes} mesh(es)"
                 )
         skin = node.get("skin")
         if skin is not None:
+            _check_int_index(skin, f"node {name!r}'s skin reference")
             n_skins = len(self.gltf.get("skins", []))
             if not 0 <= skin < n_skins:
                 raise ValueError(
-                    f"node {node.get('name', '') or '<unnamed>'!r} references skin "
+                    f"node {name!r} references skin "
                     f"{skin}, but this GLB declares {n_skins} skin(s)"
                 )
         out = Node(
@@ -932,12 +1016,16 @@ class _Reader:
             mesh=mesh,
             skin=skin,
         )
+        # The 2026-09-09 audit, finding clay-05: none of these four fields
+        # was shape-checked at all -- see ``_trs`` above for what that let
+        # through.
         if "matrix" in node:
             # A node gives either a matrix or TRS, never both.
-            mat = np.array(node["matrix"], dtype="f8").reshape(4, 4).T
+            matrix = _trs(node, name, "matrix", 16)
+            mat = matrix.reshape(4, 4).T
             out.translation, out.rotation, out.scale = m3.decompose(mat)
         else:
-            out.translation = np.array(node.get("translation", (0.0, 0.0, 0.0)), dtype="f8")
-            out.rotation = np.array(node.get("rotation", (0.0, 0.0, 0.0, 1.0)), dtype="f8")
-            out.scale = np.array(node.get("scale", (1.0, 1.0, 1.0)), dtype="f8")
+            out.translation = _trs(node, name, "translation", 3, (0.0, 0.0, 0.0))
+            out.rotation = _trs(node, name, "rotation", 4, (0.0, 0.0, 0.0, 1.0))
+            out.scale = _trs(node, name, "scale", 3, (1.0, 1.0, 1.0))
         return out

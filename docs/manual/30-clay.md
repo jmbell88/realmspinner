@@ -31,9 +31,17 @@ A document with nothing in it says so in the viewport itself — "Add a shape", 
 Tools" underneath and a button that drops a box at the origin — rather than leaving you to notice an
 empty grid and go looking for the **add** row on your own.
 
-The **add** row has one button per shape, in two groups. **Primitives**: box, plane, grid, cylinder,
+The **add** row is one icon grid, in two groups. **Primitives**: box, plane, grid, cylinder,
 cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch and column. Clicking one
-places it at the origin and selects it. Hovering a button names it.
+places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
+another button, primitive or figure, is pressed next. Hovering a button names it. Nothing is lit
+and no preview block shows below the grid until you have pressed one -- a fresh document does not
+arrive with a shape already picked.
+
+Under the grid, a short block names whichever tool is lit and lists the numbers a fresh press of it
+starts from — a cylinder's `radius`, `height` and `segments`, say. It is a preview of what the next
+click places, not a second place to edit them: a shape's own numbers are edited on the object itself,
+in Properties, once it exists.
 
 Shapes arrive with their shading already set, by the same rule the **Shade Auto...** button uses: a
 sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch and a
@@ -65,7 +73,10 @@ each end.
 Below the shape grid is a **figures** list: whole assemblies, one button each, named rather than
 drawn as icons because a humanoid and a blob look the same at sixteen pixels. Clicking one places
 every part of the figure at once — a humanoid arrives as a head, a torso, arms and legs, each an
-ordinary object you can move, scale or delete on its own.
+ordinary object you can move, scale or delete on its own. It also marks the figure the tool in
+hand, exactly as a primitive button does, so the preview under the **add** row names the figure
+you just placed until you press something else — as an arrangement rather than as numbers, since
+a figure has no single radius or height of its own to show.
 
 They are one undo step, not one per part. `Ctrl+Z` after placing a figure removes the whole thing,
 rather than taking sixteen presses through fourteen states in which the figure is half there. The
@@ -261,7 +272,10 @@ both openings and it skins a strip of quads between them, which is what makes tw
 what closes the gap left by deleting a band of faces. Both openings must be *boundaries* — bridging
 two interior rings means deleting the faces between them first, and doing that for you would remove
 geometry you did not ask to lose. It also needs exactly two loops, of the same length, both open or
-both closed; anything else it refuses by name, because there is no pairing to guess at.
+both closed; anything else it refuses by name, because there is no pairing to guess at. Two very
+large rims it refuses as well, past about ten thousand vertices a ring: working out how the rings
+line up means comparing every way of turning one against the other, and at that size the window
+would sit frozen while it did.
 
 The first operation that changes an object's topology **freezes** it. A box that has been extruded is
 no longer describable as "box, size 1", so the properties panel switches from the generator's
@@ -289,7 +303,7 @@ bury everything else in the history.
 
 The gizmos work on elements too. In an element mode they sit at the centre of what is selected
 *inside* the objects rather than at the object's own centre, and dragging one moves those vertices.
-That is one undo step per object per drag, and a drag that ends where it started records nothing at
+That is one undo step per drag, and a drag that ends where it started records nothing at
 all. **Select** (`Q`) shows no gizmo in an element mode, which is what leaves the left button free
 for the marquee.
 

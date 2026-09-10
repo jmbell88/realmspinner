@@ -200,6 +200,22 @@ def test_bridging_an_interior_edge_is_refused() -> None:
         ops.bridge_edges(mesh, el.ElementSel(edges=np.array([[0, 1]], dtype="i4")))
 
 
+def test_bridging_two_large_closed_rings_refuses_or_stays_under_budget() -> None:
+    """The 2026-09-09 audit's clay-01: unlike every sibling walking op in this
+    package, bridge_edges had no size ceiling at all, and _bridge_offset's
+    rotation search over two closed rims is quadratic in the ring length --
+    measured at 345 ms for a 10,000-vertex ring, 784 ms at 16,000, clean
+    quadratic growth, with clay_ops.run_mesh_op calling this synchronously on
+    the frame thread. A ring past MAX_BRIDGED_RING must be refused before that
+    search runs at all, not merely survived within some time budget -- xdist
+    makes a wall-clock assertion meaningless here, so this asserts the
+    refusal by name instead, the same way the clay-08/clay-11 regressions
+    count calls rather than time."""
+    mesh = _caps_only(segments=ops.MAX_BRIDGED_RING + 1)
+    with pytest.raises(el.OpError, match="without stalling"):
+        ops.bridge_edges(mesh, el.ElementSel(edges=_all_boundary_edges(mesh)))
+
+
 def test_a_bridge_quad_inherits_the_material_of_the_loop_it_grew_from() -> None:
     from dataclasses import replace
 

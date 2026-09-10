@@ -103,7 +103,7 @@ def _visibility_row(doc: Any) -> None:
     if imgui.is_item_hovered():
         imgui.set_tooltip("Show only the selected objects")
     imgui.same_line()
-    if widgets.disabled_button(f"{icons.EYE_OFF} Show all##clayshowall", hidden > 0):
+    if widgets.disabled_button(f"{icons.EYE} Show all##clayshowall", hidden > 0):
         doc.show_all()
     if hidden:
         widgets.muted(f"{hidden} hidden")
@@ -176,6 +176,28 @@ def _reorder(
         imgui.end_drag_drop_target()
 
 
+def _remove_object(ctx: Any, doc: Any, obj: Any) -> None:
+    """Remove exactly this one row's object, not the selection.
+
+    The 2026-09-09 audit's clay-03: this pane's trash button and its
+    context-menu "Delete" are the only two Clay callers of
+    ``doc.remove_object`` -- every other deletion goes through
+    ``clay_ops.run(delete)``, which calls ``_forget_manifold`` after the
+    removal so the properties panel's per-object mesh-check cache
+    (``ClayState.manifold``) does not keep the removed object's ``Mesh``
+    (positions/loops/starts arrays) alive under an orphaned uid, per the
+    2026-09-08 audit's clay-08. These two sites called ``remove_object``
+    straight, so they leaked exactly the cache entry clay-08 had already
+    fixed everywhere else. Deliberately *not* routed through the
+    selection-wide delete op instead -- that would change what the button
+    does, which this finding does not ask for.
+    """
+    from .. import clay_ops
+
+    doc.remove_object(obj.uid)
+    clay_ops._forget_manifold(ctx, [obj.uid])
+
+
 def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
     """Rename, duplicate and delete on the row itself.
 
@@ -200,7 +222,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any) -> None:
         doc.isolate([obj.uid])
     widgets.divider()
     if controls.menu_item(f"{icons.TRASH} Delete", "Del", False)[0]:
-        doc.remove_object(obj.uid)
+        _remove_object(ctx, doc, obj)
     imgui.end_popup()
 
 
@@ -260,5 +282,5 @@ def _row(
 
     imgui.same_line()
     if controls.button(f"{icons.TRASH}##del", (sp(28), sp(ROW_HEIGHT))):
-        doc.remove_object(obj.uid)
+        _remove_object(ctx, doc, obj)
     imgui.pop_id()

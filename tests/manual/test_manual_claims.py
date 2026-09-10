@@ -141,3 +141,79 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
         f" runs to {word} minutes' or '...{minutes} minutes', which is what"
         f" wavout.MAX_SAMPLE_FRAMES ({wavout.MAX_SAMPLE_FRAMES}) is"
     )
+
+
+def _element_drag_paragraph(section: str) -> str:
+    """The Transforming section's paragraph about element-mode gizmo drags.
+
+    Scoped to the paragraph beginning "The gizmos work on elements too." --
+    the object-mode drag paragraph two above it in the same section already
+    says "one undo step" with no per-object qualifier, so a search over the
+    whole section would pass whether or not *this* paragraph agreed with it.
+    """
+    marker = "The gizmos work on elements too."
+    start = section.index(marker)
+    return section[start:].strip().split("\n\n", 1)[0]
+
+
+def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element_drags():
+    """The 2026-09-09 audit, finding clay-02.
+
+    ``docs/manual/30-clay.md``'s Transforming section says an element-mode
+    gizmo drag across several objects is "one undo step per object per
+    drag". ``_view_drag.DragOps._commit_element_drag`` folds the whole
+    multi-object gesture into a single history step instead
+    (``history.mark()`` / ``history.collapse_since(mark)``), which is exactly
+    what its own docstring and
+    ``tests/test_clay_history.py::test_a_multiobject_element_drag_is_one_undo_step``
+    both pin (three dragged objects, ``len(doc.history) == depth + 1``). A
+    reader who follows the manual expects one Ctrl+Z per object; one Ctrl+Z
+    already restores all of them.
+
+    Keyed on the claim itself ("per object" inside the element-drag
+    paragraph) rather than an exact quoted sentence, so a reword that keeps
+    the false claim still fails this test and one that drops it still
+    passes.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from warlock.studio._view_drag import DragOps, _ElementDrag
+    from warlock.studio.clay import document as bd
+    from warlock.studio.clay import elements as el
+    from warlock.studio.clay import primitives as bp
+
+    doc = bd.ClayDoc()
+    uids = [
+        doc.add_object(bd.Obj(uid=bd.new_uid(), name=f"Box{i}", mesh=bp.box())).uid
+        for i in range(3)
+    ]
+    doc.select(uids)
+    doc.element_mode = "vertex"
+    drags = {}
+    for uid in uids:
+        obj = doc.by_uid(uid)
+        doc.set_element_sel(uid, el.ElementSel(verts=[0, 1]))
+        drags[uid] = _ElementDrag(
+            before=obj.mesh,
+            verts=np.array([0, 1]),
+            local=obj.mesh.positions[[0, 1]].astype("f8"),
+            matrix=np.eye(4),
+            inverse=np.eye(4),
+            preview=obj.mesh.positions.copy() + 1.0,
+        )
+    view = SimpleNamespace(_element_drags=drags, _cache={})
+    depth = len(doc.history)
+    DragOps._commit_element_drag(view, doc)
+    steps_per_drag = len(doc.history) - depth
+
+    paragraph = _element_drag_paragraph(_section(_chapter("30-clay.md"), "Transforming"))
+    assert "per object" not in paragraph.lower(), (
+        "docs/manual/30-clay.md's Transforming section still claims an "
+        "element-mode gizmo drag across several objects is undone one "
+        f"object at a time, but _commit_element_drag folds it into "
+        f"{steps_per_drag} undo step regardless of how many objects it "
+        "touched -- see tests/test_clay_history.py::"
+        "test_a_multiobject_element_drag_is_one_undo_step"
+    )

@@ -25,6 +25,36 @@ the place they come back from: the settings a sweep ranked can now be applied
 to a real job, offered at the control that holds them, and filtered for in
 the library.
 
+- **Deleting a Clay object from the outliner no longer keeps its mesh, and
+  Bridge Loops no longer freezes on two huge rims.** The outliner row's trash
+  button and the **Delete** on its right-click menu removed the object but kept
+  the measurement the properties panel had taken of it, and that measurement
+  held the whole shape — every vertex and face of it — in memory until the tab
+  closed; every other way of deleting an object had already been fixed for this
+  and those two had been missed. **Bridge Loops** now refuses a pair of loops
+  past about ten thousand vertices a ring rather than locking the window up
+  while it thinks: to join two closed rims it has to work out how they line up,
+  which means comparing every way of turning one against the other, so the cost
+  is the square of the ring's length — most of a second at sixteen thousand, and
+  climbing steeply from there. Importing a damaged GLB also reads better: a file
+  whose indices are the wrong *kind* of value, rather than merely pointing past
+  the end, used to be refused with a raw Python error where every other kind of
+  damage names the file and the field it found the fault in.
+- **An AI agent can now build in Clay for you.** Switch on *Allow AI agents to
+  drive the Studio* in Settings -> Advanced, point Claude Code or any other tool
+  that speaks MCP at `warlock mcp`, and ask it for a barrel: it places the
+  primitives, booleans them, looks at a render of what it made, corrects itself,
+  and hands back a saved model, a GLB and a Library entry — in a Clay tab of its
+  own that it opens on connecting. It cannot touch the documents you already
+  have open, by construction rather than by care: every tool addresses that one
+  tab and refuses anything else. What it does lands on that document's ordinary
+  undo stack, one step per action, so you take over by switching to the tab and
+  pressing Ctrl+Z as often as you like. Nothing listens until you switch it on,
+  nothing is downloaded, no model runs inside Warlock, and the connection is a
+  local named pipe that nothing off your machine can reach — the app still has
+  no server and still speaks to nothing on the internet. The tools an agent is
+  offered are generated from Clay's own tables of shapes and operations, so they
+  cannot drift from what the mode can actually do.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a
@@ -400,6 +430,19 @@ the library.
   fills the New sweep form's axis and exactly enough fresh seeds to close the
   gap while leaving the captured baseline and the prompt untouched — a
   suggestion is "run this contrast again," not "start over."
+- **Selecting a rig, a sheet or a retexture row now offers what its mesh can
+  reach, and Poser has a way in of its own.** Every one of those rows writes
+  its artifacts into the *mesh's* directory rather than its own, so
+  "Take it somewhere" — in the library, the inspector and its overflow menu —
+  used to offer nothing at all for one: no Clay, no Poser, no Troupe, even
+  when the mesh one hop away was finished and rigged. Selecting a follow-up
+  row now offers exactly what its mesh reaches, dimmed the same way the
+  mesh's own row would be, and a press opens the mesh, not the row you
+  clicked. And Poser no longer requires the Library to get there: a
+  **Rigged assets** section at the top of its own sidebar, above the
+  skeleton block, lists every rigged mesh newest first, with the one you
+  have open marked, and a click opens it — the inspector's Pose panel link
+  and the exits list are still there, just no longer the only two doors.
 
 
 ## 0.0.40 — 2026-09-07

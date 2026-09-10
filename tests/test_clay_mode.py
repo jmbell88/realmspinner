@@ -1090,6 +1090,38 @@ def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
     assert absorbed.uid not in state.manifold
 
 
+def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() -> None:
+    """clay-03 (2026-09-09 audit): the outliner's per-row trash button and its
+    right-click "Delete" menu item both called ``doc.remove_object`` directly
+    instead of going through ``clay_ops.run(delete)``, so neither reached
+    ``clay_ops._forget_manifold`` -- the clay-08 fix that drops a removed
+    object's ``ClayState.manifold`` cache entry. That left the outliner as the
+    one very ordinary way to delete an object that still leaked its measured
+    ``Mesh`` for the rest of the tab's life.
+
+    ``_remove_object`` is the helper both the trash button and the context
+    menu's Delete item now call; this exercises it the way each of them does,
+    with one object rather than the whole selection.
+    """
+    from warlock.studio import clay_mode
+    from warlock.studio.clay import diagnose
+    from warlock.studio.panes import clay_outliner
+
+    doc = bd.ClayDoc()
+    keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
+    doomed = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_stray_vertex_box()))
+    ctx = FakeCtx()
+    state = clay_mode.ensure(ctx)
+    state.manifold[keep.uid] = (keep.mesh, diagnose.findings(keep.mesh))
+    state.manifold[doomed.uid] = (doomed.mesh, diagnose.findings(doomed.mesh))
+
+    clay_outliner._remove_object(ctx, doc, doomed)
+
+    assert doomed not in doc.objects
+    assert doomed.uid not in state.manifold, "the removed object's cache entry must go with it"
+    assert keep.uid in state.manifold, "an object still open in the tab is untouched"
+
+
 # --- axis views and the orthographic toggle (Clay17) -------------------------
 #
 # Bound inside Clay's own handle_key, never in App._shortcut: a global binding

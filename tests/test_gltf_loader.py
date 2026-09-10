@@ -1222,3 +1222,56 @@ def test_an_out_of_range_buffer_view_on_an_image_is_refused_with_a_value_error_n
     )
     with pytest.raises(ValueError, match="bufferView 9"):
         gltf.load(data)
+
+
+# --- index-shaped fields checked for type, not just range -------------------
+
+
+def test_a_non_integer_mesh_index_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-09 audit, finding clay-04. ``node()`` bounds-checks
+    ``node.mesh`` with ``0 <= mesh < n_meshes`` (create-01, 2026-09-05), but
+    never checked that ``mesh`` was actually an integer first, so a string
+    index reached that comparison as a bare
+    ``TypeError: '<=' not supported between instances of 'int' and 'str'``
+    instead of the named refusal every sibling boundary in this file gives.
+    """
+    with pytest.raises(ValueError, match="mesh reference must be a whole number") as exc_info:
+        gltf.load(_graph([{"name": "bad", "mesh": "0"}], [0]))
+    assert "'bad'" in str(exc_info.value)
+
+
+def test_a_non_integer_accessor_index_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-09 audit, finding clay-04's other operator: an
+    ``attributes.POSITION`` naming a string instead of an accessor index used
+    to index straight into ``self.gltf["accessors"]`` and raise
+    ``TypeError: list indices must be integers or slices, not str`` rather
+    than the named refusal every sibling boundary in this file gives.
+    """
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    doc = {
+        "asset": {"version": "2.0"},
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        "buffers": [{"byteLength": len(binary)}],
+        # POSITION names a non-integer accessor index.
+        "meshes": [{"primitives": [{"attributes": {"POSITION": "0"}}]}],
+        "nodes": [{"mesh": 0}],
+        "scenes": [{"nodes": [0]}],
+    }
+    with pytest.raises(ValueError, match="accessor reference must be a whole number"):
+        gltf.load(_glb(doc, binary))
+
+
+def test_a_node_with_a_three_element_rotation_is_refused_by_name_not_by_unpack_error():
+    """The 2026-09-09 audit, finding clay-05. ``node()`` read ``translation``/
+    ``rotation``/``scale``/``matrix`` straight off the JSON with no shape
+    check at all, so a three-element ``rotation`` (a quaternion with its w
+    dropped) reached ``Model.update_world()`` -- called from inside
+    ``Model.__init__``, itself inside ``load()`` -- and failed deep in
+    ``math3d.compose``/``quat_to_mat4`` with a bare
+    ``ValueError: not enough values to unpack (expected 4, got 3)`` instead
+    of a refusal naming the node and the field.
+    """
+    with pytest.raises(ValueError, match="rotation of 3 numbers, not 4") as exc_info:
+        gltf.load(_graph([{"name": "bad", "rotation": [0.0, 0.0, 0.0]}], [0]))
+    assert "'bad'" in str(exc_info.value)
