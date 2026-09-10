@@ -270,12 +270,24 @@ So adding a *shape* or an *operation* is not an edit to the agent surface. Only 
 verb — something Clay's own registry has no entry for — is, and it goes in beside the others as a
 function that takes the context, the session and the arguments, and returns content.
 
-Two rules bind anything you add. It runs on the frame thread, drained under a time budget, because
+Three rules bind anything you add. It runs on the frame thread, drained under a time budget, because
 that is the only thread that may touch a document or the graphics context — the listener never
 touches either, and an operation that takes a long time will drop frames rather than corrupt
-anything. And it must not raise: a refusal is a result an agent can read, and where Warlock knows
+anything. It must not raise: a refusal is a result an agent can read, and where Warlock knows
 which argument was wrong it says so by name, which is a thing the old HTTP interface had nowhere to
-put.
+put. And it validates before it mutates — every argument it means to act on, checked and refused by
+name before the first line that changes the document, not partway through. A tool's own JSON schema
+describing an argument as a number, or an array of numbers, is not enforcement: `mcp/protocol.py`
+checks only that `arguments` as a whole is a dict before handing it to the handler, so whatever an
+agent actually sent — a two-element array where three were meant, a NaN, an infinity — arrives
+exactly as typed. `clay_transform` went a release without this third rule and paid for it: an
+unchecked `translation` committed a two-element vector to the document, reported success, and only
+broke three calls later when `clay_scene` tried to read it back — by then there was nothing to point
+at, and the whole document's introspection was bricked until someone thought to undo blind. Reach
+for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 number and
+`_validate_number_or_vec` for the `number | array-of-numbers` shape `clay_set_params` uses — all
+three live beside `agent_clay.py`'s other validators, in the same "validate everything before the
+first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
 
 A new tool is also two decisions, both of which the test suite makes you take. Name it in
 `BATCH_EXCLUDED` if it belongs there — the only two reasons anything is on that list are that its

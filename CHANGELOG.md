@@ -429,6 +429,24 @@ engine stopped being something you download whether or not you ever use it.
   skeleton block, lists every rigged mesh newest first, with the one you
   have open marked, and a click opens it — the inspector's Pose panel link
   and the exits list are still there, just no longer the only two doors.
+- **A malformed move from an agent no longer bricks the document it moved.**
+  `clay_transform` accepted a translation, rotation or scale of any shape —
+  two numbers where three were wanted, a `NaN`, an infinity — reported
+  success, and committed it; the document only failed three calls later,
+  when reading the scene back tried to place the bad value into a 3×3
+  matrix and raised, which turned into a refusal for *every* object, not
+  just the one that had moved. The only way out was undoing blind, since
+  the call that caused it had said it worked. Every number an agent hands
+  Clay through `clay_transform`, `clay_set_params` or `clay_material` is
+  now checked and refused by name before anything changes, and the document
+  itself refuses a malformed transform as a second line of defence.
+- **Closing an agent's document no longer strands the agent.** Every tool
+  refused once the document it was working in had been closed, which is
+  correct, and the refusal told it to start a new one — but the tool it named
+  refused in exactly the same way, so there was no way out short of
+  disconnecting and reconnecting. Starting a new document now works, and it
+  is a genuinely new one: an agent whose document has gone is never handed a
+  document you already had open.
 
 ## 0.0.41 — 2026-09-07
 

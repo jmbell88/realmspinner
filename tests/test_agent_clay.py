@@ -49,6 +49,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -497,6 +498,109 @@ def test_an_unknown_param_key_is_refused_with_field_params() -> None:
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "params"
+
+
+def test_clay_transform_refuses_a_two_element_translation_and_the_document_still_describes_itself() -> None:  # noqa: E501
+    """The headline regression. An unvalidated ``clay_transform`` used to cast
+    each element of ``translation`` with no length check at all, commit the
+    two-element result straight onto the object via ``set_transform``, and
+    only fall over three calls later: ``clay_scene`` -> ``_scene_row`` ->
+    ``clay_geom_ops.world_box`` -> ``viewer/math3d.py``'s ``compose`` does
+    ``m[:3, 3] = t``, which raises trying to broadcast a length-2 array into
+    a length-3 slot -- and ``agent_clay.call``'s blanket ``except ValueError``
+    turns that into a refusal for *every* object in the document, not just
+    the one that was moved. The only recovery was a blind ``clay_undo`` an
+    agent had no reason to reach for, since the call that broke it had
+    reported success. Refusing the malformed vector at the handler is what
+    keeps the document able to describe itself afterwards.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(
+        ctx, session, "clay_transform", {"uid": uid, "translation": [1.0, 2.0]}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "translation"
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    assert scene["isError"] is False, scene
+
+
+def test_clay_transform_refuses_a_non_finite_rotation_rather_than_poisoning_the_quaternion() -> None:  # noqa: E501
+    """``rotation`` was only *accidentally* safe against a wrong-length list --
+    ``_quat_from_euler_xyz``'s ``rx, ry, rz = (...)`` unpack raises on that --
+    but nothing caught a non-finite element: ``math.radians(float("nan"))``
+    passes straight through and the resulting quaternion is nan in every
+    component, committed to the object exactly like a good one.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_transform", {"uid": uid, "rotation": [0.0, 90.0, 0.0]})
+
+    result = agent_clay.call(
+        ctx, session, "clay_transform", {"uid": uid, "rotation": [float("nan"), 0.0, 0.0]}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "rotation"
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    row = _payload(scene)["objects"][0]
+    assert row["rotation"] == pytest.approx([0.0, 90.0, 0.0], abs=1e-3)
+
+
+def test_clay_set_params_refuses_a_non_finite_value_rather_than_baking_it_into_positions() -> None:
+    """A NaN in a generator's own params used to sail past ``bp.clamp_params``
+    (which only clamps the keys it knows a floor or a relational limit for)
+    straight into the generator function and out the other side as vertex
+    positions nothing downstream checks -- the same unvalidated-number hole
+    ``clay_transform`` had, one call over.
+    """
+    import numpy as np
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uid": uid, "params": {"size": [1.0, float("inf"), 1.0]}},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "params"
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = tab.doc.by_uid(uid)
+    assert np.isfinite(obj.mesh.positions).all()
+
+
+def test_clay_material_refuses_a_non_finite_metallic() -> None:
+    """``float("nan")`` passed the old ``isinstance(c, int | float)`` colour
+    check just as readily as a real number -- NaN *is* a float -- and the
+    bare ``float(args.get("metallic", 0.0))`` had no check at all, so a NaN
+    metallic landed straight in the palette.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    scene_before = agent_clay.call(ctx, session, "clay_scene", {})
+    palette_before = len(_payload(scene_before)["materials"])
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_material",
+        {"uids": [uid], "color": [1.0, 0.0, 0.0], "metallic": float("nan")},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "metallic"
+
+    scene_after = agent_clay.call(ctx, session, "clay_scene", {})
+    assert len(_payload(scene_after)["materials"]) == palette_before
 
 
 # --- call() never raises -------------------------------------------------------

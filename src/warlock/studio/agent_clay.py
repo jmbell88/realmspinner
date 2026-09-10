@@ -449,6 +449,79 @@ def _validate_vec3(value: Any, field: str) -> tuple[list[float] | None, dict | N
     return out, None
 
 
+def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]:
+    """One finite number, unbounded -- the plain scalar case
+    :func:`_validate_unit` (0..1) and :func:`_validate_number_or_vec` (number
+    *or* array) both specialise. Added for ``clay_select_by``'s ``max_angle``,
+    which is neither: a query argument this module owns the schema for (see
+    ``_QUERY_ARG_SCHEMAS``), not a colour component or a params value.
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None, fail(f"{field} must be a number.", field=field)
+    if not math.isfinite(out):
+        return None, fail(f"{field} must be finite.", field=field)
+    return out, None
+
+
+def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
+    """One finite number in 0..1, or a refusal naming *field*.
+
+    Added beside :func:`_validate_vec3` for the same reason: ``clay_material``
+    used to check a colour component with a bare ``isinstance(c, int | float)``,
+    which ``float("nan")`` passes as readily as a real number is a float, and
+    checked ``metallic``/``roughness`` with nothing at all
+    (``float(args.get("metallic", 0.0))``) -- so a NaN in any of the three
+    landed straight in the palette and rode along into every export from
+    then on.
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None, fail(f"{field} must be a number, 0..1.", field=field)
+    if not math.isfinite(out) or not (0.0 <= out <= 1.0):
+        return None, fail(f"{field} must be a number, 0..1.", field=field)
+    return out, None
+
+
+def _validate_number_or_vec(
+    value: Any, field: str
+) -> tuple[float | list[float] | None, dict | None]:
+    """A number, or an array of numbers, every one of them finite -- the
+    ``number | array-of-numbers`` shape ``clay_set_params``'s own schema
+    already declares for a param value (a cylinder's ``radius`` is one
+    number, a box's ``size`` is three) -- or a refusal naming *field*.
+
+    A schema declaring a shape does not enforce it on the wire:
+    ``mcp/protocol.py``'s ``tools/call`` handling checks only that
+    ``arguments`` as a whole is a dict before handing it to the handler, so a
+    NaN or an infinity reaches here exactly as an agent typed it. Added
+    alongside :func:`_validate_unit` when an unvalidated ``clay_transform``
+    committed a two-element translation that bricked ``clay_scene`` for the
+    whole document (see ``document.set_transform``'s own backstop) --
+    ``clay_set_params`` had the identical hole: a non-finite value in
+    ``size`` sailed past ``bp.clamp_params`` (which only clamps the keys it
+    knows a floor for) and baked straight into the generator's vertex
+    positions.
+    """
+    if isinstance(value, list):
+        try:
+            out = [float(v) for v in value]
+        except (TypeError, ValueError):
+            return None, fail(f"{field} must be a number or an array of numbers.", field=field)
+        if not out or not all(math.isfinite(v) for v in out):
+            return None, fail(f"{field} must be finite numbers.", field=field)
+        return out, None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None, fail(f"{field} must be a number or an array of numbers.", field=field)
+    if not math.isfinite(out):
+        return None, fail(f"{field} must be finite.", field=field)
+    return out, None
+
+
 def _repaint(doc: Any, uids: Iterable[int], index: int) -> None:
     """Rewrite every face of each object in *uids* to material *index*.
 
@@ -1396,11 +1469,33 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
     scale = args.get("scale")
     if translation is None and rotation_deg is None and scale is None:
         return fail("give at least one of translation, rotation or scale.")
+    # Every vector given validated before the single mutation below -- the
+    # incident this closes: an unvalidated two-element ``translation`` once
+    # reached ``set_transform`` and committed, and every later ``clay_scene``
+    # raised trying to broadcast it into a 3x3 matrix, bricking introspection
+    # for the whole document with no recovery but a blind undo. ``rotation``
+    # only looked safe by accident -- ``_quat_from_euler_xyz``'s unpack
+    # raises on the wrong length -- but let a NaN straight through
+    # ``math.radians`` and out the other side as a poisoned quaternion; this
+    # is the same "validate everything before the first mutation" rule
+    # ``_h_add_primitive`` and ``_h_add_figure`` already follow.
+    if translation is not None:
+        translation, failure = _validate_vec3(translation, "translation")
+        if failure:
+            return failure
+    if rotation_deg is not None:
+        rotation_deg, failure = _validate_vec3(rotation_deg, "rotation")
+        if failure:
+            return failure
+    if scale is not None:
+        scale, failure = _validate_vec3(scale, "scale")
+        if failure:
+            return failure
     changed = doc.set_transform(
         obj.uid,
-        translation=None if translation is None else [float(v) for v in translation],
+        translation=translation,
         rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
-        scale=None if scale is None else [float(v) for v in scale],
+        scale=scale,
     )
     return _json({"uid": obj.uid, "changed": changed})
 
@@ -1431,6 +1526,17 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
             f"{sorted(defaults)}.",
             field="params",
         )
+    # Every value validated before the merge below touches anything --
+    # ``bp.clamp_params`` only clamps the handful of keys it knows a floor or
+    # a relational limit for, so a NaN or an infinity in a key it does not
+    # (or does, past the clamp -- inf clamped against a finite ceiling is
+    # still inf) used to sail straight through into the generator function
+    # and out the other side as vertex positions, with nothing downstream
+    # ever checking a mesh is made of finite numbers.
+    for value in params.values():
+        _, failure = _validate_number_or_vec(value, "params")
+        if failure:
+            return failure
     # Captured before anything below mutates ``obj.params`` -- the merge two
     # lines down edits it in place via a fresh dict, but ``set_generator_params``
     # itself reassigns ``obj.params`` to the very dict it is handed, so reading
@@ -1459,20 +1565,34 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
     if not uids:
         return fail("give at least one uid.", field="uids")
     color = args.get("color")
-    if (
-        not isinstance(color, list)
-        or len(color) not in (3, 4)
-        or not all(isinstance(c, int | float) for c in color)
-    ):
+    if not isinstance(color, list) or len(color) not in (3, 4):
         return fail("color must be an array of 3 or 4 numbers, 0..1.", field="color")
-    rgba = tuple(float(c) for c in color)
+    # Per component through ``_validate_unit`` rather than the old bare
+    # ``isinstance(c, int | float)`` -- that check let ``float("nan")``
+    # through (NaN *is* a float) straight into the palette, and
+    # ``metallic``/``roughness`` had no check at all beyond the bare
+    # ``float()`` conversion below. The same unvalidated-number hole
+    # ``clay_transform`` had for its translation, one tool over.
+    rgba = []
+    for c in color:
+        value, failure = _validate_unit(c, "color")
+        if failure:
+            return failure
+        rgba.append(value)
+    rgba = tuple(rgba)
     if len(rgba) == 3:
         rgba = (*rgba, 1.0)
+    metallic, failure = _validate_unit(args.get("metallic", 0.0), "metallic")
+    if failure:
+        return failure
+    roughness, failure = _validate_unit(args.get("roughness", 0.6), "roughness")
+    if failure:
+        return failure
     material = gltf.Material(
         name=str(args.get("name") or ""),
         base_color_factor=rgba,
-        metallic_factor=float(args.get("metallic", 0.0)),
-        roughness_factor=float(args.get("roughness", 0.6)),
+        metallic_factor=metallic,
+        roughness_factor=roughness,
     )
 
     # One material for the whole call -- never one per object -- folded into

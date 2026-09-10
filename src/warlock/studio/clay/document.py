@@ -532,8 +532,32 @@ class ClayDoc:
         a value to the one already there pushes no step at all, because dirty
         is a comparison against the head and a no-op step makes a saved
         document ask to be saved again.
+
+        A per-field shape and finiteness assertion is the backstop here, not
+        the message a caller sees -- ``agent_clay``'s ``_h_transform``
+        validates its own arguments before ever reaching this method, but an
+        unvalidated ``clay_transform`` once committed a two-element
+        ``translation`` straight through this method with nothing to notice
+        the wrong shape, and every later ``clay_scene`` raised trying to
+        broadcast it into a 3x3 matrix (``viewer/math3d.py``'s ``compose``
+        does ``m[:3, 3] = t``) -- bricking introspection for the whole
+        document, with no recovery but a blind undo. This method has other
+        callers than ``_h_transform`` -- the properties panel, the gizmo
+        drag, ``clay_ops._bake`` -- so the assertion belongs here too,
+        closing the door for every caller, present and future, rather than
+        trusting each one to have validated first.
         """
         obj = self.by_uid(uid)
+        for name, new, length in (
+            ("translation", translation, 3),
+            ("rotation", rotation, 4),
+            ("scale", scale, 3),
+        ):
+            if new is None:
+                continue
+            arr = np.asarray(new, dtype="f8")
+            if arr.shape != (length,) or not np.isfinite(arr).all():
+                raise ValueError(f"{name} must be {length} finite numbers.")
         before = tuple(np.array(v, dtype="f8", copy=True) for v in (was or obj.trs()))
         after = tuple(
             obj.trs()[i] if new is None else np.array(new, dtype="f8", copy=True)

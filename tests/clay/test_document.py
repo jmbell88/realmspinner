@@ -131,6 +131,26 @@ def test_a_no_op_transform_pushes_no_step() -> None:
     assert doc.dirty is False
 
 
+def test_set_transform_refuses_a_translation_that_is_not_three_numbers() -> None:
+    """The backstop, not the message an agent sees: ``agent_clay``'s
+    ``_h_transform`` validates a translation before ever calling here, but a
+    two-element one committed anyway before that validator existed, and
+    every later ``clay_scene`` raised trying to broadcast it into a 3x3
+    matrix (``viewer/math3d.py``'s ``compose`` does ``m[:3, 3] = t``). This
+    method has other callers than ``_h_transform`` -- the properties panel,
+    the gizmo drag, ``clay_ops._bake`` -- so the shape assertion belongs here
+    too, closing the door for every caller rather than trusting each one to
+    have validated first.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+
+    with pytest.raises(ValueError):
+        doc.set_transform(a.uid, translation=(1.0, 2.0))
+
+    assert len(a.translation) == 3
+
+
 def test_a_no_op_property_change_pushes_no_step() -> None:
     doc = bd.ClayDoc()
     a = doc.add_object(_obj("A"))
