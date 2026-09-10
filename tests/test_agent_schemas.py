@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-137/31/28/25/20/18/16/14/13/10/3/1 respectively (316 total) -- see
+143/31/28/29/20/18/16/14/13/10/3/1 respectively (326 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -54,12 +54,12 @@ different reason: each of the 25 tools' own root ``"type": "object"`` is
 never a case, because ``agent_clay.call`` only ever reaches a handler with
 ``arguments`` already a dict -- there is nothing there for a schema's own
 root type to promise that is not already true by construction. What
-survives after subtracting those (28 ``properties`` + 25 ``items`` + 3
-schema-valued ``additionalProperties`` + 25 root ``type``) is 235 violable
+survives after subtracting those (28 ``properties`` + 29 ``items`` + 3
+schema-valued ``additionalProperties`` + 25 root ``type``) is 241 violable
 markers; ``required``'s remaining 20 occurrences are *lists*, each naming
 one or more keys -- 27 individual keys between them, one violation apiece
 rather than one per list -- which nets the walk's own exercise total to
-**242** concrete violation attempts (235 - 20 + 27), pinned by
+**248** concrete violation attempts (241 - 20 + 27), pinned by
 ``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
 so a schema edit that silently drops a case from the walk is caught here
 rather than only by a shrinking "exercised" count nobody happens to notice.
@@ -454,14 +454,17 @@ def _walk_tool_schema(tool_name: str, schema: dict) -> list[_Case]:
 
 
 # The three tools whose ``params`` is declared ``additionalProperties`` as a
-# *schema* (``anyOf`` of number/array-of-number, or a bare number), not
-# ``false`` -- an open-ended object whose keys are never named in
-# ``properties``, so :func:`_walk_schema`'s ``properties``-based recursion
+# *schema* (``anyOf`` of number/array-of-number/array-of-arrays, or a bare
+# number), not ``false`` -- an open-ended object whose keys are never named
+# in ``properties``, so :func:`_walk_schema`'s ``properties``-based recursion
 # cannot reach into it on its own. Recursed into here instead, using
 # whichever key the tool's own baseline already carries there -- the one key
 # already known to be valid, so mutating its value in isolation is a real
 # "satisfies everything else" violation rather than inventing a key nothing
-# else in the call would recognise.
+# else in the call would recognise. See :func:`_open_ended_params_cases`'s
+# own comment for why a *nested* case inside one ``anyOf`` branch reshapes
+# that one key's value to a fresh sample of that branch first, rather than
+# reusing the baseline's own value for every branch.
 _OPEN_ENDED_PARAMS_TOOLS = ("clay_add_primitive", "clay_set_params", "clay_op")
 
 
@@ -473,9 +476,48 @@ def _open_ended_params_cases(tool_name: str, schema: dict, baseline_args: Args) 
     if not params_value:
         return []
     key = sorted(params_value)[0]
+    path = ("params", key)
+    value_schema = node["additionalProperties"]
+
+    # ``clay_add_primitive``/``clay_set_params``'s own value schema
+    # (:func:`agent_clay._params_value_schema`) is an ``anyOf`` of three
+    # *honestly different* shapes -- a number, a flat array, an array of
+    # arrays -- and the one real key this walk can reuse (the baseline's
+    # own, ``size``, a flat array of numbers) only ever satisfies one of
+    # them structurally. Reusing that literal value for every branch is
+    # exactly what worked while there were two branches of increasing depth
+    # (a number has no substructure to walk into, and a flat array's single
+    # level of ``items`` always had an index 0 to navigate to) -- it stops
+    # working the moment a branch nests two levels deep and the baseline's
+    # actual value is only one, because there is nothing at ``size[0][0]``
+    # to replace. So each branch's own internal structure is walked against
+    # a value freshly built to satisfy *that* branch (:func:`_sample`), not
+    # against whichever branch the baseline happened to pick for this key --
+    # the branch's own top-level ``type``/``anyOf`` cases still replace the
+    # whole value outright and need no pre-existing shape there at all.
+    if "anyOf" in value_schema:
+        cases = [
+            _Case(
+                tool_name,
+                path,
+                "anyOf",
+                lambda b: _set_at(b, path, _violate_anyof(value_schema)),
+            )
+        ]
+        for alt in value_schema["anyOf"]:
+            for c in _walk_schema(alt, path):
+                cases.append(
+                    _Case(
+                        tool_name,
+                        c.path,
+                        c.keyword,
+                        lambda b, alt=alt, m=c.mutate: m(_set_at(b, path, _sample(alt))),
+                    )
+                )
+        return cases
     return [
         _Case(tool_name, c.path, c.keyword, c.mutate)
-        for c in _walk_schema(node["additionalProperties"], ("params", key))
+        for c in _walk_schema(value_schema, path)
     ]
 
 
@@ -1081,10 +1123,10 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 137,
+        "type": 143,
         "additionalProperties": 31,
         "properties": 28,
-        "items": 25,
+        "items": 29,
         "required": 20,
         "minItems": 18,
         "enum": 16,
@@ -1114,16 +1156,16 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """242 -- see the module docstring's own derivation: 316 measured markers,
-    minus 56 structural ones that only route recursion (28 ``properties`` +
-    25 ``items`` + 3 schema-valued ``additionalProperties``), minus 25 root
+    """248 -- see the module docstring's own derivation: 326 measured markers,
+    minus 60 structural ones that only route recursion (28 ``properties`` +
+    29 ``items`` + 3 schema-valued ``additionalProperties``), minus 25 root
     ``type: object`` markers that are true by construction, minus 20
     ``required`` *lists* replaced by the 27 individual keys they actually
     name. Pinned so a schema edit that silently drops a case from the walk
     is caught here rather than only by a shrinking "exercised" count nobody
     happens to notice.
     """
-    assert len(_ALL_CASES) == 242
+    assert len(_ALL_CASES) == 248
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

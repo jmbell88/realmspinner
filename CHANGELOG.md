@@ -201,6 +201,24 @@ engine stopped being something you download whether or not you ever use it.
   just been handed. Every call now checks its arguments' names against that
   same schema before anything runs, names every one that doesn't belong, and
   suggests what each was probably meant to be.
+- **Clay can turn a shape on a lathe now, not only stack the twelve it had.**
+  A **lathe** takes a `profile` — a list of `[radius, y]` stations, bottom to
+  top — and revolves it into whatever silhouette they trace, which is what a
+  bottle, a vase, a goblet, a handle or a turned finial needs and what no
+  combination of a cylinder and a cone reaches. A station of zero radius at
+  either end comes to a point rather than a flat cap, so a finial or a chess
+  pawn's top is one shape rather than two glued together. A **column** was
+  already a lathe with its profile written in; it is now built by the same
+  code, and its mesh is unchanged to the byte. **There is no profile editor
+  yet**: Properties shows a placed lathe's stations as a read-only line, the
+  way it shows any parameter shape nobody has built a widget for — a lathe is
+  placed and retuned from the agent interface or from a saved document until
+  one exists. Two guards came with it, both for failures the mesh checker
+  cannot see: a profile whose stations run backwards is straightened before it
+  can turn a band of the surface inside out through two perfectly positive
+  numbers, and a profile that is really a line — no radius anywhere — is
+  refused rather than built into a shape with no volume and every face
+  zero-area.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

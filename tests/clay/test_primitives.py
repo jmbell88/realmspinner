@@ -465,6 +465,7 @@ def test_the_registry_names_every_generator_the_module_exports() -> None:
         "pyramid",
         "arch",
         "column",
+        "lathe",
     }
 
 
@@ -670,6 +671,127 @@ def test_a_column_spans_its_height_and_its_widest_ring() -> None:
     wide = 0.5 * bp.COLUMN_FLARE
     assert np.allclose(lo, [-wide, -1.0, -wide], atol=1e-6)
     assert np.allclose(hi, [+wide, +1.0, +wide], atol=1e-6)
+
+
+# --- the lathe -----------------------------------------------------------------
+
+
+def test_a_lathe_with_no_zero_radius_station_is_the_same_shape_as_a_column_shaft() -> None:
+    """The property that says ``column``'s own rewrite in terms of
+    ``_revolve`` is not a coincidence: a profile with no pole at either end
+    revolves exactly the way ``column``'s always did."""
+    profile = [(0.5, -1.0), (0.5, 1.0)]
+    lathed = bp.lathe(profile=profile, segments=16)
+    cyl = bp.cylinder(radius=0.5, height=2.0, segments=16)
+    assert np.allclose(lathed.positions, cyl.positions, atol=1e-6)
+    assert list(np.diff(lathed.starts)) == list(np.diff(cyl.starts))
+
+
+def test_a_lathes_pole_is_a_single_vertex_rather_than_a_ring() -> None:
+    """The whole difference between a lathe and a column: a station of zero
+    radius at an end is a point, not ``segments`` coincident ones."""
+    profile = [(0.0, -0.5), (0.3, 0.0), (0.3, 0.5)]
+    mesh = bp.lathe(profile=profile, segments=16)
+    # One pole vertex, one ring of 16 in the middle, one ring of 16 at the
+    # (non-pole) top -- 1 + 16 + 16, not 16 + 16 + 16.
+    assert len(mesh.positions) == 1 + 16 + 16
+    bm.validate(mesh)
+
+
+def test_a_lathe_poles_at_both_ends_reads_as_a_droplet() -> None:
+    profile = [(0.0, -0.5), (0.3, 0.0), (0.0, 0.5)]
+    mesh = bp.lathe(profile=profile, segments=16)
+    assert len(mesh.positions) == 1 + 16 + 1
+    bm.validate(mesh)
+    assert max(_directed_edge_counts(mesh).values()) == 1
+
+
+def test_a_lathes_default_profile_reads_as_a_goblet_with_a_pointed_foot() -> None:
+    mesh = bp.lathe()
+    lo, hi = bm.bounds(mesh)
+    assert np.allclose(lo + hi, 0.0, atol=1e-6)
+    assert np.all(hi - lo <= 1.0 + 1e-6)
+    # The foot is a pole: one vertex at the bottom, not a ring.
+    at_bottom = mesh.positions[np.isclose(mesh.positions[:, 1], lo[1])]
+    assert len(at_bottom) == 1
+
+
+# --- clamp_params: the profile normaliser --------------------------------------
+
+
+def test_a_profiles_radii_are_taken_as_magnitudes() -> None:
+    clamped = bp.clamp_params("lathe", {"profile": [[-0.2, 0.0], [0.3, 1.0]]})
+    assert [r for r, _ in clamped["profile"]] == [0.2, 0.3]
+
+
+def test_a_profiles_y_is_clamped_non_decreasing() -> None:
+    """A pair of stations that can cross inverts a band's winding through two
+    perfectly positive numbers -- ``docs/INVARIANTS.md``'s generator
+    paragraph names this the same failure a negative extent causes."""
+    clamped = bp.clamp_params("lathe", {"profile": [[0.1, 0.0], [0.2, -1.0], [0.3, 2.0]]})
+    ys = [y for _, y in clamped["profile"]]
+    assert ys == sorted(ys)
+
+
+def test_a_profile_station_that_now_coincides_with_its_predecessor_is_dropped() -> None:
+    """Raising ``y`` to be non-decreasing can manufacture an exact duplicate
+    of the station before it -- a zero-area quad that passes ``validate`` and
+    reaches the exporter."""
+    clamped = bp.clamp_params("lathe", {"profile": [[0.2, 0.0], [0.2, -0.5], [0.4, 1.0]]})
+    assert clamped["profile"] == [[0.2, 0.0], [0.4, 1.0]]
+
+
+def test_a_profiles_middle_radius_is_floored_but_its_ends_may_be_poles() -> None:
+    clamped = bp.clamp_params(
+        "lathe", {"profile": [[0.0, -1.0], [0.0, 0.0], [0.0, 1.0]]}
+    )
+    profile = clamped["profile"]
+    assert profile[0][0] == 0.0
+    assert profile[-1][0] == 0.0
+    assert profile[1][0] == bp.MIN_PROFILE_RADIUS
+
+
+def test_a_profile_with_fewer_than_two_surviving_stations_falls_back_to_the_default() -> None:
+    clamped = bp.clamp_params("lathe", {"profile": [[0.2, 0.0]]})
+    assert clamped["profile"] == [list(s) for s in bp.LATHE_DEFAULT_PROFILE]
+    # Garbage input -- not even a list of pairs -- falls back the same way.
+    clamped = bp.clamp_params("lathe", {"profile": "not a profile"})
+    assert clamped["profile"] == [list(s) for s in bp.LATHE_DEFAULT_PROFILE]
+
+
+def test_a_profile_that_is_a_line_rather_than_a_shape_falls_back_to_the_default() -> None:
+    """Two poles and nothing between them survive every other clamp: there is
+    no *middle* station for the middle-radius floor to reach, ``y`` is
+    already non-decreasing, and the two stations do not coincide -- so
+    without this rule ``_revolve`` would fan them into two rings of
+    coincident points at two positions: every face zero-area, ``validate``
+    passing regardless, bounds collapsed to a line. A profile with no
+    positive radius anywhere is a line segment, not a solid of revolution,
+    whatever its station count, so it falls back the same way a profile with
+    fewer than two surviving stations already does.
+    """
+    clamped = bp.clamp_params("lathe", {"profile": [[0.0, -0.5], [0.0, 0.5]]})
+    assert clamped["profile"] == [list(s) for s in bp.LATHE_DEFAULT_PROFILE]
+
+    mesh = bp.lathe(profile=[[0.0, -0.5], [0.0, 0.5]], segments=8)
+    lo, hi = bm.bounds(mesh)
+    assert not np.allclose(lo, hi)  # not a line collapsed to zero extent
+    assert len(set(map(tuple, np.round(mesh.positions, 6)))) > 2
+
+
+def test_a_clamped_profile_is_stored_as_the_value_that_was_built() -> None:
+    """The same claim ``clamp_params``' torus and column tests make: building
+    from the clamped profile must be the same mesh ``lathe`` already silently
+    builds from the raw one."""
+    raw = {
+        "profile": [[-0.3, 0.0], [0.0, 0.5], [0.2, 0.3], [0.1, 1.0]],
+        "segments": 12,
+    }
+    clamped = bp.clamp_params("lathe", raw)
+    from_raw = bp.lathe(**raw)
+    from_clamped = bp.lathe(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
 
 
 def _blocks_a_ray_along_z(mesh: bm.Mesh, x: float, y: float) -> bool:

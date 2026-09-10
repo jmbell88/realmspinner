@@ -308,8 +308,10 @@ unchecked `translation` committed a two-element vector to the document, reported
 broke three calls later when `clay_scene` tried to read it back — by then there was nothing to point
 at, and the whole document's introspection was bricked until someone thought to undo blind. Reach
 for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 number and
-`_validate_number_or_vec` for the `number | array-of-numbers` shape `clay_set_params` uses — all
-three live beside `agent_clay.py`'s other validators, in the same "validate everything before the
+`_validate_number_or_vec` for the `number | array-of-numbers | array-of-arrays` shape
+`clay_set_params` and `clay_add_primitive`'s `params` use (a lathe's `profile` is the
+array-of-arrays case) — all three live beside `agent_clay.py`'s other validators, in the same
+"validate everything before the
 first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
 `tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of

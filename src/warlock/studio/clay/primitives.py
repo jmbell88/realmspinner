@@ -1,4 +1,4 @@
-"""The twelve shapes a user can place, and the registry the panel is built from.
+"""The thirteen shapes a user can place, and the registry the panel is built from.
 
 Each generator is a plain function of its parameters returning a :class:`Mesh`,
 and :data:`GENERATORS` maps a name to ``(defaults, builder)``. The registry is
@@ -10,7 +10,7 @@ panel that switched on a hardcoded list of shape names would be a second place
 that has to know what a cylinder's parameters are, and the two would drift the
 first time a parameter was renamed.
 
-Four rules hold across all twelve, and each of them is pinned by a test:
+Four rules hold across all thirteen, and each of them is pinned by a test:
 
 **Every primitive is built centred on the origin.** ``Obj`` carries the
 translation, so geometry that baked its placement in would make the numeric TRS
@@ -112,6 +112,19 @@ MIN_DIVISIONS = 1
 # keystroke away from a multi-second stall on a control that is being *typed*.
 MAX_SUBDIVISIONS = 5
 
+# The floor a *middle* profile station's radius is raised to -- see
+# ``_clamp_profile``. Only the two ends of a lathe profile may be poles; a
+# zero radius partway along pinches the surface to a single non-manifold
+# point with no modelling meaning, which is a different failure from a
+# negative extent and needs its own floor rather than an ``abs()``. Its job
+# is to be *positive*, not to be a minimum anybody would model to -- the same
+# reading ``arch``'s own ``d = max(abs(float(depth)), 1e-4) * 0.5`` gives its
+# floor -- so it is small enough that no shape at any working scale can see
+# it: a pinch point is what it exists to prevent, and a thin waist (the
+# default goblet's own stem is radius 0.05) is a legitimate shape this floor
+# must not visibly widen.
+MIN_PROFILE_RADIUS = 1e-4
+
 
 def _clamp_segments(value: Any) -> int:
     """The floor every ring-and-cap generator applies to its own count."""
@@ -133,6 +146,69 @@ def _clamp_subdivisions(value: Any) -> int:
     return min(max(int(value), 0), MAX_SUBDIVISIONS)
 
 
+def _clamp_profile(value: Any) -> list[list[float]]:
+    """``lathe``'s own floor on an array-valued parameter, in one place so
+    ``sweep``'s ``outline`` and ``tube``'s ``path`` can each register their
+    own normaliser beside it in :data:`_PROFILE_CLAMPS` rather than growing a
+    second copy of this function's shape.
+
+    Five steps, in the order ``docs/INVARIANTS.md``'s generator paragraph
+    states the first four of them:
+
+    1. Coerce to ``[radius, y]`` pairs and take ``abs()`` of every radius --
+       the module's "sizes are taken as magnitudes" rule. Anything that will
+       not unpack this way (the wrong shape, a non-numeric value) is treated
+       as no stations at all, which step 5 turns into the default profile.
+    2. Clamp ``y`` **non-decreasing**, each station raised to at least its
+       predecessor's. A pair that can cross inverts a band's winding through
+       two perfectly positive numbers -- the same negative-extent failure a
+       negative height causes, arriving past the ``abs()`` guard in step 1,
+       and ``validate`` accepts every bit of it because only the geometry is
+       wrong.
+    3. Drop a station that now coincides with its predecessor. A zero-area
+       quad passes ``validate`` and reaches the exporter; step 2 is exactly
+       what can manufacture one, by raising a station's ``y`` up to meet a
+       predecessor whose radius already matched.
+    4. Floor a **middle** station's radius to :data:`MIN_PROFILE_RADIUS`,
+       leaving only the first and last stations free to be poles -- a zero
+       radius in the middle pinches the surface to a single non-manifold
+       point with no modelling meaning, which a lathe's two true ends do have
+       (a finial, a droplet, a chess pawn).
+    5. Fall back to :data:`LATHE_DEFAULT_PROFILE` when fewer than two
+       stations survive, *or* when no station has a positive radius at all.
+       The second half is not the ``len == 2`` case it can only actually
+       arise from today (step 4 already guarantees a positive radius at
+       every *middle* station, so this can only fire when a profile has no
+       middle stations to floor) -- it is stated as the general fact rather
+       than that special case, because a profile with no positive radius
+       anywhere is a line segment, not a solid of revolution, whatever its
+       station count: two zero-radius poles and nothing between them is
+       ``[[0, y0], [0, y1]]``, which ``_revolve`` would otherwise fan into
+       two rings of coincident points at two positions -- every face
+       zero-area, ``validate`` passing regardless, the exact failure this
+       paragraph exists to close, arriving through the one arrangement the
+       first four steps cannot see.
+    """
+    try:
+        stations = [[abs(float(r)), float(y)] for r, y in value]
+    except (TypeError, ValueError):
+        stations = []
+    for i in range(1, len(stations)):
+        if stations[i][1] < stations[i - 1][1]:
+            stations[i][1] = stations[i - 1][1]
+    deduped: list[list[float]] = []
+    for station in stations:
+        if deduped and deduped[-1] == station:
+            continue
+        deduped.append(station)
+    for i in range(1, len(deduped) - 1):
+        if deduped[i][0] <= 0.0:
+            deduped[i][0] = MIN_PROFILE_RADIUS
+    if len(deduped) < 2 or all(radius <= 0.0 for radius, _ in deduped):
+        return [list(station) for station in LATHE_DEFAULT_PROFILE]
+    return deduped
+
+
 # Which key names the properties panel must clamp before calling a generator,
 # and how -- see clamp_params. Keyed on parameter name rather than generator,
 # because each of these floors is the same operation wherever the name
@@ -144,6 +220,15 @@ _KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
     "rings": _clamp_rings,
     "divisions": _clamp_divisions,
     "subdivisions": _clamp_subdivisions,
+}
+
+# The array-valued counterpart to :data:`_KEY_CLAMPS`, kept as its own table
+# rather than folded into it because these normalisers return a profile, not
+# an int -- and because ``sweep``'s ``outline`` and ``tube``'s ``path`` are
+# each going to want their own entry here, keyed on name exactly as
+# ``_KEY_CLAMPS`` already is.
+_PROFILE_CLAMPS: dict[str, Callable[[Any], list[list[float]]]] = {
+    "profile": _clamp_profile,
 }
 
 
@@ -170,11 +255,23 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     sibling. Without it, the panel stored the raw base/capital the user typed
     while ``column`` shrank a substituted pair before ever building, so a
     saved document's params disagreed with the shaft it describes.
+
+    And ``lathe``'s ``profile`` -- the first array-valued parameter this
+    registry has: :data:`_PROFILE_CLAMPS` is :data:`_KEY_CLAMPS`'s
+    counterpart for a parameter whose floor is not an int, applied the same
+    way and for the same reason. ``lathe`` itself calls :func:`_clamp_profile`
+    directly too, exactly as ``column`` re-applies its own base/capital
+    shrink internally -- this function mirrors a generator's own floor for a
+    caller that must store what the mesh was actually built from, it does not
+    replace the generator refusing what it cannot represent.
     """
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
         if key in out:
             out[key] = clamp(out[key])
+    for key, normalise in _PROFILE_CLAMPS.items():
+        if key in out:
+            out[key] = normalise(out[key])
     if generator == "torus" and "tube" in out and "radius" in out:
         out["tube"] = min(abs(float(out["tube"])), abs(float(out["radius"])))
     if generator == "column" and "base" in out and "capital" in out and "height" in out:
@@ -231,6 +328,39 @@ def _disc_uv(segments: int, centre: tuple[float, float], radius: float, reverse:
     ]
 
 
+def _fan_uv(
+    segments: int, corner: tuple[float, float], size: float, apex_first: bool
+) -> list[list[tuple[float, float]]]:
+    """A pole's own corner of the square -- the flat analogue of
+    :func:`_disc_uv` for an end with no cap to unwrap.
+
+    ``cone`` and ``pyramid`` already show what a fan's corners get: a
+    different ``u`` per triangle rather than one shared apex coordinate, or a
+    shared apex would smear the whole point of the shape into one texel. This
+    is that same mapping -- base along one edge, apex along the opposite one,
+    ``u`` stepping ``1/segments`` per triangle -- confined to one
+    ``size``-wide square rather than the whole unit square, so it can share
+    the square with the other end's cap the way two ``_disc_uv`` calls
+    already do for ``column``.
+
+    ``apex_first`` matches the corner order the triangle's own face winds in:
+    a bottom pole's face is ``[pole, ring, ring + 1]`` (see ``capsule``'s
+    south pole) and a top pole's is ``[ring, pole, ring + 1]`` (``cone``'s
+    apex, ``capsule``'s north pole) -- the ``uv`` list has to name its
+    corners in the same order as the face's loop or the texture lands on the
+    wrong vertex entirely.
+    """
+    n = segments
+    cx, cy = corner
+    out: list[list[tuple[float, float]]] = []
+    for i in range(n):
+        ring_a = (cx + (i / n) * size, cy)
+        apex = (cx + ((i + 0.5) / n) * size, cy + size)
+        ring_b = (cx + ((i + 1) / n) * size, cy)
+        out.append([apex, ring_a, ring_b] if apex_first else [ring_a, apex, ring_b])
+    return out
+
+
 def _ring(radius: float, y: float, segments: int) -> np.ndarray:
     """``segments`` points on a circle in the XZ plane, at height *y*.
 
@@ -272,6 +402,88 @@ def _side_quads(lower: int, upper: int, segments: int) -> list[list[int]]:
         ]
         for i in range(segments)
     ]
+
+
+def _revolve(
+    profile: Sequence[Sequence[float]], segments: int
+) -> tuple[np.ndarray, list[list[int]]]:
+    """Revolve a bottom-to-top profile of ``(radius, y)`` stations about Y.
+
+    ``column``'s own body, pulled out here so ``lathe`` can share it rather
+    than growing a second copy of the ring-stacking loop: every station
+    becomes a ring of *segments* vertices and consecutive rings are joined by
+    a band of quads (:func:`_side_quads`), with an n-gon cap closing whichever
+    end is not something else -- ``column`` never needed that "something
+    else", because its shaft, base and capital are never zero at an end.
+
+    **A station of zero radius at either end is a pole, not a ring of
+    coincident points.** That is the one case ``column`` never exercised and
+    ``lathe`` needs: a finial, a droplet, a chess pawn and a spinning top all
+    come to a point, and a ring of ``segments`` vertices stacked on top of
+    each other there would be non-manifold where a single vertex is exactly
+    right. Only the first and last stations may do this -- see
+    ``primitives.py``'s profile clamp for why a middle one may not -- so this
+    function looks at exactly those two.
+
+    The two fans are wound the way ``cone``'s apex and ``capsule``'s two
+    poles already are, rather than re-derived: a bottom pole (the lowest
+    station, the one before any ring) puts the pole first in its face --
+    ``[pole, ring, ring + 1]``, ``capsule``'s south pole -- and a top pole
+    puts it second -- ``[ring, pole, ring + 1]``, ``cone``'s apex and
+    ``capsule``'s north pole.
+    """
+    n = int(segments)
+    bottom_pole = float(profile[0][0]) == 0.0
+    top_pole = float(profile[-1][0]) == 0.0
+    # Two stations, both zero radius, would leave no ring for either pole to
+    # fan to. ``_clamp_profile`` now refuses this exact shape -- a profile
+    # with no positive radius anywhere falls back to the default rather than
+    # reaching here -- so this branch is unreachable from the registry's own
+    # door (``lathe`` always clamps before calling this). It stays as the
+    # backstop for a caller that bypasses the clamp and hands this function
+    # the raw shape directly: falling back to plain rings rather than
+    # indexing past the (empty) ring list is the honest response to that,
+    # which the module's rule about generators refusing gracefully asks for.
+    if bottom_pole and top_pole and len(profile) <= 2:
+        bottom_pole = top_pole = False
+    lo = 1 if bottom_pole else 0
+    hi = len(profile) - (1 if top_pole else 0)
+    rings = profile[lo:hi]
+    ring0 = lo
+
+    def row(j: int) -> int:
+        """First vertex index of ring *j*, counting from the bottom pole (or
+        from the first station, if there is none)."""
+        return ring0 + j * n
+
+    parts: list[np.ndarray] = []
+    if bottom_pole:
+        parts.append(np.array([[0.0, profile[0][1], 0.0]], dtype="f8"))
+    parts.extend(_ring(r, y, n) for r, y in rings)
+    if top_pole:
+        parts.append(np.array([[0.0, profile[-1][1], 0.0]], dtype="f8"))
+    positions = np.concatenate(parts)
+
+    pole_bottom = 0
+    pole_top = ring0 + len(rings) * n
+
+    faces: list[list[int]] = []
+    if bottom_pole:
+        faces.extend([pole_bottom, row(0) + i, row(0) + (i + 1) % n] for i in range(n))
+    for j in range(len(rings) - 1):
+        faces.extend(_side_quads(row(j), row(j + 1), n))
+    if top_pole:
+        faces.extend(
+            [row(len(rings) - 1) + i, pole_top, row(len(rings) - 1) + (i + 1) % n]
+            for i in range(n)
+        )
+    if not bottom_pole:
+        faces.append(list(range(row(0), row(0) + n)))  # bottom cap, ring order, normal -Y
+    if not top_pole:
+        last = row(len(rings) - 1)
+        faces.append(list(range(last + n - 1, last - 1, -1)))  # top cap, reversed, normal +Y
+
+    return positions, faces
 
 
 # --- the generators ----------------------------------------------------------
@@ -990,7 +1202,12 @@ def column(
     base: float = 0.15,
     capital: float = 0.15,
 ) -> Mesh:
-    """A lathe: rings at varying radius, with an n-gon cap at each end.
+    """A lathe with a fixed shape: a shaft with a plinth at the bottom and a
+    block at the top, rather than the arbitrary profile :func:`lathe` takes.
+    Built as rings at varying radius, with an n-gon cap at each end, through
+    the shared :func:`_revolve` -- neither end here is ever a pole, since a
+    shaft, a plinth and a capital are never zero at an end, which is the one
+    case ``lathe`` needed and this generator does not.
 
     ``base`` and ``capital`` are **heights** -- how tall the plinth at the
     bottom and the block at the top are -- and how much wider than the shaft
@@ -1030,14 +1247,8 @@ def column(
     else:
         profile.append((r, +half))
 
-    positions = np.concatenate([_ring(rr, y, n) for rr, y in profile])
+    positions, faces = _revolve(profile, n)
     rings = len(profile)
-    faces: list[list[int]] = []
-    for j in range(rings - 1):
-        faces.extend(_side_quads(j * n, (j + 1) * n, n))
-    faces.append(list(range(n)))  # bottom cap, ring order, normal -Y
-    top = (rings - 1) * n
-    faces.append(list(range(top + n - 1, top - 1, -1)))  # top cap, normal +Y
 
     # ``v`` follows arc length along the profile rather than height, for the
     # reason ``capsule``'s does: a plinth is a tenth of the column's height and
@@ -1061,6 +1272,116 @@ def column(
         )
     uv.append(_disc_uv(n, (0.25, 0.25), 0.24))
     uv.append(_disc_uv(n, (0.75, 0.25), 0.24, reverse=True))
+    return _mesh(positions, faces, uv)
+
+
+# A stemmed goblet, bottom to top: a pointed foot, a thin stem, a wide bowl
+# and a flat-capped rim. Seven stations -- enough to read as turned rather
+# than as a cone -- spanning y from -0.5 to +0.5 (symmetric about zero, for
+# the centred-on-the-origin rule) with every radius under 0.32 (a 0.64 m
+# diameter, inside the one-metre box every default here fits), and no two
+# consecutive stations equal: the (0.05, ...) pair is a straight stem run,
+# which is a real lathe feature (a constant-radius section), not a
+# duplicate -- the two differ in ``y``.
+LATHE_DEFAULT_PROFILE: tuple[tuple[float, float], ...] = (
+    (0.00, -0.50),  # the foot's point -- a stemmed goblet's one contact
+    (0.18, -0.42),  # the foot, splayed wide for balance
+    (0.05, -0.28),  # the stem, thin
+    (0.05, 0.05),  # the stem, still thin, up to the underside of the bowl
+    (0.32, 0.22),  # the bowl, at its widest
+    (0.16, 0.40),  # the bowl narrowing toward the rim
+    (0.20, 0.50),  # the rim, capped flat
+)
+
+
+def lathe(
+    profile: Sequence[Sequence[float]] = LATHE_DEFAULT_PROFILE, segments: int = 16
+) -> Mesh:
+    """The general case of :func:`column`: an arbitrary profile of
+    ``[radius, y]`` stations, bottom to top, revolved about Y -- rather than
+    the one fixed plinth/shaft/capital shape ``column``'s two extra numbers
+    can reach. This is the shape a bottle, a vase, a goblet, a handle or a
+    turned finial needs and none of the other twelve can give it: something
+    that narrows, widens and narrows again along one axis, by however many
+    stations the silhouette takes.
+
+    The default profile (:data:`LATHE_DEFAULT_PROFILE`) reads as a stemmed
+    goblet -- a pointed foot, a thin stem, a wide bowl and a flat-capped rim.
+
+    **A station of zero radius at either end is a pole, not a degenerate
+    ring.** :func:`_revolve` fans it to its neighbouring ring the way
+    ``cone``'s apex and ``capsule``'s two poles already do, rather than
+    stacking ``segments`` coincident points there -- which is what lets this
+    generator reach a finial, a chess pawn or a spinning top as well as a
+    bottle. Only the two ends may do this: a middle station whose radius
+    reached zero would pinch the surface to a single non-manifold point with
+    no modelling meaning, which is why :func:`_clamp_profile` floors one
+    there instead.
+
+    **The generator applies its own profile clamp**, the same division of
+    labour ``torus``'s docstring states and ``column`` already practises for
+    its own base/capital shrink: ``clamp_params`` mirrors
+    :func:`_clamp_profile` for a caller that must store what the mesh was
+    actually built from, but a document loaded from an old save or a profile
+    handed in raw by an agent has had no such caller in front of it, so the
+    generator refuses to trust one.
+
+    UV follows ``column``'s own layout -- ``v`` by arc length along the whole
+    profile rather than by height, so a thin stem does not eat the same share
+    of the texture as the wide bowl beside it, kept to the top half of the
+    square so the bottom half is free for whatever each end needs. A
+    non-pole end packs an n-gon cap into its own corner with :func:`_disc_uv`,
+    exactly as ``column``'s two caps do; a pole end has no disc to unwrap, so
+    it gets :func:`_fan_uv`'s corner instead -- the same "different ``u`` per
+    triangle" rule ``cone``'s apex already uses, confined to one quadrant
+    rather than spread across the whole square.
+    """
+    n = _clamp_segments(segments)
+    stations = _clamp_profile(profile)
+    positions, faces = _revolve(stations, n)
+
+    bottom_pole = float(stations[0][0]) == 0.0
+    top_pole = float(stations[-1][0]) == 0.0
+    # Mirrors ``_revolve``'s own guard exactly (dead in practice, since
+    # ``_clamp_profile`` above already refuses a no-positive-radius profile
+    # before this line ever runs): with no ring for either pole to fan to, it
+    # falls back to plain rings, and the uv built below must agree with the
+    # faces it actually produced.
+    if bottom_pole and top_pole and len(stations) <= 2:
+        bottom_pole = top_pole = False
+    lo = 1 if bottom_pole else 0
+    hi = len(stations) - (1 if top_pole else 0)
+    ring0 = lo
+    n_rings = hi - lo
+
+    def row(j: int) -> int:
+        return ring0 + j * n
+
+    points = np.array(stations, dtype="f8")
+    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(steps)])
+    total = float(along[-1])
+    v = 0.5 + 0.5 * (along / total if total > 0.0 else np.zeros(len(along)))
+
+    uv: list[list[tuple[float, float]]] = []
+    if bottom_pole:
+        uv.extend(_fan_uv(n, (0.01, 0.01), 0.48, apex_first=True))
+    for j in range(n_rings - 1):
+        uv.extend(
+            [
+                (i / n, float(v[lo + j])),
+                (i / n, float(v[lo + j + 1])),
+                ((i + 1) / n, float(v[lo + j + 1])),
+                ((i + 1) / n, float(v[lo + j])),
+            ]
+            for i in range(n)
+        )
+    if top_pole:
+        uv.extend(_fan_uv(n, (0.51, 0.01), 0.48, apex_first=False))
+    if not bottom_pole:
+        uv.append(_disc_uv(n, (0.25, 0.25), 0.24))
+    if not top_pole:
+        uv.append(_disc_uv(n, (0.75, 0.25), 0.24, reverse=True))
     return _mesh(positions, faces, uv)
 
 
@@ -1091,6 +1412,7 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
         {"radius": 0.35, "height": 2.0, "segments": 16, "base": 0.15, "capital": 0.15},
         column,
     ),
+    "lathe": ({"profile": LATHE_DEFAULT_PROFILE, "segments": 16}, lathe),
 }
 """Name -> ``(defaults, builder)``. Every default dictionary is a complete call.
 
@@ -1124,7 +1446,7 @@ it were supposed to be checking *against*.
 CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("primitives", ("box", "plane", "grid", "cylinder", "cone",
                     "uv_sphere", "icosphere", "torus", "capsule")),
-    ("structures", ("pyramid", "arch", "column")),
+    ("structures", ("pyramid", "arch", "column", "lathe")),
 )
 """The add panel's sections, in the order they are drawn.
 

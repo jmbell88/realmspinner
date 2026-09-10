@@ -842,11 +842,13 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
 
 def _validate_number_or_vec(
     value: Any, field: str
-) -> tuple[float | list[float] | None, dict | None]:
-    """A number, or an array of numbers, every one of them finite -- the
-    ``number | array-of-numbers`` shape ``clay_set_params``'s own schema
-    already declares for a param value (a cylinder's ``radius`` is one
-    number, a box's ``size`` is three) -- or a refusal naming *field*.
+) -> tuple[float | list[float] | list[list[float]] | None, dict | None]:
+    """A number, an array of numbers, or an array of arrays of numbers, every
+    one of them finite -- the ``number | array-of-numbers | array-of-arrays``
+    shape ``clay_set_params``'s own schema declares for a param value (a
+    cylinder's ``radius`` is one number, a box's ``size`` is three, a
+    lathe's ``profile`` is an array of ``[radius, y]`` pairs) -- or a refusal
+    naming *field*.
 
     A schema declaring a shape does not enforce it on the wire:
     ``mcp/protocol.py``'s ``tools/call`` handling checks only that
@@ -859,13 +861,42 @@ def _validate_number_or_vec(
     ``size`` sailed past ``bp.clamp_params`` (which only clamps the keys it
     knows a floor for) and baked straight into the generator's vertex
     positions.
+
+    The array-of-arrays branch was added for ``lathe``'s ``profile``, the
+    first generator parameter whose own elements are arrays rather than
+    numbers: before it, this function's flat-array branch tried
+    ``float(v)`` on each *row* of a profile and raised ``TypeError``, which
+    came back as "params must be a number or an array of numbers" -- true of
+    the old schema and wrong about the new one, since an array of arrays is
+    exactly what a profile is and exactly what :func:`_params_value_schema`
+    now declares. Every row must itself be a non-empty array of finite
+    numbers, and the outer array must not be empty either -- the same two
+    rules the flat case already holds a bare array to, one level up.
     """
+    if isinstance(value, list) and value and all(isinstance(row, list) for row in value):
+        try:
+            rows = [[float(v) for v in row] for row in value]
+        except (TypeError, ValueError):
+            return None, fail(
+                f"{field} must be a number, an array of numbers, or an "
+                "array of arrays of numbers.",
+                field=field,
+                recovery="fix_arguments",
+            )
+        if not all(row and all(math.isfinite(v) for v in row) for row in rows):
+            return None, fail(
+                f"{field} must be finite numbers, with no empty row.",
+                field=field,
+                recovery="fix_arguments",
+            )
+        return rows, None
     if isinstance(value, list):
         try:
             out = [float(v) for v in value]
         except (TypeError, ValueError):
             return None, fail(
-                f"{field} must be a number or an array of numbers.",
+                f"{field} must be a number, an array of numbers, or an "
+                "array of arrays of numbers.",
                 field=field,
                 recovery="fix_arguments",
             )
@@ -878,7 +909,8 @@ def _validate_number_or_vec(
         out = float(value)
     except (TypeError, ValueError):
         return None, fail(
-            f"{field} must be a number or an array of numbers.",
+            f"{field} must be a number, an array of numbers, or an array "
+            "of arrays of numbers.",
             field=field,
             recovery="fix_arguments",
         )
@@ -1116,8 +1148,11 @@ def tools() -> list[Any]:
                 "Place one primitive, selected, as one undo step. Starts "
                 "this session's document if it has none yet. 'generator' "
                 "picks the shape; 'params' overrides its own numbers "
-                "(radius, segments and so on); 'translation'/'rotation'/"
-                "'scale' place it directly rather than at the origin; "
+                "(radius, segments and so on) -- one generator, lathe, "
+                "takes a 'profile' instead: an array of [radius, y] "
+                "stations, bottom to top, revolved about Y; "
+                "'translation'/'rotation'/'scale' place it directly rather "
+                "than at the origin; "
                 "'name' sets what it is called, refused if another object "
                 "already wears it; 'material' paints it with an existing "
                 "palette index (see clay_scene's 'materials') rather than "
@@ -1133,12 +1168,7 @@ def tools() -> list[Any]:
                     "generator": {"type": "string", "enum": primitive_names},
                     "params": {
                         "type": "object",
-                        "additionalProperties": {
-                            "anyOf": [
-                                {"type": "number"},
-                                {"type": "array", "items": {"type": "number"}},
-                            ]
-                        },
+                        "additionalProperties": _params_value_schema(),
                     },
                     "translation": _vec3_schema("metres"),
                     "rotation": _vec3_schema("degrees, Euler XYZ"),
@@ -1211,9 +1241,11 @@ def tools() -> list[Any]:
                 "rebuilds the mesh, as one undo step. Only for an object whose "
                 "generator is still set (clay_scene's 'generator' is not "
                 "null) -- once an edit has frozen its topology there are no "
-                "generator params left to set. Values may be a number or an "
-                "array -- box's size is (x, y, z), plane's is (w, h). Known "
-                "generators: " + _generator_catalog()
+                "generator params left to set. Values may be a number, an "
+                "array -- box's size is (x, y, z), plane's is (w, h) -- or "
+                "an array of arrays -- a lathe's profile is a list of "
+                "[radius, y] stations, bottom to top. Known generators: "
+                + _generator_catalog()
             ),
             schema={
                 "type": "object",
@@ -1221,12 +1253,7 @@ def tools() -> list[Any]:
                     "uid": {"type": "integer"},
                     "params": {
                         "type": "object",
-                        "additionalProperties": {
-                            "anyOf": [
-                                {"type": "number"},
-                                {"type": "array", "items": {"type": "number"}},
-                            ]
-                        },
+                        "additionalProperties": _params_value_schema(),
                         "description": "Only the keys to change; every other one keeps its value.",
                     },
                 },
@@ -1749,6 +1776,30 @@ def _vec3_schema(unit: str) -> dict:
         "minItems": 3,
         "maxItems": 3,
         "description": unit,
+    }
+
+
+def _params_value_schema() -> dict:
+    """The one shape every ``params`` value in this module shares: a number, a
+    flat array of numbers, or an array of arrays of numbers.
+
+    Written out twice before this -- at ``clay_add_primitive`` and
+    ``clay_set_params`` -- as an ``anyOf`` of only the first two branches,
+    which is exactly the drift the module docstring's derivation paragraphs
+    exist to rule out for everything else in this file. The third branch is
+    for ``lathe``'s ``profile``: a cylinder's ``radius`` is one number, a
+    box's ``size`` is three, and a lathe's ``profile`` is an array of
+    ``[radius, y]`` pairs -- the first generator parameter this registry has
+    whose own elements are arrays rather than numbers. A schema declaring
+    this shape is not enforcement of it; :func:`_validate_number_or_vec` is
+    the handler-side half both tools already call.
+    """
+    return {
+        "anyOf": [
+            {"type": "number"},
+            {"type": "array", "items": {"type": "number"}},
+            {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+        ]
     }
 
 

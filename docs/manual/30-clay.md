@@ -32,8 +32,8 @@ Tools" underneath and a button that drops a box at the origin — rather than le
 empty grid and go looking for the **add** row on your own.
 
 The **add** row is one icon grid, in two groups. **Primitives**: box, plane, grid, cylinder,
-cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch and column. Clicking one
-places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
+cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column and lathe.
+Clicking one places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
 another button, primitive or figure, is pressed next. Hovering a button names it. Nothing is lit
 and no preview block shows below the grid until you have pressed one -- a fresh document does not
 arrive with a shape already picked.
@@ -44,20 +44,28 @@ click places, not a second place to edit them: a shape's own numbers are edited 
 in Properties, once it exists.
 
 Shapes arrive with their shading already set, by the same rule the **Shade Auto...** button uses: a
-sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch and a
-column come in flat. A **cylinder and a cone come in flat too**, and that is the rule working rather
-than missing them — every face on the side band meets a flat cap at a right angle, and smoothing the
-band on its own would round the cap's rim, which is the edge the cap is there to define. Shade
-Smooth and Shade Flat override any of this whenever you want them to.
+sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch, a
+column and a lathe come in flat (at its default profile — a lathe with a gentler curve and enough
+segments can still come back with its side band smooth, the caps staying flat for the same reason
+the cylinder's and cone's do, below). A **cylinder and a cone come in flat too**, and that is the
+rule working rather than missing them — every face on the side band meets a flat cap at a right
+angle, and smoothing the band on its own would round the cap's rim, which is the edge the cap is
+there to define. Shade Smooth and Shade Flat override any of this whenever you want them to.
 
 The structures are the shapes that are tedious rather than hard — the ones you would otherwise
 assemble out of three or four primitives and then have to keep assembled. A **pyramid**'s base sits
 square to the axes, which is what separates it from a four-sided cone: a cone stands on a corner,
 45 degrees off the box you are putting it on top of, and its `base` is the flat-to-flat width. An
 **arch** is a doorway — two legs and a semicircular head, swept through its `depth`, with
-`thickness` setting how heavy the wall is; the opening goes right through. A **column** is a lathe:
-`base` and `capital` are the *heights* of the plinth and the block at the top, and setting both to
-zero leaves a plain shaft.
+`thickness` setting how heavy the wall is; the opening goes right through. A **column** is a lathe
+with a fixed shape: `base` and `capital` are the *heights* of the plinth and the block at the top,
+and setting both to zero leaves a plain shaft. A **lathe** is the general case of a column — a
+`profile` of `[radius, y]` stations, bottom to top, revolved into whatever silhouette they trace,
+which is what a bottle, a vase, a goblet, a handle or a turned finial needs and a column's two fixed
+numbers cannot reach. A station of zero radius at either end comes to a point rather than a flat
+cap, which is how a lathe reaches a finial or a chess pawn's rounded top. There is no profile editor
+yet: Properties shows a placed lathe's numbers as a read-only line rather than fields you can drag,
+the same way any parameter shape nobody has built a widget for yet is shown.
 
 Three of those are near-duplicates of others and are worth telling apart. **Grid** is a plane cut
 into squares; **plane** is the single quad, which is what a decal or a backdrop wants, and a grid is

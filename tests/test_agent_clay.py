@@ -278,6 +278,90 @@ def test_a_ninth_figure_reaches_the_agent_surface_with_no_edit_here(
     assert "ninth_figure" in tools["clay_add_figure"].schema["properties"]["key"]["enum"]
 
 
+# --- an array-of-arrays param, lathe's own shape -----------------------------
+
+
+def test_a_profile_param_survives_the_whole_agent_door() -> None:
+    """``lathe``'s ``profile`` -- an array of ``[radius, y]`` pairs -- makes
+    the same round trip a flat vector like a box's ``size`` already does:
+    placed through ``clay_add_primitive``, read back unchanged through
+    ``clay_scene``, and changed through ``clay_set_params``.
+
+    Fails today: the old ``_validate_number_or_vec``'s flat-array branch
+    calls ``float(v)`` on each *row* of the profile, and a row is itself a
+    list -- ``float([0.0, -0.5])`` raises ``TypeError``, caught by that
+    branch's own ``except`` and turned into a clean but wrong refusal,
+    ``"params must be a number or an array of numbers."``, before a single
+    vertex is placed.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    profile = [[0.0, -0.5], [0.3, 0.0], [0.3, 0.5]]
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {"generator": "lathe", "params": {"profile": profile}},
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)
+    uid = row["uid"]
+    assert row["params"]["profile"] == profile
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
+    assert scene_row["params"]["profile"] == profile
+
+    new_profile = [[0.0, -0.5], [0.4, 0.0], [0.1, 0.5]]
+    changed = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"profile": new_profile}}
+    )
+    assert changed["isError"] is False, changed
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
+    assert scene_row["params"]["profile"] == new_profile
+
+
+def test_an_array_of_arrays_param_survives_the_agent_door_for_any_generator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The claim is about the door, not about ``lathe`` specifically -- a
+    fake generator whose only parameter is an array of arrays, monkeypatched
+    into the registry exactly the way
+    ``test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here``
+    does it, reaches ``clay_add_primitive``, ``clay_scene`` and
+    ``clay_set_params`` with nothing here naming ``lathe`` at all.
+    """
+
+    def fake_builder(rows: Any = ((1.0, 2.0), (3.0, 4.0))) -> bp.Mesh:
+        del rows
+        return bp.box(size=(1.0, 1.0, 1.0))
+
+    monkeypatch.setitem(
+        bp.GENERATORS, "fake_rows", ({"rows": ((1.0, 2.0), (3.0, 4.0))}, fake_builder)
+    )
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    rows = [[5.0, 6.0], [7.0, 8.0], [9.0, 10.0]]
+    result = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "fake_rows", "params": {"rows": rows}}
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)
+    uid = row["uid"]
+    assert row["params"]["rows"] == rows
+
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = next(o for o in _payload(scene)["objects"] if o["uid"] == uid)
+    assert scene_row["params"]["rows"] == rows
+
+    new_rows = [[1.0, 1.0]]
+    changed = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"rows": new_rows}}
+    )
+    assert changed["isError"] is False, changed
+
+
 def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() -> None:
     from warlock.studio.clay import elements as clay_elements
 

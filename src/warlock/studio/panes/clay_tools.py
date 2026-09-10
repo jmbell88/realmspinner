@@ -68,14 +68,17 @@ PRIMITIVE_ICONS = {
     "grid": icons.GRID,
     "capsule": icons.EGG,
     "icosphere": icons.STAR,
-    # The three structures. The icon set is strained by now -- ``cone`` borrows
+    # The four structures. The icon set is strained by now -- ``cone`` borrows
     # triangle-alert, and ``uv_sphere`` and ``torus`` are both a circle -- so
     # these are the nearest silhouettes rather than the right glyphs: a magnet
     # is a horseshoe, which is the arch, and a ruler is the tallest thing in
-    # the set. The tooltip carries the name.
+    # the set. ``lathe`` gets the spline glyph -- a profile revolved about an
+    # axis is quite literally a spline, and it is otherwise unclaimed. The
+    # tooltip carries the name.
     "pyramid": icons.PENTAGON,
     "arch": icons.MAGNET,
     "column": icons.RULER,
+    "lathe": icons.SPLINE,
 }
 
 AXES = (("x", "X"), ("y", "Y"), ("z", "Z"))
