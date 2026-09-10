@@ -31,13 +31,16 @@ from warlock.studio.clay import primitives as bp
 
 from .topo_asserts import directed_edge_counts, edge_use_counts
 
-# ``plane`` is the one generator that is deliberately not a closed shell: it is
-# a single face, so it has a boundary, no volume and no meaningful "outward".
-# Naming it here rather than scattering ``if name == "plane"`` through the
-# parametrised tests keeps the exception assertable as an exception -- if a
-# later change accidentally closes it, or accidentally opens something else,
-# exactly one of the two tests below fails.
-OPEN = {"plane", "grid"}
+# The two generators deliberately not closed shells -- a boundary, no volume,
+# no meaningful "outward" -- now live as registry data on the module itself
+# (``bp.OPEN_GENERATORS``; see its docstring), not here: a fact about what a
+# generator *is* belongs beside the generator, not in the file that checks it,
+# and a thirteenth open shape would otherwise have no way to declare itself.
+# Imported under the short name because the exception reads as one either way,
+# and importing it (rather than redefining it) is what makes
+# ``test_open_generators_names_only_real_generators`` a check on the same set
+# the winding tests below actually skip, not a second copy that could drift.
+OPEN = bp.OPEN_GENERATORS
 CLOSED = sorted(set(bp.GENERATORS) - OPEN)
 
 # Every generic test runs at the defaults *and* at the clamped low end, because
@@ -465,6 +468,21 @@ def test_the_registry_names_every_generator_the_module_exports() -> None:
     }
 
 
+def test_open_generators_names_only_real_generators() -> None:
+    """The useful half of this gate, the other way round from ``CLOSED``.
+
+    A name misspelled *out* of :data:`bp.OPEN_GENERATORS` just moves a real
+    open shape into ``CLOSED``, where the winding and closed-shell sweeps
+    then fail loudly on it -- that direction is already self-checking. A name
+    misspelled *in* has no such backstop: it silently removes a shape from
+    ``CLOSED`` (so those same sweeps stop looking at it at all) while naming
+    nothing that ``GENERATORS`` actually has, which is exactly the failure
+    mode moving this set out of the test file and into a hand-edited registry
+    constant introduces.
+    """
+    assert set(bp.GENERATORS) >= bp.OPEN_GENERATORS
+
+
 def test_the_categories_table_partitions_the_registry_exactly() -> None:
     """The add panel is drawn in sections, and this is the coverage check the
     panel itself cannot be: a generator missing from ``CATEGORIES`` simply does
@@ -695,9 +713,9 @@ def test_an_arch_spans_the_box_it_was_asked_for() -> None:
 
 
 def test_an_arch_is_every_quad_and_caps_both_of_its_legs() -> None:
-    """The leg ends are capped rather than added to ``OPEN``: the sweep tests
-    this generator joined the registry for are exactly the ones an open shell
-    would be exempt from."""
+    """The leg ends are capped rather than added to ``OPEN_GENERATORS``: the
+    sweep tests this generator joined the registry for are exactly the ones
+    an open shell would be exempt from."""
     mesh = bp.arch(segments=6)
     assert set(int(n) for n in np.diff(mesh.starts)) == {4}
     assert set(_edge_use_counts(mesh).values()) == {2}

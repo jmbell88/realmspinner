@@ -861,9 +861,9 @@ def arch(
     meets the ground. **The leg ends are capped**, deliberately: an uncapped
     arch would be an open shell, and the registry's sweep tests
     (``test_every_closed_generator_is_wound_outward`` and the
-    each-edge-exactly-twice check) exempt only the two shapes named in ``OPEN``
-    -- joining that set to avoid two quads would be opting out of the very
-    tests this generator joined the registry for.
+    each-edge-exactly-twice check) exempt only the shapes named in
+    :data:`OPEN_GENERATORS` -- joining that set to avoid two quads would be
+    opting out of the very tests this generator joined the registry for.
 
     Note what the opening is *not*: a hole through material. An arch is a
     horseshoe, open at the bottom, so the shell is a topological ball like every
@@ -1098,6 +1098,27 @@ Complete because that is exactly what the properties panel does with it: splat
 it into the builder to make the object the user just asked for, then bind each
 key to a widget. A missing key would be a ``TypeError`` raised the first time
 somebody picked that shape, which is why a test calls every entry this way.
+"""
+
+OPEN_GENERATORS: frozenset[str] = frozenset({"plane", "grid"})
+"""The generators that are deliberately not closed shells.
+
+"Open" here means the mesh has a boundary, no volume and therefore no outward
+direction to derive -- ``plane`` is a single quad and ``grid`` is a subdivided
+sheet, and both say so in their own docstrings. Every other generator in
+:data:`GENERATORS` is a topological ball: a closed, two-manifold shell with a
+consistent outward winding, and the registry's sweep tests
+(``test_every_closed_generator_is_wound_outward`` and the each-directed-edge-
+once check in ``tests/clay/test_primitives.py``) assert exactly that over
+every generator this set does not name.
+
+It is registry data, not test data, for the same reason :data:`CATEGORIES` is:
+a thirteenth generator that is legitimately open -- a ribbon, a fan, anything
+else with a boundary -- has to be able to say so where the shape is defined,
+not by editing a set two directories away that the shape itself never sees.
+Before this constant existed, that set was ``OPEN`` in
+``tests/clay/test_primitives.py`` itself, which is the thing the tests using
+it were supposed to be checking *against*.
 """
 
 CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (

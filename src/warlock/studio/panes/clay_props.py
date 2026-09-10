@@ -313,13 +313,37 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
     if isinstance(default, float):
         changed, out = controls.input_float(label, float(value), 0.05)
         return out, changed
-    if isinstance(default, (tuple, list)):
-        values = list(value) + [0.0] * (len(default) - len(value))
-        if len(default) == 2:
-            changed, out = controls.input_float2(label, values[:2])
-        else:
-            changed, out = controls.input_float3(label, values[:3])
-        return tuple(float(v) for v in out), changed
+    # A *flat* sequence of 2 or 3 real numbers -- box's ``size``, plane's and
+    # grid's ``size`` -- is the whole shape this branch knows how to draw.
+    # Nothing past that may take it: a length-4-or-more default used to be
+    # silently cut to 3 and written back that short (a five-number lathe
+    # profile's flat form, say, would lose two numbers with nothing on
+    # screen to say so), and a *nested* default such as
+    # ``[[0.5, -0.5], [0.5, 0.5]]`` -- what a lathe profile actually is --
+    # matched ``len(default) == 2`` and handed ``input_float2`` two Python
+    # lists instead of two floats, which raises on the frame thread with no
+    # try/except above it. Both, and a saved value that disagrees in shape
+    # with the default (a bare scalar, where ``list(value)`` used to raise
+    # outright), now fall through to the read-only fallback below, same as
+    # any other type nobody has built a widget for yet.
+    if (
+        isinstance(default, (tuple, list))
+        and len(default) in (2, 3)
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in default)
+        and isinstance(value, (tuple, list))
+    ):
+        try:
+            values = [float(v) for v in value]
+        except (TypeError, ValueError):
+            values = None
+        if values is not None:
+            pad = max(0, len(default) - len(values))
+            values = values[: len(default)] + [0.0] * pad
+            if len(default) == 2:
+                changed, out = controls.input_float2(label, values)
+            else:
+                changed, out = controls.input_float3(label, values)
+            return tuple(float(v) for v in out), changed
     # A parameter type nobody has added yet: shown, not editable, rather than
     # silently dropped from the panel.
     widgets.secondary(f"{key}: {value!r}")
