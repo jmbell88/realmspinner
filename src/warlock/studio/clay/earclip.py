@@ -3,10 +3,15 @@
 :func:`~.mesh.triangulate` fans every face from its first corner, which is
 correct for a convex polygon and wrong for a concave one -- a fan across a
 reflex corner puts a triangle outside the polygon, and the result is a shaded
-mesh with a wedge that is not there and a face pick that hits empty space. Every
-primitive generator produces convex faces, so the fan was right until the
-dissolve family started merging faces into arbitrary n-gons and GLB import
-started accepting whatever an exporter wrote.
+mesh with a wedge that is not there and a face pick that hits empty space.
+Every primitive generator produced convex faces, so the fan was right for
+every one of them, until the dissolve family started merging faces into
+arbitrary n-gons and GLB import started accepting whatever an exporter wrote
+-- and, on 2026-09-10, until ``primitives.sweep`` joined the registry with a
+cap that is an arbitrary user-supplied outline, reflex by design at its own
+default (``primitives.CONCAVE_GENERATORS`` names it). The screen below is now
+earning its keep on a generator's own output, not only on dissolve results
+and imports.
 
 **The screen comes first, and it is the whole performance story.** A face is
 *suspect* only if some corner turns the wrong way about the face's own Newell

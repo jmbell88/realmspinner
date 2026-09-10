@@ -1,16 +1,16 @@
-"""The thirteen shapes a user can place, and the registry the panel is built from.
+"""The fourteen shapes a user can place, and the registry the panel is built from.
 
 Each generator is a plain function of its parameters returning a :class:`Mesh`,
 and :data:`GENERATORS` maps a name to ``(defaults, builder)``. The registry is
 the point of the module rather than an index over it: the properties panel is
-generated from those default dictionaries, so adding a thirteenth primitive is
+generated from those default dictionaries, so adding a fifteenth primitive is
 adding a function and one registry line, in the same spirit as "add a skeleton
 by adding a JSON file, never by hardcoding bones in ``blender_worker``". A
 panel that switched on a hardcoded list of shape names would be a second place
 that has to know what a cylinder's parameters are, and the two would drift the
 first time a parameter was renamed.
 
-Four rules hold across all thirteen, and each of them is pinned by a test:
+Four rules hold across all fourteen, and each of them is pinned by a test:
 
 **Every primitive is built centred on the origin.** ``Obj`` carries the
 translation, so geometry that baked its placement in would make the numeric TRS
@@ -38,7 +38,14 @@ single nastiest defect this module can ship: the viewport draws with back-face
 culling off, so it looks perfect, and the exported GLB is inside out in every
 engine with nothing in the file to explain why. Convexity is what makes
 ``mesh.triangulate``'s fan correct -- it fans from each face's first corner and
-a fan across a reflex corner puts a triangle outside the polygon.
+a fan across a reflex corner puts a triangle outside the polygon. **One shape's
+cap cannot keep the second half of that claim**, and says so as registry data
+rather than by weakening it: ``sweep``'s cap is an arbitrary user-supplied
+outline, an L-bracket by default, and a reflex corner is exactly what "sweep"
+is for. See :data:`CONCAVE_GENERATORS` for the exemption and
+``clay/earclip.py``'s own docstring for why the fan-then-ear-clip triangulator
+that already existed for dissolve results and imports is what makes the
+exemption safe rather than merely tolerated.
 
 That first claim takes **two** assertions, not one, and the obvious one is the
 weaker of the pair. Summing ``(centroid - centre) . normal`` over the faces is
@@ -131,6 +138,22 @@ MAX_SUBDIVISIONS = 5
 # must not visibly widen.
 MIN_PROFILE_RADIUS = 1e-4
 
+# The floor ``sweep``'s own ``taper`` is raised to. A taper of exactly zero
+# collapses the far cap to a single point and every side quad touching it to
+# zero area -- the same "no modelling meaning" failure :data:`MIN_PROFILE_RADIUS`
+# exists to prevent for a lathe's middle stations, and the same reading: its
+# job is to be *positive*, not to be a minimum anybody would model to.
+MIN_TAPER = 1e-4
+
+# ``sweep``'s own floor on how many stations it stacks along Z -- one, not
+# :data:`MIN_SEGMENTS`, for the reason ``grid``'s own ``MIN_DIVISIONS`` is not
+# three: a sweep's ring corner count comes from its own outline, not from this
+# parameter, so one section (two rings, one band) is already the smallest
+# sweep there is. The parameter is named ``sections`` rather than ``segments``
+# for exactly this reason -- the shared name would drag :data:`MIN_SEGMENTS`
+# in with it, the same trap ``grid``'s ``divisions`` sidesteps.
+MIN_SECTIONS = 1
+
 
 def _clamp_segments(value: Any) -> int:
     """The floor every ring-and-cap generator applies to its own count."""
@@ -150,6 +173,11 @@ def _clamp_divisions(value: Any) -> int:
 def _clamp_subdivisions(value: Any) -> int:
     """``icosphere``'s own floor and ceiling."""
     return min(max(int(value), 0), MAX_SUBDIVISIONS)
+
+
+def _clamp_sections(value: Any) -> int:
+    """``sweep``'s own floor -- see :data:`MIN_SECTIONS`."""
+    return max(int(value), MIN_SECTIONS)
 
 
 def _clamp_profile(value: Any) -> list[list[float]]:
@@ -227,6 +255,96 @@ def _clamp_profile(value: Any) -> list[list[float]]:
     return deduped
 
 
+def _signed_area(points: list[list[float]]) -> float:
+    """Twice the shoelace formula's own half -- positive for a polygon
+    traversed counter-clockwise in standard (x, y) axes, which is the
+    orientation :func:`sweep` builds an outward shell from. Zero for fewer
+    than three points, which is what lets :func:`_clamp_outline` call this
+    before it has checked the count itself.
+    """
+    n = len(points)
+    if n < 3:
+        return 0.0
+    total = 0.0
+    for i in range(n):
+        x0, y0 = points[i]
+        x1, y1 = points[(i + 1) % n]
+        total += x0 * y1 - x1 * y0
+    return total * 0.5
+
+
+def _clamp_outline(value: Any) -> list[list[float]]:
+    """``sweep``'s own floor on its array-valued parameter, registered beside
+    :func:`_clamp_profile` in :data:`_PROFILE_CLAMPS` rather than copying that
+    function's shape a second time.
+
+    Five steps:
+
+    1. Coerce to ``[x, y]`` float pairs. Unlike a lathe's ``profile``, neither
+       coordinate is an extent -- an outline's ``x`` and ``y`` are both
+       positions, exactly as a profile's ``y`` is -- so neither is taken
+       through ``abs()``: a corner at a negative coordinate is not a mirrored
+       corner, it is a corner. Anything that will not unpack this way is
+       treated as no corners at all, which step 5 turns into the default
+       outline.
+    2. Drop a corner coinciding with its predecessor, *and* the last against
+       the first. An outline is **closed**, which a profile is not, so this
+       step has a wrap-around case ``_clamp_profile`` has no reason to check:
+       an authored or agent-supplied outline that repeats its first point to
+       "close the loop" would otherwise leave a zero-length edge for the
+       winding and UV arc-length maths below to divide by.
+    3. Reverse the outline if its own signed area is negative, so the winding
+       is always the one :func:`sweep` builds an outward shell from -- the
+       module's "single nastiest defect" the other way round: a clockwise
+       outline is not an error, it is a shape that looks perfect in the
+       viewport and is inside out in every engine, with nothing in the file
+       to say why.
+    4. Re-centre on the bounding-box centre, for the reason step 4 of
+       :func:`_clamp_profile` re-centres a profile's ``y``: ``outline``
+       carries positions, and a generator that baked its own placement in
+       would make the numeric TRS panel lie.
+    5. Fall back to :data:`SWEEP_DEFAULT_OUTLINE` with fewer than three
+       surviving corners (not a polygon at all), or when the signed area is
+       zero (every corner collinear -- a polygon with no area, the same class
+       of degenerate :func:`_clamp_profile`'s own last step closes for a
+       profile with no positive radius anywhere).
+
+    **Self-intersection is not clamped here, and is not the job of this
+    function.** A figure-eight outline survives every one of these five steps
+    -- it has three or more corners, a well-defined (non-zero) signed area,
+    and reverses cleanly -- and builds a self-intersecting solid that
+    ``validate`` accepts without complaint. There is no cheap general test for
+    "is this polygon simple", the same admission ``torus``'s own docstring
+    makes for a tube wider than its radius: the two are legitimately
+    independent right up to the point where they are not, and keeping an
+    outline simple is the caller's job.
+    """
+    try:
+        corners = [[float(x), float(y)] for x, y in value]
+    except (TypeError, ValueError):
+        corners = []
+    deduped: list[list[float]] = []
+    for corner in corners:
+        if deduped and deduped[-1] == corner:
+            continue
+        deduped.append(corner)
+    if len(deduped) > 1 and deduped[0] == deduped[-1]:
+        deduped.pop()
+    area = _signed_area(deduped)
+    if area < 0.0:
+        deduped.reverse()
+    if deduped:
+        xs = [c[0] for c in deduped]
+        ys = [c[1] for c in deduped]
+        cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+        for corner in deduped:
+            corner[0] -= cx
+            corner[1] -= cy
+    if len(deduped) < 3 or area == 0.0:
+        return [list(corner) for corner in SWEEP_DEFAULT_OUTLINE]
+    return deduped
+
+
 # Which key names the properties panel must clamp before calling a generator,
 # and how -- see clamp_params. Keyed on parameter name rather than generator,
 # because each of these floors is the same operation wherever the name
@@ -238,15 +356,16 @@ _KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
     "rings": _clamp_rings,
     "divisions": _clamp_divisions,
     "subdivisions": _clamp_subdivisions,
+    "sections": _clamp_sections,
 }
 
 # The array-valued counterpart to :data:`_KEY_CLAMPS`, kept as its own table
 # rather than folded into it because these normalisers return a profile, not
-# an int -- and because ``sweep``'s ``outline`` and ``tube``'s ``path`` are
-# each going to want their own entry here, keyed on name exactly as
-# ``_KEY_CLAMPS`` already is.
+# an int -- and because ``tube``'s ``path`` is going to want its own entry
+# here too, keyed on name exactly as ``_KEY_CLAMPS`` already is.
 _PROFILE_CLAMPS: dict[str, Callable[[Any], list[list[float]]]] = {
     "profile": _clamp_profile,
+    "outline": _clamp_outline,
 }
 
 
@@ -282,6 +401,14 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     shrink internally -- this function mirrors a generator's own floor for a
     caller that must store what the mesh was actually built from, it does not
     replace the generator refusing what it cannot represent.
+
+    And ``sweep``'s ``taper``: the same positive floor :func:`sweep` applies
+    to itself (see :data:`MIN_TAPER`), mirrored here for the reason every
+    other branch above is -- a taper of exactly zero is a degenerate mesh, not
+    a shape a properties panel should describe as "taper: 0". ``outline`` and
+    ``sections`` need no branch of their own: they are already covered by
+    :data:`_PROFILE_CLAMPS` and :data:`_KEY_CLAMPS` respectively, the same
+    generic tables ``lathe``'s ``profile`` and ``segments`` go through.
     """
     out = dict(params)
     for key, clamp in _KEY_CLAMPS.items():
@@ -297,6 +424,8 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
         if b + c > h * COLUMN_ENDS_MAX:
             shrink = (h * COLUMN_ENDS_MAX) / (b + c)
             out["base"], out["capital"] = b * shrink, c * shrink
+    if generator == "sweep" and "taper" in out:
+        out["taper"] = max(abs(float(out["taper"])), MIN_TAPER)
     return out
 
 
@@ -377,6 +506,34 @@ def _fan_uv(
         ring_b = (cx + ((i + 1) / n) * size, cy)
         out.append([apex, ring_a, ring_b] if apex_first else [ring_a, apex, ring_b])
     return out
+
+
+def _outline_uv(
+    corners: list[list[float]], origin: tuple[float, float], size: float, reverse: bool = False
+) -> list[tuple[float, float]]:
+    """A cap's corners taken from the outline's own bounding box, normalised
+    into a ``size``-wide square at *origin* -- the polygon analogue of
+    :func:`_disc_uv` for a cap that is not a circle, needed because
+    ``sweep``'s cap is whatever shape the user's own outline traces.
+
+    ``reverse`` walks the corners backwards to match a reversed cap's face
+    order, exactly as :func:`_disc_uv`'s own ``reverse`` does for a circular
+    one -- the near (-Z) cap's face is the outline in reverse, so its uv must
+    be too, or the texture would land on the wrong corner.
+    """
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    lo_x, lo_y = min(xs), min(ys)
+    # The larger of the two spans, so a non-square outline (an L-bracket's own
+    # bounding box, or any oblong bracket) is not stretched to fill a square
+    # island -- the same texel-density reasoning ``uv.box_unwrap`` states for
+    # normalising over the mesh's own largest extent rather than per island.
+    span = max(max(xs) - lo_x, max(ys) - lo_y, 1e-9)
+    order = list(reversed(corners)) if reverse else corners
+    return [
+        (origin[0] + (x - lo_x) / span * size, origin[1] + (y - lo_y) / span * size)
+        for x, y in order
+    ]
 
 
 def _ring(radius: float, y: float, segments: int) -> np.ndarray:
@@ -1403,6 +1560,181 @@ def lathe(
     return _mesh(positions, faces, uv)
 
 
+SWEEP_DEFAULT_OUTLINE: tuple[tuple[float, float], ...] = (
+    (0.5, -0.5),
+    (0.5, -0.1),
+    (-0.1, -0.1),
+    (-0.1, 0.5),
+    (-0.5, 0.5),
+    (-0.5, -0.5),
+)
+"""An L-bracket, deliberately concave -- the reflex corner is the inside of
+the L, at ``(-0.1, -0.1)``. ``sweep`` is the one generator in the registry
+whose cap cannot keep the module's "every face is convex" rule (see
+:data:`CONCAVE_GENERATORS`), and a convex default would leave that exemption
+untested by the very shape it exists for: the registry's parametrised tests
+only ever build a generator's defaults and its clamped minimum, never an
+arbitrary outline a user might type in later. Sized to fit the one-metre box
+every default here fits, the same convention ``torus``'s own default pair
+states.
+
+**The starting corner is not arbitrary.** ``mesh.triangulate`` fans from a
+face's *first* corner, and a fan from ``(-0.5, -0.5)`` -- the corner
+diagonally opposite the notch -- happens to see every other corner of this
+particular hexagon without leaving it, so a fan starting there triangulates
+this shape correctly *by accident* and would not exercise
+``earclip.concave_faces``'s ear-clipping path at all. Starting the list at
+``(0.5, -0.5)`` instead puts the fan's first triangle across the notch: fanned
+naively, it claims 1.0 square metres of area from a hexagon that measures
+0.64, which is exactly the "puts a triangle outside the polygon" failure this
+generator's cap exists to prove is handled --
+see ``test_a_bare_fan_would_get_the_sweeps_reflex_cap_area_wrong``.
+"""
+
+
+def sweep(
+    outline: Sequence[Sequence[float]] = SWEEP_DEFAULT_OUTLINE,
+    depth: float = 1.0,
+    taper: float = 1.0,
+    twist: float = 0.0,
+    sections: int = 1,
+) -> Mesh:
+    """A closed 2D ``outline`` extruded along Z -- the other family of shape a
+    lathe cannot reach. Revolving a profile about an axis gives every
+    *rotationally* symmetric shape; this gives everything whose cross-section
+    is constant, scales, or turns along one axis instead: an L-bracket, a
+    channel, an I-beam, a star, a gear blank, a picture-frame moulding, a
+    keystone -- none of which any of the other thirteen primitives reach and
+    none of which is a boolean of two of them.
+
+    **``taper`` and ``twist`` are deliberately scalars, and that is the whole
+    design.** The obvious alternative -- a second outline, lofting between two
+    shapes -- was rejected on the same ground a variable-thickness curve sweep
+    was: two array parameters, no panel affordance for either (the properties
+    panel has no widget yet for even *one* array-valued parameter --
+    ``lathe``'s own ``profile`` still shows as a read-only line), and a
+    self-intersection between the two shapes that cannot be clamped. A
+    frustum, a pedestal and a twisted column are what a loft was wanted for,
+    and two numbers a human can drag reach all three: ``taper`` scales the far
+    (+Z) end's outline about its own centre, and ``twist`` turns that end
+    about Z, both interpolated linearly across ``sections`` stations from the
+    near (-Z) end, which takes neither.
+
+    **The outline carries positions, exactly as a lathe's ``profile`` does**,
+    and :func:`_clamp_outline` re-centres it on its own bounding-box centre
+    for the same reason: every other parameter in this registry is an extent,
+    and an extent cannot express a position, so this generator's array
+    parameter is the one place the module's "centred on the origin" rule takes
+    actual work. Z is centred by construction (``-depth/2`` to ``+depth/2``).
+    **``twist`` is a shape, not a placement, and is not corrected for**: a
+    twisted non-symmetric outline has an off-centre *bounding box* while its
+    geometry is centred -- precisely the case
+    ``test_every_generator_is_centred_on_the_origin``'s own docstring already
+    describes for a coarse ring, and re-centring on it here would be
+    correcting for a fact about the shape rather than about its placement.
+
+    **Winding is derived here, not borrowed from ``_side_quads``.** That
+    function orders a band for a Y-axis revolve, and extruding an outline
+    along Z is a different axis with its own derivation: reusing its argument
+    order unchanged (the lower ring first, the upper ring second, the way
+    :func:`_revolve` calls it) gives the *inward* normal for this shape --
+    checked against the Newell formula and against a plain axis-aligned
+    square outline, whose ``y = 0`` wall must point -Y and, built that way,
+    points +Y instead. The outward order here is the ring nearer +Z first,
+    the ring nearer -Z second. ``uv_sphere`` and ``capsule`` also pass the
+    "later" ring first to this same function, for the opposite reason: their
+    ring index runs from a pole *down*, so the later ring is the physically
+    lower one there, where here it is the physically higher one -- the calls
+    read the same only by coincidence. The two caps follow the same check:
+    the far (+Z) cap is the outline in its own clamped (counter-clockwise)
+    order, and the near (-Z) cap is that order reversed, the same "direct one
+    end, reversed the other" shape ``cylinder``'s two caps already take.
+
+    **The cap is the one face in this registry that is not convex.**
+    :data:`CONCAVE_GENERATORS` names this generator for it, and the registry's
+    convexity test exempts exactly that set with a replacement claim rather
+    than a weaker one: ``mesh.triangulate`` ear-clips a face
+    ``earclip.concave_faces`` flags instead of fanning it, so a concave cap
+    still triangulates to the right *area*, even though it cannot pass the
+    fan-safety check every convex face here does.
+
+    **Self-intersection is not clamped, the same admission ``torus`` makes for
+    a tube wider than its radius.** A figure-eight outline builds a
+    self-intersecting solid, ``validate`` accepts it happily, and there is no
+    cheap general test for "is this polygon simple" -- keeping the outline
+    simple is the caller's business, the same division of labour that keeps
+    ``tube`` under ``radius``.
+
+    UV follows ``column``'s and ``lathe``'s own layout: the band across the
+    top half of the square, ``u`` by **arc length around the outline's own
+    perimeter** rather than by corner index -- an outline's edges are wildly
+    uneven in length, and an index-parameterised ``u`` would stretch a texture
+    across the bracket's short edges and squash it along its long ones --
+    ``v`` across the depth; each cap unwrapped into its own bottom quadrant by
+    normalising the outline's own bounding box into it with :func:`_outline_uv`,
+    the same "own quadrant" rule ``cylinder``'s two circular discs already
+    follow.
+    """
+    corners = _clamp_outline(outline)
+    n = len(corners)
+    m = _clamp_sections(sections)
+    d = abs(float(depth))
+    t = max(abs(float(taper)), MIN_TAPER)
+    twist_rad = np.deg2rad(float(twist))
+
+    xs = np.array([c[0] for c in corners], dtype="f8")
+    ys = np.array([c[1] for c in corners], dtype="f8")
+
+    rings: list[np.ndarray] = []
+    for j in range(m + 1):
+        frac = j / m
+        z = -d * 0.5 + frac * d
+        scale = 1.0 + frac * (t - 1.0)
+        angle = frac * twist_rad
+        cos_a, sin_a = float(np.cos(angle)), float(np.sin(angle))
+        rx = (xs * cos_a - ys * sin_a) * scale
+        ry = (xs * sin_a + ys * cos_a) * scale
+        rings.append(np.stack([rx, ry, np.full(n, z)], axis=1))
+    positions = np.concatenate(rings)
+
+    def row(j: int) -> int:
+        """First vertex index of station *j*, counting from the near (-Z) end."""
+        return j * n
+
+    faces: list[list[int]] = []
+    for j in range(m):
+        # The far ring first, the near ring second -- see the docstring above
+        # for why that is the outward order here and not ``_revolve``'s.
+        faces.extend(_side_quads(row(j + 1), row(j), n))
+    faces.append(list(range(row(m), row(m) + n)))  # far cap (+Z), outline order
+    faces.append(list(range(row(0) + n - 1, row(0) - 1, -1)))  # near cap (-Z), reversed
+
+    # u by arc length around the (already clamped, closed) outline, closing at
+    # exactly 1 rather than wrapping to 0 -- the same per-corner reason every
+    # other seam in this module closes there instead of folding back.
+    pts = np.array(corners, dtype="f8")
+    edge_len = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
+    perimeter = float(edge_len.sum())
+    arc = np.concatenate([[0.0], np.cumsum(edge_len)])
+    u = arc / perimeter if perimeter > 0.0 else np.linspace(0.0, 1.0, n + 1)
+
+    uv: list[list[tuple[float, float]]] = []
+    for j in range(m):
+        v_lo, v_hi = 0.5 + 0.5 * (j / m), 0.5 + 0.5 * ((j + 1) / m)
+        uv.extend(
+            [
+                (float(u[i]), v_hi),
+                (float(u[i]), v_lo),
+                (float(u[i + 1]), v_lo),
+                (float(u[i + 1]), v_hi),
+            ]
+            for i in range(n)
+        )
+    uv.append(_outline_uv(corners, (0.01, 0.01), 0.48))
+    uv.append(_outline_uv(corners, (0.51, 0.01), 0.48, reverse=True))
+    return _mesh(positions, faces, uv)
+
+
 # --- the registry ------------------------------------------------------------
 
 GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
@@ -1431,6 +1763,16 @@ GENERATORS: dict[str, tuple[dict[str, Any], Callable[..., Mesh]]] = {
         column,
     ),
     "lathe": ({"profile": LATHE_DEFAULT_PROFILE, "segments": 16}, lathe),
+    "sweep": (
+        {
+            "outline": SWEEP_DEFAULT_OUTLINE,
+            "depth": 1.0,
+            "taper": 1.0,
+            "twist": 0.0,
+            "sections": 1,
+        },
+        sweep,
+    ),
 }
 """Name -> ``(defaults, builder)``. Every default dictionary is a complete call.
 
@@ -1461,10 +1803,41 @@ Before this constant existed, that set was ``OPEN`` in
 it were supposed to be checking *against*.
 """
 
+CONCAVE_GENERATORS: frozenset[str] = frozenset({"sweep"})
+"""The generators whose cap is legitimately not convex.
+
+The module's third rule -- "every face is wound counter-clockwise ... and
+convex" -- does not hold for these, and the registry's convexity test
+(``test_every_generators_faces_are_convex_enough_to_fan``) exempts exactly
+this set with a **replacement** claim rather than dropping the check: for a
+generator named here, ``mesh.triangulate``'s ``n - 2`` triangles must still
+sum to the polygon's own *unsigned* area
+(``test_every_concave_generators_faces_still_triangulate_to_the_right_area``),
+which is the claim that ear-clipping (``clay/earclip.py``) got the shape
+right even though a plain fan would not have.
+
+It is registry data for the same reason :data:`OPEN_GENERATORS` is: a fact
+about what a generator's own cap looks like belongs beside the generator, not
+in a set two directories away that the shape itself never sees. Gated
+**bidirectionally**, exactly as ``OPEN_GENERATORS`` is: every name here must
+be a real generator (``test_concave_generators_names_only_real_generators``),
+and every generator named here must really have a reflex corner at its own
+defaults (``test_concave_generators_really_have_a_concave_face_at_defaults``)
+-- an exemption nobody needs any more (a shape's default changed, or it was
+never actually concave) should fail a test rather than linger on this set
+forever, silently weakening the convexity claim for a generator that no
+longer needs weakening.
+
+``sweep``'s cap is an arbitrary user-supplied polygon and an L-bracket, a
+channel or a picture-frame moulding is reflex *by definition* -- unlike every
+other generator here, whose own shape is a parametrised curve or a fixed
+silhouette with no way to author a reflex corner into it at all.
+"""
+
 CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("primitives", ("box", "plane", "grid", "cylinder", "cone",
                     "uv_sphere", "icosphere", "torus", "capsule")),
-    ("structures", ("pyramid", "arch", "column", "lathe")),
+    ("structures", ("pyramid", "arch", "column", "lathe", "sweep")),
 )
 """The add panel's sections, in the order they are drawn.
 

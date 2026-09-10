@@ -32,8 +32,8 @@ Tools" underneath and a button that drops a box at the origin — rather than le
 empty grid and go looking for the **add** row on your own.
 
 The **add** row is one icon grid, in two groups. **Primitives**: box, plane, grid, cylinder,
-cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column and lathe.
-Clicking one places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
+cone, UV sphere, icosphere, capsule and torus. **Structures**: pyramid, arch, column, lathe and
+sweep. Clicking one places it at the origin, selects it, and marks it the tool in hand — its icon stays lit until
 another button, primitive or figure, is pressed next. Hovering a button names it. Nothing is lit
 and no preview block shows below the grid until you have pressed one -- a fresh document does not
 arrive with a shape already picked.
@@ -45,7 +45,7 @@ in Properties, once it exists.
 
 Shapes arrive with their shading already set, by the same rule the **Shade Auto...** button uses: a
 sphere, an icosphere, a capsule and a torus come in smooth, and a box, a pyramid, an arch, a
-column and a lathe come in flat (at its default profile — a lathe with a gentler curve and enough
+column, a lathe and a sweep come in flat (at its default profile or outline — a lathe with a gentler curve and enough
 segments can still come back with its side band smooth, the caps staying flat for the same reason
 the cylinder's and cone's do, below). A **cylinder and a cone come in flat too**, and that is the
 rule working rather than missing them — every face on the side band meets a flat cap at a right
@@ -68,7 +68,16 @@ object still sits wherever Properties says it does. A station of zero radius at 
 a point rather than a flat cap, which is how a lathe reaches a finial or a chess pawn's rounded top.
 There is no profile editor yet: Properties shows a placed lathe's numbers as a read-only line rather
 than fields you can drag, the same way any parameter shape nobody has built a widget for yet is
-shown.
+shown. A **sweep** is the other family a lathe cannot reach — a closed 2D `outline` extruded along
+`depth` rather than revolved, for anything whose cross-section stays the same, scales or turns
+along one axis instead of around it: an L-bracket, a channel, an I-beam, a star, a gear blank, a
+picture-frame moulding, a keystone. `taper` narrows or widens the far end about its own centre, and
+`twist` turns that end about the extrusion axis; both are plain numbers rather than a second outline
+to loft into, on purpose — a frustum, a pedestal and a twisted column are what a loft would be for,
+and two sliders already reach all three. As with a lathe's `profile`, there is no outline editor
+yet either: Properties shows a placed sweep's corners as a read-only line, and — unlike every other
+shape here — a self-crossing outline (a figure-eight) is not caught, so a sweep is the one primitive
+where keeping the shape simple is on you rather than on Warlock.
 
 Three of those are near-duplicates of others and are worth telling apart. **Grid** is a plane cut
 into squares; **plane** is the single quad, which is what a decal or a backdrop wants, and a grid is

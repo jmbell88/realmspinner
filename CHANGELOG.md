@@ -222,6 +222,26 @@ engine stopped being something you download whether or not you ever use it.
   parameter here that carries a position rather than an extent, so without
   this a profile running 0 to 1 built a lathe sitting half a metre off the
   origin while Properties' translation read `(0, 0, 0)`.
+- **Clay can sweep a shape now, the other half of what a lathe cannot reach.**
+  A **sweep** takes a closed 2D `outline` — an L-bracket by default — and
+  extrudes it along `depth`, which is what a channel, an I-beam, a star, a
+  gear blank, a picture-frame moulding or a keystone needs and no boolean of
+  the other thirteen shapes reaches. `taper` narrows or widens the far end
+  about its own centre and `twist` turns that end about the extrusion axis,
+  both plain numbers rather than a second outline to loft into — a frustum, a
+  pedestal and a twisted column are what a loft would be for, and two
+  sliders already reach all three. It is also the one shape in the registry
+  whose cap is allowed to be concave: an L-bracket's cap has a reflex corner
+  by definition, so the mesh checker's convexity rule now names an explicit
+  exemption (`primitives.CONCAVE_GENERATORS`) rather than pretending the
+  shape could avoid it, and is held to a replacement claim instead — the
+  ear-clipped triangulation must still cover the polygon's own area, not
+  merely fan without visibly complaining. As with a lathe's `profile`, there
+  is no outline editor yet: Properties shows a placed sweep's corners as a
+  read-only line. A self-crossing outline (a figure-eight) is not caught —
+  the same admission a tube wider than a torus's own radius already makes —
+  so a sweep is the one primitive where a simple outline is on you rather
+  than on Warlock.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

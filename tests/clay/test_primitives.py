@@ -43,6 +43,12 @@ from .topo_asserts import directed_edge_counts, edge_use_counts
 OPEN = bp.OPEN_GENERATORS
 CLOSED = sorted(set(bp.GENERATORS) - OPEN)
 
+# The generators whose cap is legitimately not convex -- see
+# ``bp.CONCAVE_GENERATORS``'s own docstring for why this is registry data
+# rather than a set here, and why it is gated in both directions the same way
+# ``OPEN`` is above.
+CONCAVE = bp.CONCAVE_GENERATORS
+
 # Every generic test runs at the defaults *and* at the clamped low end, because
 # a clamp is where a primitive's topology changes shape: a three-segment
 # cylinder's cap is a triangle, a two-band sphere is two fans of triangles with
@@ -70,6 +76,8 @@ def _variants() -> list[pytest.param]:  # type: ignore[valid-type]
 
 VARIANTS = _variants()
 CLOSED_VARIANTS = [p for p in VARIANTS if p.values[0] not in OPEN]
+CONVEX_VARIANTS = [p for p in VARIANTS if p.values[0] not in CONCAVE]
+CONCAVE_VARIANTS = [p for p in VARIANTS if p.values[0] in CONCAVE]
 
 
 def _build(name: str, params: dict) -> bm.Mesh:
@@ -103,6 +111,30 @@ def _face_normal(mesh: bm.Mesh, i: int) -> np.ndarray:
 
 def _centroid(mesh: bm.Mesh, i: int) -> np.ndarray:
     return mesh.positions[bm.face(mesh, i)].astype("f8").mean(axis=0)
+
+
+def _unsigned_tri_area_sum(positions: np.ndarray, tris: np.ndarray) -> float:
+    """The area a triangulation actually covers, with no cancellation.
+
+    Used only for :data:`CONCAVE` generators, where *signed* area is the
+    wrong tool: a fan across a reflex corner puts a triangle outside the
+    polygon with the *opposite* winding from its neighbours, so the signed
+    sum telescopes back to the right total regardless of the mistake -- the
+    same reason the winding tests above need a directed-edge count beside the
+    volume sum, and not only its echo.
+    """
+    a, b, c = (positions[tris[:, i]].astype("f8") for i in range(3))
+    return float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() * 0.5)
+
+
+def _unsigned_polygon_area(poly: np.ndarray) -> float:
+    """A planar polygon's own area, via the same cross-product sum
+    :func:`_face_normal` uses -- independent of whichever triangulation is
+    being checked against it."""
+    total = np.zeros(3)
+    for i in range(len(poly)):
+        total += np.cross(poly[i], poly[(i + 1) % len(poly)])
+    return float(np.linalg.norm(total) * 0.5)
 
 
 # Both live in ``topo_asserts`` now, so the op tests assert the same two things
@@ -149,13 +181,17 @@ def test_every_generator_is_centred_on_the_origin(name: str) -> None:
     assert np.allclose(lo + hi, 0.0, atol=1e-6)
 
 
-@pytest.mark.parametrize(("name", "params"), VARIANTS)
+@pytest.mark.parametrize(("name", "params"), CONVEX_VARIANTS)
 def test_every_generators_faces_are_convex_enough_to_fan(name: str, params: dict) -> None:
     """Every corner turns the same way, which is what ``triangulate`` assumes.
 
     ``triangulate`` fans from the first corner, and a fan across a reflex
     corner puts a triangle outside the polygon. Convexity is therefore a
-    property of the generators, not a hope about them.
+    property of the generators, not a hope about them -- for every generator
+    except the ones named in :data:`CONCAVE`, whose cap is an arbitrary
+    user-supplied outline and cannot make this promise; see
+    :func:`test_every_concave_generators_faces_still_triangulate_to_the_right_area`
+    for the replacement claim they are held to instead.
 
     The turn is divided through by the two edge lengths and the normal's
     magnitude, so what is compared against the epsilon is the *sine* of the
@@ -174,6 +210,32 @@ def test_every_generators_faces_are_convex_enough_to_fan(name: str, params: dict
         turn = np.cross(edge, np.roll(edge, -1, axis=0)) @ normal
         turn = turn / (length * np.roll(length, -1))
         assert (turn > -1e-9).all(), f"{name} face {i} has a reflex corner"
+
+
+@pytest.mark.parametrize(("name", "params"), CONCAVE_VARIANTS)
+def test_every_concave_generators_faces_still_triangulate_to_the_right_area(
+    name: str, params: dict
+) -> None:
+    """The replacement claim for :data:`CONCAVE`: a face that cannot pass the
+    convexity test above must still triangulate to the right *area*.
+
+    Unsigned area is the whole point, not a stylistic choice: a fan across a
+    reflex corner puts a triangle outside the polygon, and that triangle's
+    *signed* area (via the shared Newell-style normal) telescopes back to the
+    right total regardless of the mistake -- exactly the reason the winding
+    tests above need a directed-edge count beside the volume sum. Only the
+    unsigned sum can see the bug this test exists to catch;
+    ``test_a_bare_fan_would_get_the_sweeps_reflex_cap_area_wrong`` proves that
+    by forcing the fan path on the same face and showing the two disagree.
+    """
+    mesh = _build(name, params)
+    tris, tri_face = bm.triangulate(mesh)
+    for i in range(bm.face_count(mesh)):
+        poly = mesh.positions[bm.face(mesh, i)].astype("f8")
+        face_tris = tris[tri_face == i]
+        got = _unsigned_tri_area_sum(mesh.positions, face_tris)
+        want = _unsigned_polygon_area(poly)
+        assert got == pytest.approx(want, rel=1e-5), f"{name} face {i}"
 
 
 @pytest.mark.parametrize(("name", "params"), VARIANTS)
@@ -474,6 +536,7 @@ def test_the_registry_names_every_generator_the_module_exports() -> None:
         "arch",
         "column",
         "lathe",
+        "sweep",
     }
 
 
@@ -490,6 +553,28 @@ def test_open_generators_names_only_real_generators() -> None:
     constant introduces.
     """
     assert set(bp.GENERATORS) >= bp.OPEN_GENERATORS
+
+
+def test_concave_generators_names_only_real_generators() -> None:
+    """:data:`bp.CONCAVE_GENERATORS`'s own half of the same gate
+    ``test_open_generators_names_only_real_generators`` makes for
+    ``OPEN_GENERATORS``: a misspelled name here would silently exempt nothing
+    real from the convexity test while naming a generator that does not
+    exist."""
+    assert set(bp.GENERATORS) >= bp.CONCAVE_GENERATORS
+
+
+@pytest.mark.parametrize("name", sorted(bp.CONCAVE_GENERATORS))
+def test_concave_generators_really_have_a_concave_face_at_defaults(name: str) -> None:
+    """The direction the test above cannot check: a name that stays on
+    :data:`bp.CONCAVE_GENERATORS` after its generator stopped needing the
+    exemption -- a default outline that changed, say -- should fail this
+    rather than linger as a silently-weakened convexity claim forever."""
+    from warlock.studio.clay import earclip as ec
+
+    mesh = _default(name)
+    mask = ec.concave_faces(mesh.positions, mesh.loops, mesh.starts, bm.face_normals(mesh))
+    assert mask.any(), f"{name} is in CONCAVE_GENERATORS but has no concave face at its defaults"
 
 
 def test_the_categories_table_partitions_the_registry_exactly() -> None:
@@ -972,3 +1057,204 @@ def test_a_clamped_generator_value_is_stored_as_the_value_that_was_built() -> No
     from_clamped = bp.torus(**clamped)
     assert np.array_equal(from_raw.positions, from_clamped.positions)
     assert list(from_raw.starts) == list(from_clamped.starts)
+
+
+# --- the sweep -----------------------------------------------------------------
+
+
+def test_a_bare_fan_would_get_the_sweeps_reflex_cap_area_wrong() -> None:
+    """Proves the replacement assertion
+    (:func:`test_every_concave_generators_faces_still_triangulate_to_the_right_area`)
+    actually has teeth, the same way ``test_a_single_flipped_face_is_caught``
+    proves the orientation assertion does: force ``earclip.fan_corners`` --
+    the plain-fan path, with no concavity screen -- onto the same reflex cap
+    ``sweep`` actually ear-clips, and show the two disagree.
+
+    The far cap's first corner is ``(0.5, -0.5)`` -- the corner adjacent to
+    the notch -- so fanning from it sends the first triangle straight across
+    the reflex corner and out of the polygon: 1.0 square metres of claimed
+    area from a hexagon that measures 0.64. ``mesh.triangulate`` never takes
+    this path for this face (``earclip.concave_faces`` flags it and ear-clips
+    instead), which is exactly what the second half of this test confirms.
+    """
+    from warlock.studio.clay import earclip as ec
+
+    mesh = bp.sweep()
+    cap = bm.face_count(mesh) - 2  # the far (+Z) cap; the near one is last
+    poly = mesh.positions[bm.face(mesh, cap)].astype("f8")
+    want = _unsigned_polygon_area(poly)
+    assert want == pytest.approx(0.64, rel=1e-5)
+
+    # The whole-mesh plain fan, exactly as ``mesh._fan_corners`` calls it --
+    # sliced down to this one face's own triangles.
+    fan_corners, fan_face = ec.fan_corners(mesh.starts)
+    fan_tris = mesh.loops[fan_corners[fan_face == cap]]
+    fan_area = _unsigned_tri_area_sum(mesh.positions, fan_tris)
+    assert fan_area == pytest.approx(1.0, rel=1e-5)
+    assert fan_area != pytest.approx(want, rel=1e-5)
+
+    # What ``mesh.triangulate`` actually builds for this face gets it right.
+    tris, tri_face = bm.triangulate(mesh)
+    real = tris[tri_face == cap]
+    assert _unsigned_tri_area_sum(mesh.positions, real) == pytest.approx(want, rel=1e-5)
+
+
+def test_a_sweeps_default_outline_has_the_reflex_corner_the_concave_exemption_needs() -> None:
+    from warlock.studio.clay import earclip as ec
+
+    mesh = bp.sweep()
+    mask = ec.concave_faces(mesh.positions, mesh.loops, mesh.starts, bm.face_normals(mesh))
+    # Both caps share the same (reflex) outline; the six side bands do not.
+    assert mask.tolist() == [False] * 6 + [True, True]
+
+
+def test_a_sweeps_caps_are_single_n_gons_not_fans() -> None:
+    mesh = bp.sweep()
+    n = len(bp.SWEEP_DEFAULT_OUTLINE)
+    sizes = Counter(int(c) for c in np.diff(mesh.starts))
+    assert sizes == {4: n, n: 2}
+
+
+def test_a_sweep_spans_its_outlines_box_and_its_depth() -> None:
+    lo, hi = bm.bounds(bp.sweep(depth=2.0))
+    assert np.allclose(lo, [-0.5, -0.5, -1.0], atol=1e-6)
+    assert np.allclose(hi, [+0.5, +0.5, +1.0], atol=1e-6)
+
+
+def test_a_sweeps_taper_narrows_the_far_end_without_touching_the_near_one() -> None:
+    mesh = bp.sweep(taper=0.5, sections=1)
+    zmin, zmax = mesh.positions[:, 2].min(), mesh.positions[:, 2].max()
+    near = mesh.positions[np.isclose(mesh.positions[:, 2], zmin)]
+    far = mesh.positions[np.isclose(mesh.positions[:, 2], zmax)]
+    near_extent = near[:, :2].max(axis=0) - near[:, :2].min(axis=0)
+    far_extent = far[:, :2].max(axis=0) - far[:, :2].min(axis=0)
+    assert np.allclose(far_extent, near_extent * 0.5, atol=1e-6)
+
+
+def test_a_sweeps_twist_turns_only_the_far_end_about_z() -> None:
+    """A 90-degree turn swaps the outline's own x and y span at the far end
+    and leaves the near end -- which takes no twist at all -- untouched."""
+    mesh = bp.sweep(twist=90.0, sections=1)
+    zmin, zmax = mesh.positions[:, 2].min(), mesh.positions[:, 2].max()
+    near = mesh.positions[np.isclose(mesh.positions[:, 2], zmin)]
+    far = mesh.positions[np.isclose(mesh.positions[:, 2], zmax)]
+    near_extent = near[:, :2].max(axis=0) - near[:, :2].min(axis=0)
+    far_extent = far[:, :2].max(axis=0) - far[:, :2].min(axis=0)
+    plain = bp.sweep(sections=1)
+    plain_near = plain.positions[np.isclose(plain.positions[:, 2], zmin)]
+    assert np.allclose(near, plain_near, atol=1e-6)
+    assert np.allclose(far_extent, near_extent[::-1], atol=1e-6)
+
+
+def test_a_sweep_with_taper_and_twist_is_still_a_valid_outward_closed_shell() -> None:
+    """The generic registry sweeps only ever build a generator's defaults and
+    its clamped minimum (see ``VARIANTS``), which for ``sweep`` are the same
+    configuration -- so this is the one place a non-trivial taper, twist and
+    section count together are checked against the same claims those sweeps
+    make for every other generator."""
+    mesh = bp.sweep(taper=0.4, twist=45.0, sections=3)
+    bm.validate(mesh)
+    assert max(_directed_edge_counts(mesh).values()) == 1
+    assert set(_edge_use_counts(mesh).values()) == {2}
+    lo, hi = bm.bounds(mesh)
+    centre = (lo + hi) * 0.5
+    total = sum(
+        float((_centroid(mesh, i) - centre) @ _face_normal(mesh, i))
+        for i in range(bm.face_count(mesh))
+    )
+    assert total > 0.0
+
+
+# --- clamp_params: the outline normaliser --------------------------------------
+
+
+def test_an_outlines_adjacent_duplicate_corner_is_dropped() -> None:
+    clamped = bp.clamp_params(
+        "sweep", {"outline": [[0.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 1.0]]}
+    )
+    assert len(clamped["outline"]) == 3
+
+
+def test_an_outlines_closing_duplicate_is_dropped() -> None:
+    """An outline is *closed*, which a profile is not -- the last corner
+    against the first is the wrap-around case ``_clamp_profile`` has no
+    reason to check."""
+    clamped = bp.clamp_params(
+        "sweep", {"outline": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]}
+    )
+    assert len(clamped["outline"]) == 3
+
+
+def test_an_outlines_winding_is_normalised_to_be_positive() -> None:
+    """A clockwise outline builds an inside-out shell unless it is reversed
+    first -- the module's own "single nastiest defect" arriving through the
+    array parameter rather than a scalar one."""
+    ccw = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    cw = list(reversed(ccw))
+    got_ccw = bp.clamp_params("sweep", {"outline": ccw})["outline"]
+    got_cw = bp.clamp_params("sweep", {"outline": cw})["outline"]
+    assert got_cw == got_ccw
+
+
+def test_an_outline_is_recentred_on_its_own_bounding_box() -> None:
+    clamped = bp.clamp_params(
+        "sweep", {"outline": [[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]]}
+    )
+    xs = [c[0] for c in clamped["outline"]]
+    ys = [c[1] for c in clamped["outline"]]
+    assert (min(xs) + max(xs)) / 2.0 == pytest.approx(0.0, abs=1e-9)
+    assert (min(ys) + max(ys)) / 2.0 == pytest.approx(0.0, abs=1e-9)
+
+
+def test_an_outline_with_fewer_than_three_corners_falls_back_to_the_default() -> None:
+    clamped = bp.clamp_params("sweep", {"outline": [[0.2, 0.0], [0.4, 0.0]]})
+    assert clamped["outline"] == [list(c) for c in bp.SWEEP_DEFAULT_OUTLINE]
+    # Garbage input -- not even a list of pairs -- falls back the same way.
+    clamped = bp.clamp_params("sweep", {"outline": "not an outline"})
+    assert clamped["outline"] == [list(c) for c in bp.SWEEP_DEFAULT_OUTLINE]
+
+
+def test_an_outline_with_zero_area_falls_back_to_the_default() -> None:
+    """Every corner collinear is a line, not a polygon -- the same class of
+    degenerate ``_clamp_profile``'s own last step closes for a profile with no
+    positive radius anywhere."""
+    clamped = bp.clamp_params("sweep", {"outline": [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]})
+    assert clamped["outline"] == [list(c) for c in bp.SWEEP_DEFAULT_OUTLINE]
+
+
+def test_a_clamped_outline_is_stored_as_the_value_that_was_built() -> None:
+    raw = {
+        "outline": [[0.1, -0.2], [0.9, -0.1], [0.6, 0.5], [-0.3, 0.4]],
+        "depth": 1.5,
+        "taper": 0.6,
+        "twist": 30.0,
+        "sections": 2,
+    }
+    clamped = bp.clamp_params("sweep", raw)
+    from_raw = bp.sweep(**raw)
+    from_clamped = bp.sweep(**clamped)
+    assert np.array_equal(from_raw.positions, from_clamped.positions)
+    assert list(from_raw.starts) == list(from_clamped.starts)
+
+
+def test_the_sweeps_taper_has_a_positive_floor() -> None:
+    clamped = bp.clamp_params("sweep", {"taper": 0.0})
+    assert clamped["taper"] == bp.MIN_TAPER
+
+
+def test_a_degenerate_sweep_taper_is_clamped_rather_than_obeyed() -> None:
+    """A slider dragged to zero must not collapse the far cap to a point --
+    the same "clamp, don't raise" shape every other low-end floor here takes."""
+    zero = bp.sweep(taper=0.0)
+    floored = bp.sweep(taper=bp.MIN_TAPER)
+    bm.validate(zero)
+    assert np.allclose(zero.positions, floored.positions, atol=1e-6)
+
+
+def test_a_sweeps_sections_are_clamped_to_one_rather_than_to_three() -> None:
+    """``MIN_SEGMENTS`` is three because three is the smallest ring that is a
+    polygon; a sweep's own ring corner count comes from its outline, not from
+    ``sections``, so one section -- two rings, one band -- is already the
+    smallest sweep there is, the same reasoning ``grid``'s ``divisions`` floor
+    of one (not three) already makes."""
+    assert bm.face_count(bp.sweep(sections=0)) == bm.face_count(bp.sweep(sections=1))

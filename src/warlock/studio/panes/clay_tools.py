@@ -79,6 +79,10 @@ PRIMITIVE_ICONS = {
     "arch": icons.MAGNET,
     "column": icons.RULER,
     "lathe": icons.SPLINE,
+    # A sweep is an extrusion of stacked cross-sections, and layers is the
+    # nearest silhouette this set has for that -- the same "strained by now"
+    # trade-off the comment above already makes for the rest of this group.
+    "sweep": icons.LAYERS,
 }
 
 AXES = (("x", "X"), ("y", "Y"), ("z", "Z"))
