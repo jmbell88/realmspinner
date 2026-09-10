@@ -1238,6 +1238,66 @@ def test_a_preview_of_an_empty_mesh_draws_nothing() -> None:
     assert bd.preview_primitives(empty, empty.positions, []) == []
 
 
+# --- mesh_stamp: a wire-safe revision (Clay25 groundwork) -------------------
+#
+# ``Mesh`` is immutable and ``eq=False``, so object identity is already the
+# revision -- ``clay/mesh.py``'s ``_RAW_CACHE`` already relies on exactly that
+# for a drag's per-frame normals cache. ``id()`` itself is not safe to hand an
+# agent over the wire, though: CPython recycles a memory address the moment the
+# old object is collected, so a stale token could come back and validate
+# against a *different* mesh landed at the same address. ``mesh_stamp`` mints
+# its own small integers instead, lazily, so nothing is computed for the human
+# path that never calls it.
+
+
+def test_a_mesh_stamp_changes_when_the_mesh_is_replaced_and_not_when_the_object_merely_moves() -> (
+    None
+):
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    before = doc.mesh_stamp(a.uid)
+
+    doc.set_transform(a.uid, translation=(1.0, 0.0, 0.0))
+    assert doc.mesh_stamp(a.uid) == before, (
+        "a transform touches no vertex -- obj.mesh is the exact same object it was"
+    )
+
+    doc.set_mesh(a.uid, bp.cylinder())
+    assert doc.mesh_stamp(a.uid) != before, "a new Mesh object is a new revision"
+
+
+def test_an_undo_restores_the_stamp_the_mesh_had_before() -> None:
+    """The identity property, pinned so nobody "fixes" it into a counter.
+
+    ``mesh_stamp`` is asked once before the edit and once after the undo, with
+    nothing asking in between -- ``MeshEdit.undo`` restores the *exact*
+    previous ``Mesh`` object, so the cache's single entry for this uid, never
+    invalidated by anything in between, still names that same object when this
+    asks again. A naive counter that incremented once per ``MeshEdit`` rather
+    than once per *asked-about* identity change would report a fresh number
+    here instead -- a false change in the one moment an agent recovering from
+    a mistake is most likely to be checking whether it actually worked.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    before = doc.mesh_stamp(a.uid)
+
+    doc.set_mesh(a.uid, bp.cylinder())
+    doc.undo()
+
+    assert doc.mesh_stamp(a.uid) == before
+
+
+def test_a_deleted_objects_stamp_entry_does_not_outlive_it() -> None:
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    doc.mesh_stamp(a.uid)
+    assert a.uid in doc._mesh_stamps
+
+    doc.remove_object(a.uid)
+    assert a.uid not in doc._mesh_stamps
+
+
 def test_a_cached_plans_arrays_cannot_be_written_through() -> None:
     """The plan is handed to a different caller on every frame of a drag, and
     its index buffer goes straight out in a ``Primitive`` -- the same reason

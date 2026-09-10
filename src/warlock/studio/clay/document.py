@@ -214,6 +214,11 @@ class ClayDoc:
         # what "dirty" is derived from; see the module docstring.
         self.rev = 0
         self.saved_head = self.history.head
+        # ``mesh_stamp``'s cache: uid -> (the mesh it last minted a number for,
+        # that number). See :meth:`mesh_stamp` for why this exists at all
+        # rather than an agent tool just handing over ``id(obj.mesh)``.
+        self._mesh_stamps: dict[int, tuple[bm.Mesh, int]] = {}
+        self._next_stamp = 0
 
     # -- lookup ------------------------------------------------------------
 
@@ -228,6 +233,51 @@ class ClayDoc:
 
     def touch(self) -> None:
         self.rev += 1
+
+    def mesh_stamp(self, uid: int) -> int:
+        """A wire-safe revision number for one object's current mesh.
+
+        ``Mesh`` is immutable and ``eq=False`` (see its own docstring), so
+        object identity already *is* the mesh's revision -- ``clay/mesh.py``'s
+        ``_RAW_CACHE`` (lines 623-641) already keys off exactly that, for a
+        drag's per-frame normals cache. What identity is not is a value safe to
+        hand an agent over the wire: ``id()`` is a memory address CPython
+        recycles the moment the old object is garbage collected, so a stale
+        token an agent held onto across a few calls could come back and
+        validate against a **different** mesh that happens to have landed at
+        the same address -- silently wrong, which is worse than a token that
+        is merely absent.
+
+        So this mints its own small integers instead, lazily: nothing is
+        computed until asked, which is what keeps the human path -- every
+        click, drag and undo that never calls this -- paying nothing for it.
+        The cache holds only the *last* mesh this uid was asked about; asking
+        again returns the same number for as long as ``obj.mesh`` is the same
+        object, and a different object mints a fresh one.
+
+        **One property that looks like a bug and is not: an undo can hand back
+        a stamp this method already gave out.** ``MeshEdit.undo`` restores the
+        exact previous ``Mesh`` object (not a rebuilt copy of it), so if
+        nothing asked for a stamp while the edit was in effect, the cache still
+        holds that original mesh's entry when the undo lands -- and this
+        correctly reports no change at all, because from the token's point of
+        view nothing *has* changed: the mesh an agent is looking at is,
+        object-for-object, the one it looked at before. A naive counter that
+        incremented on every ``MeshEdit`` instead of every *asked-about*
+        identity change would get exactly this wrong, reporting a fresh
+        revision in the one moment an agent is most likely to be recovering
+        from a mistake and checking whether it actually worked. See
+        ``test_an_undo_restores_the_stamp_the_mesh_had_before`` in
+        ``tests/clay/test_document.py``, pinned so nobody "fixes" this into a
+        counter.
+        """
+        obj = self.by_uid(uid)
+        cached = self._mesh_stamps.get(uid)
+        if cached is not None and cached[0] is obj.mesh:
+            return cached[1]
+        self._next_stamp += 1
+        self._mesh_stamps[uid] = (obj.mesh, self._next_stamp)
+        return self._next_stamp
 
     # -- saving ------------------------------------------------------------
 
@@ -348,6 +398,11 @@ class ClayDoc:
         obj = self.objects.pop(index)
         self.selection.discard(uid)
         self.element_sel.pop(uid, None)
+        # A stamp naming an object that no longer exists is worse than a
+        # missing one: undo can bring the uid back with a fresh object at some
+        # later address, and an old stamp entry would otherwise linger keyed to
+        # a mesh that object never had.
+        self._mesh_stamps.pop(uid, None)
         self.history.push(ObjectRemoveEdit(index, obj))
         self.touch()
         return True
@@ -501,6 +556,7 @@ class ClayDoc:
             gone = self.objects.pop(index)
             self.selection.discard(uid)
             self.element_sel.pop(uid, None)
+            self._mesh_stamps.pop(uid, None)
             edits.append(ObjectRemoveEdit(index, gone))
         # The target's own element selection names vertices of the mesh that
         # has just been replaced, so it describes geometry that is no longer

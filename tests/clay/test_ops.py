@@ -215,6 +215,88 @@ def test_baking_an_untransformed_object_changes_nothing() -> None:
     assert np.allclose(out.mesh.positions, obj.mesh.positions)
 
 
+# --- world <-> local direction and position (Clay25, agent bounds/normal queries) --
+#
+# An agent reads "upward-facing" or "inside this box" out of a *world*-space
+# scene report, and a mesh's own positions and normals are local -- so turning
+# one into the other correctly is what makes ``select.faces_by_normal`` and
+# ``select.faces_in_bounds`` answer the question that was actually asked
+# rather than one that happens to agree with it on an unscaled primitive.
+
+
+def test_local_direction_accounts_for_a_non_uniform_scale_not_just_the_rotation() -> None:
+    """The derivation in ``local_direction``'s own docstring, made concrete.
+
+    A naive inverse -- ``quat_rotate(quat_conjugate(obj.rotation), world_dir)``,
+    the one line that looks like it must be the whole answer -- is exactly the
+    inverse of how a *position* transforms, not of how a *normal* does. The two
+    agree whenever ``obj.scale`` is uniform, which is why the mistake is
+    invisible on every un-stretched primitive and needs a scaled, rotated
+    fixture to show up at all: rotated 65 degrees about (1, 1, 1) with a
+    ``[1, 4, 1]`` scale, this box's *local* +Y face is genuinely the one
+    facing world "up" -- :func:`~warlock.studio.clay.select.faces_by_normal`
+    finds it, at a generous 20-degree tolerance, from what ``local_direction``
+    hands back. The naive, scale-blind inverse points somewhere else on this
+    mesh entirely and finds no face at all at the same tolerance -- this was
+    verified by writing exactly that naive line in place of the real one and
+    watching the assertion below fail before ``local_direction`` multiplied by
+    ``obj.scale`` at all.
+    """
+    from warlock.studio.clay import select
+
+    axis = m3.vec3(1.0, 1.0, 1.0) / math.sqrt(3.0)
+    obj = _obj(rotation=m3.quat_from_axis_angle(axis, math.radians(65.0)), scale=(1.0, 4.0, 1.0))
+    world_up = (0.0, 1.0, 0.0)
+
+    # The naive version: rotation only, no scale. Kept inline, not as a second
+    # implementation in ``ops.py``, because its only job is to prove the real
+    # one is not doing the same thing.
+    naive = m3.quat_rotate(m3.quat_conjugate(obj.rotation), np.asarray(world_up, dtype="f8"))
+    naive = naive / np.linalg.norm(naive)
+    assert select.faces_by_normal(obj.mesh, naive, max_angle=20.0).tolist() == [], (
+        "the naive, rotation-only inverse must not be the one that finds the top "
+        "face here -- if it is, this fixture no longer demonstrates the mistake"
+    )
+
+    correct = ops.local_direction(obj, world_up)
+    assert np.linalg.norm(correct) == pytest.approx(1.0)
+    assert select.faces_by_normal(obj.mesh, correct, max_angle=20.0).tolist() == [1], (
+        "face index 1 is +Y in primitives.box()'s own face table -- the top"
+    )
+
+
+def test_world_positions_moves_the_points_rather_than_the_box() -> None:
+    """``world_box`` is a *conservative* upper bound under rotation, by its own
+    docstring's admission: it moves the local mesh's eight box corners, not
+    the geometry, so a sphere -- whose vertices never reach those corners at
+    all -- reports a box wider than its true rotated footprint.
+    ``faces_in_bounds`` needs the true footprint: a selection built from the
+    looser box would select faces standing outside the box an agent actually
+    asked for. So this moves every vertex instead, matching a direct
+    ``compose`` oracle exactly, and reporting a strictly tighter bound than
+    ``world_box`` gives the same object on the two axes its rotation actually
+    moves.
+    """
+    obj = _obj(
+        "A",
+        bp.uv_sphere(segments=12, rings=6),
+        translation=(1.0, 2.0, 3.0),
+        rotation=m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), math.radians(37.0)),
+        scale=(2.0, 1.0, 0.5),
+    )
+    got = ops.world_positions(obj)
+
+    assert got.shape == (len(obj.mesh.positions), 3), "one row per vertex, not eight"
+    assert np.allclose(got, _world_positions(obj), atol=1e-6)
+
+    # Rotation is about Y, so X and Z are the axes it actually narrows; Y is
+    # untouched by a Y-axis rotation and the two bounds agree on it exactly.
+    box_lo, box_hi = ops.world_box(obj)
+    for axis in (0, 2):
+        assert got.min(axis=0)[axis] > box_lo[axis]
+        assert got.max(axis=0)[axis] < box_hi[axis]
+
+
 # --- duplicate ---------------------------------------------------------------
 
 

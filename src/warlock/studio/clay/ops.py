@@ -96,6 +96,82 @@ def world_box(obj: Obj) -> tuple[np.ndarray, np.ndarray] | None:
     return world.min(axis=0), world.max(axis=0)
 
 
+def local_direction(obj: Obj, world_dir: Iterable[float]) -> np.ndarray:
+    """*world_dir* expressed in *obj*'s local frame, as a unit vector.
+
+    **This is the one that is easy to get wrong.** A position transforms by
+    the object's matrix ``M``; a *direction that is meant as a surface normal*
+    does not, the moment ``M`` carries a non-uniform scale. With ``M = R * S``,
+    a normal transforms *world*-ward by ``(M^-1)^T = R * S^-1`` (``S`` diagonal
+    makes ``S^-T == S^-1``, and ``R`` orthogonal makes ``R^-T == R``) -- so
+    going the other way, from a world-space direction *asked about as a
+    normal* back to the local space that produced it, is that map's own
+    inverse: ``M^T = S * R^-1``. Applied to a vector, that is "rotate by the
+    inverse rotation, *then* scale" -- ``d_local = S . (R^-1 . d_world)`` --
+    not "rotate by the inverse rotation" alone, which is what a caller reaching
+    for ``quat_rotate(quat_conjugate(obj.rotation), world_dir)`` and stopping
+    there would write, and which is exactly the inverse of the *position* map
+    rather than of the *normal* map.
+
+    The two answers coincide whenever ``obj.scale`` is uniform (every diagonal
+    entry equal), which is why the bug is invisible on every primitive this
+    package ships un-stretched and only shows up on a scaled one -- see
+    ``test_local_direction_accounts_for_a_non_uniform_scale_not_just_the_
+    rotation`` in ``tests/clay/test_ops.py``, which writes the wrong version
+    first specifically because it passes on a uniform scale and only fails on
+    the box that is stretched.
+
+    Exact for the diagonal scale :class:`Obj` carries (no shear), the same
+    assumption :func:`~.viewer.math3d.decompose` states for the transforms this
+    package builds. Returns the zero vector for a *world_dir* with no length or
+    a result that collapses to nothing (a zero or near-zero scale on the axis
+    that carried all of it) -- a direction to test faces against is meaningless
+    in either case, and a caller dividing by a length of zero is the wrong way
+    to find that out.
+    """
+    d = np.asarray(world_dir, dtype="f8")
+    if float(np.linalg.norm(d)) <= 1e-12:
+        return np.zeros(3, dtype="f8")
+    r_inv = m3.quat_conjugate(np.asarray(obj.rotation, dtype="f8"))
+    rotated = m3.quat_rotate(r_inv, d)
+    scaled = rotated * np.asarray(obj.scale, dtype="f8")
+    length = float(np.linalg.norm(scaled))
+    if length <= 1e-12:
+        return np.zeros(3, dtype="f8")
+    return scaled / length
+
+
+def world_positions(obj: Obj) -> np.ndarray:
+    """Every vertex of *obj*'s mesh, transformed into world space. -> (V, 3) f8.
+
+    **Not** :func:`world_box`'s eight-corner trick, and deliberately: that one
+    is a conservative upper bound *by design*, built for a properties panel
+    that wants the same answer the viewport's framing already uses. A
+    selection built from an upper bound would select faces standing outside
+    the box an agent actually asked for -- picture a box rotated 45 degrees
+    inside a world-space query box exactly the size of its own axis-aligned
+    bound: every one of the tilted box's corners is at or past that bound's
+    faces, and treating "the bound's own bound" as the geometry would answer
+    "all eight corners in" when at most four of them are.
+
+    A world-space query *box* cannot be transformed into the object's local
+    space to sidestep that, either: the local axis-aligned bound of a rotated
+    *world* box is not itself a box (it is the box's rotated image, an
+    arbitrary parallelepiped), so there is no ``lo, hi`` pair in local space
+    that describes "inside this world box" for a rotated object. The
+    positions have to move into world space instead, which is what this does,
+    at O(V) after :func:`~.viewer.math3d.compose` -- for
+    :func:`~.select.faces_in_bounds`, called with a world *lo*/*hi* and these
+    as its *positions* argument.
+    """
+    matrix = m3.compose(obj.translation, obj.rotation, obj.scale)
+    pts = np.asarray(obj.mesh.positions, dtype="f8")
+    if len(pts) == 0:
+        return np.zeros((0, 3), dtype="f8")
+    homogeneous = np.hstack([pts, np.ones((len(pts), 1))])
+    return (matrix @ homogeneous.T).T[:, :3]
+
+
 def snap_value(value: float, step: float) -> float:
     """``value`` to the nearest multiple of ``step``; unchanged at step zero.
 

@@ -130,12 +130,17 @@ def test_shade_auto_can_actually_reach_its_whole_document_branch():
 def test_select_more_uses_the_one_definition_of_a_selected_face():
     """It reimplemented "a face is selected only when all of its corners are"
     as a Python loop over every face -- a second spelling of the rule those
-    verbs rest on being inverses of each other."""
+    verbs rest on being inverses of each other.
+
+    ``_sel_from_verts`` moved from ``clay_ops.py`` down into ``clay.select``
+    as the public ``sel_from_verts`` in the 2026-09-10 groundwork pass; this
+    test moved with it rather than dying with the private name it inspected.
+    """
     import inspect
 
-    from warlock.studio import clay_ops
+    from warlock.studio.clay import select
 
-    body = inspect.getsource(clay_ops._sel_from_verts)
+    body = inspect.getsource(select.sel_from_verts)
     assert "_face_corner_mask" in body
     assert "for face in range(" not in body
 

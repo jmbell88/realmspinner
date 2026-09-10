@@ -201,29 +201,20 @@ def test_pillow_is_never_imported_at_module_scope():
 
 def test_the_package_imports_with_no_optional_dependency_present():
     """Importing every module is the cheapest possible smoke test that the
-    lazy-import rule above is actually being followed."""
-    from warlock.studio.clay import (  # noqa: F401
-        adjacency,
-        diagnose,
-        document,
-        drag,
-        earclip,
-        edits,
-        elements,
-        glbimport,
-        mesh,
-        ops,
-        ops_bevel,
-        ops_boolean,
-        ops_dissolve,
-        ops_subdiv,
-        ops_topo,
-        pick,
-        presets,
-        primitives,
-        selection,
-        serialize,
-        shading,
-        topo,
-        uv,
-    )
+    lazy-import rule above is actually being followed.
+
+    Derived from ``_modules()`` rather than written out, which is the same
+    argument every other derived list in this codebase rests on and which this
+    test needed rather than merely deserved: it *was* a hand-kept import
+    block, and it had already drifted -- ``select.py`` was missing from it,
+    silently, so the one module holding the element-selection verbs was the
+    one module this smoke test never smoked. A list naming twenty-four of
+    twenty-five modules passes exactly as green as a correct one, which is
+    what makes the hand-kept version worse than useless here.
+    """
+    import importlib
+
+    for path in _modules():
+        if path.stem == "__init__":
+            continue
+        importlib.import_module(f"{PACKAGE}.{path.stem}")

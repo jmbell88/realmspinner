@@ -821,28 +821,28 @@ def _selection_op(verb: Any) -> Any:
 def _verb_linked(mesh: Any, sel: Any, mode: str) -> Any:
     from .clay import select as bsel
 
-    verts = _verts_of(mesh, sel, mode)
+    verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
         return None
-    return _sel_from_verts(mesh, bsel.linked(mesh, verts), mode)
+    return bsel.sel_from_verts(mesh, bsel.linked(mesh, verts), mode)
 
 
 def _verb_grow(mesh: Any, sel: Any, mode: str) -> Any:
     from .clay import select as bsel
 
-    verts = _verts_of(mesh, sel, mode)
+    verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
         return None
-    return _sel_from_verts(mesh, bsel.grow(mesh, verts), mode)
+    return bsel.sel_from_verts(mesh, bsel.grow(mesh, verts), mode)
 
 
 def _verb_shrink(mesh: Any, sel: Any, mode: str) -> Any:
     from .clay import select as bsel
 
-    verts = _verts_of(mesh, sel, mode)
+    verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
         return None
-    return _sel_from_verts(mesh, bsel.shrink(mesh, verts), mode)
+    return bsel.sel_from_verts(mesh, bsel.shrink(mesh, verts), mode)
 
 
 def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
@@ -862,58 +862,12 @@ def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
     return None
 
 
-def _verts_of(mesh: Any, sel: Any, mode: str) -> Any:
-    """Whatever is selected, as a set of vertices.
-
-    The common currency: growing a face selection and growing a vertex one are
-    the same walk over the same graph, and converting once here is what keeps
-    ``select.py`` free of a mode argument.
-    """
-    if mode == "vertex":
-        return np.asarray(sel.verts, dtype="i8")
-    if mode == "edge":
-        return np.unique(np.asarray(sel.edges, dtype="i8").reshape(-1))
-    faces = np.asarray(sel.faces, dtype="i8")
-    if not len(faces):
-        return np.zeros(0, dtype="i8")
-    starts = np.asarray(mesh.starts, dtype="i8")
-    loops = np.asarray(mesh.loops, dtype="i8")
-    out = [loops[starts[f] : starts[f + 1]] for f in faces if 0 <= f < len(starts) - 1]
-    return np.unique(np.concatenate(out)) if out else np.zeros(0, dtype="i8")
-
-
-def _sel_from_verts(mesh: Any, verts: Any, mode: str) -> Any:
-    """A vertex set back into the mode's own currency.
-
-    An edge or a face is included when **every** one of its vertices is, which
-    is the only definition that makes grow and shrink inverses of each other on
-    the inside of a selection: "partly selected" is not a state an element
-    selection can be in.
-    """
-    from .clay import elements as el
-
-    verts = np.unique(np.asarray(verts, dtype="i8"))
-    if mode == "vertex":
-        return el.ElementSel(verts=verts)
-    inside = np.zeros(len(mesh.positions), dtype=bool)
-    inside[verts[(verts >= 0) & (verts < len(inside))]] = True
-    if mode == "face":
-        # ``elements._face_corner_mask``, which is this question vectorised and
-        # is the same definition ``convert`` uses to go *up* a level. This had
-        # a Python loop over every face of the mesh -- so Select More on a
-        # 200k-face sculpt walked all of them per press, for an answer numpy
-        # already had -- and, worse, a second spelling of "a face is selected
-        # only when all of its corners are", which is the rule those two verbs
-        # rest on being inverses of each other.
-        mask = el._face_corner_mask(mesh, verts)
-        return el.ElementSel(faces=np.flatnonzero(mask).astype("i4"))
-    from .clay.adjacency import adjacency
-
-    a = adjacency(mesh)
-    if a.n_edges == 0:
-        return el.ElementSel()
-    both = inside[a.edge_verts[:, 0]] & inside[a.edge_verts[:, 1]]
-    return el.ElementSel(edges=a.edge_verts[both])
+# ``_verts_of`` and ``_sel_from_verts`` used to live here, reaching into
+# ``elements._face_corner_mask`` -- a private of another module -- from one
+# level too high up. The 2026-09-10 groundwork pass moved both, unchanged, down
+# into ``clay.select`` as the public ``verts_of``/``sel_from_verts``: see that
+# module for the functions and their docstrings, and the three ``_verb_*``
+# wrappers above for the only callers.
 
 
 def _register_defaults() -> None:

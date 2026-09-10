@@ -190,6 +190,158 @@ def test_by_material_finds_the_faces_using_a_slot():
     assert len(select.by_material(mesh, 7)) == 0
 
 
+# --- verts_of / sel_from_verts (moved down from clay_ops, 2026-09-10) ---------
+#
+# Pure moves, unchanged in behaviour: the proof they changed nothing is the
+# existing selection-verb tests in ``tests/test_clay_ops.py``, which exercise
+# them through the five ``_verb_*`` wrappers exactly as before. These two are
+# just the functions' own tests, which they had no home for while they lived
+# one level up in the ops layer.
+
+
+def test_verts_of_and_sel_from_verts_round_trip_a_face_selection():
+    from warlock.studio.clay import elements as el
+
+    mesh = bp.box()
+    faces = el.ElementSel(faces=[1])  # the top face: four corners, all its own
+
+    verts = select.verts_of(mesh, faces, "face")
+    assert len(verts) == 4
+
+    back = select.sel_from_verts(mesh, verts, "face")
+    assert back.faces.tolist() == [1], (
+        "every corner of face 1 and nothing else -- face 1 is the only face "
+        "all of whose corners are in that vertex set"
+    )
+
+
+def test_verts_of_and_sel_from_verts_round_trip_an_edge_selection():
+    from warlock.studio.clay import elements as el
+
+    mesh = _grid()
+    edge = _interior_edge(mesh)
+    edges = el.ElementSel(edges=[edge])
+
+    verts = select.verts_of(mesh, edges, "edge")
+    assert len(verts) == 2
+
+    back = select.sel_from_verts(mesh, verts, "edge")
+    assert {tuple(sorted(int(v) for v in row)) for row in back.edges} == {tuple(sorted(edge))}
+
+
+# --- faces_by_normal ------------------------------------------------------------
+
+
+def test_faces_by_normal_takes_the_upward_faces_of_a_box_and_not_its_sides():
+    mesh = bp.box()
+    faces = select.faces_by_normal(mesh, (0.0, 1.0, 0.0))
+    assert faces.tolist() == [1], "face 1 is +Y in primitives.box()'s own face table -- the top"
+
+
+def test_faces_by_normal_widens_with_the_angle_and_takes_nothing_at_zero_on_a_sphere():
+    mesh = bp.uv_sphere(segments=16, rings=8)
+    tiny = select.faces_by_normal(mesh, (0.0, 1.0, 0.0), max_angle=0.0)
+    narrow = select.faces_by_normal(mesh, (0.0, 1.0, 0.0), max_angle=60.0)
+    wide = select.faces_by_normal(mesh, (0.0, 1.0, 0.0), max_angle=170.0)
+    assert len(tiny) == 0, "no discrete face normal lands on exactly zero degrees off"
+    assert 0 < len(narrow) < len(wide)
+
+
+def test_faces_by_normal_ignores_a_degenerate_face_rather_than_matching_every_direction():
+    """The trap the docstring names: a zero-length normal, guarded to
+    ``[0, 0, 0]`` by the same ``np.divide(..., where=...)`` rule ``shading.
+    auto_smooth`` uses on the identical array, dots to exactly zero with any
+    unit direction -- which is ``>= cos(max_angle)`` the moment ``max_angle``
+    reaches 90 degrees, so an unguarded wide query would treat a degenerate
+    face as facing every direction there is. A second, real face is the
+    control: it must still match at the same wide angle, so the assertion
+    proves the degenerate one is excluded *because* it is degenerate, not
+    because nothing in this mesh would have matched anyway.
+    """
+    from warlock.studio.clay import mesh as bm
+
+    real = bp.plane()  # one quad, facing +Y exactly, by its own docstring
+    degenerate = np.full((4, 3), 2.0, dtype="f4")  # one point, four times over
+    mesh = bm.Mesh(
+        positions=np.concatenate([real.positions, degenerate]),
+        loops=np.concatenate([real.loops, np.array([4, 5, 6, 7], dtype="i4")]),
+        starts=np.concatenate([real.starts, [8]]).astype("i4"),
+        material=np.concatenate([real.material, [0]]).astype("i4"),
+        smooth=np.concatenate([real.smooth, [False]]),
+    )
+
+    faces = select.faces_by_normal(mesh, (0.0, 1.0, 0.0), max_angle=180.0)
+    assert faces.tolist() == [0], (
+        "the real quad matches at 180 degrees; the degenerate one never does"
+    )
+
+
+# --- faces_in_bounds ------------------------------------------------------------
+
+
+def test_faces_in_bounds_takes_a_face_only_when_every_corner_is_inside():
+    mesh = bp.box()
+    # Every corner of the box except the top face's own sits at y = -0.5.
+    faces = select.faces_in_bounds(mesh, (-10.0, 0.4, -10.0), (10.0, 10.0, 10.0))
+    assert faces.tolist() == [1], "only the top face has every one of its corners at y = +0.5"
+
+
+def test_faces_in_bounds_reads_the_positions_it_is_given_rather_than_the_meshs_own():
+    mesh = bp.box()
+    lo, hi = (-10.0, 0.4, -10.0), (10.0, 10.0, 10.0)
+    assert select.faces_in_bounds(mesh, lo, hi).tolist() == [1]
+
+    dropped = np.asarray(mesh.positions, dtype="f8") + [0.0, -1.0, 0.0]  # push the box down
+    assert len(select.faces_in_bounds(mesh, lo, hi, positions=dropped)) == 0, (
+        "the mesh's own positions would put the top face in these bounds; the "
+        "positions actually passed in do not, and those are the ones that count"
+    )
+
+
+# --- QUERIES --------------------------------------------------------------------
+
+
+def test_every_query_names_modes_it_can_actually_answer_in():
+    grid = _grid()
+    box = bp.box()
+    edge = _interior_edge(grid)
+    field_to_mode = {"verts": "vertex", "edges": "edge", "faces": "face"}
+    fixtures = {
+        "loop": (grid, {"edge": edge}),
+        "ring": (grid, {"edge": edge}),
+        "face_loop": (grid, {"face": 0}),
+        "material": (box, {"slot": 0}),
+        "normal": (box, {"direction": (0.0, 1.0, 0.0)}),
+    }
+    for name, query in select.QUERIES.items():
+        if name == "bounds":
+            sel = query.run(box, (-10.0, -10.0, -10.0), (10.0, 10.0, 10.0))
+        else:
+            mesh, kwargs = fixtures[name]
+            sel = query.run(mesh, **kwargs)
+        touched = [field for field in ("verts", "edges", "faces") if len(getattr(sel, field))]
+        assert touched, f"query {name!r} found nothing on its own fixture"
+        for field in touched:
+            assert field_to_mode[field] in query.modes, name
+
+
+def test_the_query_registry_does_not_duplicate_a_verb_that_is_already_an_op():
+    """The anti-drift gate. ``all``, ``none``, ``invert``, ``linked``, ``more``,
+    ``less`` and ``boundary`` are already ``select-*`` rows in ``clay_ops.OPS``
+    and already in the agent's derived ``clay_op`` enum -- dead only because no
+    element mode can be set from an agent yet, not a hole for ``QUERIES`` to
+    fill a second time."""
+    from warlock.studio import clay_ops
+
+    banned = {"all", "none", "invert", "linked", "more", "less", "boundary"}
+    op_verbs = {
+        op.name.removeprefix("select-") for op in clay_ops.OPS if op.name.startswith("select-")
+    }
+    assert op_verbs == banned, "this pin's own idea of the seven must match the real registry"
+    assert set(select.QUERIES) & banned == set()
+    assert set(select.QUERIES).isdisjoint(op_verbs)
+
+
 # --- mirror pairs -------------------------------------------------------------
 
 
