@@ -67,6 +67,17 @@ is about that seam holding, with no real GL and no real app:
   Its own reply carries the same ``structuredContent`` duplication every
   Clay tool's does (``ok(text(...), structured=payload)``), so it is not the
   one inconsistent result shape on the bridge.
+* The three transport-level refusals this module raises directly each name a
+  ``recovery`` from ``agent_clay.RECOVERY`` -- the dropped-call timeout is
+  ``"retry"`` (nothing ran), the in-flight refusal ``_replay`` raises when a
+  retry arrives while the original is still ``RUNNING``/``QUEUED`` is
+  ``"wait"`` (do not resend), and the started-call timeout is ``"read_scene"``:
+  not because anything named a uid, but because what is stale is the client's
+  own knowledge of whether the call happened at all, and re-reading is the
+  same recovery either way. This module holds no vocabulary of its own for
+  any of that -- it already imports ``agent_clay`` (for ``call``), so it
+  reuses ``agent_clay.RECOVERY`` rather than inventing a second one next to
+  it.
 
 Every wait below is bounded (``conn.poll(timeout=...)`` before every
 ``recv_bytes``, and explicit ``join`` timeouts), so a regression that makes
@@ -1142,5 +1153,67 @@ def test_a_timeout_refusal_names_the_operation_to_ask_about(tmp_path, monkeypatc
     ][0]["text"]
     assert "op-1" in started_text
     assert agent_host.STATUS_TOOL in started_text
+
+
+# --- recovery: the three transport-level refusals each name one -------------
+
+
+def test_the_transport_refusals_name_their_recovery(tmp_path, monkeypatch) -> None:
+    """The dropped-call and started-call timeout refusals, staged the same
+    way ``test_a_timeout_refusal_names_the_operation_to_ask_about`` above
+    already does; the in-flight refusal needs a job genuinely ``RUNNING``,
+    staged the same real-thread way the dedup tests earlier in this file
+    do."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.DROPPED)
+    )
+    dropped = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})
+    assert (dropped.get("structuredContent") or {}).get("recovery") == "retry"
+
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, None, None, agent_host.RUNNING)
+    )
+    started = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})
+    assert (started.get("structuredContent") or {}).get("recovery") == "read_scene"
+
+    host2 = _bare_host()
+    calls = agent_host._Calls()
+    _shorten_call_timeout(monkeypatch, host2, timeout=RUNNING_WAIT)
+
+    started_evt = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started_evt.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "done"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host2, stop_pumping), daemon=True)
+    pumper.start()
+    session = agent_clay.Session()
+    try:
+        first_thread = threading.Thread(
+            target=lambda: host2._call(session, calls, "clay_scene", {}), daemon=True
+        )
+        first_thread.start()
+        assert started_evt.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive()
+
+        # Still RUNNING (blocked on release) when this retry arrives -- the
+        # in-flight refusal, not the started-call timeout above.
+        in_flight = host2._call(session, calls, "clay_scene", {})
+    finally:
+        release.set()
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+    assert in_flight["isError"] is True
+    assert (in_flight.get("structuredContent") or {}).get("recovery") == "wait"
 
 

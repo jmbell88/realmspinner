@@ -184,6 +184,16 @@ engine stopped being something you download whether or not you ever use it.
   deliberately do not, and any answer that carries a picture — a render, a
   fetched reference — still answers with pictures only, never a second copy
   of its own header.
+- **A refusal now says whether anything moved, and what to try next.** Every
+  refusal already named the `field` it was about, where one was knowable; it
+  now also carries `changed` — whether this session's own document was
+  touched before the tool gave up on the call — and, for the refusals an
+  agent runs into most, a `recovery` naming the next move: fix the
+  arguments, re-read the scene, switch element mode, start a document, or
+  simply wait or retry. The two timeout refusals a busy window can produce
+  carry one too. A client can act on any of it without parsing the sentence
+  a model was meant to read, the same reason the structured JSON above
+  exists in the first place.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

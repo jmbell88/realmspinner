@@ -308,6 +308,25 @@ for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 numb
 three live beside `agent_clay.py`'s other validators, in the same "validate everything before the
 first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
 
+A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
+`changed`, defaulted to `False` in that one wrapper rather than at each of this file's ~100 call
+sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
+refusal that never reaches a mutation is `changed: false` for free, and there is nothing to write.
+Only a tool that can genuinely refuse *after* changing something has to think about it, and today
+exactly one can: `clay_batch`, whose own payload computes `changed` from whether the fold it just
+closed actually moved the undo history's head, because a batch that stops at its third call has
+already kept the first two. Writing this down is what found the one place that did not follow the
+rule — `clay_boolean` used to set the object selection before checking there were two visible
+objects to work with, so a refused boolean quietly replaced whatever you had selected. The order
+is fixed rather than the flag being made to admit it, which is the point of asking a tool to state
+whether anything moved: a claim a tool has to make about itself is one somebody eventually checks.
+
+A refusal that names a `field` also gets a `recovery` for free, from that field alone — naming the
+argument you are unhappy with is already telling the caller which one to change. Pass `recovery=`
+yourself only when that is the wrong advice, the way a stale mesh stamp does: the number it was
+handed was well-formed and was true when it was read, so the answer is to go and read it again
+rather than to correct it.
+
 A new tool is also two decisions, both of which the test suite makes you take. Name it in
 `BATCH_EXCLUDED` if it belongs there — the only two reasons anything is on that list are that its
 result is a picture a client has to see as an image, which is not a shape a batch's own result can

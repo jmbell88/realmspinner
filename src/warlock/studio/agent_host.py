@@ -671,14 +671,25 @@ class AgentHost:
             return protocol.fail(
                 f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the window is busy. "
                 f"The call was dropped before it ran, as operation {op.operation_id}, so nothing "
-                "changed -- send it again."
+                "changed -- send it again.",
+                recovery="retry",
             )
+        # "read_scene", not a new seventh member invented for this case: the
+        # message itself offers two better recoveries in prose (ask
+        # STATUS_TOOL, or resend once it has finished for a replay), but
+        # neither is literally "switch element mode" or "start a document" --
+        # what both really are is "your picture of what happened here is
+        # stale, go get a fresh one before acting on a guess", which is
+        # exactly what a client already does with "read_scene" for a document
+        # it has not re-read since a uid went missing. See agent_clay.RECOVERY
+        # for the shared vocabulary this reuses rather than duplicates.
         return protocol.fail(
             f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the call had already "
             f"started and will finish on its own, as operation {op.operation_id}. Ask "
             f"{STATUS_TOOL} about it -- and once it has finished, sending that same call "
             "again hands back the result it produced rather than running it twice. Do not "
-            "assume it did not happen."
+            "assume it did not happen.",
+            recovery="read_scene",
         )
 
     def _op_row(self, op: _Op) -> dict[str, Any]:
@@ -790,7 +801,8 @@ class AgentHost:
             return protocol.fail(
                 f"That same call is already {state} as operation {prior.operation_id} and its "
                 "result was never delivered; sending it again would run it twice. Wait for it "
-                "rather than repeating it."
+                "rather than repeating it.",
+                recovery="wait",
             )
         if state == DROPPED:
             # Nothing ran, so a retry is exactly right -- close the old

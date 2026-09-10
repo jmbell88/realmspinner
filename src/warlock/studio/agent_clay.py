@@ -151,6 +151,30 @@ field instead of re-parsing prose out of the text block). Duplication, not
 an oversight: a model and a client are two different readers of one answer,
 and neither can stand in for the other.
 
+**A refusal is machine-readable, not only readable.** :func:`fail` -- the thin
+wrapper over ``protocol.fail`` a few lines below -- gives every refusal in
+this file a ``changed`` key, defaulted in that one wrapper rather than at each
+of its ~100 call sites: whether *this session's own document* -- the
+``ClayDoc`` itself -- was modified before the refusal fired. Not whether a
+Library row was minted (``clay_export``'s own refusal is ``changed: false``
+by this definition even where it has already written one) and not whether a
+session-scoped reference was added (``clay_reference_add`` touches no
+``ClayDoc`` at all) -- the document, exactly as the rest of this file already
+uses the word: ``_h_transform`` and ``_h_set_params`` answer ``changed`` on
+the *success* side today, and a refusal now answers the same question the
+same way, rather than leaving a client to infer it from prose. ``field`` is
+untouched by any of this -- still ``service.errors``' own convention, shared
+with the panes, which is why it is never folded into a differently-shaped
+key. Where a refusal already names the objects or the op it is about in its
+message, ``uids``/``op`` ride along too, so a client need not parse them back
+out of the text block. ``recovery`` is a closed, bounded vocabulary
+(:data:`RECOVERY`, below) naming what a client should try next --
+``"fix_arguments"``, ``"read_scene"``, ``"switch_mode"``, ``"start_document"``,
+``"retry"``, ``"wait"`` -- and a refusal whose recovery is genuinely unknown
+(the blanket backstops in :func:`call` and in ``protocol.dispatch`` itself)
+carries no ``recovery`` key at all: an absent key is a real, distinct answer,
+never a seventh member invented to avoid omitting the field.
+
 **A result that carries a picture does not duplicate its header into
 ``structuredContent``** -- the rule, stated once, rather than a list of tool
 names it happens to apply to today. ``clay_render`` builds its result
@@ -320,6 +344,64 @@ enough that the common case ("what did that extrude just make") comes back as
 a paragraph rather than a printout, and still a small fraction of
 ``ELEMENT_PAGE_MAX`` for the rarer caller that has to page through more."""
 
+RECOVERY = frozenset(
+    {
+        "fix_arguments",
+        "read_scene",
+        "switch_mode",
+        "start_document",
+        "retry",
+        "wait",
+    }
+)
+"""The closed vocabulary a refusal's ``recovery`` key may name -- lives here,
+not in ``mcp/protocol.py``, because several members (``"switch_mode"``) are
+Clay vocabulary and that module must stay ignorant of Clay (its own module
+docstring's rule). ``agent_host`` imports this module already, so it reaches
+for the same six words for its own transport-level refusals rather than
+inventing a second vocabulary next to this one. A refusal whose recovery is
+not one of these six is a refusal with no ``recovery`` key at all -- see
+:func:`fail`'s own docstring -- so this set is a ceiling, never a default to
+fall back to.
+
+* ``"fix_arguments"`` -- the request itself was malformed, out of range, or
+  named something the registry this tool checks against has no entry for.
+  Resending the identical call refuses the identical way; the arguments have
+  to change first. Never written out at a call site: :func:`fail` derives it
+  from ``field=``, because a refusal that names the argument it is unhappy
+  with is already saying which one to change. That covers the shared
+  validators (:func:`_validate_vec3`, :func:`_validate_number`,
+  :func:`_validate_unit`, :func:`_validate_number_or_vec`,
+  :func:`_validate_query_arg`) and equally the eighty-odd refusals that name
+  a field directly -- a bad ``generator``, an unknown ``kind``, a ``name``
+  another object already wears -- without a second keyword on any of them.
+* ``"read_scene"`` -- the request named a uid or an object this document does
+  not have right now, so the client's picture of it is stale. Attached in
+  :func:`_resolve_uid`/:func:`_resolve_uids`. ``agent_host`` reuses it for its
+  own started-call timeout refusal, where what is stale is not the document
+  but the client's knowledge of whether the call it sent actually happened --
+  re-reading (``clay_scene``, or ``warlock_status`` for that transport case)
+  is the same recovery either way: go look before acting on a guess.
+* ``"switch_mode"`` -- the document is in the wrong element mode for this
+  call. ``clay_element_mode`` (or ``clay_select_elements``/``clay_select_by``'s
+  own ``mode``) first, then repeat the call. Attached at the two sites using
+  :data:`_OBJECT_SELECTION_DERIVED_REFUSAL`. **Not** attached to ``clay_op``'s
+  own disabled-op refusal (:func:`_h_op`, via ``clay_ops.reason_for``) even
+  though its wording sometimes names a mode gate -- ``op.reason`` covers
+  several unrelated predicates (``_has_objects_reason``, ``_selection_reason``,
+  ``_has_two_visible_reason`` among them, see ``clay_ops.py``'s own "reasons"
+  section) and only some of them are about element mode; :func:`_h_op` has no
+  way to tell which fired from the string alone, so it names the op
+  (``op=``) instead of guessing a recovery that would be wrong for "Select an
+  object first."
+* ``"start_document"`` -- this session owns no document yet. ``clay_add_primitive``
+  or ``clay_add_figure`` starts one. Attached in :func:`_tab`'s own refusal.
+* ``"retry"`` -- nothing ran; the identical call is safe to send again.
+  ``agent_host``'s dropped-call timeout refusal.
+* ``"wait"`` -- the same work is already running or queued; sending the same
+  call again would run it twice. ``agent_host._replay``'s in-flight refusal.
+"""
+
 _OBJECT_SELECTION_DERIVED_REFUSAL = (
     "The object selection is derived from the element selection in "
     "vertex/edge/face mode. Call clay_element_mode with mode='object' first."
@@ -398,7 +480,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
         if not create:
             return None, fail(
                 "This session's document was closed. Call clay_add_primitive "
-                "or clay_add_figure to start a new one."
+                "or clay_add_figure to start a new one.",
+                recovery="start_document",
             )
         # The pin is released here rather than left standing, because leaving
         # it made the refusal above impossible to follow. It named
@@ -417,7 +500,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
     if not create:
         return None, fail(
             "This session has no document yet. Call clay_add_primitive or "
-            "clay_add_figure first."
+            "clay_add_figure first.",
+            recovery="start_document",
         )
     tab = clay_mode.new_document(ctx)
     session.tab_uid = tab.uid
@@ -448,8 +532,51 @@ def ok(*content: dict, structured: dict | None = None) -> dict:
     return _protocol().ok(*content, structured=structured)
 
 
-def fail(message: str, **extra: Any) -> dict:
-    return _protocol().fail(message, **extra)
+def fail(message: str, *, changed: bool = False, **extra: Any) -> dict:
+    """Thin wrapper over ``protocol.fail`` -- see that function's own
+    docstring for the wire shape ``extra`` (``field=``, now also ``changed=``,
+    ``recovery=``, ``uids=``, ``op=``) lands in.
+
+    ``changed`` says whether *this session's own document* -- the ``ClayDoc``
+    itself, walked by uid through ``tab.doc`` -- was modified before this
+    refusal fired. Not whether a Library row was minted (``clay_export``
+    refusing after ``clay_mode.build_asset`` has already run would still be
+    ``changed: false``, because a model row is not this document) and not
+    whether a session-scoped reference was added or removed (``clay_reference_add``
+    never touches a ``ClayDoc`` at all) -- the document, exactly as
+    :func:`_h_transform` and :func:`_h_set_params` already use the word on
+    the success side.
+
+    Defaulted here, once, rather than passed at each of this file's ~100
+    ``fail(...)`` call sites, so every refusal answers the question by
+    construction and a handler that refuses *after* it has already mutated
+    the document is the only kind that has to say so explicitly. Exactly one
+    does: ``clay_batch``, whose documented contract is that it stops at the
+    first refusal and *keeps what already ran*, so it computes the answer
+    from its own history mark rather than defaulting. Every other refusal in
+    this file validates before it mutates -- the rule
+    ``docs/manual/45-extending.md`` states for a new tool -- and
+    ``tests/test_agent_clay.py`` proves it against the document itself, by
+    walking every handler and checking a ``changed: false`` refusal really
+    did leave the history, the dirty flag and the object count alone.
+
+    ``recovery`` is defaulted the same way, and from the field itself: a
+    refusal that names a ``field`` is by definition telling the client which
+    argument was wrong, which is ``"fix_arguments"`` -- so naming one is
+    enough and the 80-odd refusals that already do get their recovery
+    without a second keyword each. An explicit ``recovery=`` always wins,
+    which is what the exceptions rely on: ``_resolve_uid``'s missing uid is
+    ``"read_scene"`` even though it names ``field="uid"``, because the
+    argument may be perfectly well-formed and the document simply no longer
+    holds it, and the stale-``expect_stamp`` refusal is ``"read_scene"`` for
+    the same reason -- its own sentence already says to go and read the
+    stamp again. A refusal that names no field and passes no recovery keeps
+    none, which is the honest answer for the blanket ``except`` in
+    :func:`call`: nothing there knows what a client should do differently.
+    """
+    if "recovery" not in extra and extra.get("field"):
+        extra["recovery"] = "fix_arguments"
+    return _protocol().fail(message, changed=changed, **extra)
 
 
 def text(s: str) -> dict:
@@ -579,7 +706,9 @@ def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | No
         uid = int(args[key])
         obj = doc.by_uid(uid)
     except (KeyError, ValueError, TypeError):
-        return None, fail(f"no object with uid {args.get(key)!r}.", field=key)
+        return None, fail(
+            f"no object with uid {args.get(key)!r}.", field=key, recovery="read_scene"
+        )
     return obj, None
 
 
@@ -598,11 +727,18 @@ def _resolve_uids(
     try:
         uids = [int(u) for u in values or []]
     except (TypeError, ValueError):
-        return None, fail(f"{field} must be a list of integers.", field=field)
+        return None, fail(
+            f"{field} must be a list of integers.", field=field, recovery="fix_arguments"
+        )
     known = {obj.uid for obj in doc.objects}
     missing = [u for u in uids if u not in known]
     if missing:
-        return None, fail(f"no object with uid(s) {missing}.", field=field)
+        return None, fail(
+            f"no object with uid(s) {missing}.",
+            field=field,
+            recovery="read_scene",
+            uids=missing,
+        )
     return uids, None
 
 
@@ -615,13 +751,19 @@ def _validate_vec3(value: Any, field: str) -> tuple[list[float] | None, dict | N
     mutation" rule.
     """
     if not isinstance(value, list) or len(value) != 3:
-        return None, fail(f"{field} must be an array of 3 numbers.", field=field)
+        return None, fail(
+            f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
+        )
     try:
         out = [float(v) for v in value]
     except (TypeError, ValueError):
-        return None, fail(f"{field} must be an array of 3 numbers.", field=field)
+        return None, fail(
+            f"{field} must be an array of 3 numbers.", field=field, recovery="fix_arguments"
+        )
     if not all(math.isfinite(v) for v in out):
-        return None, fail(f"{field} must be finite numbers.", field=field)
+        return None, fail(
+            f"{field} must be finite numbers.", field=field, recovery="fix_arguments"
+        )
     return out, None
 
 
@@ -635,9 +777,9 @@ def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]
     try:
         out = float(value)
     except (TypeError, ValueError):
-        return None, fail(f"{field} must be a number.", field=field)
+        return None, fail(f"{field} must be a number.", field=field, recovery="fix_arguments")
     if not math.isfinite(out):
-        return None, fail(f"{field} must be finite.", field=field)
+        return None, fail(f"{field} must be finite.", field=field, recovery="fix_arguments")
     return out, None
 
 
@@ -655,9 +797,13 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
     try:
         out = float(value)
     except (TypeError, ValueError):
-        return None, fail(f"{field} must be a number, 0..1.", field=field)
+        return None, fail(
+            f"{field} must be a number, 0..1.", field=field, recovery="fix_arguments"
+        )
     if not math.isfinite(out) or not (0.0 <= out <= 1.0):
-        return None, fail(f"{field} must be a number, 0..1.", field=field)
+        return None, fail(
+            f"{field} must be a number, 0..1.", field=field, recovery="fix_arguments"
+        )
     return out, None
 
 
@@ -685,16 +831,26 @@ def _validate_number_or_vec(
         try:
             out = [float(v) for v in value]
         except (TypeError, ValueError):
-            return None, fail(f"{field} must be a number or an array of numbers.", field=field)
+            return None, fail(
+                f"{field} must be a number or an array of numbers.",
+                field=field,
+                recovery="fix_arguments",
+            )
         if not out or not all(math.isfinite(v) for v in out):
-            return None, fail(f"{field} must be finite numbers.", field=field)
+            return None, fail(
+                f"{field} must be finite numbers.", field=field, recovery="fix_arguments"
+            )
         return out, None
     try:
         out = float(value)
     except (TypeError, ValueError):
-        return None, fail(f"{field} must be a number or an array of numbers.", field=field)
+        return None, fail(
+            f"{field} must be a number or an array of numbers.",
+            field=field,
+            recovery="fix_arguments",
+        )
     if not math.isfinite(out):
-        return None, fail(f"{field} must be finite.", field=field)
+        return None, fail(f"{field} must be finite.", field=field, recovery="fix_arguments")
     return out, None
 
 
@@ -1860,25 +2016,35 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
     """
     if name == "edge":
         if not isinstance(value, list) or len(value) != 2:
-            return None, fail(f"{name} must be a [vertex, vertex] pair.", field=name)
+            return None, fail(
+                f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
+            )
         try:
             return [int(v) for v in value], None
         except (TypeError, ValueError):
-            return None, fail(f"{name} must be a [vertex, vertex] pair.", field=name)
+            return None, fail(
+                f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
+            )
     if name in ("face", "slot"):
         try:
             return int(value), None
         except (TypeError, ValueError):
-            return None, fail(f"{name} must be an integer.", field=name)
+            return None, fail(
+                f"{name} must be an integer.", field=name, recovery="fix_arguments"
+            )
     if name in ("direction", "min", "max"):
         return _validate_vec3(value, name)
     if name == "max_angle":
         return _validate_number(value, name)
     if name == "space":
         if value not in ("world", "local"):
-            return None, fail("space must be 'world' or 'local'.", field="space")
+            return None, fail(
+                "space must be 'world' or 'local'.", field="space", recovery="fix_arguments"
+            )
         return value, None
-    return None, fail(f"unknown query argument {name!r}.", field=name)  # pragma: no cover
+    return None, fail(
+        f"unknown query argument {name!r}.", field=name, recovery="fix_arguments"
+    )  # pragma: no cover
 
 
 # --- dispatch -----------------------------------------------------------------
@@ -2001,6 +2167,17 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         if failure:
             return failure
 
+    # A boundary case surfaced by the ``changed`` audit, not missed: when this
+    # session owns no document yet, ``_tab(..., create=True)`` below mints an
+    # empty one and adopts it -- and the two refusals right after this can
+    # still fire on that brand-new, empty document (an out-of-range
+    # ``material`` needs no other object in the document to trigger). That
+    # mint is deliberately not treated as ``changed=True`` here: it pushes no
+    # undo step, adds no object and paints no face, so the three witnesses
+    # this file's own tests use to mean "the document moved" (history length,
+    # ``dirty``, object count) read identically to a document that was never
+    # minted at all -- the same reasoning ``fail()``'s own docstring gives
+    # for why minting a Library row is not "the document" either.
     tab, failure = _tab(ctx, session, create=True)
     if failure:
         return failure
@@ -2113,6 +2290,18 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
         existing = {o.name for o in doc.objects if o.uid not in placed}
         prefixed = [f"{name_prefix}{o.name}" for o in objs]
         if len(set(prefixed)) != len(prefixed) or existing & set(prefixed):
+            # A mutate-then-refuse path, audited rather than missed: the
+            # figure's parts were already placed by ``add_assembly`` above,
+            # so this refusal fires *after* a real mutation. ``doc.undo()``
+            # on the line below is what keeps ``changed`` honestly ``False``
+            # here (the wrapper's default, left unoverridden) rather than a
+            # gap in the audit -- it reverses the very compound step
+            # ``collapse_since`` just folded, so the object count, the undo
+            # history's own length and ``doc.dirty`` all read exactly as they
+            # did before this call started. See ``document.py``'s ``undo()``
+            # and ``UndoStack.undo()`` for why that revert is exact rather
+            # than approximate: the compound edit's own ``undo`` puts back
+            # the very objects it added, by uid.
             doc.history.collapse_since(mark)
             doc.undo()
             return fail(
@@ -2321,7 +2510,7 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
     # changing the document's mode under a call that did not ask for it is
     # the hidden state change this codebase refuses instead of guessing at.
     if doc.element_mode != "object":
-        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL)
+        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
     kind = args.get("kind")
     if kind not in ops_boolean.KINDS:
         return fail(f"kind must be one of {', '.join(ops_boolean.KINDS)}.", field="kind")
@@ -2329,16 +2518,30 @@ def _h_boolean(ctx: Any, session: Session, args: dict) -> dict:
         wanted = [int(u) for u in args.get("uids") or []]
     except (TypeError, ValueError):
         return fail("uids must be a list of integers.", field="uids")
-    # ``_union``'s own shape, generalised over the three kinds: the selection
-    # is set from the request and then re-read the way every other selection-
-    # based op reads it, so "first" means the target's place in the document's
-    # own object order -- never the order this list happened to name them in.
-    # See ``ops_boolean.KINDS``' own docstring for why that is the rule for a
-    # difference, where the order changes the answer.
-    doc.select(wanted)
-    targets = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    # ``_union``'s own shape, generalised over the three kinds: the targets
+    # are read in the document's own object order, so "first" means the
+    # target's place in that order -- never the order this list happened to
+    # name them in. See ``ops_boolean.KINDS``' own docstring for why that is
+    # the rule for a difference, where the order changes the answer.
+    #
+    # Derived by walking ``doc.objects`` against *wanted* rather than by
+    # writing ``doc.select(wanted)`` first and re-reading it: the write was
+    # only ever a way to get that ordering, and doing it here put a mutation
+    # ahead of the count check below -- so a boolean refused for naming too
+    # few visible objects left the person's own selection overwritten by a
+    # call that changed nothing else. Walking the list gives the identical
+    # answer (a uid naming no object simply never matches) with nothing
+    # written, which is what lets the refusal below be honest that the
+    # document did not move. The selection this op does mean to leave behind
+    # is set once, at the end, to the survivor.
+    keep = {int(u) for u in wanted}
+    targets = [obj.uid for obj in doc.objects if obj.uid in keep and obj.visible]
     if len(targets) < 2:
-        return fail("Select at least two visible objects.", field="uids")
+        return fail(
+            "Select at least two visible objects.",
+            field="uids",
+            uids=targets,
+        )
     mesh = ops_boolean.boolean([doc.by_uid(u) for u in targets], kind)
     doc.join_objects(targets[0], mesh, targets[1:])
     # clay-08 (2026-09-08 audit), the same pop ``clay_ops._join``/``_union``
@@ -2359,7 +2562,7 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
     if doc.element_mode != "object":
-        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL)
+        return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
     if failure:
         return failure
@@ -2508,6 +2711,11 @@ def _check_expect_stamp(
             "was read; call clay_elements or clay_scene to see what it is "
             "now.",
             field="expect_stamp",
+            # Not the ``"fix_arguments"`` a named field defaults to: the
+            # stamp the client sent was the right shape and was true when it
+            # read it. What is stale is its picture of the mesh, which is
+            # exactly what this message already tells it to go and re-read.
+            recovery="read_scene",
         )
     return expect_stamp, None
 
@@ -2709,14 +2917,22 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     try:
         op = clay_ops.get(name)
     except KeyError:
-        return fail(f"no op named {name!r}.", field="name")
+        return fail(f"no op named {name!r}.", field="name", recovery="fix_arguments", op=name)
     # ``run`` itself returns False, silently, for a disabled op -- exactly the
     # answer that is useless to an agent with no menu to look at and read the
     # greyed row's tooltip from. Checked here, once, so the refusal names the
     # gate (``reason_for`` is only ever consulted once ``enabled`` has already
     # said no, matching ``clay_ops``'s own rule for the two never disagreeing).
     if not op.enabled(doc):
-        return fail(clay_ops.reason_for(op, doc))
+        # Not always ``recovery="switch_mode"``: ``op.reason`` covers several
+        # unrelated gates (``_has_objects_reason``, ``_selection_reason``,
+        # ``_has_two_visible_reason`` and the rest, see ``clay_ops.py``'s own
+        # "reasons" section), and only some of them -- the ones built from
+        # ``_in_mode_reason`` -- are about element mode at all. This handler
+        # has no way to tell which gate fired from the string alone, so it
+        # names the op rather than guessing a recovery that would be wrong
+        # for "Select an object first."
+        return fail(clay_ops.reason_for(op, doc), op=op.name)
     params = args.get("params") or {}
     proxy = _OpCtx(state=getattr(ctx, "state", None))
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
@@ -3200,7 +3416,8 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
             return fail(
                 "This session has no document yet. The first call in a "
                 "batch that starts one must be clay_add_primitive or "
-                "clay_add_figure."
+                "clay_add_figure.",
+                recovery="start_document",
             )
         _, failure = _tab(ctx, session, create=True)
         if failure:
@@ -3224,7 +3441,18 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     _label_top(doc, mark, "Agent batch")
 
     completed = len(results) - (1 if stopped_at is not None else 0)
-    payload = {"completed": completed, "stopped_at": stopped_at, "results": results}
+    # Truthfully computed, not hard-coded: ``mark`` is the head serial before
+    # the loop above ran anything, so a head that has moved past it means at
+    # least one sub-call genuinely pushed a step -- exactly what "did the
+    # document move" asks, whether the batch ran to completion or stopped at
+    # its first refusal with a successful prefix already folded in.
+    changed = doc.history.head != mark
+    payload = {
+        "completed": completed,
+        "stopped_at": stopped_at,
+        "changed": changed,
+        "results": results,
+    }
     # Routed through the same encode-then-decode ``_json`` uses, rather than
     # handing *payload* to ``structured=`` as-is: ``results`` is a list of
     # whole tool results, each already built by ``ok()``/``fail()``/``_json``

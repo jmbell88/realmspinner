@@ -46,8 +46,26 @@ walking every entry in ``_HANDLERS`` rather than a hand-kept subset -- by
 Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
 -- also declare an ``outputSchema`` describing that shape, and none declares
 ``required`` or ``additionalProperties: false``, because a refusal shares
-the same result envelope and its ``structuredContent`` is only ever whatever
-``field`` it names.
+the same result envelope and its ``structuredContent`` is whatever
+``fail()``'s ``**extra`` was given -- ``field`` where one is knowable, always
+``changed``, and ``recovery``/``uids``/``op`` where they are.
+
+**The refusal-recovery claim.** Every refusal's ``structuredContent`` carries
+``changed`` -- whether *this session's own document* was modified before the
+refusal fired, defaulted to ``False`` in :func:`agent_clay.fail` rather than
+at each of its ~100 call sites -- proven empirically, not merely asserted
+present, by ``test_every_refusal_says_whether_the_document_moved``: it walks
+every handler, and for each refusal it captures the document's own history
+length, ``dirty`` flag and object count before and after the call, and checks
+a ``changed: false`` refusal really left all three untouched. ``recovery`` is
+a closed vocabulary (:data:`agent_clay.RECOVERY`) naming what a client should
+try next, pinned bidirectionally by
+``test_every_recovery_a_refusal_names_is_in_the_vocabulary`` the same way the
+derivation gate above is -- every value a refusal actually produces is a
+vocabulary member, and every vocabulary member is findable somewhere in
+``src/warlock/``. A refusal whose recovery is not known carries no
+``recovery`` key at all, which is a real, distinct answer rather than an
+omission.
 
 ``clay_render`` needs a real moderngl context to build its private viewport
 (``ctx.viewer.ctx``); this suite runs with no GL at all. Most of its tests
@@ -622,6 +640,40 @@ def test_boolean_is_one_undo_step_and_undo_reverts_it_completely() -> None:
     assert len(tab.doc.objects) == 1
     assert tab.doc.undo()
     assert len(tab.doc.objects) == 2
+
+
+def test_a_refused_boolean_leaves_the_selection_it_found() -> None:
+    """A boolean that names too few visible objects refuses -- and must leave
+    the person's own selection exactly as it was.
+
+    It used to write ``doc.select(wanted)`` *before* the "at least two"
+    count check, because re-reading the selection back was how it got the
+    document's own object order for picking the survivor. So a refused call
+    still overwrote whatever the human at the keyboard had selected, from a
+    call that changed nothing else and reported a refusal. The order is now
+    derived by walking ``doc.objects`` instead, which writes nothing -- and
+    that is what lets the refusal report ``changed: false`` honestly rather
+    than owning up to a mutation it had no reason to make.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    added = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    uid2 = _payload(added)["uid"]
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    tab.doc.select([uid1, uid2])
+    before = set(tab.doc.selection)
+    history_before = _history_len(ctx, session)
+
+    # One visible object named, where a boolean needs two.
+    result = agent_clay.call(ctx, session, "clay_boolean", {"kind": "union", "uids": [uid1]})
+
+    assert result["isError"] is True
+    structured = result.get("structuredContent") or {}
+    assert structured.get("changed") is False
+    assert set(tab.doc.selection) == before  # the selection it found, untouched
+    assert _history_len(ctx, session) == history_before
 
 
 # --- clamping is reported, never silent ---------------------------------------
@@ -1417,14 +1469,17 @@ def test_a_valid_render_request_reaches_gl_and_fails_there_rather_than_at_valida
     """The ordering claim made real: no ``field`` in the refusal means this
     was never one of the named validation refusals -- it is the generic GL
     failure ``_view_for`` raises with no ``ctx.viewer`` to build a viewport
-    from."""
+    from. ``structuredContent`` itself is no longer absent here -- every
+    refusal now carries ``changed`` (see ``fail()``'s own docstring) -- so
+    this checks the one key that really does distinguish a validation
+    refusal from this generic one, rather than the envelope's presence."""
     ctx = _Ctx()
     session = agent_clay.Session()
     _new_agent_tab(ctx, session)
 
     result = agent_clay.call(ctx, session, "clay_render", {"view": "front"})
     assert result["isError"] is True
-    assert "structuredContent" not in result
+    assert "field" not in (result.get("structuredContent") or {})
 
 
 def test_clay_render_refuses_more_pixels_than_the_frame_budget_before_touching_gl(
@@ -2207,8 +2262,11 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
     """None of the three declared schemas names a ``required`` list or sets
     ``additionalProperties: false`` -- proven alongside the reason itself: a
     refusal from one of these same tools really does put ``field`` in
-    ``structuredContent`` and nothing else, which a ``required`` list on the
-    success shape would make non-conforming."""
+    ``structuredContent`` -- and, since ``changed`` was added, nothing else
+    beyond that -- which a ``required`` list on the success shape would make
+    non-conforming. The exact equality below (not a subset check) is the
+    point: it is what would catch an accidental extra key landing in this
+    envelope, ``changed`` among them if its default ever drifted."""
     tools = {t.name: t for t in agent_clay.tools()}
     for name in ("clay_scene", "clay_add_primitive", "clay_diagnose"):
         schema = getattr(tools[name], "output_schema", None)
@@ -2223,7 +2281,11 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
         ctx, session, "clay_add_primitive", {"generator": "not-a-real-generator"}
     )
     assert refusal["isError"] is True
-    assert refusal["structuredContent"] == {"field": "generator"}
+    assert refusal["structuredContent"] == {
+        "field": "generator",
+        "changed": False,
+        "recovery": "fix_arguments",
+    }
 
 
 def test_the_object_row_schema_is_shared_by_the_scene_and_the_primitive_tools() -> None:
@@ -2239,3 +2301,203 @@ def test_the_object_row_schema_is_shared_by_the_scene_and_the_primitive_tools() 
     scene_schema = getattr(tools["clay_scene"], "output_schema", None)
     assert scene_schema is not None
     assert scene_schema["properties"]["objects"]["items"] == agent_clay._object_row_output_schema()
+
+
+# ==============================================================================
+# C -- a refusal reports whether the document moved, and what to try next
+# ==============================================================================
+
+
+def test_every_refusal_says_whether_the_document_moved(svc) -> None:
+    """The load-bearing test for this change, and it is empirical rather
+    than a source scan. Walks every entry in ``agent_clay._HANDLERS``,
+    reusing ``_NEEDS_A_TAB``/``_MINTS_A_TAB``/``_SESSION_ONLY`` and
+    ``_SESSION_ONLY_ARGS`` exactly as
+    ``test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture``
+    already does, rather than a second argument table. For every call that
+    refuses, this captures the document's own history length, ``dirty`` flag
+    and object count *before* and *after* the call, and proves a
+    ``changed: false`` refusal really left all three untouched -- the part
+    that makes this a gate on the document itself rather than a restatement
+    of whatever the handler happened to report.
+
+    Most of the calls in these tables are minimal on purpose (just enough to
+    pass whatever a handler checks before it resolves a tab), so several of
+    them succeed rather than refuse against a tab that already holds an
+    object (``clay_scene``, ``clay_select`` with no ``uids``, ``clay_elements``,
+    ``clay_diagnose``, ``clay_export`` with a real ``svc``, ``clay_undo``/
+    ``clay_redo``, ``clay_batch``, both ``_MINTS_A_TAB`` creators, and every
+    ``_SESSION_ONLY`` tool but ``clay_reference_get`` naming a reference this
+    session was never given). Those successes are skipped rather than
+    asserted on either way, the same as that other exhaustive walk -- but the
+    number of refusals this walk actually exercised is asserted with a hard
+    floor, so a future regression that turned every refusal green could not
+    make this test pass having proven nothing.
+    """
+    ctx = _Ctx(svc=svc)
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")  # a real, open tab with one object on it
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    doc = tab.doc
+
+    covered = {n for n, _ in _NEEDS_A_TAB} | {n for n, _ in _MINTS_A_TAB} | set(_SESSION_ONLY)
+    assert covered == set(agent_clay._HANDLERS)
+
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
+
+    refusals = 0
+    for name, args in calls:
+        witness_before = (len(doc.history), doc.dirty, len(doc.objects))
+        result = agent_clay.call(ctx, session, name, args)
+        witness_after = (len(doc.history), doc.dirty, len(doc.objects))
+        if not result["isError"]:
+            continue
+        refusals += 1
+        structured = result.get("structuredContent") or {}
+        assert "changed" in structured, name
+        assert isinstance(structured["changed"], bool), name
+        if structured["changed"] is False:
+            assert witness_after == witness_before, (name, witness_before, witness_after)
+
+    # A floor, not a target -- see the docstring above for which of these
+    # calls succeed rather than refuse against an already-open tab. Measured
+    # at 12 refusals out of 25 calls on this tree.
+    assert refusals >= 10
+
+
+def test_every_recovery_a_refusal_names_is_in_the_vocabulary(svc) -> None:
+    """Bidirectional, the way this file's own derivation gate already is
+    (see the module docstring): every ``recovery`` value a refusal actually
+    produces during the same walk as the test above is a member of
+    :data:`agent_clay.RECOVERY`, and every member of that vocabulary is
+    findable somewhere in ``src/warlock/`` -- a source scan is the only way
+    to reach ``agent_host``'s own transport-level members (``"retry"``,
+    ``"wait"``) from this file, which never calls those refusals directly.
+    Both directions, or it is half a gate.
+    """
+    import pathlib
+
+    import warlock
+
+    ctx = _Ctx(svc=svc)
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
+
+    seen: set[str] = set()
+    for name, args in calls:
+        result = agent_clay.call(ctx, session, name, args)
+        if not result["isError"]:
+            continue
+        structured = result.get("structuredContent") or {}
+        recovery = structured.get("recovery")
+        if recovery is not None:
+            seen.add(recovery)
+
+    assert seen, "the walk produced no recovery value at all -- it proved nothing"
+    assert seen <= agent_clay.RECOVERY
+
+    src_root = pathlib.Path(warlock.__file__).resolve().parent
+    all_text = "\n".join(p.read_text(encoding="utf-8") for p in src_root.rglob("*.py"))
+    for member in agent_clay.RECOVERY:
+        assert f'"{member}"' in all_text or f"'{member}'" in all_text, member
+
+
+def test_every_refusal_that_names_a_field_also_names_how_to_fix_it(svc) -> None:
+    """A refusal that names the argument it is unhappy with is already
+    saying which one to change, so it must carry a ``recovery`` too -- and
+    it does without any call site spelling one out, because :func:`fail`
+    derives ``"fix_arguments"`` from ``field=`` itself. Walked over every
+    handler rather than sampled, so a refusal added later cannot name a
+    field and leave a client to guess.
+    """
+    ctx = _Ctx(svc=svc)
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
+
+    named_a_field = 0
+    for name, args in calls:
+        result = agent_clay.call(ctx, session, name, args)
+        if not result["isError"]:
+            continue
+        structured = result.get("structuredContent") or {}
+        if not structured.get("field"):
+            continue
+        named_a_field += 1
+        assert structured.get("recovery") in agent_clay.RECOVERY, (name, structured)
+
+    assert named_a_field >= 8  # a floor, so this cannot pass having seen none
+
+
+def test_a_stale_stamp_says_to_re_read_rather_than_to_fix_the_argument() -> None:
+    """The one refusal that names a field and is deliberately *not*
+    ``"fix_arguments"``: the stamp the client sent was well-formed and was
+    true when it read it, so what is stale is its picture of the mesh. Its
+    own message says to go and read the stamp again, and its ``recovery``
+    says the same thing to a program."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_select_elements",
+        {"uid": uid, "mode": "face", "faces": [0], "expect_stamp": 9999},
+    )
+
+    assert result["isError"] is True
+    structured = result["structuredContent"]
+    assert structured["field"] == "expect_stamp"
+    assert structured["recovery"] == "read_scene"
+    assert structured["changed"] is False
+
+
+def test_a_validation_refusal_tells_a_client_to_fix_its_arguments_and_a_missing_uid_to_re_read() -> (  # noqa: E501
+    None
+):
+    """The two commonest refusal paths, proven through real calls rather
+    than by calling ``_validate_vec3``/``_resolve_uid`` directly."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    malformed = agent_clay.call(
+        ctx, session, "clay_transform", {"uid": uid, "translation": [1.0, 2.0]}
+    )
+    assert malformed["isError"] is True
+    assert (malformed.get("structuredContent") or {}).get("recovery") == "fix_arguments"
+
+    missing_uid = agent_clay.call(
+        ctx, session, "clay_transform", {"uid": uid + 999, "translation": [1.0, 2.0, 3.0]}
+    )
+    assert missing_uid["isError"] is True
+    assert (missing_uid.get("structuredContent") or {}).get("recovery") == "read_scene"
+
+
+def test_a_batch_that_stopped_early_reports_that_the_document_did_move() -> None:
+    """The one refusal where ``changed`` is ``true``, and the reason the
+    field is not a constant: the cylinder before the bad generator name
+    really was placed and really is still there, folded into the one undo
+    step ``clay_batch`` keeps as its successful prefix."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["stopped_at"] == 1
+    assert payload["completed"] == 1
+    assert payload.get("changed") is True
+    assert (result.get("structuredContent") or {}).get("changed") is True
