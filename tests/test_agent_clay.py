@@ -67,6 +67,32 @@ vocabulary member, and every vocabulary member is findable somewhere in
 ``recovery`` key at all, which is a real, distinct answer rather than an
 omission.
 
+**The unknown-argument claim.** ``call()`` -- the one door every tool call
+passes through -- refuses an argument name a tool's own schema does not
+declare in ``properties``, before the handler ever runs. The derived lookup
+(:func:`agent_clay._allowed_argument_names`, memoised) is checked against a
+fresh ``tools()`` call by ``test_the_allowed_argument_names_are_the_schemas_own``,
+which is also what pins the memoisation safe: a tool's *property names* are
+schema literals, never derived from a registry the way an *enum's values*
+are, so caching this projection cannot go stale the way caching the whole
+catalogue would. ``test_a_misspelled_argument_is_refused_with_the_name_it_
+probably_meant`` is the exact measured incident that motivated this --
+``clay_add_primitive`` given ``translaton`` used to place a box at the origin
+and report success; it now refuses, names the key, suggests ``translation``,
+and places nothing. Several bad keys are all named in one refusal rather than
+costing a caller two round trips (``test_several_misspelled_arguments_are_
+all_named_at_once``), an unknown *tool* is still refused before its
+arguments are ever looked at
+(``test_an_unknown_tool_is_still_refused_before_its_arguments_are_looked_at``),
+and ``clay_batch``'s own nested calls go through the identical door -- a bad
+argument at its third entry stops the batch there and keeps the first two,
+exactly as its documented contract for any other refusal already promises
+(``test_a_batch_refuses_at_the_entry_with_a_bad_argument_and_keeps_what_ran``).
+Every *other* constraint a schema declares -- ``minimum``, ``enum``,
+``minItems`` and the rest -- is pinned separately, by
+``tests/test_agent_schemas.py``, which discovers them from the schemas
+themselves rather than from a hand-written list.
+
 ``clay_render`` needs a real moderngl context to build its private viewport
 (``ctx.viewer.ctx``); this suite runs with no GL at all. Most of its tests
 below pin only the shape of a refusal -- a missing context is a clean one,
@@ -321,6 +347,103 @@ def test_every_tool_schema_is_a_plausible_json_schema_object() -> None:
         assert isinstance(schema["properties"], dict)
         for required in schema.get("required", []):
             assert required in schema["properties"]
+
+
+# --- the unknown-argument claim ------------------------------------------------
+
+
+def test_a_misspelled_argument_is_refused_with_the_name_it_probably_meant() -> None:
+    """The exact measured case from the module docstring's own incident:
+    ``clay_add_primitive`` given ``translaton`` (not ``translation``) used to
+    place a box at the origin and report success."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "box", "translaton": [0, 9, 0]}
+    )
+    assert result["isError"] is True
+    message = result["content"][0]["text"]
+    assert "translaton" in message
+    assert "translation" in message  # the did-you-mean
+    structured = result["structuredContent"]
+    assert structured["field"] == "translaton"
+    assert structured["recovery"] == "fix_arguments"
+    assert structured["changed"] is False
+    # The part that matters most: nothing was placed. A refused call runs
+    # nothing, so this session was never even minted a document to place a
+    # box on -- the strongest available proof, stronger than "no box exists"
+    # alone would be.
+    assert session.tab_uid == ""
+
+
+def test_several_misspelled_arguments_are_all_named_at_once() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {"generator": "box", "prams": {"size": 4}, "translaton": [0, 9, 0]},
+    )
+    assert result["isError"] is True
+    message = result["content"][0]["text"]
+    assert "prams" in message
+    assert "translaton" in message
+    assert session.tab_uid == ""  # neither round trip is needed to learn this
+
+
+def test_an_unknown_tool_is_still_refused_before_its_arguments_are_looked_at() -> None:
+    """The ordering claim: an unknown *tool* name is refused first, never
+    reinterpreted as an unknown-argument refusal for some other tool."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_add_primitve", {"generator": "box", "bogus": 1}
+    )
+    assert result["isError"] is True
+    assert "no such tool" in result["content"][0]["text"]
+    assert "field" not in result.get("structuredContent", {})
+
+
+def test_the_allowed_argument_names_are_the_schemas_own() -> None:
+    """The memoisation-safety check :func:`agent_clay._allowed_argument_names`'s
+    own docstring promises: the cached lookup agrees with a fresh ``tools()``
+    call, and its key set is exactly ``_HANDLERS``."""
+    fresh = {t.name: frozenset(t.schema.get("properties", {})) for t in agent_clay.tools()}
+    cached = agent_clay._allowed_argument_names()
+    assert cached == fresh
+    assert set(cached) == set(agent_clay._HANDLERS)
+
+
+def test_a_batch_refuses_at_the_entry_with_a_bad_argument_and_keeps_what_ran() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_batch",
+        {
+            "calls": [
+                {"name": "clay_add_primitive", "arguments": {"generator": "box"}},
+                {"name": "clay_add_primitive", "arguments": {"generator": "box"}},
+                {
+                    "name": "clay_add_primitive",
+                    "arguments": {"generator": "box", "translaton": [0, 9, 0]},
+                },
+            ]
+        },
+    )
+    assert result["isError"] is True
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["completed"] == 2
+    assert payload["stopped_at"] == 2
+    assert payload["changed"] is True
+    assert payload["results"][2]["isError"] is True
+    assert "translaton" in payload["results"][2]["content"][0]["text"]
+    # The prefix genuinely ran and is kept: two objects exist on the document
+    # this batch itself minted (its first call was the creator).
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.objects) == 2
 
 
 # --- the blast-radius claim ---------------------------------------------------
@@ -2324,7 +2447,7 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     Most of the calls in these tables are minimal on purpose (just enough to
     pass whatever a handler checks before it resolves a tab), so several of
     them succeed rather than refuse against a tab that already holds an
-    object (``clay_scene``, ``clay_select`` with no ``uids``, ``clay_elements``,
+    object (``clay_scene``, ``clay_elements``,
     ``clay_diagnose``, ``clay_export`` with a real ``svc``, ``clay_undo``/
     ``clay_redo``, ``clay_batch``, both ``_MINTS_A_TAB`` creators, and every
     ``_SESSION_ONLY`` tool but ``clay_reference_get`` naming a reference this

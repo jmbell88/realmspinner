@@ -194,6 +194,13 @@ engine stopped being something you download whether or not you ever use it.
   carry one too. A client can act on any of it without parsing the sentence
   a model was meant to read, the same reason the structured JSON above
   exists in the first place.
+- **An agent that misspells a tool argument is told so, not left guessing why
+  nothing happened.** `clay_add_primitive` given `translaton` instead of
+  `translation` used to place a box at the origin and report success —
+  nothing compared what a call actually carried against the schema it had
+  just been handed. Every call now checks its arguments' names against that
+  same schema before anything runs, names every one that doesn't belong, and
+  suggests what each was probably meant to be.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

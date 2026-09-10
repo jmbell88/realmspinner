@@ -190,6 +190,37 @@ block -- to decide whether a remembered reply is worth replaying rather than
 re-run; two decisions, in two modules, arriving at the same structural test,
 neither one a hand-kept list of picture-shaped tools.
 
+**An unknown argument is refused now, rather than silently dropped.**
+Measured at HEAD before this paragraph was true: ``clay_add_primitive`` given
+``{"generator": "box", "translaton": [0, 9, 0]}`` placed a box at the origin
+and reported success, because nothing compared the arguments a call actually
+carried against the schema :func:`tools` had just published for it -- an
+agent that mistyped one argument spent its next several calls wondering why
+the number it had set had no effect. :func:`call` -- the one door every tool
+call passes through, ``clay_batch``'s own nested calls included, which is why
+this check lives here rather than in ``agent_host`` or ``mcp/protocol.py`` --
+now refuses before a handler ever runs if ``arguments`` names a key the
+tool's own schema does not declare in ``properties``, naming every offending
+key, suggesting what each was probably meant to be
+(``difflib.get_close_matches`` against that tool's real names), and refusing
+with ``field=`` set so :func:`fail` derives ``recovery="fix_arguments"`` the
+same way every other named-field refusal already does. The allowed names are
+derived from the schema :func:`tools` already builds -- once, memoised --
+never a second hand-kept table beside it, which is exactly the drift class
+this module's own derivation paragraphs above exist to rule out. Everything
+about an argument's *value* -- a two-element vector, a NaN, an enum member
+the registry does not have -- is still, as it always was, the handler's own
+job to check before it mutates; only the *name* moved to this one door.
+``tests/test_agent_schemas.py`` is what stands in for the validator
+``mcp/protocol.py`` deliberately does not carry: it walks every constraint
+every schema in this file actually declares and proves the handler enforces
+it, because a validator bolted onto that leaf would have had no way to check
+the ``anyOf``, ``minimum``, ``maximum`` and ``exclusiveMinimum`` shapes these
+schemas really use without ``mcp/protocol.py`` learning what Clay is -- and
+that leaf staying ignorant of Clay is a decision this file does not get to
+revisit. A test that checks real behaviour is worth more than a validator
+that checks only some of it.
+
 Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
 -- go one step further and declare an ``outputSchema`` describing that
 structured shape; the rest deliberately do not, because a schema for a uid
@@ -248,6 +279,8 @@ it ran on every draw is not what is happening here.
 
 from __future__ import annotations
 
+import difflib
+import functools
 import json
 import logging
 import math
@@ -2025,17 +2058,46 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
             return None, fail(
                 f"{name} must be a [vertex, vertex] pair.", field=name, recovery="fix_arguments"
             )
-    if name in ("face", "slot"):
+    if name == "face":
         try:
             return int(value), None
         except (TypeError, ValueError):
             return None, fail(
                 f"{name} must be an integer.", field=name, recovery="fix_arguments"
             )
+    if name == "slot":
+        try:
+            slot = int(value)
+        except (TypeError, ValueError):
+            return None, fail(
+                f"{name} must be an integer.", field=name, recovery="fix_arguments"
+            )
+        # ``_QUERY_ARG_SCHEMAS["slot"]`` declares ``minimum: 0`` -- a palette
+        # has no negative indices -- and until this line nothing here checked
+        # it, so a negative slot sailed through to ``_q_material`` and matched
+        # no face, a silent no-op rather than the refusal the schema promised.
+        if slot < 0:
+            return None, fail(
+                f"{name} must be a non-negative integer.", field=name, recovery="fix_arguments"
+            )
+        return slot, None
     if name in ("direction", "min", "max"):
         return _validate_vec3(value, name)
     if name == "max_angle":
-        return _validate_number(value, name)
+        # ``_QUERY_ARG_SCHEMAS["max_angle"]`` declares ``minimum: 0.0,
+        # maximum: 180.0`` -- past 180 degrees off a direction nothing is
+        # excluded any more -- but ``_validate_number`` alone only checks
+        # finiteness, not this query's own bound.
+        out, failure = _validate_number(value, name)
+        if failure:
+            return None, failure
+        if not (0.0 <= out <= 180.0):
+            return None, fail(
+                f"{name} must be between 0 and 180 degrees.",
+                field=name,
+                recovery="fix_arguments",
+            )
+        return out, None
     if name == "space":
         if value not in ("world", "local"):
             return None, fail(
@@ -2050,6 +2112,66 @@ def _validate_query_arg(name: str, value: Any) -> tuple[Any, dict | None]:
 # --- dispatch -----------------------------------------------------------------
 
 
+@functools.cache
+def _allowed_argument_names() -> dict[str, frozenset[str]]:
+    """Tool name -> the frozenset of its schema's own top-level ``properties``
+    keys -- what :func:`call` checks a real call's ``arguments`` against
+    before any handler runs. See the module docstring's own paragraph on why
+    an unknown argument is refused rather than dropped; this is the lookup
+    that makes the refusal *derived* rather than a second hand-kept table.
+
+    **Memoised, and safe to memoise for a reason worth being precise about.**
+    :func:`tools` is rebuilt from scratch on every call -- 25 ``Tool`` objects
+    with full description strings, cheap enough for one ``tools/list`` request
+    but not for a cost paid again on *every* :func:`call`, which runs on the
+    frame thread and, through ``clay_batch``, potentially several dozen times
+    in one call. What makes caching *this* projection of it safe, where
+    caching the whole catalogue would not be, is that a property *name* is a
+    literal written directly into :func:`tools`'s own source -- ``"generator"``,
+    ``"translation"``, ``"uid"`` -- and never derived from a live registry,
+    while only an *enum's values* are (``bp.GENERATORS``, ``presets.ASSEMBLIES``,
+    ``clay_ops.OPS``, ``bsel.QUERIES`` -- see the module docstring's opening
+    paragraph). A thirteenth generator changes what
+    ``tools()["clay_add_primitive"].schema["properties"]["generator"]["enum"]``
+    contains; it cannot add or remove the key ``"generator"`` itself, which is
+    all this cache answers questions about. CLAUDE.md's own reason for
+    ``--dist loadfile`` -- preserving module-level cache couplings across a
+    worker's tests rather than treating them as a hazard to avoid -- is why a
+    module-level cache is the ordinary shape for something like this in this
+    codebase, not a novel one. ``test_the_allowed_argument_names_are_the_
+    schemas_own`` checks this reasoning against a fresh :func:`tools` call
+    rather than trusting it.
+    """
+    return {t.name: frozenset(t.schema.get("properties", {})) for t in tools()}
+
+
+def _unknown_argument_refusal(name: str, unknown: list[str], allowed: frozenset[str]) -> dict:
+    """The refusal :func:`call` gives for one or more argument names a tool's
+    own schema does not declare. Every offending key is named, each with a
+    did-you-mean suggestion when :func:`difflib.get_close_matches` finds one
+    against the tool's real property names -- there is no precedent for this
+    in ``src/`` before this refusal, so the wording is kept plain rather than
+    inventing a house style for it: ``"... did you mean 'translation'?"``, and
+    a name with no plausible match just lists what the tool does take instead
+    of guessing one. ``field`` is the first unknown key (sorted, so which one
+    is deterministic) -- naming exactly one is what lets :func:`fail` derive
+    ``recovery="fix_arguments"`` for free; the message beside it still lists
+    every bad key, so a caller that misspelled two arguments does not need two
+    round trips to learn about the second.
+    """
+    parts = []
+    for key in sorted(unknown):
+        match = difflib.get_close_matches(key, allowed, n=1, cutoff=0.6)
+        if match:
+            parts.append(f"{key!r} (did you mean {match[0]!r}?)")
+        else:
+            parts.append(f"{key!r}")
+    noun = "an argument" if len(parts) == 1 else "arguments"
+    legal = ", ".join(sorted(allowed)) if allowed else "none -- it takes no arguments at all"
+    message = f"{name} does not take {noun} named {', '.join(parts)}. Legal arguments: {legal}."
+    return fail(message, field=sorted(unknown)[0])
+
+
 def call(ctx: Any, session: Session, name: str, arguments: dict) -> dict:
     """Run one tool. Never raises -- see the module docstring's safety claim
     and the class of error each of these three turns into a refusal for."""
@@ -2057,6 +2179,14 @@ def call(ctx: Any, session: Session, name: str, arguments: dict) -> dict:
     handler = _HANDLERS.get(name)
     if handler is None:
         return fail(f"no such tool: {name!r}")
+    allowed = _allowed_argument_names()[name]
+    unknown = [k for k in args if k not in allowed]
+    if unknown:
+        # A refused call runs nothing -- the house rule every handler already
+        # follows for its own arguments, kept true here too: this fires
+        # before the handler is ever reached, so an unknown key never even
+        # gets the chance to be silently ignored the way it used to be.
+        return _unknown_argument_refusal(name, unknown, allowed)
     try:
         return handler(ctx, session, args)
     except OpError as error:
@@ -2152,6 +2282,18 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
                 f"{sorted(defaults)}.",
                 field="params",
             )
+        # The schema declares each value ``number | array-of-numbers`` --
+        # ``clay_set_params`` already checks every value against that shape
+        # (``_validate_number_or_vec``) before it touches anything; this
+        # tool never did, so a NaN or a string reached the generator
+        # function directly and either poisoned a mesh's positions or, for
+        # a non-numeric string, raised a bare ``TypeError`` that only
+        # ``call()``'s generic backstop caught -- a logged "failed
+        # unexpectedly" instead of a clean, field-named refusal.
+        for value in params.values():
+            _, failure = _validate_number_or_vec(value, "params")
+            if failure:
+                return failure
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
@@ -2185,8 +2327,11 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
 
     obj_name = args.get("name")
     if obj_name is not None:
-        obj_name = str(obj_name)
-        if not obj_name.strip():
+        # The schema declares ``name`` a string; a bare ``str(obj_name)``
+        # coercion used to accept anything stringifiable with no refusal at
+        # all, the same unchecked-type hole ``clay_rename`` never had (it
+        # already checks ``isinstance(name, str)`` for the identical field).
+        if not isinstance(obj_name, str) or not obj_name.strip():
             return fail("name must not be empty.", field="name")
         if any(o.name == obj_name for o in doc.objects):
             return fail(f"an object is already named {obj_name!r}.", field="name")
@@ -2267,8 +2412,11 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
             return fail("scale must be a positive, finite number.", field="scale")
 
     name_prefix = args.get("name_prefix")
-    if name_prefix is not None:
-        name_prefix = str(name_prefix)
+    # Same unchecked-type hole as ``clay_add_primitive``'s own ``name``, fixed
+    # the same way: the schema declares a string, so a non-string is refused
+    # rather than silently coerced.
+    if name_prefix is not None and not isinstance(name_prefix, str):
+        return fail("name_prefix must be a string.", field="name_prefix")
 
     tab, failure = _tab(ctx, session, create=True)
     if failure:
@@ -2470,8 +2618,15 @@ def _h_material(ctx: Any, session: Session, args: dict) -> dict:
     roughness, failure = _validate_unit(args.get("roughness", 0.6), "roughness")
     if failure:
         return failure
+    name_arg = args.get("name")
+    # The schema declares ``name`` a string; a bare ``str(name_arg or "")``
+    # coercion used to accept anything stringifiable with no refusal at all
+    # -- the same hole ``clay_add_primitive``'s own ``name`` had, fixed the
+    # same way ``clay_rename`` already checks its identical field.
+    if name_arg is not None and not isinstance(name_arg, str):
+        return fail("name must be a string.", field="name")
     material = gltf.Material(
-        name=str(args.get("name") or ""),
+        name=name_arg or "",
         base_color_factor=rgba,
         metallic_factor=metallic,
         roughness_factor=roughness,
@@ -2563,6 +2718,16 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
     doc = tab.doc
     if doc.element_mode != "object":
         return fail(_OBJECT_SELECTION_DERIVED_REFUSAL, recovery="switch_mode")
+    # The schema declares ``uids`` required, and ``_resolve_uids`` alone does
+    # not enforce that: it treats a missing value the same as an explicit
+    # empty list (``values or []``), because an empty list is this tool's own
+    # "clear the selection" -- see that function's own docstring. Checked
+    # for here, once, ahead of it, so *omitting* the argument entirely is
+    # refused rather than silently read as the identical clearing call.
+    if "uids" not in args:
+        return fail(
+            "give uids -- an empty list clears the selection.", field="uids"
+        )
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
     if failure:
         return failure
@@ -2933,7 +3098,18 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         # names the op rather than guessing a recovery that would be wrong
         # for "Select an object first."
         return fail(clay_ops.reason_for(op, doc), op=op.name)
-    params = args.get("params") or {}
+    params = args.get("params")
+    if params is None:
+        params = {}
+    elif not isinstance(params, dict):
+        # The schema declares ``params`` an object; before this a non-dict
+        # (a bare number, a list) reached ``clay_ops.run(proxy, doc, op,
+        # **params)`` and failed there on ``**`` unpacking a non-mapping --
+        # a real refusal, but the generic backstop in ``call()``'s own
+        # ``except Exception``, logged as an unhandled failure rather than
+        # named cleanly the way every other bad-shaped argument in this file
+        # already is.
+        return fail("params must be an object.", field="params")
     proxy = _OpCtx(state=getattr(ctx, "state", None))
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
     # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
@@ -3011,10 +3187,20 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
 
-    try:
-        size = max(64, min(int(args.get("size") or 1024), 2048))
-    except (TypeError, ValueError):
-        return fail("size must be an integer.", field="size")
+    size_arg = args.get("size")
+    if size_arg is None:
+        size = 1024
+    else:
+        try:
+            size = int(size_arg)
+        except (TypeError, ValueError):
+            return fail("size must be an integer.", field="size")
+        # Refused, not clamped: the schema declares ``minimum: 64, maximum:
+        # 2048``, and silently rounding a caller's own number into range
+        # answered a request that was never made with no way to tell the
+        # schema had lied about the ceiling it claimed to enforce.
+        if not (64 <= size <= 2048):
+            return fail("size must be between 64 and 2048.", field="size")
 
     view = args.get("view")
     views_arg = args.get("views")
@@ -3040,7 +3226,13 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             return failure
         parsed.append((label, kwargs))
 
-    grid = bool(args.get("grid", False))
+    grid = args.get("grid", False)
+    # The schema declares this a boolean; a bare ``bool(grid)`` coercion
+    # used to accept anything (a non-empty string, say) with no refusal at
+    # all -- ``bool("off")`` is ``True``, which drew the grid an agent's own
+    # value looked like it was asking not to see.
+    if not isinstance(grid, bool):
+        return fail("grid must be a boolean.", field="grid")
 
     focus = args.get("focus")
     bounds = None
@@ -3067,10 +3259,16 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         if compare_mode not in ("beside", "overlay"):
             return fail("compare_mode must be 'beside' or 'overlay'.", field="compare_mode")
         if compare_mode == "overlay":
-            try:
-                alpha = float(alpha)
-            except (TypeError, ValueError):
-                return fail("alpha must be a number.", field="alpha")
+            # The schema declares ``alpha`` a number, 0..1 -- a bare
+            # ``float(alpha)`` only ever checked it converted, so a NaN, an
+            # infinity, or a value past either end of the schema's own
+            # declared range reached the blend with nothing having refused
+            # it, the same unvalidated-number hole every other 0..1 knob in
+            # this file (``clay_material``'s colour and metallic/roughness)
+            # already closed with this same helper.
+            alpha, failure = _validate_unit(alpha, "alpha")
+            if failure:
+                return failure
         if len(parsed) > 1:
             return fail("compare renders exactly one view.", field="views")
         if views_arg is None and view is None:
@@ -3196,8 +3394,12 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
     select_arg = args.get("select")
     selected = None
     if select_arg is not None:
-        if not isinstance(select_arg, dict):
-            return fail("select must be an object with uid and kind.", field="select")
+        # The schema declares this sub-object ``additionalProperties: False``
+        # -- only ``uid`` and ``kind`` -- which nothing here checked before:
+        # an extra key rode along unnoticed rather than being refused the way
+        # the schema promises a client it will be.
+        if not isinstance(select_arg, dict) or set(select_arg) - {"uid", "kind"}:
+            return fail("select must be an object with only uid and kind.", field="select")
         sel_obj, failure = _resolve_uid(doc, select_arg, "uid")
         if failure:
             return failure
@@ -3403,6 +3605,16 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     for entry in calls:
         if not isinstance(entry, dict):
             return fail("every call must be an object with a name.", field="calls")
+        # The schema declares each entry ``additionalProperties: False`` --
+        # only ``name`` and ``arguments`` -- which nothing here checked before:
+        # a typo'd sibling key (``argumets``, say) rode along silently instead
+        # of being refused, leaving the intended ``arguments`` unset and the
+        # call it was meant to carry run with none at all.
+        extra = set(entry) - {"name", "arguments"}
+        if extra:
+            return fail(
+                f"unknown keys in a batch call entry: {sorted(extra)}.", field="calls"
+            )
         name = entry.get("name")
         if name not in allowed:
             return fail(f"{name!r} is not a batchable tool.", field="calls")
@@ -3503,12 +3715,24 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
         return fail(f"view must be one of {', '.join(sorted(valid_views))}.", field="view")
 
     if job_id is not None:
+        # The schema declares this a string; unchecked, a non-string reached
+        # ``service.validation.check_job_id``'s own regex match and raised a
+        # bare ``TypeError`` there, caught only by ``call()``'s generic
+        # backstop rather than refused by name the way a job id this
+        # document simply does not have already is.
+        if not isinstance(job_id, str):
+            return fail("job_id must be a string.", field="job_id")
         try:
             job = ctx.svc.require_job(job_id)
         except NotFound as error:
             return fail(error.message, field="job_id")
         job_dir = ctx.svc.job_dir(job_id)
         file_arg = args.get("file")
+        # The schema declares this a string; unchecked, a non-string reached
+        # ``job_dir / name`` inside ``svc_files.ready`` and raised a bare
+        # ``TypeError`` there, caught only by ``call()``'s generic backstop.
+        if file_arg is not None and not isinstance(file_arg, str):
+            return fail("file must be a string.", field="file")
         candidates = (
             [file_arg] if file_arg else ["input.png", "ref.png", "reference.png", "thumb.png"]
         )
@@ -3529,7 +3753,12 @@ def _h_reference_add(ctx: Any, session: Session, args: dict) -> dict:
 
         try:
             data = base64.b64decode(png_b64, validate=True)
-        except (binascii.Error, ValueError):
+        except (binascii.Error, ValueError, TypeError):
+            # TypeError joins the two decoding errors here rather than a
+            # separate isinstance check up front: b64decode raises it for
+            # anything that is not str/bytes-like (an int, say), and the
+            # schema's declared "type": "string" is exactly the same
+            # "this was never valid base64" refusal from the caller's side.
             return fail("png_base64 must be valid base64.", field="png_base64")
         if len(data) > svc_validation.MAX_UPLOAD_BYTES:
             # Belt and braces: the 8 MiB protocol frame this call arrived over

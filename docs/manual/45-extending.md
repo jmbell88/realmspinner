@@ -295,11 +295,15 @@ touches either, and an operation that takes a long time will drop frames rather 
 anything. It must not raise: a refusal is a result an agent can read, and where Warlock knows
 which argument was wrong it says so by name, which is a thing the old HTTP interface had nowhere to
 put. And it validates before it mutates — every argument it means to act on, checked and refused by
-name before the first line that changes the document, not partway through. A tool's own JSON schema
-describing an argument as a number, or an array of numbers, is not enforcement: `mcp/protocol.py`
-checks only that `arguments` as a whole is a dict before handing it to the handler, so whatever an
-agent actually sent — a two-element array where three were meant, a NaN, an infinity — arrives
-exactly as typed. `clay_transform` went a release without this third rule and paid for it: an
+name before the first line that changes the document, not partway through. An argument's own *name*
+is enforced for you, before your handler ever runs: `agent_clay.call` refuses a key a tool's schema
+does not declare in `properties`, derived from the same schema `tools()` already publishes rather
+than a second hand-kept list of legal names. A tool's own JSON schema declaring an argument a
+number, or an array of numbers, is still not enforcement of that argument's *value*, and that half
+is still entirely yours to check: `mcp/protocol.py` checks only that `arguments` as a whole is a
+dict before handing it to the handler, so whatever an agent actually sent for an argument whose name
+it got right — a two-element array where three were meant, a NaN, an infinity — arrives exactly as
+typed. `clay_transform` went a release without checking a value's own shape and paid for it: an
 unchecked `translation` committed a two-element vector to the document, reported success, and only
 broke three calls later when `clay_scene` tried to read it back — by then there was nothing to point
 at, and the whole document's introspection was bricked until someone thought to undo blind. Reach
@@ -307,6 +311,9 @@ for `_validate_vec3` for a TRS-shaped argument, `_validate_unit` for a 0..1 numb
 `_validate_number_or_vec` for the `number | array-of-numbers` shape `clay_set_params` uses — all
 three live beside `agent_clay.py`'s other validators, in the same "validate everything before the
 first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
+`tests/test_agent_schemas.py` is what proves this half is actually done, tool by tool and
+constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
+what to check.
 
 A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
 `changed`, defaulted to `False` in that one wrapper rather than at each of this file's ~100 call
