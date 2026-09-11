@@ -49,6 +49,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# ``campaign_props.read_corpus`` lives beside this file; the sibling import
+# below needs scripts/ on the path when this is run as a path rather than as
+# a module, which is how every other script in here is run.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Imported for its side effect, not its names: _appharness.isolate_home() runs
 # at *its own* import time (see that module's docstring on why advice was not
@@ -101,13 +105,48 @@ def _serve(transcript: Path) -> int:
     print("Every completed tool call will be appended, as it happens, to:")
     print(f"    {transcript_path}")
     print()
-    print("Build a corpus subject with it, then close the window when done.")
+    _print_corpus()
+    print("Build one of those subjects with it, then close the window when done.")
     print("Read the result back with:")
     print(f"    uv run python scripts/agent_bench.py --show {transcript_path}")
     print()
     print("Starting Warlock Studio...")
 
     return run()
+
+
+#: The subjects a tier-two session is run against, pre-registered in
+#: ``docs/measurements/2026-09-10-clay-agent-benchmark-preregistration.md``
+#: before any of them was graded. Printed by ``--serve`` rather than left as a
+#: document nobody opens: a benchmark whose corpus is "whatever the operator
+#: thought of that morning" is not a benchmark, and the cheapest way to keep
+#: that honest is for the tool that stands the session up to read the list out.
+CORPUS = (
+    Path(__file__).resolve().parent.parent
+    / "docs"
+    / "measurements"
+    / "corpora"
+    / "clay-agent-v1.txt"
+)
+
+
+def _print_corpus() -> None:
+    """Read the corpus out, through ``campaign_props.read_corpus``.
+
+    That reader rather than a `split("|")` here: it already refuses a
+    malformed line and an unknown class instead of quietly dropping either,
+    and its own docstring gives the reason -- "a corpus silently one subject
+    short is a corpus whose N does not mean what the writeup says". The
+    three image corpora in the same directory are parsed by it too, so this
+    one cannot drift into a second dialect of the same file format.
+    """
+    from campaign_props import read_corpus
+
+    subjects = read_corpus(CORPUS)
+    print(f"The pre-registered corpus ({CORPUS.name}), one subject per session:")
+    for subject in subjects:
+        print(f"    [{subject.cls}] {subject.prompt}")
+    print()
 
 
 def _show(path: Path) -> int:
