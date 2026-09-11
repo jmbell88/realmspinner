@@ -942,6 +942,43 @@ def _validate_number_or_vec(
     return out, None
 
 
+def _validate_params_values(params: dict, field: str) -> dict | None:
+    """Every value of a generator's ``params`` dict through
+    :func:`_validate_number_or_vec`, naming *every* offending key in one
+    refusal rather than only the first -- the shared body behind the
+    identical loops ``_h_add_primitive`` and ``_h_set_params`` used to run,
+    each passing the literal string ``"params"`` in as *field* for every
+    value, so a lathe's bad ``profile`` beside a good ``segments`` came back
+    as "params must be finite numbers." with nothing to say which of the
+    two was wrong -- the same class of defect ``_unknown_argument_refusal``
+    closed for a misspelled argument name.
+
+    ``field`` on the returned refusal is always exactly *field* itself
+    (``"params"`` for both callers): ``tests/test_agent_schemas.py``'s
+    ``_run_case`` walks only a refusal's top-level property, never a
+    sub-field, so widening it to ``"params.profile"`` would break that
+    walk. Only the *message* may name a key, which is why each value is
+    checked under a per-key display name (``"params.profile"``) that never
+    leaves this function -- :func:`_validate_number_or_vec` builds its
+    message from whatever field string it is handed, so handing it a
+    compound one is enough to get the key into the text without teaching it
+    anything about ``params`` itself. Every failing key's message is kept,
+    sorted the same deterministic way :func:`_unknown_argument_refusal`
+    sorts its unknown names, so a caller that got two params wrong learns
+    about both without a second round trip.
+
+    Returns ``None`` when every value already validates.
+    """
+    messages = []
+    for key in sorted(params):
+        _, failure = _validate_number_or_vec(params[key], f"{field}.{key}")
+        if failure:
+            messages.append(failure["content"][0]["text"])
+    if not messages:
+        return None
+    return fail(" ".join(messages), field=field)
+
+
 def _repaint(doc: Any, uids: Iterable[int], index: int) -> None:
     """Rewrite every face of each object in *uids* to material *index*.
 
@@ -2463,11 +2500,13 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         # function directly and either poisoned a mesh's positions or, for
         # a non-numeric string, raised a bare ``TypeError`` that only
         # ``call()``'s generic backstop caught -- a logged "failed
-        # unexpectedly" instead of a clean, field-named refusal.
-        for value in params.values():
-            _, failure = _validate_number_or_vec(value, "params")
-            if failure:
-                return failure
+        # unexpectedly" instead of a clean, field-named refusal. Run through
+        # ``_validate_params_values`` rather than a bare loop over
+        # ``_validate_number_or_vec`` so a bad value's refusal names *which*
+        # key it was, not just "params" -- see that function's own docstring.
+        failure = _validate_params_values(params, "params")
+        if failure:
+            return failure
 
     translation = rotation_deg = scale = None
     if args.get("translation") is not None:
@@ -2935,11 +2974,13 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
     # (or does, past the clamp -- inf clamped against a finite ceiling is
     # still inf) used to sail straight through into the generator function
     # and out the other side as vertex positions, with nothing downstream
-    # ever checking a mesh is made of finite numbers.
-    for value in params.values():
-        _, failure = _validate_number_or_vec(value, "params")
-        if failure:
-            return failure
+    # ever checking a mesh is made of finite numbers. Run through
+    # ``_validate_params_values`` rather than a bare loop over
+    # ``_validate_number_or_vec`` so the refusal names *which* key was bad --
+    # see that function's own docstring.
+    failure = _validate_params_values(params, "params")
+    if failure:
+        return failure
     # Captured before anything below mutates ``obj.params`` -- the merge two
     # lines down edits it in place via a fresh dict, but ``set_generator_params``
     # itself reassigns ``obj.params`` to the very dict it is handed, so reading

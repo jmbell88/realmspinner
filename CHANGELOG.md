@@ -201,6 +201,16 @@ engine stopped being something you download whether or not you ever use it.
   just been handed. Every call now checks its arguments' names against that
   same schema before anything runs, names every one that doesn't belong, and
   suggests what each was probably meant to be.
+- **A bad number inside a shape's parameters now says which parameter.** A lathe
+  takes a `profile` of turned stations beside a plain `segments` count, and a
+  non-finite number in either used to be refused as "params must be finite
+  numbers" — true, and useless to an agent that cannot see the document it is
+  building: it had to guess which of the two it had got wrong, or change both.
+  The refusal now names the offending key, and names every offending key at
+  once rather than stopping at the first, so two bad numbers cost one round
+  trip instead of two. It is the same fix as the misspelled-argument one above,
+  one level further in — that one named the bad argument, this one names the bad
+  value inside it.
 - **An agent can now hand Clay a mesh it built itself, not only the name of a
   recipe.** Every door into an empty document used to be a registry entry —
   a generator's name and its parameters, or a figure preset — so a shape an

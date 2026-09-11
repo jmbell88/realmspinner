@@ -1141,6 +1141,82 @@ def test_clay_set_params_refuses_a_non_finite_value_rather_than_baking_it_into_p
     assert np.isfinite(obj.mesh.positions).all()
 
 
+def test_a_bad_params_value_names_which_param_is_bad() -> None:
+    """A lathe has two numeric-shaped params -- ``profile`` (array of
+    arrays) and ``segments`` (a plain number) -- so a NaN in one beside a
+    good value in the other is exactly the case that used to come back as
+    the bare ``"params must be finite numbers."``: true, but silent about
+    which of the two keys was wrong, leaving an agent that cannot see its
+    own document to guess. ``field`` must still be the top-level ``"params"``
+    (``tests/test_agent_schemas.py``'s ``_run_case`` walks only
+    ``case.path[0]``); only the message may name the bad key.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "lathe")
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uid": uid, "params": {"segments": 8, "profile": [[1.0, float("nan")]]}},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "params"
+    message = result["content"][0]["text"]
+    assert "profile" in message
+    assert "segments" not in message
+
+
+def test_two_bad_params_are_both_named_in_one_refusal() -> None:
+    """A caller that got two params wrong in the same call should not need
+    two round trips to learn about the second -- the same determinism rule
+    :func:`agent_clay._unknown_argument_refusal` already holds unknown
+    argument names to.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "lathe")
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {
+            "uid": uid,
+            "params": {"segments": float("inf"), "profile": [[1.0, float("nan")]]},
+        },
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "params"
+    message = result["content"][0]["text"]
+    assert "profile" in message
+    assert "segments" in message
+
+
+def test_clay_add_primitive_also_names_which_param_is_bad() -> None:
+    """The same duplicated loop lived in ``_h_add_primitive`` -- this is the
+    other of the two doors the bug shipped through.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {
+            "generator": "lathe",
+            "params": {"segments": 8, "profile": [[1.0, float("nan")]]},
+        },
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "params"
+    message = result["content"][0]["text"]
+    assert "profile" in message
+    assert "segments" not in message
+
+
 def test_clay_material_refuses_a_non_finite_metallic() -> None:
     """``float("nan")`` passed the old ``isinstance(c, int | float)`` colour
     check just as readily as a real number -- NaN *is* a float -- and the
