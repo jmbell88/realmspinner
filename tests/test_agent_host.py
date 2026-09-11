@@ -67,6 +67,11 @@ is about that seam holding, with no real GL and no real app:
   Its own reply carries the same ``structuredContent`` duplication every
   Clay tool's does (``ok(text(...), structured=payload)``), so it is not the
   one inconsistent result shape on the bridge.
+* ``WARLOCK_AGENT_TRANSCRIPT`` gates tier two's recorder (see
+  ``agent_host._record_completed_call``): unset, a completed call writes
+  nothing anywhere; set, it is appended in ``agent_transcript``'s own format;
+  and a path that cannot be written is logged and never reaches the caller of
+  ``_call`` -- the diagnostic must not be able to fail a real tool call.
 * The three transport-level refusals this module raises directly each name a
   ``recovery`` from ``agent_clay.RECOVERY`` -- the dropped-call timeout is
   ``"retry"`` (nothing ran), the in-flight refusal ``_replay`` raises when a
@@ -95,7 +100,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from warlock.mcp import pipe, protocol
-from warlock.studio import agent_clay, agent_host
+from warlock.studio import agent_clay, agent_host, agent_transcript
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
 #: in this file -- comfortably under pytest's 120 s default and comfortably
@@ -1215,5 +1220,93 @@ def test_the_transport_refusals_name_their_recovery(tmp_path, monkeypatch) -> No
 
     assert in_flight["isError"] is True
     assert (in_flight.get("structuredContent") or {}).get("recovery") == "wait"
+
+
+# --- WARLOCK_AGENT_TRANSCRIPT: tier two's recorder ---------------------------
+
+
+def test_no_transcript_is_recorded_when_the_env_var_is_unset(monkeypatch) -> None:
+    host = _bare_host()
+    monkeypatch.delenv(agent_host.TRANSCRIPT_ENV, raising=False)
+    recorded: list = []
+    monkeypatch.setattr(agent_transcript, "record", lambda *a, **k: recorded.append((a, k)))
+    result = {"content": [], "isError": False}
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, result, None, agent_host.DONE)
+    )
+
+    host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})
+
+    assert recorded == []  # off unless the variable names a path
+
+
+def test_a_completed_call_is_recorded_when_the_env_var_is_set(tmp_path, monkeypatch) -> None:
+    host = _bare_host()
+    transcript = tmp_path / "subject.jsonl"
+    monkeypatch.setenv(agent_host.TRANSCRIPT_ENV, str(transcript))
+    result = {
+        "content": [{"type": "text", "text": '{"uid": 7}'}],
+        "isError": False,
+        "structuredContent": {"uid": 7},
+    }
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, result, None, agent_host.DONE)
+    )
+
+    host._call(
+        agent_clay.Session(), agent_host._Calls(), "clay_add_primitive", {"generator": "box"}
+    )
+
+    lines = [
+        json.loads(line)
+        for line in transcript.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    # Exactly tier one's own format -- see agent_transcript.record's docstring
+    # on why that agreement is the point.
+    assert lines == [
+        {"tool": "clay_add_primitive", "arguments": {"generator": "box"}, "ok": True, "made": [7]}
+    ]
+
+
+def test_warlock_status_is_never_recorded(tmp_path, monkeypatch) -> None:
+    """``warlock_status`` answers about the dedup store, not a Clay document
+    -- see :func:`agent_host._transport_tools`'s own docstring for why it is
+    not one of ``agent_clay.tools()`` at all -- and tier one's replay only
+    knows how to run a tool through ``agent_clay.call``, so a recorded
+    ``warlock_status`` line would be a transcript entry tier one could never
+    meaningfully replay against a corpus subject. It is answered and
+    returned before :meth:`AgentHost._call` ever reaches the recording
+    point, which this proves by checking that nothing was written at all."""
+    host = _bare_host()
+    transcript = tmp_path / "subject.jsonl"
+    monkeypatch.setenv(agent_host.TRANSCRIPT_ENV, str(transcript))
+
+    host._call(agent_clay.Session(), agent_host._Calls(), agent_host.STATUS_TOOL, {})
+
+    assert not transcript.exists()
+
+
+def test_a_transcript_that_cannot_be_written_does_not_break_the_call(
+    tmp_path, monkeypatch
+) -> None:
+    host = _bare_host()
+    # A file, not a directory, so agent_transcript.record's own
+    # ``path.parent.mkdir(parents=True, exist_ok=True)`` raises FileExistsError
+    # -- an OSError subtype -- when it tries to create a "directory" that
+    # already exists as something else.
+    blocked = tmp_path / "not_a_directory"
+    blocked.write_text("x", encoding="utf-8")
+    monkeypatch.setenv(agent_host.TRANSCRIPT_ENV, str(blocked / "subject.jsonl"))
+    result = {"content": [], "isError": False}
+    monkeypatch.setattr(
+        host, "_run_on_frame_job", lambda run, timeout=None: (None, result, None, agent_host.DONE)
+    )
+
+    returned = host._call(agent_clay.Session(), agent_host._Calls(), "clay_scene", {})
+
+    # The call's own answer, unaffected by the transcript write failing --
+    # an agent session must not die because a diagnostic path was unwritable.
+    assert returned is result
 
 

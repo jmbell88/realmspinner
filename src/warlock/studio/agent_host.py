@@ -99,6 +99,21 @@ joining ``agent_clay.tools()``'s derived catalogue, and it is answered on
 the listener thread without ever being queued -- it exists for the case
 where the frame thread is busy, and queueing it would make it unanswerable
 in exactly that situation.
+
+**``WARLOCK_AGENT_TRANSCRIPT`` records tier two of the Clay agent benchmark,
+on the listener thread, never the frame thread.** When set, every call that
+genuinely ran and was handed back to the peer (never a timeout, never a
+replay of one already recorded, never ``warlock_status``, which holds no
+document) is appended to the named file in ``agent_transcript``'s format --
+see :func:`_record_completed_call`. The frame thread runs under a hard
+per-frame drain budget and must never gain new work for a diagnostic that is
+off unless a human switches it on; the listener already does its own I/O
+(framing and writing the pipe reply, the module's opening claim above), so
+one more small synchronous write costs it nothing new, and it is where
+*name*, *arguments* and *result* already sit together with no need to
+smuggle any of them across the job queue to reach them. A write that fails
+is logged and otherwise ignored -- an agent session must not die because a
+transcript path happened to be unwritable.
 """
 
 from __future__ import annotations
@@ -107,6 +122,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -114,9 +130,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import agent_clay
+from . import agent_clay, agent_transcript
 
 log = logging.getLogger(__name__)
+
+TRANSCRIPT_ENV = "WARLOCK_AGENT_TRANSCRIPT"
+"""Names a file every completed tool call is appended to, in
+``agent_transcript``'s format -- tier two of the Clay agent benchmark
+(``tests/test_agent_transcripts.py``'s module docstring names the tiers).
+Unset by default, so recording costs nothing for the ordinary case of an
+agent session nobody is trying to capture. Read fresh on every call rather
+than cached at :meth:`AgentHost.start`, so ``scripts/agent_bench.py``'s
+``--serve`` (which sets this before calling ``studio.main.run()``, not
+before constructing the host) does not have to race the host's own
+construction to take effect."""
 
 #: How long ``_call`` (a tool invocation) waits for :meth:`pump` before
 #: giving up and answering with a refusal. Matches the contract's own number:
@@ -189,6 +216,53 @@ def _fingerprint(tool: str, args: dict) -> str:
         {"tool": tool, "args": args}, sort_keys=True, separators=(",", ":"), default=str
     )
     return hashlib.blake2b(canonical.encode("utf-8"), digest_size=8).hexdigest()
+
+
+def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
+    """Append one line to :data:`TRANSCRIPT_ENV`'s file, if it names one.
+
+    Called from :meth:`AgentHost._call`, on the **listener thread** -- not
+    from :meth:`AgentHost.pump` on the frame thread, even though the frame
+    thread is where ``agent_clay.call`` actually ran. The listener already
+    does blocking I/O of its own (framing and writing the pipe reply, per
+    the module docstring's opening claim), so one more small, synchronous
+    write here costs it nothing it was not already paying; the frame thread,
+    by contrast, runs under a hard per-frame drain budget
+    (:meth:`AgentHost.pump`'s own docstring, and ``docs/INVARIANTS.md``'s
+    three-thread model), and a disk write is new work that diagnostic would
+    be adding to *every* call, forever, for a feature that is off unless a
+    human switches it on. The listener is also simply where this data
+    already lives: *name*, *arguments* and *result* are exactly this
+    method's own parameters, with no need to smuggle anything across the
+    job queue to reach them.
+
+    A write failure must never reach the caller of :meth:`AgentHost._call`:
+    an agent session driving Clay has nothing to do with whether a diagnostic
+    file happened to be unwritable, and letting that exception propagate
+    would fail a real tool call over a debugging aid nobody but a human
+    running ``scripts/agent_bench.py`` even asked for. Logged and swallowed,
+    the same shape ``pump`` already uses for one bad job not stopping the
+    drain (see its own comment).
+
+    **A call whose answer is only delivered later, through** :meth:`_replay`,
+    **is not recorded.** ``_Op`` keeps a fingerprint and a tool name once a
+    job has been let go, not the original arguments (see :class:`_Op`'s own
+    docstring on why the payload itself is dropped as soon as it is
+    delivered), so there is nothing to hand this function at that site
+    without widening what every operation carries for the rest of a
+    connection's life -- a cost paid on every call, for a diagnostic that is
+    off unless a human switches it on, to cover a narrow race (a timeout
+    immediately followed by an identical retry). A benchmark run's own
+    ``CALL_TIMEOUT`` is 30s of frame-thread inattention, which a corpus-
+    building session driving one call at a time is not expected to hit.
+    """
+    path = os.environ.get(TRANSCRIPT_ENV)
+    if not path:
+        return
+    try:
+        agent_transcript.record(Path(path), name, arguments, result)
+    except OSError:
+        log.exception("agent transcript: could not append to %s", path)
 
 
 @dataclass
@@ -660,6 +734,19 @@ class AgentHost:
             # answer, so nothing remains here for a later identical call to
             # match against -- it mints its own operation and runs for real.
             op.state, op.job, op.result, op.delivered = state, None, None, True
+            # Tier two's recording point: *name* and *arguments* are this
+            # call's own request, and *result* is what it genuinely produced.
+            # Deliberately inside this branch rather than above it, so the
+            # only calls recorded are the ones that answered: a job that was
+            # dropped never ran, and one that timed out has no result here
+            # yet. That second case is the honest limit -- its answer
+            # reaches the peer later through ``_replay``, which does not
+            # record either, so a timed-out call is absent from the
+            # transcript rather than present twice. See
+            # ``_record_completed_call``'s own docstring for why buying it
+            # back would cost every operation the arguments it deliberately
+            # drops.
+            _record_completed_call(name, arguments, result)
             return result
         # The result never reached the peer -- a timeout refusal is about to
         # be returned instead -- so keep this operation replayable rather

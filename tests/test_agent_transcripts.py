@@ -2,13 +2,17 @@
 Lines sequence of tool calls -- against a real ``ClayDoc`` through the real
 ``agent_clay.call`` door, and assert what came out. See the tranche-5 plan for
 the split: tier one (here) runs unattended in the suite with no model
-involved; tier two is a ``scripts/`` driver plus a recorder that produces a
-transcript from an actual agent's own trajectory (not yet built -- everything
-under ``tests/fixtures/agent_transcripts/`` today is **hand-authored**, not
-recorded, and says so below); tier three is human judgement through a
-``TODO.md`` sitting. This file's job is narrower than either: a change that
-makes a corpus subject unbuildable, or that silently stops a call producing
-an object, fails here -- a regression gate, not a benchmark score.
+involved; tier two is ``studio/agent_transcript.py``'s recorder (called from
+``studio/agent_host.py``) plus ``scripts/agent_bench.py``'s ``--serve``
+driver, which together produce a transcript from an actual agent's own
+trajectory over a real MCP connection -- something this file cannot do and
+does not try to (everything under ``tests/fixtures/agent_transcripts/`` today
+is still **hand-authored**, not recorded, and says so below: tier two exists
+now, but nobody has pointed it at a model and promoted what came back into a
+fixture yet); tier three is human judgement through a ``TODO.md`` sitting.
+This file's job is narrower than either: a change that makes a corpus subject
+unbuildable, or that silently stops a call producing an object, fails here --
+a regression gate, not a benchmark score.
 
 **The format.** One recorded call per line, JSON, at
 ``tests/fixtures/agent_transcripts/<name>.jsonl``::
@@ -21,7 +25,7 @@ an object, fails here -- a regression gate, not a benchmark score.
 contain a refusal (a real model's own trajectory includes them), and replay
 must reproduce the *same* outcome, not merely avoid crashing. ``made`` is the
 object uids that call's result actually carried, in the order
-:func:`_extract_produced_uids` below would walk them out -- not necessarily
+:func:`agent_transcript.produced_uids` would walk them out -- not necessarily
 uids that call *created*: a call that only echoes a uid it acted on (say,
 ``clay_set_params``'s per-object rows) reports that uid here too, because the
 extraction rule is structural ("every uid this result surfaced"), not a
@@ -39,10 +43,10 @@ produced), and a value with no mapping fails the test loudly, naming the
 transcript, the line and the uid -- never silently passed through, because a
 pass-through uid would make the next call refuse for a reason that has
 nothing to do with the regression this tier exists to catch. See
-:func:`_remap_uid_arguments`.
+:func:`agent_transcript.remap`.
 
 There are, today, exactly two such keys: ``uid`` and ``uids``. That is not
-asserted by literal -- :func:`_uid_bearing_argument_names` walks every
+asserted by literal -- :func:`agent_transcript.uid_keys` walks every
 published tool's own argument schema (``agent_clay.tools()``, the same
 registry ``tests/test_agent_clay.py``'s derivation gate reads), collects
 every ``properties`` key at every depth, and keeps the ones whose name
@@ -54,10 +58,24 @@ decision here rather than letting the remap rule silently miss an argument
 and replay against the wrong object. ``{"$ref": "<name>"}`` -- the
 ``clay_batch``-only placeholder ``343e4f06`` added, resolved by
 ``agent_clay._resolve_batch_ref`` against the document's own live names --
-is not a recorded uid at all, so :func:`_remap_uid_arguments` passes it
+is not a recorded uid at all, so :func:`agent_transcript.remap` passes it
 through untouched rather than mistaking it for one; only the batch handler
 itself ever learns ``$ref`` exists, exactly as that commit's own docstring
 says.
+
+**These four functions moved to ``warlock.studio.agent_transcript``.**
+Tier two's recorder needs exactly the same two rules -- which argument names
+carry a uid, and which uids a result surfaced -- and a second, private copy
+of them here would be the hand-kept-duplicate drift CLAUDE.md refuses
+elsewhere in this codebase: the day a twenty-seventh tool named a uid a third
+way, only whichever copy someone remembered to update would notice. So
+``uid_keys``, ``produced_uids``, ``remap`` and ``record`` are defined once,
+in ``src/``, and this file imports them rather than redefining them. Only
+the replay loop -- ``_load_transcript`` and ``_replay`` below -- and the two
+test-only constants (``UID_KEYS``, an alias for the module's own, and the
+gate test that gives it teeth) still live here, because they are about
+*this* file's job (asserting a replay reproduces a recording), not about the
+format itself.
 
 **Recording and expectation are two files, on purpose.** ``<name>.jsonl`` is
 what a run of the calls actually produced (machine output, whether recorded
@@ -101,12 +119,13 @@ enough to catch a corrupted mesh or a scene-graph cycle, but it says nothing
 about the GLB path itself (optimize, normalize, ground) or about a
 ``service``-side failure.
 
-**These two transcripts are hand-authored, not recorded.** A recorder that
-watches a real agent's own trajectory and emits a transcript from it is tier
-two, and is not built here -- describing either ``chair.jsonl`` or
-``spoked-hub.jsonl`` as "recorded" would overclaim what produced them. Both
-were written by reasoning about the geometry by hand, then actually run once
-(through this same ``agent_clay.call`` door, with the same ``_extract_produced_uids``
+**These two transcripts are hand-authored, not recorded.** Tier two's
+recorder (``agent_transcript.record``, called from ``studio/agent_host.py``)
+exists now, but describing either ``chair.jsonl`` or ``spoked-hub.jsonl`` as
+"recorded" would still overclaim what produced them -- neither ever went
+through a real MCP connection. Both were written by reasoning about the
+geometry by hand, then actually run once (through this same
+``agent_clay.call`` door, with the same ``agent_transcript.produced_uids``
 this file uses to replay) to read off the real ``made`` lists and the real
 call outcomes -- "authored, verified by execution," not "recorded from an
 agent."
@@ -116,71 +135,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from test_agent_clay import _Ctx  # see module docstring -- shared rather than duplicated
 
-from warlock.studio import agent_clay, clay_mode
+from warlock.studio import agent_clay, agent_transcript, clay_mode
 from warlock.studio.clay import diagnose as clay_diagnose
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import serialize
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_transcripts"
 
-
-# --- the uid-bearing key set, derived rather than hand-kept ------------------
-
-
-def _all_property_names(schema: Any) -> set[str]:
-    """Every key that appears as a member of some ``properties`` object,
-    anywhere inside *schema* -- an object's own top level, a nested object
-    (``clay_diagnose``'s ``select``), or the item schema of an array
-    (``clay_batch``'s ``calls``). JSON Schema nests objects and arrays
-    arbitrarily, so this recurses into every dict value and every list
-    element rather than assuming ``properties`` only ever sits at the root.
-    """
-    names: set[str] = set()
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            props = node.get("properties")
-            if isinstance(props, dict):
-                names.update(props.keys())
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-
-    walk(schema)
-    return names
-
-
-def _uid_bearing_argument_names() -> set[str]:
-    """Every published tool's own argument names, filtered to the ones that
-    actually name a uid. Filtering on the substring "uid" rather than a
-    hand-picked pair is what makes this a gate: a future tool's
-    ``target_uid`` would show up here with no edit needed in this function,
-    and ``test_the_uid_bearing_argument_names_are_exactly_uid_and_uids`` is
-    what turns that into a failure instead of a silent miss in
-    :func:`_remap_uid_arguments`.
-    """
-    names: set[str] = set()
-    for tool in agent_clay.tools():
-        names |= _all_property_names(tool.schema)
-    return {name for name in names if "uid" in name.lower()}
-
-
-UID_KEYS = frozenset(_uid_bearing_argument_names())
-"""What :func:`_remap_uid_arguments` and :func:`_extract_produced_uids` treat
-as a uid-bearing key -- computed once, from the live schemas, at import time,
-rather than written out as a ``{"uid", "uids"}`` literal: the whole point of
-deriving it is that a future tool naming a uid some other way (a hypothetical
-``target_uid``) changes *this* set with no edit here, so the walkers below
-pick it up automatically rather than silently skipping it. The literal
-``{"uid", "uids"}`` appears exactly once in this file, in the test below, as
-today's pinned expectation -- a human's claim about what the derivation
-should equal, not the derivation itself."""
+UID_KEYS = agent_transcript.UID_KEYS
+"""An alias for the one set ``agent_transcript`` derives -- kept as a name in
+this file only because the gate test below reads better naming it directly
+than spelling ``agent_transcript.UID_KEYS`` out. Not a second computation:
+see that module's own docstring for the derivation itself."""
 
 
 def test_the_uid_bearing_argument_names_are_exactly_uid_and_uids() -> None:
@@ -189,123 +158,11 @@ def test_the_uid_bearing_argument_names_are_exactly_uid_and_uids() -> None:
     the time this was written) rather than trusting a hand-written pair, so
     a twenty-seventh tool naming a uid some other way fails loudly here --
     :data:`UID_KEYS` would have already grown to include it, which is what
-    forces a decision about :func:`_remap_uid_arguments` and
-    :func:`_extract_produced_uids` instead of letting a stale mapping
-    silently replay the wrong object.
+    forces a decision about :func:`agent_transcript.remap` and
+    :func:`agent_transcript.produced_uids` instead of letting a stale
+    mapping silently replay the wrong object.
     """
     assert {"uid", "uids"} == UID_KEYS
-
-
-# --- the one rule for "what did this result produce" ------------------------
-
-
-def _extract_produced_uids(result: dict) -> list[int]:
-    """Every uid a tool call's result surfaced: every scalar value under a
-    key named ``uid``, and every integer member of every list value under a
-    key named ``uids``, walked out of *result* in the order ``json`` already
-    preserves (Python dicts and ``json.loads`` both keep insertion order, and
-    every result here was built by ``dict`` literals in ``agent_clay.py``
-    itself, so that order is the module's own, not an accident of this
-    walk).
-
-    Run directly against the raw ``call()`` return value -- ``{"content":
-    [...], "isError": ..., "structuredContent": {...}}`` -- rather than a
-    pre-parsed payload: ``content``'s text block is a JSON *string*, a leaf
-    this walk does not parse, so it contributes nothing and there is no risk
-    of double-counting a uid that also appears, structurally, in
-    ``structuredContent`` (see the module docstring's structured-results
-    claim for why every non-picture tool duplicates its answer there). A
-    tool whose reply carries a picture (``clay_render``, ``clay_reference_get``)
-    has no ``structuredContent`` at all and so never produces anything here
-    -- correct, since neither tool creates an object.
-
-    One rule, used for both halves of the replay (recording-time extraction,
-    when these fixtures were authored, and replay-time extraction, in
-    :func:`_replay`) so the two cannot disagree about what "produced" means.
-
-    Gated on :data:`UID_KEYS` rather than the two literal names directly, so
-    a third derived key (see that constant's own docstring) is at least
-    *noticed* here -- membership is checked before the singular/plural shape
-    is -- even though extracting it correctly would still need this
-    function's own edit to say whether it reads like ``uid`` or ``uids``;
-    the derivation gate test is what turns that "silently extracts nothing
-    for the new key" gap into a loud, immediate failure instead of a shape
-    this function would otherwise have to guess at.
-    """
-    produced: list[int] = []
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key in UID_KEYS:
-                    if key == "uid" and isinstance(value, int) and not isinstance(value, bool):
-                        produced.append(value)
-                    elif key == "uids" and isinstance(value, list):
-                        produced.extend(
-                            v for v in value if isinstance(v, int) and not isinstance(v, bool)
-                        )
-                walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-
-    walk(result)
-    return produced
-
-
-def _remap_uid_arguments(
-    arguments: dict, mapping: dict[int, int], transcript: str, line_no: int
-) -> dict:
-    """*arguments*, with every recorded uid under a :data:`UID_KEYS` key
-    replaced by its live counterpart in *mapping* -- built fresh, since the
-    schema declares each tool's own arguments a plain object with no fixed
-    shape ``agent_clay`` will ever hand-list twice (``clay_batch``'s own
-    ``arguments: {"type": "object"}`` is the extreme case: this file has no
-    idea what is inside one of its entries beyond "maybe a uid, maybe a
-    $ref, maybe neither").
-
-    A ``{"$ref": "<name>"}`` dict -- ``clay_batch``'s own placeholder, see
-    the module docstring -- passes through unchanged: it is not a recorded
-    uid, and ``agent_clay._resolve_batch_ref`` resolves it against the live
-    document by name once the call actually runs, which is a job this
-    function has no business doing (and would get wrong, since a ``$ref``
-    names an object this replay may not even have remapped a uid for yet --
-    it was never given one to remap in the first place).
-
-    A recorded uid absent from *mapping* raises rather than passing the
-    original int through: an unmapped uid sailing into a live call refuses
-    for "no such object" or, worse, silently addresses whatever the fresh
-    process happened to number that uid, which is exactly the confusing
-    downstream refusal the task this file implements was written to avoid.
-    """
-
-    def remap_value(value: Any) -> Any:
-        if isinstance(value, dict):
-            return value  # a {"$ref": ...} placeholder -- batch-only, left alone.
-        if isinstance(value, list):
-            return [remap_value(item) for item in value]
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, int):
-            if value not in mapping:
-                raise AssertionError(
-                    f"{transcript}: line {line_no}: recorded uid {value} has no live "
-                    "mapping -- no earlier line in this transcript produced it."
-                )
-            return mapping[value]
-        return value
-
-    def walk(node: Any) -> Any:
-        if isinstance(node, dict):
-            return {
-                key: (remap_value(value) if key in UID_KEYS else walk(value))
-                for key, value in node.items()
-            }
-        if isinstance(node, list):
-            return [walk(item) for item in node]
-        return node
-
-    return walk(arguments)
 
 
 # --- the replay itself --------------------------------------------------------
@@ -329,9 +186,20 @@ def _replay(name: str) -> dict[int, int]:
     mapping: dict[int, int] = {}
 
     for line_no, record in enumerate(calls, start=1):
-        arguments = _remap_uid_arguments(
-            record.get("arguments") or {}, mapping, name, line_no
-        )
+        # agent_transcript.remap raises UnmappedUidError, a plain
+        # ValueError -- the right shape for src/ code (see that class's own
+        # docstring), but this replay's failure has always read as an
+        # AssertionError, and every caller of _replay (including
+        # test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist,
+        # which depends on this exact loop raising when it should) expects
+        # that. Translated here rather than in agent_transcript itself, which
+        # has no business knowing this file uses assertions for its gate.
+        try:
+            arguments = agent_transcript.remap(
+                record.get("arguments") or {}, mapping, name, line_no
+            )
+        except agent_transcript.UnmappedUidError as exc:
+            raise AssertionError(str(exc)) from exc
         result = agent_clay.call(ctx, session, record["tool"], arguments)
 
         # Assertion 1: the recorded outcome, reproduced -- a refusal names
@@ -348,7 +216,7 @@ def _replay(name: str) -> dict[int, int]:
         # this tier exists to catch, reported as that rather than as a
         # confusing refusal three calls later when the second uid never
         # arrives.
-        produced = _extract_produced_uids(result)
+        produced = agent_transcript.produced_uids(result)
         assert len(produced) == len(record["made"]), (
             f"{name}: line {line_no} ({record['tool']}): produced {len(produced)} uids "
             f"{produced}, recording claims {len(record['made'])}: {record['made']}."
@@ -419,7 +287,7 @@ def test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist() -> No
     numbers ones this process can never issue, so ``chair``'s closing
     ``clay_material`` (whose ``uids`` names all six objects by their
     *recorded* numbers) reaches a live document that has none of them. It
-    passes only because :func:`_remap_uid_arguments` really does rewrite
+    passes only because :func:`agent_transcript.remap` really does rewrite
     them; without the remap it refuses with "no object with uid(s)", and
     without the loud unmapped-uid guard it would refuse for a reason that
     looks nothing like the cause.

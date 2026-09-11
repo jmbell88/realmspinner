@@ -346,6 +346,16 @@ a test asserts. Give a tool a third one, a `target_uid` say, and that assertion 
 the alternative is a replay that quietly leaves your new argument pointing at whatever object the fresh
 process happened to number that way.
 
+You can watch a whole agent session go by, and keep it. Set `WARLOCK_AGENT_TRANSCRIPT` to a file path and
+every tool call that answers is appended to it as one line of JSON — what was called, with what, whether it
+was refused, and which objects came back. It is off unless that variable is set, it is written on the thread
+that talks to the agent rather than the one that draws, and a path it cannot write is logged and ignored
+rather than allowed to fail the call it was only meant to describe. `scripts/agent_bench.py --serve` is the
+whole thing wired up: a throwaway home, the bridge switched on, the recorder pointed somewhere, and the
+command line to paste into your agent's client. `--show` reads one back. A transcript is also exactly what
+the suite replays, so a session worth keeping can become a regression test by being copied into
+`tests/fixtures/agent_transcripts/` with a claim about what it should build written beside it.
+
 A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
 `changed`, defaulted to `False` in that one wrapper rather than at each of this file's ~100 call
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
