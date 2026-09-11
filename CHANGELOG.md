@@ -222,6 +222,21 @@ engine stopped being something you download whether or not you ever use it.
   generator, all checked before any of them is rebuilt — a radius handed to a box
   among five cylinders refuses the whole call and names which object it was,
   rather than leaving five changed and one not.
+- **A batched call can name an object the batch itself just made.** Nothing in a
+  batch sees another call's answer until the whole batch comes back, so an agent
+  had no uid for a hub it had created three calls earlier — building a hub and
+  arraying eight spokes around it meant two batches with a scene read in between.
+  Name the object when you make it and write `{"$ref": "hub"}` where a uid would
+  go, anywhere in a later call's arguments, and it resolves against the document as
+  it stands at that moment. Two objects wearing one name refuse rather than pick
+  the first. It works inside a batch and nowhere else, deliberately: outside one,
+  the call that made the object already handed back its uid.
+- **Fixed: the batch tool's own description disagreed with what it accepts.** It
+  told an agent that a batch starting a document must open with **Add primitive**
+  or **Add figure**, while the code had accepted **Add mesh** since that tool
+  landed — so the published contract refused in prose what it ran in practice. The
+  sentence is now built from the same list the check reads, and a test holds the
+  two together.
 - **An agent can now hand Clay a mesh it built itself, not only the name of a
   recipe.** Every door into an empty document used to be a registry entry —
   a generator's name and its parameters, or a figure preset — so a shape an

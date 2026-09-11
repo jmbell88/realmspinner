@@ -645,6 +645,28 @@ def test_every_tool_is_covered_by_the_dead_tab_and_session_only_lists() -> None:
     } == set(agent_clay._HANDLERS)
 
 
+def test_clay_batchs_published_description_names_every_tool_that_can_start_one() -> None:
+    """The catalogue sentence an agent reads before its first call must agree
+    with the membership check that actually runs.
+
+    It did not: ``clay_add_mesh`` joined ``_h_batch``'s own tuple when that
+    tool landed and the description was left saying "the first call must be
+    clay_add_primitive or clay_add_figure", so the published contract refused
+    in prose a batch the code ran without complaint. Both now read
+    ``agent_clay.MINTS_A_DOCUMENT``, and this pins that tuple against the
+    same ``_MINTS_A_TAB`` table the exhaustiveness test above already keeps
+    honest -- so a fourth document-starting tool cannot be added without
+    this file's own classification and the agent-visible sentence both
+    moving with it.
+    """
+    assert set(agent_clay.MINTS_A_DOCUMENT) == {n for n, _ in _MINTS_A_TAB}
+    description = next(
+        tool.description for tool in agent_clay.tools() if tool.name == "clay_batch"
+    )
+    for name in agent_clay.MINTS_A_DOCUMENT:
+        assert name in description, name
+
+
 # The four ``_SESSION_ONLY`` tools carry no ready-made args table the way
 # ``_NEEDS_A_TAB``/``_MINTS_A_TAB`` do -- that list is only names, on purpose
 # (see its own comment) -- so this is the one small table the test below adds,
@@ -2091,6 +2113,219 @@ def test_clay_batch_that_starts_with_an_add_mints_the_sessions_first_document() 
     result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
     assert result["isError"] is False, result
     assert session.tab_uid != ""
+
+
+# --- B5b -- $ref inside a clay_batch entry -----------------------------------
+#
+# Tranche 5's fourth piece: a batch entry never sees an earlier entry's own
+# result until the whole batch returns, so it has no uid to pass an object
+# an earlier entry in the same batch just created. ``{"$ref": "<name>"}``
+# resolves against the object's own ``name`` -- the namespace
+# ``clay_add_primitive``/``clay_add_figure``/``clay_add_mesh`` already refuse
+# a collision on and ``clay_scene`` already reports -- at the moment its
+# entry runs, so a hub can be built and then addressed by name without a
+# ``clay_scene`` read splitting the work across two batches.
+
+
+def test_a_ref_in_a_later_batch_entry_names_an_object_an_earlier_entry_just_created() -> (
+    None
+):
+    """The motivating case from the tranche brief: build a named hub, then
+    act on it by name, both inside one batch."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "hub"}},
+        {
+            "name": "clay_transform",
+            "arguments": {"uid": {"$ref": "hub"}, "translation": [1.0, 2.0, 3.0]},
+        },
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["completed"] == 2
+    assert payload["stopped_at"] is None
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    hub = next(o for o in tab.doc.objects if o.name == "hub")
+    assert list(hub.translation) == pytest.approx([1.0, 2.0, 3.0])
+
+
+def test_a_ref_resolves_an_object_already_in_the_document_before_the_batch_began() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    add = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box", "name": "pre"})
+    assert add["isError"] is False, add
+    pre_uid = _payload(add)["uid"]
+
+    calls = [
+        {
+            "name": "clay_transform",
+            "arguments": {"uid": {"$ref": "pre"}, "translation": [4.0, 5.0, 6.0]},
+        }
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is False, result
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert list(tab.doc.by_uid(pre_uid).translation) == pytest.approx([4.0, 5.0, 6.0])
+
+
+def test_a_ref_inside_a_list_of_uids_resolves() -> None:
+    """``clay_material``'s ``uids`` is a list, not a single value -- the
+    recursive-into-a-list half of the contract, distinct from the
+    single-value case the other tests here cover."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "a"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder", "name": "b"}},
+        {
+            "name": "clay_material",
+            "arguments": {
+                "uids": [{"$ref": "a"}, {"$ref": "b"}],
+                "color": [1.0, 0.0, 0.0],
+            },
+        },
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is False, result
+    assert _payload(result)["completed"] == 3
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    a = next(o for o in tab.doc.objects if o.name == "a")
+    b = next(o for o in tab.doc.objects if o.name == "b")
+    assert a.material == b.material != 0
+
+
+def test_a_ref_to_a_name_no_object_has_stops_the_batch_and_keeps_the_prefix() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "hub"}},
+        {
+            "name": "clay_transform",
+            "arguments": {"uid": {"$ref": "ghost"}, "translation": [1.0, 0.0, 0.0]},
+        },
+        {"name": "clay_add_primitive", "arguments": {"generator": "cone", "name": "never"}},
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["stopped_at"] == 1
+    assert payload["completed"] == 1
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    names = {o.name for o in tab.doc.objects}
+    assert "hub" in names
+    assert "never" not in names
+
+    ref_failure = payload["results"][1]
+    assert ref_failure["isError"] is True
+    assert ref_failure["structuredContent"]["field"] == "uid"
+    assert ref_failure["structuredContent"]["recovery"] == "read_scene"
+    # Distinguishes a real ``$ref`` miss from the generic "not an int" refusal
+    # a bare unresolved ``{"$ref": ...}`` dict would otherwise fall through
+    # to (which also names field="uid"/recovery="read_scene", coincidentally)
+    # -- this message names the object by the name that was actually looked
+    # up, not the raw dict ``int()`` choked on.
+    assert "no object named" in ref_failure["content"][0]["text"]
+    assert "ghost" in ref_failure["content"][0]["text"]
+
+
+def test_a_dict_carrying_ref_beside_another_key_is_refused() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "hub"}},
+        {
+            "name": "clay_transform",
+            "arguments": {
+                "uid": {"$ref": "hub", "extra": 1},
+                "translation": [1.0, 0.0, 0.0],
+            },
+        },
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["stopped_at"] == 1
+    ref_failure = payload["results"][1]
+    assert ref_failure["structuredContent"]["field"] == "uid"
+    # "fix_arguments", not "read_scene" -- this is a malformed call, not a
+    # name the document happens not to hold, and the message names $ref by
+    # name rather than falling through to the generic bad-uid refusal (which
+    # would also land on field="uid", coincidentally, but with recovery
+    # "read_scene" and no mention of $ref at all).
+    assert ref_failure["structuredContent"]["recovery"] == "fix_arguments"
+    assert "$ref" in ref_failure["content"][0]["text"]
+
+
+def test_a_ref_to_an_ambiguous_name_is_refused_naming_both_uids() -> None:
+    """Names are unique at the agent door (``clay_add_primitive`` and friends
+    refuse a collision) but not globally -- the human door's own rename can
+    still land two objects on one name, so ``$ref`` has to cope with more
+    than one match rather than silently picking the first."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "box")
+    uid2 = _payload(agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "cone"}))[
+        "uid"
+    ]
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    # Bypasses ``_h_rename``'s own collision refusal on purpose: ``doc.set_props``
+    # is the lower-level door the human-facing rename panel and ``_h_rename``
+    # both sit on top of, and only the agent handlers refuse a name collision
+    # -- so this is exactly how two objects really do end up sharing a name.
+    tab.doc.set_props(uid1, name="dup")
+    tab.doc.set_props(uid2, name="dup")
+
+    calls = [
+        {
+            "name": "clay_transform",
+            "arguments": {"uid": {"$ref": "dup"}, "translation": [1.0, 0.0, 0.0]},
+        }
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is True
+    payload = _payload(result)
+    ref_failure = payload["results"][0]
+    assert ref_failure["isError"] is True
+    assert ref_failure["structuredContent"]["field"] == "uid"
+    assert set(ref_failure["structuredContent"]["uids"]) == {uid1, uid2}
+
+
+def test_a_ref_in_an_ordinary_non_batched_call_is_not_resolved() -> None:
+    """The boundary the brief pins: outside a batch an agent already has the
+    creating call's own result in hand, so ``$ref`` is batch-only and a
+    direct call must not learn about it -- a ``$ref`` there is refused as
+    the malformed uid it plainly is (``int({"$ref": "hub"})`` raises the same
+    as any other non-numeric ``uid``), not specially resolved."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    hub_uid = _payload(
+        agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box", "name": "hub"})
+    )["uid"]
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_transform",
+        {"uid": {"$ref": "hub"}, "translation": [1.0, 0.0, 0.0]},
+    )
+    assert result["isError"] is True
+    structured = result["structuredContent"]
+    assert structured["field"] == "uid"
+    assert structured["recovery"] == "read_scene"
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    # Untouched -- proof this was refused, not resolved and then acted on.
+    assert list(tab.doc.by_uid(hub_uid).translation) == pytest.approx([0.0, 0.0, 0.0])
 
 
 # ==============================================================================

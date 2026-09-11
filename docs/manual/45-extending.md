@@ -233,7 +233,10 @@ to take several. Placing a primitive or a figure sets its size, its position, it
 scale, its name and its palette colour all at once, validated before anything appears and landing as
 a single undo step — it used to take four round trips to place one sized, positioned, named, coloured
 object. **Batch** folds up to thirty-two calls, a whole block-out, into that same one step, so backing
-the attempt out is one Ctrl+Z rather than one per primitive. **Set params** takes a list of objects
+the attempt out is one Ctrl+Z rather than one per primitive. Inside a batch, a later call can name an
+object an earlier one just made — give it a name when you make it, and write `{"$ref": "hub"}`
+where a uid would go — because nothing in a batch sees another call's answer until the whole
+batch comes back. **Set params** takes a list of objects
 rather than one, so making six wheels larger is one call and one Ctrl+Z rather than six of
 each — and it is all or nothing, so a number that is wrong for one of them changes none of
 them. Undo, delete and rename all work by

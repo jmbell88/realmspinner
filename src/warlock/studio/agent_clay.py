@@ -112,7 +112,22 @@ that wants to block out a scene one primitive at a time pays one round trip
 per primitive and, worse, one Ctrl+Z per primitive for a user who wants to
 back the whole attempt out; ``clay_batch`` runs up to ``BATCH_MAX`` calls
 through :func:`call` under one ``history.mark()``/``collapse_since`` pair,
-stopping at the first refusal and keeping the successful prefix.
+stopping at the first refusal and keeping the successful prefix. A batch
+entry never sees an earlier entry's own result -- that only exists once the
+whole batch has returned -- so it has no uid to hand a later entry an object
+an earlier one just created; a persistent recipe object with named parts was
+argued down in design review as more machinery than that ask needed in
+favour of four cheap pieces already mostly built (object names, ``clay_scene``
+reporting them, a plural ``clay_set_params``) plus this last one:
+``{"$ref": "<name>"}``, found anywhere inside an entry's ``arguments``,
+resolves to that name's uid the moment its entry runs (:func:`_resolve_batch_ref`).
+Resolved per entry, not against the whole ``calls`` list up front, for the
+same reason a bad ``uid`` already refuses at its own entry rather than in a
+pre-flight pass: a name only exists once whatever created it has actually
+run. And ``$ref`` is batch-only on purpose -- outside a batch an agent
+already holds the creating call's own uid, so :func:`call` never learns
+``$ref`` exists; a ``$ref`` handed to an ordinary call is refused as the
+malformed ``uid`` it is.
 
 **The undo enumeration, in full.** Together with ``clay_undo``/``clay_redo``
 (which move the history head rather than pushing one of their own),
@@ -327,6 +342,32 @@ step. The byte budget (``UndoStack``) already bounds what a single step can
 *cost*, but nothing bounded how many calls a batch could ask for before this
 -- an unbounded batch would let one MCP round trip queue an arbitrarily long
 run with no natural place to hit a ceiling first."""
+
+MINTS_A_DOCUMENT: tuple[str, ...] = (
+    "clay_add_primitive",
+    "clay_add_figure",
+    "clay_add_mesh",
+)
+"""The three tools that may start a document from nothing -- and so the three
+a ``clay_batch`` may open with when the session owns no tab yet.
+
+A constant rather than a tuple literal inside ``_h_batch`` because the list
+was already written out in two places that then disagreed: the handler's own
+membership check grew ``clay_add_mesh`` when that tool landed, and
+``clay_batch``'s published description -- the sentence an agent reads before
+it ever calls anything -- did not, so the catalogue told a model that a batch
+starting with ``clay_add_mesh`` would be refused while the code was happily
+running it. That is the hand-kept-copy-of-another-table drift this file
+already refuses to write for its generator, op and query enums; the
+description now interpolates this tuple instead of restating it, and
+``tests/test_agent_clay.py`` pins it against the same ``_MINTS_A_TAB`` list
+that keeps every tool classified.
+
+The three prose refusals that also name these three (``_tab``'s two and
+``_h_batch``'s own) are left as English rather than interpolated: "call
+clay_add_primitive, clay_add_figure or clay_add_mesh" is a sentence, not a
+list, and the test below is what catches one of them going stale.
+"""
 
 BATCH_EXCLUDED = frozenset(
     {
@@ -1149,7 +1190,13 @@ def instructions() -> str:
         "beside the reference or blended over it.\n\n"
         f"Up to {BATCH_MAX} tool calls can be folded into one clay_batch "
         "call; it stops at the first refusal and keeps everything that "
-        "already ran.\n\n"
+        "already ran. Inside a batch entry's arguments, "
+        "{\"$ref\": \"<name>\"} resolves to the uid of the object holding "
+        "that name at the moment that entry runs -- give an earlier entry a "
+        "name (clay_add_primitive/clay_add_figure/clay_add_mesh's own "
+        "argument) and a later entry in the same batch can address it "
+        "without a clay_scene read in between; $ref only works inside "
+        "clay_batch.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
         "second timeout is handled one of two ways, and the reply says "
         "which. If Warlock had not started the call yet, it is dropped and "
@@ -1821,10 +1868,17 @@ def tools() -> list[Any]:
                 f"{BATCH_MAX} tool calls in order, folded into a single undo "
                 "step, stopping at the first refusal and keeping the "
                 "successful prefix. If this session owns no document yet, "
-                "the first call must be clay_add_primitive or "
-                "clay_add_figure. clay_batch, clay_render, clay_export, "
+                "the first call must be one of "
+                f"{', '.join(MINTS_A_DOCUMENT)}. "
+                "clay_batch, clay_render, clay_export, "
                 "clay_undo, clay_redo and clay_reference_get cannot be "
-                "batched -- see their own tools for why."
+                "batched -- see their own tools for why. Anywhere inside a "
+                "later entry's arguments, {\"$ref\": \"<name>\"} resolves to "
+                "the uid of the object of that name as the document stands "
+                "when that entry runs -- so an earlier entry can name an "
+                "object (clay_add_primitive/clay_add_figure/clay_add_mesh's "
+                "own name argument) and a later one can address it by that "
+                "name, with no clay_scene read in between."
             ),
             schema={
                 "type": "object",
@@ -4122,6 +4176,80 @@ def _h_rename(ctx: Any, session: Session, args: dict) -> dict:
     return _json({"uid": obj.uid, "name": name})
 
 
+def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | None]:
+    """Walk *value* (one batch-entry argument, in full -- a plain scalar, or
+    a dict/list nested arbitrarily deep) and replace every ``{"$ref": name}``
+    found anywhere inside it with the uid of *doc*'s object named *name*, as
+    *doc* stands right now. Returns a fresh copy; *value* itself is never
+    mutated, so a refusal partway through a list leaves the caller's own
+    ``entry["arguments"]`` exactly as it sent it.
+
+    ``field`` is always the *top-level* argument key this value hangs off of
+    in the entry's ``arguments`` -- passed down unchanged through every
+    recursive call, so ``{"uids": [1, {"$ref": "b"}]}``'s ambiguous ``b``
+    still refuses naming ``field="uids"`` rather than some deeper path
+    nothing else in this file has a name for. That is also why this is
+    ``_h_batch``'s own helper and not a general tree-walker: "the top-level
+    argument" is a batch-entry concept, meaningless for any other caller.
+
+    Only a dict of the *exact* shape ``{"$ref": <name>}`` is treated as a
+    reference -- one that also carries any other key is refused rather than
+    guessed at (which key wins?), and ``tests/test_agent_clay.py``'s
+    ``test_a_dict_carrying_ref_beside_another_key_is_refused`` pins that. A
+    dict with no ``$ref`` key at all -- an ordinary object argument, or one
+    that merely nests a real ``$ref`` somewhere inside it -- is walked key by
+    key instead.
+    """
+    if isinstance(value, dict):
+        if "$ref" in value:
+            if len(value) != 1:
+                return None, fail(
+                    f"a $ref object may carry no other key; got {sorted(value)}.",
+                    field=field,
+                )
+            name = value["$ref"]
+            if not isinstance(name, str) or not name:
+                return None, fail(
+                    "$ref must be a non-empty string naming an object by name.",
+                    field=field,
+                )
+            matches = [obj.uid for obj in doc.objects if obj.name == name]
+            if not matches:
+                return None, fail(f"no object named {name!r}.", field=field, recovery="read_scene")
+            if len(matches) > 1:
+                # Names are unique at this door's own creation tools
+                # (clay_add_primitive/clay_add_figure/clay_add_mesh each
+                # refuse a collision) but not globally -- clay_rename's own
+                # lower-level door, document.set_props, carries no such
+                # check, so a document reached by other means (the human
+                # panel, clay_duplicate) can genuinely hold two objects
+                # wearing one name. Picking the first would silently act on
+                # the wrong one; naming both is the only honest answer.
+                return None, fail(
+                    f"{len(matches)} objects are named {name!r}; give a uid "
+                    f"instead of $ref (uids {matches}).",
+                    field=field,
+                    uids=matches,
+                )
+            return matches[0], None
+        out: dict[str, Any] = {}
+        for key, sub_value in value.items():
+            resolved, failure = _resolve_batch_ref(doc, sub_value, field)
+            if failure:
+                return None, failure
+            out[key] = resolved
+        return out, None
+    if isinstance(value, list):
+        out_list: list[Any] = []
+        for item in value:
+            resolved, failure = _resolve_batch_ref(doc, item, field)
+            if failure:
+                return None, failure
+            out_list.append(resolved)
+        return out_list, None
+    return value, None
+
+
 def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     """Run several tools as one undo step. See the module docstring's own
     paragraph on the fold and :data:`BATCH_EXCLUDED` for what this refuses to
@@ -4137,6 +4265,32 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     the first sub-call, but it is still one of the three creator tools that
     is about to run, which is what keeps "only those three mint a document"
     true.
+
+    ``$ref``: a value of the exact form ``{"$ref": "<object name>"}``
+    appearing anywhere inside an entry's ``arguments`` is replaced, the
+    moment that entry runs, with the uid of the object of that name in this
+    document *as it then stands* -- see :func:`_resolve_batch_ref`. This is
+    what lets a later entry act on an object an earlier entry in the same
+    batch just created: a batch's own results are invisible to the batch
+    itself until the whole thing returns, so without this the only way to
+    build a hub and then act on it was two batches with a ``clay_scene``
+    read in between. Deliberately resolved here, per entry, rather than
+    up front against the whole ``calls`` list: the up-front validation above
+    only checks shape (an entry is an object, its name is batchable, its
+    arguments are a dict-or-absent) precisely because none of it can know
+    what a name resolves to before earlier entries have actually run, and an
+    unresolvable ``$ref`` is refused *at the entry that carries it* --
+    exactly like a bad ``uid`` in that same entry already is -- rather than
+    given a second, pre-flight contract of its own. And deliberately *not*
+    wired into :func:`call`: outside a batch an agent already holds the
+    creating call's own result, uid included, so a ``$ref`` there would
+    solve nothing that a uid does not already solve, and the only thing
+    resolving it there would buy is a second place this file has to explain
+    what ``$ref`` means. A ``$ref`` handed to an ordinary, non-batched call
+    is refused as the malformed ``uid`` it is -- ``test_a_ref_in_an_
+    ordinary_non_batched_call_is_not_resolved`` pins that boundary so a
+    later reader does not "finish the job" by moving resolution down into
+    ``call()``.
     """
     calls = args.get("calls")
     if not isinstance(calls, list) or not (1 <= len(calls) <= BATCH_MAX):
@@ -4164,7 +4318,7 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     if not session.tab_uid:
         first_name = calls[0].get("name")
-        if first_name not in ("clay_add_primitive", "clay_add_figure", "clay_add_mesh"):
+        if first_name not in MINTS_A_DOCUMENT:
             return fail(
                 "This session has no document yet. The first call in a "
                 "batch that starts one must be clay_add_primitive, "
@@ -4184,7 +4338,17 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     results: list[dict] = []
     stopped_at: int | None = None
     for i, entry in enumerate(calls):
-        result = call(ctx, session, entry["name"], entry.get("arguments") or {})
+        arguments = entry.get("arguments") or {}
+        # Resolved fresh against *doc* on every entry, not once up front --
+        # see this function's own docstring's ``$ref`` paragraph for why an
+        # unresolvable name refuses here rather than before the loop starts.
+        resolved: dict[str, Any] = {}
+        ref_failure: dict | None = None
+        for key, value in arguments.items():
+            resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
+            if ref_failure:
+                break
+        result = ref_failure if ref_failure else call(ctx, session, entry["name"], resolved)
         results.append(result)
         if result.get("isError"):
             stopped_at = i
