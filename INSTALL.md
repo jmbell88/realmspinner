@@ -22,7 +22,7 @@ This covers the packaged Windows installer only. If you want to run Warlock Stud
 ## Step 1: Download Warlock Studio
 
 1. Go to the **Releases** page of the [Warlock Studio GitHub repository](https://github.com/jmbell88/warlock-studio) and open the latest release.
-2. Under **Assets**, download `WarlockSetup-v0.0.42.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. Its SHA-256 is **`341571afea241560248f5a97721b72b0a36795f96cbca43ee2d10435407727f1`**; the release page lists the current build's actual hash.
+2. Under **Assets**, download `WarlockSetup-v0.0.43.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. Its SHA-256 is **`bd3457f4b6bd8b612723012059cc8068dd19513667abdf57f3860e6d94aac120`**; the release page lists the current build's actual hash.
 3. Wait for the download to finish before opening it.
 
 ## Step 2: Install Warlock Studio

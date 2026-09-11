@@ -18,6 +18,55 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.43 — 2026-09-11
+
+An audit of Clay closed six defects, two of which anyone who models in it
+would have met: keys typed while orbiting the camera went nowhere, and a
+shape's segment count could be set to a number that froze the app.
+
+- **Keys work while you are looking around.** Clay's viewport had two
+  properties named `dragging`: the view's own, true for *any* pointer gesture
+  (orbit, pan, marquee), and the drag mixin's, true only for a live move,
+  rotate or scale. The view's own won every lookup, so every key gate that
+  asked "is a transform drag live?" got "yes" for the whole of an `Alt`+drag
+  orbit: a bare tool key was routed into the drag handler and eaten, `1` no
+  longer switched to vertex mode, `Enter` mid-orbit ran a loop-select nobody
+  asked for, and `Ctrl+Z` was refused as "blocked by a live drag" — so an undo
+  tapped while still holding `Alt` did nothing. The broad question now has its
+  own name and is asked only by the rule that keeps the pointer captured when
+  the cursor crosses onto a panel mid-gesture. The regression drives the real
+  view, because the previous test used a stand-in that defined the narrow
+  meaning by hand and so could never have seen the shadow.
+
+- **A shape's segment count has a ceiling.** `segments`, `sides`, `rings`,
+  `divisions` and `sections` were clamped from below only; `subdivisions` was
+  the one count with a maximum. A cylinder asked for fifty million segments was
+  accepted unchanged and had not finished building after thirty seconds, on the
+  frame thread from the properties panel and with nothing between an agent's
+  number and the generator over MCP. Each count now caps (512 segments and
+  sides, 256 rings, 512 divisions, 256 sections), inside the generators as well
+  as in the parameter clamp, chosen so a two-count shape stays well under the
+  two-million-triangle import ceiling.
+
+- **Weld never merges past the distance you typed.** Above 20,000 vertices
+  Weld switches to a grid: anything sharing an `eps`-sized cell was merged, and
+  a cell's diagonal is 1.73 × `eps` — a probe fused two vertices 1.66 × `eps`
+  apart. A vertex now has to sit within half the distance of its cell's centre
+  to be merged, which bounds every pair to `eps`; the path measured 0.06 s at
+  100,000 vertices, so the reason the grid exists is untouched.
+
+- **Shade Auto is hard across a non-manifold edge.** An edge shared by three
+  or more faces has no twin, the same as a boundary edge, and was treated as
+  one — "no neighbour to disagree with" — so faces meeting at a sharp angle
+  across it all came out smooth. Imported GLBs produce such edges routinely.
+  Every face on one is now sharp.
+
+- **A corrupted `.wblk` says so.** The document reader type-checked every
+  field on an object but two: `material` was a bare `int()`, so a null, list or
+  dict escaped as an unnamed `TypeError`, and `generator` was not checked at
+  all, so a bad value opened cleanly and crashed the properties panel later.
+  Both now raise the reader's own named refusal.
+
 ## 0.0.42 — 2026-09-10
 
 Two audits — one reading all fourteen slices at once, one over Clay, Poser
