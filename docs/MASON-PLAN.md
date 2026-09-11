@@ -627,12 +627,44 @@ untouched. Gate: `tests/test_view_frame.py` — every name on `FrameOps` still r
 leaf's outward imports so the next viewport cannot inherit Clay's document model by
 accident. Proved by dropping `FrameOps` from the bases: it names all six lost methods.
 
-**Stage C — the pure engine, headless.** `refs`, `nodes`, `document`, `edits`; then `scene`,
-`ops`, `pick`; then `terrain`. No UI. **Write `tests/mason/test_mason_imports.py` first** —
-the pin is the contract — then the document tests (uid addressing, reparent refuses a cycle,
-add/remove/move round trips, dirty is a comparison), the resolver tests (the five rules, a
-hidden ancestor, instance expansion, `owner_uid`), and the terrain tests (a brush outside the
-rect changes nothing; the edit's `cost` is what it claims).
+**Stage C — the pure engine, headless. DONE.** All eight modules landed with the pin written
+first: `refs`, `nodes`, `edits`, `document`, `scene`, `ops`, `pick`, `terrain` — 3,400 lines of
+engine under 2,700 lines of test, 230 tests in `tests/mason/`. The full Windows lane went
+20604 -> 20845 passed, 49 skipped, 0 failed; the 241 new cases are the 230 here plus nine
+`test_atomic_writes.py` per-file cases enrolling the new modules and two
+`test_external_doc_links.py` cases enrolling the measurements document — every extra one a
+derived gate picking the work up on its own.
+
+Five things came out differently from what this section above assumed, and each is recorded in
+`docs/INVARIANTS.md` rather than only here:
+
+- **`owner_uid(path)` cannot be written as specified.** For a node inside an expanded prefab
+  the path runs scene uids then template uids and nothing in a bare tuple says where the
+  boundary falls, so the walk — which knows — records the answer once as `Placed.owner`.
+- **`MAX_PLACED` became two constants.** A refusal ceiling and a frame budget want opposite
+  answers: set at the frame budget, a scene that merely resolves slowly could not be opened at
+  all. `MAX_PLACED` is 100,000 and refuses; `PLACED_WARN_THRESHOLD` is 1,500 and is what a
+  pane warns at in Stage E.
+- **A tenth edit type, `TerrainSwapEdit`.** `set_terrain` as a plain assignment made removing a
+  sculpted ground unrecoverable — and undoing afterwards raised rather than merely losing it.
+- **`Node.local()` is memoized**, because `m3.compose` was 64% of a whole `resolve` and the
+  ceiling constants were about to be fixed to that. 20x on the hit path; the numbers and the
+  criterion are in `docs/measurements/2026-09-11-mason-scene-ceilings.md`, which also fixes
+  `MAX_TERRAIN_SIDE` at 256 and so answers open question 1 for everything Stage C touches.
+- **`pick.py` keys its BVH on the primitives a `GeometrySource` returned, not on the ref.** A
+  `Ref` compares equal precisely when the geometry behind it changes, so a relink or a
+  re-export out of Clay kept the stale tree — reproduced as a spurious miss on geometry
+  directly under the ray.
+
+The node-proxy test (item 2 of "Six things Mason must do differently") was written before the
+code and failed exactly as this plan predicted: six instances of one ref collapsed onto one
+shared object. `scene.DrawNode`/`NodePool` is the fix, pure and headless, so Stage E inherits
+it rather than rediscovering it.
+
+**What Stage C deliberately did not do.** The other six packages' import pins still carry the
+disagreeing hand lists recorded below — `tests/_pure_packages.py` exists and Mason's pin uses
+it, but `packwright` imports `plotter` for real, so converting the rest is a decision about
+that edge rather than a substitution, and it is not Stage C's.
 
 **One thing Stage C will walk into, measured on 2026-09-11 rather than assumed.** The
 sibling packages' import pins do *not* enumerate their siblings consistently, so
