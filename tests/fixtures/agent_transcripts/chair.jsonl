@@ -1,0 +1,7 @@
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "seat", "params": {"size": [0.45, 0.05, 0.45]}, "translation": [0.0, 0.475, 0.0]}, "ok": true, "made": [1]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "back", "params": {"size": [0.45, 0.5, 0.05]}, "translation": [0.0, 0.75, -0.2]}, "ok": true, "made": [2]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "leg_front_left", "params": {"size": [0.05, 0.45, 0.05]}, "translation": [0.18, 0.225, 0.18]}, "ok": true, "made": [3]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "leg_front_right", "params": {"size": [0.05, 0.45, 0.05]}, "translation": [-0.18, 0.225, 0.18]}, "ok": true, "made": [4]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "leg_back_left", "params": {"size": [0.05, 0.45, 0.05]}, "translation": [0.18, 0.225, -0.18]}, "ok": true, "made": [5]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "leg_back_right", "params": {"size": [0.05, 0.45, 0.05]}, "translation": [-0.18, 0.225, -0.18]}, "ok": true, "made": [6]}
+{"tool": "clay_material", "arguments": {"uids": [1, 2, 3, 4, 5, 6], "name": "Oak", "color": [0.45, 0.31, 0.18], "roughness": 0.75}, "ok": true, "made": [1, 2, 3, 4, 5, 6]}

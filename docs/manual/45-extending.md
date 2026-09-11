@@ -337,6 +337,15 @@ first mutation" style `_h_add_primitive` and `_h_add_figure` already followed.
 constraint by constraint, discovered from the schemas themselves rather than a hand-written list of
 what to check.
 
+One more thing a new tool can trip, and it is easier to understand before than after.
+`tests/test_agent_transcripts.py` replays a recorded sequence of tool calls against a real document, and
+because object uids are never reused for the life of a process, a recorded uid has to be rewritten to
+whatever the replaying process issued instead. It finds the arguments to rewrite by name, derived from the
+schemas rather than listed — and the whole surface has exactly two such names today, `uid` and `uids`, which
+a test asserts. Give a tool a third one, a `target_uid` say, and that assertion fails. It is doing its job:
+the alternative is a replay that quietly leaves your new argument pointing at whatever object the fresh
+process happened to number that way.
+
 A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries
 `changed`, defaulted to `False` in that one wrapper rather than at each of this file's ~100 call
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a

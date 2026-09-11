@@ -1,0 +1,17 @@
+{
+  "subject": "a hub with eight spokes arrayed around it: clay_batch mints the hub and one spoke and $ref-selects the spoke before array-radial fans it into eight, then a plural clay_set_params grows all eight spokes together",
+  "difficulty": "intermediate",
+  "call_count": 2,
+  "object_count": 9,
+  "diagnose_findings": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    []
+  ]
+}
