@@ -2115,6 +2115,181 @@ def test_clay_batch_that_starts_with_an_add_mints_the_sessions_first_document() 
     assert session.tab_uid != ""
 
 
+# --- B5a -- rollback_on_error -------------------------------------------------
+#
+# Tranche 5's fifth piece. ``clay_batch``'s documented contract -- stop at the
+# first refusal, keep the successful prefix -- is unchanged and untouched by
+# any of this; ``rollback_on_error`` is an opt-in, default-false argument for
+# an agent that would rather the partial work never existed. Because the
+# whole run already folds into one undo step, reversing it is one
+# ``history.undo(doc, redoable=False)`` -- see that method's own docstring
+# (``src/warlock/studio/undo.py``) for the cancelled-lift incident that
+# argument exists for.
+
+
+def test_rollback_on_error_true_leaves_the_document_exactly_as_it_was_before_the_batch() -> (
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    objects_before = len(tab.doc.objects)
+    history_before = len(tab.doc.history)
+    dirty_before = tab.doc.dirty
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "cone"}},
+    ]
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": calls, "rollback_on_error": True}
+    )
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["stopped_at"] == 1
+    assert payload["completed"] == 1
+
+    assert len(tab.doc.objects) == objects_before
+    assert len(tab.doc.history) == history_before
+    assert tab.doc.dirty == dirty_before
+
+
+def test_without_rollback_on_error_the_successful_prefix_survives_unchanged() -> None:
+    """The contract-preservation claim: omitting the flag must behave
+    byte-for-byte as it does today, not merely "similarly"."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    objects_before = len(tab.doc.objects)
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "cone"}},
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["stopped_at"] == 1
+    assert payload["completed"] == 1
+    assert payload["changed"] is True
+    assert payload["rolled_back"] is False
+    assert len(tab.doc.objects) == objects_before + 1
+    assert tab.doc.undo()
+    assert len(tab.doc.objects) == objects_before
+
+
+def test_a_rolled_back_batch_cannot_be_redone() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    objects_before = len(tab.doc.objects)
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+    ]
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": calls, "rollback_on_error": True}
+    )
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["completed"] == 1
+    assert payload["rolled_back"] is True
+    assert len(tab.doc.objects) == objects_before
+
+    redo_result = agent_clay.call(ctx, session, "clay_redo", {})
+    assert redo_result["isError"] is False, redo_result
+    assert _payload(redo_result)["moved"] == 0
+    assert len(tab.doc.objects) == objects_before
+
+
+def test_rolled_back_batch_reports_changed_false_and_rolled_back_true() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+    ]
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": calls, "rollback_on_error": True}
+    )
+    payload = _payload(result)
+    assert payload["changed"] is False
+    assert payload["rolled_back"] is True
+    # "completed" stays diagnostic -- how many calls succeeded before the
+    # refusal -- and stays true whether or not that work was then reversed.
+    assert payload["completed"] == 1
+
+
+def test_kept_prefix_batch_reports_changed_true_and_rolled_back_false() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "nope"}},
+    ]
+    result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
+    payload = _payload(result)
+    assert payload["changed"] is True
+    assert payload["rolled_back"] is False
+
+
+def test_rollback_on_error_on_a_batch_that_succeeds_changes_nothing() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder"}},
+        {"name": "clay_add_primitive", "arguments": {"generator": "cone"}},
+    ]
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": calls, "rollback_on_error": True}
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    assert payload["changed"] is True
+    assert len(tab.doc.objects) == 3
+
+
+def test_rollback_on_error_on_a_batch_that_minted_the_document_leaves_it_existing_and_empty() -> (
+    None
+):
+    """Rule 7's limit, pinned as a stated behaviour: only the document's own
+    undo stack is unwound. The mint ``_h_batch`` does itself when the session
+    owns no tab yet pushes no undo step (see ``_h_add_primitive``'s own
+    comment on why), so it happens before ``mark`` and a rollback cannot
+    touch it -- the session is left with an empty document, not a dead pin
+    naming a tab that no longer exists."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    assert session.tab_uid == ""
+
+    calls = [{"name": "clay_add_primitive", "arguments": {"generator": "nope"}}]
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": calls, "rollback_on_error": True}
+    )
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    assert session.tab_uid != ""
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert tab is not None
+    assert len(tab.doc.objects) == 0
+
+
 # --- B5b -- $ref inside a clay_batch entry -----------------------------------
 #
 # Tranche 5's fourth piece: a batch entry never sees an earlier entry's own

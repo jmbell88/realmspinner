@@ -129,6 +129,25 @@ already holds the creating call's own uid, so :func:`call` never learns
 ``$ref`` exists; a ``$ref`` handed to an ordinary call is refused as the
 malformed ``uid`` it is.
 
+**``rollback_on_error`` is an opt-in beside the stop-and-keep contract, not a
+replacement for it.** Because the whole run already folds into one step,
+backing a kept prefix out is already a single ``clay_undo`` -- but an agent
+that would rather the partial work never have existed can pass
+``rollback_on_error=True``, and when the batch stops at a refusal
+:func:`_h_batch` reverses the folded step with ``history.undo(doc,
+redoable=False)`` before it returns (see that method's own docstring in
+``undo.py`` for the cancelled-lift incident ``redoable=False`` exists for --
+``redoable=True`` here would leave the abandoned batch on the redo stack for
+a later ``clay_redo`` to bring back, exactly the outcome the agent asked to
+avoid). This is **not** a third exception to "one tool call is one undo
+step": a rolled-back batch pushes no step at all, the same shape as a
+refusal that never mutated the document to begin with. And it reverses only
+the document's own undo stack -- a tab this same batch minted still exists,
+because minting one pushes no undo step either (see :func:`_h_add_primitive`'s
+own comment), and the two families that push nothing (references, the
+selection tools) are exactly as untouched by a rollback as by an ordinary
+``clay_undo``.
+
 **The undo enumeration, in full.** Together with ``clay_undo``/``clay_redo``
 (which move the history head rather than pushing one of their own),
 ``clay_batch`` is one of two exceptions that fold or move a step -- what
@@ -1196,7 +1215,12 @@ def instructions() -> str:
         "name (clay_add_primitive/clay_add_figure/clay_add_mesh's own "
         "argument) and a later entry in the same batch can address it "
         "without a clay_scene read in between; $ref only works inside "
-        "clay_batch.\n\n"
+        "clay_batch. Pass rollback_on_error=true to undo that folded step "
+        "outright when the batch stops at a refusal, instead of keeping the "
+        "successful prefix -- it only unwinds the document's own undo "
+        "stack, so a tab this same batch minted, an element mode or "
+        "selection change, or a reference added along the way all survive "
+        "it untouched.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
         "second timeout is handled one of two ways, and the reply says "
         "which. If Warlock had not started the call yet, it is dropped and "
@@ -1878,7 +1902,18 @@ def tools() -> list[Any]:
                 "when that entry runs -- so an earlier entry can name an "
                 "object (clay_add_primitive/clay_add_figure/clay_add_mesh's "
                 "own name argument) and a later one can address it by that "
-                "name, with no clay_scene read in between."
+                "name, with no clay_scene read in between. rollback_on_error "
+                "(default false): when true and the batch stops at a "
+                "refusal, the folded step is undone -- not left for a later "
+                "clay_undo, and not redoable -- before this call returns, so "
+                "the successful prefix never stays on the document. This "
+                "only unwinds the document's own undo stack: a document "
+                "this very batch minted still exists, empty rather than "
+                "gone, because minting one pushes no undo step to begin "
+                "with; an element mode or selection change an earlier entry "
+                "made, and a reference clay_reference_add took, both "
+                "survive it exactly as they would survive an ordinary "
+                "clay_undo, because neither one ever pushed a step either."
             ),
             schema={
                 "type": "object",
@@ -1896,7 +1931,8 @@ def tools() -> list[Any]:
                             "required": ["name"],
                             "additionalProperties": False,
                         },
-                    }
+                    },
+                    "rollback_on_error": {"type": "boolean"},
                 },
                 "required": ["calls"],
                 "additionalProperties": False,
@@ -4291,10 +4327,26 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     ordinary_non_batched_call_is_not_resolved`` pins that boundary so a
     later reader does not "finish the job" by moving resolution down into
     ``call()``.
+
+    ``rollback_on_error``: the stop-at-first-refusal-and-keep-the-prefix
+    contract above is unchanged and this argument does not touch it -- what
+    changes is what happens to that kept prefix once the batch has already
+    stopped. Default false leaves today's behaviour exactly alone. True
+    reverses the folded step with ``doc.history.undo(doc, redoable=False)``
+    -- see the module docstring's own paragraph on this argument for why
+    ``redoable=False`` and for what a rollback does and does not reach.
     """
     calls = args.get("calls")
     if not isinstance(calls, list) or not (1 <= len(calls) <= BATCH_MAX):
         return fail(f"calls must be a list of 1 to {BATCH_MAX} tool calls.", field="calls")
+    rollback_on_error = args.get("rollback_on_error", False)
+    # The schema declares this a boolean; checked the same way ``clay_render``'s
+    # own ``grid`` already is (see that handler) rather than coerced with a
+    # bare ``bool(...)``, which would have accepted any truthy value with no
+    # refusal at all and silently decided an agent's typo meant "yes, roll
+    # back my work".
+    if not isinstance(rollback_on_error, bool):
+        return fail("rollback_on_error must be a boolean.", field="rollback_on_error")
     allowed = set(_HANDLERS) - BATCH_EXCLUDED
     for entry in calls:
         if not isinstance(entry, dict):
@@ -4354,19 +4406,63 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
             stopped_at = i
             break
     doc.history.collapse_since(mark)
-    _label_top(doc, mark, "Agent batch")
 
+    rolled_back = False
+    # Keyed off ``doc.history.head != mark``, never off ``collapse_since``'s
+    # own return value: that return is a folding decision -- ``False`` for a
+    # run that pushed exactly one step, because wrapping a lone edit in a
+    # ``CompoundEdit`` would read as "compound" in the history panel where
+    # the edit already reads as what it did -- not a "did anything happen"
+    # signal. A single pushed step is still the right thing to undo, and
+    # ``head != mark`` answers "did the document move" the same way whether
+    # collapsing found one step or several to fold.
+    if rollback_on_error and stopped_at is not None and doc.history.head != mark:
+        # ``redoable=False``: this batch's whole point is that the agent
+        # wants the partial work to never have existed. ``redoable=True``
+        # (the default ``undo()`` a human's Ctrl+Z takes) would leave the
+        # abandoned attempt sitting on the redo stack, where a later
+        # ``clay_redo`` would bring back exactly the work this call was
+        # asked to erase -- the same cancelled-lift shape ``UndoStack.undo``'s
+        # own docstring describes: the buffer needs putting back, but the
+        # user asked for the lift to not have happened, so redoable=True
+        # would let Ctrl+Y replay it. Only the document's own undo stack is
+        # unwound here -- a tab this batch minted still exists (that mint
+        # pushed no undo step to begin with, so it sits before ``mark`` and
+        # is untouched), and neither does an element-mode/selection change
+        # or a reference add along the way, because neither ever pushed a
+        # step either.
+        doc.history.undo(doc, redoable=False)
+        rolled_back = True
+
+    # Skipped once rolled back: undoing the folded step already put
+    # ``doc.history.head`` back at ``mark``, so there is no step left on top
+    # to (mis)label -- ``_label_top`` would no-op on its own guard here too,
+    # but this says so rather than relying on that guard to be read.
+    if not rolled_back:
+        _label_top(doc, mark, "Agent batch")
+
+    # "completed" is diagnostic and unaffected by rollback: how many calls
+    # succeeded before the refusal fired stays true regardless of whether
+    # that work was then reversed, so "completed: 2, rolled_back: true" is
+    # not a contradiction -- one reports what ran, the other what remains.
     completed = len(results) - (1 if stopped_at is not None else 0)
     # Truthfully computed, not hard-coded: ``mark`` is the head serial before
     # the loop above ran anything, so a head that has moved past it means at
     # least one sub-call genuinely pushed a step -- exactly what "did the
-    # document move" asks, whether the batch ran to completion or stopped at
-    # its first refusal with a successful prefix already folded in.
+    # document move" asks, whether the batch ran to completion, stopped at
+    # its first refusal with a successful prefix already folded in, or (once
+    # a rollback above has run) landed back at ``mark`` by construction. The
+    # same expression answers all three rather than a rollback branch hand-
+    # setting ``changed`` to ``False``.
     changed = doc.history.head != mark
     payload = {
         "completed": completed,
         "stopped_at": stopped_at,
         "changed": changed,
+        # Always present, the same reasoning ``changed`` is always present
+        # for: a client should be able to branch on this key without first
+        # checking whether it exists.
+        "rolled_back": rolled_back,
         "results": results,
     }
     # Routed through the same encode-then-decode ``_json`` uses, rather than

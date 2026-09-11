@@ -237,6 +237,16 @@ engine stopped being something you download whether or not you ever use it.
   landed — so the published contract refused in prose what it ran in practice. The
   sentence is now built from the same list the check reads, and a test holds the
   two together.
+- **A batch can now unwind itself instead of leaving the part that worked.**
+  Stopping at the first refusal and keeping the successful prefix is still what a
+  batch does, and because the whole run folds into one undo step, backing that
+  prefix out has always been a single Ctrl+Z. But an agent that would rather a
+  half-finished attempt had never existed can ask for that now, and what ran is
+  reversed before the call answers — and reversed for good, so a later redo cannot
+  bring back work that was explicitly abandoned. It unwinds the document and
+  nothing else: a tab the batch itself opened stays open, empty, because opening
+  one was never an undoable step to begin with, and the tool says so rather than
+  implying a transaction it cannot deliver.
 - **An agent can now hand Clay a mesh it built itself, not only the name of a
   recipe.** Every door into an empty document used to be a registry entry —
   a generator's name and its parameters, or a figure preset — so a shape an

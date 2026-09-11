@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-164/32/29/40/21/25/16/19/14/10/3/1 respectively (374 total) -- see
+165/32/29/40/21/25/16/19/14/10/3/1 respectively (375 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -55,16 +55,19 @@ never a case, because ``agent_clay.call`` only ever reaches a handler with
 ``arguments`` already a dict -- there is nothing there for a schema's own
 root type to promise that is not already true by construction. What
 survives after subtracting those (29 ``properties`` + 40 ``items`` + 3
-schema-valued ``additionalProperties`` + 26 root ``type``) is 276 violable
+schema-valued ``additionalProperties`` + 26 root ``type``) is 277 violable
 markers; ``required``'s remaining 21 occurrences are *lists*, each naming
 one or more keys -- 28 individual keys between them, one violation apiece
 rather than one per list -- which nets the walk's own exercise total to
-**283** concrete violation attempts (276 - 21 + 28), pinned by
+**284** concrete violation attempts (277 - 21 + 28), pinned by
 ``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
 so a schema edit that silently drops a case from the walk is caught here
 rather than only by a shrinking "exercised" count nobody happens to notice.
 
-**Coverage, honestly.** Every one of the 281 is attempted. What cannot
+**Coverage, honestly.** Every one of the cases the derivation above counts is
+attempted -- the number is stated once, in that derivation, and pinned by the
+test that asserts it, rather than restated here where it went stale at 281
+while the walk had already moved on. What cannot
 reliably be asserted the same way for every one is which *field* a refusal
 names -- several constraints are enforced by a handler that refuses for a
 different, still-correct, reason before it would ever reach the check this
@@ -1170,7 +1173,7 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 164,
+        "type": 165,
         "additionalProperties": 32,
         "properties": 29,
         "items": 40,
@@ -1203,7 +1206,7 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """283 -- see the module docstring's own derivation: 374 measured markers,
+    """284 -- see the module docstring's own derivation: 375 measured markers,
     minus 72 structural ones that only route recursion (29 ``properties`` +
     40 ``items`` + 3 schema-valued ``additionalProperties``), minus 26 root
     ``type: object`` markers that are true by construction, minus 21
@@ -1212,7 +1215,7 @@ def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> 
     is caught here rather than only by a shrinking "exercised" count nobody
     happens to notice.
     """
-    assert len(_ALL_CASES) == 283
+    assert len(_ALL_CASES) == 284
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------
