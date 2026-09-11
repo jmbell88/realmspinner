@@ -202,6 +202,19 @@ def test_build_script_stages_and_verifies_the_checkout_without_downloading_model
     )
 
 
+def test_the_build_ships_a_launcher_an_mcp_client_can_spawn() -> None:
+    """45-extending.md tells an agent's MCP client to run `uv run warlock mcp`,
+    which only exists in a source checkout with `uv` installed. An installed
+    Warlock has neither, and until this launcher existed the only generated
+    entry point under `bin\\` was warlock-doctor.cmd -- so an installed
+    Warlock, the whole closed-beta audience, had no command an MCP client
+    could point at and the bridge was unreachable."""
+    source = (INSTALLER / "build.ps1").read_text(encoding="utf-8")
+    assert 'Set-Content -LiteralPath (Join-Path $Stage "bin\\warlock-mcp.cmd")' in source
+    assert "-m warlock mcp" in source
+    assert '"%~dp0..\\python\\python.exe" -m warlock mcp %*' in source
+
+
 def test_the_build_collects_the_packs_and_then_ships_the_base_runtime() -> None:
     """The whole point of the packs: the installer stages ``--extra studio``
     alone, and torch, bpy and the music stack arrive from Settings -> Packs.

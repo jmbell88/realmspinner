@@ -16,6 +16,7 @@ import multiprocessing.connection as mpconn
 import stat
 import sys
 import threading
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -194,3 +195,231 @@ def test_a_rejected_peer_does_not_take_the_listener_down(tmp_path) -> None:
     finally:
         server.close()
         accepting.join(timeout=5)
+
+
+# --- the handshake is bounded, and owns every way it can fail -------------------
+
+
+def _dial_raw(address: str) -> Any:
+    """Open the pipe without answering the challenge, the way a hostile or
+    merely broken peer does. Returns something to close, or ``None`` on a
+    platform this probe does not cover.
+
+    Deliberately *not* `mpconn.Client`: that answers the challenge, which is
+    the one thing these tests need a peer to refuse to do.
+    """
+    if sys.platform == "win32":
+        import _winapi
+
+        return _winapi.CreateFile(
+            address,
+            _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
+            0,
+            _winapi.NULL,
+            _winapi.OPEN_EXISTING,
+            0,
+            _winapi.NULL,
+        )
+    import socket
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(address)
+    return sock
+
+
+def _close_raw(handle: Any) -> None:
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CloseHandle(handle)
+    else:
+        handle.close()
+
+
+def test_a_peer_that_never_answers_the_challenge_does_not_wedge_the_listener(
+    tmp_path, monkeypatch
+) -> None:
+    """Silence must not be a way to switch the agent server off for good.
+
+    `Listener(authkey=...)` runs the HMAC exchange inside `accept()` with an
+    unbounded `recv_bytes`, so a peer that opened the pipe and then said
+    nothing parked the accept loop forever -- and, measured, `Server.close()`
+    did not free it either, so `AgentHost.stop()` joined for two seconds and
+    left the thread holding a pipe instance. Any local process could end an
+    agent session that way, and the real bridge behind it blocked in its own
+    `connect()` rather than getting the readable refusal `bridge.main` prints.
+
+    Asserts the bound: the silent peer is dropped and the client that follows
+    it, holding the right token, is served.
+    """
+    # Shortened for the suite's sake: ``_handshake`` reads this module global
+    # on every call, so the path under test is exactly the shipped one -- only
+    # the wait is smaller. Left at the real value the test would cost the
+    # default lane ten seconds to say the same thing.
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 0.5)
+    server = pipe.Server(tmp_path)
+    server.start()
+    token = pipe.read_token(tmp_path)
+    address = pipe.address_for(tmp_path)
+
+    accepted: list[Any] = []
+    accepting = threading.Thread(target=lambda: accepted.append(server.accept()), daemon=True)
+    accepting.start()
+
+    rude = _dial_raw(address)
+    try:
+        good: list[Any] = []
+
+        def dial() -> None:
+            with contextlib.suppress(Exception):
+                good.append(mpconn.Client(address, family=pipe._FAMILY, authkey=token))
+
+        dialer = threading.Thread(target=dial, daemon=True)
+        dialer.start()
+        # Comfortably past HANDSHAKE_TIMEOUT: the silent peer has to be given
+        # up on before the honest one behind it can be served.
+        dialer.join(timeout=pipe.HANDSHAKE_TIMEOUT + 15)
+        accepting.join(timeout=10)
+
+        assert good, "the listener never served a client holding the right token"
+        assert accepted and accepted[0] is not None, "the listener was wedged by a silent peer"
+        good[0].send_bytes(b"after the silence")
+        assert accepted[0].recv_bytes() == b"after the silence"
+        good[0].close()
+        accepted[0].close()
+    finally:
+        _close_raw(rude)
+        server.close()
+        accepting.join(timeout=5)
+
+
+def test_a_peer_that_vanishes_mid_handshake_does_not_kill_the_listener(
+    tmp_path, monkeypatch
+) -> None:
+    """The `EOFError` the old guard did not name.
+
+    `Server.accept` caught `AuthenticationError` and `OSError` because those
+    are the two shapes a *rejected* peer arrives in. A peer that disconnects
+    part-way through the exchange raises neither: `deliver_challenge`'s
+    `recv_bytes` raises `EOFError`, which went straight out through the accept
+    loop and ended `AgentHost._listen` -- and an MCP client killed or
+    restarted while its bridge is dialling in does exactly this. The agent
+    server then stopped answering while Settings still showed the pipe
+    address, with no way back but toggling the switch.
+    """
+    # Shortened for the suite's sake: ``_handshake`` reads this module global
+    # on every call, so the path under test is exactly the shipped one -- only
+    # the wait is smaller. Left at the real value the test would cost the
+    # default lane ten seconds to say the same thing.
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 0.5)
+    server = pipe.Server(tmp_path)
+    server.start()
+    token = pipe.read_token(tmp_path)
+    address = pipe.address_for(tmp_path)
+
+    accepted: list[Any] = []
+    accepting = threading.Thread(target=lambda: accepted.append(server.accept()), daemon=True)
+    accepting.start()
+
+    # Connect, then vanish before answering anything.
+    _close_raw(_dial_raw(address))
+
+    try:
+        good: list[Any] = []
+
+        def dial() -> None:
+            with contextlib.suppress(Exception):
+                good.append(mpconn.Client(address, family=pipe._FAMILY, authkey=token))
+
+        dialer = threading.Thread(target=dial, daemon=True)
+        dialer.start()
+        dialer.join(timeout=pipe.HANDSHAKE_TIMEOUT + 15)
+        accepting.join(timeout=10)
+
+        assert accepted, "accept() never returned: the listener died on a half-open peer"
+        assert accepted[0] is not None, "the listener was torn down by a half-open peer"
+        assert good, "the listener never served the client that had the right token"
+        good[0].close()
+        accepted[0].close()
+    finally:
+        server.close()
+        accepting.join(timeout=5)
+
+
+def test_a_refused_peer_leaves_no_handle_that_blocks_the_next_start(tmp_path, monkeypatch) -> None:
+    """The chain that turned a wedged pipe into an app that would not launch.
+
+    CPython opens the Windows pipe with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so a
+    handle still held by a thread abandoned mid-handshake is enough to make
+    the *next* `Server.start()` raise `PermissionError` -- and since the
+    Settings switch persists before it calls `start()`, that failure used to
+    follow the app into `main.setup_context` on every subsequent launch.
+    Closing the connection on timeout is what releases the abandoned thread;
+    this asserts the consequence rather than the mechanism, so it holds on
+    whichever platform the test runs.
+
+    Scoped to the handshake deliberately. The accept loop is driven all the
+    way to a *served* connection before anything is closed, so the listener is
+    not sitting in a pending `accept()` of its own -- whatever still holds a
+    pipe instance at the end can only have come from the peer that was
+    refused, which is the thing this fix is responsible for.
+    """
+    # Shortened for the suite's sake: ``_handshake`` reads this module global
+    # on every call, so the path under test is exactly the shipped one -- only
+    # the wait is smaller. Left at the real value the test would cost the
+    # default lane ten seconds to say the same thing.
+    monkeypatch.setattr(pipe, "HANDSHAKE_TIMEOUT", 0.5)
+    server = pipe.Server(tmp_path)
+    server.start()
+    token = pipe.read_token(tmp_path)
+    address = pipe.address_for(tmp_path)
+
+    accepted: list[Any] = []
+    accepting = threading.Thread(target=lambda: accepted.append(server.accept()), daemon=True)
+    accepting.start()
+
+    rude = _dial_raw(address)
+    good: list[Any] = []
+
+    def dial() -> None:
+        with contextlib.suppress(Exception):
+            good.append(mpconn.Client(address, family=pipe._FAMILY, authkey=token))
+
+    dialer = threading.Thread(target=dial, daemon=True)
+    dialer.start()
+    dialer.join(timeout=pipe.HANDSHAKE_TIMEOUT + 15)
+    accepting.join(timeout=10)
+    _close_raw(rude)
+    assert accepted and accepted[0] is not None, "the listener never got past the refused peer"
+    for conn in (*good, *accepted):
+        conn.close()
+    server.close()
+
+    again = pipe.Server(tmp_path)
+    # The claim: a refused peer costs nothing that outlives it.
+    again.start()
+    again.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a pipe name is not a file on Windows")
+def test_a_socket_file_left_by_a_crash_does_not_disable_the_server_for_good(
+    tmp_path,
+) -> None:
+    """POSIX only, and permanent before this: a Unix socket outlives the
+    process that made it, and `bind` refuses an address whose file exists. A
+    Warlock killed hard left `mcp.sock` behind and every later `start()`
+    raised `EADDRINUSE` -- for the life of that home, since nothing removed
+    it. `instance.py` guarantees one Warlock per home, so a socket file here
+    cannot belong to a live Studio and is a leftover by construction.
+    """
+    stale = Path(pipe.address_for(tmp_path))
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"")
+    assert stale.exists()
+
+    server = pipe.Server(tmp_path)
+    server.start()
+    try:
+        assert server.address
+    finally:
+        server.close()

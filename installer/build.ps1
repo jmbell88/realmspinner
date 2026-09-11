@@ -277,6 +277,20 @@ setlocal
 '@
 Set-Content -LiteralPath (Join-Path $Stage "bin\warlock-doctor.cmd") -Value $Doctor -Encoding ascii
 
+# An installed Warlock has no `uv` and no checkout, so 45-extending.md's
+# `claude mcp add` command needs something an MCP client's config can point
+# at that still routes through the staged interpreter. This is deliberately
+# not a Start Menu or desktop shortcut (see [Icons] in warlock.iss): an MCP
+# client spawns it as a stdio subprocess, and a person who double-clicked it
+# instead would just get a console window holding a relay that talks to
+# nothing on its own.
+$Mcp = @'
+@echo off
+setlocal
+"%~dp0..\python\python.exe" -m warlock mcp %*
+'@
+Set-Content -LiteralPath (Join-Path $Stage "bin\warlock-mcp.cmd") -Value $Mcp -Encoding ascii
+
 & $StagedPython -m compileall -q (Join-Path $Stage "src\warlock")
 Assert-LastExit "compileall"
 & $StagedPython $Verifier --root $Stage --manifest (Join-Path $Stage "runtime-manifest.json")

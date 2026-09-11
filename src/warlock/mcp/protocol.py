@@ -30,6 +30,32 @@ from typing import Any, NamedTuple
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "warlock-studio"
 
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+"""Every revision `dispatch`'s `initialize` may honestly echo back, newest first.
+
+The MCP spec's own rule: a server SHOULD reply with the client's requested
+`protocolVersion` if it supports that version, and otherwise with the version
+it does support -- the client then decides whether to continue or disconnect.
+`PROTOCOL_VERSION` above stays the first element and the one used when nothing
+else applies; it must keep meaning "the one we prefer" because `test_agent_host.
+py` and `test_agent_perf.py` already depend on that name.
+
+The two older revisions earn their place here, not a free pass: this module's
+JSON-RPC message shapes for `initialize`/`notifications/initialized`/
+`tools/list`/`tools/call`/`ping` are otherwise unchanged across all three --
+the only 2025-06-18-specific wire additions are `structuredContent`/
+`outputSchema` (`ok`, `_tool_json`) and a tool's `title`. All three are
+additive keys on objects an older client already parses, so it ignores them;
+none is a shape it has to recognise in order to proceed.
+The other deltas between these revisions -- JSON-RPC batching (added
+2025-03-26, removed 2025-06-18), the `MCP-Protocol-Version` HTTP header,
+OAuth/resource-server changes -- are transport- and auth-layer, and this
+server was never on the spec's stdio or Streamable HTTP transport to begin
+with: `mcp/pipe.py` is a bespoke authenticated named pipe/socket, so those
+deltas never applied here under any version this module has ever claimed,
+2025-06-18 included. That is what makes 2024-11-05 and 2025-03-26 honest
+claims rather than merely convenient ones."""
+
 SERVER_VERSION = "0.0.0"
 """Overwritten by whoever knows the real version, before the first `initialize`.
 
@@ -211,8 +237,16 @@ def dispatch(
 
     try:
         if method == "initialize":
+            # Echo the client's requested version back if it's one we can
+            # honestly serve (see SUPPORTED_PROTOCOL_VERSIONS); otherwise fall
+            # back to the one we prefer. An unrecognised or absent version is
+            # not a JSON-RPC error -- the spec's answer to "I don't speak
+            # that" is a successful reply naming what we *do* speak, leaving
+            # the client to decide whether to continue or disconnect.
+            requested = params.get("protocolVersion")
+            version = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
             result: dict[str, Any] = {
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": version,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             }

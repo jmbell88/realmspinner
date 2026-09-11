@@ -69,6 +69,54 @@ def test_initialize_omits_the_instructions_key_when_it_has_none() -> None:
     assert "instructions" not in reply["result"]
 
 
+def test_initialize_echoes_a_supported_older_protocol_version() -> None:
+    """A client that only speaks an older revision this server can honestly
+    serve (see `SUPPORTED_PROTOCOL_VERSIONS`) must be told that revision back,
+    not our preferred one -- otherwise it has no correct way to know whether
+    to proceed."""
+    reply = p.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05"},
+        },
+        tools=lambda: [],
+        call=lambda name, args: p.ok(),
+    )
+    assert reply["result"]["protocolVersion"] == "2024-11-05"
+
+
+def test_initialize_with_an_unknown_protocol_version_still_succeeds() -> None:
+    """An unrecognised `protocolVersion` is not a JSON-RPC error -- the spec's
+    answer to "I don't speak that" is a successful reply naming the version we
+    do support, and leaving the client to decide whether to continue."""
+    reply = p.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "1999-01-01"},
+        },
+        tools=lambda: [],
+        call=lambda name, args: p.ok(),
+    )
+    assert "error" not in reply
+    assert reply["result"]["protocolVersion"] == p.PROTOCOL_VERSION
+
+
+def test_initialize_with_no_protocol_version_falls_back_to_our_preferred_one() -> None:
+    """No `protocolVersion` in `params` at all must not regress the existing
+    behaviour: the reply still carries `PROTOCOL_VERSION`, not some error or a
+    missing key."""
+    reply = p.dispatch(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        tools=lambda: [],
+        call=lambda name, args: p.ok(),
+    )
+    assert reply["result"]["protocolVersion"] == p.PROTOCOL_VERSION
+
+
 def test_notifications_initialized_gets_no_reply() -> None:
     """A notification -- no `id` -- gets no reply, success or error, ever."""
     reply = p.dispatch(

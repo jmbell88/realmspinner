@@ -210,8 +210,11 @@ reach without a display.
 
 Warlock speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
 Code, Codex, anything with an MCP client — can build in Clay for you. It is off until you switch it
-on, in Settings under Advanced. Point the agent at it with a command like
-`claude mcp add warlock -- uv run warlock mcp`, and it will find the running app.
+on, in Settings under Advanced. If you installed Warlock rather than running it from a checkout,
+point the agent at the launcher the installer staged:
+`claude mcp add warlock -- "%LOCALAPPDATA%\Programs\Warlock Studio\bin\warlock-mcp.cmd"`. From a
+checkout, use `claude mcp add warlock -- uv run warlock mcp` instead. Either way it will find the
+running app.
 
 The arrow only ever points inwards. Warlock ships no language model, runs no inference and reaches
 no endpoint; an agent that is already running connects to it. The transport is a local named pipe

@@ -679,14 +679,32 @@ def _agents(ctx: Any) -> None:
             ),
             helper="Takes effect at once -- no restart.",
         )
+    host = getattr(ctx, "agent_host", None)
     if changed:
         ctx.settings.set(main_mod.AGENT_SERVER_SETTING, allowed)
-        host = getattr(ctx, "agent_host", None)
         if host is not None:
             if allowed:
-                host.start()
+                # The switch is written back off when the pipe will not open,
+                # rather than left on over a server that is not listening.
+                # It used to be stored before ``start()`` was called and never
+                # revisited, so a failure here persisted a setting that
+                # ``main.setup_context`` then tried to honour on every launch
+                # -- inside the try whose failure is "Warlock Studio could not
+                # start". A feature that cannot open its transport turns
+                # itself off and says why; it does not follow the app around.
+                if not host.start():
+                    allowed = False
+                    ctx.settings.set(main_mod.AGENT_SERVER_SETTING, False)
             else:
                 host.stop()
+    failure = getattr(host, "failure", None) if host is not None else None
+    if failure and not allowed:
+        widgets.text_colored(theme.ERR, f"{icons.TRIANGLE_ALERT} The agent server could not start")
+        widgets.muted_wrapped(
+            f"{failure}\n\nNothing is listening, so no agent can connect. This is usually "
+            "another program holding the address, or a Warlock home this user cannot write "
+            "to. See warlock.log for the full detail."
+        )
     if not allowed:
         return
     from ...mcp import pipe

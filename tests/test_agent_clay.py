@@ -3663,3 +3663,65 @@ def test_a_batch_that_stopped_early_reports_that_the_document_did_move() -> None
     assert payload["completed"] == 1
     assert payload.get("changed") is True
     assert (result.get("structuredContent") or {}).get("changed") is True
+
+
+# --- the tool catalogue is fixed context an agent pays before its first call --
+
+
+def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it() -> None:
+    """The ``tools/list`` payload and the ``initialize`` instructions prose are
+    context every agent session pays for once, up front, before it has made a
+    single useful call -- and unlike a reply it asked for, it never chose this
+    cost and cannot shrink it. Both halves are derived rather than hand-kept:
+    ``agent_clay.tools()`` builds its schemas from ``primitives.GENERATORS``,
+    ``presets.ASSEMBLIES`` and ``clay_ops.OPS`` (see this module's own
+    docstring on the derivation gate), so the catalogue grows every time one
+    of those registries does, with nobody at the call site deciding it should.
+    Tranche 4's six new generators grew ``clay_add_primitive``'s schema alone
+    to the largest of any tool here, and nothing noticed. The point of this
+    pin is not "keep it small" -- it is that growing this budget becomes a
+    decision someone makes (raise the ceiling, and say why, in this same
+    commit) rather than a thing that happens as a side effect of an unrelated
+    registry change.
+
+    This builds the payload the way ``agent_host`` actually serves it at
+    ``initialize``/``tools/list`` -- ``[*agent_clay.tools(), *
+    agent_host._transport_tools()]`` (see ``agent_host._serve``'s
+    ``tools=lambda: ...``) -- rather than ``agent_clay.tools()`` alone, and so
+    imports ``agent_host`` the way two tests above already do. Leaving
+    ``warlock_status`` out would undercount what a connecting agent is
+    actually billed for by one whole tool; the honest number includes it.
+
+    Measured on 2026-09-11: catalogue JSON 36,682 chars + instructions 5,712
+    chars = 42,394 chars total (26 Clay tools plus ``warlock_status``, at
+    ``protocol._tool_json`` encoding). Ceiling here is 48,000 -- about 13%
+    of headroom above that measurement, more than any single existing tool's
+    schema (the largest, ``clay_add_primitive``, is 3,927 chars) so one
+    ordinary new tool does not trip it, but nowhere near the ~84,800 chars a
+    doubling would reach, so a doubling reliably does.
+    """
+    from warlock.mcp import protocol
+    from warlock.studio import agent_host
+
+    CEILING = 48_000
+
+    tools = [*agent_clay.tools(), *agent_host._transport_tools()]
+    tool_jsons = [protocol._tool_json(t) for t in tools]
+    catalogue = json.dumps({"tools": tool_jsons})
+    instructions = agent_clay.instructions()
+    total = len(catalogue) + len(instructions)
+
+    sizes = sorted(
+        ((len(json.dumps(tj)), tj.get("name", "?")) for tj in tool_jsons), reverse=True
+    )
+    biggest = ", ".join(f"{name}={size}" for size, name in sizes[:5])
+
+    assert total <= CEILING, (
+        f"the tools/list catalogue ({len(catalogue)} chars) plus the "
+        f"initialize instructions ({len(instructions)} chars) now total "
+        f"{total} chars, over the {CEILING}-char budget an agent pays before "
+        f"its first useful call. Largest tool schemas by size: {biggest}. If "
+        f"this growth is deliberate, raise CEILING in this test and say why "
+        f"in the same commit; if it is not, find what grew unnoticed among "
+        f"the tools above."
+    )

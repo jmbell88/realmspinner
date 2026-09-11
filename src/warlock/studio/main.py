@@ -1031,6 +1031,11 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         self.agent_host = AgentHost(self.app_ctx, self.svc.config.home)
         self.app_ctx.agent_host = self.agent_host
         if bool(settings.get(AGENT_SERVER_SETTING, False)):
+            # Deliberately unguarded, because ``start()`` is contracted not to
+            # raise: this call sits inside the try whose failure message is
+            # "Warlock Studio could not start", so a pipe that will not open
+            # must leave the feature off and the launch alone. The reason
+            # lands on ``agent_host.failure`` for the Settings pane to show.
             self.agent_host.start()
 
     def _load_static_answers(self) -> None:

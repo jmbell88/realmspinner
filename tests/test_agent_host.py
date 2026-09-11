@@ -271,6 +271,57 @@ def test_start_is_idempotent_while_already_running(tmp_path) -> None:
         host.stop()
 
 
+def test_a_pipe_that_will_not_open_switches_the_feature_off_rather_than_raising(
+    tmp_path, monkeypatch
+) -> None:
+    """An optional feature must not be able to stop the app from launching.
+
+    ``start()`` used to let a failed ``pipe.Server.start`` raise, and both
+    callers were bare. The Settings switch stores the setting *before* calling
+    it, so one failed toggle persisted ``agent_server=True``; the next launch
+    then hit the same failure inside ``main.setup_context``, which sits in the
+    try whose message is "Warlock Studio could not start". A pipe another
+    program was holding therefore cost the whole app, every run, with no way
+    back that did not involve hand-editing settings.
+
+    The reason is kept rather than swallowed: the Settings pane reads
+    ``failure`` to say why the switch will not stay on.
+    """
+    from warlock.mcp import pipe as pipe_mod
+
+    def refuse(self) -> None:
+        raise PermissionError("[WinError 5] Access is denied")
+
+    monkeypatch.setattr(pipe_mod.Server, "start", refuse)
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    try:
+        assert host.start() is False, "start() must report the failure, not raise it"
+        assert not host.running
+        assert host.failure and "Access is denied" in host.failure
+    finally:
+        host.stop()
+
+
+def test_a_start_that_succeeds_clears_an_earlier_failure(tmp_path, monkeypatch) -> None:
+    """``failure`` is what the Settings pane prints, so a stale one would
+    accuse a listener that is in fact running."""
+    from warlock.mcp import pipe as pipe_mod
+
+    def refuse(self) -> None:
+        raise PermissionError("nope")
+
+    monkeypatch.setattr(pipe_mod.Server, "start", refuse)
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    assert host.start() is False
+    assert host.failure
+    monkeypatch.undo()
+    try:
+        assert host.start() is True
+        assert host.failure is None
+    finally:
+        host.stop()
+
+
 # --- a real round trip over a real pipe --------------------------------------
 
 

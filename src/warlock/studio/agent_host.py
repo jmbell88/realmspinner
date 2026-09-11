@@ -476,6 +476,10 @@ class AgentHost:
         # ``CALL_TIMEOUT`` for an answer that will never come.
         self._stopped = threading.Event()
         self._connected = False
+        # Why the last :meth:`start` could not open the pipe, or ``None`` if
+        # it could. Read by the Settings pane, which has to say something
+        # other than nothing when the switch will not stay on.
+        self.failure: str | None = None
         # The live per-connection ``Connection``, so :meth:`stop` can close it
         # out from under a listener thread blocked in that connection's own
         # ``recv_bytes`` -- closing the *Listener* (``pipe.Server.close``)
@@ -502,14 +506,31 @@ class AgentHost:
         """Whether a bridge is attached right now, for the status bar chip."""
         return self._connected
 
-    def start(self) -> None:
+    def start(self) -> bool:
         """Open the pipe and spawn the listener. Idempotent: the Settings
         switch calls this on every frame it is drawn true on a form that
         re-reads the stored value, not only on the transition, so a second
         call while one is already listening must be a no-op rather than a
-        second server racing the first for the same pipe name."""
+        second server racing the first for the same pipe name.
+
+        **Returns whether the server is now listening, and never raises.**
+        Opening a pipe is the one step here that can fail for reasons outside
+        this process -- an address another program holds, a socket file a
+        crash left behind, a home directory that turned read-only. It used to
+        raise, and both callers were bare: the Settings switch called it
+        straight from a frame, and ``main.setup_context`` called it during
+        startup, *inside* the try whose failure is "Warlock Studio could not
+        start". Since the switch persists the setting before calling this, one
+        failed toggle meant the app refused to launch on every subsequent run,
+        with no way back that did not involve hand-editing settings.
+
+        An optional feature that cannot open its transport must switch itself
+        off, not take the app with it. The reason is kept on :attr:`failure`
+        for the Settings pane to show, because a feature that silently does
+        nothing is the other bad outcome.
+        """
         if self.running:
-            return
+            return True
         from .. import __version__
         from ..mcp import pipe, protocol
 
@@ -519,7 +540,20 @@ class AgentHost:
         # headless box.
         protocol.SERVER_VERSION = __version__
         server = pipe.Server(self.home)
-        server.start()
+        try:
+            server.start()
+        except Exception as exc:  # noqa: BLE001 -- see the docstring: every
+            # way a pipe can refuse to open is a reason to leave the feature
+            # off, and none of them is a reason to fail a frame or a launch.
+            log.exception("agent host: could not open the pipe at %s", self.home)
+            self.failure = f"{type(exc).__name__}: {exc}"
+            # Closing an incompletely started server clears the token this
+            # attempt already published -- leaving it would advertise a key
+            # for a pipe nobody is listening on.
+            with contextlib.suppress(Exception):
+                server.close()
+            return False
+        self.failure = None
         self._server = server
         self._stopped.clear()
         self._connected = False
@@ -535,6 +569,7 @@ class AgentHost:
             daemon=True,
         )
         self._thread.start()
+        return True
 
     def stop(self) -> None:
         """Idempotent: safe on a host never started, one already stopped, and

@@ -1435,6 +1435,43 @@ Decisions with arguments beside them, not backlog:
   `HF_HUB_OFFLINE=1` is untouched. What was refused was the app acquiring an
   appetite for a service somewhere else, and it still has none.
 
+## P46. Decide whether the bridge stays lockstep
+
+**Why it is yours:** it is a design call that wants evidence P43 has not
+produced yet, and building it first would be guessing at a cost nobody has
+measured.
+
+`mcp/bridge.py` relays one frame at a time: read a line from stdin, send it,
+block on the reply, write it out. That is what makes the relay dumb enough to
+be trustworthy, and it has three consequences an agent can feel. A client
+cannot cancel a call -- `notifications/cancelled` is handled nowhere, and the
+bridge would not read it during an in-flight call anyway, so
+`agent_host.CALL_TIMEOUT`'s thirty seconds is the only escape. There are no
+progress notifications, so a long call is indistinguishable from a hung one
+until it answers. And requests cannot be pipelined: a client that sends a
+second before the first answers has it queued by the OS, which is correct but
+serial, so `ping` cannot be answered while `clay_export` encodes a GLB on the
+frame thread.
+
+None of that is reachable as a defect today, because the calls an agent makes
+are short and `warlock_status` already answers the "is it still running"
+question out of band, on the listener thread, without waiting for the frame.
+The question is whether that stays true.
+
+**Do:** run P43 first -- it is the sitting that puts a real model through the
+surface, and its transcripts are the only place the shape of real agent
+traffic is going to show up. Then read them for the three things this is
+about: whether any call ran long enough that a human would have wanted to
+cancel it, whether any client gave up before `CALL_TIMEOUT` did, and whether
+the model ever wanted to ask something while a call was in flight.
+
+**Expected outcome:** either a dated `docs/measurements/` document saying the
+lockstep relay is adequate and why, and this struck out -- or one naming the
+call shape that broke it, which is then the specification for whatever
+replaces it. Do not redesign the transport without that document: the
+lockstep is what keeps the untestable half of this feature thin, and trading
+that away needs a reason better than symmetry with other MCP servers.
+
 ## P44. Re-verify the pixelklein LoRA revision against the hub, and mark it either way
 
 **Why it is yours:** it needs a networked machine, and this one is offline by
