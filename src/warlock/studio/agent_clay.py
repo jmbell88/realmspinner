@@ -1375,20 +1375,34 @@ def tools() -> list[Any]:
                 "generator params left to set. Values may be a number, an "
                 "array -- box's size is (x, y, z), plane's is (w, h) -- or "
                 "an array of arrays -- a lathe's profile is a list of "
-                "[radius, y] stations, bottom to top. Known generators: "
-                + _generator_catalog()
+                "[radius, y] stations, bottom to top. "
+                "Give exactly one of uid (one object) or uids (several): "
+                "'make the wheels larger' is one call naming every wheel's "
+                "uid, not one call per wheel, and it stays one undo step. "
+                "The same params go to every object named, and the call is "
+                "all-or-nothing -- each must exist, still have a generator, "
+                "and accept every key in params for *its own* generator, all "
+                "checked before any is rebuilt, so a radius handed to a box "
+                "among five cylinders refuses the whole call, names that uid "
+                "and its generator, and rebuilds nothing. "
+                "Known generators: " + _generator_catalog()
             ),
             schema={
                 "type": "object",
                 "properties": {
                     "uid": {"type": "integer"},
+                    "uids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 1,
+                    },
                     "params": {
                         "type": "object",
                         "additionalProperties": _params_value_schema(),
                         "description": "Only the keys to change; every other one keeps its value.",
                     },
                 },
-                "required": ["uid", "params"],
+                "required": ["params"],
                 "additionalProperties": False,
             },
         ),
@@ -2943,70 +2957,170 @@ def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
 
 
 def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
+    """Set one object's generator params, or -- tranche 5's plural form --
+    the same params on several at once: "make the wheels larger" is one call
+    against every wheel's uid, not one call per wheel and one undo step per
+    wheel. A persistent "these six objects are a wheel set" object was
+    argued down in design review as more machinery than the ask needed; this
+    is the cheap alternative -- a caller (or a script inside one) already
+    holds the uids from ``clay_scene``, so paying params once per call is
+    enough.
+
+    ``uid`` and ``uids`` are both declared as plain optional properties in
+    the schema (mirroring ``clay_reference_add``'s ``job_id``/``png_base64``
+    pair) with only ``params`` required -- the exactly-one rule lives here,
+    not in the schema, so it can run *after* ``uids`` has already been
+    checked shape-and-membership sound. That ordering is deliberate, not
+    incidental: ``tests/test_agent_schemas.py`` synthesises a call for every
+    declared constraint on ``uids`` (wrong type, a non-integer element, an
+    empty list) by taking a valid plural baseline and violating exactly one
+    of those -- which leaves ``uid`` absent in every one of those cases -- so
+    checking ``uids``' own shape before asking whether both were given is
+    what makes those cases refuse naming ``field="uids"`` rather than the
+    exactly-one rule's ``"uid"`` swallowing a more specific refusal.
+
+    All-or-nothing: every named object is checked -- exists, still has a
+    generator (not frozen by a topology edit), and accepts every key in
+    ``params`` for *its own* generator -- before any of them is rebuilt. A
+    per-object try/refuse loop would have let four cylinders retune and left
+    a fifth, illegal box call half-applied; a caller with no way to inspect
+    the document mid-call has no use for "some of these changed".
+    """
     tab, failure = _tab(ctx, session)
     if failure:
         return failure
     doc = tab.doc
-    obj, failure = _resolve_uid(doc, args)
-    if failure:
-        return failure
-    if obj.generator is None:
-        return fail(
-            "This object's topology has been edited, so it is no longer a "
-            "generated shape -- there are no generator params left to set "
-            "(see document.set_mesh's freeze).",
-            field="uid",
-        )
+
     params = args.get("params")
     if not isinstance(params, dict) or not params:
         return fail("give at least one param to change.", field="params")
-    defaults = bp.GENERATORS[obj.generator][0]
-    unknown = sorted(set(params) - set(defaults))
-    if unknown:
-        return fail(
-            f"unknown params {unknown} for {obj.generator!r}; legal keys are "
-            f"{sorted(defaults)}.",
-            field="params",
-        )
-    # Every value validated before the merge below touches anything --
-    # ``bp.clamp_params`` only clamps the handful of keys it knows a floor or
-    # a relational limit for, so a NaN or an infinity in a key it does not
-    # (or does, past the clamp -- inf clamped against a finite ceiling is
-    # still inf) used to sail straight through into the generator function
-    # and out the other side as vertex positions, with nothing downstream
-    # ever checking a mesh is made of finite numbers. Run through
-    # ``_validate_params_values`` rather than a bare loop over
-    # ``_validate_number_or_vec`` so the refusal names *which* key was bad --
-    # see that function's own docstring.
+
+    uid_arg = args.get("uid")
+    uids_arg = args.get("uids")
+    uids: list[int] | None = None
+    if uids_arg is not None:
+        # Resolved (and, on ``[]``, refused) before the exactly-one check
+        # below even looks at ``uid`` -- see this function's own docstring
+        # on why that order is what gets the schema-walk's generated cases
+        # naming ``field="uids"`` for free.
+        uids, failure = _resolve_uids(doc, uids_arg, field="uids")
+        if failure:
+            return failure
+        if not uids:
+            return fail("give at least one uid.", field="uids")
+    if (uid_arg is None) == (uids is None):
+        return fail("give exactly one of uid or uids.", field="uid")
+
+    if uids is None:
+        obj, failure = _resolve_uid(doc, args)
+        if failure:
+            return failure
+        uids = [obj.uid]
+
+    objects = [doc.by_uid(u) for u in uids]
+    # Whichever of the two the caller actually used, so a refusal below
+    # points at an argument that is really in the call -- ``_resolve_uid``'s
+    # own docstring holds itself to the same rule, and a plural call told to
+    # fix its ``uid`` would be told to fix an argument it never sent.
+    uid_field = "uids" if uids_arg is not None else "uid"
+
+    # Pass 1: every object's own legality, checked in full before pass 2
+    # rebuilds anything -- see the docstring's all-or-nothing paragraph.
+    for obj in objects:
+        if obj.generator is None:
+            return fail(
+                f"uid {obj.uid}: this object's topology has been edited, so "
+                "it is no longer a generated shape -- there are no "
+                "generator params left to set (see document.set_mesh's "
+                "freeze).",
+                field=uid_field,
+                uids=[obj.uid],
+            )
+        defaults = bp.GENERATORS[obj.generator][0]
+        unknown = sorted(set(params) - set(defaults))
+        if unknown:
+            return fail(
+                f"unknown params {unknown} for {obj.generator!r} (uid "
+                f"{obj.uid}); legal keys are {sorted(defaults)}.",
+                field="params",
+                uids=[obj.uid],
+            )
+    # Every value validated before pass 2 touches anything -- ``bp.clamp_params``
+    # only clamps the handful of keys it knows a floor or a relational limit
+    # for, so a NaN or an infinity in a key it does not (or does, past the
+    # clamp -- inf clamped against a finite ceiling is still inf) used to
+    # sail straight through into the generator function and out the other
+    # side as vertex positions, with nothing downstream ever checking a mesh
+    # is made of finite numbers. Run through ``_validate_params_values``
+    # rather than a bare loop over ``_validate_number_or_vec`` so the
+    # refusal names *which* key was bad -- see that function's own
+    # docstring. One check for every object: the params dict is the same
+    # for all of them, and a value's own finiteness does not depend on which
+    # generator reads it.
     failure = _validate_params_values(params, "params")
     if failure:
         return failure
-    # Captured before anything below mutates ``obj.params`` -- the merge two
-    # lines down edits it in place via a fresh dict, but ``set_generator_params``
-    # itself reassigns ``obj.params`` to the very dict it is handed, so reading
-    # "before" off the object once this call has run would compare a value
-    # against itself. See that method's own docstring on why ``was`` is
-    # mandatory for this caller.
-    was = {"params": dict(obj.params)}
-    merged = bp.clamp_params(obj.generator, {**obj.params, **params})
-    # ``regen.carry_over`` rather than a bare rebuild-and-``auto_smooth``: this
-    # handler used to call ``shading.auto_smooth`` directly on every rebuild,
-    # which re-derives shading from scratch and never touched ``material`` at
-    # all -- so an object painted through ``clay_material`` or given a
-    # hand-picked Shade Smooth by a prior tool call came back grey and flat
-    # the moment its numbers changed here. ``panes/clay_props.py``'s own
-    # rebuild carried shading (never material) through the same two-case rule
-    # this module now shares rather than reimplements, which is exactly how
-    # the two doors built two different meshes for the same edit before this.
-    mesh = regen.carry_over(
-        obj.mesh, bp.GENERATORS[obj.generator][1](**merged), material=obj.material
-    )
-    changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
-    # Reported back rather than echoed: a caller that asked for segments=2
-    # learns here that clamp_params raised it to the generator's own floor.
-    return _json(
-        {"uid": obj.uid, "generator": obj.generator, "params": merged, "changed": changed}
-    )
+
+    # Pass 2: nothing above can refuse anymore, so every object is rebuilt.
+    # Folded into one undo step only when more than one object is
+    # addressed. A single object's own ``set_generator_params`` call already
+    # pushes exactly one step (it folds its own params-edit/mesh-edit pair
+    # into one ``push`` -- see that method's docstring), so there is nothing
+    # to fold, and wrapping it in ``mark()``/``collapse_since()`` unconditionally
+    # the way ``_h_material`` does would relabel that already-one step "Set
+    # Params", changing what the human's undo panel says for a call whose
+    # behaviour never changed. ``_h_material`` can get away with an
+    # unconditional label because it always pushes the same
+    # ``add_material``/``_repaint`` pair regardless of how many uids it
+    # paints; a single-uid ``clay_set_params`` has no such pair to fold.
+    mark = doc.history.mark() if len(objects) > 1 else None
+    rows = []
+    for obj in objects:
+        # Captured before anything below mutates ``obj.params`` -- the merge
+        # two lines down edits it in place via a fresh dict, but
+        # ``set_generator_params`` itself reassigns ``obj.params`` to the
+        # very dict it is handed, so reading "before" off the object once
+        # this call has run would compare a value against itself. See that
+        # method's own docstring on why ``was`` is mandatory for this caller.
+        was = {"params": dict(obj.params)}
+        merged = bp.clamp_params(obj.generator, {**obj.params, **params})
+        # ``regen.carry_over`` rather than a bare rebuild-and-``auto_smooth``:
+        # this handler used to call ``shading.auto_smooth`` directly on
+        # every rebuild, which re-derives shading from scratch and never
+        # touched ``material`` at all -- so an object painted through
+        # ``clay_material`` or given a hand-picked Shade Smooth by a prior
+        # tool call came back grey and flat the moment its numbers changed
+        # here. ``panes/clay_props.py``'s own rebuild carried shading (never
+        # material) through the same two-case rule this module now shares
+        # rather than reimplements, which is exactly how the two doors
+        # built two different meshes for the same edit before this.
+        mesh = regen.carry_over(
+            obj.mesh, bp.GENERATORS[obj.generator][1](**merged), material=obj.material
+        )
+        changed = doc.set_generator_params(obj.uid, merged, mesh, was=was)
+        # Reported back rather than echoed: a caller that asked for
+        # segments=2 learns here that clamp_params raised it to the
+        # generator's own floor.
+        rows.append(
+            {"uid": obj.uid, "generator": obj.generator, "params": merged, "changed": changed}
+        )
+    if mark is not None:
+        doc.history.collapse_since(mark)
+        _label_top(doc, mark, "Set Params")
+
+    payload = {"objects": rows, "changed": any(r["changed"] for r in rows)}
+    # The single-uid shape (``uid``/``generator``/``params`` at the top
+    # level, no ``objects`` list) predates the plural form, and
+    # ``tests/test_agent_clay.py`` -- among them
+    # ``test_set_params_clamps_and_reports_the_clamped_value_back`` and
+    # ``test_a_profile_param_survives_the_whole_agent_door`` -- reads
+    # ``payload["params"]``/``payload["uid"]`` directly, as does whatever
+    # client is already out there driving today's tool. Rather than break
+    # that shape, the one-object case mirrors its row at the top level too,
+    # alongside the new ``objects`` list every caller can grow into.
+    if len(rows) == 1:
+        payload.update(rows[0])
+    return _json(payload)
 
 
 def _h_material(ctx: Any, session: Session, args: dict) -> dict:

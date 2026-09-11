@@ -211,6 +211,17 @@ engine stopped being something you download whether or not you ever use it.
   trip instead of two. It is the same fix as the misspelled-argument one above,
   one level further in — that one named the bad argument, this one names the bad
   value inside it.
+- **An agent can retune several shapes with one call now, instead of one call
+  each.** "Make the wheels larger" was six calls and six undo steps, and the
+  proposal on the table was a remembered recipe object that owned the six — more
+  machinery than the ask needed, and a second place for a document's shape to be
+  written down. **Set params** takes a list of objects instead, applying the same
+  numbers to all of them as one undo step, so unwinding it is one Ctrl+Z. It is
+  all or nothing: every object has to exist, still be a generated shape rather
+  than one frozen by an edit, and accept every parameter named for its *own*
+  generator, all checked before any of them is rebuilt — a radius handed to a box
+  among five cylinders refuses the whole call and names which object it was,
+  rather than leaving five changed and one not.
 - **An agent can now hand Clay a mesh it built itself, not only the name of a
   recipe.** Every door into an empty document used to be a registry entry —
   a generator's name and its parameters, or a figure preset — so a shape an

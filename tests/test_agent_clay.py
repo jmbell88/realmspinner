@@ -952,6 +952,182 @@ def test_set_params_clamps_and_reports_the_clamped_value_back() -> None:
     assert _payload(result)["params"]["segments"] == 3  # bp.MIN_SEGMENTS
 
 
+# --- clay_set_params gains a plural form (tranche 5) --------------------------
+
+
+def test_clay_set_params_uids_retunes_every_named_object_at_once() -> None:
+    """The reviewer's ask, verbatim: "named parts that stay coherent -- make
+    the wheels larger and they all change together" is one ``clay_set_params``
+    call against several uids, not one call per wheel."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "cylinder")
+    uid2 = _new_agent_tab(ctx, session, "cylinder")
+    uid3 = _new_agent_tab(ctx, session, "cylinder")
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uids": [uid1, uid2, uid3], "params": {"segments": 16}}
+    )
+    assert result["isError"] is False, result
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    for uid in (uid1, uid2, uid3):
+        assert tab.doc.by_uid(uid).params["segments"] == 16
+
+
+def test_clay_set_params_uids_is_one_undo_step_and_one_undo_restores_every_object() -> None:
+    """Retuning six wheels is one call *and* one undo step -- a single
+    ``clay_undo`` must put every one of them back, not just the last."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session, "cylinder")
+    uid2 = _new_agent_tab(ctx, session, "cylinder")
+    uid3 = _new_agent_tab(ctx, session, "cylinder")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    originals = {uid: tab.doc.by_uid(uid).params["segments"] for uid in (uid1, uid2, uid3)}
+    before = _history_len(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uids": [uid1, uid2, uid3], "params": {"segments": 16}}
+    )
+    assert result["isError"] is False, result
+    assert _history_len(ctx, session) == before + 1, "three rebuilds must fold into one step"
+    for uid in (uid1, uid2, uid3):
+        assert tab.doc.by_uid(uid).params["segments"] == 16
+
+    undo = agent_clay.call(ctx, session, "clay_undo", {"steps": 1})
+    assert undo["isError"] is False, undo
+    for uid in (uid1, uid2, uid3):
+        assert tab.doc.by_uid(uid).params["segments"] == originals[uid]
+
+
+def test_clay_set_params_singular_uid_is_still_one_step_with_no_plural_label() -> None:
+    """The fold is only worth its keep once there is more than one step to
+    fold -- a lone ``uid`` already pushes exactly one step on its own
+    (``document.set_generator_params`` folds its own params-edit/mesh-edit
+    pair), so wrapping it in the same ``mark()``/``collapse_since()``/
+    ``_label_top`` dance the plural form uses would relabel that step "Set
+    Params" for a call whose behaviour never changed -- exactly the
+    over-relabelling ``_label_top``'s own docstring warns against."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "cylinder")
+    before = _history_len(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"segments": 16}}
+    )
+    assert result["isError"] is False, result
+    assert _history_len(ctx, session) == before + 1
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    label, is_done = tab.doc.history.history()[-1]
+    assert is_done
+    assert label != "Set Params"
+
+
+def test_clay_set_params_bad_key_among_several_refuses_the_whole_call() -> None:
+    """A ``radius`` handed to a box among two cylinders must refuse the whole
+    call and name the offending uid and generator -- rebuilding four
+    cylinders and leaving one box untouched would be a caller having to
+    guess which of its six wheels did not actually change."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid_box = _new_agent_tab(ctx, session, "box")
+    uid_cyl = _new_agent_tab(ctx, session, "cylinder")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = {u: tab.doc.by_uid(u).mesh for u in (uid_box, uid_cyl)}
+    history_before = _history_len(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uids": [uid_box, uid_cyl], "params": {"radius": 2.0}}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "params"
+    # ``uids`` (a list), never a singular ``uid``: ``agent_clay.fail``'s own
+    # docstring and the agent paragraph in ``docs/INVARIANTS.md`` both
+    # enumerate the four extras a refusal may carry, and this is the one
+    # that means "these objects" -- the same key ``_resolve_uids`` already
+    # answers a missing uid with.
+    assert result["structuredContent"]["uids"] == [uid_box]
+    message = result["content"][0]["text"]
+    assert str(uid_box) in message
+    assert "box" in message
+
+    # All-or-nothing: not just the box (whose 'radius' is illegal) but the
+    # cylinder too -- an eligible object must come out of a refused call
+    # exactly as it went in. ``Mesh`` is ``eq=False`` and immutable, so
+    # identity is the honest check, the same one ``_h_op`` already uses to
+    # tell which objects an op actually touched.
+    for u in (uid_box, uid_cyl):
+        assert tab.doc.by_uid(u).mesh is before[u]
+    assert _history_len(ctx, session) == history_before
+
+
+def test_clay_set_params_frozen_object_among_several_refuses_and_names_it() -> None:
+    """A mesh placed through ``clay_add_mesh`` has no generator -- see
+    ``test_clay_add_mesh_placed_object_has_no_generator_and_clay_set_params_refuses_it``
+    for the singular case -- and the same freeze must stop the whole plural
+    call, not just skip the frozen object."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid_normal = _new_agent_tab(ctx, session, "box")
+    added = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    assert added["isError"] is False, added
+    uid_frozen = _payload(added)["uid"]
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    before = {u: tab.doc.by_uid(u).mesh for u in (uid_normal, uid_frozen)}
+    history_before = _history_len(ctx, session)
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uids": [uid_normal, uid_frozen], "params": {"size": [2.0, 1.0, 1.0]}},
+    )
+    assert result["isError"] is True
+    # ``uids``, not ``uid``: the refusal points at the argument the caller
+    # actually sent, the rule ``_resolve_uid``'s own docstring already holds
+    # itself to -- telling a plural call to fix its ``uid`` would name an
+    # argument that is not in the call.
+    assert result["structuredContent"]["field"] == "uids"
+    assert result["structuredContent"]["uids"] == [uid_frozen]
+    assert str(uid_frozen) in result["content"][0]["text"]
+
+    for u in (uid_normal, uid_frozen):
+        assert tab.doc.by_uid(u).mesh is before[u]
+    assert _history_len(ctx, session) == history_before
+
+
+def test_clay_set_params_both_uid_and_uids_refuses() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_set_params",
+        {"uid": uid, "uids": [uid], "params": {"size": [2.0, 1.0, 1.0]}},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "uid"
+    assert "exactly one" in result["content"][0]["text"]
+
+
+def test_clay_set_params_neither_uid_nor_uids_refuses() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"params": {"size": [2.0, 1.0, 1.0]}}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "uid"
+    assert "exactly one" in result["content"][0]["text"]
+
+
 # --- clay_material paints every face, not just the object's default slot -----
 
 

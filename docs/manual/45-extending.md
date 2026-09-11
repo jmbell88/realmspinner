@@ -233,7 +233,10 @@ to take several. Placing a primitive or a figure sets its size, its position, it
 scale, its name and its palette colour all at once, validated before anything appears and landing as
 a single undo step — it used to take four round trips to place one sized, positioned, named, coloured
 object. **Batch** folds up to thirty-two calls, a whole block-out, into that same one step, so backing
-the attempt out is one Ctrl+Z rather than one per primitive. Undo, delete and rename all work by
+the attempt out is one Ctrl+Z rather than one per primitive. **Set params** takes a list of objects
+rather than one, so making six wheels larger is one call and one Ctrl+Z rather than six of
+each — and it is all or nothing, so a number that is wrong for one of them changes none of
+them. Undo, delete and rename all work by
 name, the way you would type them yourself, rather than by whatever the agent last happened to have
 selected. The one that makes the rest work is still **render** — it can now look from several angles
 in a single call, with an optional ground grid switched on as the only scale cue in what would
