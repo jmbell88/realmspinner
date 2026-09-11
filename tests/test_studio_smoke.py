@@ -2420,6 +2420,31 @@ def test_the_clay_context_menu_and_its_parameter_popup_build(app_ctx, imgui_ctx)
     _frame(imgui_ctx, lambda: clay_menu.draw(app_ctx, view))
 
 
+def test_the_op_params_popup_draws_a_checkbox_and_a_combo(app_ctx, imgui_ctx):
+    """``params_popup``'s one loop grew two branches on 2026-09-10, beside
+    the pre-existing int/float ones -- ``place-between``'s ``fit`` (a
+    checkbox) and ``array-radial``/``mirror-copy``'s ``axis`` (a three-way
+    combo). Both are drawn here through real imgui so a branch that raises,
+    or one that never runs because it dead-ends in a widget with the wrong
+    argument shape, is caught here rather than only by the data-level
+    round-trip test in ``tests/test_clay_ops.py``."""
+    from types import SimpleNamespace
+
+    from warlock.studio import clay_mode
+    from warlock.studio.panes import clay_menu
+
+    tab = _clay_tab(app_ctx, objects=3)
+    tab.doc.select([obj.uid for obj in tab.doc.objects])
+    view = SimpleNamespace(menu_request=None)
+    state = clay_mode.ensure(app_ctx)
+
+    for op_name in ("place-between", "array-radial", "mirror-copy"):
+        state.pending_op = op_name
+        state.open_op_popup = True
+        _frame(imgui_ctx, lambda: clay_menu.draw(app_ctx, view))
+        assert state.open_op_popup is False, op_name
+
+
 def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx):
     """Phase 2's state: no generator, so the panel shows counts instead of
     parameters. Unreachable from the UI today and drawn here anyway, because it

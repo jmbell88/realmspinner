@@ -75,6 +75,26 @@ class Param:
     ``warn`` is shown under the field -- Catmull-Clark at two levels multiplies
     a mesh by sixteen, and a user who finds that out by waiting is a user who
     lost their document to the undo budget.
+
+    **``boolean`` and ``choices`` are widget kinds, not storage kinds.** The
+    four ops that reached for a number on 2026-09-10 because this dataclass had
+    no other shape -- ``place-between``'s ``fit`` ("fit to gap (0=off,
+    1=on)") and ``array-radial``/``mirror-copy``'s ``axis`` ("axis (0=X,
+    1=Y, 2=Z)") -- are the tell: the *label* was doing the widget's job because
+    the field couldn't. ``default`` stays a ``float`` and :func:`run` still
+    clamps to ``low``/``high`` regardless of which of the three this is, so a
+    checkbox writes 0.0/1.0 and a combo writes its index -- exactly what the
+    bare int field they replaced already wrote, and why converting an op to
+    either costs nothing beyond this dataclass and the pane's drawing loop.
+
+    They are mutually exclusive -- one field is a toggle or a named set of
+    options, never both -- and each pins its own range so nothing downstream
+    has to ask "which kind is this and what do its bounds mean": a boolean is
+    always 0..1, and a choice's ``high`` is always ``len(choices) - 1``, the
+    same bound :func:`run` was already going to clamp it to. An earlier
+    comment on ``place-between`` called ``axis`` a precedent for the checkbox
+    it wanted; that was wrong about ``axis`` -- three values are a choice, not
+    a toggle -- which is why this is two kinds and not one.
     """
 
     name: str
@@ -84,7 +104,34 @@ class Param:
     low: float = 0.0
     high: float = 1e6
     integer: bool = False
+    boolean: bool = False
+    choices: tuple[str, ...] = ()
     warn: str = ""
+
+    def __post_init__(self) -> None:
+        if self.boolean and self.choices:
+            raise ValueError(
+                f"Param {self.name!r}: cannot be both boolean and a choice"
+            )
+        if self.boolean and (self.low, self.high) != (0.0, 1.0):
+            raise ValueError(f"Param {self.name!r}: a boolean's range must be 0..1")
+        if self.choices and (self.low, self.high) != (0.0, float(len(self.choices) - 1)):
+            raise ValueError(
+                f"Param {self.name!r}: a choice's low/high must span its "
+                f"choices (0..{len(self.choices) - 1})"
+            )
+
+    @property
+    def stores_int(self) -> bool:
+        """Whether :func:`run` should hand the op a whole number.
+
+        ``integer``, ``boolean`` and ``choices`` all narrow to one under the
+        hood -- a checkbox writes 0/1, a combo writes its index -- so this is
+        the one place that answers "is this param whole", rather than every
+        caller re-deriving the same ``or`` and one of them eventually missing
+        a kind.
+        """
+        return self.integer or self.boolean or bool(self.choices)
 
 
 @dataclass(frozen=True)
@@ -236,7 +283,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     values = defaults_for(op) | params
     for param in op.params:
         value = min(max(float(values[param.name]), param.low), param.high)
-        values[param.name] = int(value) if param.integer else value
+        values[param.name] = int(value) if param.stores_int else value
     head = doc.history.head
     mark = doc.history.mark()
     try:
@@ -1380,12 +1427,14 @@ def _register_defaults() -> None:
             params=(
                 Param("count", "count", 3.0, 1.0, low=1.0, high=MAX_ARRAY_COUNT, integer=True),
                 Param("angle", "sweep (deg)", 360.0, 5.0, low=-1e6),
-                # One integer rather than three axis-named ops (mirror-x/y/z's
+                # One combo rather than three axis-named ops (mirror-x/y/z's
                 # shape): mirror takes no other numbers, so the axis *is* the
                 # whole op and three rows cost nothing; this op already has
                 # two more numbers, and three near-identical dialogs is the
-                # worse trade.
-                Param("axis", "axis (0=X, 1=Y, 2=Z)", 1.0, 1.0, low=0.0, high=2.0, integer=True),
+                # worse trade. A three-way choice, not a boolean -- see the
+                # ``Param`` dataclass's own docstring for the defect this
+                # once shared with ``place-between``'s ``fit``.
+                Param("axis", "axis", 1.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
             ),
         )
     )
@@ -1402,7 +1451,7 @@ def _register_defaults() -> None:
             "centre the way Mirror X/Y/Z does -- this is mirroring a limb "
             "across a body's centre-line.",
             params=(
-                Param("axis", "axis (0=X, 1=Y, 2=Z)", 0.0, 1.0, low=0.0, high=2.0, integer=True),
+                Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
                 Param("offset", "plane at (m)", 0.0, 0.1, low=-1e6),
             ),
         )
@@ -1421,16 +1470,7 @@ def _register_defaults() -> None:
             "one is carried to their midpoint and turned to face the line "
             "between them. 'Fit' also stretches it along its own Y so it "
             "spans the gap exactly.",
-            params=(
-                # ``clay_ops.Param`` is scalar-only and has no boolean, so this
-                # follows ``array-radial``'s own precedent (its ``axis``) for
-                # a two-valued choice rather than inventing a second one: an
-                # integer clamped to 0/1 with a label that says what each
-                # means. See the module's ``Param`` dataclass -- this is the
-                # second op that wants a checkbox and cannot have one; fixing
-                # that touches the dialog renderer and is its own change.
-                Param("fit", "fit to gap (0=off, 1=on)", 1.0, 1.0, low=0.0, high=1.0, integer=True),
-            ),
+            params=(Param("fit", "fit to gap", 1.0, 1.0, low=0.0, high=1.0, boolean=True),),
         )
     )
 

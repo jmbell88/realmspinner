@@ -2503,6 +2503,29 @@ def test_a_ref_in_an_ordinary_non_batched_call_is_not_resolved() -> None:
     assert list(tab.doc.by_uid(hub_uid).translation) == pytest.approx([0.0, 0.0, 0.0])
 
 
+def _clay_op_description() -> str:
+    tool = next(t for t in agent_clay.tools() if t.name == "clay_op")
+    return tool.description
+
+
+def test_clay_op_catalog_describes_a_boolean_param_as_a_boolean():
+    """``_op_catalog`` used to fold every param into "name (low-high, default
+    x)" -- a bare range is a poor description of a checkbox, and this prose is
+    the only thing a model is ever told about an op's arguments."""
+    description = _clay_op_description()
+    assert "fit (0.0-1.0, default 1.0)" not in description
+    assert "fit (boolean" in description
+
+
+def test_clay_op_catalog_describes_axis_as_a_named_three_way_choice():
+    """Not a boolean, and not a bare 0-2 range either: naming what each value
+    means is the whole point, since a model reads only this sentence before
+    its first call."""
+    description = _clay_op_description()
+    assert "axis (0.0-2.0, default" not in description
+    assert "0=X" in description and "1=Y" in description and "2=Z" in description
+
+
 # ==============================================================================
 # B6 -- clay_op stops reaching the user's viewport
 # ==============================================================================

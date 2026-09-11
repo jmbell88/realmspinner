@@ -2248,6 +2248,28 @@ def _clay_diagnose_output_schema() -> dict:
     }
 
 
+def _param_prose(p: clay_ops.Param) -> str:
+    """One param, worded for what it actually *is*.
+
+    A bare "name (low-high, default x)" describes a number field, and that is
+    all a model is ever told about an op's argument -- so it was a poor
+    description of the boolean and three-way choice ``clay_ops.Param`` grew
+    on 2026-09-10 (``place-between``'s ``fit``, ``array-radial`` and
+    ``mirror-copy``'s ``axis``): "fit (0.0-1.0, default 1.0)" does not say
+    "this is on unless you turn it off", and "axis (0.0-2.0, default 1.0)"
+    does not say which number is which axis. The call itself is unchanged --
+    ``params`` in the schema below is still ``{"type": "number"}`` for every
+    field, a checkbox is still 0/1 and a choice is still its index -- only
+    the sentence describing it gets to say what kind it is.
+    """
+    if p.boolean:
+        return f"{p.name} (boolean 0/1, default {int(p.default)})"
+    if p.choices:
+        named = ", ".join(f"{i}={choice}" for i, choice in enumerate(p.choices))
+        return f"{p.name} (choice: {named}, default {int(p.default)})"
+    return f"{p.name} ({p.low}-{p.high}, default {p.default})"
+
+
 def _op_catalog(names: list[str]) -> str:
     """Every op's params and bounds, folded into one sentence.
 
@@ -2259,9 +2281,7 @@ def _op_catalog(names: list[str]) -> str:
     for op in clay_ops.OPS:
         modes = "/".join(op.modes)
         if op.params:
-            fields = ", ".join(
-                f"{p.name} ({p.low}-{p.high}, default {p.default})" for p in op.params
-            )
+            fields = ", ".join(_param_prose(p) for p in op.params)
             parts.append(f"{op.name} [{modes}: {fields}]")
         else:
             parts.append(f"{op.name} [{modes}]")

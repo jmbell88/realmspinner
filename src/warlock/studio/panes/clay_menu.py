@@ -140,12 +140,35 @@ def params_popup(ctx: Any, state: Any, tab: Any) -> None:
         # stable, "Foo##op-name" -> "##Foo##op-name".
         widgets.field_label(param.label)
         label = f"##{param.label}##{op.name}-{param.name}"
-        if param.integer:
+        if param.boolean:
+            # A checkbox rather than an int spinner clamped to 0/1 -- "fit to
+            # gap (0=off, 1=on)" was a label carrying the widget's job because
+            # ``Param`` had no boolean until 2026-09-10. Stored exactly as the
+            # int field it replaced did (0.0/1.0), so nothing downstream of
+            # this loop had to change.
+            changed, flag = controls.checkbox(
+                label, bool(values.get(param.name, param.default))
+            )
+            if changed:
+                values[param.name] = 1.0 if flag else 0.0
+        elif param.choices:
+            # A combo over named options rather than a spinner reading "axis
+            # (0=X, 1=Y, 2=Z)". The value stored is still the option's index
+            # -- the same int the field it replaced already wrote -- so
+            # ``run`` and the op function need not know the widget changed.
+            options = [(str(i), choice) for i, choice in enumerate(param.choices)]
+            current = str(int(values.get(param.name, param.default)))
+            changed, picked = controls.combo(label, current, options)
+            if changed:
+                values[param.name] = float(int(picked))
+        elif param.integer:
             # Honoured rather than declared. Smooth's "levels" is the only
             # integer parameter and it was drawn as a float field, so it
             # accepted 1.5 and the op then truncated it -- a number the user
             # typed, silently becoming a different one.
             changed, value = controls.input_int(label, int(values.get(param.name, param.default)))
+            if changed:
+                values[param.name] = int(min(max(value, param.low), param.high))
         else:
             changed, value = controls.input_float(
                 label,
@@ -154,9 +177,8 @@ def params_popup(ctx: Any, state: Any, tab: Any) -> None:
                 0.0,
                 clay_ops.format_for(param),
             )
-        if changed:
-            clamped = min(max(float(value), param.low), param.high)
-            values[param.name] = int(clamped) if param.integer else clamped
+            if changed:
+                values[param.name] = min(max(float(value), param.low), param.high)
         if param.warn:
             widgets.secondary(param.warn)
     # Greyed rather than drawn live and ignored, which is what "and not

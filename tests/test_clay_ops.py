@@ -931,6 +931,121 @@ def test_an_ordinary_parameter_still_reads_at_three_decimals():
     assert clay_ops.format_for(clay_ops.Param("t", "position", 0.5, 0.05)) == "%.3f"
 
 
+# --- boolean and choice params (2026-09-10) ----------------------------------
+#
+# Four ops landed the same day carrying a number where a checkbox or a named
+# choice belonged, the tell being a label doing the widget's job: "fit to gap
+# (0=off, 1=on)", "axis (0=X, 1=Y, 2=Z)". A stray comment on ``place-between``
+# called that a "checkbox" precedent too, which was wrong about ``axis`` --
+# three values is a choice, not a boolean -- so this is two kinds, not one.
+
+
+def test_a_param_cannot_be_both_boolean_and_a_choice():
+    with pytest.raises(ValueError, match="both"):
+        clay_ops.Param(
+            "x", "x", 1.0, low=0.0, high=1.0, boolean=True, choices=("a", "b")
+        )
+
+
+def test_a_boolean_params_range_must_be_0_to_1():
+    with pytest.raises(ValueError, match="0..1|boolean"):
+        clay_ops.Param("x", "x", 1.0, low=0.0, high=2.0, boolean=True)
+
+
+def test_a_choice_params_range_must_span_its_choices():
+    with pytest.raises(ValueError, match="choice"):
+        clay_ops.Param("x", "x", 0.0, low=0.0, high=1.0, choices=("X", "Y", "Z"))
+    # The right range for three choices is fine.
+    clay_ops.Param("x", "x", 0.0, low=0.0, high=2.0, choices=("X", "Y", "Z"))
+
+
+def test_place_between_fit_is_a_boolean_not_a_bare_int():
+    """The label carried the widget's job -- "(0=off, 1=on)" -- because the
+    field itself couldn't say it. It should just say what the field is."""
+    fit = next(p for p in clay_ops.get("place-between").params if p.name == "fit")
+    assert fit.boolean is True
+    assert fit.choices == ()
+    assert fit.label == "fit to gap"
+    assert "0=" not in fit.label and "1=" not in fit.label
+
+
+def test_array_radial_and_mirror_copy_axis_is_a_three_way_choice_not_boolean():
+    """The earlier note calling this a checkbox case was wrong: three values
+    is a named choice, and conflating it with a boolean is the bug this
+    change fixes, not a shape to repeat."""
+    for op_name in ("array-radial", "mirror-copy"):
+        axis = next(p for p in clay_ops.get(op_name).params if p.name == "axis")
+        assert axis.boolean is False
+        assert axis.choices == ("X", "Y", "Z")
+        assert axis.label == "axis"
+        assert "0=" not in axis.label
+
+
+def test_place_between_fit_still_applies_as_0_or_1():
+    """The whole change is a widget swap: what ``run`` hands the op, and what
+    the op does with it, must be exactly what it was before ``fit`` grew a
+    ``boolean`` flag."""
+    doc, anchor_a = _doc()
+    anchor_b = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[0.0, 10.0, 0.0])
+    ).uid
+    mover = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Strut", mesh=bp.box(), translation=[99.0, 99.0, 99.0])
+    ).uid
+    doc.select([anchor_a, anchor_b, mover])
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=1.0) is True
+    assert doc.by_uid(mover).scale[1] == pytest.approx(10.0)
+
+    doc2, anchor_a2 = _doc()
+    anchor_b2 = doc2.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[0.0, 10.0, 0.0])
+    ).uid
+    mover2 = doc2.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Strut", mesh=bp.box(), translation=[99.0, 99.0, 99.0])
+    ).uid
+    doc2.select([anchor_a2, anchor_b2, mover2])
+    assert clay_ops.run(_Ctx(), doc2, clay_ops.get("place-between"), fit=0.0) is True
+    assert doc2.by_uid(mover2).scale[1] == pytest.approx(1.0)
+
+
+def test_array_radial_axis_still_applies_as_its_index():
+    """``axis`` growing ``choices`` must not change what index the op turns
+    about -- 0/1/2 still mean X/Y/Z exactly as they did as a bare int."""
+    doc = bd.ClayDoc()
+    spoke = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box(), translation=[0.0, 0.0, 5.0])
+    ).uid
+    doc.select([spoke])
+    assert (
+        clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=2, angle=90.0, axis=0)
+        is True
+    )
+    made = [obj for obj in doc.objects if obj.uid != spoke]
+    assert made
+    # Rotated 90 degrees about X (index 0): a point at (0, 0, d) sweeps to
+    # (0, +-d, 0) -- it must land on Y, not stay on Z or move onto X.
+    for obj in made:
+        assert obj.translation[2] == pytest.approx(0.0, abs=1e-6)
+        assert abs(obj.translation[1]) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_the_registrys_own_boolean_and_choice_params_still_clamp_in_run():
+    """``run``'s clamp -- ``min(max(value, low), high)`` -- must still reach
+    a boolean/choice param even though it is no longer ``integer``: a stray
+    2.0 for ``fit`` or a 9 for ``axis`` must come back inside range, exactly
+    as an out-of-range int always has."""
+    doc, anchor_a = _doc()
+    anchor_b = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[0.0, 10.0, 0.0])
+    ).uid
+    mover = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Strut", mesh=bp.box(), translation=[99.0, 99.0, 99.0])
+    ).uid
+    doc.select([anchor_a, anchor_b, mover])
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=7.0) is True
+    assert doc.by_uid(mover).scale[1] == pytest.approx(10.0), "fit=7 should clamp to 1 (on)"
+
+
 def _one_hidden() -> tuple[bd.ClayDoc, int, int]:
     """Two selected objects, the second hidden after the fact."""
     doc, first, second = _two_boxes()

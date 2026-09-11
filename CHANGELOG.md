@@ -247,6 +247,18 @@ engine stopped being something you download whether or not you ever use it.
   nothing else: a tab the batch itself opened stays open, empty, because opening
   one was never an undoable step to begin with, and the tool says so rather than
   implying a transaction it cannot deliver.
+- **Fixed: three Clay operations asked for a number where they meant a tick-box
+  or a pick-list.** **Place Between**'s dialog offered "fit to gap (0=off, 1=on)"
+  and **Array Radial**'s and **Mirror Copy**'s offered "axis (0=X, 1=Y, 2=Z)" —
+  labels doing the widget's job, because the thing that describes an operation's
+  parameters could only describe a number. It now knows a toggle and a named
+  choice as well, so those three draw a checkbox and an X/Y/Z picker, and their
+  labels are just "fit to gap" and "axis". Nothing about what the operations do
+  changed: a checkbox still stores the 0 or 1 the number field did, and a choice
+  still stores its position in the list. An agent reading the operation catalogue
+  is told the difference too — "axis (choice: 0=X, 1=Y, 2=Z)" rather than a bare
+  range it had to guess the meaning of, which was the only thing it was ever told
+  about that argument.
 - **An agent can now hand Clay a mesh it built itself, not only the name of a
   recipe.** Every door into an empty document used to be a registry entry —
   a generator's name and its parameters, or a figure preset — so a shape an
