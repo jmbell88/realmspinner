@@ -85,3 +85,16 @@ imgui.ini
 # more. `/examples/` stays untracked regardless, because the underlying assets
 # are third-party and unlicensed for redistribution.
 /examples/
+
+# The agent-facing configuration -- the skills under `.claude/skills/` and the
+# per-project settings beside them -- is tooling for whoever is driving this
+# checkout, not part of the application or its documentation, so it is kept out
+# of the published repository (2026-09-11). It stays on disk and keeps working
+# locally; `git rm --cached` removed it from the index without touching the
+# files. Nothing in the suite reads it: proven by deleting it in a throwaway
+# worktree and running the whole suite there, which is the only honest check,
+# because a `--cached` removal leaves the files present locally and would keep
+# a local run green while CI broke on a clean checkout. Unlike `/examples/`
+# above, no history purge was done -- the files are still readable in every
+# earlier commit, and were never secret.
+/.claude/
