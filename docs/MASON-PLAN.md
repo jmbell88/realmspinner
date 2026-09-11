@@ -634,6 +634,17 @@ add/remove/move round trips, dirty is a comparison), the resolver tests (the fiv
 hidden ancestor, instance expansion, `owner_uid`), and the terrain tests (a brush outside the
 rect changes nothing; the edit's `cost` is what it claims).
 
+**One thing Stage C will walk into, measured on 2026-09-11 rather than assumed.** The
+sibling packages' import pins do *not* enumerate their siblings consistently, so
+"add `mason` to the lists" is the wrong instruction. `tests/clay/test_clay_imports.py`
+bans `inker`, `plotter`, `packwright` and not `sirens`, `muse` or `troupe`;
+`sirens` bans five; `muse` bans six; and `inker`, `plotter`, `packwright` and `troupe`
+have no sibling check at all. Six hand lists, none complete, each failing *open* --
+the `PUBLISHERS` shape this repo already names as a bad gate. Derive the sibling set
+from the pure packages that exist (the way `test_accessibility.py` parametrizes over
+`sorted(tokens.PALETTES)`) rather than adding a seventh hand list, and a package added
+after Mason enrols itself.
+
 **Stage D — serialisation and the three exporters, still headless**, including the
 `viewer/gltf.py` and `viewer/glbwrite.py` camera and light extension. Gates: two saves are
 byte-identical; the version gate refuses a newer file; a missing member is refused; a missing
