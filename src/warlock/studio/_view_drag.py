@@ -135,26 +135,6 @@ class DragOps:
             return True
         return False
 
-    def _local(self: ClayView, event: Any) -> tuple[float, float]:
-        pos = getattr(event, "pos", None)
-        if pos is None:
-            return self._last_mouse
-        return (pos[0] - self._rect[0], pos[1] - self._rect[1])
-
-    def _mods(self: ClayView) -> tuple[bool, bool, bool]:
-        """``(shift, ctrl, alt)`` at this instant. See the module docstring."""
-        try:
-            import pygame
-
-            mods = pygame.key.get_mods()
-            return (
-                bool(mods & pygame.KMOD_SHIFT),
-                bool(mods & pygame.KMOD_CTRL),
-                bool(mods & pygame.KMOD_ALT),
-            )
-        except Exception:  # pragma: no cover - headless pygame without a display
-            return (False, False, False)
-
     def _press(self: ClayView, doc: Any, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
         # A keyboard drag has no button held, so a press is how it *ends*: the
@@ -384,20 +364,6 @@ class DragOps:
             self.marquee = (local[0], local[1], local[0], local[1])
         else:
             self._grab = "orbit"
-        return True
-
-    def _rmb_release(self: ClayView, local: tuple[float, float]) -> bool:
-        """The context menu, on a release that did not travel.
-
-        Four pixels rather than zero: a right-click on a trackpad routinely
-        moves one or two, and a menu that refuses to open because the finger
-        shifted reads as the app ignoring the click.
-        """
-        at, self._rmb_at = self._rmb_at, None
-        if at is None:
-            return False
-        if abs(local[0] - at[0]) < 4.0 and abs(local[1] - at[1]) < 4.0:
-            self.menu_request = local
         return True
 
     def _release_drag(self: ClayView, doc: Any, button: int = 1) -> bool:

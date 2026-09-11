@@ -396,12 +396,23 @@ exported before and after the change produces byte-identical GLB.**
 A **sibling** to `ClayView`, not a subclass. Element modes, the vertex marquee, proportional
 editing and the whole of `_view_drag.py` are Clay's mouse map, not a scene editor's.
 
-Everything genuinely shared already lives in `viewer/`. What is left over is frame plumbing,
-so extract `studio/_view_frame.py` first as **pure code motion with Clay's tests green before
-Mason exists**: the resize/forget pair (release before forget, or the imgui backend holds a
-dead moderngl object under a reissued GL name), the redraw bookkeeping, the camera mouse map
-(orbit, middle-button pan, dolly, right-button-is-a-menu-within-four-pixels, modifiers read
-from `pygame.key.get_mods()` at the press), the axis-view keys, and `_Composite`.
+Everything genuinely shared already lives in `viewer/`. What was left over is frame
+plumbing, and `studio/_view_frame.py` now holds it (**Stage B, done**): the resize/forget
+pair (release before forget, or the imgui backend holds a dead moderngl object under a
+reissued GL name), the redraw decision (`_frame_unchanged`), `_local`, `_mods` (modifiers
+read from `pygame.key.get_mods()` at the press, never off the event), `_rmb_release` (the
+menu on a release within four pixels), `Composite`, and the axis-view keys.
+
+**What did *not* move, and do not go looking for it there:** the orbit/pan/dolly lines
+themselves. They sit inside `_view_drag`'s `_press` and `_motion`, interleaved with Clay's
+element selection, marquee and gizmo routing, and separating them is a restructure of those
+dispatchers rather than code motion -- which is what Stage B was, with Clay's suite reporting
+the identical 1558 passed either side of it. Mason writes its own camera mouse map against
+`camera.orbit`/`pan`/`dolly` directly; those three calls are one line each, and the part that
+was worth sharing was never them but the modifier read and the four-pixel rule around them.
+
+`ClayView` is `(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps)`; Mason's view
+mixes in `FrameOps` and nothing else of Clay's.
 
 Six things Mason must do differently:
 
@@ -606,9 +617,15 @@ of the chapter; the manual stage is the renumbering and the cross-document count
 
 **Stage A — finish the registration sweep and get back to green. DONE.** The mode opens on an empty workspace and does nothing, which is what it was for. What the sweep left behind beyond the wiring: three tests in `tests/test_modes.py` that hold `_build_ui`'s arms against `WORKSPACE_MODES` in both directions, with a guard proving the scan can still fail — the hole here was never the partition (which was already gated and passed throughout) but a registered mode with no arm silently drawing Inker's workspace. Sites belonging to later stages were visited and recorded rather than filled in early: the four document tables (`docmodes`, `recents`, `palette._DOC_MODES`, `journal`), `landing`'s three, the job-completion claims, the quit guard, and `skeletons`/`layout`'s pane tables all wait on a document or a pane that Stages D and E create. `palette._DOC_MODES` is the sharp one: joining it early is an `AttributeError`, because `status_bar._document_modes()` calls `active(ctx)` on the mode's module.
 
-**Stage B — the shared viewport leaf.** Extract `studio/_view_frame.py` from `clay_view.py`
-as pure code motion, with Clay's suite green before and after. Gate: the existing Clay tests
-plus one asserting `ClayView` still exposes every moved name.
+**Stage B — the shared viewport leaf. DONE.** `studio/_view_frame.py` extracted as pure
+code motion; Clay's suite reported **1558 passed, 5 deselected** before and after, and the
+full lane went 20598 -> 20604 (five new tests plus one case that self-enrolled into
+`test_atomic_writes.py`'s per-file parametrize). `axis_view_key` moved with it and is
+re-exported from `clay_mode`, so Poser's call site and the three tests that pin it are
+untouched. Gate: `tests/test_view_frame.py` — every name on `FrameOps` still resolves on
+`ClayView` and is `FrameOps`' own function rather than a copy, plus an exact pin on the
+leaf's outward imports so the next viewport cannot inherit Clay's document model by
+accident. Proved by dropping `FrameOps` from the bases: it names all six lost methods.
 
 **Stage C — the pure engine, headless.** `refs`, `nodes`, `document`, `edits`; then `scene`,
 `ops`, `pick`; then `terrain`. No UI. **Write `tests/mason/test_mason_imports.py` first** —
