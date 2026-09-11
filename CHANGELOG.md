@@ -18,6 +18,55 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.44 — 2026-09-11
+
+A review of the MCP bridge — the way an external AI agent drives Clay — found
+the feature unreachable for anyone who installed Warlock rather than cloning
+it, and found three ways any other program on the machine could switch it off.
+
+- **An installed Warlock can now be driven by an agent at all.** The setup
+  command the manual gave, `uv run warlock mcp`, needs `uv` and a source
+  checkout, which nobody who runs the installer has. The installer staged
+  exactly one launcher, for Doctor, so there was nothing an MCP client could
+  be pointed at. It now stages `bin\warlock-mcp.cmd` beside it, routing
+  through the interpreter the installer already ships, and the manual gives
+  that command first and the checkout one second. Deliberately not a Start
+  Menu entry: a client spawns it, and double-clicking it would only open a
+  console holding a relay that talks to nothing.
+
+- **A program that opens the pipe and then says nothing can no longer end the
+  agent session.** The HMAC challenge that proves a caller holds the token ran
+  inside `Listener.accept` with no time limit, so a peer that connected and
+  stayed silent parked the listener for good — the real bridge behind it then
+  blocked too, rather than getting the readable refusal it should have, and
+  switching the feature off and on did not recover it, because the abandoned
+  thread still held a pipe handle and the next attempt to open one failed with
+  "Access is denied". The challenge now runs on a clock and the connection is
+  closed when it expires, which is what lets that thread go.
+
+- **A crashed or restarted agent client no longer stops the server with it.**
+  A peer that disconnected part-way through the challenge raised an error of a
+  kind the accept loop did not catch — it was written for a *wrong* token, and
+  this is an *absent* peer — so the listener thread ended while Settings went
+  on showing the pipe address for a server that had stopped answering. Every
+  way the exchange can fail is now handled in one place.
+
+- **The agent server switching itself on can no longer stop Warlock from
+  starting.** The setting was saved before the pipe was opened, and opening it
+  could fail — most reachably on macOS and Linux, where a socket file left by
+  a crash made every later attempt fail forever. The next launch then hit the
+  same failure inside start-up, so an optional feature that could not open its
+  transport cost the whole app, every run, with no way back but editing the
+  settings file by hand. A leftover socket is now cleared, and a transport that
+  will not open switches the feature off and says why in Settings.
+
+- **Also:** the bridge now answers a client that speaks an older revision of
+  the protocol with that revision, rather than insisting on its own; and the
+  tool catalogue an agent is sent at the start of every session — around ten
+  thousand tokens of it, which grows on its own whenever a generator or an op
+  is added — is now measured by the suite against a ceiling, so growing it is
+  a decision rather than something that happens.
+
 ## 0.0.43 — 2026-09-11
 
 An audit of Clay closed six defects, two of which anyone who models in it
