@@ -39,50 +39,43 @@ the mode it is the answer *with*.
 
 ## State of the branch
 
-Branch `claude/3d-scene-editor-jhaje8`, commit "Mason takes the fourteenth place on the rail".
+Branch `claude/3d-scene-editor-jhaje8`. **Stage A is landed and the branch is green.**
 
 **Landed:**
-- `icons.BLOCKS = ""`, lucide's `blocks`.
+- `icons.BLOCKS`, lucide's `blocks`, read off the vendored `lucide.ttf` with fontTools.
 - Mason registered in `modes.py`: the `MODES` 4-tuple after Clay, `RAIL_GROUPS[1]`,
   `WORK_MODES`, `WORKSPACE_MODES`, and the three prose counts `tests/test_modes.py` reads
   as data.
-- `tests/test_modes.py` updated to expect fourteen modes and a nine-mode workspace group.
+- **Stage A, the registration sweep**: `_build_ui`'s own arm and `_mason_workspace()`;
+  `DROP_REFUSALS`; the `_shortcut` arm with its unconditional `return`; `_WORKSPACE_ARMS`;
+  `mason_mode.py` (`handle_key` alone, binding nothing); `AppState.mason`;
+  `PLACEHOLDERS["mason"]`; and every document that stated the old mode or workspace count,
+  `CLAUDE.md` among them.
 
-**Verified:**
+**Verified, and these are measurements rather than expectations:**
 - `test_the_rail_fits_the_resize_floor_at_every_scale` passes at 1.0 / 1.5 / 1.75 with
-  fourteen rows. This was the one thing that could have refused the mode outright.
-- Every glyph Mason's panes will want was checked against the vendored
-  `resources/fonts/lucide.ttf` with fontTools — the check `tests/test_icons.py` already
-  applies to LINK and UNLINK — rather than trusted from a release's `info.json`:
-  `` blocks, `` lightbulb, `` video, `` list-tree,
-  `` component, `` mountain-snow, `` group, `` ungroup,
-  `` shapes.
+  fourteen rows, in the full suite and not only in a targeted run. This was the one thing
+  that could have refused the mode outright.
+- Every Lucide glyph the panes will want was checked against the vendored font itself,
+  not against a release's `info.json`.
+- `scripts/exercise_mode.py --mode mason` reports **0 controls in 1 round** and does not
+  crash, which is exactly Stage A's claim: the mode opens, draws its own empty workspace,
+  and does nothing.
 
-**Left red, and this is the first job of the next session.** Registering a mode without
-sweeping the registries that enumerate modes leaves tests failing. The sweep is listed under
-"The registration sweep" below; finish it before anything else, because until it is done a
-genuine regression cannot be told from a known gap.
+**The failure count is settled, and it was never 487.** The full default lane on
+**Windows** — the platform this project ships and the only one its CI runs — reported
+**6 failed, 20587 passed** at the registration commit. All six were Mason's, every one a
+gate firing exactly where a mode gets missed: the two manual counts, the workspace-count
+scan, `_WORKSPACE_ARMS`, `PLACEHOLDERS`, and `DROP_REFUSALS`. After Stage A: **20598
+passed, 49 skipped, 0 failed**, with `ruff` and `preflight --fast` clean.
 
-**What is actually known about the failures, and what is not.** A full run on Linux under
-`xvfb-run` at this commit reported **487 failed, 17376 passed, 465 skipped** in about three
-minutes, with one `INTERNALERROR` from an xdist worker. That number is *not* Mason's bill:
-this project is Windows-first with Windows-only CI, so the Linux suite was never green to
-begin with. Two failures were checked by hand against the parent commit and fail identically
-there — `tests/test_plotter_mode.py::test_one_file_spelled_two_ways_is_one_tab` (it depends
-on `os.path.normcase` folding case, which it does on Windows and not on Linux) and
-`tests/test_studio_smoke.py::test_the_library_builds_empty_and_populated` (it wants the
-`text2image` pack installed).
+The 487-failure Linux number this plan used to carry is noise from an unsupported
+platform, and the baseline-diff recipe it prescribed is **not needed** — measure on
+Windows, where six failures were legible without any baseline at all. What does survive
+from that episode is the lesson, and it is worth keeping: Stage A's predecessor was called
+green and pushed on five targeted tests, and on the platform that counts it was red by six.
+Run the lane, not a selection from it.
 
-The full baseline-versus-current diff was **started and not finished** — the second run hung
-near the end and was stopped. **Do it before trusting any failure count**, and do not repeat
-the mistake that made it necessary: this plan's Stage 0 was called green and pushed on the
-strength of five targeted tests, without the suite behind it. The recipe:
-
-    # at HEAD, then at HEAD~1, with the same flags both times
-    xvfb-run -a -s "-screen 0 1920x1080x24" uv run pytest -q --tb=no -rf -p no:randomly \
-        > cur.log 2>&1
-    grep -E "^FAILED" cur.log | sed 's/ - .*//' | sort -u > cur.txt
-    comm -13 base.txt cur.txt        # what this change actually broke
 
 ## What is reused rather than rebuilt
 
@@ -611,12 +604,7 @@ Each stage ends green and, from stage 3, demonstrably usable. Per CLAUDE.md, a m
 ships in the same commit as the behaviour it describes, so each stage carries its own slice
 of the chapter; the manual stage is the renumbering and the cross-document counts.
 
-**Stage A — finish the registration sweep and get back to green.** Everything under
-"Still to do" that does not need the engine: the `main.py` arms, `_WORKSPACE_ARMS`,
-`AppState.mason`, the skeleton with placeholder panes, the landing and overlay entries, the
-prose counts. The mode opens on an empty workspace and does nothing. **This is the first job
-of the next session**, because until it is done a genuine regression cannot be told from a
-known gap.
+**Stage A — finish the registration sweep and get back to green. DONE.** The mode opens on an empty workspace and does nothing, which is what it was for. What the sweep left behind beyond the wiring: three tests in `tests/test_modes.py` that hold `_build_ui`'s arms against `WORKSPACE_MODES` in both directions, with a guard proving the scan can still fail — the hole here was never the partition (which was already gated and passed throughout) but a registered mode with no arm silently drawing Inker's workspace. Sites belonging to later stages were visited and recorded rather than filled in early: the four document tables (`docmodes`, `recents`, `palette._DOC_MODES`, `journal`), `landing`'s three, the job-completion claims, the quit guard, and `skeletons`/`layout`'s pane tables all wait on a document or a pane that Stages D and E create. `palette._DOC_MODES` is the sharp one: joining it early is an `AttributeError`, because `status_bar._document_modes()` calls `active(ctx)` on the mode's module.
 
 **Stage B — the shared viewport leaf.** Extract `studio/_view_frame.py` from `clay_view.py`
 as pure code motion, with Clay's suite green before and after. Gate: the existing Clay tests

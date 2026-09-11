@@ -186,6 +186,11 @@ DROP_REFUSALS: dict[str, str] = {
     ),
     "review": "Review opens no files: it grades the assets already in the library.",
     "settings": "Settings opens no files. Drop it on the workspace that reads it.",
+    # Mason's first stage is a bare workspace with no engine and no document
+    # format, so it opens no files at all yet -- not even the ones the
+    # finished mode will. The honest sentence names what is true of this
+    # build rather than promising an import form that is not on screen.
+    "mason": "Mason opens no files yet: this workspace does nothing in this build.",
 }
 
 
@@ -3399,6 +3404,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             # Troupe has replaced with a sprite.
             troupe_mode.handle_key(ctx, event)
             return
+        if ctx.state.mode == "mason":
+            from . import mason_mode
+
+            # Unconditional and returning, for site #8's reason (Mason's own
+            # sweep row): every workspace arm above returns whether or not its
+            # ``handle_key`` consumed the key, because a shared function's
+            # tail is what let Packwright's return "get lost when Troupe's
+            # branch was spliced in ahead of it" and sent Delete in the atlas
+            # packer to the library trash instead. Stage A's ``handle_key``
+            # binds nothing and always answers False, but the return still
+            # has to be here now -- before a later mode's branch is spliced in
+            # above the shared block below, not after.
+            mason_mode.handle_key(ctx, event)
+            return
         # Both edges reach this function, because Inker's space-to-pan is a
         # hold and needs the release. Nothing below is a hold: every one of
         # these is a toggle or an action, so acting on the release too undoes
@@ -4057,6 +4076,8 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                         self._sirens_workspace()
                     elif mode == "troupe":
                         self._troupe_workspace()
+                    elif mode == "mason":
+                        self._mason_workspace()
                     else:
                         self._inker_workspace()
                 else:
@@ -4752,6 +4773,26 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             top=("packwright-items", layout_mod.PaneRole.INSPECTOR, packwright_items.draw),
             bottom=("packwright-bridge", layout_mod.PaneRole.INSPECTOR, packwright_bridge.draw),
         )
+
+    def _mason_workspace(self) -> None:
+        """The empty workspace, and nothing else -- Mason's first stage.
+
+        Every other workspace here is at least a sidebar-and-centre skeleton
+        over a mode module's own panes; Mason has no engine, no document
+        format and no panes of its own yet, so there is nothing to give a
+        sidebar's width to. One unsplit pane, routed through the same
+        ``overlay.placeholder`` every other empty viewport uses -- the ``else:
+        self._inker_workspace()`` this arm replaces was Mason silently
+        drawing Inker's canvas, tools and all, which is the wrong-pane failure
+        this method exists to not be.
+        """
+        from . import layout as layout_mod
+        from .panes import overlay
+
+        ctx = self.app_ctx
+        with layout_mod.pane("mason-centre", (0, 0), layout_mod.PaneRole.CONTENT) as visible:
+            if visible:
+                overlay.placeholder(ctx)
 
     def _overlays(self, viewport: Any) -> None:
         """Toasts and modals, drawn over whichever layout ran.

@@ -112,3 +112,60 @@ def test_rail_groups_comment_states_the_real_pipeline_and_workspace_counts():
         f"modes.py's RAIL_GROUP_LABELS comment should say 'these nine are "
         f"workspaces' to match RAIL_GROUPS[1]'s {workspace_count} entries"
     )
+
+
+# --- the dispatch arms -------------------------------------------------------
+#
+# Registering a mode in ``WORKSPACE_MODES`` without giving it an arm in
+# ``_build_ui`` is silent: the dispatch ends in a bare ``else``, so the new mode
+# draws whatever that else draws rather than failing. Measured on 2026-09-11,
+# adding Mason: it was in ``KEYS``, ``WORK_MODES`` and ``WORKSPACE_MODES``, the
+# rail drew its rung, ``test_the_three_categories_still_partition_the_modes``
+# passed -- and clicking it drew *Inker's* workspace. Every membership test in
+# the tree passed for the whole time that was true, because membership is not
+# the claim that matters here; having an arm is.
+#
+# Two directions, per the tour's rule that a one-way check grows a hole from the
+# other side, plus a guard proving the scan can still fail -- without it, a
+# regex that stopped matching would make both directions pass by finding
+# nothing at all.
+
+#: The one mode ``_build_ui``'s bare ``else`` is allowed to draw.
+_ELSE_ARM = "inker"
+
+
+def _dispatch_arms() -> set[str]:
+    """Every mode key ``_build_ui`` dispatches on by name."""
+    import inspect
+    import re
+
+    from warlock.studio import main
+
+    return set(re.findall(r'mode == "([a-z_]+)"', inspect.getsource(main.App._build_ui)))
+
+
+def test_every_mode_that_fills_the_window_has_its_own_arm_in_the_dispatch():
+    from warlock.studio import main
+
+    owed = (set(main._SINGLE_PANE_MODES) | set(modes.WORKSPACE_MODES)) - {_ELSE_ARM}
+    missing = sorted(owed - _dispatch_arms())
+    assert not missing, (
+        f"{missing} reach _build_ui's dispatch with no arm of their own, so "
+        f"each one silently draws the bare else's workspace ({_ELSE_ARM}'s)"
+    )
+
+
+def test_the_dispatch_names_no_mode_that_does_not_exist():
+    """The other direction: an arm left behind by a mode that was renamed or
+    removed is dead code that reads as live wiring."""
+    unknown = sorted(_dispatch_arms() - set(modes.KEYS))
+    assert not unknown, f"_build_ui dispatches on {unknown}, which are not mode keys"
+
+
+def test_the_arm_scan_actually_matches_the_dispatch():
+    """The guard on the guard. Both checks above are built from one regex, and
+    a regex that stopped matching -- a rename, a refactor to a dict lookup --
+    would make them pass by finding nothing on both sides at once."""
+    found = _dispatch_arms()
+    assert "clay" in found, "the arm scan no longer matches _build_ui's dispatch"
+    assert len(found) >= 10, f"the arm scan found only {sorted(found)}"

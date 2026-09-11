@@ -42,7 +42,7 @@ If you already have a picture, you can skip the first stage entirely and upload 
 
 ## The modes
 
-A rail down the left edge of the window chooses between thirteen modes, and that rail is the single
+A rail down the left edge of the window chooses between fourteen modes, and that rail is the single
 thing that decides what the panes show. It is drawn in every mode, so there is no screen you cannot
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
 route, see [Keyboard shortcuts](38-shortcuts.md).
@@ -75,12 +75,15 @@ where you are not making something.
   [Generating meshes](23-generating-meshes.md) and
   [Rigging and posing](25-rigging-and-posing.md).
 
-Then the eight workspaces:
+Then the nine workspaces:
 
 - **Inker.** A layered raster editor, wired into the pipeline in both directions. Covered in
   [Inker](28-inker.md), with the timeline in [Inker: animation](29-inker-animation.md).
 - **Clay.** Modelling from primitives: transforms, a material palette, and two ways out —
   export a `.glb` or import the document as an asset. Covered in [Clay](30-clay.md).
+- **Mason.** A 3D scene editor: place library assets and primitives into a scene, group and
+  duplicate them, light it, sculpt a ground, and export the arrangement as a glTF scene, an
+  engine-friendly GLB-plus-manifest, or merged OBJ geometry.
 - **Poser.** Authoring reusable poses against a skeleton template, kept in a global pose library
   rather than belonging to any one asset. Covered in [Poser](26-poser.md).
 - **Troupe.** A character-sprite factory: a prompt becomes a reference, a mesh, a fitted rig and
@@ -156,7 +159,7 @@ Above the columns is the menu bar and below them is the status bar, and both are
 
 ## What is the same in every workspace
 
-Eight workspaces are eight editors, and they are deliberately one program eight times. Whichever
+Nine workspaces are nine editors, and they are deliberately one program nine times. Whichever
 one is open:
 
 - **The file panel** in the right column carries the same four verbs — **New**, **Open**, **Save**,
@@ -202,7 +205,7 @@ through, so the menu, `Ctrl+K` and the keyboard cannot disagree about what an ac
 it is available, or why it is not. A row you cannot use is greyed with the reason on hover — the
 same reason the palette gives — and a row with a keyboard binding prints it on the right.
 
-**Workspace** is the one to know about: it holds all thirteen modes, so it is a third way — beside
+**Workspace** is the one to know about: it holds all fourteen modes, so it is a third way — beside
 the rail and the palette — to change what the window is showing.
 
 ## The status bar

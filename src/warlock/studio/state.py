@@ -1318,6 +1318,11 @@ class AppState:
     # reason the four above are. Its Viewer lives on the App/Ctx, not here:
     # AppState carries no GL objects.
     poser: Any = None
+    # Mason's own state, built on first use once a later stage gives the mode
+    # something to hold. Untyped and None for the reason the others are: this
+    # first stage's workspace has no document, no engine and no selection, so
+    # there is nothing yet for a mode-level ``ensure`` to build.
+    mason: Any = None
     # Whether ``findings.json`` is behind the evidence in the DB. A flag rather
     # than a submit, because ``TaskRunner.submit`` *refuses* a key already in
     # flight and nothing re-arms it: five verdicts in a second used to run one

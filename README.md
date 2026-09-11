@@ -12,7 +12,7 @@ The generation pipeline:
 
 ## The modes
 
-A rail down the left of the window chooses between **thirteen** top-level modes
+A rail down the left of the window chooses between **fourteen** top-level modes
 (`src/warlock/studio/modes.py` is the authoritative list, and `RAIL_GROUPS` is
 the grouping) in three sections: **Pipeline**, **Workspaces**, and an
 unlabelled footer. There is no per-mode key — the `Ctrl+K` command palette is
@@ -55,14 +55,19 @@ are looking at.
    diffable `.wblk` native format. Two ways out: export to the library as an
    ordinary asset (rigging, posing, sheets and every mesh export then work on it
    unchanged), or render it flat and send it to Create.
-6. **Poser** — authoring reusable poses against a skeleton template, kept in a
+6. **Mason** — a 3D scene editor: place library assets and primitives into a
+   scene, group and duplicate them, light it, sculpt a ground, and export the
+   arrangement as a glTF scene, an engine-friendly GLB-plus-manifest, or merged
+   OBJ geometry. Native `.wscn` format, with a full round trip through the
+   library — export as an asset row, reopen the scene from it.
+7. **Poser** — authoring reusable poses against a skeleton template, kept in a
    global pose library rather than belonging to any one asset; poses can move
    their root. Also the **clip editor**: the keyframes a character sheet
    animates — which keys, in what order, how many frames apart — with
    onion-skinned neighbours, a scrubber that plays the renderer's own
    interpolation, and your edits saved beside the shipped clips rather than over
    them.
-7. **Troupe** — character sprite sheets from a 3D model, as a chain rather than
+8. **Troupe** — character sprite sheets from a 3D model, as a chain rather than
    a button: a prompt draws a reference against a drawn pose guide — **A-pose by
    default**, because the shipped humanoid rig template is itself an A-pose, with
    T-pose still on offer for the limb separation a single-view reconstruction
@@ -72,29 +77,29 @@ are looking at.
    reduced to the pixel size you asked for, quantised against one palette. The
    sidecar carries a tag per animation and direction, so **Edit in Inker** opens
    the whole sheet on its own timeline with the spans already set.
-8. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
+9. **Plotter** — a tile-map editor: grid, layer stack, tilesets and object
    layers, terrain/Wang sets, per-tile metadata, hexagonal and staggered maps,
    infinite maps, native `.wmap`, and Tiled interop in both directions
    (`.tmx`/`.tmj` import and export; unsupported Tiled features are refused
    explicitly, never partially loaded).
-9. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
+10. **Packwright** — a sprite-atlas packer: files, drops, Inker documents or
    library assets in; a deterministic atlas out (Grid or MaxRects, with
    trim/padding/extrude/power-of-two), as PNG plus TexturePacker JSON, and a
    `.tsx` for grid packs. Re-export of an unchanged document is byte-identical.
-10. **Muse** — generated music: comma-separated style tags and an optional lyric
+11. **Muse** — generated music: comma-separated style tags and an optional lyric
     block become a finished track from **ACE-Step v1** (3.5B, text-to-music,
     local and offline) — up to ten minutes per generation (30s/60s/120s/240s/10m
     presets, or any typed length in between), four minutes when extending an
     existing take — one job row per take, auditioned in the mode and openable
     in Sirens as a sample instrument.
-11. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
+12. **Sirens** — a chiptune tracker: the synthesis engine, a five-column pattern
    grid, an envelope editor, sample import and sound effects, with WAV, stems
    and sfx export.
 
 **The footer** carries no caption, and holds the two destinations where you are
 not making something — entered rarely and left again:
 
-12. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
+13. **Review** — judging finished meshes with graded verdicts (−5..+5 plus
     tags), parameter sweeps over arbitrary setting axes, an advisory DINOv2-probe
     quality judge taught by in-app labelling, and the "What works" findings the
     verdicts add up to — which surface as hints beside the generate controls.
@@ -103,7 +108,7 @@ not making something — entered rarely and left again:
     prop meshes usable on a representative corpus and 10 of 20 on a second
     (`docs/measurements/2026-09-02-trellis-060-props.md` and
     `docs/measurements/2026-09-02-fantasy-v1.md`). Single-view humanoids grade poorly on both.
-13. **Settings** — the app's own preferences: theme, UI scale, layout, and the
+14. **Settings** — the app's own preferences: theme, UI scale, layout, and the
     model list, from which a missing one can be downloaded.
 
 Two things are deliberately *not* modes, and both are overlays. The
@@ -128,7 +133,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **16 GB VRAM** for 3D reconstruction (`vram.py`'s `TRELLIS_GIB = 16.0`). Tested on an RTX 5090 / 32 GB; a 4080/5080-class card or better is the comfortable range.
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
 - **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
-- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the eight workspaces get cramped.
+- **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the nine workspaces get cramped.
 - [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `warlock doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
 **How long a generation takes:** roughly two minutes of GPU per 3D attempt on the tested card — a reference image in seconds, then the reconstruction. Budget for more than one attempt: the approval gate exists because the first reference is often not the one you want.
@@ -170,9 +175,9 @@ share one 7 GB checkpoint.
 Nothing above is required to *run* Warlock, and since 2026-09-10 that includes
 the reconstruction engine: it is a registry row like a model, so the installer
 no longer carries its 838 MB and a machine that only draws pixel art never
-fetches it. Seven of the eight workspaces --
-Inker, Clay, Poser, Troupe, Plotter, Packwright and the Sirens tracker -- open
-and work with an empty model directory, and `warlock doctor` exits 0 on a
+fetches it. Eight of the nine workspaces --
+Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright and the Sirens tracker --
+open and work with an empty model directory, and `warlock doctor` exits 0 on a
 machine that has downloaded none of it, reporting the absent rows as `[SETUP]`
 rather than as failures. What the weights buy is generation: **Create** and
 **Muse** are greyed out in the rail until theirs are present, and clicking a
