@@ -309,6 +309,21 @@ engine stopped being something you download whether or not you ever use it.
   context menu, the tools pane and the agent's `clay_op` tool in a single
   edit — a test already asserts the agent's enum and the registry can never
   disagree.
+- **Clay can aim an object down the line between two others now.** **Place
+  Between...** takes exactly three selected objects — two anchors and the
+  object to place — and moves the newest of them to the anchors' midpoint,
+  turned so its own +Y points from one anchor to the other, replacing its
+  rotation rather than composing with it so the result never depends on
+  which way it already happened to be facing. **Fit** also stretches it
+  along that same Y so it spans the gap exactly, for the strut-between-two-
+  hubs case the op exists for; a flat shape with no Y extent to stretch (a
+  Plane, a Grid) still moves and turns, with the fit itself skipped rather
+  than the whole placement refused over an axis it has no length along. The
+  underlying quaternion math (`align_y`, taking canonical +Y onto an
+  arbitrary direction) is not new — it has aimed every limb in the eight
+  figure presets since they were written — only newly promoted out of
+  `presets.py` into `clay/ops.py` so this op and the rig presets share one
+  derivation of its two degenerate cases instead of two.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

@@ -173,6 +173,97 @@ def mirror_world(obj: Obj, axis: int, offset: float) -> Obj:
     return replace(mirror(obj, axis), translation=translation, rotation=rotation)
 
 
+def align_y(direction: Iterable[float]) -> tuple[float, float, float, float]:
+    """The XYZW quaternion taking ``+Y`` onto *direction*.
+
+    Every generator in :mod:`.primitives` is built along ``+Y`` -- that is
+    the module's own rule -- so a bone, a strut, anything that is not already
+    vertical is a rotation, never a re-authored mesh. The two degenerate
+    cases are written out because the cross product vanishes for both and
+    normalising it would divide by zero: parallel is the identity, and
+    antiparallel is a half turn about ``X``, picked arbitrarily since every
+    axis perpendicular to ``Y`` would do.
+
+    An ingredient, not an object op -- it takes a bare direction and hands
+    back a quaternion, not an :class:`Obj`, which is why it sits here rather
+    than reading as one of the ``Obj -> Obj`` shapes around it. Promoted out
+    of :mod:`.presets` (where it lived as ``_align_y``) rather than
+    reimplemented, because the two degenerate cases above were worked out
+    once already and a second derivation is a second place for them to
+    disagree. :func:`.presets._placed` was its first caller, laying a rigged
+    limb down a bone; :func:`place_between` is its second, laying anything
+    down the line between two arbitrary points -- both are "point this along
+    that direction" and neither needed its own copy of the reasoning.
+    """
+    d = np.asarray(direction, dtype="f8")
+    length = float(np.linalg.norm(d))
+    if length < 1e-12:
+        return (0.0, 0.0, 0.0, 1.0)
+    d = d / length
+    dot = float(d[1])
+    if dot > 1.0 - 1e-9:
+        return (0.0, 0.0, 0.0, 1.0)
+    if dot < -1.0 + 1e-9:
+        return (1.0, 0.0, 0.0, 0.0)
+    axis = np.cross(np.array([0.0, 1.0, 0.0]), d)
+    s = float(np.sqrt((1.0 + dot) * 2.0))
+    q = np.array([axis[0] / s, axis[1] / s, axis[2] / s, s * 0.5])
+    q /= float(np.linalg.norm(q))
+    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+
+
+def place_between(obj: Obj, a: Iterable[float], b: Iterable[float], *, fit: bool) -> Obj:
+    """*obj*, moved onto the segment between two *world*-space points.
+
+    The whole verb is "aim this along that line": the translation becomes the
+    segment's midpoint, and the rotation becomes :func:`align_y` of ``b - a``
+    -- **replacing** the object's own rotation rather than composing with it,
+    because "aim this along that line" is the entire instruction, and
+    composing would make the result depend on which way the object happened
+    to be facing before this ran. Every generator this package ships is built
+    along ``+Y`` (:func:`align_y`'s own rule), which is what makes one
+    quaternion the right answer here for any shape at all, rather than a
+    special case per generator.
+
+    With *fit*, the scale's Y component is set so the object's own *local* Y
+    extent -- read off :func:`~.mesh.bounds`, on the unscaled mesh, before
+    *any* existing scale is applied -- spans exactly ``|b - a|``. That is a
+    replacement of ``scale[1]``, not a multiple of whatever it already was:
+    "span the gap" is a statement about the result, not an adjustment to the
+    input.
+
+    A mesh with no Y extent at all cannot be fit this way -- a ``plane`` or a
+    ``grid`` is authored flat in XZ, so its local Y span is exactly zero and
+    the fit the caller asked for is a division by zero. **The fit is skipped
+    in that case, not refused**: the object still moves to the midpoint and
+    turns to face the line, which is the placement itself and not the part
+    that needed a Y extent to exist -- refusing that too over an axis the
+    mesh has no length along to begin with would punish the caller for a
+    generator's shape rather than for anything they did wrong. A flat mesh
+    placed this way keeps whatever scale it already had.
+
+    Two coincident anchors (``a == b``) are the same degenerate direction
+    :func:`align_y` already names as its identity case, so this returns the
+    object turned to identity rather than dividing by a zero-length segment
+    and producing a NaN.
+    """
+    a_arr = np.asarray(a, dtype="f8")
+    b_arr = np.asarray(b, dtype="f8")
+    direction = b_arr - a_arr
+    scale = np.asarray(obj.scale, dtype="f8").copy()
+    if fit:
+        lo, hi = bm.bounds(obj.mesh)
+        extent = float(hi[1] - lo[1])
+        if extent > 1e-9:
+            scale[1] = float(np.linalg.norm(direction)) / extent
+    return replace(
+        obj,
+        translation=(a_arr + b_arr) * 0.5,
+        rotation=np.asarray(align_y(direction), dtype="f8"),
+        scale=scale,
+    )
+
+
 def world_box(obj: Obj) -> tuple[np.ndarray, np.ndarray] | None:
     """The object's axis-aligned box in *world* space, or ``None`` if it is empty.
 

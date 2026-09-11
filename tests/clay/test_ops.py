@@ -237,6 +237,113 @@ def test_mirror_world_rejects_an_axis_that_is_not_one_of_three() -> None:
         ops.mirror_world(_obj(), 3, 0.0)
 
 
+# --- align_y (promoted out of presets._align_y) and place_between -----------
+#
+# ``align_y`` used to live in ``presets.py`` as a private, and the eight-
+# assembly digest comparison that proved the promotion faithful lives in the
+# landing report rather than here (it needs the rig templates ``presets.py``
+# itself is checked against). What belongs here is the ingredient's own
+# claims and ``place_between``'s, which has no other caller to exercise it.
+
+
+def test_align_y_is_the_identity_for_a_parallel_direction() -> None:
+    assert ops.align_y((0.0, 5.0, 0.0)) == pytest.approx((0.0, 0.0, 0.0, 1.0))
+
+
+def test_align_y_is_a_half_turn_about_x_for_an_antiparallel_direction() -> None:
+    assert ops.align_y((0.0, -3.0, 0.0)) == pytest.approx((1.0, 0.0, 0.0, 0.0))
+
+
+def test_align_y_rotates_plus_y_onto_the_given_direction() -> None:
+    """The property that matters, checked directly rather than trusted from the
+    two degenerate cases above: whatever direction comes in, rotating the
+    canonical ``+Y`` by the returned quaternion lands on its unit vector."""
+    direction = np.array([1.0, 2.0, -3.0])
+    q = ops.align_y(direction)
+    rotated = m3.quat_rotate(np.asarray(q), m3.vec3(0.0, 1.0, 0.0))
+    assert np.allclose(rotated, direction / np.linalg.norm(direction), atol=1e-9)
+
+
+def test_align_y_returns_the_identity_for_a_zero_length_direction() -> None:
+    """No direction to align to; the identity is the only answer that invents
+    nothing, and the one :func:`place_between` relies on for coincident
+    anchors."""
+    assert ops.align_y((0.0, 0.0, 0.0)) == pytest.approx((0.0, 0.0, 0.0, 1.0))
+
+
+def test_place_between_sits_at_the_midpoint_of_the_two_anchors() -> None:
+    obj = _obj("Strut", translation=(9.0, 9.0, 9.0))
+    out = ops.place_between(obj, (0.0, 0.0, 0.0), (2.0, 4.0, 6.0), fit=False)
+    assert np.allclose(out.translation, [1.0, 2.0, 3.0])
+
+
+def test_place_betweens_local_y_axis_ends_up_along_the_line() -> None:
+    """The claim, not the quaternion's own components: rotate the object's
+    local +Y by the result and it must point where the line points, whatever
+    axis convention produced that rotation internally."""
+    obj = _obj("Strut")
+    a, b = np.array([1.0, -2.0, 0.5]), np.array([4.0, 3.0, -1.5])
+    out = ops.place_between(obj, a, b, fit=False)
+    rotated_y = m3.quat_rotate(np.asarray(out.rotation), m3.vec3(0.0, 1.0, 0.0))
+    expected = (b - a) / np.linalg.norm(b - a)
+    assert np.allclose(rotated_y, expected, atol=1e-9)
+
+
+def test_place_between_replaces_rotation_rather_than_composing_with_it() -> None:
+    """"Aim this along that line" must not depend on which way the object
+    already happened to be facing -- two objects starting at different
+    rotations placed on the same segment must end up identically oriented."""
+    a, b = (0.0, 0.0, 0.0), (0.0, 0.0, 5.0)
+    facing_one_way = _obj(rotation=m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), 0.7))
+    facing_another = _obj(rotation=m3.quat_from_axis_angle(m3.vec3(1.0, 0.0, 0.0), 2.1))
+    out_a = ops.place_between(facing_one_way, a, b, fit=False)
+    out_b = ops.place_between(facing_another, a, b, fit=False)
+    assert np.allclose(out_a.rotation, out_b.rotation)
+
+
+def test_place_between_with_fit_stretches_local_y_to_span_the_gap() -> None:
+    """``box()``'s local Y extent is exactly 1, so fitting a gap of length
+    *L* must set ``scale[1]`` to exactly *L*."""
+    obj = _obj("Strut", bp.box(), scale=(3.0, 3.0, 3.0))
+    out = ops.place_between(obj, (0.0, 0.0, 0.0), (0.0, 7.0, 0.0), fit=True)
+    assert out.scale[1] == pytest.approx(7.0)
+    # The other two axes are the caller's business, not the fit's.
+    assert out.scale[0] == pytest.approx(3.0)
+    assert out.scale[2] == pytest.approx(3.0)
+
+
+def test_place_between_without_fit_leaves_the_scale_alone() -> None:
+    obj = _obj("Strut", scale=(2.0, 5.0, 2.0))
+    out = ops.place_between(obj, (0.0, 0.0, 0.0), (0.0, 9.0, 0.0), fit=False)
+    assert np.allclose(out.scale, [2.0, 5.0, 2.0])
+
+
+def test_place_between_on_coincident_anchors_does_not_produce_a_nan() -> None:
+    """The zero-length-segment case ``align_y`` already names as its own
+    identity branch, exercised through the op that actually divides by the
+    segment's length when ``fit`` is asked for."""
+    obj = _obj("Strut")
+    out = ops.place_between(obj, (2.0, 2.0, 2.0), (2.0, 2.0, 2.0), fit=True)
+    assert np.allclose(out.translation, [2.0, 2.0, 2.0])
+    assert not np.isnan(out.rotation).any()
+    assert not np.isnan(out.scale).any()
+    assert np.allclose(out.rotation, [0.0, 0.0, 0.0, 1.0])
+
+
+def test_place_between_skips_the_fit_on_a_mesh_with_no_y_extent() -> None:
+    """A ``plane`` is authored flat in XZ, so its local Y span is exactly
+    zero and dividing the gap length by it is undefined. The decision: skip
+    the fit rather than refuse the whole placement, because the translation
+    and rotation this call is for are still meaningful even when the shape
+    has no length along Y to stretch -- see ``place_between``'s own
+    docstring. The object still moves and turns; only the scale is left as
+    it was."""
+    obj = _obj("Sheet", bp.plane(), scale=(1.0, 1.0, 1.0))
+    out = ops.place_between(obj, (0.0, 0.0, 0.0), (0.0, 5.0, 0.0), fit=True)
+    assert np.allclose(out.scale, [1.0, 1.0, 1.0])
+    assert np.allclose(out.translation, [0.0, 2.5, 0.0])
+
+
 # --- snapping ----------------------------------------------------------------
 
 

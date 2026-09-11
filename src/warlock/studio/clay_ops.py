@@ -383,6 +383,18 @@ def has_two_visible(doc: Any) -> bool:
     return sum(1 for obj in doc.objects if obj.uid in doc.selection and obj.visible) >= 2
 
 
+def has_three_selected(doc: Any) -> bool:
+    """Exactly three -- Place Between's own gate.
+
+    Not "at least three": the op reads two of the selection as anchors and
+    moves the third, so a fourth selected object has no role to play, and
+    silently ignoring it is worse than refusing outright and saying how many
+    are selected -- the way ``_has_two_visible_reason`` already does for
+    Merge/Union.
+    """
+    return len(doc.selection) == 3
+
+
 def in_mode(*modes: str) -> Callable[[Any], bool]:
     def check(doc: Any) -> bool:
         return doc.element_mode in modes and bool(doc.element_sel)
@@ -439,6 +451,16 @@ def _has_two_visible_reason(doc: Any) -> str:
     # The manual's own wording for this gate (docs/manual/30-clay.md, "Merging
     # objects"): "greys out unless two visible objects are selected".
     return "" if has_two_visible(doc) else "Select two visible objects first."
+
+
+def _has_three_selected_reason(doc: Any) -> str:
+    n = len(doc.selection)
+    return (
+        ""
+        if n == 3
+        else f"Select exactly three objects first (two anchors, then the one to "
+        f"place) -- {n} selected now."
+    )
 
 
 def _selection_reason(doc: Any) -> str:
@@ -818,6 +840,51 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
         made.append(replace(mirrored, generator=None, params={}))
     doc.add_objects(made)
     return bool(made)
+
+
+def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
+    """Move the newcomer onto the line between the other two selected objects.
+
+    **Which two are anchors, and which one moves, both come from document
+    order** -- ``doc.selection`` is a set and carries none, the same reason
+    ``_join``/``_union`` read their own target out of ``doc.objects`` rather
+    than out of the selection directly. The first two selected objects in
+    that order are the anchors; the third is the one placed.
+
+    **The anchors' own ``translation``, not their bounding-box centre.** That
+    is the point the gizmo sits on and the number the TRS panel shows, so
+    "between these two" means the same thing here as it does to a user
+    looking at the panel -- a box's own centre can disagree with it the
+    moment the object has been scaled or its mesh is not centred on the
+    origin it was authored at.
+
+    **The mover is the *last* in document order, which is the opposite of
+    what ``_join``/``_union`` keep, and deliberately.** Those two keep the
+    *incumbent*: a merge or a union absorbs newcomers into whichever object
+    was already sitting there, so the survivor is the topmost (earliest)
+    selected object. Here the newcomer is the one that has a role to play --
+    you place two hubs first, and only then add a strut between them -- so
+    the object this moves is whichever was selected last into the group, and
+    a freshly added object sorts last in document order. The two ops read the
+    same document order for the same reason (an unordered set needs a
+    tiebreaker a user can see) and disagree about which end of it matters
+    because they are answering different questions: "which of these survives"
+    against "which of these is the newcomer".
+    """
+    from .clay import ops as clay_ops_geom
+
+    del ctx
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
+    anchor_a, anchor_b, mover = uids[0], uids[1], uids[2]
+    a = doc.by_uid(anchor_a).translation
+    b = doc.by_uid(anchor_b).translation
+    placed = clay_ops_geom.place_between(doc.by_uid(mover), a, b, fit=bool(fit))
+    return doc.set_transform(
+        mover,
+        translation=placed.translation,
+        rotation=placed.rotation,
+        scale=placed.scale,
+    )
 
 
 def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
@@ -1337,6 +1404,32 @@ def _register_defaults() -> None:
             params=(
                 Param("axis", "axis (0=X, 1=Y, 2=Z)", 0.0, 1.0, low=0.0, high=2.0, integer=True),
                 Param("offset", "plane at (m)", 0.0, 0.1, low=-1e6),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="place-between",
+            label="Place Between...",
+            modes=("object",),
+            run=_place_between,
+            enabled=has_three_selected,
+            reason=_has_three_selected_reason,
+            hint="Select two anchors and the object to place between them. "
+            "Document order decides which moves, not click order: the two "
+            "anchors are the earliest-added of the three, and the newest "
+            "one is carried to their midpoint and turned to face the line "
+            "between them. 'Fit' also stretches it along its own Y so it "
+            "spans the gap exactly.",
+            params=(
+                # ``clay_ops.Param`` is scalar-only and has no boolean, so this
+                # follows ``array-radial``'s own precedent (its ``axis``) for
+                # a two-valued choice rather than inventing a second one: an
+                # integer clamped to 0/1 with a label that says what each
+                # means. See the module's ``Param`` dataclass -- this is the
+                # second op that wants a checkbox and cannot have one; fixing
+                # that touches the dialog renderer and is its own change.
+                Param("fit", "fit to gap (0=off, 1=on)", 1.0, 1.0, low=0.0, high=1.0, integer=True),
             ),
         )
     )

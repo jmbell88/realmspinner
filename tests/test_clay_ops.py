@@ -713,6 +713,79 @@ def test_mirror_copy_distinguishes_itself_from_mirror_x_y_z_in_its_hint() -> Non
     assert "Mirror X/Y/Z" in clay_ops.get("mirror-copy").hint
 
 
+# --- place-between (the third op this tranche adds) --------------------------
+
+
+def _three_in_a_row() -> tuple[bd.ClayDoc, int, int, int]:
+    """Two anchors added first, then the object to be placed, added last --
+    document order is what ``place-between`` reads, not selection order."""
+    doc, anchor_a = _doc()  # anchor_a ("Box") sits at the origin by default
+    anchor_b = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(), translation=[0.0, 10.0, 0.0])
+    ).uid
+    mover = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Strut", mesh=bp.box(), translation=[99.0, 99.0, 99.0])
+    ).uid
+    doc.select([anchor_a, anchor_b, mover])
+    return doc, anchor_a, anchor_b, mover
+
+
+def test_place_between_is_disabled_with_anything_but_three_selected() -> None:
+    doc, anchor_a, anchor_b, mover = _three_in_a_row()
+    op = clay_ops.get("place-between")
+    assert op.enabled(doc)
+
+    doc.select([anchor_a, anchor_b])
+    assert not op.enabled(doc)
+    assert "2 selected now" in clay_ops.reason_for(op, doc)
+
+    fourth = doc.add_object(bd.Obj(uid=bd.new_uid(), name="D", mesh=bp.box())).uid
+    doc.select([anchor_a, anchor_b, mover, fourth])
+    assert not op.enabled(doc)
+    assert "4 selected now" in clay_ops.reason_for(op, doc)
+
+
+def test_place_between_moves_only_the_last_object_in_document_order() -> None:
+    """The newcomer moves; the two anchors -- earlier in document order --
+    are left exactly where they were, which is the opposite of Merge/Union's
+    own "topmost (earliest) survives" rule, on purpose (see ``_place_between``'s
+    docstring for why the roles differ)."""
+    doc, anchor_a, anchor_b, mover = _three_in_a_row()
+    a_before = np.array(doc.by_uid(anchor_a).translation)
+    b_before = np.array(doc.by_uid(anchor_b).translation)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=0) is True
+
+    assert np.allclose(doc.by_uid(anchor_a).translation, a_before)
+    assert np.allclose(doc.by_uid(anchor_b).translation, b_before)
+    assert np.allclose(doc.by_uid(mover).translation, [0.0, 5.0, 0.0])
+
+
+def test_place_between_is_one_undo_step() -> None:
+    doc, *_ = _three_in_a_row()
+    depth = len(doc.history)
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=0) is True
+    assert len(doc.history) == depth + 1
+    assert doc.undo() is True
+
+
+def test_place_between_with_fit_stretches_the_mover_to_span_the_gap() -> None:
+    doc, _a, _b, mover = _three_in_a_row()
+    clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=1)
+    assert doc.by_uid(mover).scale[1] == pytest.approx(10.0)
+
+
+def test_place_between_without_fit_leaves_the_movers_scale_alone() -> None:
+    doc, _a, _b, mover = _three_in_a_row()
+    doc.set_transform(mover, scale=[2.0, 2.0, 2.0])
+    clay_ops.run(_Ctx(), doc, clay_ops.get("place-between"), fit=0)
+    assert np.allclose(doc.by_uid(mover).scale, [2.0, 2.0, 2.0])
+
+
+def test_place_between_appears_in_the_object_menu() -> None:
+    assert "place-between" in [op.name for op in clay_ops.menu("object")]
+
+
 def test_shade_smooth_in_face_mode_with_no_face_selection_is_refused_not_silent() -> None:
     """clay-06 (2026-09-08 audit): Shade Smooth/Flat are registered for both
     object and face mode, and were gated on ``has_objects`` alone -- an

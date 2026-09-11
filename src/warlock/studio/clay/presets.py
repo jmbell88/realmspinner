@@ -32,8 +32,9 @@ outward dependency (and a file-system read) for a handful of numbers. So the
 head/tail pairs below are a hard-coded copy and ``tests/clay/test_presets.py``
 cross-checks every one of them against the real template -- a template edited
 without editing this file is a red test rather than a body that has quietly
-drifted off its skeleton. It also reaches for its two siblings, ``primitives``
-and ``mesh``, and for ``viewer.math3d`` -- outward only as far as
+drifted off its skeleton. It also reaches for its siblings ``primitives``,
+``mesh`` and ``ops`` (the last for :func:`~.ops.align_y`, promoted out of
+this module), and for ``viewer.math3d`` -- outward only as far as
 ``tests/clay/test_clay_imports.py`` already lets the rest of the package go --
 because grounding (below) has to build each part's *real* mesh and place it in
 world space rather than trust a bone midpoint to say where the geometry ends.
@@ -72,6 +73,7 @@ import numpy as np
 
 from ..viewer import math3d as m3
 from .mesh import bounds, transformed
+from .ops import align_y
 from .primitives import GENERATORS
 
 # The smallest cylindrical section a capsule may be left with. A bone shorter
@@ -134,40 +136,21 @@ def _to_clay(p: Vec) -> Vec:
     return (float(p[0]), float(p[2]), -float(p[1]))
 
 
-def _align_y(direction: np.ndarray) -> tuple[float, float, float, float]:
-    """The XYZW quaternion taking ``+Y`` onto *direction*.
-
-    Every generator here is built along ``+Y`` -- that is the module rule in
-    ``primitives`` -- so a bone that is not vertical is a rotation, never a
-    re-authored mesh. The two degenerate cases are written out because the
-    cross product vanishes for both and normalising it would divide by zero:
-    parallel is the identity, and antiparallel is a half turn about ``X``,
-    picked arbitrarily since every axis perpendicular to ``Y`` would do.
-    """
-    length = float(np.linalg.norm(direction))
-    if length < 1e-12:
-        return (0.0, 0.0, 0.0, 1.0)
-    d = np.asarray(direction, dtype="f8") / length
-    dot = float(d[1])
-    if dot > 1.0 - 1e-9:
-        return (0.0, 0.0, 0.0, 1.0)
-    if dot < -1.0 + 1e-9:
-        return (1.0, 0.0, 0.0, 0.0)
-    axis = np.cross(np.array([0.0, 1.0, 0.0]), d)
-    s = float(np.sqrt((1.0 + dot) * 2.0))
-    q = np.array([axis[0] / s, axis[1] / s, axis[2] / s, s * 0.5])
-    q /= float(np.linalg.norm(q))
-    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-
-
 def _placed(head: Vec, tail: Vec) -> tuple[Vec, tuple[float, float, float, float], float]:
-    """Midpoint, rotation and length of a bone, all in Clay space."""
+    """Midpoint, rotation and length of a bone, all in Clay space.
+
+    The rotation is :func:`~.ops.align_y` -- promoted out of this module (it
+    used to live here as ``_align_y``) into ``clay/ops.py`` beside
+    :func:`~.ops.place_between`, its second caller: this is "point this bone
+    along that direction" and ``place_between`` is "point this object along
+    that line", the same quaternion for the same reason in both places.
+    """
     a = np.array(_to_clay(head), dtype="f8")
     b = np.array(_to_clay(tail), dtype="f8")
     mid = (a + b) * 0.5
     return (
         (float(mid[0]), float(mid[1]), float(mid[2])),
-        _align_y(b - a),
+        align_y(b - a),
         float(np.linalg.norm(b - a)),
     )
 

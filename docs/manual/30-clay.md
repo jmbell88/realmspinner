@@ -414,6 +414,19 @@ ever changes a copy's transform, so every copy stays exactly the primitive its g
 and is still editable as one afterwards. Both arrays leave the whole group — originals and copies
 together — selected, so arraying an array compounds instead of losing the shapes you started with.
 
+**Place Between...** takes exactly three selected objects and puts the newest of them on the line
+between the other two — select two hubs, add a strut between them, and this is what aims it instead
+of you working out the angle by hand. The two earlier objects are the anchors, read by their own
+**translation** (the point the gizmo sits on, not a bounding-box centre); the object added last is
+the one that moves, to their midpoint, turned so its local +Y points from one anchor to the other —
+every generator in Clay is built along +Y, which is why one rotation is the right answer whatever
+shape you are placing. That replaces the object's own rotation rather than adding to it, so the
+result never depends on which way it happened to be facing beforehand. **Fit** also stretches the
+object along its own Y so it spans the gap exactly, which is what a strut wants and a hand-placed
+prop usually does not; a flat shape with nothing to stretch — a Plane or a Grid lie flat in XZ and
+have no Y extent at all — is moved and turned the same as anything else, with the fit itself skipped
+rather than refusing the whole placement over an axis that shape has no length along.
+
 ## The outliner
 
 Every object in the document, newest at the top. Click to select, `Ctrl`-click to toggle one and
