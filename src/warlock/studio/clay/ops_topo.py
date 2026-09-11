@@ -423,18 +423,32 @@ def _inset_region(
 # --- merging vertices -------------------------------------------------------
 
 # Above this many vertices the 27-neighbour search is skipped and the plain
-# grid is used instead. The difference is real and worth stating: the
-# neighbour search finds every pair within ``eps`` of each other, while the
-# grid finds only pairs that quantise into the same cell and therefore misses
-# two vertices a nanometre apart across a cell boundary. On a selection the
-# user made by hand the exact search costs nothing; on a whole imported mesh even
+# grid is used instead. The difference is real and worth stating in both
+# directions: the neighbour search finds every pair within ``eps`` of each
+# other, while the grid can miss a pair a nanometre apart across a cell
+# boundary (a false negative) *and*, before the 2026-09-11 audit's clay-03,
+# could merge a pair up to sqrt(3)*eps apart -- a cell's own diagonal -- when
+# they landed in the same cell (a false positive: a probe on a 20,012-vertex
+# mesh fused two points 1.66*eps apart that the user never asked to weld).
+# The grid path now guards against the false positive by keeping a raw
+# cell-group member only when it sits within eps/2 of that group's centroid;
+# by the triangle inequality any two points both kept are then at most eps
+# apart, and a point that fails the check falls back to its own singleton
+# cluster rather than merging into a group it might exceed eps against. That
+# preserves the false-negative direction exactly as before (a straddling
+# pair can still land in different cells, or one of a pair can still get
+# split off) but never fabricates a merge past eps. On a selection the user
+# made by hand the exact search costs nothing; on a whole imported mesh even
 # the SciPy pair query and its connected-components pass are more than the
 # answer is worth, and a weld that takes a visible pause is worse than a weld
 # that misses the occasional straddling pair.
 #
 # The limit predates the SciPy rewrite, which moved the exact arm from minutes
 # of Python to seconds of C -- so it is now a conservative bound rather than a
-# necessary one, and re-measuring it is a reasonable future exercise.
+# necessary one, and re-measuring it is a reasonable future exercise. The
+# fixed grid path (cell-group plus centroid check) measured 0.06s at 100,000
+# vertices on the machine that closed clay-03 -- well under the "no visible
+# pause" bar the limit exists to protect.
 WELD_SEARCH_LIMIT = 20_000
 
 def merge_vertices(mesh: Mesh, remap: np.ndarray, positions: np.ndarray) -> Mesh:
@@ -501,7 +515,24 @@ def _clusters(points: np.ndarray, eps: float) -> np.ndarray:
         return np.zeros(0, dtype="i8")
     cells = np.floor(points / eps).astype("i8")
     if len(points) > WELD_SEARCH_LIMIT:
-        return np.unique(cells, axis=0, return_inverse=True)[1].reshape(-1)
+        raw = np.unique(cells, axis=0, return_inverse=True)[1].reshape(-1)
+        n_raw = int(raw.max()) + 1 if len(raw) else 0
+        sums = accumulate(raw, points, n_raw)
+        counts = np.zeros(n_raw)
+        np.add.at(counts, raw, 1.0)
+        centroid = sums / counts[:, None]
+        dist = np.linalg.norm(points - centroid[raw], axis=1)
+        # See :data:`WELD_SEARCH_LIMIT`: a raw cell group can span up to
+        # sqrt(3)*eps corner to corner, so membership alone does not bound
+        # the distance between two of its points. Keeping only members within
+        # eps/2 of the group's own centroid bounds any surviving pair to eps
+        # by the triangle inequality; a point that fails becomes its own
+        # singleton cluster instead of merging into a group it might exceed
+        # eps against.
+        bad = np.flatnonzero(dist > eps / 2.0)
+        out = raw.copy()
+        out[bad] = n_raw + np.arange(len(bad), dtype="i8")
+        return np.unique(out, return_inverse=True)[1].reshape(-1).astype("i8")
 
     # A Python dict spatial hash plus a hand-rolled union-find was the whole of
     # this, and every part of it -- the 27-cell neighbourhood walk, the pair

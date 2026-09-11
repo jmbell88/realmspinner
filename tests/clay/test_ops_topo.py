@@ -492,6 +492,52 @@ def test_the_gridded_path_agrees_with_the_search_on_ordinary_geometry(
     assert len(got.positions) == len(want.positions)
 
 
+def test_the_gridded_weld_path_never_merges_vertices_farther_than_eps_apart() -> None:
+    """The 2026-09-11 audit's clay-03: above ``WELD_SEARCH_LIMIT`` vertices,
+    ``_clusters`` grouped every vertex quantising into the same eps-sized grid
+    cell -- but a cell's own diagonal is ``sqrt(3)*eps``, so two vertices
+    could land in one cell while being up to that far apart. This builds a
+    mesh well past the limit (all-numpy, no per-vertex Python loop, so it
+    stays in the default lane) with one real pair placed near-opposite
+    corners of a single grid cell -- ``sqrt(3)*eps`` apart, about 1.66*eps --
+    plus enough scattered filler vertices, each its own tiny triangle, to
+    push ``_clusters`` onto the grid path. Before the fix this pair merged
+    anyway; the weld distance the user typed must not be silently exceeded.
+    """
+    eps = 1.0
+    n_filler = ops.WELD_SEARCH_LIMIT + 10
+
+    rng = np.random.default_rng(0)
+    filler_base = rng.uniform(-1e6, 1e6, size=(n_filler, 3))
+
+    # Near-opposite corners of grid cell (5, 5, 5) -- spans [5, 6) on each
+    # axis -- so an exact eps search would never merge them.
+    p_a = np.array([5.02, 5.02, 5.02])
+    p_b = np.array([5.98, 5.98, 5.98])
+    assert float(np.linalg.norm(p_a - p_b)) > eps
+
+    positions = np.concatenate([filler_base, p_a[None, :], p_b[None, :]])
+    n = len(positions)
+    idx_a, idx_b = n - 2, n - 1
+    n_tris = n_filler // 3
+    faces = [[3 * i, 3 * i + 1, 3 * i + 2] for i in range(n_tris)]
+    faces.append([idx_a, idx_b, 0])
+    loops = np.array([v for f in faces for v in f], dtype="i4")
+    starts = np.array([0] + list(np.cumsum([len(f) for f in faces])), dtype="i4")
+    m = bm.Mesh(
+        positions=positions.astype("f4"),
+        loops=loops,
+        starts=starts,
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+    )
+
+    out, _ = ops.weld(m, el.empty(), eps=eps)
+    assert len(out.positions) == len(m.positions), (
+        "the grid path merged two vertices farther than eps apart"
+    )
+
+
 # --- collapse ---------------------------------------------------------------
 
 

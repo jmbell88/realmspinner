@@ -283,10 +283,24 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
     # -- drawing -----------------------------------------------------------
 
     @property
-    def dragging(self) -> bool:
+    def grabbing(self) -> bool:
         """Whether a pointer gesture is in progress. ``Viewer.dragging``'s
         public spelling of ``_grab``, for its reason: the router that has to
-        ask is ``App``, and it was reaching into two viewers' privates."""
+        ask is ``App``, and it was reaching into two viewers' privates.
+
+        Named ``grabbing`` rather than ``dragging`` since the 2026-09-11
+        audit's clay-02: this class inherits ``DragOps``, whose own
+        ``dragging`` means something narrower ("a live transform drag --
+        gizmo or keyboard"), and a property defined directly on this class
+        always wins over one from a mixin. The old name shadowed it, so
+        every ``self.dragging`` in ``_view_drag.py`` and every
+        ``getattr(view, "dragging", False)`` in ``clay_mode.py`` -- both of
+        which want the narrow, "is a transform running" meaning -- silently
+        got this broad, "is any grab (orbit/pan/marquee/gizmo/keydrag) live"
+        one instead. Consequence: a bare tool key or mode switch typed while
+        the user was merely orbiting the camera was routed into
+        ``drag_key`` and eaten, and Ctrl+Z/Y/N/O/W/Tab were refused as
+        "blocked by a live drag" for the duration of any camera gesture."""
 
         return self._grab is not None
 

@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import clay_view
+from warlock.studio import _view_drag, clay_view
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import primitives as bp
 from warlock.studio.viewer import math3d as m3
@@ -1769,3 +1769,36 @@ def test_look_along_still_answers_false_for_a_name_it_does_not_know() -> None:
     assert cam.look_along("not-a-real-view") is False
 
     assert (cam.theta, cam.phi, cam._goal_theta, cam._goal_phi) == before
+
+
+# --- clay-02: DragOps.dragging must not be shadowed ------------------------
+
+
+def test_keys_typed_during_a_camera_orbit_are_not_swallowed_by_the_drag_handler(
+    view,
+) -> None:
+    """The 2026-09-11 audit's clay-02: ``ClayView`` defined its own
+    ``dragging`` property, true for *any* live grab (orbit, pan, marquee,
+    gizmo, keydrag), which shadowed ``DragOps.dragging`` (true only for a
+    live transform: "gizmo"/"keydrag"). Every bare-key gate in
+    ``clay_mode.py`` reads ``view.dragging`` expecting the narrow meaning --
+    "is a transform under way, so this key belongs to it" -- and got the
+    broad one instead, so a plain ``1``/``2``/``3`` mode switch (or any other
+    tool key) typed while the user was merely orbiting the camera was routed
+    into ``drag_key`` and silently eaten.
+
+    Orbiting is not a transform: nothing here is being moved, so the key
+    must reach whatever it would normally do.
+    """
+    view._grab = "orbit"
+    assert view.dragging is False
+
+
+def test_clay_view_dragging_is_dragops_dragging_not_a_shadowing_property() -> None:
+    """The class itself must not own a ``dragging`` of its own -- a mixin's
+    property loses to one defined directly on the subclass, so any override
+    here silently replaces ``DragOps.dragging`` for every caller, including
+    ``clay_mode.py``'s key gates and ``_view_drag.py``'s own ``drag_key`` /
+    ``cancel_drag``, which call ``self.dragging`` believing they get their own
+    module's definition."""
+    assert clay_view.ClayView.dragging is _view_drag.DragOps.dragging

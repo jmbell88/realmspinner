@@ -39,6 +39,32 @@ def _caps_only(segments: int = 8) -> bm.Mesh:
     return mesh
 
 
+def _caps_only_large(segments: int) -> bm.Mesh:
+    """The same two-n-gon shape as :func:`_caps_only`, built directly with
+    numpy rather than through ``prim.cylinder`` and ``ops.delete_faces``.
+
+    The 2026-09-11 audit's clay-01 gave every ring-and-cap generator's
+    ``segments``/``sides`` a ceiling (``primitives.MAX_SEGMENTS`` = 512), so
+    ``prim.cylinder(segments=...)`` can no longer be asked to build the
+    ``MAX_BRIDGED_RING + 1``-vertex ring this test needs -- it would come
+    back with only 512 sides, and the ``delete_faces`` face-index list this
+    helper used to build (``range(segments)``) would then run off the end of
+    a 514-face mesh instead. ``bridge_edges``'s own ring-size ceiling is
+    still reachable the way a user actually reaches it, through a GLB import
+    (``glbimport.MAX_TRIANGLES`` sits at 2,000,000, far above
+    ``MAX_BRIDGED_RING``), so the refusal this test pins is still live; it
+    just cannot be reached via a primitive any more.
+    """
+    n = segments
+    theta = 2 * np.pi * np.arange(n) / n
+    top = np.stack([np.cos(theta), np.full(n, 0.5), np.sin(theta)], axis=1)
+    bottom = top.copy()
+    bottom[:, 1] = -0.5
+    positions = np.concatenate([bottom, top]).astype("f4")
+    faces = [list(range(n)), list(range(2 * n - 1, n - 1, -1))]
+    return bm.from_faces(positions, faces)
+
+
 def _ring_edges(mesh: bm.Mesh, which: int = 0) -> np.ndarray:
     rings, _ = adj.boundary_loops(mesh)
     ring = rings[which]
@@ -211,7 +237,7 @@ def test_bridging_two_large_closed_rings_refuses_or_stays_under_budget() -> None
     makes a wall-clock assertion meaningless here, so this asserts the
     refusal by name instead, the same way the clay-08/clay-11 regressions
     count calls rather than time."""
-    mesh = _caps_only(segments=ops.MAX_BRIDGED_RING + 1)
+    mesh = _caps_only_large(segments=ops.MAX_BRIDGED_RING + 1)
     with pytest.raises(el.OpError, match="without stalling"):
         ops.bridge_edges(mesh, el.ElementSel(edges=_all_boundary_edges(mesh)))
 

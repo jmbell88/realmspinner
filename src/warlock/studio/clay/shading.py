@@ -101,6 +101,22 @@ def auto_smooth(mesh: Mesh, angle: float = DEFAULT_ANGLE) -> Mesh:
         left, right = face_of[flipped[:, 0]], face_of[flipped[:, 1]]
         smooth[left] = False
         smooth[right] = False
+    # The 2026-09-11 audit's clay-05: ``twin >= 0`` is also -1 for a
+    # non-manifold edge (edge_uses >= 3, three or more faces meeting there),
+    # not only for a boundary edge -- and unlike a boundary edge, a
+    # non-manifold one has neighbours that can genuinely disagree with it.
+    # Left ungated, every face on such an edge came out smooth regardless of
+    # angle, which is wrong in the opposite direction of the boundary case:
+    # a boundary has nothing to compare against, but a non-manifold edge has
+    # too much to reduce to one twin, so -- as with the flipped-pair branch
+    # above -- it is treated as unconditionally sharp rather than silently
+    # skipped. ``adjacency.py``'s own docstring says real-world GLB import
+    # routinely produces these.
+    corner_edge = np.asarray(adj.corner_edge, dtype="i8")
+    edge_uses = np.asarray(adj.edge_uses, dtype="i8")
+    nonmanifold = np.flatnonzero(edge_uses[corner_edge] >= 3)
+    if len(nonmanifold):
+        smooth[face_of[nonmanifold]] = False
     if np.array_equal(smooth, mesh.smooth):
         return mesh
     return replace(mesh, smooth=smooth)

@@ -293,9 +293,22 @@ def _takes_pointer(target: Any, hovered: bool) -> bool:
     viewer, Clay's and Poser's) it drifted: only Clay's carried the
     ``tab.saving`` press gate, which is a *different* rule and stays where it
     is, beside the document it is about.
+
+    ``grabbing`` first, falling back to ``dragging``: the 2026-09-11 audit's
+    clay-02 renamed ``ClayView``'s "any grab -- orbit, pan, marquee, gizmo,
+    keydrag -- is live" property to ``grabbing`` so it stopped shadowing
+    ``DragOps.dragging``'s narrower "a transform is running" meaning. This
+    rule wants the broad one, which is ``grabbing`` for Clay and, since the
+    asset viewer and Poser never had the shadowing property, plain
+    ``dragging`` for them.
     """
 
-    return bool(hovered or (target is not None and target.dragging))
+    if target is None:
+        return hovered
+    grabbing = getattr(target, "grabbing", None)
+    if grabbing is None:
+        grabbing = target.dragging
+    return bool(hovered or grabbing)
 
 
 def _ui_scale(settings: Any) -> float:

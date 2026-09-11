@@ -399,6 +399,42 @@ def test_a_wblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exce
         ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
 
 
+@pytest.mark.parametrize("bad", [None, ["x"], {"a": 1}, "not a number"])
+def test_read_wblk_refuses_an_object_whose_material_field_is_not_a_number(bad) -> None:
+    """The 2026-09-11 audit, finding clay-04: an object entry's ``material``
+    field was passed straight to a bare ``int(...)``, unlike every sibling
+    field on this same entry (the uid, each transform vector, ``params``,
+    each material's own fields) which this module deliberately hardens into
+    its own named refusal. ``None``, a list or a dict raised an unnamed
+    ``TypeError`` and a string raised ``int()``'s own message, both reaching
+    the user in place of this reader's "this is not a Warlock Clay document"
+    sentence.
+    """
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry["material"] = bad
+
+    with pytest.raises(ValueError, match="material"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+
+
+@pytest.mark.parametrize("bad", [[1, 2, 3], 5])
+def test_read_wblk_refuses_an_object_whose_generator_field_is_not_a_string_or_none(bad) -> None:
+    """The 2026-09-11 audit, finding clay-06: ``generator`` was read with no
+    type check at all, so a non-string, non-``None`` value loaded cleanly and
+    only failed later in the properties panel's ``GENERATORS[obj.generator]``
+    lookup, far from the file that actually caused it.
+    """
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry["generator"] = bad
+
+    with pytest.raises(ValueError, match="generator"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+
+
 def test_a_wblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error() -> None:
     """The 2026-09-08 audit's clay-05: ``scene["objects"]`` present but not a
     list used to reach ``len(declared)`` and raise a bare ``TypeError``,

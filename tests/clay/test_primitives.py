@@ -1060,6 +1060,58 @@ def test_a_clamped_generator_value_is_stored_as_the_value_that_was_built() -> No
     assert list(from_raw.starts) == list(from_clamped.starts)
 
 
+# --- clamp_params: the 2026-09-11 audit's clay-01, a ceiling for every count ---
+#
+# Every one of segments/sides/rings/divisions/sections had a floor and no
+# ceiling: ``clamp_params("cylinder", {"segments": 50_000_000})`` was accepted
+# unchanged and the generator itself had not returned after 30 s -- the
+# pygame frame thread stalls, and both the properties panel and the agent
+# surface (``_h_add_primitive``/``_h_set_params``) pass a typed or agent-sent
+# number through ``clamp_params`` alone with nothing else in the way.
+
+
+def test_clamp_params_caps_an_absurd_segment_count() -> None:
+    clamped = bp.clamp_params(
+        "cylinder", {"radius": 0.5, "height": 1.0, "segments": 50_000_000}
+    )
+    assert clamped["segments"] == bp.MAX_SEGMENTS
+
+
+def test_clamp_params_caps_an_absurd_count_for_every_ceilinged_key() -> None:
+    absurd = 50_000_000
+    cases = {
+        "torus": (
+            {"segments": absurd, "sides": absurd},
+            {"segments": bp.MAX_SEGMENTS, "sides": bp.MAX_SEGMENTS},
+        ),
+        "uv_sphere": (
+            {"segments": absurd, "rings": absurd},
+            {"segments": bp.MAX_SEGMENTS, "rings": bp.MAX_RINGS},
+        ),
+        "grid": ({"divisions": absurd}, {"divisions": bp.MAX_DIVISIONS}),
+        "sweep": ({"sections": absurd}, {"sections": bp.MAX_SECTIONS}),
+    }
+    for name, (overrides, expected) in cases.items():
+        defaults, _ = bp.GENERATORS[name]
+        clamped = bp.clamp_params(name, {**defaults, **overrides})
+        for key, capped in expected.items():
+            assert clamped[key] == capped, f"{name}.{key}"
+
+
+def test_a_direct_generator_call_is_also_capped_not_only_clamp_params() -> None:
+    """A ceiling that only ``clamp_params`` enforced would still let a direct
+    call -- exactly the shape ``_h_add_primitive`` and ``_h_set_params`` make
+    -- build the unbounded mesh; each generator's own internal clamp must cap
+    too, the same reasoning its own floor already had to hold internally.
+    """
+    mesh = bp.cylinder(radius=0.5, height=1.0, segments=50_000_000)
+    # A cylinder is two rings of ``n`` vertices each (n-gon caps share the ring
+    # vertices, not a fan around a separate centre -- see the module
+    # docstring), so a capped ``n`` bounds the vertex count rather than
+    # letting it scale with the absurd input.
+    assert mesh.positions.shape[0] == 2 * bp.MAX_SEGMENTS
+
+
 # --- the sweep -----------------------------------------------------------------
 
 

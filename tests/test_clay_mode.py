@@ -1382,3 +1382,54 @@ def test_the_registry_keeps_a_letter_a_drag_would_otherwise_take(svc) -> None:
     assert not (tool_letters & set(clay_mode.DRAG_KEYS)), (
         "a drag key that is also a tool letter would take a binding a user has"
     )
+
+
+def test_a_bare_1_typed_during_a_camera_orbit_still_switches_element_mode(
+    svc, gl
+) -> None:
+    """The 2026-09-11 audit's clay-02, against the real ``ClayView`` rather
+    than ``_FakeDrag``: orbiting the camera (Alt+drag) is not a transform
+    drag, so a bare ``1`` typed while it is live must still reach
+    ``ELEMENT_KEYS`` and switch to vertex mode -- not be swallowed by the
+    drag gate, which only a live gizmo/keyboard drag should reach.
+    """
+    import pygame
+
+    from warlock.studio import clay_view
+
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    view = clay_view.ClayView(gl, None)
+    view._grab = "orbit"
+    ctx.clay_view = view
+    try:
+        event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, mod=0)
+        assert clay_mode.handle_key(ctx, event) is True
+        assert tab.doc.element_mode == "vertex"
+    finally:
+        view.release()
+
+
+def test_ctrl_z_is_not_blocked_during_a_camera_orbit(svc, gl) -> None:
+    """The other half of clay-02: ``_ctrl_key``'s drag-blocked-chords gate
+    read the same shadowed ``dragging``, so Ctrl+Z was refused as "blocked by
+    a live drag" for as long as the user was merely orbiting the camera."""
+    import pygame
+
+    from warlock.studio import clay_view
+
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    tab.doc.set_props(tab.doc.objects[0].uid, name="Edited")
+    depth = len(tab.doc.history)
+    view = clay_view.ClayView(gl, None)
+    view._grab = "orbit"
+    ctx.clay_view = view
+    try:
+        event = pygame.event.Event(
+            pygame.KEYDOWN, key=pygame.K_z, mod=pygame.KMOD_LCTRL
+        )
+        assert clay_mode.handle_key(ctx, event) is True
+        assert len(tab.doc.history) < depth, "the undo must have run"
+    finally:
+        view.release()

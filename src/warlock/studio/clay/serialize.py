@@ -511,6 +511,50 @@ def _params(entry: dict[str, Any]) -> dict[str, Any]:
     return dict(params or {})
 
 
+def _material_index(entry: dict[str, Any]) -> int:
+    """An object entry's ``material`` field, or a refusal by name.
+
+    The 2026-09-11 audit, finding clay-04: this used to be a bare
+    ``int(entry.get("material", 0))``, unlike every sibling field on this
+    same entry (the uid, each ``_vector``, ``params``, each material's own
+    fields), which this module hardens into its own named refusal. ``None``,
+    a list or a dict reached ``int()`` as an unnamed ``TypeError`` and a
+    string reached it as ``int()``'s own message, both in place of this
+    reader's "this is not a Warlock Clay document" sentence. Unlike a mesh's
+    per-face material index, an out-of-range value here is not a fresh kind
+    of corruption: ``ClayDoc`` already draws a face pointing off the end of
+    the palette in ``FALLBACK_MATERIAL`` rather than refusing, so this reader
+    matches that and only refuses a value that is not a number at all.
+    """
+    material = entry.get("material", 0)
+    try:
+        return int(material)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "an object in this clay document has a material that is not a number"
+        ) from exc
+
+
+def _generator(entry: dict[str, Any]) -> str | None:
+    """An object entry's ``generator`` field, or a refusal by name.
+
+    The 2026-09-11 audit, finding clay-06: this used to be a bare
+    ``entry.get("generator")`` with no type check at all, so a non-string,
+    non-``None`` value loaded cleanly and only failed later, far from this
+    file, in the properties panel's ``GENERATORS[obj.generator]`` lookup.
+    This module does not import ``primitives`` to check the name against
+    ``GENERATORS`` -- that would be a cycle -- so it only checks the shape
+    every legitimate value has ever had: ``None``, or a string.
+    """
+    generator = entry.get("generator")
+    if generator is not None and not isinstance(generator, str):
+        raise ValueError(
+            "an object in this clay document has a generator that is not "
+            "a string or null"
+        )
+    return generator
+
+
 def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
     """One material off the scene, refusing a malformed one by name.
 
@@ -672,10 +716,10 @@ def read_wblk(data: bytes) -> ClayDoc:
                     translation=_vector(entry, "translation", (0.0, 0.0, 0.0)),
                     rotation=_vector(entry, "rotation", (0.0, 0.0, 0.0, 1.0)),
                     scale=_vector(entry, "scale", (1.0, 1.0, 1.0)),
-                    generator=entry.get("generator"),
+                    generator=_generator(entry),
                     params=_params(entry),
                     visible=bool(entry.get("visible", True)),
-                    material=int(entry.get("material", 0)),
+                    material=_material_index(entry),
                 )
             )
 

@@ -122,12 +122,34 @@ from .mesh import from_faces as _mesh
 MIN_SEGMENTS = 3
 MIN_RINGS = 2
 
+# The high-end clamps the 2026-09-11 audit added (finding clay-01): every one
+# of these counts had a floor and no ceiling, so ``clamp_params("cylinder",
+# {"segments": 50_000_000})`` was accepted unchanged and the generator itself
+# had not returned after 30 s -- the pygame frame thread stalls inside
+# ``panes/clay_props.py``'s draw-time rebuild, and the agent surface's
+# ``_h_add_primitive``/``_h_set_params`` pass a number through with no refusal
+# in between. Each ceiling is picked so that the *pair* of counts a two-count
+# generator multiplies together (``torus``'s segments*sides, ``uv_sphere`` and
+# ``capsule``'s segments*rings) still lands comfortably under
+# ``glbimport.MAX_TRIANGLES`` (2,000,000) once quads become triangles, leaving
+# headroom for the rest of a document sharing that budget -- these are counts
+# on a *single* generated primitive, not the document ceiling itself.
+MAX_SEGMENTS = 512
+MAX_RINGS = 256
+
 # A grid's own floor, deliberately *not* ``MIN_SEGMENTS``. One division is a
 # legitimate grid -- it is ``plane`` -- so clamping it to three would refuse a
 # shape the registry already ships, which is why the parameter is called
 # ``divisions`` rather than ``segments``: the shared name would drag the shared
 # clamp along with it.
 MIN_DIVISIONS = 1
+
+# ``grid``'s own ceiling, added alongside :data:`MAX_SEGMENTS` for the same
+# 2026-09-11 audit finding (clay-01): a grid is ``divisions * divisions`` quads,
+# so 512 divisions is 262,144 quads -- half a million triangles once
+# triangulated, the same order of headroom :data:`MAX_SEGMENTS` leaves a
+# two-count generator under ``glbimport.MAX_TRIANGLES``.
+MAX_DIVISIONS = 512
 
 # How far an icosphere may be subdivided from the properties panel. Each step
 # quadruples the face count (20 -> 80 -> 320 -> 1280 -> 5120 -> 20480), and the
@@ -164,20 +186,35 @@ MIN_TAPER = 1e-4
 # in with it, the same trap ``grid``'s ``divisions`` sidesteps.
 MIN_SECTIONS = 1
 
+# ``sweep``'s own ceiling, added for the same 2026-09-11 audit finding
+# (clay-01) that gives :data:`MAX_SEGMENTS`. A sweep's band count is
+# ``sections`` times its outline's own corner count, which this module cannot
+# bound (an outline is caller-supplied), so the ceiling is chosen the same way
+# :data:`MAX_DIVISIONS` is: enough sections that even a many-cornered outline
+# stays well under ``glbimport.MAX_TRIANGLES`` in the common case, not a
+# guarantee for an unbounded outline.
+MAX_SECTIONS = 256
+
 
 def _clamp_segments(value: Any) -> int:
-    """The floor every ring-and-cap generator applies to its own count."""
-    return max(int(value), MIN_SEGMENTS)
+    """The floor and ceiling every ring-and-cap generator applies to its own
+    count -- see :data:`MAX_SEGMENTS` for why the ceiling was added (the
+    2026-09-11 audit, finding clay-01)."""
+    return min(max(int(value), MIN_SEGMENTS), MAX_SEGMENTS)
 
 
 def _clamp_rings(value: Any) -> int:
-    """The floor ``uv_sphere`` and ``capsule`` apply to their latitude bands."""
-    return max(int(value), MIN_RINGS)
+    """The floor and ceiling ``uv_sphere`` and ``capsule`` apply to their
+    latitude bands -- see :data:`MAX_RINGS` (the 2026-09-11 audit, finding
+    clay-01)."""
+    return min(max(int(value), MIN_RINGS), MAX_RINGS)
 
 
 def _clamp_divisions(value: Any) -> int:
-    """``grid``'s own floor -- one, not :data:`MIN_SEGMENTS`; see its constant."""
-    return max(int(value), MIN_DIVISIONS)
+    """``grid``'s own floor and ceiling -- one, not :data:`MIN_SEGMENTS`; see
+    :data:`MIN_DIVISIONS` and :data:`MAX_DIVISIONS` (the latter added by the
+    2026-09-11 audit, finding clay-01)."""
+    return min(max(int(value), MIN_DIVISIONS), MAX_DIVISIONS)
 
 
 def _clamp_subdivisions(value: Any) -> int:
@@ -186,8 +223,10 @@ def _clamp_subdivisions(value: Any) -> int:
 
 
 def _clamp_sections(value: Any) -> int:
-    """``sweep``'s own floor -- see :data:`MIN_SECTIONS`."""
-    return max(int(value), MIN_SECTIONS)
+    """``sweep``'s own floor and ceiling -- see :data:`MIN_SECTIONS` and
+    :data:`MAX_SECTIONS` (the latter added by the 2026-09-11 audit, finding
+    clay-01)."""
+    return min(max(int(value), MIN_SECTIONS), MAX_SECTIONS)
 
 
 def _clamp_profile(value: Any) -> list[list[float]]:
@@ -427,9 +466,10 @@ def _clamp_path(value: Any) -> list[list[float]]:
 
 # Which key names the properties panel must clamp before calling a generator,
 # and how -- see clamp_params. Keyed on parameter name rather than generator,
-# because each of these floors is the same operation wherever the name
-# appears (``torus`` clamps both its ``segments`` and its ``sides`` this way),
-# not a property of any one shape.
+# because each of these floors (and, since the 2026-09-11 audit's finding
+# clay-01, ceilings) is the same operation wherever the name appears
+# (``torus`` clamps both its ``segments`` and its ``sides`` this way), not a
+# property of any one shape.
 _KEY_CLAMPS: dict[str, Callable[[Any], int]] = {
     "segments": _clamp_segments,
     "sides": _clamp_segments,

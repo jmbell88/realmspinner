@@ -121,6 +121,38 @@ def test_auto_smooth_marks_a_flipped_normal_seam_sharp_rather_than_smooth() -> N
     assert not result.smooth.any(), "both faces of the flipped seam must be sharp"
 
 
+def test_auto_smooth_marks_faces_sharp_across_a_nonmanifold_edge() -> None:
+    """The 2026-09-11 audit's clay-05: ``twin >= 0`` is -1 for a boundary edge
+    *and* for a non-manifold edge (``edge_uses >= 3``), and the old code
+    treated both the same way -- "nothing to disagree with" -- even though a
+    non-manifold edge has two or more neighbours that very much can disagree.
+    Three quads share the edge between vertices 0 and 1 here, each roughly
+    perpendicular to the others, so every pair across that edge is sharp; all
+    three faces must come out flat. Before this fix ``twin`` was -1 for every
+    corner on that edge and all three faces read as smooth.
+    """
+    positions = [
+        [0, 0, 0], [0, 1, 0],   # shared edge: v0, v1
+        [1, 0, 0], [1, 1, 0],   # face A extends +X
+        [0, 0, 1], [0, 1, 1],   # face B extends +Z, sharp against A
+        [-1, 0, 0], [-1, 1, 0],  # face C extends -X, sharp against both
+    ]
+    faces = [
+        [0, 2, 3, 1],
+        [0, 1, 5, 4],
+        [1, 0, 6, 7],
+    ]
+    mesh = bm.from_faces(positions, faces)
+    a = adjacency(mesh)
+    edge01 = next(
+        e for e in range(a.n_edges) if set(a.edge_verts[e].tolist()) == {0, 1}
+    )
+    assert int(a.edge_uses[edge01]) >= 3, "the shared edge must be non-manifold"
+
+    result = shading.auto_smooth(mesh)
+    assert not result.smooth.any(), "every face on the non-manifold edge must be sharp"
+
+
 def test_auto_smooth_returns_the_same_object_when_nothing_changes() -> None:
     """A box is already flat everywhere the rule would leave it, so applying
     the rule must not allocate a new ``Mesh`` -- which is what lets both
