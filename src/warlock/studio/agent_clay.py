@@ -51,11 +51,12 @@ seen as gone on the very next call. A missing tab is never a *substitution*:
 an agent with no document of its own must never be handed the user's, because
 that is the one way a scripted client could edit, export or close something
 the person at the keyboard never offered it. The empty default
-(``tab_uid == ""``) means "this session owns nothing yet," and only the two
+(``tab_uid == ""``) means "this session owns nothing yet," and only the three
 tools that can start a document from nothing (:func:`clay_add_primitive`,
-:func:`clay_add_figure`) are allowed to mint one and adopt it into the session
--- ``clay_batch`` is a documented third way in, but only because its first
-call is one of those two; see its own docstring.
+:func:`clay_add_figure`, :func:`clay_add_mesh`) are allowed to mint one and
+adopt it into the session -- ``clay_batch`` is a documented fourth way in,
+but only because its first call is one of those three; see its own
+docstring.
 
 **A closed document is a refusal for every tool that needs an existing one,
 and a fresh start for the two that do not.** Those same two creators release
@@ -221,15 +222,20 @@ that leaf staying ignorant of Clay is a decision this file does not get to
 revisit. A test that checks real behaviour is worth more than a validator
 that checks only some of it.
 
-Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
--- go one step further and declare an ``outputSchema`` describing that
-structured shape; the rest deliberately do not, because a schema for a uid
-and a count is authorship with no reader. None of the three declares
-``required``: a refusal shares this same result envelope (``protocol.fail``'s
-own ``structuredContent`` is whatever ``field`` it was given, nothing more),
-so a ``required`` list on the success shape would make every refusal of
-these tools non-conforming for a client validating strictly against its
-schema.
+Four tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh`` and
+``clay_diagnose`` -- go one step further and declare an ``outputSchema``
+describing that structured shape; the rest deliberately do not, because a
+schema for a uid and a count is authorship with no reader. ``clay_add_mesh``
+composes its schema from :func:`_object_row_output_schema` rather than
+repeating it -- the same row ``clay_add_primitive`` declares, plus the two
+keys only this tool answers with -- because a hand-copied second row schema
+is exactly the drift the derivation paragraphs above rule out for a query
+enum or a generator list, and a row's own shape is no different. None of the
+four declares ``required``: a refusal shares this same result envelope
+(``protocol.fail``'s own ``structuredContent`` is whatever ``field`` it was
+given, nothing more), so a ``required`` list on the success shape would make
+every refusal of these tools non-conforming for a client validating strictly
+against its schema.
 
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
@@ -295,6 +301,7 @@ from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
 from . import clay_mode, clay_ops
 from .clay import diagnose as clay_diagnose
+from .clay import document as bd
 from .clay import elements as el
 from .clay import mesh as bm
 from .clay import ops as clay_geom_ops
@@ -377,6 +384,20 @@ enough that the common case ("what did that extrude just make") comes back as
 a paragraph rather than a printout, and still a small fraction of
 ``ELEMENT_PAGE_MAX`` for the rarer caller that has to page through more."""
 
+MAX_MESH_VERTICES = 50_000
+MAX_MESH_FACES = 50_000
+"""The most vertices and faces one ``clay_add_mesh`` call may hand over,
+checked -- and refused, naming the field -- before either array in ``mesh.
+from_faces`` is built. Both stay well under ``glbimport.MAX_TRIANGLES``
+(2,000,000 triangles), the document-wide ceiling ``serialize.py`` enforces on
+import, because one call is one object among however many a document already
+holds and this tool has no business spending most of that budget in one
+shot. In practice this is the ceiling that actually fires: even a maximally
+compact encoding of 50,000 vertices or faces (bare digits, no whitespace)
+fits inside ``protocol.MAX_FRAME``'s 8 MiB request budget with room to
+spare, so the wire frame limit is a backstop for a verbose encoding, not the
+check doing the real work here."""
+
 RECOVERY = frozenset(
     {
         "fix_arguments",
@@ -427,8 +448,9 @@ fall back to.
   way to tell which fired from the string alone, so it names the op
   (``op=``) instead of guessing a recovery that would be wrong for "Select an
   object first."
-* ``"start_document"`` -- this session owns no document yet. ``clay_add_primitive``
-  or ``clay_add_figure`` starts one. Attached in :func:`_tab`'s own refusal.
+* ``"start_document"`` -- this session owns no document yet.
+  ``clay_add_primitive``, ``clay_add_figure`` or ``clay_add_mesh`` starts
+  one. Attached in :func:`_tab`'s own refusal.
 * ``"retry"`` -- nothing ran; the identical call is safe to send again.
   ``agent_host``'s dropped-call timeout refusal.
 * ``"wait"`` -- the same work is already running or queued; sending the same
@@ -498,12 +520,13 @@ def release() -> None:
 def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict | None]:
     """The session's own tab, or a failure result to return unchanged.
 
-    ``create`` is only ever passed by the two tools that can act on an empty
-    session -- adding the first primitive or figure -- so every other tool
-    refuses outright rather than silently starting a document nobody asked
-    for. Resolved through ``ClayState`` on every call, never cached on the
-    session, so a tab the user closed from the keyboard is seen as gone on the
-    very next tool call rather than on whichever call happens to notice.
+    ``create`` is only ever passed by the three tools that can act on an
+    empty session -- adding the first primitive, figure or hand-built mesh --
+    so every other tool refuses outright rather than silently starting a
+    document nobody asked for. Resolved through ``ClayState`` on every call,
+    never cached on the session, so a tab the user closed from the keyboard
+    is seen as gone on the very next tool call rather than on whichever call
+    happens to notice.
     """
     state = clay_mode.ensure(ctx)
     if session.tab_uid:
@@ -512,8 +535,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
             return tab, None
         if not create:
             return None, fail(
-                "This session's document was closed. Call clay_add_primitive "
-                "or clay_add_figure to start a new one.",
+                "This session's document was closed. Call clay_add_primitive, "
+                "clay_add_figure or clay_add_mesh to start a new one.",
                 recovery="start_document",
             )
         # The pin is released here rather than left standing, because leaving
@@ -532,8 +555,8 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
         session.tab_uid = ""
     if not create:
         return None, fail(
-            "This session has no document yet. Call clay_add_primitive or "
-            "clay_add_figure first.",
+            "This session has no document yet. Call clay_add_primitive, "
+            "clay_add_figure or clay_add_mesh first.",
             recovery="start_document",
         )
     tab = clay_mode.new_document(ctx)
@@ -1209,6 +1232,77 @@ def tools() -> list[Any]:
                 "required": ["key"],
                 "additionalProperties": False,
             },
+        ),
+        protocol.Tool(
+            name="clay_add_mesh",
+            title="Add a hand-built mesh",
+            description=(
+                "Place geometry an agent computed itself -- a shape none of "
+                "the fifteen generators expresses -- selected, as one undo "
+                "step. Starts this session's document if it has none yet. "
+                "'positions' is an array of [x, y, z]; 'faces' is an array "
+                "of vertex-index loops, three or more per face, wound "
+                "counter-clockwise seen from outside; 'uv', if given, is "
+                "one (u, v) per face *corner* rather than per vertex, "
+                "nested exactly like 'faces', because a texture seam is "
+                "one vertex carrying two different coordinates, which a "
+                "per-vertex array cannot express. 'translation'/'rotation'/"
+                "'scale'/'name'/'material' are exactly clay_add_primitive's "
+                "own. The placed object has no generator -- there is no "
+                "recipe to hand clay_set_params for geometry that arrived "
+                "as raw coordinates -- so clay_set_params refuses it the "
+                "same way it refuses any object whose topology has already "
+                "been edited. Everything is validated, naming the "
+                "offending face or corner, before anything is placed. "
+                f"Accepts up to {MAX_MESH_VERTICES:,} vertices and "
+                f"{MAX_MESH_FACES:,} faces per call. Returns the same row "
+                "clay_scene would show for it, plus 'closed' (true if the "
+                "mesh has no hole and no non-manifold edge -- what "
+                "clay_boolean needs) and 'findings' (the same rows "
+                "clay_diagnose reports)."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "positions": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                    },
+                    "faces": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "minItems": 3,
+                        },
+                    },
+                    "uv": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 2,
+                                "maxItems": 2,
+                            },
+                        },
+                    },
+                    "translation": _vec3_schema("metres"),
+                    "rotation": _vec3_schema("degrees, Euler XYZ"),
+                    "scale": _vec3_schema("a multiplier per axis"),
+                    "name": {"type": "string"},
+                    "material": {"type": "integer", "minimum": 0},
+                },
+                "required": ["positions", "faces"],
+                "additionalProperties": False,
+            },
+            output_schema=_mesh_row_output_schema(),
         ),
         protocol.Tool(
             name="clay_transform",
@@ -1940,6 +2034,43 @@ def _clay_scene_output_schema() -> dict:
     }
 
 
+def _finding_row_output_schema() -> dict:
+    """The shape of one ``clay_diagnose.Finding`` row, as JSON -- shared by
+    ``clay_diagnose``'s own output schema and ``clay_add_mesh``'s (see
+    :func:`_mesh_row_output_schema`), so a finding's shape is written once
+    rather than copied the second time a tool needed to describe it."""
+    return {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string"},
+            "label": {"type": "string"},
+            "count": {"type": "integer"},
+            "mode": {"type": "string"},
+        },
+    }
+
+
+def _mesh_row_output_schema() -> dict:
+    """``clay_add_mesh``'s declared ``outputSchema`` -- the same object row
+    :func:`_object_row_output_schema` already describes, composed rather than
+    copied, plus the two keys only this tool answers with: ``closed`` (no
+    hole, no non-manifold edge -- see ``_h_add_mesh``'s own docstring for why
+    those two findings are what "closed" means here) and ``findings`` (the
+    same rows ``clay_diagnose`` reports, via the shared
+    :func:`_finding_row_output_schema`), so an agent that just handed over
+    geometry learns what -- if anything -- is wrong with it in the same call
+    that placed it."""
+    row = _object_row_output_schema()
+    return {
+        **row,
+        "properties": {
+            **row["properties"],
+            "closed": {"type": "boolean"},
+            "findings": {"type": "array", "items": _finding_row_output_schema()},
+        },
+    }
+
+
 def _clay_diagnose_output_schema() -> dict:
     """``clay_diagnose``'s declared ``outputSchema`` -- built from what
     :func:`_h_diagnose` actually returns: ``objects`` always, ``selected``
@@ -1957,15 +2088,7 @@ def _clay_diagnose_output_schema() -> dict:
                         "clean": {"type": "boolean"},
                         "findings": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "kind": {"type": "string"},
-                                    "label": {"type": "string"},
-                                    "count": {"type": "integer"},
-                                    "mode": {"type": "string"},
-                                },
-                            },
+                            "items": _finding_row_output_schema(),
                         },
                     },
                 },
@@ -2524,6 +2647,216 @@ def _h_add_figure(ctx: Any, session: Session, args: dict) -> dict:
     label, _builder = presets.ASSEMBLIES[key]
     _label_top(doc, mark, f"Add {label}")
     return _json({"uids": [o.uid for o in objs], "objects": [_scene_row(doc, o) for o in objs]})
+
+
+def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
+    """Place one hand-built mesh, selected, as one undo step -- the door for
+    geometry an agent computed itself rather than named by recipe. See
+    :func:`tools`'s description for the exact shape of ``positions``/
+    ``faces``/``uv``.
+
+    Order, the same template :func:`_h_add_primitive` sets: ``positions`` and
+    ``faces`` well-formed and within :data:`MAX_MESH_VERTICES`/
+    :data:`MAX_MESH_FACES`; ``uv`` (if given) nested exactly like ``faces``;
+    the three TRS vectors well-formed; the mesh actually built and run
+    through ``mesh.validate`` as a backstop -- *then* the tab is resolved
+    (minting one if the session owns none), *then* the object name and
+    material index, both of which need the document to answer. Nothing above
+    that line needs a document, so nothing above it should wait for one, and
+    a call that was always going to be refused should never have minted an
+    empty tab just to be refused against -- see the module docstring's mint
+    paragraph and :func:`_h_add_primitive`'s own comment on the identical
+    boundary.
+
+    **This object has no generator, from birth.** Every primitive keeps its
+    generator's name and params until an element edit freezes them
+    (``document.set_mesh``'s own docstring); a mesh handed over as raw
+    coordinates has no recipe for ``clay_set_params`` to re-run, so it starts
+    in exactly the state that freeze leaves an edited primitive in, rather
+    than passing through it.
+    """
+    positions_arg = args.get("positions")
+    if not isinstance(positions_arg, list) or not positions_arg:
+        return fail("positions must be a non-empty array of [x, y, z].", field="positions")
+    if len(positions_arg) > MAX_MESH_VERTICES:
+        return fail(
+            f"positions has {len(positions_arg)} entries, past the "
+            f"{MAX_MESH_VERTICES:,} this tool accepts in one call.",
+            field="positions",
+        )
+    positions: list[list[float]] = []
+    for row in positions_arg:
+        vec, failure = _validate_vec3(row, "positions")
+        if failure:
+            return failure
+        positions.append(vec)
+    n_positions = len(positions)
+
+    faces_arg = args.get("faces")
+    if not isinstance(faces_arg, list) or not faces_arg:
+        return fail("faces must be a non-empty array of vertex-index loops.", field="faces")
+    if len(faces_arg) > MAX_MESH_FACES:
+        return fail(
+            f"faces has {len(faces_arg)} entries, past the {MAX_MESH_FACES:,} "
+            "this tool accepts in one call.",
+            field="faces",
+        )
+    faces: list[list[int]] = []
+    for fi, loop in enumerate(faces_arg):
+        if not isinstance(loop, list):
+            return fail(f"face {fi} must be an array of vertex indices.", field="faces")
+        if len(loop) < 3:
+            return fail(
+                f"face {fi} has {len(loop)} corners; a face needs at least 3.", field="faces"
+            )
+        corners: list[int] = []
+        for ci, idx in enumerate(loop):
+            try:
+                vi = int(idx)
+            except (TypeError, ValueError):
+                return fail(
+                    f"face {fi} corner {ci} is {idx!r}, not a vertex index.", field="faces"
+                )
+            # Named down to the corner, not just the face: an agent that
+            # miscounted one index in a thousand-face mesh cannot fix what
+            # "a loop index is out of range" (mesh.validate's own wording)
+            # does not say which of them it was.
+            if not (0 <= vi < n_positions):
+                return fail(
+                    f"face {fi} corner {ci} indexes vertex {vi}, but positions "
+                    f"has {n_positions} entries.",
+                    field="faces",
+                )
+            corners.append(vi)
+        faces.append(corners)
+
+    uv_arg = args.get("uv")
+    uv: list[list[list[float]]] | None = None
+    if uv_arg is not None:
+        if not isinstance(uv_arg, list):
+            return fail("uv must be an array, nested exactly like faces.", field="uv")
+        if len(uv_arg) != len(faces):
+            return fail(
+                f"uv has {len(uv_arg)} faces, but faces has {len(faces)}.", field="uv"
+            )
+        uv = []
+        for fi, (loop, uv_loop) in enumerate(zip(faces, uv_arg, strict=True)):
+            if not isinstance(uv_loop, list):
+                return fail(f"uv[{fi}] must be an array of (u, v) pairs.", field="uv")
+            # The single easiest mistake to make with this argument, so the
+            # refusal says which face disagrees and by how much rather than
+            # a bare "uv is the wrong shape".
+            if len(uv_loop) != len(loop):
+                return fail(
+                    f"uv[{fi}] has {len(uv_loop)} corners, but face {fi} has "
+                    f"{len(loop)}.",
+                    field="uv",
+                )
+            corners_uv: list[list[float]] = []
+            for ci, corner in enumerate(uv_loop):
+                if not isinstance(corner, list) or len(corner) != 2:
+                    return fail(f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv")
+                try:
+                    u, v = float(corner[0]), float(corner[1])
+                except (TypeError, ValueError):
+                    return fail(
+                        f"uv[{fi}][{ci}] must be an array of 2 numbers.", field="uv"
+                    )
+                if not (math.isfinite(u) and math.isfinite(v)):
+                    return fail(f"uv[{fi}][{ci}] must be finite numbers.", field="uv")
+                corners_uv.append([u, v])
+            uv.append(corners_uv)
+
+    translation = rotation_deg = scale = None
+    if args.get("translation") is not None:
+        translation, failure = _validate_vec3(args["translation"], "translation")
+        if failure:
+            return failure
+    if args.get("rotation") is not None:
+        rotation_deg, failure = _validate_vec3(args["rotation"], "rotation")
+        if failure:
+            return failure
+    if args.get("scale") is not None:
+        scale, failure = _validate_vec3(args["scale"], "scale")
+        if failure:
+            return failure
+
+    mesh = bm.from_faces(positions, faces, uv)
+    try:
+        bm.validate(mesh)
+    except ValueError as error:
+        # Defence in depth, not the primary refusal path -- every rule
+        # ``validate`` checks beyond what this handler already validated
+        # above is about the CSR structure ``faces`` describes (``starts``
+        # bracketing ``loops``), which is why this backstop names ``faces``
+        # rather than leaving the ``ValueError`` to escape into ``call``'s
+        # generic, field-blind "failed unexpectedly".
+        return fail(f"not a valid mesh: {error}", field="faces")
+
+    tab, failure = _tab(ctx, session, create=True)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    obj_name = args.get("name")
+    if obj_name is not None:
+        if not isinstance(obj_name, str) or not obj_name.strip():
+            return fail("name must not be empty.", field="name")
+        if any(o.name == obj_name for o in doc.objects):
+            return fail(f"an object is already named {obj_name!r}.", field="name")
+
+    material_index = args.get("material")
+    if material_index is not None:
+        try:
+            material_index = int(material_index)
+        except (TypeError, ValueError):
+            return fail("material must be a palette index.", field="material")
+        if not (0 <= material_index < len(doc.materials)):
+            return fail(
+                f"material must be an index into the palette (0..{len(doc.materials) - 1}).",
+                field="material",
+            )
+
+    if obj_name is None:
+        # No generator name to base a default on, unlike ``add_primitive``'s
+        # own ``pane_clay_tools.add_primitive`` -- "Mesh" is this door's own
+        # base, counted up the same way ``ops.next_name`` already counts up
+        # a duplicate.
+        taken = {o.name for o in doc.objects}
+        obj_name = "Mesh" if "Mesh" not in taken else clay_geom_ops.next_name("Mesh", taken)
+
+    mark = doc.history.mark()
+    obj = bd.Obj(uid=bd.new_uid(), name=obj_name, mesh=mesh, generator=None, params={})
+    doc.add_object(obj)
+    doc.select([obj.uid])
+    if translation is not None or rotation_deg is not None or scale is not None:
+        doc.set_transform(
+            obj.uid,
+            translation=translation,
+            rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
+            scale=scale,
+        )
+    if material_index is not None:
+        _repaint(doc, [obj.uid], material_index)
+    doc.history.collapse_since(mark)
+    _label_top(doc, mark, f"Add {obj.name}")
+
+    # ``clay_diagnose.findings`` measures a mesh, not a live object, so it is
+    # reused directly rather than routed back through ``_h_diagnose`` (which
+    # resolves a uid, a tab and an optional ``select`` this call has no use
+    # for). "Closed" is narrower than "clean": a flipped edge, a duplicate
+    # face or an unused vertex is a real defect ``findings`` still reports,
+    # but none of them is what stops ``clay_boolean`` -- only an open
+    # boundary or a non-manifold edge does (``ops_boolean``'s own "needs
+    # every selected object to be a closed solid" refusal), so those are the
+    # two kinds this boolean is read from.
+    rows = clay_diagnose.findings(obj.mesh)
+    row = _scene_row(doc, obj)
+    row["closed"] = not any(r.kind in ("hole", "nonmanifold") for r in rows)
+    row["findings"] = [
+        {"kind": r.kind, "label": r.label, "count": r.count, "mode": r.mode} for r in rows
+    ]
+    return _json(row)
 
 
 def _h_transform(ctx: Any, session: Session, args: dict) -> dict:
@@ -3641,13 +3974,14 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     The whole list's shape is validated before anything runs, so a malformed
     batch runs nothing. If the session owns no tab yet, this refuses unless
-    the *first* call is ``clay_add_primitive`` or ``clay_add_figure``, in
-    which case it mints one through ``_tab(..., create=True)`` itself --
-    ``_h_batch`` needs a document in hand before the loop starts (to open the
-    ``history.mark()`` the whole run folds into), so the mint has to happen
-    here rather than be left to the first sub-call, but it is still one of
-    the two creator tools that is about to run, which is what keeps "only
-    those two mint a document" true.
+    the *first* call is ``clay_add_primitive``, ``clay_add_figure`` or
+    ``clay_add_mesh``, in which case it mints one through
+    ``_tab(..., create=True)`` itself -- ``_h_batch`` needs a document in
+    hand before the loop starts (to open the ``history.mark()`` the whole
+    run folds into), so the mint has to happen here rather than be left to
+    the first sub-call, but it is still one of the three creator tools that
+    is about to run, which is what keeps "only those three mint a document"
+    true.
     """
     calls = args.get("calls")
     if not isinstance(calls, list) or not (1 <= len(calls) <= BATCH_MAX):
@@ -3675,11 +4009,11 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
 
     if not session.tab_uid:
         first_name = calls[0].get("name")
-        if first_name not in ("clay_add_primitive", "clay_add_figure"):
+        if first_name not in ("clay_add_primitive", "clay_add_figure", "clay_add_mesh"):
             return fail(
                 "This session has no document yet. The first call in a "
-                "batch that starts one must be clay_add_primitive or "
-                "clay_add_figure.",
+                "batch that starts one must be clay_add_primitive, "
+                "clay_add_figure or clay_add_mesh.",
                 recovery="start_document",
             )
         _, failure = _tab(ctx, session, create=True)
@@ -3910,6 +4244,7 @@ _HANDLERS = {
     "clay_scene": _h_scene,
     "clay_add_primitive": _h_add_primitive,
     "clay_add_figure": _h_add_figure,
+    "clay_add_mesh": _h_add_mesh,
     "clay_transform": _h_transform,
     "clay_set_params": _h_set_params,
     "clay_material": _h_material,

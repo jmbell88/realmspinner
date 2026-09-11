@@ -111,6 +111,7 @@ from typing import Any
 import numpy as np
 
 from .mesh import Mesh
+from .mesh import from_faces as _mesh
 
 # The low-end clamps. A slider dragged to zero must not be able to produce a
 # mesh ``validate`` rejects, and clamping is the right shape for a control that
@@ -510,34 +511,12 @@ def clamp_params(generator: str, params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _mesh(
-    positions: np.ndarray,
-    faces: Sequence[Sequence[int]],
-    uv: Sequence[Sequence[Sequence[float]]] | None = None,
-) -> Mesh:
-    """Assemble the CSR arrays from a list of corner loops.
-
-    Every generator funnels through here so that the offsets are computed once,
-    in one place, rather than six times with six chances to leave ``starts``
-    one short.
-
-    ``uv`` is one ``(u, v)`` per corner of each face, in the same nesting as
-    ``faces`` -- per *corner* rather than per vertex, because that is what the
-    field is and because it is the only shape that can put the two sides of a
-    wrap seam at u = 0 and u = 1 while sharing one position.
-    """
-    counts = [len(f) for f in faces]
-    flat = None
-    if uv is not None:
-        flat = np.array([c for face in uv for c in face], dtype="f4").reshape(-1, 2)
-    return Mesh(
-        positions=np.asarray(positions, dtype="f4"),
-        loops=np.array([i for f in faces for i in f], dtype="i4"),
-        starts=np.concatenate([[0], np.cumsum(counts)]).astype("i4"),
-        material=np.zeros(len(faces), dtype="i4"),
-        smooth=np.zeros(len(faces), dtype=bool),
-        uv=flat,
-    )
+# ``_mesh`` is ``mesh.from_faces`` (imported above under this name) --
+# promoted there so ``agent_clay.py``'s ``clay_add_mesh`` can build a CSR
+# mesh from agent-supplied corner loops without a second copy of this exact
+# assembly. Kept under the original name here rather than renamed at each of
+# the fifteen call sites below, which cost nothing to leave alone; see
+# :func:`.mesh.from_faces` for the real docstring.
 
 
 def _disc_uv(segments: int, centre: tuple[float, float], radius: float, reverse: bool = False):

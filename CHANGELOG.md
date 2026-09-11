@@ -201,6 +201,23 @@ engine stopped being something you download whether or not you ever use it.
   just been handed. Every call now checks its arguments' names against that
   same schema before anything runs, names every one that doesn't belong, and
   suggests what each was probably meant to be.
+- **An agent can now hand Clay a mesh it built itself, not only the name of a
+  recipe.** Every door into an empty document used to be a registry entry —
+  a generator's name and its parameters, or a figure preset — so a shape an
+  agent derived from a reference image, or read out of its own context, had
+  nowhere to go. `clay_add_mesh` takes positions, vertex-index loops for the
+  faces, and an optional UV given one `(u, v)` per face *corner* rather than
+  per vertex, because a texture seam is exactly one vertex needing two
+  different coordinates. Every fault that shape can carry — a ragged
+  position, a face indexing past the end of the list, a UV with the wrong
+  corner count for one face — is refused naming the exact face and corner,
+  before anything is placed, rather than the bare, field-blind crash a
+  malformed array would otherwise cause. What lands has no generator behind
+  it, the same as an object whose topology has already been edited, so
+  `clay_set_params` refuses it for the same reason. It also reports, in the
+  same call, whether the mesh is a closed solid — the thing a boolean
+  actually needs — so an open sheet is caught immediately instead of several
+  calls later when the boolean itself refuses it.
 - **Clay can turn a shape on a lathe now, not only stack the twelve it had.**
   A **lathe** takes a `profile` — a list of `[radius, y]` stations, bottom to
   top — and revolves it into whatever silhouette they trace, which is what a

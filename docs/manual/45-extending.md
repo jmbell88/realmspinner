@@ -262,6 +262,18 @@ reported back after every operation, counts rather than the indices themselves, 
 followed by an inset is two calls rather than four — extrude hands back its own new caps, and the
 very next call operates on them with nothing re-selected in between.
 
+An agent can also hand over geometry it computed itself, rather than only naming a recipe from
+Warlock's own registry. **Add mesh** takes a plain list of positions, a list of vertex-index loops
+for the faces, and — since a texture seam is one vertex needing two different texture coordinates —
+an optional per-*corner* UV rather than a per-vertex one. Every fault that shape can carry is
+refused by naming the exact face and corner responsible, before anything is placed, the same as
+every other tool here. What arrives has no recipe behind it, so unlike a primitive or a figure it
+cannot later have one of its own numbers tweaked with **Set params** — the same refusal an edited
+primitive already gets, because both are geometry with no generator left to ask. What it can do
+that placing a primitive cannot is tell you, in the same call, whether what you handed over is a
+closed solid — the very thing a boolean needs — so a mesh that turns out to have a gap in it is
+caught immediately rather than several calls later when the boolean itself refuses.
+
 If an agent gives up waiting on a call Warlock has not started yet, that call is cancelled rather
 than run later, so a retry does not place the same box twice — the agent is told nothing changed
 and it is safe to send the same call again. If the call had already started, it finishes on its
@@ -368,10 +380,13 @@ one exception is a tool whose reply carries a picture — `clay_render` and `cla
 both bypass `_json` and build their result directly, because an image block has no JSON to
 duplicate, so a new tool answering with an image should follow their lead rather than call `_json`
 at all. Declaring an `outputSchema` for it is a separate, deliberate choice, not something that comes
-along for the ride — today only `clay_scene`, `clay_add_primitive` and `clay_diagnose` have one,
-because writing a schema for a result as small as a uid or a count is authorship with no reader.
-Reach for one only when a client would actually be validating or generating against the shape;
-otherwise leave it off, the same as every other tool in this file already does.
+along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh` and
+`clay_diagnose` have one, because writing a schema for a result as small as a uid or a count is
+authorship with no reader. Reach for one only when a client would actually be validating or
+generating against the shape — and when the shape is one already written down, compose it rather
+than copying it out again, the way `clay_add_mesh`'s own schema is the shared object-row schema
+`clay_add_primitive` already declares, plus the two keys only it answers with. Otherwise leave it
+off, the same as every other tool in this file already does.
 
 ## Writing manual chapters
 

@@ -617,16 +617,25 @@ _SESSION_ONLY = [
     "clay_reference_remove",
 ]
 
-# The two tools that can start a document from nothing, and are therefore the
-# two that a *dead* pin must not refuse: the refusal every other tool gives
-# names these as the way out, and while they refused too that sentence was
-# impossible to follow, which bricked the session for the rest of the
+# A hand-built tetrahedron -- four triangles, closed -- reused wherever a
+# test just needs *some* valid clay_add_mesh call rather than one that
+# exercises a specific validation rule.
+_TETRA_MESH_ARGS = {
+    "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "faces": [[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]],
+}
+
+# The three tools that can start a document from nothing, and are therefore
+# the three that a *dead* pin must not refuse: the refusal every other tool
+# gives names these as the way out, and while they refused too that sentence
+# was impossible to follow, which bricked the session for the rest of the
 # connection. They mint rather than substitute -- what arrives is a new empty
 # document, never one already open -- so the one-tab blast radius the list
 # above gates is unchanged. See ``_tab``'s own comment.
 _MINTS_A_TAB = [
     ("clay_add_primitive", {"generator": "box"}),
     ("clay_add_figure", {"key": sorted(presets.ASSEMBLIES)[0]}),
+    ("clay_add_mesh", _TETRA_MESH_ARGS),
 ]
 
 
@@ -1422,6 +1431,203 @@ def test_add_primitive_with_no_optional_arguments_behaves_exactly_as_it_did() ->
     assert len(tab.doc.history.history()) == 1
     assert tab.doc.undo()
     assert len(tab.doc.objects) == 0
+
+
+# --- clay_add_mesh: geometry an agent hands over directly --------------------
+
+
+def test_a_hand_built_tetrahedron_places_and_reports_itself_closed() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    assert result["isError"] is False, result
+    row = _payload(result)
+    assert row["faces"] == 4
+    assert row["verts"] == 4
+    assert row["generator"] is None
+    assert row["closed"] is True
+    assert row["findings"] == []
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.history.history()) == 1
+    assert tab.doc.undo()
+    assert len(tab.doc.objects) == 0
+
+
+def test_an_open_sheet_places_and_reports_itself_not_closed() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {
+            "positions": [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]],
+            "faces": [[0, 1, 2, 3]],
+        },
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)
+    assert row["closed"] is False
+    kinds = {f["kind"] for f in row["findings"]}
+    assert "hole" in kinds
+
+
+def test_a_face_index_past_positions_is_refused_naming_the_face() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {"positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0]], "faces": [[0, 1, 5]]},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "faces"
+    assert "face 0" in result["content"][0]["text"]
+    assert "corner 2" in result["content"][0]["text"]
+    # A refused call places nothing -- no document minted for it either.
+    assert session.tab_uid == ""
+
+
+def test_a_uv_with_the_wrong_corner_count_for_one_face_is_refused_naming_that_face() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {
+            "positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+            "faces": [[0, 1, 2]],
+            "uv": [[[0.0, 0.0], [1.0, 0.0]]],  # 2 corners for a 3-corner face
+        },
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "uv"
+    assert "uv[0]" in result["content"][0]["text"]
+    assert "face 0" in result["content"][0]["text"]
+
+
+def test_a_ragged_positions_row_is_refused_by_field_rather_than_crashing() -> None:
+    """The off-wire shape ``Mesh.__post_init__`` handles badly: a ragged row
+    reaching ``np.array(value, dtype=...)`` raises a bare exception with no
+    field name attached, which only ``call()``'s generic backstop would
+    catch. This must be refused before that point is ever reached."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {"positions": [[0, 0, 0], [1, 0]], "faces": [[0, 1, 0]]},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "positions"
+    assert "failed unexpectedly" not in result["content"][0]["text"]
+
+
+def test_clay_add_mesh_refuses_above_the_size_ceiling_before_allocating() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    oversized = [[0.0, 0.0, 0.0]] * (agent_clay.MAX_MESH_VERTICES + 1)
+    result = agent_clay.call(
+        ctx, session, "clay_add_mesh", {"positions": oversized, "faces": [[0, 1, 2]]}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "positions"
+    assert session.tab_uid == ""
+
+    oversized_faces = [[0, 1, 2]] * (agent_clay.MAX_MESH_FACES + 1)
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {"positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0]], "faces": oversized_faces},
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "faces"
+    assert session.tab_uid == ""
+
+
+def test_clay_add_mesh_placed_object_has_no_generator_and_clay_set_params_refuses_it() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    added = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    uid = _payload(added)["uid"]
+
+    result = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"radius": 1.0}}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "uid"
+
+
+def test_clay_add_mesh_with_a_taken_name_is_refused_with_field_name_and_places_nothing() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")  # named "Box"
+    result = agent_clay.call(
+        ctx, session, "clay_add_mesh", {**_TETRA_MESH_ARGS, "name": "Box"}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "name"
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.objects) == 1
+
+
+def test_clay_add_mesh_places_with_translation_rotation_scale_name_and_material() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_mesh",
+        {
+            **_TETRA_MESH_ARGS,
+            "translation": [1.0, 2.0, 3.0],
+            "rotation": [0.0, 90.0, 0.0],
+            "scale": [1.0, 2.0, 1.0],
+            "name": "Wedge",
+            "material": 0,
+        },
+    )
+    assert result["isError"] is False, result
+    row = _payload(result)
+    assert row["name"] == "Wedge"
+    assert row["translation"] == pytest.approx([1.0, 2.0, 3.0])
+    assert row["material"] == 0
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.history.history()) == 1
+    assert tab.doc.undo()
+    assert len(tab.doc.objects) == 0
+
+
+def test_clay_add_mesh_returns_the_row_clay_scene_would_have_shown_plus_closed_and_findings() -> (
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    added = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    added_row = _payload(added)
+    scene = agent_clay.call(ctx, session, "clay_scene", {})
+    scene_row = _payload(scene)["objects"][0]
+    extra = {"closed", "findings"}
+    assert {k: v for k, v in added_row.items() if k not in extra} == scene_row
+
+
+def test_clay_add_mesh_is_a_valid_clay_batch_first_call() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx,
+        session,
+        "clay_batch",
+        {"calls": [{"name": "clay_add_mesh", "arguments": _TETRA_MESH_ARGS}]},
+    )
+    assert result["isError"] is False, result
+    assert session.tab_uid != ""
 
 
 # ==============================================================================
@@ -2463,7 +2669,7 @@ def test_a_render_does_not_duplicate_its_header_into_structured_content(
     assert "_json(" not in source
 
 
-def test_the_three_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
+def test_the_four_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
     """The test that catches a schema drifting from ``_scene_row`` (or from
     ``_h_scene``/``_h_diagnose``'s own payload): every key a real call's
     ``structuredContent`` actually carries must appear in that tool's own
@@ -2494,6 +2700,16 @@ def test_the_three_declared_output_schemas_describe_what_those_tools_actually_re
     # shared schema helper fails here.
     assert set(add_structured) == set(add_schema["properties"])
 
+    mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
+    assert mesh_schema is not None
+    mesh_result = agent_clay.call(ctx, session, "clay_add_mesh", _TETRA_MESH_ARGS)
+    mesh_structured = mesh_result.get("structuredContent") or {}
+    assert mesh_structured, "clay_add_mesh answered with no structuredContent at all"
+    # Exact for the same reason ``clay_add_primitive``'s is: ``closed`` and
+    # ``findings`` are unconditional too, and both are declared on the
+    # composed schema (see ``_mesh_row_output_schema``), not left off it.
+    assert set(mesh_structured) == set(mesh_schema["properties"])
+
     diag_schema = getattr(tools["clay_diagnose"], "output_schema", None)
     assert diag_schema is not None
     diag_result = agent_clay.call(ctx, session, "clay_diagnose", {})
@@ -2511,7 +2727,7 @@ def test_the_three_declared_output_schemas_describe_what_those_tools_actually_re
 def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
     None
 ):
-    """None of the three declared schemas names a ``required`` list or sets
+    """None of the four declared schemas names a ``required`` list or sets
     ``additionalProperties: false`` -- proven alongside the reason itself: a
     refusal from one of these same tools really does put ``field`` in
     ``structuredContent`` -- and, since ``changed`` was added, nothing else
@@ -2520,7 +2736,7 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
     point: it is what would catch an accidental extra key landing in this
     envelope, ``changed`` among them if its default ever drifted."""
     tools = {t.name: t for t in agent_clay.tools()}
-    for name in ("clay_scene", "clay_add_primitive", "clay_diagnose"):
+    for name in ("clay_scene", "clay_add_primitive", "clay_add_mesh", "clay_diagnose"):
         schema = getattr(tools[name], "output_schema", None)
         assert schema is not None
         assert "required" not in schema
@@ -2554,6 +2770,15 @@ def test_the_object_row_schema_is_shared_by_the_scene_and_the_primitive_tools() 
     assert scene_schema is not None
     assert scene_schema["properties"]["objects"]["items"] == agent_clay._object_row_output_schema()
 
+    # ``clay_add_mesh`` composes the same shared row rather than copying it
+    # -- every key the row schema declares must still be there, plus exactly
+    # the two this tool alone answers with.
+    mesh_schema = getattr(tools["clay_add_mesh"], "output_schema", None)
+    assert mesh_schema is not None
+    row_properties = agent_clay._object_row_output_schema()["properties"]
+    assert row_properties.items() <= mesh_schema["properties"].items()
+    assert set(mesh_schema["properties"]) - set(row_properties) == {"closed", "findings"}
+
 
 # ==============================================================================
 # C -- a refusal reports whether the document moved, and what to try next
@@ -2578,8 +2803,8 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     them succeed rather than refuse against a tab that already holds an
     object (``clay_scene``, ``clay_elements``,
     ``clay_diagnose``, ``clay_export`` with a real ``svc``, ``clay_undo``/
-    ``clay_redo``, ``clay_batch``, both ``_MINTS_A_TAB`` creators, and every
-    ``_SESSION_ONLY`` tool but ``clay_reference_get`` naming a reference this
+    ``clay_redo``, ``clay_batch``, all three ``_MINTS_A_TAB`` creators, and
+    every ``_SESSION_ONLY`` tool but ``clay_reference_get`` naming a reference this
     session was never given). Those successes are skipped rather than
     asserted on either way, the same as that other exhaustive walk -- but the
     number of refusals this walk actually exercised is asserted with a hard

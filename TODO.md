@@ -943,7 +943,7 @@ starting heights this build no longer uses. The choice between the four options
 is unchanged and still art direction; the number it is being made against is
 stale, and re-running the harness is a minute's work.
 
-## P34. Judge Clay's twelve shapes and eight figures, and settle two defaults
+## P34. Judge Clay's fifteen shapes and eight figures, and settle two defaults
 
 **Why it is yours:** art direction and two design decisions. Every item here was
 raised by your own review of the generated geometry on 2026-09-06, and each one
@@ -973,10 +973,19 @@ the choice is missing.
     detached, and rectangular fins, wings and beaks hurt recognition. Wants
     attachment overlap, tapered wedges, and a deliberate wing outline and
     thickness direction.
-3. **The shape chooser undersells the objects.** Sphere and torus share a circle
-    icon, several others borrow unrelated symbols, and the eight figures have
-    labels with no preview. Recognisable silhouettes or rendered thumbnails
-    would carry it.
+3. **The shape chooser undersells the objects, and by more than it did.** Sphere
+    and torus share a circle icon, several others borrow unrelated symbols, and
+    the eight figures have labels with no preview. Recognisable silhouettes or
+    rendered thumbnails would carry it. **Widened 2026-09-10:** `lathe`, `sweep`
+    and `tube` joined the registry and took the spline, layers and waypoints
+    glyphs, none of which draws the shape it stands for -- a lathe and a column
+    are the pair a reader most needs told apart, and the icon comment in
+    `panes/clay_tools.py` already concedes the set is strained. Three shapes
+    were judged against renders on 2026-09-06 and these three have never been
+    looked at, so this item now wants eyes on the *new* defaults too: the
+    goblet, the L-bracket and the S-curve cable are each a default somebody
+    picked to demonstrate a generator, not one measured against what a user
+    would want first out of the palette.
 4. ~~**"Insect / spider (six-legged)" is two animals in one label.** Renaming
     it "Insect" is free;~~ **Built 2026-09-06** (audit finding docs-14): the
     label is `"Insect"` in both `templates/insect.json` and

@@ -48,7 +48,9 @@ makes undo a snapshot rather than an inverse operation.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, fields
+from typing import Any
 
 import numpy as np
 
@@ -141,6 +143,59 @@ def validate(mesh: Mesh) -> None:
         raise ValueError(
             f"uv must be one (u, v) per face corner ({len(mesh.loops)}, 2), got {mesh.uv.shape}"
         )
+
+
+# --- construction ------------------------------------------------------------
+
+
+def from_faces(
+    positions: Any,
+    faces: Sequence[Sequence[int]],
+    uv: Sequence[Sequence[Sequence[float]]] | None = None,
+) -> Mesh:
+    """Assemble the CSR arrays from a list of corner loops.
+
+    Promoted from ``primitives.py``'s own private ``_mesh`` (which now aliases
+    this) rather than left as a second copy: every one of the fifteen
+    generators there funnels through it so the offsets are computed once, in
+    one place, rather than six times with six chances to leave ``starts`` one
+    short, and that reasoning applies with more force to
+    ``agent_clay.py``'s ``clay_add_mesh`` -- the one door an agent hands a
+    mesh through directly rather than naming a recipe -- which has exactly
+    the same assembly to do from exactly this shape of input.
+
+    ``uv`` is one ``(u, v)`` per corner of each face, in the same nesting as
+    ``faces`` -- per *corner* rather than per vertex, because that is what the
+    field is and because it is the only shape that can put the two sides of a
+    wrap seam at u = 0 and u = 1 while sharing one position (see
+    :class:`Mesh`'s own docstring).
+
+    **This function trusts its caller completely.** It does not check that a
+    face has at least three corners, that every index in ``faces`` is within
+    ``positions``, or that ``uv`` -- if given -- has one row per corner and
+    the same nesting as ``faces``: :func:`validate` is what checks all of
+    that, after construction. A primitive generator's own arithmetic already
+    guarantees the shape is right, so it has never needed the check first;
+    ``clay_add_mesh`` is the first caller for whom that guarantee does not
+    hold, and it validates the *shape* of what it was given -- ragged rows,
+    out-of-range indices, a mismatched ``uv`` -- before it ever reaches here,
+    because ``np.array(value, dtype=...)`` on a ragged or non-numeric list
+    raises a bare exception with no field name attached, and a mesh built
+    from a bad index range fails only later and more confusingly, inside
+    :func:`face_normals` or :func:`edges`.
+    """
+    counts = [len(f) for f in faces]
+    flat = None
+    if uv is not None:
+        flat = np.array([c for face in uv for c in face], dtype="f4").reshape(-1, 2)
+    return Mesh(
+        positions=np.asarray(positions, dtype="f4"),
+        loops=np.array([i for f in faces for i in f], dtype="i4"),
+        starts=np.concatenate([[0], np.cumsum(counts)]).astype("i4"),
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+        uv=flat,
+    )
 
 
 # --- accessors --------------------------------------------------------------
