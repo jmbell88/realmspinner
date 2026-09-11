@@ -39,7 +39,7 @@ bug and swallowing it would leave a half-built mesh on screen with no clue why.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -645,6 +645,181 @@ def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
     run_object_op(ctx, doc, one)
 
 
+MAX_ARRAY_COUNT = 200
+"""The most instances one Array Linear/Array Radial call may ask for at once.
+
+Every copy shares its source mesh (``clay.ops.duplicate``'s own property,
+carried through unchanged by ``translated`` and ``rotated_about_origin``), so
+this is not a mesh-memory ceiling the way ``primitives.MAX_SUBDIVISIONS`` is.
+What it actually bounds is the outliner (one more row per instance) and the
+document itself (one more ``Obj`` -- a uid, a name, three small transform
+arrays -- recorded in the undo step and written to the ``.wblk`` on every
+save). 200 sits comfortably above the module's own working example ("sixty
+fence posts is one upload") with headroom for a first guess at the count
+field before the outliner starts to drag. It is a **soft** guard rather than
+a real bound: arraying an array multiplies rather than adds, so two presses
+each near the ceiling already exceed it -- nothing here can stop that, only
+the count any *one* press may ask for.
+"""
+
+
+def _array_linear(
+    ctx: Any, doc: Any, count: float = 3.0, x: float = 1.0, y: float = 0.0, z: float = 0.0, **_: Any
+) -> bool:
+    """Copy the whole selection ``count - 1`` times, each further along one step.
+
+    Whole-selection, not per-object: "array these three things five times" is
+    what the words mean, and copying each object independently would
+    interleave three arrays into one mess instead of moving the group as one.
+
+    Modelled closely on ``clay.selection.duplicate_selected``: the same
+    growing ``taken`` list, so many copies made in one press do not collide
+    names with each other, and the same one ``add_objects`` call rather than
+    one ``add_object`` per copy, for the identical reason that function
+    gives -- and it applies with more force here, since one array can make
+    far more than the handful ``duplicate_selected`` ever did. Each copy is
+    ``ops.duplicate`` plus ``ops.translated``, and neither touches the mesh,
+    so every copy shares the source's -- an array of sixty fence posts is one
+    GPU upload, not sixty.
+    """
+    from .clay import document as bd
+    from .clay import ops as clay_ops_geom
+
+    del ctx
+    n = int(count)
+    if n <= 1:
+        return False
+    originals = list(doc.selection)
+    taken = [obj.name for obj in doc.objects]
+    made: list[Any] = []
+    for k in range(1, n):
+        offset = (x * k, y * k, z * k)
+        for uid in originals:
+            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+            taken.append(copy.name)
+            made.append(clay_ops_geom.translated(copy, offset))
+    doc.add_objects(made)
+    # Originals and copies both, not just the newest generation: arraying an
+    # array is a normal thing to want, and it only compounds if the group
+    # stays whole.
+    doc.select(originals + [obj.uid for obj in made])
+    return bool(made)
+
+
+def _closes_a_ring(angle: float) -> bool:
+    """Whether *angle* degrees of sweep is a whole number of full turns, so
+    the arc closes back on itself and has no far end distinct from its start.
+
+    Compared with a tolerance rather than ``== 0``: this is read off a widget
+    that stores a float, and ``360.0`` typed by a user or clamped by ``run``
+    is not guaranteed to survive as bit-identical to the ``360.0`` this
+    compares against.
+    """
+    remainder = abs(float(angle)) % 360.0
+    return remainder < 1e-6 or remainder > 360.0 - 1e-6
+
+
+def _array_radial(
+    ctx: Any, doc: Any, count: float = 3.0, angle: float = 360.0, axis: float = 1.0, **_: Any
+) -> bool:
+    """Copy the whole selection ``count - 1`` times, spun about the *world*
+    origin around ``axis`` and spread evenly over ``angle`` degrees.
+
+    The world origin, not the object's own centre, because a single spoke
+    rotated about an axis through itself overlaps its own copies rather than
+    fanning out into a wheel -- the reviewer's own phrase for this op was
+    "eight spokes around a hub". A hub that is not at the origin is reached
+    by arraying at the origin and moving the whole result, not by a third
+    number this op does not take: ``clay_ops.Param`` is scalar, and a centre
+    is a point.
+
+    ``t = k * angle / divisor`` for copy ``k``, and what decides *divisor* is
+    whether the arc **closes**, which ``_closes_a_ring`` answers -- not
+    whether ``count`` changes, since ``angle / count`` and ``angle /
+    (count - 1)`` are *both* functions of ``count`` and both reposition every
+    existing copy when it changes; that is not the property that tells the
+    two cases apart.
+
+    * A full turn (360, 720, a negative multiple...) has no last position
+      distinct from its first, so dividing by ``count - 1`` puts copy
+      ``n - 1`` exactly back on the original -- a "radial array of two" draws
+      one spoke on top of another with nothing on screen to say a second one
+      exists. Dividing by ``count`` instead spaces every copy, the original
+      included, evenly around the whole circle: a full-turn array of four
+      lands 90 degrees apart with nothing doubled.
+    * An open arc has a real far end, and a user who asks for 180 degrees
+      means the copies *reach* 180. Dividing by ``count`` falls short of
+      that, more so as the count shrinks -- four copies over 90 degrees would
+      land at 22.5, 45 and 67.5, nothing at 90 -- so an open arc divides by
+      ``count - 1``, which is exactly what a straight line of evenly spaced
+      points between two fixed ends means. At ``count == 2`` that divisor is
+      1, so the one copy lands at ``angle`` exactly.
+
+    Shares ``_array_linear``'s shape entirely otherwise -- the ``taken`` list,
+    the one ``add_objects`` call, the whole selection left selected after.
+    What is different is the per-copy step (``rotated_about_origin`` rather
+    than ``translated``), and that is what keeps every copy a live parametric
+    shape rather than a frozen one: a rotation about the origin is a
+    transform change, and the mesh is never touched.
+    """
+    from .clay import document as bd
+    from .clay import ops as clay_ops_geom
+
+    del ctx
+    n = int(count)
+    a = int(axis)
+    if n <= 1:
+        return False
+    divisor = n if _closes_a_ring(angle) else n - 1
+    originals = list(doc.selection)
+    taken = [obj.name for obj in doc.objects]
+    made: list[Any] = []
+    for k in range(1, n):
+        degrees = k * angle / divisor
+        for uid in originals:
+            copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+            taken.append(copy.name)
+            made.append(clay_ops_geom.rotated_about_origin(copy, a, degrees))
+    doc.add_objects(made)
+    doc.select(originals + [obj.uid for obj in made])
+    return bool(made)
+
+
+def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_: Any) -> bool:
+    """Duplicate the selection and reflect each copy across a *world* plane.
+
+    Where **Mirror X/Y/Z** (:func:`mirror`) replace an object with its own
+    reflection about a plane through its own origin, this makes a *second*
+    object, reflected about a plane the caller places anywhere in world
+    space -- what mirroring a limb across a body's centre-line means, and
+    something the per-object mirror cannot do at all. The manual's Mirror
+    X/Y/Z paragraph says which is which.
+
+    **The copy is frozen**, exactly as Mirror X/Y/Z's own result is (the
+    module docstring's negative-scale rule, obeyed here because the mesh
+    comes from ``ops.mirror_world``, which calls ``ops.mirror`` rather than
+    negating a scale component). That freeze is normally ``Document.set_mesh``'s
+    job, but a fresh insert through ``add_objects`` never calls it -- there is
+    no prior mesh to compare identity against -- so it is done by hand here,
+    on the object before it is inserted. Left un-frozen, the properties panel
+    would still offer the source generator's size field, and touching it
+    would rebuild a pristine, unmirrored primitive over the copy.
+    """
+    from .clay import document as bd
+    from .clay import ops as clay_ops_geom
+
+    del ctx
+    taken = [obj.name for obj in doc.objects]
+    made: list[Any] = []
+    for uid in list(doc.selection):
+        copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
+        taken.append(copy.name)
+        mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset)
+        made.append(replace(mirrored, generator=None, params={}))
+    doc.add_objects(made)
+    return bool(made)
+
+
 def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
     """Drop cached "mesh check" entries for objects that just left the document.
 
@@ -1103,6 +1278,68 @@ def _register_defaults() -> None:
                 separator_before=axis == 0,
             )
         )
+
+    register(
+        Op(
+            name="array-linear",
+            label="Array Linear...",
+            modes=("object",),
+            run=_array_linear,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Copies the whole selection, each further along one step. "
+            "A negative step runs the array backwards along that axis.",
+            params=(
+                Param("count", "count", 3.0, 1.0, low=1.0, high=MAX_ARRAY_COUNT, integer=True),
+                Param("x", "x step (m)", 1.0, 0.1, low=-1e6),
+                Param("y", "y step (m)", 0.0, 0.1, low=-1e6),
+                Param("z", "z step (m)", 0.0, 0.1, low=-1e6),
+            ),
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="array-radial",
+            label="Array Radial...",
+            modes=("object",),
+            run=_array_radial,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Spins copies of the selection around the world origin, not "
+            "the object's own centre -- put the hub at the origin and one "
+            "spoke beside it, and reach a hub elsewhere by arraying here and "
+            "moving the whole group.",
+            params=(
+                Param("count", "count", 3.0, 1.0, low=1.0, high=MAX_ARRAY_COUNT, integer=True),
+                Param("angle", "sweep (deg)", 360.0, 5.0, low=-1e6),
+                # One integer rather than three axis-named ops (mirror-x/y/z's
+                # shape): mirror takes no other numbers, so the axis *is* the
+                # whole op and three rows cost nothing; this op already has
+                # two more numbers, and three near-identical dialogs is the
+                # worse trade.
+                Param("axis", "axis (0=X, 1=Y, 2=Z)", 1.0, 1.0, low=0.0, high=2.0, integer=True),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="mirror-copy",
+            label="Mirror Copy...",
+            modes=("object",),
+            run=_mirror_copy,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Duplicates the selection and reflects the copies across a "
+            "world plane, rather than replacing the object about its own "
+            "centre the way Mirror X/Y/Z does -- this is mirroring a limb "
+            "across a body's centre-line.",
+            params=(
+                Param("axis", "axis (0=X, 1=Y, 2=Z)", 0.0, 1.0, low=0.0, high=2.0, integer=True),
+                Param("offset", "plane at (m)", 0.0, 0.1, low=-1e6),
+            ),
+        )
+    )
 
     register(
         Op(

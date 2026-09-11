@@ -1,4 +1,4 @@
-"""Object-level operations: mirror, snap, bake and duplicate.
+"""Object-level operations: mirror, snap, bake, duplicate and placement.
 
 These sit beside :mod:`~warlock.studio.clay.document` rather than inside it
 because they are *geometry*, not bookkeeping: each one takes an :class:`Obj`
@@ -71,6 +71,106 @@ def mirror(obj: Obj, axis: int) -> Obj:
     matrix = np.eye(4)
     matrix[axis, axis] = -1.0
     return replace(obj, mesh=bm.transformed(obj.mesh, matrix))
+
+
+def translated(obj: Obj, offset: Iterable[float]) -> Obj:
+    """*obj* moved by *offset* in world space. The mesh is untouched.
+
+    The per-copy step of a linear array (``clay_ops.array-linear``): only the
+    translation changes, so the copy stays sharing its source's mesh -- see
+    :func:`duplicate`'s own docstring for why that sharing is safe and cheap,
+    and it is exactly what makes an array of sixty fence posts one GPU
+    upload rather than sixty.
+    """
+    return replace(
+        obj, translation=np.asarray(obj.translation, dtype="f8") + np.asarray(offset, dtype="f8")
+    )
+
+
+def rotated_about_origin(obj: Obj, axis: int, degrees: float) -> Obj:
+    """*obj* carried by a rotation of *degrees* about the *world* origin, around
+    the world *axis* (0/1/2 for X/Y/Z).
+
+    The per-copy step of a radial array (``clay_ops.array-radial``): the
+    object is picked up and spun about a point through the world's own
+    centre rather than its own, so both where it sits and which way it faces
+    move together. Translation is the old one rotated about the origin;
+    rotation is the axis rotation applied *after* the object's own -- world
+    orientation is "rotate into place, then spin the whole thing", the same
+    left-to-right order :func:`~.viewer.math3d.compose`'s own T*R*S reads in.
+
+    Scale and the mesh are untouched, and that is a real difference from
+    :func:`mirror_world`: nothing about what the copy *looks like* changed,
+    only where it sits, so it is still exactly the primitive its generator
+    describes and stays a live, editable shape rather than a frozen one.
+    """
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1 or 2 ({', '.join(_AXIS_NAMES)}), got {axis!r}")
+    axis_vec = np.zeros(3, dtype="f8")
+    axis_vec[axis] = 1.0
+    spin = m3.quat_from_axis_angle(axis_vec, math.radians(degrees))
+    return replace(
+        obj,
+        translation=m3.quat_rotate(spin, np.asarray(obj.translation, dtype="f8")),
+        rotation=m3.quat_mul(spin, np.asarray(obj.rotation, dtype="f8")),
+    )
+
+
+def mirror_world(obj: Obj, axis: int, offset: float) -> Obj:
+    """*obj* reflected across the *world* plane ``axis = offset``.
+
+    Where :func:`mirror` reflects an object about a plane through its *own*
+    origin -- and replaces it in place -- this is what mirroring a limb
+    across a body's centre-line means: the plane sits wherever the caller
+    puts it in world space, and the source is left untouched (the caller
+    duplicates first; see ``clay_ops.mirror-copy``).
+
+    **No matrix decomposition.** For a world reflection ``F`` about
+    ``axis = offset`` and an object whose world transform is ``T * R * S``
+    with ``S`` diagonal::
+
+        F @ (T @ R @ S) = T' @ (F @ R @ F) @ S @ F(local)
+
+    A diagonal ``S`` commutes with a coordinate-plane reflection, so it can
+    slide straight through to the far right; ``F @ R @ F`` has determinant
+    ``(-1) * (+1) * (-1) == +1``, so it is a genuine rotation and not a second
+    reflection needing a decomposition of its own. Concretely:
+
+    * the new translation is the old one reflected in the plane
+      (``t[axis] -> 2*offset - t[axis]``);
+    * the new rotation is ``F @ R @ F``, which -- for a coordinate-axis
+      reflection -- is the quaternion with its two components *other than*
+      ``axis`` negated (conjugating a rotation by a coordinate reflection
+      maps its axis vector through the reflection, and then reverses the
+      result again to correct for the handedness a ``det = -1`` map flips,
+      which nets out to negating exactly the two components the reflection
+      *did not* touch, and leaving ``w`` -- the angle -- alone);
+    * the scale is unchanged;
+    * the mesh is :func:`mirror`'s -- the reflection about the object's own
+      local axis, loop reversal and all -- which is exactly the ``S @
+      F(local)`` factor above.
+
+    Checked numerically in ``tests/clay/test_ops.py`` against reflecting a
+    rotated, non-uniformly-scaled object's own world-space vertices directly,
+    because every part of this is invisible in the viewport when it is
+    subtly wrong.
+
+    The mesh this returns is **not** what any generator would build, for the
+    reason the module docstring's negative-scale rule exists: it is
+    :func:`mirror`'s baked, outward-wound mesh, never a negative node scale.
+    Freezing the generator claim on the result is the caller's job, the same
+    way :func:`mirror` leaves it to ``Document.set_mesh`` -- this is a bare
+    geometry function and knows no document to freeze anything in.
+    """
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1 or 2 ({', '.join(_AXIS_NAMES)}), got {axis!r}")
+    translation = np.asarray(obj.translation, dtype="f8").copy()
+    translation[axis] = 2.0 * float(offset) - translation[axis]
+    rotation = np.asarray(obj.rotation, dtype="f8").copy()
+    for i in range(3):
+        if i != axis:
+            rotation[i] = -rotation[i]
+    return replace(mirror(obj, axis), translation=translation, rotation=rotation)
 
 
 def world_box(obj: Obj) -> tuple[np.ndarray, np.ndarray] | None:

@@ -125,6 +125,118 @@ def test_mirror_rejects_an_axis_that_is_not_one_of_three() -> None:
         ops.mirror(_obj(), 3)
 
 
+# --- array placement (translated, rotated_about_origin, mirror_world) -------
+#
+# The per-copy steps behind ``clay_ops.array-linear``, ``array-radial`` and
+# ``mirror-copy``. ``translated`` and ``rotated_about_origin`` are checked
+# against the same "does this match a direct transform of the world-space
+# vertices" oracle the mirror tests above use, because a sign error in either
+# is exactly as invisible in the viewport as a sign error in ``mirror`` is.
+
+
+def test_translated_moves_the_translation_and_shares_the_mesh() -> None:
+    obj = _obj(
+        "Box",
+        translation=(1.0, 2.0, 3.0),
+        rotation=m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), math.radians(20.0)),
+        scale=(2.0, 1.0, 0.5),
+    )
+    out = ops.translated(obj, (0.5, -1.0, 2.0))
+
+    assert np.allclose(out.translation, [1.5, 1.0, 5.0])
+    assert np.allclose(out.rotation, obj.rotation)
+    assert np.allclose(out.scale, obj.scale)
+    assert out.mesh is obj.mesh, "a translation never touches the mesh"
+
+
+def test_rotated_about_origin_matches_rotating_the_objects_world_space_vertices() -> None:
+    """The whole point of turning about the *world* origin: picking the object
+    up and spinning it about a point through the scene's centre must move
+    every point on it exactly as a straight rotation of its world-space
+    vertices would -- both where it sits and which way it faces, together,
+    with no decomposition anywhere.
+    """
+    obj = _obj(
+        "A",
+        bp.uv_sphere(segments=8, rings=4),
+        translation=(3.0, 1.0, -2.0),
+        rotation=m3.quat_from_axis_angle(
+            m3.vec3(1.0, 0.0, 1.0) / math.sqrt(2.0), math.radians(40.0)
+        ),
+        scale=(1.5, 0.5, 2.0),
+    )
+    before = _world_positions(obj)
+    axis, degrees = 2, 65.0
+
+    out = ops.rotated_about_origin(obj, axis, degrees)
+
+    spin = m3.quat_from_axis_angle(m3.vec3(0.0, 0.0, 1.0), math.radians(degrees))
+    expected = (m3.quat_to_mat4(spin)[:3, :3] @ before.T).T
+    assert np.allclose(_world_positions(out), expected, atol=1e-6)
+    assert out.mesh is obj.mesh, "a rotation about the origin never touches the mesh"
+    assert np.allclose(out.scale, obj.scale)
+
+
+def test_rotated_about_origin_at_zero_degrees_is_the_identity() -> None:
+    obj = _obj("A", translation=(4.0, 0.0, 0.0))
+    out = ops.rotated_about_origin(obj, 1, 0.0)
+    assert np.allclose(out.translation, obj.translation)
+    assert np.allclose(out.rotation, obj.rotation)
+
+
+def test_rotated_about_origin_rejects_an_axis_that_is_not_one_of_three() -> None:
+    with pytest.raises(ValueError):
+        ops.rotated_about_origin(_obj(), 3, 90.0)
+
+
+def test_mirror_world_matches_reflecting_the_objects_world_space_vertices_directly() -> None:
+    """The derivation in ``mirror_world``'s own docstring, checked rather than
+    trusted -- built from a rotated, non-uniformly-scaled object precisely
+    because that is the fixture on which a wrong sign would still look right
+    on anything unscaled or axis-aligned. Every part of this is invisible in
+    the viewport when it is subtly wrong, which is what makes this comparison
+    the regression this op most needs.
+    """
+    obj = _obj(
+        "A",
+        bp.box(),
+        translation=(2.0, -1.0, 4.0),
+        rotation=m3.quat_from_axis_angle(
+            m3.vec3(1.0, 2.0, 3.0) / math.sqrt(14.0), math.radians(50.0)
+        ),
+        scale=(2.0, 0.5, 3.0),
+    )
+    before = _world_positions(obj)
+    axis, offset = 1, 2.5
+
+    out = ops.mirror_world(obj, axis, offset)
+
+    expected = before.copy()
+    expected[:, axis] = 2.0 * offset - expected[:, axis]
+    assert np.allclose(_world_positions(out), expected, atol=1e-6)
+    assert np.allclose(out.scale, obj.scale)
+    assert out.mesh is not obj.mesh
+
+
+@pytest.mark.parametrize("name", CLOSED)
+@pytest.mark.parametrize("axis", [0, 1, 2])
+def test_a_world_mirrored_object_is_still_wound_outward(name: str, axis: int) -> None:
+    """``mirror_world`` routes through :func:`mirror` for its mesh, which is
+    what obeys the module docstring's negative-scale rule; this is that
+    routing checked the same way the plain mirror is."""
+    defaults, build = bp.GENERATORS[name]
+    obj = _obj(name, build(**defaults), translation=(1.0, 2.0, 3.0))
+    out = ops.mirror_world(obj, axis, 0.5)
+
+    assert _max_directed_edge_use(out.mesh) == 1
+    assert _volume_sum(out.mesh) > 0.0
+
+
+def test_mirror_world_rejects_an_axis_that_is_not_one_of_three() -> None:
+    with pytest.raises(ValueError):
+        ops.mirror_world(_obj(), 3, 0.0)
+
+
 # --- snapping ----------------------------------------------------------------
 
 

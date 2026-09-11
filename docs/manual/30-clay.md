@@ -391,11 +391,28 @@ is metres of world space and is measured from the nearest selected vertex, not f
 the selection — dragging one end of a long strip fades out away from that end rather than along the
 strip. Setting the radius to zero is the same as switching it off.
 
-Two operations act on the whole selection. **Duplicate** (`Ctrl+J`) makes a copy under a new name,
-counting up — `Box`, `Box.001`, `Box.002`; duplicating several objects at once is one undo step, not
-one per copy. **Bake** folds an object's position, rotation and scale
-into its geometry and resets the transform to identity, which is what you want before measuring
-something or exporting it into a frame that has to match.
+Several operations act on the whole selection at once, and all of them are one undo step however
+many objects or copies they touch. **Duplicate** (`Ctrl+J`) makes a copy under a new name, counting
+up — `Box`, `Box.001`, `Box.002`. **Bake** folds an object's position, rotation and scale into its
+geometry and resets the transform to identity, which is what you want before measuring something or
+exporting it into a frame that has to match.
+
+**Array Linear...** copies the whole selection several times in a row, each copy a further step
+along `x`, `y` and `z` — a negative step runs the array backwards along that axis. `count` is the
+total number of instances, so `3` means two copies beside the original; it is capped at 200, a soft
+ceiling on outliner rows and document size rather than on memory, since every copy shares its
+source's geometry (arraying an array multiplies rather than adds, so two arrays near the ceiling can
+still exceed it). **Array Radial...** spins copies of the selection around the *world* origin, not
+the object's own centre — put the hub at the origin and one shape beside it, and this makes the rest
+of the spokes; reach a hub anywhere else by arraying at the origin first and moving the whole result
+together. `angle` is the total sweep in degrees (360 by default) and `axis` picks which world axis it
+turns about. At the default 360, `count` copies land evenly spaced all the way around the circle with
+no doubled spoke where the last one meets the first; short of a full turn, the copies instead reach
+exactly `angle` — a quarter-turn fan of four really does have one at 90 degrees — because a partial
+sweep has a real far end that a full turn does not. Unlike a mirror or a bake, a radial array only
+ever changes a copy's transform, so every copy stays exactly the primitive its generator describes
+and is still editable as one afterwards. Both arrays leave the whole group — originals and copies
+together — selected, so arraying an array compounds instead of losing the shapes you started with.
 
 ## The outliner
 
@@ -478,11 +495,19 @@ Three things it costs, which are why the merge is still here:
 Objects that do not touch at all are a perfectly good union: you get one object holding two separate
 shells, exactly as a merge at weld distance zero would give you.
 
-**Mirror X / Y / Z** reflects the object across a plane through its own origin. It is baked into the
+**Mirror X / Y / Z** reflects the object across a plane through its own origin, in place — the object
+you had is now its own mirror image, and nothing new is added to the document. It is baked into the
 mesh rather than expressed as a negative scale, and that is deliberate: glTF readers disagree about
 whether a negative scale flips the winding order, so an asset that used one would render correctly
 here and inside out in some engines, with nothing in the file to explain it. Mirroring here rebuilds
 the geometry and reverses the faces, which is true under every reader.
+
+**Mirror Copy...** is the other half of mirroring, and what the per-object Mirror X/Y/Z cannot do:
+it *duplicates* the selection and reflects the copies across a plane you place anywhere in *world*
+space, perpendicular to the axis you choose, at the `offset` you give it — which is what mirroring a
+limb across a body's centre-line means, with the original left exactly where it was. Like Mirror
+X/Y/Z the result is baked into the mesh for the identical reason, so a mirrored copy is no longer
+what its generator would build and its size field disappears from Properties.
 
 ## Axis views
 

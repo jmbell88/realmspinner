@@ -266,6 +266,32 @@ engine stopped being something you download whether or not you ever use it.
   through itself uncaught — a different admission from the one `torus`
   makes about its own `tube` parameter, since a whole path's turning radius
   has no cheap general test the way two numbers do.
+- **Clay can repeat and place a selection now, not only duplicate it once.**
+  **Array Linear...** copies the whole selection several times in a row,
+  each copy a further `x`/`y`/`z` step from the last — a negative step runs
+  it backwards along that axis — and **Array Radial...** spins copies around
+  the *world* origin over a chosen sweep and axis, which is what turns one
+  spoke placed beside the origin into a wheel of them. Both act on the whole
+  selection as a group rather than per object, both are one undo step
+  however many copies that makes, and every copy shares its source's mesh
+  the way a plain Duplicate's does — an array of sixty fence posts is one
+  GPU upload. `count` (total instances, so `3` means two new copies) is
+  capped at 200 per press: a soft ceiling on outliner rows and document
+  size, since the geometry itself costs nothing extra, and soft because two
+  arrays near the cap already exceed it. A radial array only touches a
+  copy's transform, so every copy stays exactly the live, editable primitive
+  its generator describes. **Mirror Copy...** is the third new op and the
+  other half of mirroring: where Mirror X/Y/Z replace an object with its own
+  reflection about a plane through its own centre, Mirror Copy duplicates
+  the selection and reflects the copies across a plane placed anywhere in
+  *world* space — mirroring a limb across a body's centre-line, which the
+  per-object mirror cannot express at all. Its mesh is baked for the
+  identical reason Mirror X/Y/Z's already is (glTF has no negative scale
+  every reader agrees on). Registering all three in the one op registry
+  (`clay_ops.OPS`) rather than listing them by hand is what puts them on the
+  context menu, the tools pane and the agent's `clay_op` tool in a single
+  edit — a test already asserts the agent's enum and the registry can never
+  disagree.
 - **The cutout you approve is now the cutout the 3D engine rebuilds from.**
   Check-the-cutout showed you Warlock's own background removal and then sent
   the engine the *untouched* reference, which the engine cut again with a

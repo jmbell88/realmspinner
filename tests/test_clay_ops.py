@@ -517,6 +517,202 @@ def test_mirror_bakes_into_the_mesh_and_leaves_the_scale_positive() -> None:
     assert doc.by_uid(uid).generator is None
 
 
+def _three_boxes_selected() -> tuple[bd.ClayDoc, list[int]]:
+    doc, first = _doc()
+    uids = [first]
+    for name in ("Box.001", "Box.002"):
+        obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name=name, mesh=bp.box()))
+        uids.append(obj.uid)
+    doc.select(uids)
+    return doc, uids
+
+
+# --- array-linear, array-radial, mirror-copy (repetition and placement) -----
+
+
+def test_array_linear_of_three_objects_five_times_is_one_undo_step() -> None:
+    """clay-01's reason (2026-09-06 audit), at more scale: fifteen inserts
+    must not be fifteen presses of Ctrl+Z to undo one keypress that made
+    them."""
+    doc, uids = _three_boxes_selected()
+    depth = len(doc.history)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=5, x=1.0) is True
+
+    assert len(doc.objects) == 3 + 3 * 4
+    assert len(doc.history) == depth + 1
+    assert doc.undo() is True
+    assert len(doc.objects) == 3
+
+
+def test_array_linears_copies_share_the_source_mesh() -> None:
+    """``ops.duplicate``'s own property, carried straight through ``translated``:
+    an array of many copies is one GPU upload, not one per copy."""
+    doc, uid = _doc()
+    doc.select([uid])
+    source = doc.by_uid(uid).mesh
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=4, x=1.0)
+
+    copies = [obj for obj in doc.objects if obj.uid != uid]
+    assert len(copies) == 3
+    assert all(copy.mesh is source for copy in copies)
+
+
+def test_array_linear_accepts_a_negative_step_and_runs_backwards() -> None:
+    doc, uid = _doc()
+    doc.select([uid])
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=3, x=-2.0)
+    xs = sorted(float(obj.translation[0]) for obj in doc.objects)
+    assert xs == pytest.approx([-4.0, -2.0, 0.0])
+
+
+def test_array_linear_leaves_the_whole_group_selected() -> None:
+    """So arraying an array compounds, rather than losing the originals the
+    next press would have wanted too."""
+    doc, uid = _doc()
+    doc.select([uid])
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=3, x=1.0)
+    assert doc.selection == {obj.uid for obj in doc.objects}
+
+
+def test_array_linear_count_is_clamped_to_its_documented_ceiling() -> None:
+    """``count`` needs a ceiling because every copy is one more outliner row
+    and one more ``Obj`` recorded in the document, not because of mesh
+    memory -- see ``clay_ops.MAX_ARRAY_COUNT``'s own comment for why 200."""
+    doc, uid = _doc()
+    doc.select([uid])
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-linear"), count=1e9, x=0.001)
+    assert len(doc.objects) == clay_ops.MAX_ARRAY_COUNT
+
+
+def test_array_radial_of_four_over_360_does_not_repeat_a_position() -> None:
+    """The off-by-one this op exists to avoid on a closed ring: dividing by
+    ``count - 1`` instead of ``count`` would land the last spoke back on the
+    first."""
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[2.0, 0.0, 0.0])
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=4, angle=360.0, axis=1)
+
+    positions = {tuple(np.round(obj.translation, 6)) for obj in doc.objects}
+    assert len(positions) == 4
+
+
+def test_array_radial_of_two_over_360_does_not_put_both_copies_in_the_same_place() -> None:
+    """The sharpest case of the closed-ring rule: at ``count == 2`` the wrong
+    (``count - 1``) divisor is 1, so the one copy would land exactly ``360``
+    degrees from the original -- the same position -- which is invisible at
+    any larger count where the copies are merely *evenly spaced* rather than
+    provably distinct."""
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[2.0, 0.0, 0.0])
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=2, angle=360.0, axis=1)
+
+    positions = {tuple(np.round(obj.translation, 6)) for obj in doc.objects}
+    assert len(positions) == 2
+
+
+def test_array_radial_of_four_over_90_degrees_reaches_90_degrees() -> None:
+    """The open-arc rule: a user who asks for 90 degrees means the copies
+    *reach* 90, not fall short of it the way dividing by ``count`` (the
+    closed-ring rule) would -- four copies over 90 would land at 22.5, 45 and
+    67.5, nothing at 90."""
+    from warlock.studio.clay import ops as clay_ops_geom
+
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[2.0, 0.0, 0.0])
+    original = doc.by_uid(uid)
+    expected_last = clay_ops_geom.rotated_about_origin(original, 1, 90.0).translation
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=4, angle=90.0, axis=1)
+
+    copies = [obj for obj in doc.objects if obj.uid != uid]
+    assert len(copies) == 3
+    assert any(np.allclose(obj.translation, expected_last, atol=1e-6) for obj in copies)
+
+
+def test_array_radial_of_two_over_a_partial_sweep_lands_the_copy_at_the_full_angle() -> None:
+    """``count == 2`` on an open arc divides by ``count - 1 == 1``, so the one
+    copy lands at ``angle`` exactly -- the degenerate case of the open-arc
+    rule, and the one most likely to silently regress to the closed-ring
+    divisor since ``1`` and ``2`` differ by so little."""
+    from warlock.studio.clay import ops as clay_ops_geom
+
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[2.0, 0.0, 0.0])
+    original = doc.by_uid(uid)
+    expected = clay_ops_geom.rotated_about_origin(original, 1, 40.0).translation
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=2, angle=40.0, axis=1)
+
+    copy = next(obj for obj in doc.objects if obj.uid != uid)
+    assert np.allclose(copy.translation, expected, atol=1e-6)
+
+
+def test_array_radial_leaves_its_copies_parametric_where_mirror_copy_freezes() -> None:
+    """A radial array only ever changes a copy's transform, so it is still
+    exactly the primitive its generator describes; a mirror-copy's mesh is
+    reflected and baked, so it cannot be."""
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[2.0, 0.0, 0.0])
+    clay_ops.run(_Ctx(), doc, clay_ops.get("array-radial"), count=2, angle=90.0, axis=1)
+    radial_copy = next(obj for obj in doc.objects if obj.uid != uid)
+    assert radial_copy.generator == "box"
+    assert radial_copy.params == {"size": (1.0, 1.0, 1.0)}
+
+    doc2, uid2 = _doc()
+    doc2.select([uid2])
+    clay_ops.run(_Ctx(), doc2, clay_ops.get("mirror-copy"), axis=0, offset=0.0)
+    mirrored_copy = next(obj for obj in doc2.objects if obj.uid != uid2)
+    assert mirrored_copy.generator is None
+    assert mirrored_copy.params == {}
+
+
+def test_array_radial_hint_names_the_world_origin_as_the_centre() -> None:
+    """A separate centre would need a three-number parameter ``Param`` cannot
+    express, so the world origin is a decision to state plainly rather than
+    a limitation to discover by surprise."""
+    hint = clay_ops.get("array-radial").hint.lower()
+    assert "origin" in hint
+    assert "own centre" in hint
+
+
+def test_mirror_copy_reflects_across_the_named_world_plane_and_leaves_the_source() -> None:
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[1.0, 0.0, 0.0])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-copy"), axis=0, offset=5.0) is True
+
+    assert len(doc.objects) == 2
+    source = doc.by_uid(uid)
+    assert np.allclose(source.translation, [1.0, 0.0, 0.0]), "the source is untouched"
+    copy = next(obj for obj in doc.objects if obj.uid != uid)
+    assert np.allclose(copy.translation, [9.0, 0.0, 0.0])  # 2*5 - 1
+
+
+def test_mirror_copy_is_one_undo_step_for_the_whole_selection() -> None:
+    doc, uids = _three_boxes_selected()
+    depth = len(doc.history)
+    clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-copy"), axis=0, offset=0.0)
+    assert len(doc.objects) == 6
+    assert len(doc.history) == depth + 1
+
+
+def test_mirror_copy_distinguishes_itself_from_mirror_x_y_z_in_its_hint() -> None:
+    """The manual draws the same distinction in the paragraph that already
+    describes Mirror X/Y/Z (docs/manual/30-clay.md); the hint is the one
+    place a user reaches for it mid-gesture."""
+    assert "Mirror X/Y/Z" in clay_ops.get("mirror-copy").hint
+
+
 def test_shade_smooth_in_face_mode_with_no_face_selection_is_refused_not_silent() -> None:
     """clay-06 (2026-09-08 audit): Shade Smooth/Flat are registered for both
     object and face mode, and were gated on ``has_objects`` alone -- an
