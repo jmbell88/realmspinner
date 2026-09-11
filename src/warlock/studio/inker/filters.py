@@ -305,6 +305,21 @@ def _straight(rgb: np.ndarray, alpha: np.ndarray, pixels: np.ndarray) -> np.ndar
     return cp.to_uint8_255(out)
 
 
+#: The widest Gaussian radius :func:`blur`/:func:`sharpen` will build a
+#: kernel for. ``RANGES["radius"]`` is what the slider offers and this is
+#: what the *functions* will do, :data:`DESPECKLE_MAX`'s and
+#: ``OUTLINE_MAX_SIZE``'s reason restated here: a stale settings entry or a
+#: caller passing a value past the slider (``apply_named`` fills a parameter
+#: in from whatever the panel remembers per filter, same as those two) must
+#: not reach the unaffordable case by going round the slider.
+#: ``filters.blur(pixels, radius=2000.0)`` on an 8x8 canvas measured 1.45s
+#: and 385MB (kernel width 8001, padding the whole plane by that amount on
+#: every side) against 0.001s at the slider's real maximum -- and
+#: ``preview_filter`` runs this on the frame thread. The 2026-09-11 audit,
+#: inker-08.
+BLUR_MAX_RADIUS = 32.0
+
+
 def blur(pixels: np.ndarray, *, radius: float = 2.0) -> np.ndarray:
     """Gaussian blur, alpha included, premultiplied so edges do not halo."""
     if radius <= 0.0:
@@ -369,8 +384,12 @@ def _gaussian(plane: np.ndarray, radius: float) -> np.ndarray:
 
 
 def _kernel(radius: float) -> np.ndarray:
-    sigma = max(float(radius), 1e-3) / 2.0
-    half = max(int(round(float(radius) * 2.0)), 1)
+    # The single choke point for both blur and sharpen (sharpen's unsharp
+    # mask calls _gaussian too), so BLUR_MAX_RADIUS's promise holds no matter
+    # which of the two, or a future third caller, asks for the kernel.
+    radius = min(float(radius), BLUR_MAX_RADIUS)
+    sigma = max(radius, 1e-3) / 2.0
+    half = max(int(round(radius * 2.0)), 1)
     x = np.arange(-half, half + 1, dtype=np.float32)
     weights = np.exp(-(x * x) / (2.0 * sigma * sigma))
     return (weights / weights.sum()).astype(np.float32)
@@ -1003,8 +1022,11 @@ RANGES: dict[str, tuple[float, float]] = {
     "gamma": (0.1, 4.0),
     # Shared by blur and sharpen: one name, one span, because a
     # radius that meant 0..32 in one popup and 0..8 in the next is a slider a
-    # user has to relearn per filter.
-    "radius": (0.0, 32.0),
+    # user has to relearn per filter. The slider's own top is BLUR_MAX_RADIUS
+    # -- what the *functions* will do independent of what asks -- so the two
+    # cannot drift apart the way DESPECKLE_MAX/RANGES["speck"] deliberately
+    # stay in step below.
+    "radius": (0.0, BLUR_MAX_RADIUS),
     "amount": (0.0, 3.0),
     # A radius in RGB space, whose long diagonal is 441 -- so 255 is not the
     # maximum possible distance, it is the largest one that is still a colour

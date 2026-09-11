@@ -427,6 +427,107 @@ def test_space_is_bound_even_with_no_device():
     assert ctx.toasts and "playback is unavailable" in ctx.toasts[0][0]
 
 
+def test_the_panic_key_withdraws_a_pattern_audition_still_rendering(monkeypatch):
+    """sirens-02 (the 2026-09-11 audit): Shift+Escape is the panic key --
+    ``handle_key``'s own comment says "silence right now" has to reach from any
+    focus -- but ``sirens_keys.release_all`` used to call ``sirens_audio.stop``
+    directly rather than ``sirens_play.stop``, so it never bumped
+    ``play_request`` and never cleared a tab's ``sounding``. A pattern audition
+    already rendering on a task thread at the moment of the press was still
+    judged "still wanted" by ``_still_wanted`` and played once its task landed,
+    seconds after the user asked for silence -- S1's bug (2026-09-05)
+    reintroduced through a second code path.
+    """
+    import pygame
+
+    from warlock.studio import sirens_audio
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    monkeypatch.setattr(sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_audio, "playing", lambda: False)
+    played: list[Any] = []
+    monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: played.append((a, k)) or True)
+
+    assert sirens_mode.play_pattern(ctx, tab)
+    # The completion the render task would eventually hand back, carrying the
+    # request tag that was live when the audition was submitted.
+    done = _Done(f"{sirens_mode.PATTERN_PREFIX}{tab.uid}", ctx.result, tag=ctx.tag)
+
+    assert sirens_mode.handle_key(ctx, _Event(pygame.K_ESCAPE, mod=pygame.KMOD_SHIFT))
+
+    sirens_mode.on_task_done(ctx, done)
+    assert not played
+
+
+def test_leaving_sirens_mode_stops_a_sounding_song(monkeypatch):
+    """sirens-03 (the 2026-09-11 audit). Switching away from Sirens mid-song
+    used to leave it sounding, with no visible transport and no way to stop it
+    short of returning to Sirens: ``sirens_keys.release_all`` was reachable
+    from nowhere but the panic key, so nothing called ``sirens_play.stop`` on
+    the way out.
+
+    ``state.set_mode`` is the one choke point every door -- the rail, the
+    palette, Esc -- already goes through, so this proves the real chain end to
+    end rather than restating any one link of it: the hook ``state.py``
+    exposes (``set_mode_leave``), the callback ``main.py`` installs through it
+    (``main._leave_sirens_if_needed``), and ``sirens_play.stop``'s own
+    withdrawal mechanism (S1, 2026-09-05) -- a bumped ``play_request`` and
+    every tab's ``sounding`` cleared, the same two facts
+    ``test_the_panic_key_withdraws_a_pattern_audition_still_rendering`` above
+    checks for the panic key's own copy of this call.
+    """
+    from warlock.studio import main as main_mod
+    from warlock.studio import state as state_mod
+    from warlock.studio.sirens_state import Sounding
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    tab.sounding = Sounding()  # a song genuinely on the mixer right now
+    st = sirens_mode.ensure(ctx)
+    before = st.play_request
+
+    ctx.state.mode = "sirens"
+    state_mod.set_mode_leave(lambda old: main_mod._leave_sirens_if_needed(ctx, old))
+    try:
+        assert state_mod.set_mode(ctx.state, "home") is True
+    finally:
+        # ``set_mode_gate``'s own reset rule (see test_mode_gate.py): a hook
+        # left installed leaks into whichever test runs next, in whatever
+        # order the suite happens to pick.
+        state_mod.set_mode_leave(None)
+
+    assert ctx.state.mode == "home"
+    assert st.play_request == before + 1, "the withdrawal counter must bump"
+    assert tab.sounding is None, "the tab must no longer claim to be sounding"
+
+
+def test_arriving_in_or_staying_within_sirens_does_not_stop_anything(monkeypatch):
+    """The hook fires on the mode being *left*, not on every switch -- moving
+    between two non-Sirens modes, or the same-mode press ``set_mode`` already
+    refuses, must not touch a song that was never Sirens' to begin with."""
+    from warlock.studio import main as main_mod
+    from warlock.studio import state as state_mod
+    from warlock.studio.sirens_state import Sounding
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    tab.sounding = Sounding()
+    st = sirens_mode.ensure(ctx)
+    before = st.play_request
+
+    ctx.state.mode = "clay"
+    state_mod.set_mode_leave(lambda old: main_mod._leave_sirens_if_needed(ctx, old))
+    try:
+        assert state_mod.set_mode(ctx.state, "sirens") is True
+        assert state_mod.set_mode(ctx.state, "sirens") is False, "same-mode press: no hook either"
+    finally:
+        state_mod.set_mode_leave(None)
+
+    assert st.play_request == before
+    assert tab.sounding is not None
+
+
 def test_delete_clears_the_block_under_the_caret():
     import pygame
 

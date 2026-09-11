@@ -713,7 +713,16 @@ def _error(ctx: Any, job: Any) -> None:
     if not imgui.tree_node("Details"):
         return
     key = "trellis-log"
-    if widgets.disabled_button("Read the trellis log", not ctx.busy(key)):
+    busy = ctx.busy(key)
+    if busy:
+        # The same idiom the wrap-preview and pixel-preview buttons use (see
+        # ``_wrap_preview``/``_pixel_preview`` below): a button that only greys
+        # out while the log is fetched reads as one that did nothing, and the
+        # 2026-09-11 audit (shell-12) found this the one busy-artifact button
+        # in the file that skipped it.
+        widgets.spinner()
+        imgui.same_line()
+    if widgets.disabled_button("Read the trellis log", not busy):
         ctx.submit(key, svc_system.trellis_log, ctx.svc)
     log_text = ctx.state.preview.get("trellis_log") if ctx.state.preview else None
     if log_text:

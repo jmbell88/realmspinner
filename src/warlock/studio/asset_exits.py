@@ -126,17 +126,27 @@ def icon_for(mode: str) -> str:
 def _status_reason(job: Any) -> str:
     """The one line every "not done yet" near miss shows, worded off the
     row's own status rather than a generic "unavailable" that says nothing
-    a reader could not already see from the status pill above it."""
+    a reader could not already see from the status pill above it.
+
+    Built from ``service.validation.STATUS_SENTENCES``/``not_done_message``
+    rather than a second hand-written mapping of the same four values --
+    ``create_stages.available``'s own docstring names the rule this used to
+    violate: "the wording is the service's own, verbatim, so the tooltip on
+    the disabled segment and the toast from the refusal it is predicting are
+    one sentence and not two paraphrases." Before the 2026-09-11 audit
+    (finding create-06) this function spelled "Still queued." beside
+    ``STATUS_SENTENCES``' "is still waiting in the queue" -- two spellings of
+    one fact, one edit away from drifting the moment either changed alone.
+    """
+    from ..service.validation import STATUS_SENTENCES, not_done_message
+
     status = str(job.get("status") or "")
-    if status == "queued":
-        return "Still queued."
-    if status == "running":
-        return "Still generating."
-    if status == "error":
-        return "This failed to generate."
-    if status == "cancelled":
-        return "This generation was cancelled."
-    return "Not finished yet."
+    if status not in STATUS_SENTENCES:
+        # A status this table does not name -- including "", which a job
+        # never actually carries. Honest rather than guessing at a sentence
+        # for a word nobody defined one for.
+        return "Not finished yet."
+    return not_done_message("This", status)
 
 
 def _files(job: Any) -> list[Any]:

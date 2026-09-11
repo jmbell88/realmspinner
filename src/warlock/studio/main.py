@@ -82,6 +82,11 @@ VERIFY_KEY = "verify-install"
 #: the pin releases by itself the moment the user picks another asset, rather
 #: than holding the viewport on a temporary GLB for the rest of the session.
 CHARACTER_PIN = "character_preview_pin"
+# create-02 (2026-09-11 audit): the parse/adopt split's own key for a
+# character preview's model load. Separate from ``VIEWER_KEY`` because the
+# two can be in flight at once -- the selection-driven sync and a build the
+# user just pressed "Preview character" for are not the same load.
+CHARACTER_PREVIEW_LOAD_KEY = "character-preview-load"
 
 #: Task keys whose **success** has nothing to do on the frame thread, listed so
 #: that everything else arriving unclaimed can be reported. Each is silent for
@@ -556,6 +561,30 @@ def initial_mode(settings: Any, available: Callable[[str], bool]) -> str:
     return remembered
 
 
+def _leave_sirens_if_needed(ctx: Any, old: str) -> None:
+    """``state.set_mode_leave``'s installed callback: silence Sirens on the
+    way out (sirens-03, the 2026-09-11 audit).
+
+    Leaving the mode mid-song used to leave it sounding with no visible
+    transport and no way to stop it short of returning to Sirens --
+    ``sirens_keys.release_all`` (the panic key's own verb, already routed
+    through ``sirens_play.stop`` rather than ``sirens_audio.stop`` alone,
+    sirens-02) was reachable from nowhere else. ``state.py`` cannot call
+    ``sirens_play.stop`` itself -- it must not import an editor module -- so
+    ``set_mode`` calls this hook instead, installed next to ``set_mode_gate``
+    in :meth:`App.setup_context`.
+
+    A module-level function rather than a closure folded into that
+    installation line, so a test can call it directly against a fake ``ctx``
+    with no App to boot -- the same reason :func:`initial_mode` above is one.
+    """
+    if old != "sirens":
+        return
+    from . import sirens_play
+
+    sirens_play.stop(ctx)
+
+
 class StartupRefused(Exception):
     """A named startup failure, with the sentence the user should read.
 
@@ -932,7 +961,7 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         # And the mode gate, at the one door every switch already goes through
         # (H14). Bound the same way and replaced the same way; ``state`` itself
         # must not learn what a Ctx is.
-        from .state import set_mode, set_mode_gate
+        from .state import set_mode, set_mode_gate, set_mode_leave
 
         # ``mode_gate`` rather than ``mode_block``: the refusal and the rail's
         # grey-out have to answer the same question, and since F4 that question
@@ -944,6 +973,12 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         # spelling of the one door.
         mode_available = lambda key: not model_gate.mode_gate(self.app_ctx, key)[0]  # noqa: E731
         set_mode_gate(mode_available)
+        # Bound the same way ``mode_available`` is, right above: a closure
+        # over this one ``Ctx``, so a second App in one process replaces it
+        # rather than stacking. The check itself is a module-level function
+        # (below) rather than folded into this lambda, so it is reachable
+        # from a test with a fake ctx and no App to boot.
+        set_mode_leave(lambda old: _leave_sirens_if_needed(self.app_ctx, old))
         self.app_ctx.load_presets = self.load_presets
         self.app_ctx.refresh_rig_data = self._refresh_rig_side_data
         self.eta = Eta()
@@ -1713,6 +1748,16 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                     # out of the way before it deletes it, so a failure part
                     # way through has already made the model absent.
                     self._refresh_model_answers()
+                elif done.key.startswith("pack:"):
+                    # shell-07 (2026-09-11 audit): ``_resume_deferred_quit``
+                    # used to be called only from ``_on_task_done``'s
+                    # success-only "pack:" branch, and a failed task is routed
+                    # away from there entirely -- so a quit ``_ask_quit``
+                    # deferred for a pack's commit phase (disk full, a locked
+                    # file, a network hiccup mid-write) was never resumed once
+                    # that install then failed, even though the toast it
+                    # showed promised "Quitting once it finishes."
+                    self._resume_deferred_quit()
                 elif done.key == REVIEW_MESH_KEY:
                     self._adopt_review_model(done)
                 elif done.key == VIEWER_KEY:
@@ -2027,7 +2072,10 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             matte_preview.on_task_done(ctx, done)
             return
         if key == "character-preview":
-            self._show_character_preview(done.result)
+            self._dispatch_character_preview(done.result)
+            return
+        if key == CHARACTER_PREVIEW_LOAD_KEY:
+            self._adopt_character_preview(done)
             return
         if key == "submit":
             # The press was taken, so whatever the last one was refused for is
@@ -2575,30 +2623,62 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             or "Building the character."
         )
 
-    def _show_character_preview(self, path: Any) -> None:
-        """Put a just-built character preview in the viewport, and keep it.
+    def _dispatch_character_preview(self, path: Any) -> None:
+        """Queue a just-built character preview's parse, off the frame thread.
 
-        ``_sync_viewer`` decides what to show from the *selection* alone, so a
-        preview loaded here is swapped back out on the next cache tick unless
-        something says otherwise. That something is the pin below, which is
-        ``_clear_viewport``'s idiom in the other direction: the path plus the
-        selection it was pinned under, so the pin releases by itself the moment
-        the user selects a different asset rather than sticking forever.
+        create-02 (2026-09-11 audit): this used to call ``viewer.load_model``
+        directly here -- the blocking glTF parse plus a PNG texture decode per
+        slot -- on the very frame the "character-preview" build task lands,
+        which is exactly the T2-class stall the 2026-09-02 review already
+        fixed for the reference-PNG and mesh-load paths (see
+        ``_sync_viewer``/``_adopt_model``). The build itself
+        (``svc_characters.preview_character``, under ``PREVIEW_KEY``) already
+        runs off-thread; only the load of its result was skipping the split.
         """
         ctx = self.app_ctx
         if path is None or self.viewer is None:
             return
         wanted = Path(path)
+        # create-03: the selection this dispatch was made under, carried as
+        # the task's tag and compared again at landing in
+        # ``_adopt_character_preview`` -- the same way ``viewer.pending``
+        # gates ``_adopt_model`` -- so a build that lands after the user has
+        # selected a different asset, entered Poser, or left Create's
+        # Reference stage cannot silently replace whatever the viewport shows
+        # by then.
+        token = str(getattr(ctx.state, "selected", "") or "")
+        ctx.submit(CHARACTER_PREVIEW_LOAD_KEY, self.viewer.parse_model, wanted, tag=(wanted, token))
+
+    def _adopt_character_preview(self, done: Any) -> None:
+        """Take a parsed character preview as the viewer's current model.
+
+        Frame thread only -- the GPU upload has to be, same reason as
+        ``_adopt_model``. ``_sync_viewer`` decides what to show from the
+        *selection* alone, so a preview adopted here is swapped back out on
+        the next cache tick unless something says otherwise; that something
+        is the pin set below, ``_clear_viewport``'s idiom in the other
+        direction.
+        """
+        from . import create_stages
+
+        ctx = self.app_ctx
+        if self.viewer is None or not isinstance(done.tag, tuple) or len(done.tag) != 2:
+            return
+        wanted, token = done.tag
+        # create-03: dropped, not adopted, once the token no longer matches --
+        # see ``_dispatch_character_preview`` for what it names.
+        if (
+            not create_stages.at(ctx.state, "reference")
+            or str(getattr(ctx.state, "selected", "") or "") != token
+        ):
+            return
         try:
-            self.viewer.load_model(wanted)
+            self.viewer.adopt_model(done.result, wanted)
         except Exception:
             log.exception("could not open the character preview %s", wanted)
             ctx.toast("Could not show that character preview.", "error")
             return
-        ctx.state.preview[CHARACTER_PIN] = (
-            str(wanted),
-            str(getattr(ctx.state, "selected", "") or ""),
-        )
+        ctx.state.preview[CHARACTER_PIN] = (str(wanted), token)
 
     def _clear_viewport(self) -> None:
         """Empty the canvas of whichever Create stage is on screen.
@@ -3098,12 +3178,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
 
             manual_render.toggle(ctx)
             return
+        # shell-09 (2026-09-11 audit): F10 is documented in the Ctrl+/ sheet's
+        # "Everywhere" section beside Ctrl+K, Ctrl+/, F1 and Esc -- and, like
+        # them, it is stateless and has no pane of its own to consume it, so it
+        # belongs above the Manual guard rather than being swallowed by it the
+        # way every *other* key correctly is.
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F10:
+            ctx.state.show_fps = not ctx.state.show_fps
+            return
         # **And the Manual owns it too.** It covers the app, and the workspace
         # arms below consume whatever they are handed against a pane the reader
         # cannot see: Delete in Create trashed the selected asset unconfirmed,
         # and a bare tool letter switched Inker's tool under the overlay. Esc
         # passes because the branch immediately below is what answers it, and
-        # Ctrl+K/Ctrl+//F1 are above for the reason they always are.
+        # Ctrl+K/Ctrl+//F1/F10 are above for the reason they always are.
         if (
             event.type == pygame.KEYDOWN
             and ctx.state.manual.open
@@ -3155,12 +3243,6 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
 
             if tour_pane.has_focus():
                 return
-        # Above the landing and Inker returns below: the frame rate is a
-        # property of the loop, not of whichever pane happens to be on screen,
-        # and the chooser is exactly where a slow startup would show.
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_F10:
-            ctx.state.show_fps = not ctx.state.show_fps
-            return
 
         if ctx.state.mode not in modes.WORK_MODES:
             # The Manual, Settings and Profiles have no form to submit and no
@@ -3591,6 +3673,28 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         # rather than warning about a quit it would then let through.
         if any(k.startswith("pack:") for k in busy):
             lines.append("A dependency pack is downloading and will be stopped.")
+        # shell-14 (2026-09-11 audit): the same shape as the three lines
+        # above, missing until now. ``review-launch`` fires twenty to forty
+        # job creations at once and ``review-delete``/``cleanup``/``remove``
+        # sweep them back out again -- a quit mid-either got none of the "X
+        # will be stopped" context downloads, exports and packs already give.
+        # ``review-scan``/``findings``/``scores`` are read-only and left out
+        # on purpose: interrupting a scan or a re-score loses nothing on disk.
+        from . import review_mode
+
+        if any(
+            k
+            in (
+                review_mode.LAUNCH_KEY,
+                review_mode.DELETE_KEY,
+                review_mode.CLEANUP_KEY,
+                review_mode.REMOVE_KEY,
+                review_mode.LABELS_KEY,
+                review_mode.TRAIN_KEY,
+            )
+            for k in busy
+        ):
+            lines.append("A review sweep is launching or being cleaned up and will be interrupted.")
         return "\n".join(lines)
 
     def _ask_quit(self) -> None:

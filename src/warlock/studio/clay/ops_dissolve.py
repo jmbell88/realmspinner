@@ -48,10 +48,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import topo
+from . import earclip, topo
 from .adjacency import adjacency
 from .elements import ElementSel, OpError
-from .mesh import Mesh, face_count
+from .mesh import Mesh, face_count, face_normals
 
 __all__ = ["dissolve_edges", "dissolve_faces", "dissolve_verts", "merge_groups"]
 
@@ -118,6 +118,86 @@ def _refuse_ring(rings: list[np.ndarray]) -> None:
         )
 
 
+#: The largest *concave* outline a merge will attempt to triangulate, well
+#: under MAX_DISSOLVED_RING itself.
+#:
+#: A first version of this fix put a size ceiling inside earclip's own
+#: ``corner_triangles``, past which a concave face silently kept the plain
+#: fan `fan_corners` already produced instead of running the ear search --
+#: bounded, but wrong in a new way: a fan across a reflex corner puts a
+#: triangle outside the polygon (earclip's own module docstring), and
+#: ``adjacency.check_manifold`` reads only CSR topology, which a wrong
+#: triangulation never changes, so nothing downstream could see that a
+#: well-formed, resolvable concave face -- one earclip would have
+#: triangulated correctly, just slowly -- had silently gotten a wedge that is
+#: not there. earclip's own "rendering never raises" tolerance is real and
+#: load-bearing (an exception from inside a draw takes down the frame loop),
+#: so that fallback is correct for a search that is genuinely stuck on a
+#: degenerate ring (self-intersecting, zero-area, all-collinear) -- but a
+#: ring that is merely *large* is not degenerate, and silently mistriangulating
+#: it is worse than refusing the edit that made it.
+#:
+#: So the guard moved up here instead, where refusing past a ceiling is
+#: already this op's own behaviour (see MAX_DISSOLVED_RING/_refuse_ring just
+#: above): a concave ring past this bound is refused by name before the merge
+#: commits it to a face earclip would have to search. earclip itself is
+#: unchanged and stays exactly as tolerant as it always was.
+#:
+#: The 2026-09-11 audit's clay-02 measured earclip's ear search directly on a
+#: realistic concave (zigzag/comb) ring -- exactly the shape this module's own
+#: docstring says a dissolve routinely produces -- at 897 ms at 1,600 corners
+#: and 3.63 s at 3,200: a clean quadratic trend that extrapolates to roughly
+#: 140 seconds at MAX_DISSOLVED_RING's own 20,000-corner ceiling, not the
+#: "well under a second" that comment claims (it assumes a roughly linear
+#: cost, which holds for a convex or lightly-concave ring but not for one
+#: that is concave enough to force the full O(n^2) search). The measured
+#: quadratic rate (897 ms / 1,600^2) puts one thousand corners at roughly
+#: 350 ms -- well under a second, with margin under the ~1,700-corner point
+#: where that stops being true.
+MAX_CONCAVE_DISSOLVE_RING = 1_000
+
+
+def _refuse_concave_ring(mesh: Mesh, vertex_rings: list[np.ndarray]) -> None:
+    """Refuse a concave ring past MAX_CONCAVE_DISSOLVE_RING, before the merge
+    commits it to a face earclip's O(n^2) ear search would have to walk.
+
+    Each ring in *vertex_rings* is a face's worth of *vertex* ids in winding
+    order -- the same shape ``mesh.loops`` stores, and what a caller with a
+    corner-index ring (:func:`_ring_corners`) gets by indexing through
+    ``mesh.loops`` before calling this, exactly as it indexes through
+    ``mesh.loops`` to build the real merged face.
+
+    Shared with :func:`~.ops_topo.fill_hole`, whose cap is the identical
+    "one n-gon, triangulated by earclip on the frame thread" shape -- a
+    hole's boundary has no more guarantee of convexity than a dissolved
+    region's does, so the same concave ring can appear there too.
+    """
+    for ring in vertex_rings:
+        if len(ring) <= MAX_CONCAVE_DISSOLVE_RING:
+            continue
+        # A throwaway single-face mesh just to ask face_normals/concave_faces
+        # the question -- the real merged face does not exist yet, and
+        # refusing here is the whole point of asking before it does.
+        virtual = Mesh(
+            positions=mesh.positions,
+            loops=np.asarray(ring, dtype="i4"),
+            starts=np.array([0, len(ring)], dtype="i4"),
+            material=np.zeros(1, dtype="i4"),
+            smooth=np.zeros(1, dtype=bool),
+        )
+        normals = face_normals(virtual)
+        is_concave = earclip.concave_faces(
+            virtual.positions, virtual.loops, virtual.starts, normals
+        )[0]
+        if is_concave:
+            raise OpError(
+                f"That merge would make a concave face with {len(ring):,} corners, "
+                f"too complex for Clay to triangulate without stalling -- past the "
+                f"{MAX_CONCAVE_DISSOLVE_RING:,} corners a concave merge can have. "
+                "Dissolve a smaller region."
+            )
+
+
 def _ring_corners(mesh: Mesh, group: np.ndarray) -> np.ndarray:
     """The group's outline as an ordered array of corner indices.
 
@@ -174,7 +254,10 @@ def merge_groups(mesh: Mesh, groups: list[np.ndarray]) -> tuple[Mesh, ElementSel
     reason.
 
     Refused past :data:`MAX_DISSOLVED_RING`, for the reason ``ops_subdiv``
-    refuses past ``MAX_SUBDIVIDED_FACES``.
+    refuses past ``MAX_SUBDIVIDED_FACES`` -- and, separately, refused past
+    :data:`MAX_CONCAVE_DISSOLVE_RING` when the outline is also concave, since
+    that is what actually drives earclip's triangulation cost past this size,
+    not corner count alone (see that constant's own comment).
     """
     real = [np.asarray(g, dtype="i8") for g in groups if len(g) > 1]
     if not real:
@@ -185,6 +268,7 @@ def merge_groups(mesh: Mesh, groups: list[np.ndarray]) -> tuple[Mesh, ElementSel
 
     rings = [_ring_corners(mesh, g) for g in real]
     _refuse_ring(rings)
+    _refuse_concave_ring(mesh, [mesh.loops[r] for r in rings])
     consumed = np.concatenate(real)
     keep = np.ones(face_count(mesh), dtype=bool)
     keep[consumed] = False

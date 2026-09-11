@@ -301,3 +301,23 @@ def test_disk_usage_of_a_store_that_is_not_there_is_zero_rather_than_an_error(sv
     found = svc_downloads.disk_usage(svc)
     assert found["files"] == 0
     assert found["bytes"] == 0
+
+
+def test_disk_usage_includes_the_downloaded_trellis_runtime_directory(svc):
+    """service-01 (2026-09-11 audit): the 2026-09-10 commit that split the
+    reconstruction engine out into its own ``trellis_runtime_dir`` -- not
+    nested under ``t2i_model_root`` the way ``trellis_models_dir`` is -- added
+    it as a third root everywhere else that reasons about the model store
+    (``fetch.removal_plan``, ``fetch.engine_dir``, this module's own
+    ``sweep_staging``) except here, so the Storage panel's "measured, not
+    declared" figure went blind the moment the engine was downloaded."""
+    svc.config.t2i_model_root.mkdir(parents=True, exist_ok=True)
+    svc.config.trellis_runtime_dir.mkdir(parents=True, exist_ok=True)
+    before = svc_downloads.disk_usage(svc)
+
+    (svc.config.trellis_runtime_dir / "trellis-server.exe").write_bytes(b"x" * 2048)
+
+    found = svc_downloads.disk_usage(svc)
+
+    assert found["files"] - before["files"] == 1
+    assert found["bytes"] - before["bytes"] == 2048

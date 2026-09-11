@@ -42,7 +42,7 @@ from typing import Any
 from .. import poselib, rigging
 from ..pipelines import sheet as sheetlib
 from .core import WarlockService
-from .errors import Conflict, Invalid, NotFound, invalid_from
+from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
 from .files import _staged_write
 
 log = logging.getLogger(__name__)
@@ -355,7 +355,21 @@ def revert(svc: WarlockService, template: str) -> dict[str, Any]:
             raise NotFound(
                 "this skeleton's clips have not been edited", field="template"
             )
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError as exc:
+            # The wrap lives here, not in poselib/rigging: the pure halves may
+            # not import service, and a locked file (antivirus, another
+            # program holding it open) is a real failure with a real remedy,
+            # not a generic error. Matches delete_pose/delete_library_pose's
+            # wording and shape -- the 2026-09-11 audit (poser-06) found this
+            # the one file-delete door in the segment that let a raw OSError
+            # through instead.
+            log.error("reverting the clip library for %s failed: %s", key, exc)
+            raise Failed(
+                "That clip library could not be reverted; a file may be "
+                "locked by another program."
+            ) from exc
         rigging.invalidate_clips()
     return library(svc, key)
 

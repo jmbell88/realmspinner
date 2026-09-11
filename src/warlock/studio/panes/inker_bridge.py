@@ -1166,72 +1166,54 @@ def open_convert(ctx: Any, tab: Any, *, to_mode: str = "") -> None:
     imgui.open_popup(CONVERT_POPUP)
 
 
-def _convert_mode_run(tab: Any, mode: str, method: str, max_colours: int) -> dict[str, Any]:
-    """Task thread only: the compute half of a mode-changing conversion.
-
-    Mirrors ``inker_palette_io.set_color_mode`` rather than calling it, for a
-    reason forced by this fix rather than chosen for its own sake:
-    ``set_color_mode`` re-checks ``tab.busy`` at its own top, and by the time
-    this runs, ``docmodes.start_save`` has already set ``tab.saving`` True to
-    lock the tab for the run -- calling through it here would refuse every
-    mode conversion against the very lock this fix added. ``set_color_mode``
-    itself is in ``inker_palette_io.py``, outside this fix's file list, so the
-    two are kept in step by hand: same three ``Document`` calls, same
-    "already this mode" and ``ValueError`` refusals, same labels (read from
-    ``inker_palette_io.COLOR_MODE_LABELS`` rather than copied). Only the
-    ``ctx.toast`` calls move -- to ``_done_convert`` (``inker_mode.py``), on
-    the frame thread the rest of Inker's async doors already toast from.
-    """
-    from .. import inker_palette_io
-
-    doc = tab.doc
-    if mode not in inker_palette_io.COLOR_MODES or doc.color_mode == mode:
-        return {"mode": True, "ok": False}
-    try:
-        if mode == "indexed":
-            moved = doc.convert_to_indexed(doc.palette or None, method, max_colours=max_colours)
-        elif mode == "grayscale":
-            moved = doc.convert_to_grayscale()
-        else:
-            moved = doc.convert_to_rgb()
-    except ValueError as exc:
-        label = inker_palette_io.COLOR_MODE_LABELS[mode]
-        return {"mode": True, "ok": False, "error": f"Cannot switch to {label}: {exc}."}
-    if not moved:
-        return {"mode": True, "ok": False}
-    return {
-        "mode": True,
-        "ok": True,
-        "color_mode": mode,
-        "palette_len": len(doc.palette) if mode == "indexed" else 0,
-        "transparent_index": doc.transparent_index if mode == "indexed" else 0,
-    }
-
-
 def apply_convert(ctx: Any, tab: Any) -> bool:
     """Answer the open session: snap onto a table, or enter indexed mode.
 
-    **Off the frame thread since the 2026-09-08 audit (finding inker-01).**
-    ``Document.convert_to_palette`` (``inker/_doc_indexed.py``) walks every
-    unique cel of the whole document through ``dither.convert``, and
-    Floyd-Steinberg's own docstring (``inker/dither.py``) measures that at
-    roughly 43 seconds for one 2048-square plane -- long enough, on an
-    8192-square canvas (``pixelguard.py``), to freeze the pygame frame loop
-    for the duration with no progress and no cancel. This used to call
-    ``commit_convert``/``set_color_mode`` inline; now it only decides *what*
-    to run and hands the run to ``ctx.submit``, the same compute-then-land
-    shape ``poll_inpaint``/``_decode_inpaint`` already use for a cheaper door.
-    ``_done_convert`` (``inker_mode.py``) lands the result and raises the
-    toast, because a toast raised from the task thread would be exactly the
-    kind of frame-thread state this fix is trying to stop touching from off
-    it. The mode branch cannot simply call ``set_color_mode`` from the task
-    thread for the same reason -- see ``_convert_mode_run``.
+    **Off the frame thread since the 2026-09-08 audit (finding inker-01), and
+    off the document since the 2026-09-11 audit (finding inker-07).** The
+    first fix moved the whole-document dither behind ``ctx.submit`` so the
+    pygame frame loop stopped freezing for it -- but the submitted callable
+    still called ``Document.commit_convert``/``cancel_convert``/
+    ``convert_to_indexed`` directly, which flip ``color_mode``, rewrite
+    ``layer.pixels``/``layer.indices`` and push undo history. That ran on the
+    ``TaskRunner`` worker thread while ``inker_canvas.draw()`` kept rendering
+    the same tab every frame with no ``tab.busy`` gate anywhere in the render
+    path, so the frame thread's texture upload raced the conversion's writes
+    for as long as the conversion ran.
 
-    A **mode** session cancels the preview before converting rather than
-    committing it, for ``commit_convert``'s own reason one level down: the
-    preview has already written converted pixels onto the current frame, and
-    ``convert_to_indexed``'s snapshot would otherwise record *those* as the
-    state to undo to -- one Ctrl+Z landing on a document that never existed.
+    So everything above the ``run`` closure below happens here, on the frame
+    thread, before ``ctx.submit`` is ever called: closing the preview session
+    and copying the whole document's planes (``Document.snapshot_convert_
+    planes``), and reading the handful of ``doc`` fields the compute needs
+    (``is_indexed``, ``palette``) as plain values. ``run`` itself only calls
+    the ``@staticmethod`` ``resolve_*`` functions on ``inker/_doc_indexed.py``
+    -- pure dithering over the copies just made, touching no ``self`` and
+    reachable without naming that module, since ``studio/inker/`` is not
+    named from outside the package (see its own ``__init__.py``) and these are
+    reached through ``tab.doc`` instead. The resolved planes travel back
+    through ``Done.result`` for ``_done_convert`` (``inker_mode.py``) to hand
+    to ``Document.convert_to_indexed``/``convert_to_palette``/
+    ``convert_to_grayscale``'s own ``_resolved`` parameter -- the actual
+    mutation and the undo push, on the calling thread, the same shape every
+    other heavy Inker door (inpaint landing, sheet merge, tileset import)
+    already lands its result on.
+
+    Which target the palette-snap (``mode == ""``) branch resolves onto has to
+    be decided here too, for the same reason: ``convert_to_palette`` redirects
+    to ``convert_to_indexed`` when the document is already indexed
+    (re-resolving index planes rather than snapping materialised RGBA), and
+    the *pure* compute differs by which way that goes -- index arrays or RGBA
+    ones -- so it cannot be decided after the task has already computed one.
+
+    Every branch closes the preview before doing anything else --
+    ``commit_convert``'s own reason one level down: the preview has already
+    written converted pixels onto the current frame, and a snapshot taken (or
+    a conversion landed) before they were put back would feed the task, or
+    the document, pixels the user never actually had. A no-op target (already
+    this mode, or already exactly this table) and the ``rgb`` target close it
+    through ``cancel_convert`` directly; every other target closes it as a
+    side effect of ``snapshot_convert_planes``, which is also where the
+    whole-document copy happens.
 
     Returns whether the job was accepted, not whether it landed -- the caller
     (``convert_popup``) already ignores the return value and closes the popup
@@ -1240,19 +1222,104 @@ def apply_convert(ctx: Any, tab: Any) -> bool:
     state = inker_mode.ensure(ctx)
     if tab is None or tab.busy:
         return False
+    doc = tab.doc
     table = list(state.convert_table)
     mode, state.convert_mode = state.convert_mode, ""
     method = state.convert_method
     max_colours = state.convert_max
     state.convert_uid = ""
 
+    if mode and mode == doc.color_mode:
+        # ``_convert_mode_run``'s old fast no-op, kept fast: no point opening
+        # a task (or even copying the document) for a conversion that would
+        # refuse immediately once it landed. The preview still has to close,
+        # exactly as it would have on the task thread before this fix.
+        doc.cancel_convert()
+        return False
+
+    # Everything from here down is a frame-thread read of ``doc`` -- the last
+    # ``run`` below will ever need, since ``tab.saving`` (set by
+    # ``docmodes.start_save`` further down) locks every other door onto this
+    # document until ``_done_convert`` clears it. The three ``resolve_*``
+    # references are captured rather than reached for through ``doc`` inside
+    # ``run`` itself -- they are ``@staticmethod``s (see ``_doc_indexed.py``),
+    # so this is the plain function each names, and ``run`` closing over the
+    # function instead of the document is what makes "touches no ``self``"
+    # true of its body rather than merely true of the functions it calls.
+    is_indexed = doc.is_indexed
+    doc_palette = list(doc.palette) if doc.palette else None
+    doc_transparent = doc.transparent_index
+
+    if not mode and method == "nearest" and table == (doc_palette or []):
+        # ``convert_to_palette``'s and ``convert_to_indexed``'s own no-op
+        # rule, checked before the whole-document copy below rather than
+        # after: nearest is idempotent on a document already snapped onto
+        # this exact table, in either mode, so there is nothing to dither and
+        # nothing worth copying for it. The preview still closes.
+        doc.cancel_convert()
+        return False
+
+    # ``rgb`` needs no plane data at all -- ``convert_to_rgb`` only drops index
+    # planes, and copying a whole document's pixels on the frame thread for a
+    # target that will not read one would be exactly the kind of avoidable
+    # frame-thread cost this fix exists to stop adding. It still has to close
+    # the preview, ``snapshot_convert_planes``'s other half.
+    if mode == "rgb":
+        doc.cancel_convert()
+        planes = None
+    else:
+        planes = doc.snapshot_convert_planes()
+    resolve_indexed = doc.resolve_indexed_convert
+    resolve_grayscale = doc.resolve_grayscale_convert
+    resolve_palette = doc.resolve_palette_convert
+
     def run() -> dict[str, Any]:
-        """Task thread only. Neither branch touches ``ctx`` or imgui."""
-        if mode:
-            tab.doc.cancel_convert()
-            return _convert_mode_run(tab, mode, method, max_colours)
-        ok = tab.doc.commit_convert(table, method)
-        return {"mode": False, "ok": ok, "count": len(table)}
+        """Task thread only. Pure compute -- no ``tab``/``doc``/``ctx``/imgui
+        access anywhere below; every input was captured above as a plain
+        value or a list of array copies, and the mutation this used to do
+        inline now happens in ``_done_convert`` instead."""
+        if mode == "indexed":
+            wanted, resolved = resolve_indexed(planes, doc_palette, method, 0, max_colours)
+            return {
+                "mode": True,
+                "target": "indexed",
+                "colours": wanted,
+                "method": method,
+                "transparent": 0,
+                "resolved": resolved,
+            }
+        if mode == "grayscale":
+            return {
+                "mode": True,
+                "target": "grayscale",
+                "resolved": resolve_grayscale(planes),
+            }
+        if mode == "rgb":
+            return {"mode": True, "target": "rgb"}
+        if is_indexed:
+            # ``convert_to_palette``'s own redirect rule, mirrored here since
+            # the pure compute has to be chosen before the task thread runs:
+            # the transparent slot moves with the document unless the new
+            # table is too short to hold it.
+            hole = doc_transparent if doc_transparent < len(table) else 0
+            wanted, resolved = resolve_indexed(planes, table, method, hole)
+            return {
+                "mode": False,
+                "target": "indexed",
+                "colours": wanted,
+                "method": method,
+                "transparent": hole,
+                "resolved": resolved,
+                "count": len(table),
+            }
+        return {
+            "mode": False,
+            "target": "palette",
+            "colours": table,
+            "method": method,
+            "resolved": resolve_palette(planes, table, method),
+            "count": len(table),
+        }
 
     docmodes.start_save(ctx, tab, f"inker-convert:{tab.uid}", run)
     return True

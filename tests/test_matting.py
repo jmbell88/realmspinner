@@ -64,6 +64,65 @@ def test_weights_on_disk_mean_available(tmp_path):
     assert matting.available(_config(tmp_path)) is True
 
 
+def test_weight_presence_checks_reject_a_directory_where_a_file_belongs(tmp_path):
+    """pipelines-06 (2026-09-11 audit): ``matting.available()`` and three
+    weight-presence gates in Text2Image (``_load``'s model_index.json,
+    ``_conditioned``'s ControlNet config.json, and its IP-Adapter weight
+    file) used ``Path.exists()`` rather than ``Path.is_file()``, so a
+    directory left where the file belongs (a partial/broken unpack -- the
+    same L01 shape ``doctor.py`` was fixed for) read as "present". These
+    gates exist to give an actionable "not found, download with: ..."
+    message before the expensive/heavy load path runs; a directory-shaped
+    corruption must not defeat that early exit.
+    """
+    import threading
+    from unittest.mock import MagicMock
+
+    from warlock.pipelines import text2image
+    from warlock.pipelines.conditioning import Conditioning
+
+    # 1. matting.available()'s config.json gate.
+    spec = models.MATTING_MODELS[models.DEFAULT_MATTING]
+    root = tmp_path / spec.dir_name
+    root.mkdir(parents=True)
+    (root / "config.json").mkdir()
+    assert matting.available(_config(tmp_path)) is False
+
+    # 2. Text2Image._load's model_index.json gate. The check runs before
+    # torch is imported, so this is reachable with no text2image extra
+    # installed.
+    t2i = text2image.Text2Image(models.BASE_MODELS["sdxl_cfg"], tmp_path)
+    (t2i._model_dir).mkdir(parents=True)
+    (t2i._model_dir / "model_index.json").mkdir()
+    with pytest.raises(RuntimeError, match="weights not found"):
+        t2i._load(None)
+
+    # 3. Text2Image._conditioned's ControlNet config.json gate.
+    t2i2 = text2image.Text2Image(models.BASE_MODELS["sdxl_cfg"], tmp_path)
+    t2i2._pipe = MagicMock()
+    cn_spec = models.CONTROLNETS["canny"]
+    cn_root = tmp_path / cn_spec.dir_name
+    cn_root.mkdir(parents=True)
+    (cn_root / "config.json").mkdir()
+    control_image = tmp_path / "hint.png"
+    _subject().save(control_image)
+    cond = Conditioning(control="canny", control_image=control_image)
+    with pytest.raises(RuntimeError, match="weights not found"):
+        t2i2._conditioned(cond, threading.Event())
+
+    # 4. Text2Image._conditioned's IP-Adapter weight-file gate.
+    t2i3 = text2image.Text2Image(models.BASE_MODELS["sdxl_cfg"], tmp_path)
+    t2i3._pipe = MagicMock()
+    ip_spec = models.IP_ADAPTERS["plus"]
+    weights = tmp_path / ip_spec.dir_name / ip_spec.subfolder / ip_spec.weight_name
+    weights.mkdir(parents=True)
+    ip_image = tmp_path / "ref.png"
+    _subject().save(ip_image)
+    cond2 = Conditioning(ip_adapter="plus", ip_image=ip_image)
+    with pytest.raises(RuntimeError, match="weights not found"):
+        t2i3._conditioned(cond2, threading.Event())
+
+
 def test_without_weights_the_flood_fill_produces_the_mask(tmp_path):
     mask, source = matting.mask(_subject(), _config(tmp_path))
     assert source == "flood"

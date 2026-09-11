@@ -193,27 +193,56 @@ def _tiles_tab(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
 
 
 def _tile_grid(ctx: Any, state: Any, ref: Any) -> None:
-    """Every tile as a button, wrapped to the pane. Selection is one integer."""
+    """Every visible tile as a button, wrapped to the pane. Selection is one integer.
+
+    **Clipped by row.** This used to submit one button per tile in the
+    tileset, every frame, with nothing bounding a tileset's tile *count* --
+    unlike the picker in ``plotter_tileset.py``, whose own docstring gives the
+    reason a picker draws the atlas as one image rather than a button per
+    tile ("a 16x16 tileset is 256 buttons, and imgui would spend a per-item
+    id, a hover test and a draw call on each of them every frame"). A
+    user-imported sheet sliced small -- a 2048x2048 PNG at 16x16 is 16,384
+    tiles -- made this grid draw over sixteen thousand buttons on the frame
+    thread every frame it was open (the 2026-09-11 audit, finding plotter-04).
+
+    ``ImGuiListClipper`` is already this app's answer to an unbounded list
+    (``packwright_sources.py``); here it clips by *row* rather than by item,
+    since this is a wrapped grid rather than a single-column list, so it
+    submits only the rows the visible, scrolled region can show and skips the
+    cursor past the rest.
+    """
 
     tileset = ref.tileset
     cell = sp(TILE_CELL)
+    spacing = imgui.get_style().item_spacing
     avail = max(1.0, imgui.get_content_region_avail().x)
-    across = max(1, int(avail // (cell + imgui.get_style().item_spacing.x)))
-    for local in range(len(tileset)):
-        if local % across:
-            imgui.same_line()
-        selected = local == int(state.editing_tile)
-        if controls.button(
-            f"{local}##tsedit-tile{local}",
-            (cell, cell),
-            selected=selected,
-            control_size=controls.ControlSize.COMPACT,
-        ):
-            state.editing_tile = local
-            # A shape selection names a position in *this* tile's tuple, so it
-            # means nothing on the next one.
-            state.tileset_shape = None
-            state.clear_tileset_drag()
+    across = max(1, int(avail // (cell + spacing.x)))
+    count = len(tileset)
+    rows = -(-count // across)  # ceil division, with no float rounding at the edge
+    row_height = cell + spacing.y
+    clipper = imgui.ListClipper()
+    clipper.begin(rows, row_height)
+    while clipper.step():
+        for row in range(clipper.display_start, clipper.display_end):
+            for col in range(across):
+                local = row * across + col
+                if local >= count:
+                    break
+                if col:
+                    imgui.same_line()
+                selected = local == int(state.editing_tile)
+                if controls.button(
+                    f"{local}##tsedit-tile{local}",
+                    (cell, cell),
+                    selected=selected,
+                    control_size=controls.ControlSize.COMPACT,
+                ):
+                    state.editing_tile = local
+                    # A shape selection names a position in *this* tile's
+                    # tuple, so it means nothing on the next one.
+                    state.tileset_shape = None
+                    state.clear_tileset_drag()
+    clipper.end()
     imgui.new_line()
 
 

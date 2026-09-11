@@ -412,8 +412,16 @@ class JobOps:
         block = params.get("troupe_sheet")
         if not block:
             return
+        # Validated, not merely non-empty -- the rule every source_job that
+        # becomes a path in this file follows (see the two branches in
+        # ``_discard_artifacts`` below). This was the one site that skipped
+        # it: params outlive the door that wrote them, and an unvalidated
+        # string reaches ``config.job_dir()`` -- a bare ``data_dir / job_id``
+        # with no containment check -- as a live filesystem probe, then gets
+        # written into a newly minted charsheet job's own params (the
+        # 2026-09-11 audit, finding service-04).
         source_job = str(params.get("source_job") or "")
-        if not source_job:
+        if not rigging.is_valid_id(source_job):
             return
         source_dir = self.config.job_dir(source_job)
         if not (source_dir / "rig.glb").exists():

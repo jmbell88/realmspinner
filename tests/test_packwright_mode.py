@@ -10,6 +10,7 @@ accepted silently drops every edit made while a pack was running.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -712,7 +713,12 @@ def test_a_recovered_atlas_reads_dirty_and_close_asks(tmp_path):
     ``PackTab.dirty`` delegates to the document -- so an adopt that only wrote
     ``tab.saved_head`` produced a *clean* recovered tab: one unprompted close
     skipped the confirm and ``drop()`` deleted the journal copy, the only
-    surviving copy of the work."""
+    surviving copy of the work.
+
+    ``_journal_adopt`` only submits now (packwright-01, below) -- the tab
+    appears once ``on_task_done`` lands the result, ``FakeCtx.submit``'s
+    inline-run shape.
+    """
     seed = FakeCtx()
     source = packwright_mode.new_document(seed)
     source.doc.add_source(_sprite("s0"))
@@ -721,12 +727,96 @@ def test_a_recovered_atlas_reads_dirty_and_close_asks(tmp_path):
 
     ctx = FakeCtx()
     assert packwright_mode._journal_adopt(ctx, path, {"title": "atlas"}) is True
+    packwright_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
     tab = ctx.state.packwright.docs[-1]
     assert tab.dirty is True, "recovered work is unsaved by definition"
 
     packwright_mode.close_tab(ctx, tab.uid)
     assert ctx.confirms.pending is not None, "closing recovered work must ask"
     assert ctx.state.packwright.get(tab.uid) is not None, "still open until answered"
+
+
+class _ThreadedCtx(FakeCtx):
+    """``submit`` on a real worker thread, joined -- so the test sees the task
+    half run where it would run, and a regression that moves the decode back
+    onto the calling thread shows up as that thread's name. The technique
+    ``tests/test_frame_thread_doors.py`` uses for every other frame-thread
+    door (``_Threaded`` there); kept local here since this file owns
+    Packwright's fix and that file's own door list is not this session's to
+    edit.
+    """
+
+    def submit(self, key: str, run: Any, *args: Any) -> bool:
+        self.submitted.append(key)
+        box: dict[str, Any] = {}
+
+        def go() -> None:
+            box["result"] = run(*args)
+
+        worker = threading.Thread(target=go, name="packwright-mode-test-worker")
+        worker.start()
+        worker.join()
+        self.result = box["result"]
+        return True
+
+
+def test_packwright_journal_adopt_reads_and_decodes_on_a_task_not_the_frame_thread(
+    tmp_path, monkeypatch
+):
+    """packwright-01 (the 2026-09-11 audit): ``_journal_adopt`` used to read
+    the ``.wpack`` and decompress every sprite PNG synchronously, on whatever
+    thread called it -- the frame thread, since the Recover button in
+    ``panes/landing.py`` calls ``journal.take`` -> ``journal.adopt`` ->
+    ``provider.adopt`` with no ``ctx.submit`` anywhere in that chain (unlike
+    Clay's and Inker's own providers, which already defer the same shape of
+    work). Measured at 137.7 ms for a 300-sprite/128px atlas -- an ~8-frame
+    freeze on one click.
+
+    Proved behaviourally: the decode runs on a real worker thread (not the
+    thread that called ``_journal_adopt``), and nothing is adopted into
+    ``ctx.state.packwright`` until the task's result is handed to
+    ``on_task_done`` -- a name check alone would still pass if someone kept
+    ``ctx.submit`` in the call but left the actual read+decode running inline
+    ahead of it.
+    """
+    seed = FakeCtx()
+    source = packwright_mode.new_document(seed)
+    source.doc.add_source(_sprite("s0"))
+    path = tmp_path / "atlas.wpack"
+    path.write_bytes(wpack.wpack_bytes(source.doc))
+
+    threads: list[str] = []
+    real_read = wpack.read_wpack
+
+    def spy(data: bytes) -> Any:
+        threads.append(threading.current_thread().name)
+        return real_read(data)
+
+    monkeypatch.setattr(wpack, "read_wpack", spy)
+
+    ctx = _ThreadedCtx()
+    assert packwright_mode._journal_adopt(ctx, path, {"title": "atlas"}) is True
+    # Submitted, not adopted: the read has run (on the worker thread, joined
+    # above), but no tab exists until on_task_done lands the result.
+    assert threads == ["packwright-mode-test-worker"]
+    assert ctx.state.packwright.docs == []
+
+    packwright_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result))
+    tab = ctx.state.packwright.docs[-1]
+    assert tab.title == "atlas (recovered)"
+    assert tab.dirty is True
+    assert tab.journal_name == path.name
+
+
+def test_a_recovered_atlas_that_will_not_parse_says_so(tmp_path):
+    """Through ``journal.adopt_failed`` (2026-09-05's sentence every provider
+    says), where a raise here would arrive as an *error* toast no other
+    mode's copy raises. Clay's sibling:
+    ``test_frame_thread_doors.py::test_a_recovered_clay_model_that_will_not_parse_says_so``.
+    """
+    path = tmp_path / "bad.wpack"
+    path.write_bytes(b"not a zip")
+    assert packwright_mode._load_recovery(path, {}) is None
 
 
 def test_export_library_refuses_while_the_pack_is_behind():

@@ -153,6 +153,59 @@ def test_import_with_nothing_parked_is_a_no_op() -> None:
     assert packwright_mode.import_tileset(ctx) is False
 
 
+# --- packwright-02 (2026-09-11 audit): the landing must not follow focus -----
+
+
+def test_a_tileset_import_lands_in_the_tab_that_requested_it_not_whichever_is_active() -> None:
+    """Tab A asks to add a tile set -- the decode is submitted under a key
+    carrying A's uid. Before it lands, the frame loop keeps pumping and the
+    user switches to tab B, ordinary since a background task never blocks it.
+    The decode lands (``on_task_done``, naming A in its key); only then does
+    the user answer the tile-size popup, which is drawn over whichever tab is
+    now active -- B. The sheet must still land in A, the tab that asked, not
+    B, the tab that merely happened to be focused when Import was pressed."""
+    ctx = FakeCtx()
+    tab_a = packwright_mode.new_document(ctx)
+    tab_b = packwright_mode.new_document(ctx)
+    state = packwright_mode.ensure(ctx)
+
+    state.activate(tab_a.uid)
+    key = f"packwright-tileset:{tab_a.uid}"
+
+    # The user switches away from A while the decode is presumed in flight.
+    state.activate(tab_b.uid)
+    assert state.active is tab_b
+
+    packwright_mode.on_task_done(
+        ctx, _Done(key, {"tileset": ("sheet.png", "sheet", _sheet()), "uid": tab_a.uid})
+    )
+    assert state.active is tab_b, "a background landing must not move the user's focus"
+
+    state.tileset_cell = (4, 4)
+    assert packwright_mode.import_tileset(ctx) is True
+    assert len(tab_a.doc.sources) == 3, "the tab that asked for the tile set gets it"
+    assert len(tab_b.doc.sources) == 0, "not the tab that happened to be active at Import"
+
+
+def test_import_declines_with_a_toast_if_the_requesting_tab_has_since_closed() -> None:
+    """The same window packwright-02 reproduces, one step later: the
+    requesting tab can close between the sheet landing and the Import press.
+    Silently adding the sheet to whichever tab is active would repeat the
+    same bug by another route; silently doing nothing would look like Import
+    did not work. It must say so."""
+    ctx = FakeCtx()
+    tab_a = packwright_mode.new_document(ctx)
+    _park(ctx, tab_a, _sheet())
+    state = packwright_mode.ensure(ctx)
+    state.tileset_cell = (4, 4)
+
+    state.close(tab_a.uid)  # the tab that asked is gone
+
+    assert packwright_mode.import_tileset(ctx) is False
+    assert state.tileset_import is None
+    assert ctx.toasts and ctx.toasts[-1][1] == "error"
+
+
 # --- dedup at the import door (Part I) ----------------------------------------
 
 
@@ -174,6 +227,11 @@ def _park_dups(ctx: FakeCtx, pixels: np.ndarray, cell: int = 4) -> Any:
     tab = packwright_mode.new_document(ctx)
     state = packwright_mode.ensure(ctx)
     state.tileset_import = ("sheet.png", "sheet", pixels)
+    # ``import_tileset`` now targets the tab named by ``tileset_import_uid``
+    # (packwright-02, above) rather than whichever tab is active -- this
+    # helper parks a sheet directly, bypassing the ``on_task_done`` landing
+    # that would normally set it, so it has to set it too.
+    state.tileset_import_uid = tab.uid
     state.tileset_cell = (cell, cell)
     return tab
 

@@ -490,6 +490,27 @@ def _vector(entry: dict[str, Any], key: str, default: tuple[float, ...]) -> Any:
     return value
 
 
+def _params(entry: dict[str, Any]) -> dict[str, Any]:
+    """An object entry's ``params`` field, or a refusal by name.
+
+    The 2026-09-11 audit, finding clay-07: this used to be
+    ``dict(entry.get("params") or {})`` with no check at all, unlike every
+    other field on this same entry (the uid, each ``_vector``, each
+    material's own fields) -- this module's stated rule, restated in
+    ``read_wblk``'s own docstring, is "a half-read document is worse than a
+    refused one". A hand-edited or corrupted archive with ``"params": 5`` or
+    ``"params": [1, 2, 3]`` reached ``dict(...)`` as a bare, un-messaged
+    ``TypeError`` instead of this reader's named refusal, and this file is
+    also what crash recovery reads with no user to ask first.
+    """
+    params = entry.get("params")
+    if params is not None and not isinstance(params, dict):
+        raise ValueError(
+            "an object in this clay document has a params that is not a mapping"
+        )
+    return dict(params or {})
+
+
 def _material_from(entry: dict[str, Any], textures: list[Any]) -> gltf.Material:
     """One material off the scene, refusing a malformed one by name.
 
@@ -652,7 +673,7 @@ def read_wblk(data: bytes) -> ClayDoc:
                     rotation=_vector(entry, "rotation", (0.0, 0.0, 0.0, 1.0)),
                     scale=_vector(entry, "scale", (1.0, 1.0, 1.0)),
                     generator=entry.get("generator"),
-                    params=dict(entry.get("params") or {}),
+                    params=_params(entry),
                     visible=bool(entry.get("visible", True)),
                     material=int(entry.get("material", 0)),
                 )

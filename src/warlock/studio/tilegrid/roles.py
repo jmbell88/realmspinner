@@ -81,6 +81,22 @@ class SheetRoles:
 #: each candidate costs a full pass over the cells.
 _BACKGROUND_CANDIDATES = 4
 
+#: The ceiling on how many cells :func:`infer_roles` will walk, declined
+#: (``None``) past it the way :func:`.slicing.detect_grid`'s own size-CV gate
+#: declines rather than iterates indefinitely -- this is an import-door
+#: heuristic that already returns ``None`` for every sheet that is not a
+#: complete terrain set, and a cell count this large is one more reason to
+#: decline, not a new kind of refusal. The 2026-09-11 audit (plotter-03)
+#: found this loop is pure Python, run up to four times (once per background
+#: candidate), with no ceiling on ``rows * cols`` before it starts -- and
+#: ``tile_w``/``tile_h`` are the *map's* tile size, legally as small as 1px,
+#: so an ordinary image opened onto a small-tile map extrapolates (measured
+#: ~84 microseconds/cell) to ~23 minutes of uncancellable work on one of
+#: TaskRunner's four threads. 65536 is a 256x256 grid of cells -- far past
+#: any real terrain set (47 columns by a handful of terrain rows) -- so a
+#: legitimate sheet never feels it.
+MAX_ROLE_CELLS = 256 * 256
+
 
 def _background_masks(
     pixels: np.ndarray, tile_w: int, tile_h: int
@@ -179,6 +195,9 @@ def infer_roles(pixels: np.ndarray, tile_w: int, tile_h: int) -> SheetRoles | No
     rows = array.shape[0] // tile_h
     cols = array.shape[1] // tile_w
     if rows * cols < blob.TILE_COUNT:
+        return None
+    # See MAX_ROLE_CELLS: declined before the walk, not after.
+    if rows * cols > MAX_ROLE_CELLS:
         return None
 
     for background, mode in _background_masks(array, tile_w, tile_h):

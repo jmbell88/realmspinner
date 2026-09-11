@@ -296,6 +296,84 @@ def test_a_dissolve_whose_outline_is_too_big_is_refused(monkeypatch) -> None:
         dis.dissolve_faces(m, el.ElementSel(faces=[0, 1, 3, 4]))
 
 
+def _comb_row(teeth: int) -> bm.Mesh:
+    """A row of *teeth* quads whose top edges alternate height.
+
+    Dissolving the whole row merges them into one n-gon whose top boundary
+    zigzags -- the concrete "routinely concave" shape this module's own
+    docstring names, and the shape the 2026-09-11 audit's clay-02 measured
+    earclip's ear search on.
+    """
+    n = teeth + 1
+    xs = np.arange(n, dtype="f4")
+    heights = np.where(np.arange(n) % 2 == 0, 1.0, 0.1).astype("f4")
+    bottom = np.stack([xs, np.zeros(n, dtype="f4"), np.zeros(n, dtype="f4")], axis=1)
+    top = np.stack([xs, np.zeros(n, dtype="f4"), heights], axis=1)
+    positions = np.concatenate([bottom, top], axis=0)
+    faces = [[i, i + 1, n + i + 1, n + i] for i in range(teeth)]
+    return bm.Mesh(
+        positions=positions,
+        loops=np.array([c for f in faces for c in f], dtype="i4"),
+        starts=topo.starts_from_counts([4] * teeth),
+        material=np.zeros(teeth, dtype="i4"),
+        smooth=np.zeros(teeth, dtype=bool),
+    )
+
+
+def test_a_zigzag_past_the_concave_bound_is_refused_not_mistriangulated() -> None:
+    """The 2026-09-11 audit's clay-02: ``MAX_DISSOLVED_RING``'s own comment
+    claims its 20,000-corner ceiling keeps earclip's ear search "well under a
+    second", but the search is quadratic in a *concave* ring's corner count.
+    Driving it directly on a realistic concave (zigzag) ring -- exactly what
+    this module's own docstring says a dissolve routinely produces -- measured
+    897 ms at 1,600 corners and 3.63 s at 3,200, a clean quadratic trend that
+    extrapolates to roughly 140 seconds at the pinned 20,000-corner ceiling,
+    not "well under a second".
+
+    A first version of this fix put a size ceiling inside earclip itself, past
+    which a concave face silently kept the plain fan instead of running the
+    ear search: bounded, but wrong in a new way a fan across a reflex corner
+    puts a triangle outside the polygon, and nothing downstream can see it,
+    because ``check_manifold`` reads only CSR topology and a wrong
+    triangulation changes no topology. The guard now lives in the op layer
+    instead (``ops_dissolve.MAX_CONCAVE_DISSOLVE_RING`` /
+    ``_refuse_concave_ring``), refusing the merge by name rather than quietly
+    mistriangulating it -- earclip itself is unchanged and stays exactly as
+    tolerant as it was (its own fan-on-stall fallback still exists, for a
+    genuinely degenerate ring, not for a merely large one).
+
+    Both sides of the real bound are checked, without referencing the
+    constant itself: a zigzag whose merge would be 1,202 corners must be
+    refused, naming the reason, before the merge runs at all -- and one whose
+    merge would be 998 corners -- comfortably under the real 1,000-corner
+    bound -- must still succeed and come back properly ear-clipped, not
+    fanned. That second half is what stops a future change from quietly
+    reintroducing the fan-fallback failure mode by other means.
+    """
+    over = _comb_row(teeth=600)  # would merge into a 1,202-corner zigzag
+    with pytest.raises(el.OpError, match="too complex"):
+        dis.dissolve_faces(over, el.ElementSel(faces=range(600)))
+
+    from warlock.studio.clay import earclip as ec
+
+    under = _comb_row(teeth=498)  # merges into a 998-corner zigzag
+    out, sel = dis.dissolve_faces(under, el.ElementSel(faces=range(498)))
+    bm.validate(out)
+    face = int(sel.faces[0])
+    normals = bm._face_normals(out)
+    assert ec.concave_faces(out.positions, out.loops, out.starts, normals)[face]
+    # ``_corner_triangles``/``_fan_corners`` return *corner* indices, unlike
+    # ``triangulate`` which maps them through ``loops`` into vertex ids --
+    # the same pair ``test_earclip.py`` compares for exactly this reason.
+    tris, tri_face = bm._corner_triangles(out)
+    got = tris[tri_face == face]
+    want, want_face = bm._fan_corners(out)
+    want = want[want_face == face]
+    assert not np.array_equal(got, want), (
+        "under the bound, the zigzag face must still be properly ear-clipped, not fanned"
+    )
+
+
 def test_the_ceiling_is_far_above_any_ordinary_dissolve() -> None:
     """It must not be felt: the 2x2 block above is an eight-corner outline."""
     assert dis.MAX_DISSOLVED_RING >= 20_000

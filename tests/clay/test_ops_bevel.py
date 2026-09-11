@@ -147,6 +147,38 @@ def test_loop_cut_refuses_a_boundary_edge_and_a_bad_selection() -> None:
         ob.loop_cut(m, el.ElementSel(edges=[[0, 5]]))
 
 
+def test_loop_cut_refuses_past_the_size_ceiling_but_not_an_ordinary_cut() -> None:
+    """The 2026-09-11 audit's clay-01: loop_cut had no size ceiling at all,
+    unlike bevel_edges's own MAX_BEVELED_CORNERS/_refuse_size a few lines
+    below it in this same module -- so a loop cut across a long strip on an
+    imported mesh (a terrain grid, a long cylinder) had nothing to refuse it
+    before the walk ran on the frame thread.
+
+    Both halves matter: a mesh just past ob.MAX_LOOP_CUT_CORNERS must be
+    refused up front, naming the corner count, rather than walking it -- and
+    an ordinary mesh well under the ceiling must still cut normally. A
+    ceiling that refused every mesh, not only the oversized one, would pass a
+    test that only checked the first half just as easily as no ceiling at all
+    passes a test that never builds an oversized mesh.
+    """
+    n = 320  # 4 * n * n = 409,600 corners, just past MAX_LOOP_CUT_CORNERS
+    big = _grid(n, n)
+    assert len(big.loops) > ob.MAX_LOOP_CUT_CORNERS
+    a = adj.adjacency(big)
+    rung = a.edge_verts[a.edge_uses == 2][0]
+    with pytest.raises(el.OpError, match="past the"):
+        ob.loop_cut(big, el.ElementSel(edges=[rung]))
+
+    small = _grid(3, 1)
+    assert len(small.loops) < ob.MAX_LOOP_CUT_CORNERS
+    a2 = adj.adjacency(small)
+    rung2 = a2.edge_verts[a2.edge_uses == 2][0]
+    out, sel = ob.loop_cut(small, el.ElementSel(edges=[rung2]))
+    bm.validate(out)
+    assert bm.face_count(out) == 6, "an ordinary cut, well under the ceiling, still runs"
+    assert len(sel.edges) == 3
+
+
 def test_loop_cut_refuses_where_neither_face_is_a_quad() -> None:
     m = prim.cone(segments=6)  # triangles all the way round
     a = adj.adjacency(m)

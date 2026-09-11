@@ -63,3 +63,15 @@ table, the colour-conflict advisor, preset plumbing, sweep axes and ~35 test
 files coupled to the tables. The user's brief is the prompt; the surviving
 fields are the ones that select *machinery* (platform resolution, base model,
 style LoRA, conditioning), not adjectives.
+
+## What this retired along with the fields
+
+[`2026-08-10-zelda-props.md`](2026-08-10-zelda-props.md) is a pre-registration
+written seven days before this document and never run. Its whole procedure
+varies `art_style`, `condition` and `genre` and drives them through
+`scripts/sweep_zelda_*.py` — the fields and the scripts this retirement deleted
+— so it cannot be executed as written, and it has been marked retired-unrun at
+its head. Neither document referenced the other until the 2026-09-11 audit
+(finding docs-07) found the first one live and unmarked. A depiction sweep is
+still worth taking; it wants pre-registering afresh against the fields that
+survived, not resurrecting against the ones that did not.

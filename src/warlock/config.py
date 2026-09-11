@@ -425,8 +425,12 @@ class Config:
     # Width of the narrow band the DC remesh runs over. The exe defaults it to
     # res/512 when the flag is absent, which is what None gives you.
     #
-    # Measured 2026-08-01 (`warlock sweep`, one reference image, seed 42,
-    # res 1024, hole_fraction @ 1024) -- worst-view see-through fraction:
+    # Measured 2026-08-01 and written up in
+    # docs/measurements/2026-08-01-trellis-band.md (the document was backfilled
+    # on 2026-09-11 after an audit found this table living only here, in the one
+    # constant CLAUDE.md names as the example of a corpus-keyed one).
+    # (`warlock sweep`, one reference image, seed 42, res 1024,
+    # hole_fraction @ 1024) -- worst-view see-through fraction:
     #
     #     auto  0.0077   267,360 faces   123 s   (res/512 == band 2 here)
     #     2     0.0077   266,632 faces   143 s

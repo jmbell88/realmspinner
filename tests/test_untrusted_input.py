@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 from warlock.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
-from warlock.studio.inker import asein, ora, sheetout
+from warlock.studio.inker import asein, gpl, ora, sheetout
 from warlock.studio.plotter import tmx, tsx, wmap
 from warlock.studio.tilegrid.tileset import Tileset
 from warlock.studio.viewer import gltf
@@ -98,11 +98,46 @@ def _ora(stack: str, members: dict[str, bytes] | None = None) -> bytes:
     return out.getvalue()
 
 
+def _ora_deflated(stack: str, members: dict[str, bytes] | None = None) -> bytes:
+    """``_ora``, but compressed -- for the cases where the archive's own size
+    is the point: a repetitive text or JSON member compresses far better than
+    ``_ora``'s default ``ZIP_STORED`` lets it show."""
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mimetype", "image/openraster")
+        zf.writestr("stack.xml", stack)
+        for name, data in (members or {}).items():
+            zf.writestr(name, data)
+    return out.getvalue()
+
+
 def _aseprite(width: int, height: int) -> bytes:
     """A 128-byte Aseprite header and one empty frame."""
     head = bytearray(128)
     struct.pack_into("<IHHHHHI", head, 0, 128 + 16, 0xA5E0, 1, width, height, 32, 0)
     frame = struct.pack("<IHHHHI", 16, 0xF1FA, 0, 100, 0, 0)
+    return bytes(head) + frame
+
+
+def _aseprite_with_empty_layers(width: int, height: int, n_layers: int) -> bytes:
+    """A one-frame (still) Aseprite file naming *n_layers* layers, none with a
+    cel -- the shape ``document_from_aseprite``'s still-document branch turns
+    into ``n_layers`` fresh ``Layer.empty(width, height, ...)`` calls."""
+
+    def layer_chunk() -> bytes:
+        # flags=1 (visible), type=0 (image), child_level/def_w/def_h/blend=0,
+        # opacity=255, reserved(3), name_len=0.
+        payload = struct.pack("<HHHHHH", 1, 0, 0, 0, 0, 0) + bytes([255]) + b"\0\0\0\0\0"
+        return struct.pack("<IH", len(payload) + 6, 0x2004) + payload
+
+    chunks = b"".join(layer_chunk() for _ in range(n_layers))
+    frame = (
+        struct.pack("<IHHHH", 16 + len(chunks), 0xF1FA, min(n_layers, 0xFFFF), 100, 0)
+        + struct.pack("<I", n_layers)
+        + chunks
+    )
+    head = bytearray(128)
+    struct.pack_into("<IHHHHHI", head, 0, 128 + len(frame), 0xA5E0, 1, width, height, 32, 0)
     return bytes(head) + frame
 
 
@@ -232,6 +267,115 @@ def test_an_ora_layer_count_has_a_ceiling(tmp_path, monkeypatch):
     assert placed < count
 
 
+def test_an_ora_palette_gpl_row_count_has_a_ceiling(tmp_path):
+    """``palette.gpl`` is plain text with no size-bearing header field, and for
+    an RGB or grayscale document its rows land straight on ``doc.palette`` with
+    no length check anywhere in the chain -- unlike the indexed path, which is
+    bounded by ``ixp.MAX_COLOURS`` (256). Text compresses extremely well inside
+    a zip member, so ``zipguard``'s 1 GiB member ceiling alone would allow
+    roughly 179,000,000 rows of this shape."""
+    from PIL import Image
+
+    tiny = io.BytesIO()
+    Image.new("RGBA", (1, 1), (0, 0, 0, 255)).save(tiny, "PNG")
+    gpl_text = "GIMP Palette\nName: bomb\nColumns: 0\n#\n" + "0 0 0\n" * 200_000
+    path = tmp_path / "bomb.ora"
+    path.write_bytes(
+        _ora_deflated(
+            '<image w="1" h="1"><stack>'
+            '<layer name="L" src="t.png" x="0" y="0"/>'
+            "</stack></image>",
+            {"t.png": tiny.getvalue(), "palette.gpl": gpl_text.encode()},
+        )
+    )
+    # A few hundred KB compressed, nowhere near zipguard's 1 GiB member cap --
+    # the amplification is entirely in what gets built from it, not the file.
+    assert path.stat().st_size < 1 << 18
+
+    # ``_read_palette`` is tolerant like the rest of this reader: an oversized
+    # table costs the palette, never the file, so the document still opens.
+    doc = ora.read_ora(path)
+    assert doc.palette is None or len(doc.palette) <= gpl.MAX_PALETTE_ROWS
+
+
+def test_an_ora_tiles_json_cannot_repeat_one_tileset_without_a_ceiling(tmp_path):
+    """``_read_tiles`` decoded every ``tilesets`` entry independently through
+    ``pixelguard`` with no per-document budget and no cache keyed by member
+    name, so one small PNG named many times in ``tiles.json`` cost one
+    independent full decode per name."""
+    from PIL import Image
+
+    tile_px = 512
+    tile_png = io.BytesIO()
+    Image.new("RGBA", (tile_px, tile_px), (10, 20, 30, 255)).save(tile_png, "PNG")
+    layer_png = io.BytesIO()
+    Image.new("RGBA", (1, 1), (0, 0, 0, 255)).save(layer_png, "PNG")
+    n_tilesets = 500
+    tiles_json = json.dumps(
+        {
+            "version": 1,
+            "tilesets": [
+                {"name": "t", "tile_w": tile_px, "tile_h": tile_px, "data": "data/tile.png"}
+                for _ in range(n_tilesets)
+            ],
+            "cels": [],
+        }
+    )
+    path = tmp_path / "tiles.ora"
+    path.write_bytes(
+        _ora(
+            '<image w="1" h="1"><stack>'
+            '<layer name="L" src="data/layer0.png" x="0" y="0"/>'
+            "</stack></image>",
+            {
+                "data/layer0.png": layer_png.getvalue(),
+                "data/tile.png": tile_png.getvalue(),
+                "tiles.json": tiles_json.encode(),
+            },
+        )
+    )
+    assert path.stat().st_size < 1 << 16
+
+    # ``_read_tiles`` degrades this member the way every optional member here
+    # does: the refusal is logged and the document still opens, with the
+    # tileset structure dropped rather than five hundred independent decodes
+    # run. What matters is that it never builds 500 slots.
+    doc = ora.read_ora(path)
+    assert len(doc.tilesets) < n_tilesets
+
+
+def test_an_ora_animation_json_cannot_declare_unbounded_tracks(tmp_path):
+    """``_read_animation`` built one ``Track`` per ``tracks`` entry (and one
+    ``Frame`` per ``frames`` entry) with no ceiling, and ``read_ora`` goes on to
+    call ``anim.layers_for`` immediately -- one full-canvas ``Layer`` per track,
+    the exact shape ``_layer_budget`` already bounds on the flat layer path."""
+    n_tracks = 200_000
+    animation = json.dumps(
+        {
+            "version": 1,
+            "frames": [{"duration_ms": 100}],
+            "tracks": [{} for _ in range(n_tracks)],
+            "cels": [],
+        }
+    )
+    path = tmp_path / "tracks.ora"
+    path.write_bytes(
+        _ora_deflated(
+            '<image w="64" h="64"><stack>'
+            '<layer name="Layer 1" x="0" y="0" opacity="1.000000"'
+            ' visibility="visible" composite-op="svg:src-over"/>'
+            "</stack></image>",
+            {"animation.json": animation.encode()},
+        )
+    )
+    assert path.stat().st_size < 4096
+
+    # An oversized grid degrades the same way every other way of being wrong
+    # in this member does: a log line and the flat read, never 200,000 tracks.
+    doc = ora.read_ora(path)
+    assert doc.anim is None or len(doc.anim.tracks) < n_tracks
+
+
 def test_an_aseprite_canvas_size_has_a_ceiling():
     """Both fields are u16 and were checked only for ``< 1``; 65535 squared is
     17 GB on the first drawable row."""
@@ -242,6 +386,35 @@ def test_an_aseprite_canvas_size_has_a_ceiling():
     # The floor still refuses what it always refused.
     with pytest.raises(ValueError, match="not one to draw on"):
         asein.parse(_aseprite(0, 8))
+
+
+def test_a_single_frame_aseprite_with_many_empty_layers_has_a_ceiling(monkeypatch):
+    """A still document's no-cel rows each cost one fresh full-canvas array via
+    ``Layer.empty`` -- the animated branch shares one placeholder plane across
+    every empty slot for exactly this reason, and a still document had no
+    equivalent bound at all: a 2,544-byte file naming 100 empty layers at
+    1024x1024 cost 424 MiB."""
+    from warlock.studio.inker import composite
+
+    count = 100
+    data = _aseprite_with_empty_layers(1024, 1024, count)
+    assert len(data) < 4096
+
+    # The refusal has to land before the allocations, not after: counting
+    # ``composite.empty`` calls is what says so, the same proof
+    # ``test_an_ora_layer_count_has_a_ceiling`` uses for its own budget.
+    built = 0
+    real = composite.empty
+
+    def counted(*args, **kwargs):
+        nonlocal built
+        built += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(composite, "empty", counted)
+    with pytest.raises(ValueError, match="layers"):
+        asein.document_from_aseprite(data)
+    assert built < count
 
 
 def test_a_gif_is_bounded_by_composed_pixels_and_not_by_its_file_size(

@@ -28,7 +28,7 @@ def _admitted(monkeypatch):
 
 
 def _wav(seconds: float, rate: int = 44100) -> bytes:
-    """A silent 16-bit stereo take -- the format ``WARLOCK 5/5`` writes."""
+    """A silent 16-bit stereo take -- the format ``WARLOCK 5/6`` writes."""
     frames = np.zeros((int(seconds * rate), 2), dtype="<i2")
     out = io.BytesIO()
     with wave.open(out, "wb") as handle:
@@ -151,6 +151,44 @@ def test_an_extend_past_the_sampler_ceiling_is_refused_even_though_max_duration_
     assert door.MAX_EXTEND_DURATION < door.MAX_DURATION
 
 
+@pytest.fixture
+def boundary_parent(svc):
+    """A take whose length is picked so that one minimal extend lands strictly
+    *inside* the ~0.09s gap between the vendored sampler's true frame ceiling
+    (``door._extend_frame_ceiling_seconds()``, ~239.907s) and the round
+    ``MAX_EXTEND_DURATION`` (240.0s) the door used to compare against -- the
+    2026-09-11 audit, finding muse-02.
+    """
+    gap_target = (door._extend_frame_ceiling_seconds() + door.MAX_EXTEND_DURATION) / 2.0
+    duration = gap_target - door.MIN_WINDOW
+    made = door.create_music_job(svc, prompt="dark ambient, dungeon", duration=duration)
+    job_id = made["id"]
+    (svc.config.job_dir(job_id) / "track.wav").write_bytes(_wav(duration))
+    svc.store.set_status(job_id, "done")
+    return job_id
+
+
+def test_an_extend_landing_inside_the_frame_truncation_gap_is_refused(svc, boundary_parent):
+    """the 2026-09-11 audit, finding muse-02: the door compared a requested
+    duration against the round ``MAX_EXTEND_DURATION = 240.0`` seconds, but
+    the vendored sampler truncates to frames first
+    (``max_infer_fame_length = int(240 * 44100 / 512 / 8)``, ~239.907s once
+    converted back) -- a ~0.09s gap in which a request cleared this door and
+    still landed inside the vendored trim path (WARLOCK 6/6) at generation
+    time, contradicting the door's own comment that the sampler's extend path
+    is refused here rather than reached at all.
+
+    Reproduced against the unfixed code: ``boundary_parent`` plus one
+    ``MIN_WINDOW`` extend sits inside the gap, and the old
+    ``duration > MAX_EXTEND_DURATION`` check does not raise for it.
+    """
+    with pytest.raises(Invalid) as caught:
+        door.derive_music_job(
+            svc, boundary_parent, task="extend", extend_left=door.MIN_WINDOW
+        )
+    assert caught.value.field == "extend_right"
+
+
 def test_a_loop_centres_its_window_and_records_the_roll(svc, parent):
     """A loop is Muse's own name for a repaint across a rolled joint.
 
@@ -250,3 +288,83 @@ def test_a_refused_derivation_leaves_nothing_on_disk(svc, parent):
     with pytest.raises(Invalid):
         _derive(svc, parent, task="extend", extend_right=900.0)
     assert set(svc.config.job_dir("").iterdir()) == before
+
+
+# --- the vendored reattach arithmetic (the 2026-09-11 audit, finding
+# muse-02) -------------------------------------------------------------------
+
+
+def test_extend_near_the_240s_ceiling_reattaches_the_correct_pad_tensor_on_the_time_axis():
+    """``pipeline_ace_step.py``'s vendored post-loop ``if is_extend:`` reattach
+    (WARLOCK 6/6) had its ``to_left_pad_gt_latents`` arm concatenate the
+    *other* arm's variable -- ``to_right_pad_gt_latents``, ``None`` unless a
+    right-extend trim *also* ran in the same call -- on ``dim=0``, the batch
+    axis, instead of its own variable on ``dim=-1``, the time axis its
+    sibling arm above already uses. A right-extend-only trim (an extend
+    request whose *forward* padding, not backward, is what actually reaches
+    the sampler's own ~239.907s frame ceiling) sets only
+    ``to_left_pad_gt_latents``, so the unfixed line executed
+    ``torch.cat([None, target_latents], dim=0)``.
+
+    This does not run the pipeline -- it needs weights and a GPU, which the
+    audit's own testing note says not to try. Instead it execs the *exact*
+    reattach block out of the vendored source file (matched by the code
+    around it, the same technique ``test_music_format.py`` uses for this same
+    file) against small fake tensors, so it exercises the line actually
+    shipped rather than a reimplementation of it -- a re-vendoring that
+    reintroduces the bug still fails this.
+
+    Reproduced against the unfixed code: ``torch.cat`` raises
+    ``TypeError: expected Tensor as element 0 in argument 0, but got
+    NoneType``.
+    """
+    import re
+    from pathlib import Path
+
+    import torch
+
+    pipeline_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "warlock"
+        / "pipelines"
+        / "acestep"
+        / "pipeline_ace_step.py"
+    )
+    source = pipeline_path.read_text(encoding="utf-8")
+    match = re.search(
+        r"(        if is_extend:\n"
+        r"            if to_right_pad_gt_latents is not None:\n"
+        r".*?\n)"
+        r"        return target_latents",
+        source,
+        re.S,
+    )
+    assert match is not None, (
+        "the extend reattach block was not found -- was the vendor copy reshaped?"
+    )
+    block = match.group(1)
+
+    frame_length = 3
+    pad_length = 2
+    target_latents = torch.arange(frame_length, dtype=torch.float32).reshape(
+        1, 1, 1, frame_length
+    )
+    left_pad = -torch.arange(1, pad_length + 1, dtype=torch.float32).reshape(
+        1, 1, 1, pad_length
+    )
+    namespace = {
+        "torch": torch,
+        "is_extend": True,
+        "to_right_pad_gt_latents": None,
+        "to_left_pad_gt_latents": left_pad,
+        "target_latents": target_latents,
+    }
+    # Wrapped under a throwaway ``if True:`` so the block's own indentation
+    # (an ``if`` body inside a method) is valid on its own.
+    exec(compile("if True:\n" + block, "<reattach>", "exec"), namespace)
+
+    result = namespace["target_latents"]
+    assert result.shape == (1, 1, 1, pad_length + frame_length)
+    assert torch.equal(result[..., :pad_length], left_pad), "the left pad belongs on the left"
+    assert torch.equal(result[..., pad_length:], target_latents)

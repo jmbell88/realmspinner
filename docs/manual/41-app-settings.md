@@ -19,12 +19,13 @@ category. Clearing the box brings the ordinary category list back; a search that
 
 ## Appearance
 
-*UI scale* is a multiplier on top of whatever your monitor's own DPI scaling already
-is, from 0.5× to 2×. On a display that is already heavily scaled the slider stops short of 2× and
-says so, because the combined scale is capped — the control only offers zooms it can actually
-apply. It takes effect as you drag it, and the font atlas is re-baked when you let go — between
-frames rather than during one, since a rebuild invalidates every font handle a half-drawn frame is
-holding. Nothing needs a restart.
+*UI scale* is a multiplier on top of whatever your monitor's own DPI scaling already is. It is a
+list of named steps rather than a free slider — 50%, 75%, 100%, 125% and 150% — because a slider
+was the wrong control for a setting with five sensible values and a font rebuild behind each one.
+On a display that is already heavily scaled the list offers fewer steps and says so, because the
+combined scale is capped: the control only offers zooms it can actually apply. Picking a step takes
+effect at once, and the font atlas is re-baked between frames rather than during one, since a
+rebuild invalidates every font handle a half-drawn frame is holding. Nothing needs a restart.
 
 *Theme* switches the whole palette and takes effect at once. There are three. *Dark* is the
 default. *Light* keeps the same *roles* as the dark one rather than inverting its numbers: a panel is

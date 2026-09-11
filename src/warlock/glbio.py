@@ -45,7 +45,17 @@ def split_glb(data: bytes) -> tuple[bytes, dict, bytes]:
         # ValueError either way; this one says what actually went wrong.
         raise ValueError("truncated GLB: the JSON chunk overruns the file")
     start = 20
-    return data[:12], json.loads(data[start : start + chunk_len]), data[start + chunk_len :]
+    doc = json.loads(data[start : start + chunk_len])
+    # The 2026-09-11 audit, finding clay-03: a JSON chunk that parses cleanly
+    # but is not an object (a bare array, say) used to reach every downstream
+    # ``.get(...)`` call -- gltf.load's own, and clay/glbimport.py's
+    # _declared_budget, which runs *before* glb_to_claydoc's protective
+    # try/except -- as a bare AttributeError instead of the named refusal
+    # every other malformed-GLB boundary in this module raises. Checked once
+    # here so every caller inherits the fix.
+    if not isinstance(doc, dict):
+        raise ValueError("not a GLB file: its JSON chunk is not an object")
+    return data[:12], doc, data[start + chunk_len :]
 
 
 def rebuild_glb(header: bytes, gltf: dict, rest: bytes) -> bytes:

@@ -191,14 +191,33 @@ def _parse(payload: dict) -> Spec:
             raise ValueError(f"{a.name!r} has no frames")
         if a.duration_ms < 1:
             raise ValueError(f"{a.name!r} has no duration")
+    columns = int(payload["columns"])
+    render_size = int(payload["render_size"])
+    sizes = tuple(int(s) for s in payload["sizes"])
+    # Structurally valid is not the same as sane: nothing above stops
+    # ``columns``, ``render_size`` or a ``sizes`` rung from arriving as zero
+    # (or negative), and every one of them is a divisor somewhere downstream
+    # -- ``Spec.rows`` and ``Spec.atlas_size`` divide by ``columns``,
+    # ``Spec.exact_sizes`` divides ``render_size`` by each entry of
+    # ``sizes``. Left unchecked, a malformed-but-parseable ``layout.json``
+    # crashed with a bare ``ZeroDivisionError`` deep inside one of those
+    # instead of the named ``ValueError`` every other malformed field here
+    # gets (the 2026-09-11 audit, finding troupe-05).
+    if columns < 1:
+        raise ValueError(f"columns must be positive, got {columns}")
+    if render_size < 1:
+        raise ValueError(f"render_size must be positive, got {render_size}")
+    for s in sizes:
+        if s <= 0:
+            raise ValueError(f"a size rung must be positive, got {s}")
     return Spec(
         version=version,
         animations=animations,
         directions=directions,
-        sizes=tuple(int(s) for s in payload["sizes"]),
-        render_size=int(payload["render_size"]),
+        sizes=sizes,
+        render_size=render_size,
         elevation=float(payload["elevation"]),
-        columns=int(payload["columns"]),
+        columns=columns,
     )
 
 

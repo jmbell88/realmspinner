@@ -15,7 +15,7 @@ import pytest
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import elements as el
 from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops_topo
+from warlock.studio.clay import ops_topo, selection
 from warlock.studio.clay import primitives as bp
 from warlock.studio.clay.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
 from warlock.studio.undo import CompoundEdit
@@ -1295,6 +1295,32 @@ def test_a_deleted_objects_stamp_entry_does_not_outlive_it() -> None:
     assert a.uid in doc._mesh_stamps
 
     doc.remove_object(a.uid)
+    assert a.uid not in doc._mesh_stamps
+
+
+def test_deleting_selected_objects_through_delete_selected_drops_their_mesh_stamp_entries() -> (
+    None
+):
+    """The 2026-09-11 audit, finding clay-06. ``selection.delete_selected`` --
+    the ordinary Delete key / menu action in object mode -- reimplements
+    object removal inline (``doc.objects.pop``, ``doc.selection.discard``,
+    ``doc.element_sel.pop``) instead of calling :meth:`ClayDoc.remove_object`,
+    and used to skip ``_mesh_stamps`` entirely: the object's last ``Mesh`` (its
+    full CSR arrays) stayed referenced and alive for the life of the document
+    even though the object was gone and its uid could never be reused. Same
+    shape of bug INVARIANTS.md already names and fixed twice for
+    ``ClayState.manifold`` -- "wherever an object leaves ``doc.objects``", not
+    only the one call site an earlier audit happened to reach.
+    """
+    doc = bd.ClayDoc()
+    a = doc.add_object(_obj("A"))
+    doc.mesh_stamp(a.uid)
+    assert a.uid in doc._mesh_stamps
+
+    doc.select([a.uid])
+    refusals = selection.delete_selected(doc)
+
+    assert refusals == []
     assert a.uid not in doc._mesh_stamps
 
 

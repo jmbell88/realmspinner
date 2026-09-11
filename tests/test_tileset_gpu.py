@@ -50,8 +50,17 @@ unit over the line was the shape that document already names as the ratio's
 known false alarm (large flat cells separated by thin hard lines; its two 2.0-era
 false alarms were ceramic grout and metal ribs). Its wrap preview showed no join
 at all. So a failure of the first test below is **not** first evidence that the
-padding did not fire; the wrap preview is what says that, and the threshold owes
-a re-measurement on this checkpoint rather than a widening here.
+padding did not fire; the wrap preview is what says that.
+
+**That question is settled now, and this paragraph is kept as the history.** The
+threshold was re-measured twice (2026-08-13, 2026-08-29) and then the deciding
+statistic was replaced outright: ``docs/measurements/2026-08-30-seam-dominance.md``
+judges a wrap against the worst *interior* join rather than the mean grain, which
+is what removed the flat-cell false alarm instead of widening a number around it.
+Both seam assertions in this file read ``report["seamless"]`` — the shipped
+verdict — so there is one definition of the word in the tree. The second of them
+was migrated late, by the 2026-09-11 audit (finding docs-08), having been left on
+the retired ratio when its sibling moved.
 
 **No ControlNet is required and none is loaded.** That is not an omission: the
 seamless modes never open one -- ``service.tilesheets.rows_needed`` gates the
@@ -406,20 +415,33 @@ def test_the_reduced_material_still_tiles(materials):
     periodicity did not survive the reduction, and the whole tile-size table --
     not the refusal -- is what would need re-deriving.
 
-    Measured at 32px, where the ratio is naturally harsher than at 1024: the
-    interior grain of a pixel-art tile is large, so the denominator is large,
-    but so is any real step, and ``SEAM_MAX`` is a ratio precisely so the two
-    sizes can be held to one threshold.
+    Measured at 32px. **It asserts ``report["seamless"]``, like its sibling
+    above**, and for the same reason: this fixture draws pixel-art materials —
+    large flat cells separated by thin hard lines — which is the documented
+    false-alarm shape for the edge-against-mean-grain ratio, and 32px makes the
+    denominator larger still. This assertion was left on ``SEAM_MAX`` when
+    ``test_every_material_is_seamless`` was migrated to the dominance verdict
+    (``docs/measurements/2026-08-30-seam-dominance.md``, R9), so it kept judging
+    the one population the ratio is known to misjudge; the 2026-09-11 audit
+    (finding docs-08) found it. One definition of the word in the tree.
     """
     _scratch, drawn = materials
     reports = [seam.report(material.tile_path) for material in drawn]
     lines = "; ".join(
-        f"{material.prompt} {report['worst']:.2f}"
+        f"{material.prompt} {report['dominance']:.2f}"
         for material, report in zip(drawn, reports, strict=True)
     )
-    assert max(report["worst"] for report in reports) <= seam.SEAM_MAX, (
-        f"a material wrapped at {tileatlas.MATERIAL_PX}px and stopped wrapping at "
-        f"{TILE}px (threshold {seam.SEAM_MAX}): {lines}"
+    seamed = [
+        material.prompt
+        for material, report in zip(drawn, reports, strict=True)
+        if not report["seamless"]
+    ]
+    assert not seamed, (
+        f"a material wrapped at {tileatlas.MATERIAL_PX}px and stopped wrapping "
+        f"at {TILE}px: {', '.join(seamed)}. Seam against the worst interior "
+        f"join, threshold {seam.SEAM_DOMINANCE_MAX}: {lines}. A failure here is "
+        f"a claim about the exact-partition rule, not about the threshold — "
+        f"the periodicity did not survive the reduction."
     )
 
 

@@ -29,6 +29,68 @@ from . import tokens
 log = logging.getLogger(__name__)
 
 
+def _review_sweep_summary(state: Any, review_mode: Any, sweep: dict[str, Any]) -> str:
+    """The "varies ..." line drawn under a sweep row, or "" while blind.
+
+    Pure and state-checking, the same shape as ``review_mode.score_line``,
+    which already withholds the judge's opinion the same way -- because
+    ``spec_summary`` is itself pure (``review_mode`` may not know which
+    caller needs blinding) and this is its one call site. The 2026-09-11
+    audit (finding shell-01) found the sweep list drawing
+    ``review_mode.spec_summary(sweep["spec"])`` unconditionally, naming
+    exactly the axis and values Blind exists to hide -- manual chapter 04's
+    "hides which settings each unit ran, and the order." Pulled out as a
+    free function, rather than inlined, so it can be checked without an
+    imgui frame.
+    """
+    if getattr(state, "blind", False):
+        return ""
+    return review_mode.spec_summary(sweep.get("spec"))
+
+
+def _delete_confirm_message(
+    state: Any, review_mode: Any, sweep: dict[str, Any], units: int, retained: int
+) -> str:
+    """The body of "Delete this sweep?", blinded like every other on-screen
+    spelling of a sweep's name.
+
+    The 2026-09-11 audit (finding shell-02) found ``_review_delete_button``
+    interpolating the raw ``sweep["label"]`` here instead of routing through
+    ``review_mode.bucket_label`` -- the one spelling of the blinding rule,
+    per that function's own docstring, which names this exact confirm as
+    "a fourth [call site] about to be written" and the one door the earlier
+    fix (the bulk ``removal_plan`` path) left open. Pulled out as a free
+    function, rather than built inline in the button handler, so it can be
+    checked without an imgui frame.
+    """
+    named = review_mode.bucket_label(state, sweep)
+    if not units:
+        # The common case for an old row, and "its 0 job(s) ... are
+        # deleted" is a sentence that reads as a bug.
+        return (
+            f"{named}: its jobs and meshes are already gone "
+            "-- only the list entry is left.\n\n"
+            "The verdicts and observations it produced stay exactly "
+            "where they are. Nothing that feeds findings lives in this "
+            "row."
+        )
+    message = (
+        f"{named}: its {units} job(s), their meshes "
+        "and their reference images are deleted.\n\n"
+        "The verdicts you recorded are kept, and so are the findings "
+        "they feed -- each one carries its own copy of the settings it "
+        "was filed against."
+    )
+    if retained:
+        message += (
+            "\n\nUnits you accepted, and any image you labelled, are "
+            "kept with their files unless you say otherwise below: a "
+            "verdict's copy of the settings cannot stand in for the "
+            "picture it was filed against."
+        )
+    return message
+
+
 class ReviewPanes:
     """Review's drawing, mixed into :class:`~.main.App`.
 
@@ -320,8 +382,11 @@ class ReviewPanes:
                 widgets.muted(f"   {total - todo}/{total} reviewed")
             # What the run actually varied, under the name the user typed for
             # it at the time -- which is routinely "test2" by the time anyone
-            # comes back to judge it.
-            summary = review_mode.spec_summary(sweep.get("spec"))
+            # comes back to judge it. Withheld under blinding through
+            # ``_review_sweep_summary``: the 2026-09-11 audit (finding
+            # shell-01) found this line drawn unconditionally, naming exactly
+            # the axis and values Blind exists to hide.
+            summary = _review_sweep_summary(state, review_mode, sweep)
             if summary:
                 widgets.muted(f"   {summary}")
             if selected and sweep["id"] != review_mode.RECENT_ID:
@@ -529,31 +594,12 @@ class ReviewPanes:
             enabled=not state.scanning,
         ):
             state.drop_retained = False
-            if not units:
-                # The common case for an old row, and "its 0 job(s) ... are
-                # deleted" is a sentence that reads as a bug.
-                message = (
-                    f"{sweep['label']}: its jobs and meshes are already gone "
-                    "-- only the list entry is left.\n\n"
-                    "The verdicts and observations it produced stay exactly "
-                    "where they are. Nothing that feeds findings lives in this "
-                    "row."
-                )
-            else:
-                message = (
-                    f"{sweep['label']}: its {units} job(s), their meshes "
-                    "and their reference images are deleted.\n\n"
-                    "The verdicts you recorded are kept, and so are the findings "
-                    "they feed -- each one carries its own copy of the settings it "
-                    "was filed against."
-                )
-                if retained:
-                    message += (
-                        "\n\nUnits you accepted, and any image you labelled, are "
-                        "kept with their files unless you say otherwise below: a "
-                        "verdict's copy of the settings cannot stand in for the "
-                        "picture it was filed against."
-                    )
+            # Blinded, through ``_delete_confirm_message``: the 2026-09-11
+            # audit (finding shell-02) found this dialog interpolating the
+            # raw ``sweep["label"]`` instead of ``review_mode.bucket_label``,
+            # un-blinding a session through the one door the removal-plan
+            # fix had left open.
+            message = _delete_confirm_message(state, review_mode, sweep, units, retained)
             dialogs.ask_delete(
                 ctx,
                 title="Delete this sweep?",

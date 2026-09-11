@@ -23,7 +23,7 @@ Boolean variables accept `1`, `true` or `on`; anything else is off.
 | `WARLOCK_DATA_DIR` | `~/.warlock/assets` | Where job directories and the log files live. Created at startup if absent. |
 | `WARLOCK_DB` | `~/.warlock/assets/jobs.sqlite` | The SQLite job store. Set independently of the data directory, so moving one does not move the other. |
 | `WARLOCK_EXPORT_DIR` | unset | A project folder assets can be copied straight into, such as a Godot project's `assets/`. Unset means the feature is off — writing outside the data directory is opt-in, never a default. |
-| `WARLOCK_TRELLIS_EXE` | `vendor/trellis/trellis-server.exe` | The reconstruction engine binary. Missing it is a fatal check. |
+| `WARLOCK_TRELLIS_EXE` | `vendor/trellis/trellis-server.exe` | The reconstruction engine binary. Missing it is a setup row, not a fatal one — the engine is a download. |
 | `WARLOCK_TRELLIS_MODELS` | `~/.warlock/models/trellis2-gguf` | Where the TRELLIS.2 GGUF weights and `birefnet.gguf` are looked for. |
 | `WARLOCK_TRELLIS_PORT` | `17971` | The local port the engine subprocess listens on. |
 | `WARLOCK_TRELLIS_IDLE` | `600` | Seconds of queue inactivity before resident models are evicted to free VRAM. |

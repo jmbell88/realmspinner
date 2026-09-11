@@ -1174,16 +1174,31 @@ def options(ctx: Any) -> dict[str, Any]:
 
     Cached on the frame state rather than called per draw: it walks the palette
     directory, and a directory walk sixty times a second is a cost with no
-    reader. Keyed on nothing, because the only thing that changes it is a file
-    the user dropped in.
+    reader. Keyed on ``stamps.stamp_ns`` of the palette directory, the same
+    rule ``panes.inspector.palette_names`` already uses for the identical
+    directory -- until the 2026-09-11 audit (finding troupe-04) this cache was
+    keyed on nothing and never invalidated, so a palette file dropped in while
+    the app was running never appeared in the New Character form, Troupe's own
+    New Character form, or the Send to Troupe dialog (all three read this
+    function, ``troupe_send`` and ``troupe_settings`` directly and
+    ``settings_character`` through its own cache of the same shape) until the
+    app was restarted, even though the directory's own design intent
+    (``service.palettes``' module docstring) is drop-in-while-running use.
     """
     from ..service import troupe as svc_troupe
+    from .panes import stamps
 
+    key = stamps.stamp_ns(ctx.svc.config.palette_dir)
     cached = ctx.state.preview.get(OPTIONS_SLOT)
-    if cached is None:
-        cached = svc_troupe.troupe_options(ctx.svc)
-        ctx.state.preview[OPTIONS_SLOT] = cached
-    return cached
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = svc_troupe.troupe_options(ctx.svc)
+    # After the read, never beside it: that ordering is what makes the stored
+    # stamp's tick provably older than the read it describes (``stamps``'s own
+    # module doc says the same about ``storable``).
+    if stamps.storable(key):
+        ctx.state.preview[OPTIONS_SLOT] = (key, value)
+    return value
 
 
 def form(ctx: Any) -> dict[str, Any]:

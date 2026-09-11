@@ -176,6 +176,48 @@ def test_a_skeleton_with_no_clips_is_refused_with_a_field(svc):
     assert unknown.value.field == "template"
 
 
+def test_a_missing_specific_clip_on_an_otherwise_clip_bearing_template_is_refused_with_a_field(
+    svc, monkeypatch
+):
+    """The 2026-09-11 audit, finding service-06.
+
+    ``has_clips`` -- the guarded refusal three lines above the one under test
+    -- only proves a template's library is *non-empty*; it says nothing about
+    whether the library holds the *specific* clip a layout names. A template
+    with some clips but not all five is an ordinary shape for a user-edited
+    library: ``service.clips.save``'s own ``_check_renders`` only holds
+    ``TROUPE_TEMPLATE`` ("humanoid") to Troupe's frame table -- every other
+    template's library is accepted with any subset of clips, by design, "since
+    another template's clips are not laid into Troupe's frame table at all".
+    So a quadruped whose walk cycle was authored but whose jump never was still
+    answers ``has_clips`` True, and the request reaches ``expand_clips``'s
+    ``KeyError`` branch in ``_charsheet_spec`` -- unguarded, and until now with
+    no ``field=`` for the Skeleton control (``troupe_send._skeleton``) that
+    asked the question.
+    """
+    from warlock import rigging
+
+    library = rigging.clip_library("quadruped")
+    trimmed = {
+        "poses": library["poses"],
+        "clips": [c for c in library["clips"] if c["name"] != "jump"],
+    }
+    monkeypatch.setattr(
+        rigging, "clip_library", lambda key: trimmed if key == "quadruped" else library
+    )
+    # Still non-empty -- the guarded ``has_clips`` refusal does not catch this.
+    assert svc_troupe.has_clips("quadruped")
+
+    monkeypatch.setattr(
+        "warlock.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
+    )
+    job = _mesh(svc)
+    with pytest.raises(Invalid) as excinfo:
+        svc_troupe.send_to_troupe(svc, job["id"], template="quadruped")
+    assert excinfo.value.field == "template"
+    assert "jump" in str(excinfo.value)
+
+
 def test_a_rigged_mesh_is_not_asked_which_skeleton_to_use(ctx, svc):
     """The skeleton is on disk and ``create_charsheet`` reads it off
     ``rig.json``, so a picker there would be a control whose value is

@@ -329,20 +329,58 @@ def test_ctrl_k_is_the_one_key_the_palette_does_not_swallow():
     assert palette.close is not None  # the toggle really is the palette's
 
 
-def test_the_manual_overlay_owns_the_keyboard_except_for_escape():
+def test_the_manual_overlay_owns_the_keyboard_except_for_the_exempt_keys():
     """With the reference open, Delete in Create trashed the selected asset
-    unconfirmed and a tool letter switched Inker's tool underneath it."""
+    unconfirmed and a tool letter switched Inker's tool underneath it -- that
+    is what "owns the keyboard" means here, and Delete in Create is the probe
+    below, straight out of the incident.
+
+    F10 stopped being a workspace-key probe once shell-09 (2026-09-11 audit)
+    moved it above the Manual guard: the shortcuts sheet's "Everywhere" group
+    always listed F1, Ctrl+K, Ctrl+/, F10 and Esc together, and F10 alone was
+    swallowed by a guard that ran before it was checked. Now all five are
+    exempt, and each is asserted through to its own handler below so a future
+    key added to that set without moving the guard-order comment fails here
+    instead of silently joining the swallowed majority.
+    """
     import pygame
+
+    from warlock.studio.panes import library
 
     app = _shell()
     state = app.app_ctx.state
     state.manual.open = True
+    state.selected = "job-1"
 
+    deleted: list[str] = []
+    original = library.delete_asset
+    library.delete_asset = lambda _ctx, job_id: deleted.append(job_id)
+    try:
+        _press(app, pygame.K_DELETE)
+    finally:
+        library.delete_asset = original
+    # Swallowed: Delete is a workspace key with no pane behind the overlay to
+    # act on -- the same shape of leak the tool-letter half of the incident
+    # was, just in Create rather than Inker.
+    assert deleted == []
+
+    # The exempt set gets through undiminished, each to its own handler.
     _press(app, pygame.K_F10)
-    assert state.show_fps is False
+    assert state.show_fps is True
+
+    _press(app, pygame.K_SLASH, pygame.KMOD_CTRL)
+    assert state.shortcuts_requested is True
+
+    _press(app, pygame.K_k, pygame.KMOD_CTRL)
+    assert state.palette_open is True
+    state.palette_open = False  # else the palette guard swallows what follows
+
+    _press(app, pygame.K_F1)
+    assert state.manual.open is False  # F1 toggles it open or shut, unguarded
 
     # Esc still reaches the branch that closes it -- that branch is why Esc is
     # exempt in the first place.
+    state.manual.open = True
     _press(app, pygame.K_ESCAPE)
     assert state.manual.open is False
 

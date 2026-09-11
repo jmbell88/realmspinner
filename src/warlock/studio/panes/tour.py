@@ -325,21 +325,56 @@ def _hole(ctx: Any, step: Any) -> tuple[float, float, float, float] | None:
     return (x - pad, y - pad, w + pad * 2, h + pad * 2)
 
 
+def _veil_spans(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    holes: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
+    """The scrim's paint rectangles for one viewport and any number of holes.
+
+    A horizontal-band decomposition rather than four rectangles around one
+    hole, because ``_veil`` has two: the control being pointed at, and the card
+    doing the pointing. Bands are cut at every hole edge and each band is
+    filled only where no hole covers it, so no pixel is painted twice -- two
+    overlapping fills at 0.55 would leave a visibly darker patch wherever they
+    crossed, and "darker where two rectangles happen to meet" is the kind of
+    artefact that reads as a rendering bug rather than as a design.
+
+    Pure geometry, out of ``_veil`` on purpose (the 2026-09-11 audit's
+    tour-02): the overlap/merge arithmetic here is the part most likely to hide
+    an off-by-one that double-paints a pixel or leaves a hole's edge dim, and
+    it is exactly the "decidable half" the 2026-09-08 audit split ``_hole`` and
+    ``_card_pos`` out for -- this is the third piece of ``_veil`` that was
+    still missing a test of its own.
+    """
+    edges = sorted({y0, y1} | {v for _x, y, _w, h in holes for v in (y, y + h) if y0 < v < y1})
+    rects: list[tuple[float, float, float, float]] = []
+    for top, bottom in zip(edges, edges[1:], strict=False):
+        spans = sorted(
+            (max(x0, hx), min(x1, hx + hw))
+            for hx, hy, hw, hh in holes
+            if hy < bottom and hy + hh > top and hx + hw > x0 and hx < x1
+        )
+        cursor = x0
+        for left, right in spans:
+            if left > cursor:
+                rects.append((cursor, top, left, bottom))
+            cursor = max(cursor, right)
+        if cursor < x1:
+            rects.append((cursor, top, x1, bottom))
+    return rects
+
+
 def _veil(viewport: Any, holes: list[tuple[float, float, float, float]]) -> None:
     """Dim the viewport except where the holes are.
 
-    A horizontal-band decomposition rather than four rectangles around one
-    hole, because there are two: the control being pointed at, and the card
-    doing the pointing. The card needs one for a reason that is not obvious
-    until you see it -- the scrim is on the *foreground* draw list, which imgui
-    paints above every window including the card, so without a hole the tour
-    dims its own text.
-
-    Bands are cut at every hole edge and each band is filled only where no hole
-    covers it, so no pixel is painted twice. That matters: two overlapping fills
-    at 0.55 would leave a visibly darker patch wherever they crossed, and
-    "darker where two rectangles happen to meet" is the kind of artefact that
-    reads as a rendering bug rather than as a design.
+    See :func:`_veil_spans` for the band/overlap arithmetic; this is just the
+    draw call over what it returns. The card needs a hole for a reason that is
+    not obvious until you see it -- the scrim is on the *foreground* draw list,
+    which imgui paints above every window including the card, so without a
+    hole the tour dims its own text.
     """
     draw = imgui.get_foreground_draw_list()
     colour = imgui.get_color_u32(theme.rgba(theme.TOUR_VEIL, VEIL_ALPHA))
@@ -351,20 +386,8 @@ def _veil(viewport: Any, holes: list[tuple[float, float, float, float]]) -> None
     y0 = viewport.pos.y
     x1 = x0 + viewport.size.x
     y1 = y0 + viewport.size.y
-    edges = sorted({y0, y1} | {v for _x, y, _w, h in holes for v in (y, y + h) if y0 < v < y1})
-    for top, bottom in zip(edges, edges[1:], strict=False):
-        spans = sorted(
-            (max(x0, hx), min(x1, hx + hw))
-            for hx, hy, hw, hh in holes
-            if hy < bottom and hy + hh > top and hx + hw > x0 and hx < x1
-        )
-        cursor = x0
-        for left, right in spans:
-            if left > cursor:
-                draw.add_rect_filled((cursor, top), (left, bottom), colour)
-            cursor = max(cursor, right)
-        if cursor < x1:
-            draw.add_rect_filled((cursor, top), (x1, bottom), colour)
+    for left, top, right, bottom in _veil_spans(x0, y0, x1, y1, holes):
+        draw.add_rect_filled((left, top), (right, bottom), colour)
 
 
 def _ring(hole: tuple[float, float, float, float]) -> None:

@@ -169,6 +169,24 @@ def test_the_viewer_sync_submits_the_decode_and_adopts_it_on_landing():
     assert "adopt_reference" in adopt
 
 
+def test_the_character_preview_submits_the_parse_and_adopts_it_on_landing():
+    """The tenth door, and the same shape as the first nine.
+
+    The 2026-09-11 audit (finding create-02) found "Preview character"'s
+    landing calling ``viewer.load_model`` -- a glTF parse plus a per-slot PNG
+    decode -- inline in ``_on_task_done``, which is the T2 bug the 2026-09-02
+    review had already fixed for the reference picture and the mesh. This file
+    is the guard for that class and did not name this door, so the fix arrived
+    with nothing standing behind it.
+    """
+    from warlock.studio import main
+
+    dispatch = inspect.getsource(main.App._dispatch_character_preview)
+    assert "parse_model" in dispatch and "load_model(" not in dispatch
+    adopt = inspect.getsource(main.App._adopt_character_preview)
+    assert "adopt_model" in adopt
+
+
 # --- 2. the Troupe atlas ------------------------------------------------------
 
 
@@ -448,6 +466,25 @@ def test_a_snapshot_is_what_the_document_was_when_the_save_was_pressed():
 class _PackCtx(_Threaded):
     def __init__(self) -> None:
         self.submitted, self.tags, self.result = [], [], None
+
+
+def test_packwright_crash_recovery_reads_on_a_task_and_adopts_on_landing():
+    """The eleventh door. Clay's recovery is pinned above; Packwright's was not.
+
+    The 2026-09-11 audit (finding packwright-01) found ``_journal_adopt``
+    reading and decoding a recovered ``.wpack`` inline -- 137.7 ms for an
+    ordinary 300-sprite atlas, and ``MAX_PACK_SOURCE_BYTES`` allows a great
+    deal more -- because the Recover button calls ``journal.take`` straight
+    from ``draw``. Clay's and Inker's providers already deferred; this one is
+    now the same shape.
+    """
+    from warlock.studio import packwright_mode
+
+    adopt = inspect.getsource(packwright_mode._journal_adopt)
+    assert "submit" in adopt, "the recovery read must be handed to a task"
+    assert "read_wpack" not in adopt, "the decode must not run in the provider"
+    load = inspect.getsource(packwright_mode._load_recovery)
+    assert "read_wpack" in load
 
 
 def test_a_packwright_save_encodes_its_pngs_on_the_task(tmp_path, monkeypatch):

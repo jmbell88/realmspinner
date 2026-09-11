@@ -409,8 +409,16 @@ def run(spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    spec = json.loads(sys.stdin.read())
-    result_path = Path(spec["result_path"])
+    # blender_worker's rule: a malformed spec is reported in a sentence and an
+    # exit code, never as a traceback (the 2026-09-11 audit, pipelines-05 --
+    # this worker never had the guard blender_worker.main and
+    # lora_train_worker.main do).
+    try:
+        spec = json.loads(sys.stdin.read())
+        result_path = Path(spec["result_path"])
+    except (ValueError, TypeError, KeyError) as exc:
+        print(f"the worker spec on stdin is not usable: {exc}", file=sys.stderr)
+        return 2
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.unlink(missing_ok=True)
     started = time.perf_counter()

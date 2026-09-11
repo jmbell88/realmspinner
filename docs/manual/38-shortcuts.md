@@ -1,7 +1,7 @@
 # Keyboard shortcuts
 
-A shorter version is in the app: press **Ctrl+/**, or the **Shortcuts** button in the navigation
-rail's footer. That popup
+A shorter version is in the app: press **Ctrl+/**, or pick **Keyboard shortcuts** from the **Help**
+menu — it is in the command palette under that name too. That popup
 is a condensed subset — the tables below are the full list. It has a filter box of its own at the
 top, matched the way the command palette matches (so `ctz` finds `Ctrl+Z`) against a binding's keys,
 its description, or the name of the group it is in — typing `clay` lists all of Clay's rather than

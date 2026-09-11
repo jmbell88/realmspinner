@@ -118,6 +118,48 @@ def test_the_popup_draws_its_choices_when_open(ui):
     assert any("Cancel" in label for label in labels)
 
 
+def test_the_insert_popup_does_not_reread_the_preset_directory_every_frame(ui, monkeypatch):
+    """The 2026-09-11 audit, finding inker-11: ``popup`` called
+    ``presets.names()`` (a directory glob) and ``presets.load()`` (a file
+    read, a JSON parse and a full recipe clamp) unconditionally on every
+    imgui frame it stayed open, with no memo key -- reproduced with the real
+    popup() draw path at five calls to each for five frames left open with
+    nothing about the directory or the selection changing between them.
+    """
+    ctx, tab = _scene(with_effect=False)
+    # A clean memo regardless of what an earlier test in this process left
+    # cached: the module-level cache is the fix, and a stale entry left by
+    # another test's popup would make this test's count depend on run order
+    # instead of on what popup() does across these five frames.
+    monkeypatch.setattr(pane, "_popup_names", [])
+    monkeypatch.setattr(pane, "_popup_load", None)
+
+    calls = {"names": 0, "load": 0}
+    orig_names = presets.names
+    orig_load = presets.load
+
+    def counted_names():
+        calls["names"] += 1
+        return orig_names()
+
+    def counted_load(name):
+        calls["load"] += 1
+        return orig_load(name)
+
+    monkeypatch.setattr(presets, "names", counted_names)
+    monkeypatch.setattr(presets, "load", counted_load)
+
+    def draw():
+        pane.open_popup(ctx, tab)
+        pane.popup(ctx, tab)
+
+    for _ in range(5):
+        _frame(ui, draw)
+
+    assert calls["names"] == 1, f"names() called {calls['names']} times across 5 frames"
+    assert calls["load"] == 1, f"load() called {calls['load']} times across 5 frames"
+
+
 def test_flourish_insert_refuses_a_preset_the_manual_says_works_at_more_directions():
     """The 2026-09-08 audit, finding inker-05: docs/manual/15-casting-a-spell.md's
     walkthrough tells the reader to insert "fireball" "With Four directions or

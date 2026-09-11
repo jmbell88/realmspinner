@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 
 from . import ops_dissolve, topo
-from .adjacency import adjacency, boundary_loops
+from .adjacency import adjacency, boundary_ring_from
 from .elements import ElementSel, OpError, empty
 from .mesh import Mesh, accumulate, face_count, face_normals, reversed_corner_perm
 
@@ -648,7 +648,7 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     because the ring may be concave, which :mod:`.earclip` now handles at
     render time without the topology having to commit to a triangulation.
 
-    The winding needs no decision here: :func:`~.adjacency.boundary_loops`
+    The winding needs no decision here: :func:`~.adjacency.boundary_ring_from`
     returns the ring already oriented in the hole direction, so using it as the
     corner loop makes the cap traverse every shared edge opposite to the face
     already on it.
@@ -683,9 +683,10 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
             "no hole there to fill."
         )
 
-    rings, pinched = boundary_loops(mesh)
-    wanted = set(map(int, sel.edges.reshape(-1).tolist()))
-    chosen = [r for r in rings if wanted & set(r.tolist())]
+    # boundary_ring_from walks only the ring(s) the selected edges belong to,
+    # not the whole mesh's boundary -- see its own docstring for the 2026-09-11
+    # audit's clay-05, which this replaced boundary_loops(mesh) to fix.
+    chosen, pinched = boundary_ring_from(mesh, sel.edges)
     if not chosen:
         raise OpError("No boundary ring runs through the selected edge.")
 
@@ -719,6 +720,14 @@ def fill_hole(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
             f"{ops_dissolve.MAX_DISSOLVED_RING:,} Clay can triangulate without "
             "stalling. Fill a smaller hole."
         )
+    # A hole's boundary has no more guarantee of convexity than a dissolved
+    # region's outline does, so it can hit the same concave-triangulation
+    # cost merge_groups refuses for -- see ops_dissolve.MAX_CONCAVE_DISSOLVE_RING
+    # and ops_dissolve._refuse_concave_ring's own comment for why this is a
+    # refusal here rather than a size ceiling inside earclip. ``new_loops``
+    # already holds vertex-id rings (boundary_ring_from's own contract), the
+    # same shape _refuse_concave_ring wants.
+    ops_dissolve._refuse_concave_ring(mesh, new_loops)
 
     counts = np.array([len(r) for r in new_loops], dtype="i8")
     corners = np.concatenate(new_loops)

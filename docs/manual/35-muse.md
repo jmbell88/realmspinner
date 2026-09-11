@@ -27,7 +27,7 @@ dark ambient, dungeon, low strings, slow, sparse percussion, minor key
 
 **Lyrics.** A block marked up with `[verse]`, `[chorus]` and friends. The **Instrumental / With
 lyrics** choice above the field says which you're asking for — instrumental is what most game music
-is, and choosing it greys the field and sends nothing, whatever it still shows from before. Non-English
+is, and choosing it clears the field and greys it, so nothing is sent. Non-English
 lyrics work; the model carries its own language segmentation and pronunciation stack.
 
 ## The window

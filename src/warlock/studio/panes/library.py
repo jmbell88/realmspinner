@@ -1607,20 +1607,54 @@ def _bulk(ctx: Any, jobs: list[Any]) -> None:
             items.append(
                 toolbar.Item("retry", f"Try again ({len(failed)})", icons.REFRESH)
             )
-        items.append(toolbar.Item("zip", "Export zip...", icons.DOWNLOAD, priority=1))
-        # Offered unconditionally, the "zip"/"folder" rows' own shape: a
-        # selection with nothing convertible in it (a mix of kinds, or none
-        # ticked that has a format list at all) is refused with a toast by
-        # ``_start_convert`` rather than by this row disappearing, which would
-        # have to re-derive the same kind-agreement question on every frame
-        # the bar is drawn.
-        items.append(toolbar.Item("convert", "Convert...", icons.SHUFFLE, priority=1))
+        # Greyed rather than left clickable while a same-family flow is
+        # already parked waiting for its popup's decision: two of these
+        # firing at once is exactly the shell-03 clobber (the 2026-09-11
+        # audit) -- ``_export_zip``/``_export_folder``/``_start_convert``
+        # refuse it too, so this is belt and suspenders against the same
+        # click landing between one frame's draw and the next's, not the only
+        # guard.
+        export_busy = _export_busy(ctx)
+        convert_busy = _convert_busy(ctx)
+        items.append(
+            toolbar.Item(
+                "zip",
+                "Export zip...",
+                icons.DOWNLOAD,
+                priority=1,
+                enabled=not export_busy,
+                reason="An export is already in progress." if export_busy else "",
+            )
+        )
+        # Offered unconditionally otherwise, the "zip"/"folder" rows' own
+        # shape: a selection with nothing convertible in it (a mix of kinds,
+        # or none ticked that has a format list at all) is refused with a
+        # toast by ``_start_convert`` rather than by this row disappearing,
+        # which would have to re-derive the same kind-agreement question on
+        # every frame the bar is drawn.
+        items.append(
+            toolbar.Item(
+                "convert",
+                "Convert...",
+                icons.SHUFFLE,
+                priority=1,
+                enabled=not convert_busy,
+                reason="A convert is already in progress." if convert_busy else "",
+            )
+        )
         if ctx.export_dir:
             # Only when one is configured: the feature is off unless
             # WARLOCK_EXPORT_DIR is set, and a button that can only fail is
             # worse than no button.
             items.append(
-                toolbar.Item("folder", "Save to project", icons.SAVE, priority=1)
+                toolbar.Item(
+                    "folder",
+                    "Save to project",
+                    icons.SAVE,
+                    priority=1,
+                    enabled=not export_busy,
+                    reason="An export is already in progress." if export_busy else "",
+                )
             )
         items.append(
             toolbar.Item(
@@ -1727,7 +1761,36 @@ def _export_names(jobs: list[Any], ids: list[str]) -> list[str]:
     return sorted(wanted)
 
 
+def _export_busy(ctx: Any) -> bool:
+    """Whether an export flow -- "Export zip..." or "Save to project", the
+    only two doors into ``_run_export`` -- is already running.
+
+    The 2026-09-11 audit (shell-03) found that clicking "Export zip..." then,
+    before its native Save dialog was answered, clicking "Save to project"
+    started a second ``_run_export`` under a different task key, and both
+    write the one ``ctx.state._library_export`` slot: the second flow's popup
+    silently replaced the first's there, and when the first flow's dialog was
+    finally answered it wrote its own popup back over the slot and then, in
+    its ``finally``, cleared the slot to ``None`` -- so whichever popup was
+    not the one currently in the slot when a person answered it never got a
+    decision, and its task thread stayed blocked forever on
+    ``popup.decisions.get()``. ``dialogs.save_file``/``select_folder`` carry
+    no owner window (``dialogs.py``), so the bulk toolbar stayed fully
+    clickable while one flow's picker was open, making the sequence reachable
+    with two ordinary clicks.
+
+    Checked against the task keys rather than the popup slot itself: the
+    window this closes starts at the *first* click, before ``_run_export`` has
+    published anything a slot-based check could see yet -- "Export zip..."'s
+    own native dialog has to resolve before its popup ever exists.
+    """
+    return ctx.busy("export-zip") or ctx.busy("export-folder")
+
+
 def _export_zip(ctx: Any, ids: list[str]) -> None:
+    if _export_busy(ctx):
+        ctx.toast("An export is already in progress.", "warn")
+        return
     # Read on the frame thread, off the cached rows: the task below must not
     # touch ``ctx.cache``, which the frame loop rewrites underneath it.
     names = _export_names(list(ctx.cache.jobs or []), ids)
@@ -1742,6 +1805,9 @@ def _export_zip(ctx: Any, ids: list[str]) -> None:
 
 
 def _export_folder(ctx: Any, ids: list[str]) -> None:
+    if _export_busy(ctx):
+        ctx.toast("An export is already in progress.", "warn")
+        return
     dest = Path(ctx.export_dir or "")
 
     def run():
@@ -2046,6 +2112,23 @@ class _ConvertPopup:
     _open: bool = False
 
 
+def _convert_busy(ctx: Any) -> bool:
+    """Whether a "Convert..." flow is already running -- ``_export_busy``'s
+    guard, for ``ctx.state._library_convert`` (shell-03, the 2026-09-11
+    audit; see ``_export_busy`` for the incident this closes).
+
+    Unlike the export slot's two fixed keys, a convert flow's key is
+    per-selection: ``convert:<id>`` for one asset, ``export-convert`` for
+    several. ``any_busy`` catches every single-asset key at once, which
+    matters here in a way it would not for the export slot -- two cards'
+    Convert menus opened in the same frame (already anticipated by
+    ``test_start_convert_submits_a_per_job_key_for_a_single_asset``, so each
+    gets its own key rather than colliding) are two different keys that both
+    reach ``_run_convert`` and both write this same slot.
+    """
+    return ctx.tasks.any_busy("convert:") or ctx.busy("export-convert")
+
+
 def _start_convert(ctx: Any, ids: list[str]) -> None:
     """Work out what this selection can become, and open the picker if
     anything can. Runs on the frame thread -- the click that triggered it."""
@@ -2057,6 +2140,9 @@ def _start_convert(ctx: Any, ids: list[str]) -> None:
     formats = _CONVERT_FORMATS.get(next(iter(kinds)), ()) if len(kinds) == 1 else ()
     if not formats:
         ctx.toast("Nothing selected can be converted to another format.", "warn")
+        return
+    if _convert_busy(ctx):
+        ctx.toast("A convert is already in progress.", "warn")
         return
     title = "Convert" if len(ids) == 1 else f"Convert {len(ids)} assets"
     key = f"convert:{ids[0]}" if len(ids) == 1 else "export-convert"

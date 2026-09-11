@@ -110,6 +110,10 @@ def test_a_table_from_a_future_version_is_refused_by_name():
             lambda p: p["animations"].append(dict(p["animations"][0])),
             "share a name",
         ),
+        (lambda p: p.update(columns=0), "columns"),
+        (lambda p: p.update(columns=-1), "columns"),
+        (lambda p: p.update(render_size=0), "render_size"),
+        (lambda p: p.update(sizes=[16, 0, 32]), "size rung"),
     ],
 )
 def test_a_self_contradictory_table_is_refused(mangle, message):
@@ -124,3 +128,36 @@ def test_a_self_contradictory_table_is_refused(mangle, message):
     mangle(payload)
     with pytest.raises(ValueError, match=message):
         troupe_spec._parse(payload)
+
+
+def test_a_layout_with_zero_columns_or_a_zero_size_rung_is_refused_by_name():
+    """The 2026-09-11 audit, finding troupe-05.
+
+    ``_parse`` checked frame counts, durations and name collisions but never
+    that ``columns``, ``render_size`` or a ``sizes`` entry was positive, so a
+    structurally valid but malformed ``layout.json`` parsed clean and then
+    crashed with a bare ``ZeroDivisionError`` deep inside ``Spec.rows`` or
+    ``Spec.exact_sizes`` -- called from ordinary planning code, nowhere near
+    the parse -- instead of the named ``ValueError`` every other malformed
+    field here gets.
+    """
+    import copy
+    import json
+    from pathlib import Path
+
+    payload = json.loads(Path(troupe_spec._DATA).read_text(encoding="utf-8"))
+
+    zero_columns = copy.deepcopy(payload)
+    zero_columns["columns"] = 0
+    with pytest.raises(ValueError, match="columns"):
+        troupe_spec._parse(zero_columns)
+
+    zero_render_size = copy.deepcopy(payload)
+    zero_render_size["render_size"] = 0
+    with pytest.raises(ValueError, match="render_size"):
+        troupe_spec._parse(zero_render_size)
+
+    zero_size_rung = copy.deepcopy(payload)
+    zero_size_rung["sizes"] = [16, 0, 32]
+    with pytest.raises(ValueError, match="size rung"):
+        troupe_spec._parse(zero_size_rung)

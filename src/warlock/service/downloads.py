@@ -349,10 +349,28 @@ def disk_usage(svc: WarlockService) -> dict[str, Any]:
     trash and nothing else, which on a full install is the smaller half.
 
     A walk, so it goes through ``TaskRunner`` like the library's own.
+
+    **Three roots, not two.** The 2026-09-10 commit that split the
+    reconstruction engine out of ``trellis_models_dir`` into its own
+    ``trellis_runtime_dir`` (838 MB of binaries, not weights) added it as a
+    third root everywhere else that reasons about the model store --
+    ``fetch.removal_plan``'s roots, ``fetch.engine_dir``/``engine_probe_dir``,
+    this module's own ``sweep_staging`` -- and missed it here, so the one
+    figure this function exists to make real (see the docstring above) went
+    back to being a declared-not-measured number the moment the engine was
+    downloaded: every Create job needs it, so the shortfall was not an edge
+    case (service-02, 2026-09-11 audit).
     """
     root = Path(svc.config.t2i_model_root)
     engine_root = Path(svc.config.trellis_models_dir)
-    roots = (root,) if engine_root.is_relative_to(root) else (root, engine_root)
+    runtime_root = Path(svc.config.trellis_runtime_dir)
+    # Dedup against roots already walked, matching the pairwise check this
+    # replaced: trellis_models_dir nests inside t2i_model_root by default, so
+    # counting it again would double the bytes it holds.
+    roots: list[Path] = []
+    for candidate in (root, engine_root, runtime_root):
+        if not any(candidate == r or candidate.is_relative_to(r) for r in roots):
+            roots.append(candidate)
     total = 0
     files = 0
     for store in roots:
@@ -368,6 +386,7 @@ def disk_usage(svc: WarlockService) -> dict[str, Any]:
     return {
         "root": str(root),
         "engine_root": str(svc.config.trellis_models_dir),
+        "runtime_root": str(svc.config.trellis_runtime_dir),
         "bytes": total,
         "files": files,
     }

@@ -83,7 +83,15 @@ def read_track(path: Any) -> dict[str, Any]:
         g = math.gcd(rate, target)
         data = resample_poly(data, target // g, rate // g, axis=0)
         rate = target
-    pcm = np.clip(np.round(data * 32767.0), -32768, 32767).astype(np.int16)
+    # 32768.0, not 32767.0: ``soundfile`` normalises 16-bit PCM by dividing by
+    # the *negative* peak (2**15), the conventional reading ``sirens/wavout.py``'s
+    # own ``read_wav`` was hand-written to avoid for a file this app writes --
+    # but this reads a file soundfile itself already decoded, so it has to
+    # undo soundfile's own convention, not ``to_int16``'s. Re-quantising by
+    # 32767.0 here reproduced, in this soundfile-based reader, precisely the
+    # mismatch that comment names: a full-scale sample came back 1 LSB quiet
+    # (the 2026-09-11 audit, finding muse-04).
+    pcm = np.clip(np.round(data * 32768.0), -32768, 32767).astype(np.int16)
     env = waveform.peaks(pcm)
     if pcm.shape[1] == 1:
         pcm = pcm[:, 0]

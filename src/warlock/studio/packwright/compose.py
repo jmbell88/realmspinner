@@ -29,8 +29,19 @@ def _extrude(atlas: np.ndarray, frame: Frame, margin: int) -> None:
     # layouts leaving a full ``padding`` on every edge, including the atlas's
     # own border -- a hand-built ``Frame``/``Layout`` that bypasses that
     # validation would otherwise wrap negative indices around silently and
-    # corrupt the atlas instead of failing loudly.
-    assert x >= margin and y >= margin, "frame has no room for its extrude margin"
+    # corrupt the atlas instead of failing loudly. Raised rather than
+    # asserted (the 2026-09-11 audit's packwright-03, ``python -O``'s own
+    # rule already stated in ``inker``'s
+    # ``test_the_engine_states_its_invariants_without_assert``): an ``assert``
+    # is compiled out under ``-O``/``PYTHONOPTIMIZE``, which would silently
+    # remove the one guard standing between a margin-violating frame and a
+    # negative-index wraparound that overwrites real pixels outside its own
+    # footprint.
+    if x < margin or y < margin:
+        raise ValueError(
+            f"frame {frame.key!r} at ({x}, {y}) has no room for its {margin}px "
+            "extrude margin -- padding must be at least twice extrude"
+        )
     # Sides first: one-pixel-wide slices broadcast across the gutter's width.
     atlas[y : y + h, x - margin : x] = atlas[y : y + h, x : x + 1]
     atlas[y : y + h, x + w : x + w + margin] = atlas[y : y + h, x + w - 1 : x + w]

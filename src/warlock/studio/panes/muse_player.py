@@ -273,8 +273,21 @@ def _grip_at(one: Any, offset: float, width: float) -> str:
 
 def _transport(ctx: Any, one: Any) -> None:
     playing = muse_mode.is_playing(ctx, one.job)
+    # **muse-01 (2026-09-11 audit).** Greyed with the device's own reason,
+    # ``sirens_transport.py``'s idiom for its own Play/Stop -- this button
+    # used to stay enabled with no check of ``sirens_audio.available()`` at
+    # all, so on a device-less machine the ordinary Stop-then-Play (``play``
+    # resuming an already-decoded take, not re-reading it) pressed a
+    # genuinely dead button.
+    device = sirens_audio.available()
     # Not primary: a transport is never a pane's commit verb (Generate is).
-    if widgets.transport("muse-player", playing, shortcut=""):
+    if widgets.transport(
+        "muse-player",
+        playing,
+        enabled=device,
+        reason=sirens_audio.unavailable_reason(),
+        shortcut="",
+    ):
         if playing:
             muse_mode.stop(ctx)
         else:

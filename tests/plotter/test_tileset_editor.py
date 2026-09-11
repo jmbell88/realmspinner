@@ -12,10 +12,19 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from _ui_context import imgui_context
 
 from warlock.studio import plotter_state
 from warlock.studio.plotter.tilemap import MapDoc
 from warlock.studio.tilegrid.tileset import Tileset
+
+
+@pytest.fixture
+def ui(monkeypatch):
+    """The shared headless imgui context; see ``_ui_context`` for why this is
+    a per-module fixture rather than a shared ``conftest`` one."""
+    with imgui_context(monkeypatch) as imgui:
+        yield imgui
 
 
 def _tileset(name: str = "Overworld", tiles: int = 4) -> Tileset:
@@ -194,4 +203,64 @@ def test_tileset_editor_tile_class_and_duration_and_wang_name_typing_is_one_undo
     before_swatch = after_name.split("controls.color_edit4(", 1)[0]
     assert "controls.fold_undo(" in before_swatch, (
         "Wang colour Name field is not folded before the swatch is drawn"
+    )
+
+
+# --- the picker does not draw one button per tile (the 2026-09-11 audit,
+# finding plotter-04) --------------------------------------------------------
+
+
+class _HugeTileset:
+    """A stand-in whose only trait ``_tile_grid`` reads is its length.
+
+    ``len()`` looks ``__len__`` up on the *type*, not the instance, so a
+    ``SimpleNamespace`` carrying it as an attribute would not answer to
+    ``len()`` -- hence a real (tiny) class rather than the fixtures this file
+    otherwise builds real ``Tileset`` pixel buffers for.
+    """
+
+    def __len__(self) -> int:
+        return 20000
+
+
+def test_the_tiles_tab_does_not_draw_a_button_per_tile_on_a_large_tileset(ui, monkeypatch):
+    """``_tile_grid`` used to submit one ``controls.button`` per tile in the
+    tileset, every frame the tab was open, with nothing bounding the tileset's
+    tile *count* -- unlike the sibling picker (``plotter_tileset.py``), whose
+    own docstring gives the reason a picker does not do this: "a 16x16
+    tileset is 256 buttons, and imgui would spend a per-item id, a hover test
+    and a draw call on each of them every frame." A user-imported sheet
+    sliced small (a 2048x2048 PNG at 16x16 is 16,384 tiles) made this tab draw
+    over sixteen thousand buttons on the frame thread -- two orders of
+    magnitude past what the sibling picker was built to avoid.
+
+    A real headless imgui window, sized far smaller than a 20,000-tile grid,
+    proves the fix by counting how many buttons actually got submitted: the
+    unfixed code submits one per tile regardless of the window; the fixed
+    ``ImGuiListClipper`` submits only the rows the visible, scrolled region
+    can show.
+    """
+    from warlock.studio.panes import plotter_tileset_editor as editor
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        editor.controls, "button", lambda *a, **k: (calls.append(1), False)[1]
+    )
+    state = plotter_state.PlotterState()
+    ref = SimpleNamespace(tileset=_HugeTileset())
+
+    ui.new_frame()
+    ui.begin("##host")
+    ui.begin_child("##scroll", (380.0, 260.0))
+    editor._tile_grid(SimpleNamespace(), state, ref)
+    ui.end_child()
+    ui.end()
+    ui.end_frame()
+
+    # A small scrolled window can show, at most, a couple of dozen 48px
+    # tiles -- nowhere near the 20,000 in the tileset. The bound is generous
+    # on purpose: it only has to separate "clipped to the visible region"
+    # from "one button per tile", not pin the exact row count.
+    assert 0 < len(calls) < 1000, (
+        f"expected a clipped, bounded number of buttons; drew {len(calls)}"
     )

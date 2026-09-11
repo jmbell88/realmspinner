@@ -204,3 +204,34 @@ def test_recompose_refuses_a_zero_tile_size() -> None:
     assert grid is not None
     with pytest.raises(ValueError):
         slicing.recompose(sheet, grid, 0, 8)
+
+
+def test_recompose_refuses_an_output_past_a_pixel_ceiling(monkeypatch) -> None:
+    """The 2026-09-11 audit, finding plotter-01: recompose's output is
+    ``(grid.rows * tile_h) x (grid.cols * tile_w)`` and nothing bounded that
+    product before the allocation. A finely-ruled source (single-pixel
+    separator lines) reports thousands of uniform 1px cells -- ``grid`` below
+    stands in for one such report, without paying to rule an actual sheet --
+    and multiplying that count by an ordinary map tile size is hundreds of GB
+    at the real 8192x8192 source ceiling.
+
+    ``np.zeros`` is stubbed to raise, so the ceiling is proven from the
+    refusal alone: against the unfixed code, recompose reaches the stub
+    (this test fails, showing the allocation was attempted); against the
+    fix, it never does.
+    """
+    # 40x40 cells (coordinates are irrelevant -- recompose never reads a cell
+    # before the ceiling would refuse) at a plausible 512px map tile:
+    # 20480x20480 target pixels, ~6x MAX_RECOMPOSE_PIXELS.
+    rows = tuple((i, i) for i in range(40))
+    cols = tuple((i, i) for i in range(40))
+    grid = slicing.SheetGrid(rows=rows, cols=cols, threshold=20)
+    dummy = np.zeros((2, 2, 4), dtype=np.uint8)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("recompose allocated its output before refusing")
+
+    monkeypatch.setattr(slicing.np, "zeros", _boom)
+
+    with pytest.raises(ValueError, match="pixels this build will allocate"):
+        slicing.recompose(dummy, grid, 512, 512)

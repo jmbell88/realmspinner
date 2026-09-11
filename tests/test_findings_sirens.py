@@ -946,3 +946,43 @@ def test_add_to_order_reason_names_the_state_that_is_actually_true():
         sirens_orders._BUSY_WHY
     )
     assert sirens_orders.add_to_order_reason("", with_pattern, True) == ""
+
+
+def test_bridge_export_and_compose_reasons_are_pulled_out_and_tested():
+    """the 2026-09-11 audit, finding sirens-04: ``sirens_bridge.py``'s "Export
+    audio..." and "Compose in Muse..." buttons picked their ``reason=`` with
+    an inline ternary (``"busy" if ready/doc.order else "nothing to
+    export/compose"``) instead of a pulled-out, unit-tested ``*_reason``
+    function -- the exact shape that produced sirens-03/04/05 (2026-09-07) and
+    again ``sirens_orders.add_to_order_reason`` (2026-09-08), whose own
+    docstring names an inline ternary with untested priority among competing
+    disabled causes as precisely what produced those. Reproduced against the
+    unfixed code: ``sirens_bridge`` has no ``export_reason``/``compose_reason``
+    at all, so this fails with an ``AttributeError``.
+    """
+    from warlock.studio.panes import sirens_bridge
+
+    assert sirens_bridge.export_reason(ready=True, busy=False) == ""
+    assert sirens_bridge.export_reason(ready=True, busy=True) == (
+        "This song is being written; the button comes back when it lands."
+    )
+    assert sirens_bridge.export_reason(ready=False, busy=False) == (
+        "There is nothing in the order list to export yet."
+    )
+    # Both are true at once (nothing to export *and* busy): "nothing to
+    # export" wins, because it is still true once the busy stretch ends and a
+    # transient "busy" reason would mislead about what to do next.
+    assert sirens_bridge.export_reason(ready=False, busy=True) == (
+        "There is nothing in the order list to export yet."
+    )
+
+    assert sirens_bridge.compose_reason(has_order=True, busy=False) == ""
+    assert sirens_bridge.compose_reason(has_order=True, busy=True) == (
+        "This song is being written; the button comes back when it lands."
+    )
+    assert sirens_bridge.compose_reason(has_order=False, busy=False) == (
+        "There is nothing in the order list to compose from."
+    )
+    assert sirens_bridge.compose_reason(has_order=False, busy=True) == (
+        "There is nothing in the order list to compose from."
+    )

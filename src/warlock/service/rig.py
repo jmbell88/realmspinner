@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import doctor, rigging
+from .. import doctor, poselib, rigging
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
 from .validation import check_job_id, check_pose_id, valid_template
@@ -145,7 +145,30 @@ def _rig_bones(svc: WarlockService, job_id: str) -> list[str]:
 def list_poses(svc: WarlockService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     bones = _rig_bones(svc, job_id)
-    return {"bones": bones, "poses": rigging.list_poses(svc.job_dir(job_id))}
+    job_dir = svc.job_dir(job_id)
+    poses = []
+    for record in rigging.list_poses(job_dir):
+        # The same "costs you that pose, not the app" rule every sibling
+        # loader in rigging.py follows: a listing must survive one hand-edited
+        # file, unlike posed_model, which addresses a single pose and can
+        # refuse it outright (poser-01, the 2026-09-11 audit).
+        raw = record.get("bones")
+        if not isinstance(raw, dict) or not raw:
+            log.warning(
+                "pose %s/%s has no bones; omitting it from the list", job_id, record.get("id")
+            )
+            continue
+        try:
+            rigging.validate_bones(raw)
+        except ValueError:
+            log.warning(
+                "pose %s/%s has an unusable bones map; omitting it from the list",
+                job_id,
+                record.get("id"),
+            )
+            continue
+        poses.append(record)
+    return {"bones": bones, "poses": poses}
 
 
 def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -158,6 +181,24 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
     except ValueError as exc:
         raise invalid_from(exc, "That pose cannot be saved") from exc
 
+    # A root offset, when the caller sends one -- poser_mode.save_pose_to_asset
+    # now does, mirroring the shared library's own save (poselib.validate_record
+    # via _payload/apply_pose). Absent from the payload stores nothing, so
+    # every save that never touched the root (and every payload built before
+    # this field existed) is unaffected; the same field on the shared library
+    # goes through the identical validator, so a root offset means the same
+    # thing -- character-height units, +/-2.0 -- wherever it is authored
+    # (poser-02, the 2026-09-11 audit: this door used to drop the field on the
+    # floor, silently losing a crouch or hop saved directly onto an asset).
+    extra: dict[str, Any] = {}
+    if payload.get("root_translation") is not None:
+        try:
+            extra["root_translation"] = poselib.validate_root_translation(
+                payload["root_translation"]
+            )
+        except ValueError as exc:
+            raise invalid_from(exc, "That pose cannot be saved") from exc
+
     pose_id = str(payload["id"]) if payload.get("id") else None
     if pose_id is not None:
         check_pose_id(pose_id)
@@ -167,7 +208,7 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
         # must finish (and be deleted here) before the new rotations land, or
         # the stale GLB gets cached under this id.
         with svc.convert_lock(job_id, f"pose:{pose_id}"):
-            return rigging.save_pose(job_dir, pose, pose_id)
+            return rigging.save_pose(job_dir, pose, pose_id, extra=extra or None)
     # The cap is a check-then-write, so the count and the write that depends on
     # it happen under one hold -- exactly the rule the library's own cap in
     # service/poses.py states. Lock-free, two callers saving at once both read
@@ -178,7 +219,7 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
     with svc.convert_lock(job_id, "poses"):
         if len(rigging.list_poses(job_dir)) >= rigging.MAX_POSES:
             raise Conflict(f"a job may hold at most {rigging.MAX_POSES} poses")
-        return rigging.save_pose(job_dir, pose, pose_id)
+        return rigging.save_pose(job_dir, pose, pose_id, extra=extra or None)
 
 
 def delete_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[str, Any]:
@@ -201,6 +242,38 @@ def delete_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[str, Any
         if not deleted:
             raise NotFound("no such pose")
     return {"ok": True}
+
+
+def _pose_or_not_found(job_dir: Path, pose_id: str) -> dict[str, Any]:
+    """The semantic read door for a job's own saved pose.
+
+    ``service.poses._record_or_not_found``'s shape, for a job-scoped pose
+    instead of a library one: ``rigging.read_pose`` only gives ``read_record``'s
+    three file-level guards (valid JSON, valid dict, under the byte ceiling),
+    never the bones check a *library* pose gets through
+    ``poselib.validate_record``. A hand-edited pose file missing "bones" used
+    to reach ``_pose_bake_spec``'s ``pose["bones"]`` as a bare ``KeyError``, and
+    one with a malformed quaternion was forwarded straight into the Blender
+    worker spec with nothing to catch ``blender_worker.main()``'s unwrapped
+    ``op(bpy, spec)`` (the 2026-09-11 audit, finding poser-01).
+
+    Not checked against the rig's *current* bone names -- unlike ``save_pose``'s
+    write-time check -- because a rig can be rebuilt with a different template
+    after a pose was saved, and that is a stale pose, not a corrupt one; only
+    the record's own shape (a non-empty bones map of valid quaternions) is
+    re-verified here.
+    """
+    record = rigging.read_pose(job_dir, pose_id)
+    if record is None:
+        raise NotFound("no such pose")
+    raw = record.get("bones")
+    if not isinstance(raw, dict) or not raw:
+        raise Invalid("pose has no bones", field="bones")
+    try:
+        bones = rigging.validate_bones(raw)
+    except ValueError as exc:
+        raise invalid_from(exc, "That pose cannot be read", field="bones") from exc
+    return dict(record, bones=bones)
 
 
 def _pose_bake_spec(job_dir: Path, pose_id: str, pose: dict[str, Any]) -> dict[str, Any]:
@@ -265,9 +338,7 @@ def posed_model(svc: WarlockService, job_id: str, pose_id: str) -> Path:
     # too -- a delete landing between the read and the bake would otherwise
     # recreate the GLB with no .json beside it.
     with svc.convert_lock(job_id, f"pose:{pose_id}"):
-        pose = rigging.read_pose(job_dir, pose_id)
-        if pose is None:
-            raise NotFound("no such pose")
+        pose = _pose_or_not_found(job_dir, pose_id)
         if not path.exists():
             if not (job_dir / "rig.glb").exists():
                 raise NotFound("job is not rigged")

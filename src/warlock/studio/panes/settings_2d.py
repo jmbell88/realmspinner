@@ -2102,11 +2102,19 @@ def _seed_row(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         changed, seed = form_ui.number("seed", "Seed", int(form["seed"]))
     if changed:
         form["seed"] = max(0, seed)
-    # No ring on the seed, deliberately: nothing in ``service`` raises a
-    # refusal naming it (the range check is fieldless, and the widget already
-    # clamps), and a call here would also have to sit after the Reroll and Lock
-    # controls that share its line -- where the rect it rings is the help
-    # marker's. A pointer at the wrong control is worse than no pointer.
+        ctx.state.clear_field_error("seed")
+    # Rung, unlike this comment used to claim. ``service.validation.check_seed``
+    # raises ``Invalid(..., field="seed")`` for a seed outside 0..MAX_SEED or
+    # not an int, and ``create_job`` calls it as ``check_seed("seed", seed)`` --
+    # a refusal this control can in fact be named in. What actually keeps it
+    # unreachable through this widget is incidental, not structural: Dear
+    # ImGui's plain InputInt stores into a C int32 whose range happens to
+    # coincide with ``MAX_SEED = 2**31-1``. A seed can still arrive out of range
+    # from a hand-edited settings.json -- Python ints on load are unbounded --
+    # in which case the submit was refused with no control on this pane ringing
+    # to say why (the 2026-09-11 audit, finding create-07). Called immediately
+    # after the control, before Reroll and Lock draw over its rect.
+    widgets.field_error(ctx.state, "seed")
     # Wrapped rather than clipped: at 1.5 scale the seed field, its label,
     # Reroll, Lock and the help marker come to more than the sidebar's content
     # region, and ``same_line`` past the edge draws a control nowhere -- the

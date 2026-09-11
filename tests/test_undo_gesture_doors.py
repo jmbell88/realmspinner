@@ -516,3 +516,49 @@ def test_packwright_settings_drags_fold_between_the_field_and_the_write(field, w
     after_field = source.split(field, 1)[1]
     fold = after_field.index("controls.fold_undo(")
     assert fold < after_field.index(write), f"{write} runs before the fold"
+
+
+# --- 7. the shared ``Form`` helper ---------------------------------------------
+
+
+def test_form_slider_used_for_an_undoable_field_folds_a_multi_frame_drag_into_one_step(
+    monkeypatch, frames
+):
+    """The 2026-09-11 audit's shell-08: ``Form.field`` draws a trailing note
+    and an ``imgui.dummy()`` *after* the caller's control, unconditionally, so
+    by the time ``Form.slider`` returns to its caller the imgui "last item" is
+    that dummy (id 0) rather than the field just drawn. A caller that follows
+    every other door's convention and calls ``controls.fold_undo(doc.history)``
+    right after ``form_ui.slider(...)`` returns is folding the dummy, which
+    never activates or deactivates -- a silent no-op, and every changed frame
+    of the drag lands as its own undo step.
+
+    ``Form.slider`` (and ``.number`` and ``.text``) take a ``history=``
+    argument instead: the fold happens from inside ``Form.field``'s own
+    ``with`` block, immediately after the caller's control and before the
+    trailing note/dummy, so the "last item" is still the real field.
+    """
+    from warlock.studio import forms
+
+    history = undo.UndoStack()
+    before = len(history)
+    values = [40.0, 80.0, 120.0, 160.0, 200.0]
+    item = _Item(monkeypatch, begin=1, end=1 + len(values))
+    _scripted_field(monkeypatch, item, "slider_float", "##speed", values)
+
+    state = {"value": 10.0}
+
+    def draw() -> None:
+        with forms.Form("gesture-test") as form:
+            changed, value = form.slider(
+                "speed", "Speed", state["value"], 0.0, 200.0, history=history
+            )
+        if changed:
+            state["value"] = value
+            history.push(_Step())
+
+    _drag(frames, draw, item)
+    assert state["value"] == values[-1]
+    assert len(history) == before + 1, "one drag folded to one undo step"
+    assert controls._gesture is None
+    assert history.undo(None), "one Ctrl+Z takes the whole drag back"

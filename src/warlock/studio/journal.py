@@ -1,10 +1,9 @@
 """Crash recovery for authored documents, for every mode rather than one.
 
 UX-05. Inker has had a crash-safe autosave since it shipped and nothing else
-did: a Clay model, a Plotter map, a Packwright atlas, a pose being authored and
-a profile draft were all one power cut away from gone. The mechanism Inker
-proved is right, and the whole of what was wrong was that it was written into
-one mode.
+did: a Clay model, a Plotter map, a Packwright atlas and a pose being authored
+were all one power cut away from gone. The mechanism Inker proved is right,
+and the whole of what was wrong was that it was written into one mode.
 
 **Not in an engine package.** ``studio/inker/``, ``clay/``, ``plotter/`` and
 ``packwright/`` import no imgui, no moderngl and no ``service``, and their
@@ -28,7 +27,7 @@ rather than renamed, because a rename would strand every crash copy sitting in
 it right now behind a version that no longer looks there.
 
 Two files per slot: the **payload** (``.ora``, ``.wblk``, ``.wmap``, ``.wpack``,
-``.pose.json``, ``.profile.json`` -- each mode's own format, so a recovered file
+``.wsng``, ``.pose.json`` -- each mode's own format, so a recovered file
 is openable by hand and by the mode's ordinary reader) and a ``<stem>.meta.json``
 sidecar naming the kind, the title and when it was taken.
 
@@ -122,8 +121,8 @@ class Provider:
 
     ``head_of`` returns anything comparable with ``==``. An undo stack's serial
     is the good answer where there is one; a small document with no history --
-    a pose, a profile draft -- passes its encoded payload, so "has it changed"
-    is payload equality. Both are the same question and neither needs a flag.
+    a pose, say -- passes its encoded payload, so "has it changed" is payload
+    equality. Both are the same question and neither needs a flag.
     """
 
     kind: str

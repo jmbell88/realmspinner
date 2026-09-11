@@ -1795,6 +1795,18 @@ class Worker(
                 # left a done row with the trailing ``set_params`` never
                 # landed and no line anywhere saying so.
                 log.exception("job %s failed after its cancel had committed", job_id)
+            elif self._cancel.event.is_set():
+                # The ordinary in-flight-cancel case: the event is set but
+                # nothing has committed, so the row below is written as plain
+                # `cancelled` regardless of what raised here. That used to mean
+                # this branch was silently correct for a *clean* cancel and
+                # silently wrong for anything else -- a permissions error, a
+                # corrupt file, an unrelated crash that happened to land in the
+                # same instant as the user pressing Cancel vanished with no
+                # log.exception, no error log, nothing (the 2026-09-11 audit,
+                # finding service-03). Logging here costs nothing on the clean
+                # path and is the only trace left on the unclean one.
+                log.exception("job %s failed with cancel pending", job_id)
             if not self._cancel.event.is_set():
                 log.exception("job %s failed", job_id)
                 # The verdict first, the log file second. Writing the log can

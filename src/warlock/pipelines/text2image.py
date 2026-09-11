@@ -273,8 +273,12 @@ class Text2Image:
         if self._pipe is not None:
             return
         # Checked before the (slow) torch import: instant, actionable failure,
-        # and unit-testable without the text2image extra installed.
-        if not (self._model_dir / "model_index.json").exists():
+        # and unit-testable without the text2image extra installed. is_file,
+        # not exists -- the 2026-09-11 audit (pipelines-06) found a directory
+        # left where model_index.json belongs (a partial/broken unpack) read
+        # as "present" and fell through into from_pretrained's low-level
+        # traceback instead of this message.
+        if not (self._model_dir / "model_index.json").is_file():
             raise RuntimeError(
                 f"{self.spec.label} weights not found at {self._model_dir}. "
                 f"Download once with:\n  {self._download_hint()}"
@@ -602,8 +606,10 @@ class Text2Image:
                 root = self._model_root / spec.dir_name
                 # Checked before the torch work, the same shape as load()'s
                 # check: an instant, actionable failure rather than a stack
-                # trace out of from_pretrained.
-                if not (root / "config.json").exists():
+                # trace out of from_pretrained. is_file, not exists -- see
+                # the 2026-09-11 audit (pipelines-06), the same directory-
+                # shaped-corruption gap load()'s own check above was fixed for.
+                if not (root / "config.json").is_file():
                     raise RuntimeError(
                         f"{spec.label} weights not found at {root}. "
                         f"Download once with:\n  {self._download_hint(spec)}"
@@ -765,7 +771,11 @@ class Text2Image:
                 spec = models.IP_ADAPTERS[cond.ip_adapter]
                 root = self._model_root / spec.dir_name
                 weights = root / spec.subfolder / spec.weight_name
-                if not weights.exists():
+                # is_file, not exists -- see the 2026-09-11 audit
+                # (pipelines-06), the same directory-shaped-corruption gap
+                # the ControlNet and model_index.json checks above were
+                # fixed for.
+                if not weights.is_file():
                     raise RuntimeError(
                         f"{spec.label} weights not found at {weights}. "
                         f"Download once with:\n  {self._download_hint(spec)}"

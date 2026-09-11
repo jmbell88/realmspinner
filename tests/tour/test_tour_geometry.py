@@ -13,13 +13,22 @@ are exactly the kind of thing that pattern already covers elsewhere.
 default, and swaps to bottom-left when the ringed control's centre has passed
 the viewport's horizontal midpoint (so the card does not sit on top of what it
 is pointing at). A future refactor could silently invert or drop that branch,
-and nothing but a screenshot regression would notice. This is a test-only
-addition -- ``panes/tour.py`` is not touched.
+and nothing but a screenshot regression would notice. The ``_hole``/``_card_pos``
+half of this file was a test-only addition -- ``panes/tour.py`` was not touched.
+
+``_veil`` itself stayed untested even after that pass, because it draws
+straight to a real imgui foreground draw list. The 2026-09-11 audit's tour-02
+split its band/span decomposition out as ``_veil_spans`` -- pure geometry
+returning the scrim's paint rectangles instead of drawing them -- which is
+what the tests below cover; ``_veil`` is now just that function plus one draw
+call per rectangle.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
+
+import pytest
 
 from warlock.studio import tokens
 from warlock.studio.panes import tour as tour_pane
@@ -96,3 +105,117 @@ def test_hole_is_none_when_the_anchor_did_not_draw_this_frame(monkeypatch):
     monkeypatch.setattr(tour_pane.anchors, "rect", lambda key: None)
     step = SimpleNamespace(anchor="hidden/control")
     assert tour_pane._hole(SimpleNamespace(), step) is None
+
+
+# --- _veil_spans --------------------------------------------------------------
+#
+# The 2026-09-11 audit, finding tour-02: ``_veil``'s band-decomposition
+# arithmetic (which y-bands and x-spans of the scrim get filled around one or
+# two holes) had no test anywhere, unlike ``_hole`` and ``_card_pos`` above,
+# which the 2026-09-08 audit already pinned. It is now split out as
+# ``_veil_spans``, a pure function of the viewport rect and the hole list that
+# returns the scrim's paint rectangles instead of drawing them.
+
+
+def _rect_area(rect: tuple[float, float, float, float]) -> float:
+    left, top, right, bottom = rect
+    return max(0.0, right - left) * max(0.0, bottom - top)
+
+
+def _clip(
+    rect: tuple[float, float, float, float], bounds: tuple[float, float, float, float]
+) -> tuple[float, float, float, float] | None:
+    """``rect`` cut down to ``bounds``, or ``None`` if nothing is left."""
+    left, top, right, bottom = rect
+    bx0, by0, bx1, by1 = bounds
+    left, top = max(left, bx0), max(top, by0)
+    right, bottom = min(right, bx1), min(bottom, by1)
+    if left >= right or top >= bottom:
+        return None
+    return (left, top, right, bottom)
+
+
+def _overlap_area(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> float:
+    al, at, ar, ab = a
+    bl, bt, br, bb = b
+    width = max(0.0, min(ar, br) - max(al, bl))
+    height = max(0.0, min(ab, bb) - max(at, bt))
+    return width * height
+
+
+@pytest.mark.parametrize(
+    "holes",
+    [
+        [],
+        [(100.0, 100.0, 200.0, 50.0)],
+        # Two holes in the same horizontal band -- the sorted-spans loop's own
+        # reason for existing.
+        [(100.0, 100.0, 100.0, 50.0), (400.0, 110.0, 100.0, 40.0)],
+        # Two holes in different bands, side by side vertically -- one ringed
+        # control near the top, one card near the bottom, the real shape
+        # ``_veil``'s own docstring describes.
+        [(100.0, 50.0, 150.0, 60.0), (600.0, 600.0, 250.0, 120.0)],
+        # A hole that runs off the edge of the viewport -- only the clipped
+        # portion should ever be treated as "the hole".
+        [(-50.0, 100.0, 150.0, 50.0)],
+        # Overlapping holes, which a real frame never produces (a step has one
+        # anchor and the card is placed clear of it) but the arithmetic must
+        # not double-subtract if it ever happened.
+        [(100.0, 100.0, 150.0, 100.0), (150.0, 150.0, 150.0, 100.0)],
+    ],
+    ids=["none", "one", "same-band", "different-bands", "off-edge", "overlapping"],
+)
+def test_veil_spans_cover_every_hole_and_nothing_else(holes):
+    viewport = (0.0, 0.0, 1000.0, 800.0)
+    x0, y0, x1, y1 = viewport
+    rects = tour_pane._veil_spans(x0, y0, x1, y1, holes)
+
+    # 1. No painted rectangle overlaps any hole (clipped to the viewport) --
+    #    the scrim must never dim through, or paint over, what a hole exists
+    #    to keep visible.
+    clipped_holes = []
+    for hx, hy, hw, hh in holes:
+        clipped = _clip((hx, hy, hx + hw, hy + hh), viewport)
+        if clipped is not None:
+            clipped_holes.append(clipped)
+    for rect in rects:
+        for hole in clipped_holes:
+            assert _overlap_area(rect, hole) == 0.0, (rect, hole)
+
+    # 2. No two painted rectangles overlap each other -- the "darker where two
+    #    rectangles happen to meet" artefact the docstring names.
+    for i, a in enumerate(rects):
+        for b in rects[i + 1 :]:
+            assert _overlap_area(a, b) == 0.0, (a, b)
+
+    # 3. Together, the painted area and the (viewport-clipped, deduplicated by
+    #    total coverage) hole area account for the whole viewport -- nothing
+    #    is left unpainted and un-holed. Overlapping holes are covered by
+    #    summing over a fine sample grid rather than by area arithmetic, since
+    #    two overlapping holes' areas are not simply additive.
+    painted_area = sum(_rect_area(r) for r in rects)
+    step = 10.0
+    samples = 0
+    covered = 0
+    x = x0 + step / 2
+    while x < x1:
+        y = y0 + step / 2
+        while y < y1:
+            samples += 1
+            in_hole = any(hx <= x < hx + hw and hy <= y < hy + hh for hx, hy, hw, hh in holes)
+            in_paint = any(
+                left <= x < right and top <= y < bottom for left, top, right, bottom in rects
+            )
+            assert in_hole != in_paint, (x, y, in_hole, in_paint)
+            if in_hole:
+                covered += 1
+            y += step
+        x += step
+    assert samples > 0
+    # Sanity on the area bookkeeping for the non-overlapping cases: painted
+    # area plus sampled hole area should be close to the full viewport area
+    # (the sample grid is an approximation at the pixel-fraction level only
+    # for the deliberately-overlapping case, so this is not asserted exactly).
+    assert painted_area <= _rect_area((x0, y0, x1, y1))

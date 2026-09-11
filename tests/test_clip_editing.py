@@ -18,11 +18,12 @@ make it safe to put a UI on:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from warlock import poselib, rigging
-from warlock.service import Conflict, Invalid, NotFound
+from warlock.service import Conflict, Failed, Invalid, NotFound
 from warlock.service import clips as svc_clips
 
 TEMPLATE = "humanoid"
@@ -117,6 +118,35 @@ def test_reverting_deletes_the_user_copy_and_the_shipped_clips_return(svc):
 def test_reverting_an_unedited_library_is_not_found(svc):
     with pytest.raises(NotFound):
         svc_clips.revert(svc, TEMPLATE)
+
+
+def test_reverting_a_locked_clip_file_reports_as_a_failure_not_a_traceback(svc, monkeypatch):
+    """poser-06, the 2026-09-11 audit: revert()'s path.unlink() was not
+    wrapped in except OSError, unlike its sibling delete doors
+    (service.poses.delete_library_pose, service.rig.delete_pose) -- so a
+    locked file (antivirus, another program holding it open) raised a raw
+    PermissionError out of the service layer instead of the same
+    Failed("...locked by another program...") every other file-delete door
+    gives."""
+    payload = _as_payload(_shipped(svc))
+    payload["clips"][0]["easing"] = "ease_out"
+    svc_clips.save(svc, TEMPLATE, payload)
+
+    path = poselib.clip_path(svc.config, TEMPLATE)
+    real_unlink = Path.unlink
+
+    def locked(self, *a, **k):
+        if self == path:
+            raise PermissionError("locked by another program")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    with pytest.raises(Failed):
+        svc_clips.revert(svc, TEMPLATE)
+
+    # And the file is still there to retry against -- a failed revert must
+    # not leave the library half-gone.
+    assert path.is_file()
 
 
 # --- the refusals ------------------------------------------------------------

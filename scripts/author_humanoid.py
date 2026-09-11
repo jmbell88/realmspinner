@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(wanted)} silhouettes serve {count} species: "
         f"{(total_glb + total_npz) / 1024:.1f} KB checked in. "
         f"One asset per species would be {count * per_group / 1024:.1f} KB "
-        f"for the same twelve characters."
+        f"for the same {count} characters."
     )
     print("Wrote nothing (pass --write)." if not args.write else f"Written to {directory}")
     return 0

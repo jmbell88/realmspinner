@@ -127,8 +127,19 @@ class Form:
         help_text: str = "",
         helper: str = "",
         error: str = "",
+        history: Any = None,
     ) -> Iterator[str]:
-        """Lay out one labelled control and yield its resolved error string."""
+        """Lay out one labelled control and yield its resolved error string.
+
+        ``history``, if given, is folded here -- ``controls.fold_undo(history)``
+        called immediately after the caller's control and before the trailing
+        note/``dummy()`` below draw. The 2026-09-11 audit (shell-08): those two
+        always draw, so by the time a ``slider``/``number``/``text`` call
+        *returns* the imgui "last item" is the dummy, not the field, and a
+        caller folding after the call the way every hand-drawn door does folds
+        nothing. Folding from inside this ``with`` block is the only place the
+        field is still the last item drawn.
+        """
 
         resolved = self._error(field, error)
         start_x = imgui.get_cursor_pos_x()
@@ -156,6 +167,8 @@ class Form:
                 imgui.set_next_item_width(self.layout.control_width)
                 control_x = start_x + self.layout.label_width
         yield resolved
+        if history is not None:
+            controls.fold_undo(history)
         note = resolved or helper
         if note:
             imgui.set_cursor_pos_x(control_x)
@@ -181,8 +194,11 @@ class Form:
         hint: str = "",
         enabled: bool = True,
         reason: str = "",
+        history: Any = None,
     ) -> tuple[bool, str]:
-        with self.field(field, label, help_text=help_text, helper=helper, error=error) as problem:
+        with self.field(
+            field, label, help_text=help_text, helper=helper, error=error, history=history
+        ) as problem:
             if hint and hasattr(imgui, "input_text_with_hint"):
                 result = controls._field_call(
                     "input_text_with_hint",
@@ -255,8 +271,11 @@ class Form:
         enabled: bool = True,
         reason: str = "",
         fmt: str = "%.3f",
+        history: Any = None,
     ) -> tuple[bool, int | float]:
-        with self.field(field, label, help_text=help_text, helper=helper, error=error) as problem:
+        with self.field(
+            field, label, help_text=help_text, helper=helper, error=error, history=history
+        ) as problem:
             if isinstance(value, int) and not isinstance(value, bool):
                 result = controls.input_int(
                     f"##{field}",
@@ -316,8 +335,11 @@ class Form:
         enabled: bool = True,
         reason: str = "",
         fmt: str | None = None,
+        history: Any = None,
     ) -> tuple[bool, int | float]:
-        with self.field(field, label, help_text=help_text, helper=helper, error=error) as problem:
+        with self.field(
+            field, label, help_text=help_text, helper=helper, error=error, history=history
+        ) as problem:
             if isinstance(value, int) and isinstance(low, int) and isinstance(high, int):
                 result = controls.slider_int(
                     f"##{field}",

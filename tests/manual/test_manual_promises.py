@@ -406,3 +406,169 @@ def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
         f"door(s) {missing}, which chapter 10 documents and the code has "
         "(troupe_mode.add_to_packwright -> packwright_mode.add_rendered_sheet)"
     )
+
+
+# ---------------------------------------------------------------------------
+# The 2026-09-11 audit. Six chapters describing a control, a row, a key or a
+# dependency list that had moved underneath them. Each of these is pinned the
+# same way as the findings above: the chapter is read against the module that
+# decides the fact, never against a second hand-written copy of it.
+# ---------------------------------------------------------------------------
+
+
+def test_manual_home_status_rows_match_landing_HOME_STATUS():
+    """Finding shell-04. Chapters 03 and 21 promised Home shows a health or
+    "Issues" row; ``landing.HOME_STATUS`` deliberately excludes health -- the
+    rail badge and the startup banner already carry it, and a third rendering
+    is a third place to keep in step. The "setup" row Home *does* draw was
+    documented nowhere."""
+    from warlock.studio.panes import landing
+
+    assert "health" not in landing.HOME_STATUS, (
+        "sanity: Home grew a health row, so this pin is now backwards"
+    )
+    assert "setup" in landing.HOME_STATUS, "sanity: Home lost its setup row"
+
+    ch21 = _chapter("21-home.md")
+    assert "| Setup |" in ch21, (
+        "docs/manual/21-home.md's status table does not document the 'setup' "
+        f"row, which landing.HOME_STATUS draws: {landing.HOME_STATUS}"
+    )
+    assert "| Issues |" not in ch21, (
+        "docs/manual/21-home.md still lists an Issues row in Home's status "
+        "table; landing.HOME_STATUS excludes health on purpose"
+    )
+
+    ch03 = _chapter("03-finding-your-work.md")
+    assert "combining health" not in ch03, (
+        "docs/manual/03-finding-your-work.md still says Home's status line "
+        "combines health; landing.HOME_STATUS excludes it"
+    )
+
+
+def test_manual_ui_scale_paragraph_matches_the_ui_scale_steps():
+    """Finding shell-06. Chapter 41 described UI scale as a 0.5x-2x slider you
+    drag; it has been a named-step combo since the 2026-09-10 pass, whose own
+    comment says "a slider used to stand here and it was the wrong control" --
+    and the commit that made the change touched this very chapter."""
+    from warlock.studio import tokens
+
+    top = max(tokens.UI_SCALE_STEPS)
+    appearance = _section(_chapter("41-app-settings.md"), "Appearance")
+
+    assert "2×" not in appearance, (
+        "docs/manual/41-app-settings.md still offers UI scale up to 2x; "
+        f"tokens.UI_SCALE_STEPS tops out at {top}"
+    )
+    assert f"{int(top * 100)}%" in appearance, (
+        "docs/manual/41-app-settings.md does not name the real UI-scale "
+        f"ceiling ({int(top * 100)}%) from tokens.UI_SCALE_STEPS"
+    )
+    assert "as you drag it" not in appearance, (
+        "docs/manual/41-app-settings.md still describes dragging the UI-scale "
+        "control; it is a combo of named steps, not a slider"
+    )
+
+
+def test_manual_does_not_call_the_engine_or_gguf_rows_fatal():
+    """Finding pipelines-01. ``doctor._exe_check``/``_gguf_check`` became
+    ``fatal=False, pending_install=True`` on 2026-09-10 when the engine became
+    a download, leaving the VRAM budget as the only fatal row. Three chapters
+    went on calling a missing engine fatal -- and chapter 39 contradicted
+    itself, saying both."""
+    ch39 = _chapter("39-installation.md")
+    ch42 = _chapter("42-troubleshooting.md")
+    ch40 = _chapter("40-configuration.md")
+
+    fatal_bullet = ch39[ch39.index("- **`[FATAL]`**") :][:600]
+    assert "trellis-server.exe` (which the installer ships) and a VRAM" not in fatal_bullet, (
+        "docs/manual/39-installation.md's [FATAL] bullet still names "
+        "trellis-server.exe; doctor reports it as a setup row"
+    )
+
+    assert "Two of these rows are **fatal**" not in ch42, (
+        "docs/manual/42-troubleshooting.md still calls the engine and the "
+        "GGUF weights fatal; both are pending_install rows"
+    )
+    assert "Missing it is a fatal check." not in ch40, (
+        "docs/manual/40-configuration.md still calls a missing "
+        "WARLOCK_TRELLIS_EXE a fatal check"
+    )
+
+
+def test_chapter05_tool_group_prose_matches_actual_key_bindings():
+    """Finding docs-02. Chapter 5 said in bold that "pressing that letter
+    again cycles within the group -- so B is the brush, B again is the spray".
+    No such gesture exists: every tool has its own letter, and spray answers to
+    ``A`` and ``Shift+B``."""
+    from warlock.studio import inker_ops
+
+    chords: dict[str, list[str]] = {}
+    for binding in inker_ops._TOOL_BINDINGS:
+        chords.setdefault(binding.target, []).append(binding.chord)
+    assert "spray" in chords, "sanity: the spray tool lost its binding"
+    assert "B" not in chords["spray"], (
+        "sanity: spray answers to a bare B, so the chapter's cycling story "
+        "would no longer be wrong"
+    )
+
+    tools = _section(_chapter("05-drawing.md"), "Tools")
+    assert "again cycles" not in tools, (
+        "docs/manual/05-drawing.md still describes pressing a group's letter "
+        "again to cycle within it; no binding implements that"
+    )
+    assert "`B` again is the spray" not in tools, (
+        "docs/manual/05-drawing.md still tells the reader B twice gives Spray"
+    )
+
+
+def test_installation_music_extras_table_lists_every_declared_package():
+    """Finding docs-03. The extras table's ``music`` row named five packages;
+    the extra also pulls torchaudio -- which its own "Hybrid Demucs stem
+    separation" claim depends on -- plus librosa, loguru, spacy and the whole
+    lyric-language stack."""
+    import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    with (root / "pyproject.toml").open("rb") as handle:
+        declared = tomllib.load(handle)["project"]["optional-dependencies"]["music"]
+
+    names = {re.split(r"[<>=\[]", spec, maxsplit=1)[0].strip() for spec in declared}
+    row = next(
+        line
+        for line in _chapter("39-installation.md").splitlines()
+        if line.startswith("| `music` |")
+    )
+    # Not every pin needs naming, but the ones a reader would size the install
+    # by -- and the one the row's own claim rests on -- must be there.
+    for package in ("torchaudio", "librosa", "spacy"):
+        assert package in names, f"sanity: pyproject's music extra lost {package}"
+        assert package in row, (
+            f"docs/manual/39-installation.md's music extras row omits "
+            f"{package!r}, which [project.optional-dependencies].music declares"
+        )
+
+
+def test_the_shortcuts_chapter_does_not_send_the_reader_to_a_rail_button_that_does_not_exist():
+    """Finding shell-05. Chapter 38 opened by sending the reader to "the
+    Shortcuts button in the navigation rail's footer". ``rail.py``'s own
+    docstring says utilities live in the global menu or the status bar and
+    names shortcuts as one of them; ``modes.RAIL_GROUPS``' footer group is
+    only ("review", "settings")."""
+    from warlock.studio import modes
+
+    footer = modes.RAIL_GROUPS[-1]
+    assert "shortcuts" not in footer, (
+        "sanity: the rail's footer grew a shortcuts rung, so this pin is now "
+        "backwards"
+    )
+
+    text = _chapter("38-shortcuts.md")
+    assert "rail's footer" not in text, (
+        "docs/manual/38-shortcuts.md sends the reader to a Shortcuts button "
+        f"in the rail's footer; RAIL_GROUPS' footer group is {footer}"
+    )
+    assert "Help" in text, (
+        "docs/manual/38-shortcuts.md no longer names where the sheet actually "
+        "lives (the Help menu / command palette)"
+    )

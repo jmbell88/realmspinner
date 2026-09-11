@@ -20,6 +20,16 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# The three thresholds below decide a mesh's ready/review classification, and
+# none of them is backed by a `docs/measurements/` document -- unlike HOLE_WARN
+# a few lines down, which is (2026-08-06-audit-resolution.md). The 2026-09-11
+# audit (finding pipelines-10) flagged that asymmetry: they read like measured
+# figures because their neighbour is one. They are not. Each is a round number
+# chosen so the report says something useful about an obviously-wrong mesh, and
+# nothing in the stored corpus is keyed on any of them -- a report records the
+# verdict, not the threshold it was judged against, which is precisely what
+# makes them cheap to re-derive when someone sits down with a card and a corpus.
+#
 # A pivot this far off the floor, as a fraction of the model's height, is a
 # grounding failure rather than float noise.
 GROUND_TOLERANCE = 0.001

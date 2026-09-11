@@ -218,6 +218,61 @@ def test_shift_clicking_an_object_row_extends_the_selection_without_crashing(ui,
     assert state.selected_object == second.uid
 
 
+def test_deleting_a_dock_selected_group_spanning_two_object_layers_removes_every_object(
+    ui, monkeypatch
+):
+    """The 2026-09-11 audit, finding plotter-02: nothing in the dock's
+    Shift+click checks the clicked row's layer against the layer(s) already in
+    ``state.selected_objects``, so Shift+clicking rows from two different
+    object layers builds one selection spanning both. Every delete surface
+    then called ``doc.remove_objects(layer.uid, state.selected_objects)``
+    against only ``doc.active_layer`` -- silently dropping whichever uids did
+    not live there -- and unconditionally cleared the whole selection anyway,
+    so the user saw the selection vanish while the other layer's object
+    quietly survived. Delete must reach both layers, or say which it could
+    not.
+    """
+    doc = _map()
+    first_layer = doc.add_object_layer()
+    doc.set_layer_props(first_layer.uid, name="Spawns")
+    second_layer = doc.add_object_layer()
+    doc.set_layer_props(second_layer.uid, name="Triggers")
+    first = _place(doc, doc.layer(first_layer.uid), "player")
+    second = _place(doc, doc.layer(second_layer.uid), "door_1")
+    state = plotter_state.PlotterState()
+    state.select_object(first.uid)
+    tab = SimpleNamespace(doc=doc)
+    ctx = SimpleNamespace()
+
+    @contextlib.contextmanager
+    def _clicked_row(*_a, **_k):
+        yield True
+
+    monkeypatch.setattr(plotter_objects.widgets, "list_row", _clicked_row)
+    monkeypatch.setattr(
+        ui, "get_io", lambda: SimpleNamespace(key_shift=True, key_ctrl=False, key_alt=False)
+    )
+    ui.new_frame()
+    ui.begin("##host")
+    plotter_objects._row(ctx, state, tab, second_layer, second)
+    ui.end()
+    ui.end_frame()
+
+    # The dock's own Shift+click builds a selection across both layers --
+    # this much already worked before the fix.
+    assert state.selected_objects == {first.uid, second.uid}
+    # Delete's active-layer-only ``remove_objects`` call left whichever
+    # object was not on ``doc.active_layer`` behind; the dock's last click set
+    # the active layer to ``second_layer``, so the unfixed code kept ``first``
+    # alive on ``first_layer`` while reporting the selection cleared.
+    state.tool = "object"
+    plotter_mode._delete(ctx, state, tab)
+
+    assert doc.layer(first_layer.uid).objects == [], "the other layer's object survived"
+    assert doc.layer(second_layer.uid).objects == []
+    assert state.selected_objects == set()
+
+
 # --- when the pane is there at all -------------------------------------------
 
 

@@ -1,9 +1,9 @@
 """The document journal: one crash-recovery mechanism for six document kinds.
 
 UX-05. Inker had a crash-safe autosave since it shipped and nothing else did —
-a Clay model, a Plotter map, a Packwright atlas, a pose being authored and a
-profile draft were all one power cut away from gone. The mechanism was right;
-the whole of what was wrong was that it lived in one mode.
+a Clay model, a Plotter map, a Packwright atlas and a pose being authored were
+all one power cut away from gone. The mechanism was right; the whole of what
+was wrong was that it lived in one mode.
 
 ``tests/test_inker_mode.py`` still owns the Inker-shaped assertions (they are
 the ones that pin the migration behaved identically). This file owns the parts
@@ -822,7 +822,11 @@ def test_every_real_provider_is_registered_by_ensure():
     as a side effect of importing a mode is not enough on its own."""
     journal.ensure_providers()
     kinds = {p.kind for p in journal.providers()}
-    assert kinds >= {"inker", "clay", "plotter", "packwright", "pose"}
+    # Exact, not ``>=``: a partial assertion would not have caught
+    # ``sirens_mode``'s provider missing from this set, nor would it catch a
+    # kind's deletion the way ``test_journal_docstring_and_kind_modes_comment_
+    # name_no_deleted_profile_kind`` needs this set to be trustworthy.
+    assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "pose"}
 
 
 @pytest.mark.parametrize(
@@ -864,12 +868,19 @@ def test_no_two_kinds_share_a_name_or_an_extension():
     assert len({p.ext for p in all_of}) == len(all_of)
 
 
-@pytest.mark.parametrize("suffix", [".ora", ".wblk", ".wmap", ".wpack"])
+@pytest.mark.parametrize("suffix", [".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json"])
 def test_each_document_kind_writes_its_own_format(suffix: str):
     """A recovered file is openable by hand and by the mode's ordinary reader,
-    which is what makes a crash copy inspectable rather than opaque."""
+    which is what makes a crash copy inspectable rather than opaque. The list
+    above is exact -- Sirens' ``.wsng`` and Poser's ``.pose.json`` were absent
+    from it and from ``test_every_real_provider_is_registered_by_ensure``'s
+    ``>=`` check alike, so a deleted format (the 2026-09-11 audit's shell-10:
+    ``.profile.json``, gone since commit 39f1bf97) could drop out of either
+    without either test noticing."""
     journal.ensure_providers()
-    assert suffix in {p.ext for p in journal.providers()}
+    exts = {p.ext for p in journal.providers()}
+    assert suffix in exts
+    assert len(exts) == 6, sorted(exts)
 
 
 def test_a_map_with_a_layer_tree_journals_and_comes_back():
@@ -1009,3 +1020,42 @@ def test_discarding_never_raises_when_the_files_have_already_gone(tmp_path, kind
 
     journal.discard(ctx, found)
     assert journal.snapshot(ctx) == []
+
+
+def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind():
+    """The 2026-09-11 audit's shell-10: the ``.profile.json`` "profile draft"
+    kind (and its provider) was deleted whole in commit 39f1bf97 ("Delete
+    Profiles, front and back"), but ``journal.py``'s module and ``Provider``
+    docstrings still named it among the journal's payload formats, and
+    ``panes/landing.py``'s ``_KIND_MODES`` comment still explained an
+    empty-string mapping for "profile" that the dict no longer has an entry
+    for. Prose only -- the provider set itself was never wrong.
+
+    Scoped to the docstrings/comment themselves (not the whole module source,
+    which would also flag this very sentence), and the true inventory is
+    derived from the registry rather than hand-copied a second time, so a
+    future deletion or addition cannot go stale here the way it did before.
+    """
+    import inspect
+
+    from warlock.studio.panes import landing
+
+    journal.ensure_providers()
+    exts = {p.ext for p in journal.providers()}
+    assert exts == {".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json"}
+
+    module_doc = journal.__doc__ or ""
+    provider_doc = journal.Provider.__doc__ or ""
+    assert "profile" not in module_doc.lower()
+    assert "profile" not in provider_doc.lower()
+    for ext in exts:
+        assert ext in module_doc, f"{ext} missing from the journal module docstring"
+
+    landing_source = inspect.getsource(landing)
+    kind_modes_comment = landing_source.split("_KIND_MODES = {", 1)[0]
+    # Only the comment directly above the table, not the whole file -- Review
+    # or some other pane could legitimately say "profile" about something
+    # unrelated, and that is not this finding's business.
+    comment_tail = kind_modes_comment[kind_modes_comment.rindex("#: Journal kind") :]
+    assert "profile" not in comment_tail.lower()
+    assert "pose" in comment_tail.lower()

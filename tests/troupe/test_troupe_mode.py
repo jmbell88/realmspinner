@@ -1287,14 +1287,31 @@ def test_atlas_texture_and_scores_refuse_a_sheet_path_that_is_not_a_file(svc):
     2026-09-07 (see the comment there). A directory sitting where the sheet
     PNG should be still satisfies ``exists()``, so the task would be
     submitted and fail inside ``Image.open`` with no mention of which sheet,
-    instead of being refused at the door the way ``pack()`` already is."""
+    instead of being refused at the door the way ``pack()`` already is.
+
+    The 2026-09-11 audit's troupe-06 moved ``rigging.list_sheets`` from
+    ``exists()`` to ``is_file()`` too, so a sheet whose PNG is a directory is
+    no longer *listed* at all -- ``select`` would find no match and leave
+    ``state.sheet_id`` empty, and ``scores`` would return early on that before
+    it ever reached the guard this test means to exercise. The PNG therefore
+    has to be a real file at selection time, and only turn into a directory
+    afterwards: a sheet listed and selected while whole, whose file is then
+    replaced (or otherwise stops being a file) before the user next asks for
+    scores or an atlas. That is the only sequence left that reaches the
+    guard, and it is a real one.
+    """
     ctx = _SubmitCtx(svc)
     job_id, made = _v2_character(svc)
     ctx.viewer = SimpleNamespace()  # anything not None: atlas_texture only gates on identity
+    troupe_mode.select(ctx, job_id, made[0])
+    assert troupe_mode.ensure(ctx).sheet_id == made[0], (
+        "selection must actually take while the PNG is still a real file, or "
+        "everything below it passes for the wrong reason"
+    )
+
     png_path = rigging.sheet_png_path(svc.job_dir(job_id), made[0])
     png_path.unlink()
     png_path.mkdir()
-    troupe_mode.select(ctx, job_id, made[0])
 
     assert troupe_mode.scores(ctx) is None
     assert troupe_mode.scores_failed(ctx)

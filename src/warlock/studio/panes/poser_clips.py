@@ -54,7 +54,22 @@ def _key_pending(viewer: Any, frame: int) -> bool:
     )
 
 
-def _update_key_reason(posing: bool, frame: int) -> str:
+def _not_posing_reason(error: str, asset_error: str) -> str:
+    """Why the armature is not posable right now, when it is not.
+
+    ``state.clips`` is refreshed independently of the preview build
+    (``state.error``) and the bound asset's rig load (``state.asset_error``),
+    so a Blender build failure -- or a broken rig on the asset this session
+    has open -- left a perfectly good clip library on screen with both of
+    this pane's buttons claiming the preview was "still loading" indefinitely
+    (the 2026-09-11 audit, finding poser-07). Named after whichever actually
+    failed; "still loading" is the fallback for the one case that really is
+    in progress.
+    """
+    return error or asset_error or "The skeleton preview is still loading."
+
+
+def _update_key_reason(posing: bool, frame: int, *, error: str = "", asset_error: str = "") -> str:
     """Why "Update key from pose" is disabled right now. -> the sentence.
 
     ``posing`` checked first: the 2026-09-07 audit (poser-07) found this
@@ -65,8 +80,19 @@ def _update_key_reason(posing: bool, frame: int) -> str:
     is assertable without a GL context.
     """
     if not posing:
-        return "The skeleton preview is still loading."
+        return _not_posing_reason(error, asset_error)
     return "That is an in-between frame, not a key. Pick a key first."
+
+
+def _new_key_reason(posing: bool, *, error: str = "", asset_error: str = "") -> str:
+    """Why "New key from pose..." is disabled right now. -> the sentence.
+
+    The 2026-09-11 audit (poser-07): this button stated its reason as a
+    literal inline string rather than through a testable function at all,
+    unlike its neighbour above -- given the same treatment here so a build or
+    load failure says so instead of "still loading" on this button too.
+    """
+    return _not_posing_reason(error, asset_error)
 
 
 def draw(ctx: Any) -> None:
@@ -182,7 +208,9 @@ def _keys(ctx: Any, state: Any) -> None:
         "Update key from pose",
         posing and state.frame < 0,
         (-1, 0),
-        reason=_update_key_reason(posing, state.frame),
+        reason=_update_key_reason(
+            posing, state.frame, error=state.error, asset_error=state.asset_error
+        ),
         tooltip="Store the joints as they are now into the selected key.",
     ):
         poser_mode.capture_key(ctx)
@@ -198,7 +226,7 @@ def _keys(ctx: Any, state: Any) -> None:
         "New key from pose...",
         posing,
         (-1, 0),
-        reason="The skeleton preview is still loading.",
+        reason=_new_key_reason(posing, error=state.error, asset_error=state.asset_error),
         tooltip=(
             "Add the joints as they are now as a brand-new key pose, after "
             "the selected one."

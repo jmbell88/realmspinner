@@ -349,6 +349,47 @@ def test_update_key_reason_checks_posing_before_the_stale_frame():
     )
 
 
+def test_update_key_reason_names_a_build_failure_not_still_loading():
+    """poser-07 (the 2026-09-11 audit): both clip-editor buttons that grey on
+    "not posing" always said "The skeleton preview is still loading.", even
+    when the true cause was that the preview build failed (state.error) or
+    the bound asset's rig failed to load (state.asset_error) rather than
+    being in progress. state.clips refreshes independently of either, so a
+    Blender build failure with a perfectly good clip library on screen used
+    to leave both buttons claiming the preview was "still loading"
+    indefinitely."""
+    from warlock.studio.panes.poser_clips import _new_key_reason, _update_key_reason
+
+    assert (
+        _update_key_reason(False, 3, error="Could not build the pose preview.")
+        == "Could not build the pose preview."
+    )
+    assert (
+        _update_key_reason(False, 3, asset_error="Could not open the rig.")
+        == "Could not open the rig."
+    )
+    # A build failure takes priority over an asset-load failure when somehow
+    # both are set -- the preview build is what state.error names, and it is
+    # what actually gates posing here.
+    assert (
+        _update_key_reason(False, 3, error="build broke", asset_error="rig broke")
+        == "build broke"
+    )
+    # Still loading, absent either failure -- the existing, still-correct case.
+    assert _update_key_reason(False, 3) == "The skeleton preview is still loading."
+
+    # "New key from pose..." gets the identical treatment.
+    assert (
+        _new_key_reason(False, error="Could not build the pose preview.")
+        == "Could not build the pose preview."
+    )
+    assert (
+        _new_key_reason(False, asset_error="That GLB carries no skeleton.")
+        == "That GLB carries no skeleton."
+    )
+    assert _new_key_reason(False) == "The skeleton preview is still loading."
+
+
 def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):
     from warlock.studio.panes import poser_clips
 

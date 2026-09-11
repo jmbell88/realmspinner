@@ -138,6 +138,35 @@ def test_normalise_hits_the_target_and_centres_the_subject():
     assert report.occupancy > 0.3
 
 
+def test_normalise_canvas_leak_keeps_the_unmeasured_marker(monkeypatch):
+    """pipelines-02 (2026-09-11 audit): normalise() re-measures the padded
+    canvas it just built, and when that re-measurement leaks
+    (reference.unmeasured(), e.g. a flood-fill leak through the
+    LANCZOS-softened paste rim), the "measured": False marker has to survive
+    into the Report normalise() returns -- rank.composition_score() depends
+    on it to score an unmeasured reference as UNMEASURED (0.5, "unknown, not
+    bad") rather than as a real, poorly-framed measurement scored from
+    default field values (occupancy=0.0 and a stale warning).
+    """
+    small = _subject(box=(10, 10, 40, 40))
+    real_measure = reference.measure
+    calls = []
+
+    def fake_measure(image):
+        calls.append(image)
+        if len(calls) == 1:
+            # The source measurement normalise() takes its bbox/scale from --
+            # let this one through untouched.
+            return real_measure(image)
+        # The re-measurement of the canvas normalise() just built: simulate
+        # the corner-fill leaking through the softened paste rim.
+        return reference.unmeasured("leaked through the softened rim")
+
+    monkeypatch.setattr(reference, "measure", fake_measure)
+    _out, report = reference.normalise(small)
+    assert report.extra.get("measured") is False
+
+
 def test_normalise_never_invents_or_strips_an_alpha_channel():
     # The mask drives geometry only -- background removal stays trellis's job.
     rgb, _ = reference.normalise(_subject())

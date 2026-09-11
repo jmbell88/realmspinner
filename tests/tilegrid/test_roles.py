@@ -115,6 +115,32 @@ def test_a_sheet_too_small_to_hold_47_is_refused() -> None:
     assert roles.infer_roles(_sheet(list(range(20))), TILE, TILE) is None
 
 
+def test_infer_roles_refuses_a_cell_count_past_a_ceiling(monkeypatch) -> None:
+    """The 2026-09-11 audit, finding plotter-03: infer_roles walks
+    ``rows * cols`` cells in a pure-Python loop, up to four times (once per
+    background candidate), with no ceiling on that count before the walk
+    starts. ``tile_w``/``tile_h`` are the *map's* tile size and may legally
+    be 1px, so an ordinary image opened onto a small-tile map extrapolates
+    (measured ~84 microseconds/cell) to ~23 minutes of uncancellable work.
+
+    ``_background_masks`` is stubbed to raise, so the ceiling is proven from
+    the early decline alone: against the unfixed code, infer_roles reaches
+    the stub (this test fails, showing the walk was attempted); against the
+    fix, it declines -- ``None``, the same way it already declines a sheet
+    with too few cells -- before ever calling it.
+    """
+    # A 1px tile turns a modest, cheap-to-allocate image into a cell count
+    # past MAX_ROLE_CELLS (256x256): 257x257 cells, no pixel data ever read.
+    huge = np.zeros((257, 257, 4), dtype=np.uint8)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("infer_roles started walking cells before declining")
+
+    monkeypatch.setattr(roles, "_background_masks", _boom)
+
+    assert roles.infer_roles(huge, 1, 1) is None
+
+
 def test_the_opaque_background_variant_resolves_by_border_colour() -> None:
     """A mockup sheet on a flat backdrop: the backdrop is by construction what
     every tile's border is mostly made of."""

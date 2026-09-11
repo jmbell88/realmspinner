@@ -63,6 +63,7 @@ __all__ = [
     "ManifoldReport",
     "adjacency",
     "boundary_loops",
+    "boundary_ring_from",
     "cached_triangulation",
     "check_manifold",
 ]
@@ -330,6 +331,86 @@ def boundary_loops(mesh: Mesh) -> tuple[list[np.ndarray], np.ndarray]:
             i = nxt[0]
         rings.append(np.array(ring, dtype="i4"))
     return rings, pinched
+
+
+def _outgoing_boundary_corners(mesh: Mesh, a: Adjacency, vertex: int) -> list[int]:
+    """Boundary corners whose ring-direction edge begins at *vertex*.
+
+    Local to one vertex's own fan of corners -- O(its degree), not O(the
+    mesh's whole boundary) -- which is what :func:`boundary_ring_from` is
+    built from instead of :func:`boundary_loops`'s ``pool`` dict, which
+    groups every boundary corner in the mesh up front.
+
+    A corner ``j`` is such an edge exactly when the corner ``c`` that follows
+    it in *its own face* (``c = next_corner[j]``) sits at *vertex* -- that is
+    the same "reverse of the face's own direction" rule :func:`boundary_loops`
+    already documents, read one vertex at a time via ``vertex_corners``
+    instead of over every boundary corner in the mesh.
+    """
+    out = []
+    for c in a.vertex_corners(int(vertex)).tolist():
+        j = int(a.prev_corner[c])
+        if int(a.edge_uses[a.corner_edge[j]]) == 1:
+            out.append(j)
+    return out
+
+
+def boundary_ring_from(
+    mesh: Mesh, seed_edges: np.ndarray
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """``(rings, pinched)`` for only the ring(s) that *seed_edges* touch.
+
+    Same contract as :func:`boundary_loops` -- a ring is wound in the hole
+    direction, ``pinched`` names vertices with two boundary edges leaving
+    them -- but walked outward from each seed edge's own corner instead of
+    scanning every boundary corner in the mesh first.
+
+    The 2026-09-11 audit's clay-05: :func:`~.ops_topo.fill_hole` called
+    ``boundary_loops(mesh)`` unconditionally, before its own
+    ``MAX_DISSOLVED_RING`` refusal, and that function walks every boundary
+    corner in the whole mesh to build every ring -- 878 ms at 200,000
+    disjoint boundary quads (800,000 total boundary corners) to fill a single
+    4-edge hole, even though the selected ring itself is 4 corners. A user
+    filling one small hole in a large imported mesh that happens to have many
+    other small unrelated holes elsewhere (this module's own docstring:
+    "importing a real-world GLB routinely" produces exactly that) paid for
+    the whole mesh's boundary length on the frame thread. Each seed edge is
+    confirmed boundary by the caller before this runs, so it costs O(its own
+    ring), not O(the mesh).
+    """
+    a = adjacency(mesh)
+    ids = a.edge_ids(seed_edges)
+    seeds: list[int] = []
+    seen_edges: set[int] = set()
+    for edge in ids.tolist():
+        if edge < 0 or edge in seen_edges:
+            continue
+        seen_edges.add(edge)
+        corner = np.flatnonzero(a.corner_edge == edge)
+        if len(corner) == 1 and int(a.edge_uses[edge]) == 1:
+            seeds.append(int(corner[0]))
+
+    rings: list[np.ndarray] = []
+    pinched: set[int] = set()
+    visited: set[int] = set()
+    for seed in seeds:
+        if seed in visited:
+            continue
+        ring: list[int] = []
+        j = seed
+        while j not in visited:
+            visited.add(j)
+            ring.append(int(mesh.loops[a.next_corner[j]]))
+            dst_v = int(mesh.loops[j])
+            outgoing = _outgoing_boundary_corners(mesh, a, dst_v)
+            if len(outgoing) > 1:
+                pinched.add(dst_v)
+            candidates = [k for k in outgoing if k not in visited]
+            if not candidates:
+                break
+            j = min(candidates)
+        rings.append(np.array(ring, dtype="i4"))
+    return rings, np.array(sorted(pinched), dtype="i4")
 
 
 # --- the report -------------------------------------------------------------

@@ -96,11 +96,13 @@ technical detail is written to `warlock.log` every time.
 missing item individually with the exact command that fetches it, and the same commands are
 collected in [Model weights](39-installation.md#model-weights).
 
-Two of these rows are **fatal** rather than a note — `trellis-server.exe` and the TRELLIS GGUF
-weights. Nothing degrades gracefully without a reconstruction engine, so those get a red banner and
-have to be fixed before any mesh job will run. A third can join them on a small card: **VRAM
-budget** is fatal when the budget cannot hold even a lone reconstruction, because there is nothing
-to degrade to there either. On a card with room it is an ordinary green row.
+None of these rows is **fatal**. `trellis-server.exe` and the TRELLIS GGUF weights were once, back
+when the installer shipped the engine; both are downloads now, so a machine that has not fetched
+them yet reports them as ordinary setup rows and `warlock doctor` still exits 0. Mesh jobs will not
+run until you fetch them, and the row tells you the command — but a fresh install is not a broken
+one. One row can still be fatal, on a small card: **VRAM budget**, when the budget cannot hold even
+a lone reconstruction, because there is nothing to degrade to. On a card with room it is an
+ordinary green row.
 
 The model combo marks an unavailable model rather than hiding it. Listing every registered model
 regardless of its weights meant picking one and learning at job-failure time what `doctor` already

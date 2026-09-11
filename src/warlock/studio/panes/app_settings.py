@@ -1188,6 +1188,13 @@ _GROUPS = fetch.GROUPS
 # download that is simply not offered.
 _UNGROUPED = "Other"
 
+#: Shared by the per-row Delete and Install buttons, both gated on the same
+#: combined ``ctx.tasks.any_busy("download:") or ctx.tasks.any_busy("remove:")``
+#: flag -- one download or removal locks every other row's own button, and the
+#: 2026-09-11 audit (shell-13) found both greying with no ``reason=`` at all,
+#: unlike "Download selected" a few rows up, which already explains itself.
+_MODEL_BUSY_REASON = "A model download or removal is in progress."
+
 
 # One sweep per session, on the first frame the Models category is drawn. A
 # module flag rather than ctx state: it is a fact about this process's disk,
@@ -1309,6 +1316,13 @@ def _models(ctx: Any) -> None:
 
 _LORA_FAMILIES = (("sdxl", "SDXL"), ("flux2klein", "FLUX.2 klein"))
 
+#: Every control this section greys under ``ctx.tasks.any_busy("lora:")``
+#: shares one sentence -- the 2026-09-11 audit (shell-13) found Remove
+#: carrying it and Import/Train-from-folder/Train-from-library greying
+#: silently beside it, which is exactly how a fifth control would copy the
+#: silence instead of the reason.
+_LORA_BUSY_REASON = "Another LoRA operation is in progress."
+
 
 def _loras(ctx: Any) -> None:
     """Import a LoRA file, train one from a folder, remove one.
@@ -1342,13 +1356,13 @@ def _loras(ctx: Any) -> None:
         if controls.small_button(
             f"Remove##lora-{row.key}",
             enabled=not busy,
-            reason="Another LoRA operation is in progress.",
+            reason=_LORA_BUSY_REASON,
         ):
             ctx.submit(f"lora:remove:{row.key}", svc_loras.remove_lora, ctx.svc, row.key)
             ctx.toast(f"Removed {row.label}.")
 
     imgui.dummy((0, sp(tokens.SP_1)))
-    if widgets.disabled_button("Import a LoRA file...", not busy):
+    if widgets.disabled_button("Import a LoRA file...", not busy, reason=_LORA_BUSY_REASON):
         picked = dialogs.open_file("Import a style LoRA", ["*.safetensors"])
         if picked is not None:
             ctx.state.preview["lora_import"] = {
@@ -1360,7 +1374,7 @@ def _loras(ctx: Any) -> None:
                 "commercial": False,
             }
     imgui.same_line()
-    if widgets.disabled_button("Train from a folder...", not busy):
+    if widgets.disabled_button("Train from a folder...", not busy, reason=_LORA_BUSY_REASON):
         folder = dialogs.select_folder("Pick a folder of images in the style")
         if folder is not None:
             ctx.state.preview["lora_train"] = {
@@ -1378,7 +1392,13 @@ def _loras(ctx: Any) -> None:
     # writes to directly -- so the library button fills the same form
     # without this pane needing its own task-result handler.
     if widgets.disabled_button(
-        "Train from my library...", not busy and not ctx.busy("preview")
+        "Train from my library...",
+        not busy and not ctx.busy("preview"),
+        reason=(
+            _LORA_BUSY_REASON
+            if busy
+            else "Already scanning your library." if ctx.busy("preview") else ""
+        ),
     ):
         ctx.submit("preview", _library_training_preview, ctx.svc)
     _lora_import_form(ctx)
@@ -1661,7 +1681,9 @@ def _remove_control(ctx: Any, row: dict[str, Any], busy: bool) -> None:
         found = ctx.progress(key)
         widgets.progress_bar(float(found.get("percent") or 0.0) if found else 0.0)
         return
-    if widgets.disabled_button(f"{icons.TRASH} Delete##{row_key}", not busy):
+    if widgets.disabled_button(
+        f"{icons.TRASH} Delete##{row_key}", not busy, reason=_MODEL_BUSY_REASON
+    ):
         _confirm_removal(ctx, row)
     freed = float(row.get("freed_gib") or 0.0)
     if freed and imgui.is_item_hovered():
@@ -1904,7 +1926,9 @@ def _actions(ctx: Any, row: dict[str, Any], busy: bool) -> None:
         # the fetch. Same mechanism, same reasoning -- see ``_cancel``.
         _cancel(ctx, key)
         return
-    if widgets.disabled_button(f"{icons.DOWNLOAD} Install##{row_key}", not busy):
+    if widgets.disabled_button(
+        f"{icons.DOWNLOAD} Install##{row_key}", not busy, reason=_MODEL_BUSY_REASON
+    ):
         _start(ctx, [row_key], key=key)
 
 

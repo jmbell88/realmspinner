@@ -599,3 +599,32 @@ def test_a_finished_reference_blocks_nothing_it_can_derive():
         inspector._why_blocked(_BlockCtx(), job, "icon.png", False, _derivable(job, "icon.png"))
         is None
     )
+
+
+def test_trellis_log_button_shows_a_spinner_while_busy():
+    """The 2026-09-11 audit's shell-12: ``_error``'s "Read the trellis log"
+    button greyed silently while the fetch was in flight -- no ``reason=`` and
+    no ``widgets.spinner()`` -- unlike the wrap-preview and pixel-preview
+    buttons in this same file, which both draw one beside the button while
+    ``ctx.busy``/``ctx.artifact_busy`` is true. A source check rather than a
+    drawn frame, matching how this repo pins position-sensitive doors it
+    cannot open headlessly (``imgui.tree_node`` starts closed, and there is no
+    real pointer here to open it with) -- what is checked is not merely that
+    ``widgets.spinner()`` is *named* in the function (that would pass for a
+    spinner drawn unconditionally, or for one beside the wrong button) but
+    that it sits inside an ``if busy:`` guard keyed off the same
+    ``key = "trellis-log"`` the button and the submit share, and before the
+    button itself -- the shape every sibling busy-artifact button uses.
+    """
+    import inspect
+
+    source = inspect.getsource(inspector._error)
+    after_key = source.split('key = "trellis-log"', 1)[1]
+    busy_at = after_key.index("busy = ctx.busy(key)")
+    guard_at = after_key.index("if busy:", busy_at)
+    spinner_at = after_key.index("widgets.spinner()", guard_at)
+    button_at = after_key.index('disabled_button("Read the trellis log"', spinner_at)
+    assert busy_at < guard_at < spinner_at < button_at, (
+        "the spinner must be gated on the same busy flag as the button, and "
+        "drawn before it"
+    )

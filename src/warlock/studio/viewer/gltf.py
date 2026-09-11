@@ -80,6 +80,14 @@ MAX_ACCESSOR_BYTES = 1 << 28
 #: this pipeline produces (MAX_ACCESSOR_BYTES's own docstring: a 2 M-triangle
 #: index stream is 24 MB; five fully populated 16-megapixel texture slots are
 #: another ~320 MB) while still refusing a file that keeps asking for more.
+#:
+#: No `docs/measurements/` document backs the figure and none is owed: this is a
+#: safety ceiling derived by arithmetic from what the pipeline can produce, not
+#: a threshold the stored corpus is keyed on, so it moves when the arithmetic
+#: above it moves rather than when a run says so. The 2026-09-11 audit (finding
+#: docs-09) noted it sits in the checkup's example list beside corpus-keyed
+#: constants like SEAM_MAX, which implied an obligation it does not have --
+#: hence this sentence rather than a document.
 MAX_TOTAL_BYTES = 768 * (1 << 20)
 
 
@@ -386,8 +394,21 @@ def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
     """
     scenes = gltf.get("scenes") or []
     index = gltf.get("scene", 0)
-    if scenes and 0 <= index < len(scenes) and "nodes" in scenes[index]:
-        return list(scenes[index]["nodes"])
+    if scenes:
+        # The 2026-09-11 audit, finding create-01 (merged): range-checked
+        # just below since create-01 (2026-09-05), but never type-checked --
+        # a non-integer "scene" (a string, say) reached the ``<=`` comparison
+        # as a bare TypeError instead of this same refusal.
+        _check_int_index(index, "the document's scene index")
+        if 0 <= index < len(scenes) and "nodes" in scenes[index]:
+            roots = scenes[index]["nodes"]
+            # Same gap, one field over: a scene's own "nodes" root list is
+            # returned straight off the JSON with no check at all, so a
+            # non-integer entry reached Model.update_world's bare
+            # ``0 <= index < len(self.nodes)`` comparison as a TypeError.
+            for root in roots:
+                _check_int_index(root, "a scene's root node index")
+            return list(roots)
     parented = {child for node in nodes for child in node.children}
     return [i for i in range(len(nodes)) if i not in parented]
 
@@ -812,6 +833,10 @@ class _Reader:
             # ``node()``/``skin()`` use.
             buffer_views = self.gltf.get("bufferViews", [])
             bv = image["bufferView"]
+            # The 2026-09-11 audit, finding create-01 (merged): range-checked
+            # just below since clay-09, but never type-checked, the same gap
+            # as the texture/image index checks a few lines below this one.
+            _check_int_index(bv, "an image's bufferView reference")
             if not 0 <= bv < len(buffer_views):
                 raise ValueError(
                     f"a texture references bufferView {bv}, but this GLB "
@@ -1010,9 +1035,21 @@ class _Reader:
                     f"node {name!r} references skin "
                     f"{skin}, but this GLB declares {n_skins} skin(s)"
                 )
+        children = list(node.get("children", []))
+        # The 2026-09-11 audit, finding create-01 (merged): a node's own
+        # "children" array was stored here with no validation at all, so a
+        # non-integer entry survived load() and reached Model.update_world's
+        # bare ``0 <= index < len(self.nodes)`` comparison as a TypeError
+        # instead of the named refusal every sibling index-shaped field in
+        # this loader gives. Out-of-range entries stay unchecked here on
+        # purpose -- forward references are legal glTF, and update_world's
+        # own ``seen``/range check already skips one that names no node
+        # (test_a_child_index_that_names_no_node_is_skipped_not_raised).
+        for child in children:
+            _check_int_index(child, f"node {name!r}'s child reference")
         out = Node(
             name=node.get("name", ""),
-            children=list(node.get("children", [])),
+            children=children,
             mesh=mesh,
             skin=skin,
         )

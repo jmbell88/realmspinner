@@ -301,6 +301,59 @@ def test_the_strip_is_absent_until_a_take_has_been_auditioned(tmp_path):
     assert muse_player.should_draw(ctx) is False
 
 
+# --- the device-less transports (muse-01, 2026-09-11 audit) ------------------
+
+
+def test_the_player_strips_transport_is_greyed_with_no_device(frames, tmp_path, monkeypatch):
+    """The player strip's Play/Stop used to carry no ``enabled``/``reason`` at
+    all -- ``sirens_transport.py`` already greys its own Play/Stop this way,
+    and nothing in Muse did the same. ``_no_device`` (this file's autouse
+    fixture) is the machine with no audio device; the button drawn onto it
+    must say so rather than staying live for a press that will do nothing.
+    Fails against the unfixed code, whose captured call carries no
+    ``enabled``/``reason`` keys, so ``.get("enabled", True)`` reads ``True``.
+    """
+    from warlock.studio.panes import muse_player as mp
+
+    ctx = _ctx(tmp_path, [_take("a")])
+    _with_player(ctx)
+    calls: list[dict[str, Any]] = []
+
+    def _capture(key, playing, **kw):
+        calls.append(kw)
+        return False
+
+    monkeypatch.setattr(mp.widgets, "transport", _capture)
+    frames(lambda: mp.draw(ctx))
+
+    assert calls, "the strip's transport was never drawn"
+    assert calls[0].get("enabled", True) is False
+    assert calls[0].get("reason", "") != ""
+
+
+def test_the_trays_card_transport_is_greyed_with_no_device(frames, tmp_path, monkeypatch):
+    """``muse_results._actions``'s half of the same finding: a finished take's
+    card transport used to grey only on the row's status, never on the
+    device. Fails against the unfixed code the same way the strip's test
+    does above.
+    """
+    from warlock.studio.panes import muse_results as mr
+
+    ctx = _ctx(tmp_path, [_take("a", status="done")])
+    calls: list[dict[str, Any]] = []
+
+    def _capture(key, playing, **kw):
+        calls.append(kw)
+        return False
+
+    monkeypatch.setattr(mr.widgets, "transport", _capture)
+    frames(lambda: mr.draw(ctx))
+
+    assert calls, "the card's transport was never drawn"
+    assert calls[0].get("enabled", True) is False
+    assert calls[0].get("reason", "") != ""
+
+
 def test_every_bar_control_is_named():
     """2026-09-07. Before this pass the two text fields relied on a tooltip
     that showed only while they were empty, and the pills had no name on

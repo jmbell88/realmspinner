@@ -743,6 +743,38 @@ def set_mode_gate(fn: Any) -> None:
     _MODE_AVAILABLE = fn
 
 
+#: Injected once at startup by ``App.setup_context``, next to ``set_mode_gate``;
+#: ``None`` everywhere else. ``set_mode_gate``'s own shape, mirrored rather than
+#: folded into it: the gate answers "may this mode open" and this answers
+#: "something just left that mode" -- two different questions, so a test that
+#: cares about only one resets only that one, the way ``test_mode_gate.py``
+#: already resets the gate in a ``finally``.
+#:
+#: Built for sirens-03 (the 2026-09-11 audit): leaving Sirens mid-song used to
+#: leave it playing with no visible transport and no way to stop it short of
+#: returning to Sirens, because nothing called ``sirens_keys.release_all``
+#: (only the panic key did) or, underneath it, ``sirens_play.stop``. ``state.py``
+#: must not import ``sirens_play`` -- the same rule that keeps
+#: ``AppState.sirens`` typed ``Any`` rather than importing the editor it
+#: belongs to (``state itself must not learn what a Ctx is``, the comment
+#: beside ``_MODE_AVAILABLE`` above already promises) -- and a module-scope
+#: import would cycle anyway (``state -> sirens_play -> sirens_mode ->
+#: state``). So this is a hook, installed from ``main.py`` with a closure over
+#: the one ``Ctx`` the mode's audio actually lives on, exactly where
+#: ``set_mode_gate`` is installed.
+#:
+#: ``None`` means "nothing to do", so headless tests and the frames before
+#: ``App.setup_context`` runs behave as they always did.
+_MODE_LEAVE: Any = None
+
+
+def set_mode_leave(fn: Any) -> None:
+    """Install the callback ``set_mode`` invokes with the mode just left, on
+    every successful switch. ``None`` clears it."""
+    global _MODE_LEAVE
+    _MODE_LEAVE = fn
+
+
 def set_mode(state: AppState, key: str) -> bool:
     """Switch modes, recording where Esc should go back to. -> whether it moved.
 
@@ -758,6 +790,11 @@ def set_mode(state: AppState, key: str) -> bool:
     Takes the state rather than being an ``AppState`` method so it stays
     callable against any object carrying the four fields, which is what the
     palette's tests hand it.
+
+    **Calls ``_MODE_LEAVE`` with the mode being left, once the move is certain
+    (sirens-03, the 2026-09-11 audit).** After the same-mode early return and
+    the gate, so it fires exactly once per actual switch -- never for a press
+    that did not move and never for one the gate refused.
     """
     if key == state.mode:
         return False
@@ -767,9 +804,12 @@ def set_mode(state: AppState, key: str) -> bool:
     # somehow already in does not trap you: leaving is always a different key.
     if _MODE_AVAILABLE is not None and not _MODE_AVAILABLE(key):
         return False
+    leaving = state.mode
     state.previous_mode = state.mode
     state.mode_observed = key
     state.mode = key
+    if _MODE_LEAVE is not None:
+        _MODE_LEAVE(leaving)
     return True
 
 

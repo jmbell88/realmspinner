@@ -269,7 +269,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
     if key.startswith(muse_io.FIND_PREFIX):
         one = player(ctx)
-        if one is not None and one.job == key[len(muse_io.FIND_PREFIX) :]:
+        # **muse-03 (2026-09-11 audit).** ``one.finding`` guards this the way
+        # the LOAD_PREFIX branch below guards on ``audition_job``: a search
+        # abandoned by switching to another take and back rebuilds a fresh
+        # ``Player`` (``finding`` defaults to ``False``) that happens to carry
+        # the same job id, so matching on the id alone let a search nobody is
+        # waiting on any more land on top of a region the user has since
+        # restored or hand-set with no request of theirs behind it.
+        if one is not None and one.finding and one.job == key[len(muse_io.FIND_PREFIX) :]:
             one.finding = False
             one.candidates = list(result or [])
             if one.candidates:
@@ -393,8 +400,16 @@ def sync(ctx: Any) -> None:
     if state.player is not None and state.player.job:
         # Drop the ~42 MB when its take leaves the Library. Off the cached rows
         # rather than a stat, for the tray's reason: this runs every frame.
-        known = {str(job["id"]) for job in getattr(ctx.cache, "jobs", []) or []}
-        if known and state.player.job not in known:
+        #
+        # **muse-06 (2026-09-11 audit).** This used to build a ``set`` of
+        # every job id in the cache on every one of those frames just to test
+        # whether one id -- the loaded player's -- was in it, so the cost
+        # scaled with the whole library's size, not Muse's rows alone, paid
+        # 60 times a second for as long as the tray was drawn. A
+        # short-circuiting membership scan answers the same question and
+        # stops at the first match rather than visiting every row.
+        jobs = getattr(ctx.cache, "jobs", []) or []
+        if jobs and not any(str(job["id"]) == state.player.job for job in jobs):
             state.player = None
 
 
@@ -518,6 +533,14 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
     ordinary play-through to the end of the take, never a loop: a region
     existing at all is a different question from whether *this* seek landed
     inside it, which the old unconditional ``repeat`` flag never asked.
+
+    **Both branches toast on refusal (muse-01, 2026-09-11 audit).** Neither
+    ``sirens_audio.play`` call here had an ``else`` before this: the mirror
+    ``on_task_done`` already toasts ``unavailable_reason()`` on the
+    first-decode landing path, but resuming an already-decoded take (the
+    ordinary Stop-then-Play case), seeking while "playing", and "Play the
+    loop" all route through *this* function -- so on a device-less machine
+    every one of those pressed a genuinely dead button with nothing said.
     """
     import numpy as np
 
@@ -537,6 +560,8 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
             one.play_offset = seconds
             one.loop_anchor = seconds
             ensure(ctx).playing_job = one.job
+        else:
+            ctx.toast(sirens_audio.unavailable_reason() or "could not play that take", "warn")
         return
 
     one.loop_anchor = None
@@ -547,6 +572,8 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
     if sirens_audio.play(tail, rate, tag=one.job, loops=0):
         one.play_offset = seconds
         ensure(ctx).playing_job = one.job
+    else:
+        ctx.toast(sirens_audio.unavailable_reason() or "could not play that take", "warn")
 
 
 def play_region(ctx: Any) -> None:

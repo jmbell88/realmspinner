@@ -40,6 +40,45 @@ from ..tokens import sp
 #: pane's tail do.
 BRIDGE_FLOOR = 190.0
 
+#: The one sentence both ``*_reason`` functions below share for "busy" -- one
+#: string rather than two copies drifting apart.
+_BUSY_WHY = "This song is being written; the button comes back when it lands."
+
+
+def export_reason(ready: bool, busy: bool) -> str:
+    """"Export audio..."'s disabled reason, in priority order. -> "" when the
+    button should be enabled.
+
+    Pulled out pure for the 2026-09-11 audit's finding sirens-04: this pane
+    picked its ``reason=`` with an inline ternary keyed only on ``ready``
+    (``"busy" if ready else "nothing to export"``), which read right for
+    today's two buttons only because disabling the button ever required
+    ``not ready or busy`` and ``ready`` happened to settle which of those two
+    was true -- the exact fragile, untested shape that produced findings
+    sirens-03/04/05 (2026-09-07, in ``pattern_room``,
+    ``sirens_instruments.instrument_room``, ``sirens_effects.delete_reason``,
+    ``sirens_instruments.sample_delete_reason``) and again
+    ``sirens_orders.add_to_order_reason`` (2026-09-08), whose own docstring
+    names an inline ternary with untested priority among competing disabled
+    causes as precisely what produced those.
+    """
+    if not ready:
+        return "There is nothing in the order list to export yet."
+    if busy:
+        return _BUSY_WHY
+    return ""
+
+
+def compose_reason(has_order: bool, busy: bool) -> str:
+    """"Compose in Muse..."'s disabled reason, in priority order. -> "" when
+    the button should be enabled. Same reasoning as :func:`export_reason`.
+    """
+    if not has_order:
+        return "There is nothing in the order list to compose from."
+    if busy:
+        return _BUSY_WHY
+    return ""
+
 
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
@@ -93,11 +132,7 @@ def _export(ctx: Any, tab: Any) -> None:
         f"{icons.DOWNLOAD} Export audio...",
         (-1, 0),
         enabled=ready and not tab.busy,
-        reason=(
-            "This song is being written; the button comes back when it lands."
-            if ready
-            else "There is nothing in the order list to export yet."
-        ),
+        reason=export_reason(ready, tab.busy),
         tooltip="Ctrl+Shift+E",
     ):
         sirens_mode.export_files(ctx, tab)
@@ -121,11 +156,7 @@ def _export(ctx: Any, tab: Any) -> None:
         f"{icons.MUSIC} Compose in Muse...",
         bool(doc.order) and not tab.busy,
         (-1, 0),
-        reason=(
-            "This song is being written; the button comes back when it lands."
-            if doc.order
-            else "There is nothing in the order list to compose from."
-        ),
+        reason=compose_reason(bool(doc.order), tab.busy),
         tooltip=(
             "Render this song and hand it to the music model as a reference. "
             "Your loop points travel with it."

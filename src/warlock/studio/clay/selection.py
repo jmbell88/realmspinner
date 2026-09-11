@@ -121,6 +121,16 @@ def delete_selected(doc: Any) -> list[str]:
             obj = doc.objects.pop(index)
             doc.selection.discard(uid)
             doc.element_sel.pop(uid, None)
+            # The 2026-09-11 audit, finding clay-06: this branch reimplements
+            # ClayDoc.remove_object's bookkeeping inline (to build one
+            # CompoundEdit for the whole selection, the clay-01 fix) and used
+            # to stop one line short of it -- a deleted uid's _mesh_stamps
+            # entry, which pins its Mesh's full CSR arrays in memory, was
+            # never popped. Same shape of bug already named and fixed twice
+            # for ClayState.manifold: the rule is every way an object leaves
+            # doc.objects, not only the one call site an earlier audit
+            # happened to reach. Mirrors remove_object's own comment.
+            doc._mesh_stamps.pop(uid, None)
             edits.append(ObjectRemoveEdit(index, obj))
         doc.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         doc.touch()

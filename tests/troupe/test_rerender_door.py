@@ -214,6 +214,49 @@ def test_every_run_at_once_is_refused_as_a_full_render(svc):
     assert caught.value.field == "subset"
 
 
+def test_rerender_charsheets_strip_list_is_derived_from_derived_params_not_hand_copied(
+    svc, monkeypatch
+):
+    """The 2026-09-11 audit, finding troupe-02: a correspondence check, not a
+    list of four names.
+
+    Before this fix, the door stripped a hand-written tuple
+    ``("cells", "rendered_cells", "pixel_report", "validation")`` instead of
+    reading ``service.validation.DERIVED_PARAMS`` -- the exact class of bug
+    that already bit this function once (the 2026-09-07 audit's troupe-04,
+    which found the door hand-stripping only three of the four relevant
+    keys). A hand list duplicating an allowlist is one future
+    ``DERIVED_PARAMS`` addition away from silently reintroducing a
+    stale-verdict row.
+
+    Proved by *adding* a key to ``DERIVED_PARAMS`` at test time -- a name the
+    real table has never carried -- rather than reusing one of its four
+    current entries: a strip loop still hand-copied from today's table would
+    pass a test that only checked today's four keys. Only a strip that reads
+    ``DERIVED_PARAMS`` itself, whatever it contains, survives this.
+    """
+    from warlock.service import troupe as svc_troupe
+    from warlock.service.validation import DERIVED_PARAMS
+
+    sentinel = "future_derived_key_2026_09_11"
+    assert sentinel not in DERIVED_PARAMS
+    monkeypatch.setattr(svc_troupe, "DERIVED_PARAMS", (*DERIVED_PARAMS, sentinel))
+
+    job_id = _rigged_mesh(svc)
+    row_id, sheet_id = _published(svc, job_id)
+    svc.store.set_params(
+        row_id, {**svc.store.get(row_id)["params"], sentinel: "stale"}
+    )
+
+    made = svc_troupe.rerender_charsheet(svc, job_id, sheet_id=sheet_id, subset=_runs(1))
+    params = svc.store.get(made["id"])["params"]
+
+    assert sentinel not in params, (
+        "a key added to DERIVED_PARAMS was not stripped -- the door is still "
+        "reading a hand-copied subset rather than the table itself"
+    )
+
+
 def test_a_run_the_sheet_does_not_have_is_refused_by_name(svc):
     job_id = _rigged_mesh(svc)
     _row_id, sheet_id = _published(svc, job_id)

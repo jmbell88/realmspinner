@@ -31,6 +31,7 @@ from collections.abc import Sequence
 
 __all__ = [
     "JASC_HEADER",
+    "MAX_PALETTE_ROWS",
     "dumps",
     "dumps_for",
     "dumps_hex",
@@ -47,6 +48,19 @@ RGBA = tuple[int, int, int, int]
 
 HEADER = "GIMP Palette"
 
+#: The absolute ceiling on how many rows :func:`parse` will turn into colours.
+#: ``asein.py``'s own ``_MAX_PALETTE_ENTRIES`` verbatim and for its reason: a
+#: ``.gpl`` is a plain text format with no size-bearing header field at all, so
+#: nothing but the loop itself ever bounded it, and text compresses far better
+#: than pixels -- a ``.gpl`` of five million repeated three-digit rows is under
+#: 45 KB inside a zip member and built a 5,000,000-entry ``list`` of tuples
+#: (the 2026-09-11 audit's ``ora.py`` reproduction: 703.7 MiB and 20.0s for one
+#: ``palette.gpl`` member, where ``zipguard``'s 1 GiB member ceiling alone
+#: would permit roughly 179,000,000 rows of that shape). 65536 is generous for
+#: any real palette -- Aseprite's own indexed mode tops out at one byte per
+#: pixel, 256 entries -- and still refuses long before the amplification does.
+MAX_PALETTE_ROWS = 1 << 16
+
 #: The two lines every JASC ``.pal`` starts with: the magic and a version. The
 #: version has been ``0100`` since Paint Shop Pro shipped it and no reader in
 #: the wild checks it, so it is written verbatim and not parsed.
@@ -60,6 +74,10 @@ def parse(text: str) -> list[RGBA]:
     The header is checked but a missing one is not fatal: plenty of palettes in
     the wild start straight in on the numbers, and a three-integer line is
     unambiguous enough to read without being told.
+
+    Refuses past :data:`MAX_PALETTE_ROWS` rather than truncating silently --
+    the 2026-09-11 audit found this loop had no ceiling at all, and a
+    ``palette.gpl`` this large is not a palette a real editor wrote.
     """
     out: list[RGBA] = []
     for line in text.splitlines():
@@ -76,6 +94,11 @@ def parse(text: str) -> list[RGBA]:
             # sense of. Both are skipped by the same branch on purpose: the
             # distinction is not one the caller can act on.
             continue
+        if len(out) >= MAX_PALETTE_ROWS:
+            raise ValueError(
+                f"this palette holds more than the {MAX_PALETTE_ROWS} rows"
+                " this build will read"
+            )
         out.append((_byte(r), _byte(g), _byte(b), 255))
     if not out:
         raise ValueError("no colours in this palette file")

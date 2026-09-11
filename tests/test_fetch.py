@@ -1584,3 +1584,34 @@ def test_resume_key_changes_when_the_extract_prefix_changes():
     rooted = worker._resume_key({**base, "extract": "trellis-cuda-windows-x64"})
     assert flat != rooted
     assert worker._resume_key({**base, "extract": "."}) == flat
+
+
+def test_fetch_pack_and_update_worker_report_an_unreadable_spec_as_a_sentence_not_a_traceback():
+    """pipelines-05 (2026-09-11 audit): fetch_worker.main, pack_worker.main and
+    update_worker.main parsed the request spec off stdin (json.loads(...),
+    spec["result_path"]) with no guard, so a spec that could not be read
+    crashed the child with an unhandled Python traceback on stderr and no
+    result_path written -- instead of the "a malformed spec is reported in a
+    sentence and an exit code, never as a traceback" shape
+    blender_worker.main and lora_train_worker.main already implement (and two
+    of the three cite as "blender_worker's rule" in their own comments).
+
+    A subprocess and not an import, because the thing under test is the
+    child's own unhandled-exception behaviour -- calling ``main()`` in-process
+    would just let the exception propagate into this test function instead of
+    proving what actually lands on the child's stderr.
+    """
+    for module in ("fetch_worker", "pack_worker", "update_worker"):
+        stub = (
+            f"from warlock.pipelines import {module}\n"
+            f"raise SystemExit({module}.main())\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", stub],
+            input="not json at all",
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 2, (module, proc.returncode, proc.stdout, proc.stderr)
+        assert "Traceback" not in proc.stderr, (module, proc.stderr)
+        assert proc.stderr.strip(), f"{module} printed no sentence explaining the refusal"

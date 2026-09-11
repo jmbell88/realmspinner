@@ -1028,15 +1028,15 @@ def _group_summary(ctx: Any, doc: Any, state: Any) -> None:
         "them. Click one object on its own to edit its properties."
     )
     imgui.dummy((0, sp(tokens.SP_2)))
-    layer = doc.layer(doc.active_layer) if doc.active_layer is not None else None
-    locked = bool(getattr(layer, "locked", False))
-    if locked:
-        widgets.muted(f"{layer.name} is locked.")
-        return
+    # A group selected from the Objects dock can span more than one object
+    # layer -- the 2026-09-11 audit, finding plotter-02 -- so the button below
+    # no longer gates on whether *the active layer* happens to be locked: that
+    # checked the wrong layer whenever the group lived elsewhere entirely.
+    # ``remove_selected_objects`` groups by the layer each uid is actually on
+    # and toasts per locked layer it has to skip, the same refusal this pane
+    # used to give unconditionally for one layer.
     if widgets.destructive_button(f"{icons.TRASH} Delete {count} objects", (-1, 0)):
-        if layer is not None:
-            doc.remove_objects(layer.uid, state.selected_objects)
-        state.select_object(None)
+        plotter_mode.remove_selected_objects(ctx, doc, state)
 
 
 def _object_form(

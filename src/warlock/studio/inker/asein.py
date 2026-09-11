@@ -1700,7 +1700,7 @@ def document_from_aseprite(
     this function's, and not the reason ``format="ora"`` is stamped here.
     """
     from .document import Document, matte_for
-    from .ora import _install_groups
+    from .ora import _install_groups, _layer_budget
     from .undo import UNDO_BYTES, UndoStack
 
     sprite = parse(data)
@@ -1879,6 +1879,17 @@ def document_from_aseprite(
         ):
             warn("user data needs a timeline; this file has one frame")
         layers: list[Layer] = []
+        # 2026-09-11 audit, finding inker-01: every no-cel row below costs one
+        # fresh full-canvas RGBA array via ``Layer.empty`` -- unlike the
+        # animated branch above, which shares one placeholder plane across
+        # every empty slot (``Animation.placeholder``/``blank_plane``), a
+        # still document had no such sharing and nothing bounded how many rows
+        # it could declare: a 2,544-byte file naming 100 empty layers at
+        # 1024x1024 cost 424 MiB. Mirrors ``ora.py``'s own
+        # ``_layer_budget``/``MAX_ORA_LAYERS``, the precedent for exactly this
+        # shape on the container's own layer path.
+        empty_layers = 0
+        allowed_empty = _layer_budget(width, height)
         for index in image_rows:
             row = sprite.layers[index]
             layer = made.get((index, 0))
@@ -1899,6 +1910,13 @@ def document_from_aseprite(
                         name=row.name,
                     )
                 else:
+                    empty_layers += 1
+                    if empty_layers > allowed_empty:
+                        raise ValueError(
+                            f"this drawing holds more than the {allowed_empty} "
+                            f"empty layers of {width}x{height} this build will"
+                            " open"
+                        )
                     layer = Layer.empty(width, height, row.name)
             layer.name = row.name
             layer.opacity = row.opacity

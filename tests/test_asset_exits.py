@@ -355,6 +355,30 @@ def test_no_gate_touches_the_filesystem(svc, monkeypatch):
         asset_exits.exits_for(ctx, job)
 
 
+def test_asset_exits_status_reason_reuses_the_services_status_sentences(svc):
+    """The 2026-09-11 audit, finding create-06.
+
+    ``_status_reason`` used to be a second, independently hand-written mapping
+    of the same four job-status values ``service.validation.STATUS_SENTENCES``
+    already owns, worded differently ("Still queued." vs "is still waiting in
+    the queue"). ``create_stages.available``'s own docstring states the rule
+    this violated: "the wording is the service's own, verbatim, so the
+    tooltip on the disabled segment and the toast from the refusal it is
+    predicting are one sentence and not two paraphrases." Asserted through a
+    live near-miss exit (an undone reference offering Plotter, dimmed)
+    rather than by calling the private helper directly, so the check follows
+    what a reader actually sees.
+    """
+    from warlock.service.validation import not_done_message
+
+    ctx = FakeCtx(svc)
+    for status in ("queued", "running", "error", "cancelled"):
+        reference = _reference(svc, status=status, ready=False)
+        exits = asset_exits.exits_for(ctx, reference)
+        plotter = next(e for e in exits if e.mode == "plotter")
+        assert plotter.reason == not_done_message("This", status), status
+
+
 def test_the_inspector_and_the_library_menu_cannot_drift_again(svc):
     """The claim the whole module exists to make: both surfaces draw the
     identical list ``exits_for`` returns. Asserted on the source of the two

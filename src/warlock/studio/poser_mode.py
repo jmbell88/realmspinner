@@ -83,6 +83,18 @@ ASSET_DELETE_KEY_PREFIX = "poser-asset-delete:"
 # ``TaskRunner.submit`` alone -- see :func:`rerig`.
 ASSET_RERIG_KEY_PREFIX = "poser-asset-rerig:"
 
+# The automatic viewport binds' own keys (the 2026-09-11 audit, finding
+# create-04): ``sync_asset``/``sync_preview`` run from ``_poser_viewport``'s
+# draw on *every* frame Poser is open, not only the frame a click asked for
+# one -- a queued re-rig landing (:func:`_land_rerig`) or a preview build
+# landing (``on_task_done``'s ``PREVIEW_KEY_PREFIX`` branch) both arrive on an
+# arbitrary frame with no press behind them. These two keys are the
+# ``main.App._sync_viewer`` split (parse on a task thread, adopt on this one)
+# applied to that automatic path; the genuinely click-driven load stays
+# synchronous where it already was -- see ``open_asset``'s own docstring.
+ASSET_LOAD_KEY = "poser-asset-load"
+PREVIEW_LOAD_KEY = "poser-preview-load"
+
 # The front-yaw control's own key, one per job -- writing this asset's front
 # through ``service.jobs.set_front_yaw`` and reading the normalised value back
 # into ``PoserState.asset_front_yaw`` once the write lands (:func:`set_front`,
@@ -208,21 +220,26 @@ class PoserState:
     #: GLB with no skin). Cleared only by :func:`retry_asset`, so a broken rig
     #: is not retried every frame.
     asset_error: str = ""
-    #: The id of a rig job queued by :func:`rerig`, while it is still
-    #: ``queued``/``running``. ``svc_rig.create_rig`` only asks the serial
+    #: In-flight re-rigs, keyed by the *source* asset's job id and holding the
+    #: queued rig job's id -- ``svc_rig.create_rig`` only asks the serial
     #: queue to build a new rig.glb; the write itself lands minutes later, out
     #: of process, on the ``warlock-loop`` thread's own schedule -- so this is
-    #: what :func:`pump_rerig` watches to notice the job actually finish.
-    #: Empty once it has landed (or failed), so a stale id is never polled
-    #: forever.
-    rerig_job_id: str = ""
-    #: Which asset ``rerig_job_id`` was queued for, captured at submit time
-    #: from ``create_rig``'s own ``source_job``. The user can close this
-    #: session and open a different asset while the queue is still working;
-    #: comparing against this rather than the live ``job_id`` is what stops a
-    #: re-rig queued for job A landing on whatever job B happens to be open
-    #: when it finishes.
-    rerig_source_job: str = ""
+    #: what :func:`pump_rerig` watches to notice each one actually finish. An
+    #: entry is removed once its job lands (or fails), so a stale id is never
+    #: polled forever.
+    #:
+    #: A single pair of fields here, before the 2026-09-11 audit (poser-05),
+    #: meant re-rigging one asset and then, before that job landed, opening a
+    #: different rigged asset and re-rigging it too silently overwrote the
+    #: first re-rig's tracking with the second's -- exactly the
+    #: ``asset_poses_loading`` hole the 2026-09-08 audit's poser-04 fixed by
+    #: scoping per job id (see that field's own docstring); the identical fix
+    #: was never applied here. The user can also close a session and open a
+    #: different asset while the queue is still working on the first one's
+    #: re-rig; comparing a landed job's *source* against the live ``job_id``,
+    #: not the dict's mere presence, is what stops a re-rig queued for job A
+    #: landing on whatever job B happens to be open when it finishes.
+    rerig_jobs: dict[str, str] = field(default_factory=dict)
     #: Whether the Re-rig picker is expanded, and which skeleton is chosen in
     #: it. Here rather than in ``ctx.state.preview`` -- the pane-scratch dict
     #: the rest of the app uses for this -- because that dict outlives the
@@ -561,6 +578,19 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
     A missing or unreadable rig.json is not a reason to refuse the trip, the
     same tolerance ``pose_panel._enter`` already applies: only the mirror
     button and the joint editor need what it carries.
+
+    **Binds the viewer synchronously, right here (the 2026-09-11 audit,
+    finding create-04).** ``proceed`` runs only from this door's own press or
+    the confirm answering it -- exactly the case ``viewer_embed.Viewer.
+    load_model``'s own docstring sanctions ("the wait is the point... because
+    the user just pressed something"), the same precedent ``pose_panel._enter``
+    already stands on. ``sync_asset`` used to be where this load happened
+    instead, called every frame from the draw loop regardless of whether a
+    click was behind it -- which also made it responsible for the *other*
+    case, a queued re-rig landing while the user is doing nothing in
+    particular (:func:`_land_rerig`). That automatic case still has no click
+    to hide the wait behind, so it goes through :func:`sync_asset`'s own
+    parse-on-a-task/adopt-on-this-frame split instead; see its docstring.
     """
     from ..service import rig as svc_rig
 
@@ -591,10 +621,10 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         viewer = viewer_of(ctx)
         if viewer is not None:
             # Whatever the viewer was showing -- another asset, the meshless
-            # preview -- is not this one; sync_asset binds the new one when
-            # the viewport next draws.
+            # preview -- is not this one.
             viewer.exit_pose_mode()
             viewer.clear()
+            _bind_asset_now(ctx, state, viewer, job_id)
         refresh(ctx)
         clips_refresh(ctx)
         refresh_asset_poses(ctx)
@@ -673,7 +703,17 @@ def save_pose_to_asset(ctx: Any) -> None:
     existing = viewer.editor.current
 
     def accept(name: str) -> None:
-        payload: dict[str, Any] = {"name": name, "bones": viewer.get_pose()}
+        # root_translation travels with the pose here too, mirroring _payload's
+        # library-save shape exactly -- without it, a crouch or hop authored
+        # with Move root and saved onto the asset (rather than the shared
+        # library) silently lost its offset with no error (poser-02, the
+        # 2026-09-11 audit): the bake reads pose.get("root_translation") and
+        # falls through to an offset-less spec when the key is absent.
+        payload: dict[str, Any] = {
+            "name": name,
+            "bones": viewer.get_pose(),
+            "root_translation": viewer.editor.root_translation(),
+        }
         if existing:
             payload["id"] = existing
         ctx.submit(
@@ -776,6 +816,12 @@ def apply_asset_pose(ctx: Any, pose_id: str) -> None:
     def proceed() -> None:
         viewer.reset_all(dirty=False)
         viewer.set_pose(record.get("bones") or {}, pose_id=record["id"], dirty=False)
+        # apply_pose's own line, restoring what save_pose_to_asset now saves
+        # (poser-02, the 2026-09-11 audit): omitting this made a root offset
+        # saved directly onto an asset silently vanish on the very next load.
+        viewer.set_root_translation(
+            record.get("root_translation") or [0.0, 0.0, 0.0], dirty=False
+        )
 
     guard(ctx, "apply a saved pose", proceed)
 
@@ -843,7 +889,7 @@ def rerig(ctx: Any, template: str) -> None:
 
 
 def pump_rerig(ctx: Any) -> None:
-    """Notice a queued re-rig reaching a terminal status, every frame.
+    """Notice every queued re-rig reaching a terminal status, every frame.
 
     Called from ``poser_library.draw`` beside :func:`pump`, its own per-frame
     heartbeat. ``svc_rig.create_rig`` only enqueues the rig job -- the actual
@@ -853,36 +899,44 @@ def pump_rerig(ctx: Any) -> None:
     exists yet. This is what does: a couple of dict lookups against
     ``ctx.job``, which is already kept live every frame for every other mode
     (the same cache ``ctx.cache.tick`` refreshes in ``main.py``).
+
+    Iterates every tracked re-rig, not just one (poser-05, the 2026-09-11
+    audit): re-rigging asset A and then, before that job lands, re-rigging
+    asset B must not drop A's own tracking, so both are polled here and each
+    is retired independently.
     """
     state = ensure(ctx)
-    if not state.rerig_job_id:
+    if not state.rerig_jobs:
         return
-    job = ctx.job(state.rerig_job_id)
-    if job is None:
-        # Not yet in the loaded window, or a stale id from a session that has
-        # since moved on -- either way there is nothing to act on this frame.
-        return
-    status = job.get("status")
-    if status == "done":
-        source = state.rerig_source_job
-        state.rerig_job_id = ""
-        state.rerig_source_job = ""
-        if state.job_id == source:
-            # The 2026-09-08 audit's poser-01: rerig()'s own guard protects only
-            # the moment the re-rig is *submitted*, minutes before this fires --
-            # an ordinary thing to do while a Blender job serialises on the
-            # queue is to keep posing the old rig in the meantime. Unguarded,
-            # _land_rerig's exit_pose_mode()/clear() discarded that edit with no
-            # confirm and no toast the instant the job landed. Routed through
-            # the same guard() every other destructive door here already uses;
-            # when there is nothing unsaved it proceeds immediately, same as
-            # before.
-            guard(ctx, "land this re-rig", lambda: _land_rerig(ctx))
-    elif status in ("error", "cancelled"):
-        # The generic job-transition toast (``main.py``'s ``_refresh``)
-        # already says why; nothing here is worth watching any further.
-        state.rerig_job_id = ""
-        state.rerig_source_job = ""
+    # A snapshot: landing a re-rig runs guard(), which can call _land_rerig
+    # synchronously, and a session could in principle queue another re-rig
+    # from inside that callback -- iterating the live dict while it is
+    # mutated would skip or repeat an entry.
+    for source, rig_job_id in list(state.rerig_jobs.items()):
+        job = ctx.job(rig_job_id)
+        if job is None:
+            # Not yet in the loaded window, or a stale id from a session that
+            # has since moved on -- either way there is nothing to act on for
+            # this one this frame; it stays tracked and is checked again next.
+            continue
+        status = job.get("status")
+        if status == "done":
+            state.rerig_jobs.pop(source, None)
+            if state.job_id == source:
+                # The 2026-09-08 audit's poser-01: rerig()'s own guard protects
+                # only the moment the re-rig is *submitted*, minutes before this
+                # fires -- an ordinary thing to do while a Blender job
+                # serialises on the queue is to keep posing the old rig in the
+                # meantime. Unguarded, _land_rerig's exit_pose_mode()/clear()
+                # discarded that edit with no confirm and no toast the instant
+                # the job landed. Routed through the same guard() every other
+                # destructive door here already uses; when there is nothing
+                # unsaved it proceeds immediately, same as before.
+                guard(ctx, "land this re-rig", lambda: _land_rerig(ctx))
+        elif status in ("error", "cancelled"):
+            # The generic job-transition toast (``main.py``'s ``_refresh``)
+            # already says why; nothing here is worth watching any further.
+            state.rerig_jobs.pop(source, None)
 
 
 def _land_rerig(ctx: Any) -> None:
@@ -961,26 +1015,63 @@ def preview_bounds(template_key: str) -> tuple[list[float], list[float]]:
 def sync_preview(ctx: Any, viewer: Any) -> bool:
     """Bind the built preview to the Poser viewer if it is not already shown.
 
-    Frame thread only (it loads a model and frames a camera). What decides is
-    ``viewer.path`` against the landed answer -- never a remembered flag, the
-    Review lesson -- and a preview built for a template the user has switched
-    away from never binds. -> whether the viewer is showing the preview.
+    Frame thread only for the upload half; the parse is off it (the 2026-09-11
+    audit, finding create-04). Called from ``_poser_viewport``'s draw on
+    *every* frame Poser is open with no asset bound, including the frame a
+    preview build lands -- ``on_task_done``'s ``PREVIEW_KEY_PREFIX`` branch,
+    which writes ``state.preview_path`` off a Blender subprocess with no click
+    behind the landing. That is exactly ``main.App._sync_viewer``'s own case
+    ("it fires on a timer, on the frame a job finishes"), so this follows the
+    same split: ``ctx.submit`` the parse, adopt on the frame it lands, checked
+    against ``viewer.pending`` so a build the user has since switched away
+    from can never land on top of whatever the viewport now wants (point 4 of
+    the fix: the freshness check lives in :func:`_land_preview_load`, not
+    here).
+
+    What decides is ``viewer.path`` against the landed answer -- never a
+    remembered flag, the Review lesson -- and a preview built for a template
+    the user has switched away from never binds. -> whether the viewer is
+    showing the preview.
     """
     state = ensure(ctx)
     path = state.preview_path
     if path is None or state.preview_template != state.template:
         return viewer.path is not None
-    if viewer.path == Path(path):
+    wanted = Path(path)
+    if viewer.path == wanted:
         return True
+    if viewer.pending == wanted:
+        # Already dispatched; :func:`on_task_done` adopts it when it lands.
+        return False
+    viewer.pending = wanted
+    tag = (state.template, wanted)
+    if not ctx.submit(PREVIEW_LOAD_KEY, viewer.parse_model, wanted, tag=tag):
+        # The key is refused while another parse is still in flight (a rapid
+        # template switch, most likely) -- retried next frame once it frees.
+        viewer.pending = None
+    return False
+
+
+def _land_preview_load(ctx: Any, done: Any) -> None:
+    """The frame-thread half of :func:`sync_preview`'s automatic bind."""
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if viewer is None or not isinstance(done.tag, tuple) or len(done.tag) != 2:
+        return
+    template, wanted = done.tag
+    if viewer.pending != wanted or state.template != template or state.preview_template != template:
+        # Left this template, switched to another, or the build itself was
+        # superseded before the parse landed -- see sync_preview's docstring.
+        return
+    viewer.pending = None
     try:
-        viewer.load_model(Path(path))
+        viewer.adopt_model(done.result, wanted)
     except Exception:
-        log.exception("could not open the %s pose preview", state.template)
+        log.exception("could not open the %s pose preview", template)
         state.preview_path = None
         state.error = "Could not open the skeleton preview."
-        return False
-    bind_preview(ctx, viewer, state.template)
-    return True
+        return
+    bind_preview(ctx, viewer, template)
 
 
 def bind_preview(ctx: Any, viewer: Any, template_key: str) -> None:
@@ -995,12 +1086,48 @@ def bind_preview(ctx: Any, viewer: Any, template_key: str) -> None:
     viewer.frame_bounds(lo, hi)
 
 
+def _bind_asset_now(ctx: Any, state: PoserState, viewer: Any, job_id: str) -> None:
+    """Load ``job_id``'s rig.glb and enter pose mode, right now, both halves.
+
+    The click-driven half of binding an asset (the 2026-09-11 audit, finding
+    create-04) -- called only from :func:`open_asset`'s own proceed, which
+    runs from nowhere but that door's press or the confirm answering it.
+    Exactly the case ``viewer_embed.Viewer.load_model``'s own docstring
+    sanctions ("the wait is the point... because the user just pressed
+    something"), the same precedent ``pose_panel._enter`` stands on. A load
+    with no click behind it -- a queued re-rig landing while the user is doing
+    nothing in particular -- goes through :func:`sync_asset`'s own split
+    instead; see its docstring.
+    """
+    rig_path = ctx.job_dir(job_id) / "rig.glb"
+    try:
+        viewer.load_model(rig_path)
+    except Exception:
+        log.exception("could not open the rig for job %s", job_id)
+        state.asset_error = "Could not open the rig."
+        return
+    if not viewer.enter_pose_mode(state.asset_rig, job_id):
+        state.asset_error = "That GLB carries no skeleton."
+        return
+    viewer.frame()
+
+
 def sync_asset(ctx: Any, viewer: Any) -> bool:
     """Bind the viewer to the session's asset if it is not already shown.
 
-    Frame thread only, ``sync_preview``'s reason. Unlike the template preview
-    there is no background build to track: loading a rig.glb is a synchronous
-    parse and GPU upload, the same call ``pose_panel._enter`` makes directly.
+    Frame thread only for the upload half; the parse is off it (the 2026-09-11
+    audit, finding create-04). Called from ``_poser_viewport``'s draw on
+    *every* frame Poser is open with an asset bound -- not only the frame
+    :func:`open_asset` was pressed on (which already bound synchronously,
+    right there, and is caught by the short-circuit below before this
+    function does anything) but also the frame a queued re-rig lands
+    (:func:`_land_rerig`) while the user is doing nothing in particular. That
+    automatic arrival is what this dispatches for: ``main.App._sync_viewer``'s
+    parse-on-a-task/adopt-on-this-frame split, landed by
+    :func:`_land_asset_load` and checked there against ``viewer.pending`` so a
+    parse that lands after the session has moved to a different asset (or
+    closed this one) can never adopt.
+
     A failure is remembered in ``state.asset_error`` rather than retried every
     frame -- :func:`retry_asset` is what asks again. -> whether the viewer is
     showing the bound asset.
@@ -1014,17 +1141,40 @@ def sync_asset(ctx: Any, viewer: Any) -> bool:
     if state.asset_error:
         return False
     rig_path = ctx.job_dir(job_id) / "rig.glb"
+    if viewer.pending == rig_path:
+        # Already dispatched; :func:`_land_asset_load` adopts it when it lands.
+        return False
+    viewer.pending = rig_path
+    tag = (job_id, rig_path)
+    if not ctx.submit(ASSET_LOAD_KEY, viewer.parse_model, rig_path, tag=tag):
+        # The key is refused while another parse is still in flight (a rapid
+        # asset switch, most likely) -- retried next frame once it frees.
+        viewer.pending = None
+    return False
+
+
+def _land_asset_load(ctx: Any, done: Any) -> None:
+    """The frame-thread half of :func:`sync_asset`'s automatic bind."""
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if viewer is None or not isinstance(done.tag, tuple) or len(done.tag) != 2:
+        return
+    job_id, rig_path = done.tag
+    if viewer.pending != rig_path or state.job_id != job_id:
+        # Left this asset, bound a different one, or closed the session
+        # before the parse landed -- see sync_asset's own docstring.
+        return
+    viewer.pending = None
     try:
-        viewer.load_model(rig_path)
+        viewer.adopt_model(done.result, rig_path)
     except Exception:
         log.exception("could not open the rig for job %s", job_id)
         state.asset_error = "Could not open the rig."
-        return False
+        return
     if not viewer.enter_pose_mode(state.asset_rig, job_id):
         state.asset_error = "That GLB carries no skeleton."
-        return False
+        return
     viewer.frame()
-    return True
 
 
 def reframe(ctx: Any) -> None:
@@ -1342,6 +1492,12 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # could submit nothing; the landing is the moment the key is free.
         pump(ctx)
         return
+    if key == ASSET_LOAD_KEY:
+        _land_asset_load(ctx, done)
+        return
+    if key == PREVIEW_LOAD_KEY:
+        _land_preview_load(ctx, done)
+        return
     if key.startswith(PREVIEW_KEY_PREFIX):
         template = key[len(PREVIEW_KEY_PREFIX):]
         if template != state.template:
@@ -1450,10 +1606,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if key.startswith(ASSET_RERIG_KEY_PREFIX):
         # Only the queue job's id and which asset it belongs to -- the rig
         # itself is not on disk yet. :func:`pump_rerig` is what notices the
-        # actual write, once the queue gets around to it.
+        # actual write, once the queue gets around to it. Keyed by source
+        # asset (poser-05, the 2026-09-11 audit), so a second re-rig landing
+        # here before the first one's job finishes adds an entry rather than
+        # overwriting the first's.
         if isinstance(done.result, dict) and done.result.get("id"):
-            state.rerig_job_id = str(done.result["id"])
-            state.rerig_source_job = str(done.result.get("source_job") or "")
+            source = str(done.result.get("source_job") or "")
+            if source:
+                state.rerig_jobs[source] = str(done.result["id"])
         return
 
 
@@ -1466,6 +1626,28 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         state.loading = False
         # A refresh wanted while the failed list was in flight is still wanted.
         pump(ctx)
+        return
+    if done.key == ASSET_LOAD_KEY:
+        viewer = viewer_of(ctx)
+        tag_ok = isinstance(done.tag, tuple) and len(done.tag) == 2
+        job_id, rig_path = done.tag if tag_ok else (None, None)
+        if viewer is not None and viewer.pending == rig_path:
+            viewer.pending = None
+        if job_id == state.job_id:
+            # A stale failure -- the session has since closed this asset or
+            # bound a different one -- must not paint today's session with
+            # yesterday's error (poser-03's rule, applied to this door too).
+            state.asset_error = "Could not open the rig."
+        return
+    if done.key == PREVIEW_LOAD_KEY:
+        viewer = viewer_of(ctx)
+        tag_ok = isinstance(done.tag, tuple) and len(done.tag) == 2
+        template, wanted = done.tag if tag_ok else (None, None)
+        if viewer is not None and viewer.pending == wanted:
+            viewer.pending = None
+        if template == state.template:
+            state.preview_path = None
+            state.error = "Could not open the skeleton preview."
         return
     if done.key.startswith(PREVIEW_KEY_PREFIX):
         template = done.key[len(PREVIEW_KEY_PREFIX):]

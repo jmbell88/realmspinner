@@ -705,6 +705,49 @@ def _union(ctx: Any, doc: Any, **_: Any) -> None:
     doc.select([uids[0]])
 
 
+def _difference(ctx: Any, doc: Any, **_: Any) -> None:
+    """Boolean-subtract every other selected object from the topmost one.
+
+    ``_union``'s shape exactly -- topmost visible as the target, the survivor
+    left selected, ``_forget_manifold`` for whatever it absorbed -- and every
+    one of those reasons carries over unchanged. What is different is only
+    which ``ops_boolean`` function computes the mesh, and that here **order
+    matters**: the target is also the minuend, so "select the block before the
+    holes you want cut into it" is the one thing a user has to know that Union
+    does not ask them to. See ``ops_boolean.KINDS`` for why.
+
+    The 2026-09-11 audit's clay-04: ``ops_boolean`` has implemented and tested
+    all three booleans since the module was written, and an MCP agent could
+    already reach all three through ``agent_clay.py``'s own ``clay_boolean``
+    tool -- only the registry, which the menu, the tools pane and the keyboard
+    all read, offered a human just this one's sibling.
+    """
+    from .clay import ops_boolean
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = ops_boolean.difference([doc.by_uid(uid) for uid in uids])
+    doc.join_objects(uids[0], mesh, uids[1:])
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
+def _intersection(ctx: Any, doc: Any, **_: Any) -> None:
+    """Boolean-intersect every selected object into the topmost one.
+
+    ``_union``'s shape exactly, and order-free the way Union is: which object
+    is selected first changes nothing about the answer, only which survives
+    as the target. See ``_difference``'s docstring for the finding this and
+    it both close.
+    """
+    from .clay import ops_boolean
+
+    uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+    mesh = ops_boolean.intersection([doc.by_uid(uid) for uid in uids])
+    doc.join_objects(uids[0], mesh, uids[1:])
+    _forget_manifold(ctx, uids[1:])
+    doc.select([uids[0]])
+
+
 def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
     from .clay import ops as clay_ops_geom
 
@@ -1380,6 +1423,56 @@ def _register_defaults() -> None:
             key="Ctrl+Shift+M",
         )
     )
+    # Difference and Intersection: the rest of ``ops_boolean.KINDS``, closing
+    # the 2026-09-11 audit's clay-04. Same predicate as Union -- "fewer than
+    # two visible" refuses all three identically -- and the same shape of run
+    # function, copied rather than shared, for the reason ``_union``'s own
+    # docstring gives: only the ``ops_boolean`` call differs.
+    #
+    # **No key chord.** Every other bound op in this file fires from the
+    # keyboard through one of two paths: ``clay_mode._registry_key`` reads
+    # ``Op.key`` generically, but only for the *element* modes (vertex/edge/
+    # face); every object-mode chord this registry owns today (Ctrl+M,
+    # Ctrl+Shift+M, Ctrl+J, Ctrl+=/-) is instead hand-dispatched, one ``elif``
+    # per letter, inside ``clay_mode._ctrl_key``. A ``key=`` string here would
+    # only ever be display text -- the menu row and the shortcuts sheet would
+    # both claim a binding this file cannot make live, which is worse than
+    # having none. Wiring a real chord needs an edit to ``_ctrl_key`` itself,
+    # a file this registry's own ownership slice does not extend to; a menu
+    # row and a tools-pane button already reach every registered op with no
+    # further wiring (``panes/clay_menu.py``'s ``_rows`` and
+    # ``panes/clay_tools.py``'s ``_actions`` both iterate ``clay_ops.menu``),
+    # so that is the complete fix and the one taken here -- and it is why
+    # ``docs/manual/38-shortcuts.md``, gated bidirectionally against the
+    # keyboard table, needs no new line for either op.
+    register(
+        Op(
+            name="difference",
+            label="Difference Objects...",
+            modes=("object",),
+            run=_difference,
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            hint="Cuts every other selected object out of the first (topmost) "
+            "one -- a countersink, a doorway punched through a wall. Order "
+            "matters here, unlike Union or Intersect: select the block before "
+            "the holes you mean to cut into it. Costs the same UVs and "
+            "n-gons Union does.",
+        )
+    )
+    register(
+        Op(
+            name="intersection",
+            label="Intersect Objects...",
+            modes=("object",),
+            run=_intersection,
+            enabled=has_two_visible,
+            reason=_has_two_visible_reason,
+            hint="Keeps only the volume every selected object shares, and "
+            "discards the rest -- carving one shape with the overlap of "
+            "several others. Costs the same UVs and n-gons Union does.",
+        )
+    )
     for axis, label in enumerate(("X", "Y", "Z")):
         register(
             Op(
@@ -1504,9 +1597,35 @@ def _register_defaults() -> None:
             run=_element("ops_topo.inset_faces"),
             enabled=in_mode("face"),
             reason=_in_mode_reason("face"),
+            # The 2026-09-11 audit's clay-08: ``ops_topo.inset_faces`` has
+            # taken a ``region`` argument -- a real, tested second mode, not a
+            # variant of the default -- since before this registry existed,
+            # and it was tested only by calling that function directly
+            # (``tests/clay/test_ops_topo.py``). ``_element`` forwards every
+            # param by name to the mesh op it wraps, so declaring the toggle
+            # here is the whole fix: no wrapper function needed, the way
+            # ``_place_between`` needs one to turn its own boolean ``fit``
+            # into a real ``bool`` before calling ``place_between`` -- a
+            # keyword-only ``bool`` parameter reads a clamped 0/1 ``int`` as
+            # truthy/falsy with no cast required.
+            hint="Per-face (default) insets every selected face on its own, "
+            "so two touching faces get a doubled edge between them where "
+            "they meet. 'Region' insets the outline of the whole selected "
+            "block instead, with one shared ring and no seam down the "
+            "middle -- a documented approximation on a block that is not "
+            "flat, rather than a true offset.",
             params=(
                 Param("thickness", "thickness (m)", 0.1, 0.01),
                 Param("depth", "depth (m)", 0.0, 0.01, low=-1e6),
+                Param(
+                    "region",
+                    "treat selection as one region",
+                    0.0,
+                    1.0,
+                    low=0.0,
+                    high=1.0,
+                    boolean=True,
+                ),
             ),
         )
     )

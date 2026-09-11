@@ -26,17 +26,29 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   export template.
 - **Anything that makes the app reach the network.** The offline guarantee
   (`HF_HUB_OFFLINE=1`, set before any import) is a security property here, not
-  only a convenience. There are two user-initiated exceptions, each its own
-  subprocess: the `fetch_worker` (model weights, from Hugging Face) and the
+  only a convenience. There are three user-initiated exceptions, each its own
+  subprocess: the `fetch_worker` (model weights, from Hugging Face), the
   `pack_worker` (`src/warlock/pipelines/pack_worker.py`, spawned by
   `src/warlock/service/packs.py`, downloading and installing optional
-  dependency packs — Create/Muse/rigging extras — from Settings -> Packs).
+  dependency packs — Create/Muse/rigging extras — from Settings -> Packs), and
+  the `update_worker` (`src/warlock/pipelines/update_worker.py`, reading the
+  release feed and fetching an installer when the user asks Settings to check
+  for an update).
+- **The MCP agent bridge.** `src/warlock/mcp/` listens on a named pipe
+  (Unix socket elsewhere) and accepts JSON-RPC from another process running as
+  the same user on the same machine, so an agent can drive Clay. It is **off
+  until switched on in Settings**, it is inbound only — no model, no inference,
+  no socket, `HF_HUB_OFFLINE` untouched — and an agent gets its own Clay tab and
+  can address no other. It is still an untrusted-input parser like any file
+  format above: its framing (`src/warlock/mcp/protocol.py`) and its pipe
+  (`pipe.py`) are in scope, and so is anything reachable through the derived
+  tool surface that escapes that one tab.
 - **Subprocess handling.** Heavy or privileged work is never done inline in the
   main process: reconstruction (`trellis-server.exe`), the Blender worker,
   the matting worker, the music and stem-separation workers, LoRA training,
-  `doctor`'s load probe, the fetch worker and the pack worker all run as a
-  child process inside the `winjob` kill-on-close job, so a crash or a forced
-  close of the main window cannot leave one running orphaned.
+  `doctor`'s load probe, the fetch worker, the pack worker and the update
+  worker all run as a child process inside the `winjob` kill-on-close job, so a
+  crash or a forced close of the main window cannot leave one running orphaned.
 
 ## What is not in scope
 

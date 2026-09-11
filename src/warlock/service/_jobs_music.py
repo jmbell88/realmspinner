@@ -80,6 +80,23 @@ MAX_DURATION = 600.0
 #: they just used.
 MAX_EXTEND_DURATION = 240.0
 
+
+def _extend_frame_ceiling_seconds() -> float:
+    """The sampler's *true* ceiling, in seconds -- a hair under the round
+    ``MAX_EXTEND_DURATION`` above.
+
+    ``pipeline_ace_step.py`` computes ``max_infer_fame_length = int(240 *
+    44100 / 512 / 8)`` -- an ``int()`` truncation to 2583 frames, which is
+    ~239.907s once converted back, not 240.0s exactly. Comparing a requested
+    duration against the round number left a ~0.09s gap (239.907s-240.0s)
+    that cleared this door while still landing inside the vendored trim path
+    at generation time -- the 2026-09-11 audit, finding muse-02. Recomputing
+    from the same frame formula, rather than hard-coding the truncated value,
+    keeps this tied to ``MAX_EXTEND_DURATION`` if that constant ever moves.
+    """
+    frames = int(MAX_EXTEND_DURATION * 44100 / 512 / 8)
+    return frames * 512 * 8 / 44100
+
 #: The shortest. Below this the model has no room to establish anything and
 #: the output is an artefact rather than a piece of music.
 MIN_DURATION = 10.0
@@ -511,7 +528,9 @@ def derive_music_job(
                 field="extend_right" if right > parent_duration else "extend_left",
             )
         duration = parent_duration + left + right
-        if duration > MAX_EXTEND_DURATION:
+        # Against the sampler's *true* frame ceiling, not the round
+        # ``MAX_EXTEND_DURATION`` -- see ``_extend_frame_ceiling_seconds``.
+        if duration > _extend_frame_ceiling_seconds():
             raise Invalid(
                 "an extend tops out at "
                 f"{MAX_EXTEND_DURATION:.0f} seconds total -- a lower ceiling "

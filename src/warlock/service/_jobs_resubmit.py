@@ -635,7 +635,14 @@ def promote_to_model(
     approved_from = src_png
     if prepared is not None:
         if prepared.job_id != job_id:
-            raise Invalid("that cutout was made from a different reference")
+            # Same field as its two siblings just below: all three are the
+            # promote modal's cutout preview refusing for one reason or
+            # another, and a bare toast here was an inconsistency within one
+            # function rather than a documented exception (the 2026-09-11
+            # audit, finding service-05).
+            raise Invalid(
+                "that cutout was made from a different reference", field="reference"
+            )
         # Re-checked *now* rather than trusted from when the modal opened: the
         # user may have taken the Fix-matte round trip, saved from Inker, or
         # reverted the reference while the preview sat on screen. Refusing beats

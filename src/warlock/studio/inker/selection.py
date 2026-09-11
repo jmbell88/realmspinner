@@ -780,6 +780,35 @@ def render_transform_about(
     )
 
 
+#: The largest side, in pixels, a transform's rendered buffer may reach.
+#:
+#: A cost ceiling, not a correctness one -- the same kind :data:`MAX_MORPH_RADIUS`
+#: above and :data:`.brush.MAX_STAMP` beside it are. :meth:`FloatingBuffer.transform`
+#: floored ``scale`` at 0.01 with no ceiling above it, and the 2026-09-11 audit
+#: reproduced the consequence directly against the headless document: lifting a
+#: full selection on a 64x64 canvas and calling
+#: ``transform_floating(scale=(50000.0, 50000.0))`` drove :func:`render_transform`
+#: to allocate a plane sized canvas-width times that factor, raising an uncaught
+#: MemoryError with nothing in the engine catching or refusing it first. It is
+#: reachable through ordinary use, not a crafted call: the scale-handle drag in
+#: ``inker_canvas.py`` (``fx = abs(point[0]-cx)/ref_x``) is itself unclamped, and
+#: at Inker's minimum zoom a modest screen-space mouse movement divides by a
+#: small reference length into a very large document-space factor.
+#:
+#: The value has to clear Inker's own canvas ceiling, not an arbitrary
+#: "generous" guess: ``inker_mode.NEW_MAX`` and ``pipelines.sheet.MAX_ATLAS_PX``
+#: are both 8192 (``pixelguard.py``'s ``MAX_DECODE_PIXELS`` is built on exactly
+#: those two agreeing), so a selection lifted off a full-size canvas has a
+#: ``base_size`` up to 8192 a side already. A ceiling at or below that would
+#: silently shrink ``scale=(1.0, 1.0)`` for such a selection -- the first cut of
+#: this fix picked 4096 and did exactly that, a data-visible regression caught
+#: before it shipped. 16384 is two doublings past the 8192 canvas ceiling: even
+#: a full-canvas selection can still scale up 2x, an ordinary 64px selection can
+#: scale up 256x, and the worst case (16384 square, RGBA) is a few hundred MB
+#: rather than unbounded.
+MAX_TRANSFORM_SIDE = 16384
+
+
 @dataclass
 class FloatingBuffer:
     """Pixels lifted off a layer and hovering over it.
@@ -941,7 +970,20 @@ class FloatingBuffer:
         if angle is not None:
             self.angle = float(angle)
         if scale is not None:
-            self.scale = (max(0.01, float(scale[0])), max(0.01, float(scale[1])))
+            # Ceilinged *before* the assignment, not after: writing a scale
+            # the render cannot honour and only then failing would leave
+            # ``self.scale`` pointed at that value, and the buffer would
+            # re-attempt the same failing allocation on every later
+            # re-render -- a flip, a pivot move, the next drag frame -- until
+            # the transform is torn down. See MAX_TRANSFORM_SIDE for the
+            # 2026-09-11 audit this closes.
+            base_w, base_h = self.base_size
+            max_sx = MAX_TRANSFORM_SIDE / max(1, base_w)
+            max_sy = MAX_TRANSFORM_SIDE / max(1, base_h)
+            self.scale = (
+                min(max(0.01, float(scale[0])), max_sx),
+                min(max(0.01, float(scale[1])), max_sy),
+            )
         if shear is not None:
             self.shear = (float(shear[0]), float(shear[1]))
         self.resample = resample

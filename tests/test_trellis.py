@@ -395,6 +395,27 @@ async def test_ensure_started_refuses_a_port_an_orphan_already_holds(tmp_path, m
 
 
 @pytest.mark.asyncio
+async def test_ensure_started_refuses_a_directory_named_trellis_server_exe_with_a_clear_error(
+    tmp_path,
+):
+    """pipelines-03 (2026-09-11 audit): a damaged unpack that leaves a
+    *directory* named trellis-server.exe -- exactly the shape doctor.py's own
+    L01 fix (doctor.py:470-489) was written to catch and explain -- must fail
+    ensure_started with the intended RuntimeError("trellis-server not found
+    at ...") rather than pass the presence check and blow up inside
+    subprocess.Popen() with a raw, uncaught OSError.
+    """
+    exe = tmp_path / "trellis-server.exe"
+    exe.mkdir()
+    models = tmp_path / "models"
+    models.mkdir()
+    srv = TrellisServer(exe, models, 17972)
+
+    with pytest.raises(RuntimeError, match="trellis-server not found at"):
+        await srv.ensure_started()
+
+
+@pytest.mark.asyncio
 async def test_an_orphan_of_our_own_exe_is_reclaimed(tmp_path, monkeypatch):
     """The job object stops new orphans; it cannot clear one a pre-fix crash
     already stranded.

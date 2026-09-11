@@ -868,9 +868,17 @@ class _ConvertCtx:
         self.cache = SimpleNamespace(get={j["id"]: j for j in jobs}.get)
         self.toasts: list[tuple[str, str]] = []
         self.submitted: list[tuple[str, Any]] = []
+        # ``_convert_busy`` (shell-03, the 2026-09-11 audit) reads
+        # ``ctx.tasks.any_busy``/``ctx.busy`` before ``_start_convert`` ever
+        # gets to ``submit`` -- nothing here is ever actually in flight, so
+        # both answer "no".
+        self.tasks = SimpleNamespace(any_busy=lambda _prefix: False)
 
     def toast(self, text, level="info", action=None):
         self.toasts.append((text, level))
+
+    def busy(self, key):
+        return False
 
     def submit(self, key, fn, *args, **kwargs):
         self.submitted.append((key, fn))
@@ -917,6 +925,148 @@ def test_start_convert_submits_the_export_prefix_for_several_assets():
     library._start_convert(ctx, ["t1", "t2"])
     assert len(ctx.submitted) == 1
     assert ctx.submitted[0][0] == "export-convert"
+
+
+# --- shell-03: two bulk flows racing over one popup slot ---------------------
+#
+# ``_export_zip``/``_export_folder`` both publish onto the single
+# ``ctx.state._library_export`` slot (they are the two doors into
+# ``_run_export``), and ``_start_convert``'s two keys -- ``convert:<id>`` for
+# one asset, ``export-convert`` for several -- both publish onto the single
+# ``ctx.state._library_convert`` slot. Nothing before shell-03 (the 2026-09-11
+# audit) stopped a second flow from starting while the first was still parked
+# waiting for its popup's decision: the second flow's popup silently replaced
+# the first's in the slot, and when the first flow's own native dialog or
+# picker was finally answered it wrote its popup back over the slot and then,
+# in its ``finally``, cleared the slot to ``None`` -- so whichever popup was
+# not the one currently in the slot at the moment a person answered it never
+# received a decision, and its task thread stayed blocked forever on
+# ``popup.decisions.get()``.
+#
+# These use a real ``TaskRunner`` behind ``ctx.submit``/``ctx.busy`` -- the
+# refusal a fix has to make is "is this key already pending", and
+# ``TaskRunner.submit`` answers that synchronously (it inserts into
+# ``_pending`` under a lock before returning), so the second call below is
+# already racing the *right* state the instant it runs, with no dialog, no
+# sleep and no second thread required to force the interleaving. What proves
+# the clobber is not watching a background thread run to completion; it is
+# that both keys get *accepted* at all -- ``_run_export``/``_run_convert``
+# each unconditionally write ``ctx.state._library_export``/``_library_convert``
+# the moment they start, so two accepted keys is two writers of the one slot.
+
+
+def _library_ctx(svc, *, export_dir: str = "proj", jobs: list[dict[str, Any]] | None = None):
+    """A ctx whose ``submit`` records a key as in flight rather than running it.
+
+    A refusal-to-start guard reads ``ctx.busy(key)`` on the frame thread before
+    anything is submitted, so the task itself never has to run for this to be a
+    faithful test -- and it must not. These flows park on
+    ``popup.decisions.get()`` until a popup is answered, so a real ``TaskRunner``
+    here leaves a worker blocked forever; ``shutdown(timeout=)`` returns but the
+    thread survives, and ``concurrent.futures``' atexit join then hangs the whole
+    pytest process after it has already reported. This stand-in keeps the
+    bookkeeping the guard actually consults and owns no threads.
+    """
+    from types import SimpleNamespace
+
+    in_flight: set[str] = set()
+    accepted: dict[str, bool] = {}
+    by_id = {j["id"]: j for j in (jobs or [])}
+
+    def submit(key, fn, *args, **kwargs):
+        # ``TaskRunner.submit``'s own contract: one flow per key, and a second
+        # submit under a key already running is refused.
+        ok = key not in in_flight
+        if ok:
+            in_flight.add(key)
+        accepted[key] = ok
+        return ok
+
+    tasks = SimpleNamespace(
+        is_busy=lambda key: key in in_flight,
+        # ``convert:<id>`` is one key per asset, so its guard asks by prefix.
+        any_busy=lambda prefix: any(k.startswith(prefix) for k in in_flight),
+        shutdown=lambda timeout=0.0: None,
+        finish=in_flight.discard,
+    )
+    ctx = SimpleNamespace(
+        svc=svc,
+        cache=SimpleNamespace(jobs=list(jobs or []), get=by_id.get),
+        state=SimpleNamespace(_library_export=None, _library_convert=None),
+        tasks=tasks,
+        export_dir=export_dir,
+        submit=submit,
+        busy=lambda key: key in in_flight,
+        toast=lambda *a, **k: None,
+    )
+    return ctx, tasks, accepted
+
+
+def test_two_concurrent_bulk_export_tasks_do_not_clobber_each_others_popup_slot(svc):
+    """shell-03: "Export zip..." then, before its native Save dialog is
+    answered, "Save to project" -- reachable with two ordinary clicks because
+    ``dialogs.save_file``/``select_folder`` carry no owner window and the bulk
+    toolbar stays clickable while one is open. Both go through ``ctx.submit``
+    under different keys and both, once running, write
+    ``ctx.state._library_export`` -- so the second call being *accepted* at
+    all, while the first is still in flight, is already the bug: whichever of
+    the two writes that slot second erases the other's popup, and the loser's
+    task thread is left parked on ``popup.decisions.get()`` with nothing left
+    that can reach it.
+
+    Nothing is stubbed and no task runs: the guard this checks lives on the
+    frame thread, before ``submit``, so the flow never has to reach a picker
+    or a popup for the refusal to be the thing under test. That also keeps a
+    worker from parking on a decision nobody will answer -- see
+    ``_library_ctx``.
+    """
+    ctx, _tasks, accepted = _library_ctx(svc)
+    library._export_zip(ctx, [])
+    assert accepted.get("export-zip"), "the zip export was not even submitted"
+
+    # Same click sequence as shell-03: the second bulk action, while the
+    # first is still in flight (its own dialog not yet answered, in the
+    # real app -- here, simply never told to finish).
+    library._export_folder(ctx, [])
+
+    assert not accepted.get("export-folder", False), (
+        "the folder export was allowed to start while the zip export "
+        "was still in flight; both write ctx.state._library_export from "
+        "_run_export, so the second one clobbers the first's popup "
+        "there and the first flow's task thread is left permanently "
+        "blocked on popup.decisions.get() once nothing can reach it to "
+        "answer it any more (the 2026-09-11 audit, shell-03)"
+    )
+
+
+def test_two_concurrent_convert_tasks_do_not_clobber_each_others_popup_slot(svc):
+    """shell-03's other slot: a single-asset "Convert..." (key
+    ``convert:<id>``) and a several-asset one (key ``export-convert``) both
+    write ``ctx.state._library_convert`` from ``_run_convert``. Driven
+    through ``_start_convert`` itself, not ``_run_convert`` directly, because
+    that is where a refusal-to-start guard has to live -- ``_run_convert``
+    only ever runs after a flow has already been allowed to start, by which
+    point refusing is too late.
+    """
+    jobs = [
+    job(id="t1", kind="music", stage="music"),
+    job(id="t2", kind="music", stage="music"),
+    job(id="t3", kind="music", stage="music"),
+    ]
+    ctx, _tasks, accepted = _library_ctx(svc, jobs=jobs)
+    library._start_convert(ctx, ["t1"])
+    assert accepted.get("convert:t1"), "the first convert was not even submitted"
+
+    library._start_convert(ctx, ["t2", "t3"])
+
+    assert not accepted.get("export-convert", False), (
+        "the second convert was allowed to start while the first was "
+        "still in flight; both write ctx.state._library_convert from "
+        "_run_convert, so the second one clobbers the first's popup "
+        "there and the first flow's task thread is left permanently "
+        "blocked on popup.decisions.get() (the 2026-09-11 audit, "
+        "shell-03)"
+    )
 
 
 # --- the full-window grid's row layout and row clipping (A1) -----------------

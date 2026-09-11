@@ -147,6 +147,17 @@ def _draw_form(
         )
     if changed:
         form["mesh_seed"] = max(0, seed)
+        ctx.state.clear_field_error("mesh_seed")
+    # Rung, the same as the 2D pane's Seed row and for the same reason:
+    # ``service.validation.check_seed`` raises ``Invalid(..., field="mesh_seed")``
+    # for a seed outside 0..MAX_SEED or not an int, and ``create_job`` calls it
+    # as ``check_seed("mesh_seed", mesh_seed)``. This widget's InputInt clamps
+    # to a C int32 that happens to coincide with ``MAX_SEED``, which is the only
+    # thing that keeps the refusal unreachable through it -- a seed loaded from
+    # a hand-edited settings.json has no such ceiling. This pane had no comment
+    # at all about the gap; ``settings_2d._seed_row`` had one and it was wrong
+    # (the 2026-09-11 audit, finding create-07).
+    widgets.field_error(ctx.state, "mesh_seed")
     if controls.button("Reroll##mesh", role=controls.ButtonRole.GHOST):
         form["mesh_seed"] = random_seed()
     # The 2D seed row's Lock, for the 2D seed row's reason: the engine is

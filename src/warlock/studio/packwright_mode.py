@@ -200,12 +200,34 @@ def import_tileset(ctx: Any) -> bool:
     The key carries the tile size as well as the path, so re-importing the same
     sheet cut differently adds a different set rather than being skipped as
     duplicates of the first cut.
+
+    **Targets the tab that asked, not whichever is active.** The 2026-09-11
+    audit's packwright-02: this used to resolve its target through
+    ``active(ctx)``, so a sheet requested from tab A that landed (or was
+    confirmed) while tab B was focused -- ordinary, since a background decode
+    never blocks the frame loop and switching tabs while one is in flight is
+    nothing the user is warned against -- was added to B's document instead,
+    with no error or mismatched-document warning. ``on_task_done``'s own
+    "packwright-add" handler already resolves its target from the task key
+    rather than from whatever is active; this now does the same, from
+    ``PackwrightState.tileset_import_uid``.
     """
     from .packwright.sources import dedup_tiles, sprites_from_tileset
 
     state = ensure(ctx)
-    tab = active(ctx)
-    if tab is None or state.tileset_import is None:
+    if state.tileset_import is None:
+        return False
+    tab = state.get(state.tileset_import_uid)
+    if tab is None:
+        # The requesting tab closed in the window between the sheet landing
+        # and the Import press -- the on_task_done landing already declines
+        # (silently) a sheet whose tab closed before *it* lands; this is the
+        # same closure one step later, but Import is a button the user just
+        # pressed, so it gets a word rather than doing nothing.
+        state.tileset_import = None
+        state.tileset_preview_key = None
+        state.tileset_import_open = False
+        docmodes.refuse(ctx, "That atlas was closed before the tile set was imported.")
         return False
     path, stem, pixels = state.tileset_import
     tile = state.tileset_cell
@@ -624,6 +646,16 @@ def on_task_done(ctx: Any, done: Any) -> None:
             set_mode(ctx.state, "packwright")
         return
 
+    if name == "packwright-recover":
+        # No tab uid in this key -- there is no tab yet -- so this is handled
+        # before the generic lookup below, the ``packwright-open`` shape.
+        if result is None:
+            journal.adopt_failed(ctx, "atlas")
+        elif isinstance(result, dict):
+            tab = adopt(ctx, result["doc"], path=None, title=result.get("title"))
+            docmodes.mark_recovered(tab, Path(result["path"]), result["doc"])
+        return
+
     if name == "packwright-tileset-preview":
         # Not tab-scoped -- the popup's counts live on ``PackwrightState``,
         # not on a ``PackTab`` -- so this is handled before the generic
@@ -682,6 +714,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 )
                 return
             state.tileset_import = result["tileset"]
+            # Recorded, not just checked: ``tab`` here is the *requesting*
+            # tab, resolved above (from the task key) only to confirm it is
+            # still open -- packwright-02 was that nothing carried its
+            # identity any further than that check.
+            state.tileset_import_uid = tab.uid
             state.tileset_import_open = False
             cell = result.get("cell")
             if cell is not None:
@@ -956,19 +993,42 @@ def _journal_encode(tab: Any) -> bytes:
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
+    """Reopen one recovered ``.wpack`` as an *untitled, dirty* tab.
+
+    Read and decoded on a task, ``clay_mode``'s and ``inker_mode``'s
+    ``*-recover`` shape (the 2026-09-11 audit's packwright-01): this used to
+    read the file and decompress every sprite PNG synchronously, right here --
+    and the Recover button in ``panes/landing.py`` calls ``journal.take`` ->
+    ``journal.adopt`` -> ``provider.adopt`` with no ``ctx.submit`` anywhere in
+    that chain, so "here" was the frame thread. Measured at 137.7 ms for a
+    300-sprite/128px, 17.4 MB ``.wpack`` -- an ~8-frame freeze on one click, on
+    an atlas size the manual calls ordinary, and ``MAX_PACK_SOURCE_BYTES``
+    allows up to ~1 GB. True means "submitted"; ``on_task_done`` does the
+    adopting.
+    """
+    ensure(ctx)
+    ctx.submit(
+        f"packwright-recover:{abs(hash(str(path)))}", _load_recovery, Path(path), dict(meta)
+    )
+    return True
+
+
+def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
+    """The task-thread half of a crash recovery: bytes to document.
+
+    ``None`` rather than a raise on a bad file: the landing turns it into the
+    one sentence every provider says (``journal.adopt_failed``), where a raise
+    here would arrive as an *error* toast no other mode's copy raises.
+    """
     from .packwright import wpack
 
-    ensure(ctx)
     try:
         doc = wpack.read_wpack(packwright_io._within_ceiling(Path(path)).read_bytes())
     except Exception:
         log.exception("could not reopen the recovered atlas at %s", path)
-        journal.adopt_failed(ctx, "atlas")
-        return False
+        return None
     title = f"{meta.get('title') or Path(path).stem} (recovered)"
-    tab = adopt(ctx, doc, path=None, title=title)
-    docmodes.mark_recovered(tab, path, doc)
-    return True
+    return {"doc": doc, "title": title, "path": str(path)}
 
 
 JOURNAL = journal.register(

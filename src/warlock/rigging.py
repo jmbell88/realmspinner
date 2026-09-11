@@ -91,12 +91,55 @@ class Template:
 
 _templates: dict[str, Template] | None = None
 
+# read_record's stat-before-read guard (see MAX_RECORD_BYTES, far below), but
+# these three loaders each predate it and never got one: the 2026-09-11 audit
+# (poser-03) found _load_templates/_load_pose_library/_load_clip_library each
+# doing a bare ``json.loads(path.read_text(...))`` with no size check at all,
+# so a file dropped in TEMPLATE_DIR, PRESET_DIR/BATTERY_DIR, or -- the one
+# genuinely user-editable directory of the three, per user_clip_dir()'s own
+# docstring -- CLIP_DIR/user_clip_dir() was read into memory in full before
+# anything could refuse it.
+#
+# A shipped template is 1-3 KB and a shipped pose library 2-4 KB (checked on
+# disk before choosing this); 1 MiB is the same three-orders-of-magnitude
+# headroom MAX_RECORD_BYTES already uses for a single pose/rig record, and
+# plenty for a hand-authored template or preset file that will never approach
+# it.
+MAX_TEMPLATE_BYTES = 1 << 20
+
+# A shipped clip library is up to ~44 KB today, but unlike a template it is
+# also something a user edits and re-saves through service.clips.save, whose
+# own write-door caps (MAX_LIBRARY_KEYS=256 poses, MAX_KEYS=64 keys/clip) allow
+# a file substantially larger once every pose carries a full skeleton's worth
+# of bones at JSON's verbosity. 4 MiB leaves real headroom above that
+# legitimate maximum while still refusing anything that is not a hand-authored
+# or program-written clip library.
+MAX_CLIP_LIBRARY_BYTES = 4 << 20
+
+
+def _read_json_capped(path: Path, ceiling: int) -> Any:
+    """One JSON file, refusing anything over ``ceiling`` before it is parsed.
+
+    Raises on any problem -- oversized, unreadable, not valid JSON -- so every
+    caller's existing ``except Exception: log.exception(...)`` ("a malformed
+    file costs you that entry, not the app") already covers this the same way
+    it covers a bad body; this only moves the guard in front of the read
+    instead of leaving it absent. Not ``read_record``: that one also demands
+    the document be a dict, which the pose/rig sidecars it serves need but
+    these three registries do not -- their own parsing already raises a
+    specific, more useful error on the wrong shape.
+    """
+    size = path.stat().st_size
+    if size > ceiling:
+        raise ValueError(f"{path} is {size} bytes, over the {ceiling}-byte ceiling")
+    return json.loads(path.read_text(encoding="utf-8"))
+
 
 def _load_templates() -> dict[str, Template]:
     found: dict[str, Template] = {}
     for path in sorted(TEMPLATE_DIR.glob("*.json")):
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = _read_json_capped(path, MAX_TEMPLATE_BYTES)
             template = _parse_template(raw)
             # The key <-> filename convention is enforced here rather than
             # assumed downstream: ``poselib.template_digest`` reads
@@ -200,7 +243,7 @@ def _load_pose_library(
     found: dict[str, list[dict[str, Any]]] = {}
     for path in sorted(directory.glob("*.json")):
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = _read_json_capped(path, MAX_TEMPLATE_BYTES)
             rows = []
             for i, pose in enumerate(raw["poses"]):
                 row = {"name": str(pose["name"]), "bones": pose["bones"]}
@@ -259,6 +302,18 @@ _clips: dict[str, dict[str, Any]] | None = None
 _user_clips: dict[str, dict[str, Any]] | None = None
 
 
+# Mirrors service.clips.MAX_LIBRARY_KEYS/MAX_KEYS -- this module may import no
+# more of ``warlock`` than ``winjob`` (this file's own docstring;
+# ``tests/test_poser_imports.py`` pins it), so the write door's caps cannot be
+# imported here and are restated as their own constants instead. The two must
+# be kept in sync by hand: the 2026-09-11 audit (poser-04) found this parser
+# applied neither, so a hand-edited library under user_clip_dir() (writable by
+# any program, exactly like a pose file) with no count ceiling at all parsed
+# in full where service.clips.save would have refused it at the write door.
+MAX_CLIP_LIBRARY_POSES = 256
+MAX_CLIP_KEYS = 64
+
+
 def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
     """One clip library file's contents, validated. Raises on a bad one.
 
@@ -267,6 +322,12 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
     this reads back, and a second, laxer parse on the authoring side is how an
     editor comes to save something the renderer cannot open.
     """
+    raw_poses = raw["poses"]
+    if len(raw_poses) > MAX_CLIP_LIBRARY_POSES:
+        raise ValueError(
+            f"a clip library holds at most {MAX_CLIP_LIBRARY_POSES} key poses, "
+            f"not {len(raw_poses)}"
+        )
     poses = {}
     pose_names = [str(pose["name"]) for pose in raw["poses"]]
     if len(set(pose_names)) != len(pose_names):
@@ -308,6 +369,10 @@ def parse_clip_library(raw: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("duplicate clip names")
     for clip in raw["clips"]:
         keys = [str(k) for k in clip["keys"]]
+        if len(keys) > MAX_CLIP_KEYS:
+            raise ValueError(
+                f"clip {clip['name']!r} holds at most {MAX_CLIP_KEYS} keys, not {len(keys)}"
+            )
         missing = [k for k in keys if k not in poses]
         if missing:
             raise ValueError(f"clip {clip['name']!r} names {missing}")
@@ -337,7 +402,7 @@ def _load_clip_library(directory: Path) -> dict[str, dict[str, Any]]:
     for path in sorted(directory.glob("*.json")):
         try:
             found[path.stem] = parse_clip_library(
-                json.loads(path.read_text(encoding="utf-8"))
+                _read_json_capped(path, MAX_CLIP_LIBRARY_BYTES)
             )
         except Exception:
             log.exception("skipping unusable clip library %s", path)
@@ -1354,7 +1419,13 @@ def list_sheets(job_dir: Path) -> list[dict[str, Any]]:
         return []
     sheets = []
     for path in sorted(directory.glob("*.json")):
-        if not is_valid_id(path.stem) or not path.with_suffix(".png").exists():
+        # .is_file(), not .exists(): the 2026-09-07/2026-09-08 audits fixed the
+        # identical presence check at every other site in this area (sheet.pack,
+        # pixelize.reduce_frames, troupe_mode.scores/atlas_texture) because
+        # .exists() is also True for a directory, which a completed sheet's PNG
+        # name never is but a hand-dropped one could be -- and this reader was
+        # the one site the 2026-09-11 audit (troupe-06) found still unfixed.
+        if not is_valid_id(path.stem) or not path.with_suffix(".png").is_file():
             continue
         record = read_sheet(job_dir, path.stem)
         if record is not None:

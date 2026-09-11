@@ -1339,6 +1339,136 @@ def test_the_removal_plan_uses_blind_labels_under_blinding(ctx, svc):
     assert "lora weight" not in blinded["labels"]
 
 
+def test_review_sweep_list_hides_axis_and_values_under_blinding():
+    """The 2026-09-11 audit, finding shell-01: the sweep list drew
+    ``review_mode.spec_summary(sweep["spec"])`` under every row unconditionally
+    -- "varies trellis_gss (1.0, 1.5) - 3 seed(s)" -- even while ``state.blind``
+    was on, naming exactly the axis and values blinding exists to hide.
+    ``review_mode.score_line`` already withholds the judge's opinion the same
+    way; ``review_panes._review_sweep_summary`` is that rule for this line.
+    """
+    from warlock.studio import review_panes
+
+    spec = {
+        "axes": [{"param": "trellis_gss", "values": [1.0, 1.5]}],
+        "seeds": ["s0", "s1", "s2"],
+    }
+    sweep = {"id": "abcdef0123456789", "label": "lora sweep", "spec": spec}
+    state = review_mode.ReviewState()
+
+    unblinded = review_panes._review_sweep_summary(state, review_mode, sweep)
+    assert "trellis_gss" in unblinded
+    assert "1.0" in unblinded and "1.5" in unblinded
+
+    state.blind = True
+    blinded = review_panes._review_sweep_summary(state, review_mode, sweep)
+    assert blinded == ""
+    assert "trellis_gss" not in blinded
+    assert "1.0" not in blinded and "1.5" not in blinded
+
+
+def test_single_sweep_delete_confirm_uses_the_blinded_label():
+    """The 2026-09-11 audit, finding shell-02: ``_review_delete_button``
+    interpolated the raw ``sweep['label']`` into "Delete this sweep?" instead
+    of ``review_mode.bucket_label`` -- the one spelling of the blinding rule,
+    per that function's own docstring, which names this exact confirm as the
+    fourth call site and the one door the bulk ``removal_plan`` fix had left
+    open. Covers both message branches (``units`` present and the already-gone
+    "0 job(s)" case), since both interpolated the raw label.
+    """
+    from warlock.studio import review_panes
+
+    sweep = {"id": "abcdef0123456789", "label": "lora sweep", "units": [1, 2, 3]}
+    state = review_mode.ReviewState()
+
+    unblinded = review_panes._delete_confirm_message(state, review_mode, sweep, 3, 0)
+    assert "lora sweep" in unblinded
+
+    state.blind = True
+    blinded = review_panes._delete_confirm_message(state, review_mode, sweep, 3, 0)
+    assert "lora sweep" not in blinded
+    assert blinded.startswith(f"#{sweep['id'][:6]}")
+
+    # The "jobs and meshes are already gone" branch interpolated the raw
+    # label too, and took no ``retained`` tick -- covered separately.
+    zero_units = review_panes._delete_confirm_message(state, review_mode, sweep, 0, 0)
+    assert "lora sweep" not in zero_units
+    assert zero_units.startswith(f"#{sweep['id'][:6]}")
+
+
+def _blind_routing_violations(source: str) -> list[str]:
+    """Ways the two drawing sites could still leak under blinding, found by
+    reading ``source`` rather than importing it.
+
+    A test that only asserts the helper functions exist cannot fail when the
+    *call sites* regress back to the raw, unguarded spelling while the
+    helpers sit unused beside them -- which is exactly the shape the leak
+    would take if someone reverted the wiring alone. So this reads the
+    ``ast`` of the two drawing methods by name and looks for the two literal
+    expressions the 2026-09-11 audit found: a bare ``spec_summary(`` call
+    inside ``_review_runs`` (shell-01), and a raw ``sweep['label']`` /
+    ``sweep["label"]`` subscript inside ``_review_delete_button`` (shell-02).
+    Scoped to those two function bodies by name, not the whole file, so an
+    unrelated future use of either spelling elsewhere does not trip it.
+    """
+    import ast
+
+    tree = ast.parse(source)
+
+    def _function(name: str) -> ast.FunctionDef | None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        return None
+
+    violations: list[str] = []
+
+    runs = _function("_review_runs")
+    assert runs is not None, "_review_runs not found -- has it been renamed?"
+    for node in ast.walk(runs):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "spec_summary"
+        ):
+            violations.append("_review_runs calls spec_summary directly")
+
+    delete_button = _function("_review_delete_button")
+    assert delete_button is not None, "_review_delete_button not found -- has it been renamed?"
+    for node in ast.walk(delete_button):
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "sweep"
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "label"
+        ):
+            violations.append("_review_delete_button interpolates sweep['label']")
+
+    return violations
+
+
+def test_review_runs_and_delete_button_route_through_the_blind_helpers():
+    """The two drawing sites must actually call the blind-aware helpers,
+    not merely have them sitting unused nearby.
+
+    ``test_review_sweep_list_hides_axis_and_values_under_blinding`` and
+    ``test_single_sweep_delete_confirm_uses_the_blinded_label`` prove the
+    helpers themselves are correct, but a test that only calls
+    ``review_panes._review_sweep_summary``/``_delete_confirm_message``
+    directly would keep passing even if ``_review_runs`` and
+    ``_review_delete_button`` were reverted to the raw, unguarded
+    expressions -- reintroducing the 2026-09-11 audit's shell-01/shell-02
+    leaks with the helpers dead-coded beside them. This reads the module's
+    own source and checks the wiring, the way ``test_review_mode_imports_no_imgui``
+    above reads ``review_mode``'s.
+    """
+    from warlock.studio import review_panes
+
+    source = Path(review_panes.__file__).read_text("utf-8")
+    assert _blind_routing_violations(source) == []
+
+
 def test_removing_reviewed_sweeps_goes_through_the_task_runner(ctx, svc):
     sweep_id, ids = _sweep(svc, n=1)
     svc_verdicts.record_verdict(svc, ids[0], grade=-3)

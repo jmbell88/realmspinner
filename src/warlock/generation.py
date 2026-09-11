@@ -244,6 +244,20 @@ class GenerationRequest:
             references=tuple(str(x) for x in raw.get("references") or ()),
             reference_mode=str(raw.get("reference_mode") or "none"),
             structure_control=str(raw.get("structure_control") or ""),
+            # img2img intent. Dropped here until the 2026-09-11 audit (finding
+            # create-05): ``to_dict`` (a plain ``asdict``) faithfully wrote
+            # both fields, but this constructor never read them back out, so
+            # a request round-tripped through ``to_dict()``/``from_dict()`` --
+            # or any raw dict handed to ``jobs.create_generation_request``,
+            # which coerces through this door -- silently fell back to
+            # ``init_image=False, init_strength=None`` with no error and no
+            # visible signal, changing the actual output.
+            init_image=bool(raw.get("init_image")),
+            init_strength=(
+                float(raw["init_strength"])
+                if raw.get("init_strength") not in (None, "")
+                else None
+            ),
             seed=int(raw.get("seed") or 0),
             count=int(raw.get("count") or 1),
             tile=TileSettings(

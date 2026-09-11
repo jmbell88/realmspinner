@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from warlock.studio.packwright import compose
-from warlock.studio.packwright.layout import PackSettings, layout
+from warlock.studio.packwright.layout import Frame, Layout, PackSettings, layout
 from warlock.studio.packwright.sources import Sprite
 
 RED = (255, 0, 0, 255)
@@ -145,3 +145,54 @@ def test_two_composites_of_one_layout_are_identical():
     sprites = [_solid(f"s{i}", 5, 5, RED) for i in range(6)]
     result = layout(sprites, PackSettings())
     assert np.array_equal(compose.compose(sprites, result), compose.compose(sprites, result))
+
+
+# --- packwright-03 (2026-09-11 audit): the margin guard must survive -O -----
+
+
+def test_extrude_refuses_a_margin_violating_frame_even_under_dash_o():
+    """The only defence against a ``Frame`` whose x/y sit closer to the atlas
+    edge than its own extrude margin used to be a bare ``assert``, which
+    ``python -O``/``PYTHONOPTIMIZE`` compiles out -- silently removing the one
+    check standing between a margin-violating frame and a negative-index
+    wraparound that overwrites real pixels outside the frame's own footprint.
+    ``PackSettings`` and both packers already guarantee the room, so the only
+    way to reach this is a hand-built ``Layout``, which is what this does.
+
+    Asserts the *type*: a bare ``assert`` also raises here (``AssertionError``,
+    not compiled out in an ordinary test run), so a test that only checked
+    "raises something" would pass against the unfixed code too."""
+    sprites = [_solid("a", 4, 4, RED)]
+    frame = Frame(
+        key="a", name="a", x=1, y=1, w=4, h=4, trim=(0, 0, 4, 4), source_w=4, source_h=4
+    )
+    bad_layout = Layout(width=8, height=8, mode="maxrects", padding=4, extrude=2, frames=(frame,))
+    with pytest.raises(ValueError, match="no room for its"):
+        compose.compose(sprites, bad_layout)
+
+
+def test_studio_packwright_states_its_invariants_without_assert():
+    """``assert`` is compiled out under ``python -O``, so a guard written that
+    way vanishes and the failure it was catching becomes silent corruption
+    instead of a loud one. The durable half of packwright-03's fix: the
+    behavioural test above only proves *this build's* guard raises
+    ``ValueError``; it says nothing about whether the *next* one that reaches
+    for a quick invariant check reaches for ``assert`` again. Mirrors
+    ``tests/inker/test_inker_document.py::test_the_engine_states_its_invariants_without_assert``,
+    scoped to ``studio/packwright/`` -- that scan is scoped to
+    ``studio/inker/`` only and does not reach this package."""
+    import pathlib
+
+    root = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "src"
+        / "warlock"
+        / "studio"
+        / "packwright"
+    )
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.strip().startswith("assert "):
+                offenders.append(f"{path.name}:{number}")
+    assert offenders == [], offenders

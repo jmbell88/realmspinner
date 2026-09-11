@@ -304,3 +304,227 @@ def test_the_meter_is_ticked_where_every_frame_goes_through():
     # thing that went wrong -- not about its arguments.
     assert "self.resources.tick(" in inspect.getsource(main.App.frame)
     assert "resources.tick" not in inspect.getsource(main.App._tick)
+
+
+# --- create-02/03: a character preview's landing (2026-09-11 audit) ---------
+#
+# ``tests/test_frame_thread_doors.py`` pins the parse/adopt split for every
+# other model load in this tree (the selection-driven sync, the Review mesh
+# load, the Troupe atlas...) but does not reach "character-preview" -- these
+# two are that door's own proof, in the file that owns ``App``.
+
+
+class _PreviewViewer:
+    """Records which thread touched each half of a character preview's load,
+    the same way ``tests/test_frame_thread_doors.py``'s ``_GL``/spy pair does
+    for the other doors: a regression that moved the decode back onto the
+    frame thread shows up here as the test thread's own name.
+    """
+
+    def __init__(self) -> None:
+        self.load_model_threads: list[str] = []
+        self.parse_model_threads: list[str] = []
+        self.adopted: list[object] = []
+
+    def load_model(self, path):
+        import threading
+
+        # The pre-fix path: both halves at once, whichever thread calls this.
+        self.load_model_threads.append(threading.current_thread().name)
+
+    def parse_model(self, path):
+        import threading
+
+        self.parse_model_threads.append(threading.current_thread().name)
+        return {"parsed": str(path)}
+
+    def adopt_model(self, model, path):
+        self.adopted.append(path)
+
+
+class _PreviewCtx:
+    """A ``ctx.submit`` that runs the task on a real worker thread and joins
+    -- ``tests/test_frame_thread_doors.py``'s ``_Threaded`` idiom, repeated
+    here rather than imported so this file does not reach into one it does
+    not own.
+    """
+
+    def __init__(self, selected="job1", mode="create", create_stage="reference"):
+        self.state = SimpleNamespace(
+            mode=mode, create_stage=create_stage, selected=selected, preview={}
+        )
+        self.submitted: list[str] = []
+        self.tags: list[object] = []
+        self.result: object = None
+        self.toasts: list[tuple] = []
+
+    def submit(self, key, fn, *args, tag=None, **kwargs):
+        import threading
+
+        self.submitted.append(key)
+        self.tags.append(tag)
+        box: dict = {}
+
+        def go() -> None:
+            box["result"] = fn(*args, **kwargs)
+
+        worker = threading.Thread(target=go, name="warlock-task-test")
+        worker.start()
+        worker.join()
+        self.result = box["result"]
+        return True
+
+    def toast(self, *a, **k):
+        self.toasts.append((a, k))
+
+
+def _preview_app(ctx=None):
+    from warlock.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.viewer = _PreviewViewer()
+    app.app_ctx = ctx or _PreviewCtx()
+    return app
+
+
+def test_the_character_preview_landing_does_not_decode_on_the_frame_thread():
+    """create-02 (2026-09-11 audit): a finished "character-preview" build was
+    shown with ``viewer.load_model`` -- a full glTF parse plus a PNG texture
+    decode per slot -- called directly inside ``_on_task_done``, on the frame
+    thread. That is exactly the T2-class stall the 2026-09-02 review already
+    fixed for the reference-PNG and mesh-load paths, and this proves the same
+    split now applies here: the parse runs on a task thread under its own
+    key, and only the landing of *that* task uploads to the viewer.
+    """
+    from pathlib import Path
+
+    from warlock.studio import main as main_mod
+
+    app = _preview_app()
+
+    app._on_task_done(SimpleNamespace(key="character-preview", result="/tmp/preview.glb"))
+
+    assert app.viewer.load_model_threads == [], (
+        "the combined blocking load must never run from this path"
+    )
+    assert app.app_ctx.submitted == [main_mod.CHARACTER_PREVIEW_LOAD_KEY]
+    assert app.viewer.parse_model_threads == ["warlock-task-test"], (
+        "the parse must run off the frame thread"
+    )
+    assert app.viewer.adopted == [], "nothing is uploaded until that task lands"
+
+    # Landing the parse is the other half of the split -- the frame-thread
+    # GPU upload -- and it is what actually puts the preview on screen.
+    app._on_task_done(
+        SimpleNamespace(
+            key=main_mod.CHARACTER_PREVIEW_LOAD_KEY,
+            result=app.app_ctx.result,
+            tag=app.app_ctx.tags[-1],
+        )
+    )
+    assert app.viewer.adopted == [Path("/tmp/preview.glb")]
+
+
+def test_a_character_preview_that_lands_after_the_user_navigates_away_does_not_hijack_the_viewport():  # noqa: E501
+    """create-03 (2026-09-11 audit): landing a character-preview build used
+    to adopt it unconditionally, with no token or selection/stage check --
+    unlike ``_adopt_model``, which checks ``done.tag`` against
+    ``viewer.pending`` first. A build that landed after the user picked a
+    different asset, or left Create's Reference stage, silently replaced
+    whatever the viewport was already showing.
+    """
+    from warlock.studio import main as main_mod
+
+    ctx = _PreviewCtx(selected="job1")
+    app = _preview_app(ctx)
+
+    app._on_task_done(SimpleNamespace(key="character-preview", result="/tmp/preview.glb"))
+    landed_tag = ctx.tags[-1]
+    landed_result = ctx.result
+
+    # The user picks a different asset before the parse lands.
+    ctx.state.selected = "job2"
+    app._on_task_done(
+        SimpleNamespace(
+            key=main_mod.CHARACTER_PREVIEW_LOAD_KEY, result=landed_result, tag=landed_tag
+        )
+    )
+
+    assert app.viewer.adopted == [], "a stale build must not replace the newly selected asset"
+    assert main_mod.CHARACTER_PIN not in ctx.state.preview
+
+    # And the control: nothing about the selection moved, so the same landing
+    # does adopt -- this is not a check that refuses everything.
+    from pathlib import Path
+
+    ctx2 = _PreviewCtx(selected="job1")
+    app2 = _preview_app(ctx2)
+    app2._on_task_done(SimpleNamespace(key="character-preview", result="/tmp/preview.glb"))
+    app2._on_task_done(
+        SimpleNamespace(
+            key=main_mod.CHARACTER_PREVIEW_LOAD_KEY, result=ctx2.result, tag=ctx2.tags[-1]
+        )
+    )
+    assert app2.viewer.adopted == [Path("/tmp/preview.glb")]
+    assert ctx2.state.preview[main_mod.CHARACTER_PIN] == (str(Path("/tmp/preview.glb")), "job1")
+
+
+# --- shell-09: F10 is "Everywhere", including while the Manual is open ------
+
+
+def test_f10_toggles_the_frame_rate_readout_even_while_the_manual_is_open():
+    """shell-09 (2026-09-11 audit): the Ctrl+/ sheet documents F10 in its
+    "Everywhere" section beside Ctrl+K, Ctrl+/, F1 and Esc -- but
+    ``App._shortcut``'s "the Manual owns it too" guard sat above the F10
+    check, so every press while the Manual overlay was open did nothing, with
+    no indication why.
+    """
+    import pygame
+
+    from warlock.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    state = SimpleNamespace(
+        mode="create",
+        mode_observed="create",
+        previous_mode="",
+        palette_open=False,
+        manual=SimpleNamespace(open=True),
+        show_fps=False,
+    )
+    app.app_ctx = SimpleNamespace(state=state)
+    event = SimpleNamespace(type=pygame.KEYDOWN, key=pygame.K_F10, mod=0)
+
+    app._shortcut(event)
+
+    assert state.show_fps is True
+
+
+# --- shell-14: a quit confirm should name an in-flight review sweep --------
+
+
+def test_quit_summary_names_a_sweep_launch_or_delete_in_flight():
+    """shell-14 (2026-09-11 audit): ``App._quit_summary`` named an in-flight
+    model download, export or pack install so a quit confirm could warn about
+    it, but checked no ``review-``-prefixed key at all -- so quitting
+    mid-sweep-launch (twenty to forty job creations) or mid-sweep-deletion
+    gave no warning at all, unlike the three lines beside it.
+    """
+    from warlock.studio import main as main_mod
+    from warlock.studio import review_mode
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.runtime = SimpleNamespace(current_job_id=None)
+    app.app_ctx = SimpleNamespace(
+        cache=SimpleNamespace(active=None),
+        tasks=SimpleNamespace(busy_keys={review_mode.LAUNCH_KEY}),
+    )
+
+    summary = app._quit_summary()
+
+    assert summary, "a sweep launch in flight must not pass through silently"
+    assert "sweep" in summary.lower()
+
+    # And a sweep deletion in flight is named too, not just a launch.
+    app.app_ctx.tasks = SimpleNamespace(busy_keys={review_mode.DELETE_KEY})
+    assert app._quit_summary()

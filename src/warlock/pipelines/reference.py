@@ -516,6 +516,19 @@ def normalise(
     canvas.paste(subject, box, subject if src.mode == "RGBA" else None)
 
     out_report = measure(canvas)
+    # The 2026-09-11 audit (pipelines-02): this used to replace ``extra``
+    # wholesale with only the source occupancy/size, so a re-measurement of
+    # the canvas that itself came back unmeasured (``unmeasured()``, e.g. a
+    # flood-fill leak through the LANCZOS-softened paste rim) silently lost
+    # its "measured": False marker -- the reopened, canvas-side half of the
+    # pipelines-03 (2026-09-08 audit) miscalibration, where
+    # ``rank.composition_score`` needs that marker to score an unmeasured
+    # reference as "unknown, not bad" instead of a real, poorly-framed one.
+    # Merging keeps that marker (and anything else ``measure`` recorded)
+    # alongside the source fields rather than discarding it.
+    extra = dict(out_report.extra)
+    extra["source_occupancy"] = report.occupancy
+    extra["source_size"] = list(report.size)
     return canvas, Report(
         ok=out_report.ok,
         reasons=out_report.reasons,
@@ -529,7 +542,7 @@ def normalise(
         alpha_source=out_report.alpha_source,
         size=out_report.size,
         normalised=True,
-        extra={"source_occupancy": report.occupancy, "source_size": list(report.size)},
+        extra=extra,
     )
 
 

@@ -82,7 +82,7 @@ to go is clickable.
 
 | Line | What it says | Where it goes |
 |---|---|---|
-| Issues | "Everything checks out", "still checking" for the first second or two after launch, or "N things need attention" — amber for a warning, red for something fatal. While the shell setup summary is visible this item is omitted instead of repeating it. | [App settings](41-app-settings.md), opened on **Health**, which names each failing check. |
+| Setup | "Generation is not set up yet — N downloads", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](41-app-settings.md), opened on **Models**. |
 | Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | — |
 | Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](37-review.md). |
 
@@ -90,12 +90,13 @@ There used to be a **Library** line here too, counting assets and disk. It went 
 grid of those same assets: a count of the thing you are looking at is not news, and the Library is
 one click away in the rail.
 
-The Issues line is a different destination from the amber issue count in the status bar, which
-opens the read-only Issues popup: the status bar answers "what is wrong right now", and this line
-answers "how do I fix it". It exists because a fresh install reaches Home with no weights
-downloaded, presses New 2D, and is refused at the door with a download command in the message. That
-refusal is correct, but Home offered every way to start work and no way to find out first whether
-this install could do any of them.
+The Setup line is a different destination from the amber issue count in the status bar, which opens
+the read-only Issues popup: the status bar answers "what is wrong right now", and this line answers
+"how do I start". It exists because a fresh install reaches Home with no weights downloaded, presses
+New 2D, and is refused at the door with a download command in the message. That refusal is correct,
+but Home offered every way to start work and no way to find out first whether this install could do
+any of them. Health itself is not repeated here — the rail's badge and the startup banner own that
+fact, and `visible_home_rows` deliberately excludes it rather than render it a third time.
 
 The unreviewed count is asked for in the background on a timer, never on the frame the screen is
 drawn — it is a table scan — so it can lag by up to half a minute. It is not shown at all until an

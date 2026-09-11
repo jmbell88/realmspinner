@@ -260,6 +260,23 @@ def test_grid_rects_refuses_a_cell_count_past_a_sane_ceiling():
         sheetin.grid_rects((1024, 1024), (2, 2))
 
 
+def test_document_from_sheet_refuses_a_cell_count_past_max_sheet_frames():
+    """The 2026-09-11 audit (inker-09): ``MAX_SHEET_FRAMES`` was added
+    specifically so a cell count read from a file cannot decide an allocation
+    before it is checked, and it is enforced inside ``grid_rects()``
+    (``document_from_grid``'s door, the test above) -- but
+    ``document_from_sheet`` takes ``cells`` verbatim from a rendered sheet's
+    on-disk sidecar JSON via ``inker_open.sheet_grid`` and built one Frame
+    plus one Layer per entry with no ceiling of its own. A 1MB sidecar (the
+    generic size cap every sidecar gets) can still encode roughly 28,000 cell
+    entries, about 7x past this ceiling.
+    """
+    atlas = np.zeros((1, 1, 4), dtype=np.uint8)
+    cells = [{"x": 0, "y": 0, "w": 1, "h": 1} for _ in range(sheetin.MAX_SHEET_FRAMES + 1)]
+    with pytest.raises(ValueError, match=str(sheetin.MAX_SHEET_FRAMES)):
+        sheetin.document_from_sheet(atlas, cells)
+
+
 def _striped(width: int, height: int) -> np.ndarray:
     """An atlas whose every column is a different red, so a mis-sliced cell is
     visible as the wrong number rather than as the wrong shape."""

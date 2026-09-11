@@ -26,6 +26,16 @@ from typing import Any
 #: quadriflow target is a quad count, and a "2k quad" prop is ~4k triangles --
 #: the ladder a mobile/indie engine actually budgets in. ``custom`` takes a
 #: number in ``FACES_MIN..FACES_MAX``.
+#:
+#: No `docs/measurements/` document backs these three numbers, and the
+#: 2026-09-11 audit (finding pipelines-08) is right that this is a weaker
+#: footing than ``optimize.PROFILES``' triangle tiers, whose named rungs are
+#: deliberately kept out of the generate form until a qualification run backs
+#: them. The difference is what the number decides: a quad budget is a *target
+#: the user picks by name and can see the result of*, not a threshold that
+#: silently classifies a mesh, and nothing in the stored corpus is keyed on it
+#: -- a remesh records the budget it ran at. Re-deriving the ladder is a
+#: sitting with a card and eyes, and it is owed rather than done.
 FACE_PROFILES: dict[str, int] = {
     "low": 2_000,
     "medium": 8_000,
@@ -45,6 +55,12 @@ DEFAULT_TEXTURE_PX = 1024
 #: diagonal a 1 m prop remeshes at 5 mm voxels, which closes the plate-crust
 #: gaps ``meshaudit`` flags without rounding off a sword's edge; finer than
 #: that is minutes in Blender for no visible change.
+#:
+#: That sentence reads as measured and is not: no `docs/measurements/` document
+#: backs it, and the 2026-09-11 audit (finding pipelines-09) flagged exactly
+#: that ambiguity -- a reader could not tell a measured number from one chosen
+#: by feel and written up confidently. It is chosen by feel. Nothing in the
+#: corpus is keyed on it; a re-derivation is a sitting with a card and eyes.
 VOXEL_FRACTION = 0.005
 
 #: The seed quadriflow takes. Fixed so two remeshes of one mesh at one budget
@@ -58,7 +74,10 @@ QUADRIFLOW_SEED = 0
 GEOMETRY_DERIVED = ("model.stl", "model_obj.zip", "collision.glb", "textures.zip", "model.fbx")
 
 #: The margin (texels) the bake grows past every island edge, so bilinear
-#: filtering and the first two mips never read the background.
+#: filtering and the first two mips never read the background. Eight texels is
+#: the conventional figure for exactly that pair of readers and is not measured
+#: here; no `docs/measurements/` document backs it (the 2026-09-11 audit,
+#: finding pipelines-09), and nothing in the corpus is keyed on it.
 BAKE_MARGIN_PX = 8
 
 

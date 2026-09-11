@@ -30,9 +30,12 @@ The chequerboard behind your artwork is transparency, not a colour.
 
 ## Tools
 
-Twenty-four tools in twelve groups. Each group has a letter, and **pressing that letter again cycles
-within the group** — so `B` is the brush, `B` again is the spray, and the first press always lands
-on what that letter usually means.
+Twenty-four tools in twelve groups. **Every tool has its own letter** — the parenthesised keys in
+the table below are the whole story, and a group's letter is simply the letter of the tool that
+letter usually means. `B` is the brush and `A` is the spray; pressing `B` twice leaves you on the
+brush. Where a tool has a second binding it is the group letter with Shift, so Spray answers to
+both `A` and `Shift+B`. The Aseprite bindings are the primary ones; see
+[Keyboard shortcuts](38-shortcuts.md) for the full table and the compatibility aliases.
 
 | Key | Tools |
 | --- | --- |

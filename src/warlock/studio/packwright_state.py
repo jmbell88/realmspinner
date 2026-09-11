@@ -155,6 +155,18 @@ class PackwrightState:
     # because a sheet cannot say its own tile size and the user answers in a
     # popup either way.
     tileset_import: tuple[str, str, np.ndarray] | None = None
+    # Which tab asked. The 2026-09-11 audit's packwright-02: this used to be
+    # absent, so ``on_task_done`` only checked the requesting tab was still
+    # *open* before parking the sheet on these state-wide fields -- nothing
+    # recorded *which* tab that was -- and ``import_tileset`` read
+    # ``active(ctx)`` to find a target, which is whichever tab the user has
+    # since switched to, not the one that asked. Set alongside
+    # ``tileset_import`` in exactly one place (``packwright_mode.on_task_done``)
+    # and read in exactly one (``import_tileset``); the popup panes that clear
+    # ``tileset_import`` on cancel never read this, so a stale leftover value
+    # is harmless -- ``import_tileset`` never consults it while
+    # ``tileset_import`` is ``None``.
+    tileset_import_uid: str = ""
     tileset_import_open: bool = False
     tileset_cell: tuple[int, int] = (32, 32)
     # Whether to drop tiles whose content another tile already carries, and

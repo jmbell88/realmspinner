@@ -570,11 +570,12 @@ def _tour_offer(ctx: Any) -> None:
     not invited to a thing they have already done.
 
     **The dismissal is per tour.** "Not now" wrote one global flag, so a single
-    press retired the card for all four tours permanently -- including the two
-    Sirens ones, which sit behind the other two in the list and which most
-    readers would therefore never be offered at all. It is now the set of tours
-    that have been declined, and a legacy ``"1"`` still means all of them, so an
-    installed user who already pressed it does not get the card back.
+    press retired the card for every tour in ``tour_scripts.TOURS`` permanently
+    -- including the two Sirens ones, which sit behind the others in the list
+    and which most readers would therefore never be offered at all. It is now
+    the set of tours that have been declined, and a legacy ``"1"`` still means
+    all of them, so an installed user who already pressed it does not get the
+    card back.
 
     **A tour whose mode is gated is not offered.** ``muse-basics`` is every
     step naming ``mode="muse"``, and its first step waits on
@@ -702,11 +703,8 @@ def _version() -> str:
 #: other row's does, for that table's own reason -- a hand-copied glyph is how a
 #: row ends up opening Clay under Plotter's icon.
 #:
-#: Two of the six do not name their own mode, and they differ in why. A pose is
-#: authored in Poser, which is a plain alias. A profile draft is not a mode at
-#: all: it is a sheet over Create, and its provider's ``adopt`` already puts the
-#: app where it needs to be. The empty string means exactly that -- recovering
-#: it navigates itself, and this pane must not second-guess where to.
+#: One of the six does not name its own mode: a pose is authored in Poser,
+#: which is a plain alias -- every other kind's name already is its mode.
 _KIND_MODES = {
     "inker": "inker",
     "clay": "clay",

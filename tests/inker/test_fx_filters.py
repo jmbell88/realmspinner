@@ -295,6 +295,41 @@ def test_despeckle_leaves_a_flat_region_alone():
     assert np.abs(out[..., :3].astype(int) - np.array([80, 120, 200])).max() <= 1
 
 
+def test_blur_radius_is_capped_independent_of_the_shared_radius_span():
+    """despeckle (DESPECKLE_MAX) and outline (OUTLINE_MAX_SIZE), just above and
+    below this test, both clamp their own worst case *inside the function*,
+    independent of what ``RANGES`` offers a slider -- because the slider is
+    not the only caller: ``apply_named`` fills a parameter in from whatever a
+    stale settings entry, a script, or this test hands it. blur/sharpen had
+    no matching ceiling: ``filters.blur(pixels, radius=2000.0)`` on an 8x8
+    canvas measured 1.45s and 385MB (kernel width 8001) against 0.001s at the
+    slider's real maximum of 32.0, and ``preview_filter`` runs this on the
+    frame thread. The 2026-09-11 audit, inker-08.
+
+    Asserted as behaviour, not as a constant's presence: a caller reaching
+    past the slider's span must land on exactly what the ceiling itself
+    produces, not on some larger, more expensive blur.
+    """
+    low, high = filters.RANGES["radius"]
+    pixels = np.random.default_rng(11).integers(0, 256, (8, 8, 4), dtype=np.uint8)
+    at_the_slider_ceiling = filters.blur(pixels, radius=high)
+    assert np.array_equal(filters.blur(pixels, radius=2000.0), at_the_slider_ceiling)
+    # And the ceiling is a real blur rather than a clamp to nothing.
+    assert not np.array_equal(at_the_slider_ceiling, pixels)
+
+
+def test_sharpen_radius_is_capped_the_same_way_blur_is():
+    """``sharpen``'s unsharp mask calls the same ``_gaussian``/``_kernel``
+    blur.py's cap sits in, for its own soft copy -- this is the other caller
+    the single choke point has to hold for."""
+    _low, high = filters.RANGES["radius"]
+    pixels = np.random.default_rng(12).integers(0, 256, (8, 8, 4), dtype=np.uint8)
+    at_the_slider_ceiling = filters.sharpen(pixels, amount=0.5, radius=high)
+    assert np.array_equal(
+        filters.sharpen(pixels, amount=0.5, radius=2000.0), at_the_slider_ceiling
+    )
+
+
 def test_despeckle_cannot_be_asked_for_a_window_it_cannot_afford():
     """Two locks on the same door, because a median is a rank filter -- it sorts
     every window -- and this runs on the frame thread: ``preview_filter``

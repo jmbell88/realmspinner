@@ -259,6 +259,64 @@ def test_a_hole_in_the_floating_mask_is_not_part_of_it():
     assert not buf.contains((3, 3))
 
 
+def test_floating_buffer_scale_is_ceilinged_before_the_render_allocates():
+    """The 2026-09-11 audit found ``scale`` floored at 0.01 with no ceiling
+    above it: a scale-handle drag (``inker_canvas.py``'s own unclamped
+    ``fx = abs(point[0]-cx)/ref_x``) or a direct ``transform(scale=...)`` call
+    could ask :func:`render_transform` to allocate a plane sized canvas-width
+    times an arbitrary factor. Reproduced exactly as the audit did -- a 64x64
+    buffer scaled by 50000.0 -- this raised an uncaught MemoryError with
+    nothing in the engine catching or refusing it first.
+
+    The ceiling has to land on ``self.scale`` *before* the render is
+    attempted, or the buffer is left pointed at the huge value and
+    re-attempts the same failing allocation on every later re-render -- a
+    flip, a pivot move, the next drag frame -- so this also drives a second
+    render afterwards and checks it stays bounded too.
+    """
+    buf = _floating()
+    buf.pixels = np.full((64, 64, 4), 255, dtype=np.uint8)
+    buf.mask = np.full((64, 64), 255, dtype=np.uint8)
+    buf.transform(scale=(50000.0, 50000.0))
+    width, height = buf.size
+    assert width <= sel.MAX_TRANSFORM_SIDE
+    assert height <= sel.MAX_TRANSFORM_SIDE
+    assert buf.scale[0] <= sel.MAX_TRANSFORM_SIDE
+    assert buf.scale[1] <= sel.MAX_TRANSFORM_SIDE
+
+    buf.flip("horizontal")
+    width, height = buf.size
+    assert width <= sel.MAX_TRANSFORM_SIDE
+    assert height <= sel.MAX_TRANSFORM_SIDE
+
+
+def test_a_full_canvas_selection_is_not_shrunk_by_the_transform_ceiling(monkeypatch):
+    """The first cut of the 2026-09-11 audit fix set ``MAX_TRANSFORM_SIDE`` to
+    4096 -- below Inker's own canvas ceiling. ``inker_mode.NEW_MAX`` and
+    ``pipelines.sheet.MAX_ATLAS_PX`` are both 8192 (``pixelguard.py``'s
+    ``MAX_DECODE_PIXELS`` is built on exactly those two agreeing), so a
+    selection lifted off a full-size canvas already has a ``base_size`` up to
+    8192 a side. A ceiling at or below that silently shrinks an honest
+    ``scale=(1.0, 1.0)`` -- no refusal, no message, just a quietly halved
+    result -- which is a data-visible regression, not a safety improvement.
+    This pins it out: a full-canvas-sized selection must not be clamped at
+    1.0, and must still have room to scale up by at least 2x.
+
+    ``base_size`` is patched directly rather than built from an actual 8192
+    array, so the render this drives stays on tiny pixels -- what is under
+    test is the clamp arithmetic in :meth:`FloatingBuffer.transform`, not
+    Pillow's resize cost at the real canvas ceiling.
+    """
+    buf = _floating()
+    monkeypatch.setattr(type(buf), "base_size", property(lambda self: (8192, 8192)))
+
+    buf.transform(scale=(1.0, 1.0))
+    assert buf.scale == (1.0, 1.0)
+
+    buf.transform(scale=(2.0, 2.0))
+    assert buf.scale == (2.0, 2.0)
+
+
 # --- the clipboard ----------------------------------------------------------
 
 

@@ -246,7 +246,11 @@ class IndexedOps:
         return self.set_frame_palette(None, frame_index)
 
     def convert_to_palette(
-        self: Document, colours: Sequence[RGBA], method: str = "nearest"
+        self: Document,
+        colours: Sequence[RGBA],
+        method: str = "nearest",
+        *,
+        _resolved: dict[int, np.ndarray] | None = None,
     ) -> bool:
         """Adopt a table and rewrite every pixel onto it by *method*.
 
@@ -266,6 +270,16 @@ class IndexedOps:
         One undo step across every layer and every frame, because that is what
         the user did. Links survive it: ``_replay`` snapshots the *grid*, so two
         frames holding one cel hold one cel again after an undo.
+
+        ``_resolved`` is a frame-thread adopter's escape hatch (the 2026-09-11
+        audit, finding inker-07): already-dithered planes a task thread
+        computed with :meth:`resolve_palette_convert`, keyed by uid, applied
+        instead of running ``dither.convert`` here. No synchronous caller
+        passes one, and the async caller never does either when the document
+        is indexed -- the redirect below sends it to ``convert_to_indexed``
+        instead, whose own ``_resolved`` takes index planes, not RGBA, because
+        the *pure* compute differs depending on which way this goes and the
+        async caller has to decide that before the task thread ever runs.
         """
         if not colours:
             raise ValueError("a conversion needs at least one colour")
@@ -298,6 +312,13 @@ class IndexedOps:
         before, self.palette = self.palette, wanted
 
         def run() -> None:
+            if _resolved is not None:
+                # The task thread already ran this -- see ``resolve_palette_
+                # convert``. Applying rather than recomputing is also what
+                # makes a *redo* of this step cheap: no dither runs a second
+                # time, it just re-lands the same arrays.
+                self._apply_resolved_pixels(_resolved)
+                return
             # **Inside the replay closure, not captured beside it.** Two reasons,
             # both load-bearing. Redo must recompute the grouping against the
             # planes as they have just been *restored*, not against a table built
@@ -809,6 +830,124 @@ class IndexedOps:
 
     # -- mode conversions ---------------------------------------------------
 
+    # The three ``resolve_*`` functions below and ``_apply_resolved_pixels``
+    # exist for one caller: ``panes/inker_bridge.apply_convert``, which used to
+    # hand ``Document.commit_convert``/``cancel_convert``/``convert_to_indexed``
+    # straight to a task thread -- mutating ``color_mode``, ``layer.pixels``,
+    # ``layer.indices`` and undo history off the frame thread while
+    # ``inker_canvas.draw()`` kept rendering the same tab every frame with no
+    # ``tab.busy`` gate in the render path (the 2026-09-11 audit, finding
+    # inker-07). ``studio/inker/`` may not be named from outside the package
+    # (see this package's own ``__init__.py``), so the split has to be a public
+    # surface on ``Document`` rather than a module the panes layer imports
+    # directly -- ``@staticmethod``, following ``_shrink_map``'s own precedent,
+    # rather than a free function, so the async caller reaches it the same way
+    # it reaches everything else here: through ``tab.doc``.
+    #
+    # Each one is the exact arithmetic its synchronous sibling already ran
+    # (``preview_convert``'s per-plane ``dither.convert`` call, generalised
+    # from the current frame's session snapshot to whichever planes the caller
+    # hands in), just returned as data instead of written into ``self``. **No
+    # ``self`` access anywhere in their bodies** -- that is what makes calling
+    # them from a task thread safe, since the planes they touch are copies
+    # ``_doc_paint.snapshot_convert_planes`` made on the frame thread before
+    # the task ever started.
+
+    @staticmethod
+    def resolve_palette_convert(
+        planes: Sequence[tuple[int, np.ndarray]], colours: Sequence[RGBA], method: str
+    ) -> dict[int, np.ndarray]:
+        """Pure: dither every plane in *planes* onto *colours*, keyed by uid.
+
+        The heavy half of ``convert_to_palette``'s ``run`` closure, generalised
+        from a fixed ``self._palette_planes()`` read to whichever planes are
+        handed in -- so a caller can build the grouping table and the dither
+        both from a snapshot instead of the live document.
+        """
+        wanted = [tuple(c) for c in colours]
+        values = [pixels for _uid, pixels in planes]
+        table = dither.grouped_table(values, wanted) if method == "grouped" else None
+        return {uid: dither.convert(pixels, wanted, method, table=table) for uid, pixels in planes}
+
+    @staticmethod
+    def resolve_indexed_convert(
+        planes: Sequence[tuple[int, np.ndarray]],
+        colours: Sequence[RGBA] | None,
+        method: str,
+        transparent: int,
+        max_colours: int = 32,
+    ) -> tuple[list[RGBA], dict[int, np.ndarray]]:
+        """Pure: the heavy half of ``convert_to_indexed`` -- a table if none
+        was given, then every plane dithered onto it as an index array, keyed
+        by uid. -> ``(the table, the index planes)``, because a caller with no
+        table cannot know what it will be until this has run.
+        """
+        values = [pixels for _uid, pixels in planes]
+        wanted = (
+            [tuple(c) for c in colours] if colours else dither.build_palette(values, max_colours)
+        )
+        table = (
+            dither.grouped_index_table(values, wanted, transparent=transparent)
+            if method == "grouped"
+            else None
+        )
+        resolved = {
+            uid: dither.convert_indices(
+                pixels, wanted, method, transparent=transparent, table=table
+            )
+            for uid, pixels in planes
+        }
+        return wanted, resolved
+
+    @staticmethod
+    def resolve_grayscale_convert(
+        planes: Sequence[tuple[int, np.ndarray]],
+    ) -> dict[int, np.ndarray]:
+        """Pure: the heavy half of ``convert_to_grayscale``'s ``_flatten_planes``,
+        keyed by uid. Never actually 43s-class (``ix.grayscale`` is one
+        vectorised pass, not per-pixel error diffusion) but kept off the frame
+        thread anyway, for the same reason its siblings are: the mutation it
+        feeds is what the render race is about, not the wall-clock cost of
+        getting there.
+        """
+        return {uid: ix.grayscale(pixels) for uid, pixels in planes}
+
+    def _apply_resolved_pixels(self: Document, resolved: dict[int, np.ndarray]) -> None:
+        """Write already-computed RGBA planes into their layers, by uid.
+
+        ``convert_to_palette``'s frame-thread adopter for
+        ``resolve_palette_convert``. **Not** ``convert_to_grayscale``'s --
+        that one calls ``_flatten_planes(_resolved=...)`` directly instead,
+        because this method's route through ``_map_planes`` (below) does more
+        than ``_flatten_planes`` ever did on an animated document, and a
+        precomputed path must not start doing extra work a synchronous run of
+        the same step never did.
+
+        Routed through ``_map_planes`` for its side effects (``mask_fn=None``
+        -- a colour map, not geometry -- ``_stamp_all``, the animated-canvas
+        restack) rather than reimplementing them a second time here.
+        ``_map_planes`` calls *fn* positionally with no uid, so the planes are
+        walked in lockstep with :meth:`_index_planes`, whose order is the same
+        traversal ``_map_planes`` uses internally (``self.stack``, or
+        ``anim.unique_cel_layers()``) -- built immediately before the call and
+        read by nothing else in between, so the two walks cannot disagree.
+
+        A layer missing from *resolved*, or whose shape no longer matches what
+        was resolved (deleted or resized while the task ran -- should be
+        unreachable while ``tab.saving`` locks the document, but this is the
+        same defence ``_convert_target`` takes against it), is left exactly as
+        it is rather than overwritten with a plane sized for a canvas that no
+        longer exists.
+        """
+        order = iter(self._index_planes())
+
+        def fn(plane: np.ndarray) -> np.ndarray:
+            layer = next(order)
+            target = resolved.get(layer.uid)
+            return target if target is not None and target.shape == plane.shape else plane
+
+        self._map_planes(fn, mask_fn=None)
+
     def _index_planes(self: Document) -> list[Any]:
         """Every distinct cel in the document, once each. ``_map_planes``' rule:
         a background linked across three frames is one object and one plane."""
@@ -819,13 +958,29 @@ class IndexedOps:
         self.apply_remap(forward)
 
     def _resolve_planes(
-        self: Document, colours: Sequence[RGBA], method: str, transparent: int
+        self: Document,
+        colours: Sequence[RGBA],
+        method: str,
+        transparent: int,
+        *,
+        _resolved: dict[int, np.ndarray] | None = None,
     ) -> None:
         """The raw work of entering indexed mode: every cel to slots and back.
 
         The raw work rather than the public method, ``_replay``'s rule: redo
         re-runs this directly, and going back through the entry point would push
         a second step for an operation already on the stack.
+
+        ``_resolved`` is the frame-thread adopter's escape hatch (the
+        2026-09-11 audit, finding inker-07): when given, it is
+        :meth:`resolve_indexed_convert`'s already-computed index planes, keyed
+        by layer uid, looked up here instead of running
+        ``dither.convert_indices`` -- the same planes this would have produced,
+        computed on a task thread instead of on this one. A layer missing from
+        it, or whose shape has moved since the task started, is skipped rather
+        than corrupted (``_apply_resolved_pixels``'s reason, restated for the
+        index-plane shape). Every synchronous caller leaves this ``None`` and
+        gets exactly the behaviour ``_resolve_planes`` always had.
         """
         table = ixp.lut(colours, transparent)
         planes = self._index_planes()
@@ -833,18 +988,25 @@ class IndexedOps:
         # pixels through ``materialize``, so a grouping built inside it would see
         # the first layers already converted and group the later ones against a
         # document that no longer exists. Built over the candidate slots, so the
-        # transparent slot is never a target.
+        # transparent slot is never a target. Skipped entirely when ``_resolved``
+        # is given: the grouping (if any) is already baked into it.
         grouping = (
             dither.grouped_index_table(
                 [layer.pixels for layer in planes], colours, transparent=transparent
             )
-            if method == "grouped"
+            if method == "grouped" and _resolved is None
             else None
         )
         for layer in planes:
-            layer.indices = dither.convert_indices(
-                layer.pixels, colours, method, transparent=transparent, table=grouping
-            )
+            if _resolved is not None:
+                idx = _resolved.get(layer.uid)
+                if idx is None or idx.shape != layer.pixels.shape[:2]:
+                    continue
+                layer.indices = idx
+            else:
+                layer.indices = dither.convert_indices(
+                    layer.pixels, colours, method, transparent=transparent, table=grouping
+                )
             layer.pixels[...] = ixp.materialize(layer.indices, table)
         self._stamp_all()
         self.invalidate_all()
@@ -869,6 +1031,7 @@ class IndexedOps:
         *,
         transparent: int = 0,
         max_colours: int = 32,
+        _resolved: dict[int, np.ndarray] | None = None,
     ) -> bool:
         """Enter true indexed mode, resolving every cel onto *colours*.
 
@@ -885,6 +1048,15 @@ class IndexedOps:
         stated at length there: this is a change of mode, and a version of it
         that converted only the marquee would leave the pixels outside it in a
         state the mode cannot describe.
+
+        ``_resolved`` -- the 2026-09-11 audit, finding inker-07 -- is
+        :meth:`resolve_indexed_convert`'s already-computed index planes, keyed
+        by uid; when given, ``_resolve_planes`` looks each one up instead of
+        running ``dither.convert_indices``. Every synchronous caller leaves it
+        ``None`` and this behaves exactly as it always has; only
+        ``inker_mode._done_convert``, the Convert popup's frame-thread
+        adopter, passes one, after a task thread computed it against plane
+        copies nothing else could write to meanwhile.
         """
         self._refuse_tilemap_convert("converted to indexed")
         wanted = [tuple(c) for c in (colours or self.built_palette(max_colours))]
@@ -912,21 +1084,45 @@ class IndexedOps:
         self.color_mode = "indexed"
         self.palette = wanted
         self.transparent_index = hole
-        self._color_step(state, lambda: self._resolve_planes(wanted, method, hole))
+        self._color_step(
+            state, lambda: self._resolve_planes(wanted, method, hole, _resolved=_resolved)
+        )
         return True
 
-    def _flatten_planes(self: Document) -> None:
+    def _flatten_planes(
+        self: Document, *, _resolved: dict[int, np.ndarray] | None = None
+    ) -> None:
         """The raw work of entering grayscale mode: every cel through the luma.
 
         ``_replay``'s rule again -- this is the closure redo re-runs, never the
         public method.
+
+        ``_resolved`` -- the 2026-09-11 audit, finding inker-07 -- is
+        :meth:`resolve_grayscale_convert`'s already-flattened planes, keyed by
+        uid, looked up here instead of running ``ix.grayscale``. Deliberately
+        **not** routed through ``_apply_resolved_pixels``: that helper calls
+        ``_map_planes``, which on an animated document also rebuilds
+        ``self.stack`` from the grid and clears ``anim._blank`` -- work this
+        method has never done and a precomputed path must not start doing
+        just because it takes one, or a redo of an old step would behave
+        differently from the step itself. A layer missing from *_resolved*,
+        or whose shape has moved since the task started, is skipped rather
+        than corrupted, ``_resolve_planes``'s reason restated.
         """
         for layer in self._index_planes():
-            layer.pixels[...] = ix.grayscale(layer.pixels)
+            if _resolved is not None:
+                target = _resolved.get(layer.uid)
+                if target is None or target.shape != layer.pixels.shape:
+                    continue
+                layer.pixels[...] = target
+            else:
+                layer.pixels[...] = ix.grayscale(layer.pixels)
         self._stamp_all()
         self.invalidate_all()
 
-    def convert_to_grayscale(self: Document) -> bool:
+    def convert_to_grayscale(
+        self: Document, *, _resolved: dict[int, np.ndarray] | None = None
+    ) -> bool:
         """Enter grayscale mode: every visible pixel gets ``r == g == b``.
 
         A constraint over the storage this document already has, not a change of
@@ -940,6 +1136,11 @@ class IndexedOps:
         makes it a grayscale document with a table of colours it may not paint
         -- so the palette is dropped here, the one place a mode change discards
         something the user authored, because keeping it would be keeping a lie.
+
+        ``_resolved`` -- the 2026-09-11 audit, finding inker-07 -- is
+        already-flattened planes a task thread computed with
+        :meth:`resolve_grayscale_convert`, applied instead of running
+        ``ix.grayscale`` here. ``None`` for every synchronous caller.
         """
         if self.color_mode == "grayscale":
             return False
@@ -956,7 +1157,7 @@ class IndexedOps:
         def run() -> None:
             if had_planes:
                 self._drop_planes()
-            self._flatten_planes()
+            self._flatten_planes(_resolved=_resolved)
 
         self._color_step(state, run)
         return True

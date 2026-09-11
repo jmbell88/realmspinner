@@ -262,6 +262,17 @@ class TroupeOps:
             # flagged, which is the smaller of the two wrongs.
             reframed = False
             if base_png is None and sheetcheck.clipped_cells(layout, trims):
+                # Checked here, not only before the pixel-art pass below: this
+                # retry fires a second full Blender render -- "a minute a go"
+                # per this module's own docstring -- and without this check a
+                # cancel requested during or right after the first render sat
+                # unhonoured until that second render had also finished (the
+                # 2026-09-11 audit, finding troupe-03). Returning here (rather
+                # than raising) leaves ``self._cancel.committed`` False, so
+                # ``_process``'s finally writes the row cancelled the same way
+                # every other stage's early return does.
+                if self._cancel is not None and self._cancel.event.is_set():
+                    return
                 reframed = True
                 log.info(
                     "character sheet %s clipped at margin %.2f; re-rendering wider",

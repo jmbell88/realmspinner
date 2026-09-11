@@ -1139,6 +1139,60 @@ def _duplicate_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
     ctx.toast(f"Duplicated {found.name or 'the object'}.")
 
 
+def remove_selected_objects(ctx: Any, doc: Any, state: PlotterState) -> int:
+    """Delete every selected object, grouped by the layer that actually holds it.
+
+    The Objects dock's Shift+click (``plotter_objects.py``) never checks the
+    clicked row's layer against the layers already in ``state.selected_objects``,
+    so a dock selection can span more than one object layer. Before this, every
+    delete site (this module's Delete key, and the Properties pane's "Delete N
+    objects") called ``doc.remove_objects`` against ``doc.active_layer`` alone
+    -- the 2026-09-11 audit, finding plotter-02 -- which silently dropped any
+    selected uid that lived on a *different* layer while the caller still
+    cleared the whole selection unconditionally, so a cross-layer Delete looked
+    complete and quietly left most of the group behind with no indication
+    anything survived.
+
+    Splitting the selection by the layer each uid is actually found on, and
+    removing each layer's group with its own ``remove_objects`` call, reaches
+    every layer instead of only the active one. A locked layer in the group is
+    skipped and toasted -- the same refusal a single-layer delete already gave
+    -- while the rest of the selection still goes. The selection is then
+    pruned to whatever is left standing (skipped-locked and already-gone uids
+    both survive the prune), rather than cleared outright, so a partial
+    refusal is still visible as a selection instead of silence.
+
+    -> how many objects were actually removed.
+    """
+    wanted = set(state.selected_objects)
+    by_layer: dict[int, set[int]] = {}
+    for layer in doc.all_layers():
+        if not isinstance(layer, ObjectLayer):
+            continue
+        hit = {obj.uid for obj in layer.objects if obj.uid in wanted}
+        if hit:
+            by_layer[layer.uid] = hit
+
+    removed_total = 0
+    for layer_uid, uids in by_layer.items():
+        layer = doc.layer(layer_uid)
+        if getattr(layer, "locked", False):
+            _locked_toast(ctx, layer)
+            continue
+        removed_total += doc.remove_objects(layer_uid, uids)
+
+    live = {
+        obj.uid
+        for layer in doc.all_layers()
+        if isinstance(layer, ObjectLayer)
+        for obj in layer.objects
+    }
+    remaining = state.selected_objects & live
+    if remaining != state.selected_objects:
+        state.select_objects(remaining)
+    return removed_total
+
+
 def _delete(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
     """Delete clears the selection's cells, or removes the selected object.
 
@@ -1151,18 +1205,12 @@ def _delete(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
     from .tilegrid import gid as gidlib
 
     if state.tool == "object" and state.selected_objects:
-        layer = tab.doc.active()
-        if layer is None:
-            return
-        if getattr(layer, "locked", False):
-            _locked_toast(ctx, layer)
-            return
-        # Every selected object in one step. ``remove_objects`` is the group
-        # twin of ``remove_object`` -- one ``compound`` of the same
-        # ``ObjectRemoveEdit`` -- so a Delete over five objects is one Ctrl+Z
-        # rather than five.
-        tab.doc.remove_objects(layer.uid, state.selected_objects)
-        state.select_object(None)
+        # Grouped by the layer each uid actually lives on, not just
+        # ``doc.active_layer`` -- see ``remove_selected_objects``. A selection
+        # confined to one layer is still one ``compound`` and one Ctrl+Z; one
+        # spanning several layers is one compound *per layer*, because each
+        # layer's ``ObjectRemoveEdit`` is its own undo step.
+        remove_selected_objects(ctx, tab.doc, state)
         return
     layer, rect = _selected_tiles(ctx, state, tab, writing=True)
     if layer is None:

@@ -80,6 +80,30 @@ def test_two_saves_of_an_unchanged_document_are_byte_identical():
     assert wsng.wsng_bytes(doc) == wsng.wsng_bytes(doc)
 
 
+def test_wsng_bytes_actually_deflates_its_members():
+    """sirens-01 (the 2026-09-11 audit): ``wsng_bytes`` opened the archive with
+    ``ZIP_DEFLATED`` but wrote every member through a bare ``ZipInfo``, whose
+    ``compress_type`` defaults to ``ZIP_STORED`` and was never overridden -- so
+    every ``.wsng`` ever saved was fully uncompressed despite the archive's own
+    declared intent. Asserted against the actual member metadata and size, not
+    against a helper existing: a test that only checked ``_member`` was called
+    would still pass if the helper itself forgot the line.
+    """
+    doc = _song()
+    # Zeroed out for a highly compressible grid -- the common case the finding
+    # measured (~30x for a sparse pattern) and the shape where STORED and
+    # DEFLATED are unmistakably different sizes.
+    doc.patterns[0].cells[:] = 0
+    raw = wsng.wsng_bytes(doc)
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        infos = zf.infolist()
+        assert infos, "the archive has no members to check"
+        for info in infos:
+            assert info.compress_type == zipfile.ZIP_DEFLATED, info.filename
+        pattern_info = zf.getinfo(f"{wsng.PATTERN_DIR}/0.npy")
+        assert pattern_info.compress_size < pattern_info.file_size // 2
+
+
 def test_opening_a_file_and_saving_it_produces_the_file_that_was_opened():
     """Which is what makes a ``.wsng`` in a repository diffable, and what a
     renumbering-on-read would have destroyed."""

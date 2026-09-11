@@ -1262,6 +1262,80 @@ def test_a_non_integer_accessor_index_is_refused_with_a_value_error_not_a_type_e
         gltf.load(_glb(doc, binary))
 
 
+def test_a_non_integer_child_index_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-11 audit, finding create-01 (merged). A node's own
+    ``children`` array was stored straight off the JSON with no validation at
+    all, so a non-integer entry reached ``Model.update_world``'s bare
+    ``0 <= index < len(self.nodes)`` comparison as an un-messaged
+    ``TypeError`` instead of the named ``ValueError`` every sibling
+    index-shaped field in this loader (mesh, skin, joint, texture, image
+    source) was hardened to give in create-01/clay-06/clay-09/clay-04.
+    """
+    with pytest.raises(ValueError, match="child reference must be a whole number"):
+        gltf.load(_graph([{"children": ["not-an-index"]}], [0]))
+
+
+def test_a_non_integer_scene_root_index_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-11 audit, finding create-01 (merged): the other half of
+    the same gap, one level up -- a scene's own "nodes" root list."""
+    with pytest.raises(ValueError, match="root node index must be a whole number"):
+        gltf.load(_graph([{}], ["not-an-index"]))
+
+
+def test_a_non_integer_scene_index_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-11 audit, finding create-01 (merged): the document's own
+    "scene" key reaches ``_roots``'s ``0 <= index < len(scenes)`` comparison
+    unchecked when it names a scene index rather than a root list."""
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": "0",
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{}],
+    }
+    with pytest.raises(ValueError, match="scene index must be a whole number"):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_non_integer_image_buffer_view_is_refused_with_a_value_error_not_a_type_error():
+    """The 2026-09-11 audit, finding create-01 (merged): the last of the four
+    missed sites -- an image's own ``bufferView`` reaches
+    ``_Reader._image_bytes``'s bare ``0 <= bv < len(buffer_views)`` comparison
+    unchecked, unlike the texture/image *index* checks a few lines above it."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        images=[{"bufferView": "0"}],
+        textures=[{"source": 0}],
+        materials=[{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        meshes=[{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+    )
+    with pytest.raises(ValueError, match="bufferView reference must be a whole number"):
+        gltf.load(data)
+
+
+def test_a_glb_whose_json_chunk_is_not_an_object_is_refused_by_name_not_a_bare_attributeerror():
+    """The 2026-09-11 audit, finding clay-03. glbio.split_glb never checked
+    that a GLB's JSON chunk parses to an object, so a hand-built GLB whose
+    JSON chunk is valid JSON but not a dict (a bare array, here) reached
+    every downstream ``.get(...)`` call -- gltf.load's own among them -- as a
+    bare, un-messaged AttributeError instead of the named ValueError every
+    other malformed-GLB boundary in this module raises.
+    """
+    from warlock import glbio
+
+    header = struct.pack("<III", 0x46546C67, 2, 0)
+    # rebuild_glb only promises to json.dumps whatever it is given; a list
+    # serializes just as cleanly as a dict, and is exactly the shape a
+    # hand-edited or hostile GLB could legally carry.
+    data = rebuild_glb(header, [1, 2, 3], b"")
+    with pytest.raises(ValueError, match="not a GLB file"):
+        glbio.split_glb(data)
+    with pytest.raises(ValueError, match="not a GLB file"):
+        gltf.load(data)
+
+
 def test_a_node_with_a_three_element_rotation_is_refused_by_name_not_by_unpack_error():
     """The 2026-09-09 audit, finding clay-05. ``node()`` read ``translation``/
     ``rotation``/``scale``/``matrix`` straight off the JSON with no shape

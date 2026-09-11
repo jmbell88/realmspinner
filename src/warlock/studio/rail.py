@@ -384,10 +384,11 @@ def draw(app: Any, ctx: Any) -> None:
     # **And then the section gaps go too, last of all.** The ladder above gives
     # up the row-to-row air before it compresses the rows; this is its third
     # rung, and it exists because the second one has a floor with a citation
-    # (:data:`MIN_ITEM_H`) that must not be argued down. Adding Troupe made the
-    # rail fifteen rows, which at the resize floor on a 175% display wants
-    # 23.85 design px a row against that 24 px floor -- four physical pixels of
-    # overflow, and four physical pixels of overflow is an unreachable mode.
+    # (:data:`MIN_ITEM_H`) that must not be argued down. The rail is thirteen
+    # rows (``rows`` above, ``sum(len(g) for g in modes.RAIL_GROUPS)``), and at
+    # the resize floor on a dense display even a fraction of a design pixel's
+    # shortfall a row adds up to physical pixels of overflow -- which is an
+    # unreachable mode.
     #
     # A section marker is air, and air is what this ladder spends first. Giving
     # up some of it to keep every row at the floor is the same trade the two

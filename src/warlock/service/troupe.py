@@ -34,7 +34,7 @@ from ..clips import expand_clips
 from ..pipelines import charsheet, pixelize, spritesynth
 from .errors import Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
-from .validation import check_job_id, check_vram
+from .validation import DERIVED_PARAMS, check_job_id, check_vram
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .core import WarlockService
@@ -284,7 +284,14 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
     except KeyError as exc:
         raise Invalid(f"the {TROUPE_TEMPLATE} clip library is missing {exc}") from exc
     except ValueError as exc:
-        raise invalid_from(exc, "That character sheet cannot be laid out") from exc
+        # **field="layout", the 2026-09-11 audit's finding troupe-01.** This
+        # branch is the one a real request reaches -- an atlas over the texture
+        # limit, or a movement whose frame count the resolved layout and the
+        # expanded clip disagree about -- and ``panes/troupe_settings.py``
+        # calls ``form_ui.note("layout")`` on exactly this address to ring the
+        # layout table. Left unfielded, the refusal reached a form wired to
+        # catch it and rang nothing.
+        raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
     return checked
 
 
@@ -379,7 +386,10 @@ def create_charsheet(
     except KeyError as exc:
         raise Invalid(f"the {template} clip library is missing {exc}") from exc
     except ValueError as exc:
-        raise invalid_from(exc, "That character sheet cannot be laid out") from exc
+        # field="layout", the 2026-09-11 audit's finding troupe-01 -- see the
+        # identical comment in ``check_troupe``, the door this planning step
+        # was copied from.
+        raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
 
     sheet_name = (name or "").strip()
     if len(sheet_name) > rigging.MAX_SHEET_NAME:
@@ -485,6 +495,19 @@ def rerender_charsheet(
         )
 
     params = dict(row.get("params") or {})
+    # Not inherited: they are the *previous* run's answers about its own output
+    # and a fresh row must not wear them. Stripped via ``DERIVED_PARAMS``
+    # itself rather than a hand-copied subset of it -- the 2026-09-07 audit
+    # found this door hand-stripping only three of the four relevant keys
+    # (``validation``, the sheet's structural verdict, was missing), and the
+    # 2026-09-11 audit (finding troupe-02) named the hand list itself as the
+    # hazard: a duplicate of an allowlist is one future ``DERIVED_PARAMS``
+    # addition away from silently reintroducing a stale-verdict row. Stripped
+    # *before* the fields below are set, because ``sheet_id`` is itself one of
+    # ``DERIVED_PARAMS``' entries -- stripping after would delete the fresh id
+    # this door is about to mint.
+    for derived in DERIVED_PARAMS:
+        params.pop(derived, None)
     params.update(
         {
             "source_job": job_id,
@@ -495,17 +518,6 @@ def rerender_charsheet(
             "name": sheet_name or str(params.get("name") or ""),
         }
     )
-    # Not inherited: they are the *previous* run's answers about its own output
-    # and a fresh row must not wear them. ``DERIVED_PARAMS`` says the same thing
-    # for a rerun; this door mints a new row, so it strips them itself.
-    #
-    # ``validation`` belongs in this tuple and the 2026-09-07 audit found it
-    # missing: it is the sheet's structural verdict -- clipped, blank or
-    # missing cells, and whether a wider-margin second render ran -- about
-    # *this* atlas, so a queued re-render otherwise carried a stale verdict,
-    # possibly an ``ok: true``, about frames it has not rendered yet.
-    for derived in ("cells", "rendered_cells", "pixel_report", "validation"):
-        params.pop(derived, None)
 
     # A re-render is a new sheet and draws on the same pool -- ``create_charsheet``'s
     # arrangement verbatim, under the same job-wide hold.
@@ -783,9 +795,24 @@ def _charsheet_spec(
             layout=resolved_layout,
         )
     except KeyError as exc:
-        raise Invalid(f"the {sheet_template} clip library is missing {exc}") from exc
+        # **field="template", the 2026-09-11 audit's finding service-06.**
+        # ``has_clips`` two calls up only proves the library is non-empty --
+        # ``service.clips.save``'s ``_check_renders`` holds only
+        # ``TROUPE_TEMPLATE`` to Troupe's frame table, so any other template's
+        # library is accepted with any subset of clips, by design. A template
+        # with some clips but not the one this layout names (an ordinary shape
+        # for a user-edited library, not the "internal build consistency" case
+        # the *shipped* libraries would give) reaches this branch with
+        # ``has_clips`` having already answered True, and the Skeleton control
+        # (``troupe_send._skeleton``) that offered the template is what a
+        # refusal about it should ring.
+        raise Invalid(
+            f"the {sheet_template} clip library is missing {exc}", field="template"
+        ) from exc
     except ValueError as exc:
-        raise invalid_from(exc, "That character sheet cannot be laid out") from exc
+        # field="layout", the 2026-09-11 audit's finding troupe-01 -- see the
+        # identical comment in ``check_troupe``.
+        raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
 
     sheet_name = (name or "").strip()
     if len(sheet_name) > rigging.MAX_SHEET_NAME:

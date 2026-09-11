@@ -466,3 +466,29 @@ def test_a_row_with_no_category_leaves_the_remembered_tab_alone():
     changing something it has no opinion about."""
     row = landing.Status("queue", "!", "Queue idle", 0, "library")
     assert row.settings_category == ""
+
+
+def test_tour_offer_docstring_does_not_hardcode_a_stale_tour_count():
+    """The 2026-09-11 audit's tour-01: ``_tour_offer``'s docstring said "all
+    four tours" while ``tour_scripts.TOURS`` had held five since ``muse-basics``
+    landed -- the identical drift the 2026-09-07 audit already found and fixed
+    in ``scripts.py``'s own module docstring (tour-03,
+    ``tests/tour/test_tour_scripts_docstring.py``), but that guard checks only
+    ``scripts.py``, so this sibling copy went uncaught.
+
+    A number word ("four", "five"...) in the docstring is the failure mode,
+    not the word "tours" itself, so this checks for the specific stale phrase
+    rather than banning every digit-word from the text.
+    """
+    import inspect
+
+    from warlock.studio.tour import scripts as tour_scripts
+
+    doc = inspect.getdoc(landing._tour_offer) or ""
+    number_words = {4: "four", 5: "five", 6: "six", 7: "seven"}
+    stale = {n: w for n, w in number_words.items() if n != len(tour_scripts.TOURS)}
+    for word in stale.values():
+        assert f"all {word} tours" not in doc.lower(), (
+            f"_tour_offer's docstring still says 'all {word} tours' but "
+            f"TOURS holds {len(tour_scripts.TOURS)}"
+        )

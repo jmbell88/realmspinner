@@ -160,6 +160,15 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 #: still refused; the budget below is the one that usually binds.
 MAX_ORA_LAYERS = 1024
 
+#: The absolute ceiling on how many entries ``animation.json``'s "frames" list
+#: may declare. A frame is cheap on its own -- a duration and a uid, none of it
+#: canvas-sized -- so this is a bare count and not a pixel budget: the same
+#: number ``gifin.MAX_GIF_FRAMES``/``sheetin.MAX_SHEET_FRAMES`` already use for
+#: the same reason. The 2026-09-11 audit found a 1,349-byte ``.ora`` naming
+#: 200,000 tracks (frames carry the identical shape) cost 370.0 MiB and 9.26s
+#: with nothing bounding either list.
+MAX_ORA_FRAMES = 4096
+
 
 def _layer_budget(width: int, height: int) -> int:
     """How many layers a ``width`` x ``height`` drawing may hold.
@@ -1397,6 +1406,27 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
         payload = json.loads(raw)
         if int(payload.get("version", 0)) != ANIMATION_VERSION:
             raise ValueError(f"animation.json version {payload.get('version')!r}")
+        # 2026-09-11 audit, finding inker-05: a track becomes one full-canvas
+        # ``Layer`` the moment ``anim.layers_for`` runs a few lines below in
+        # ``read_ora``, exactly the shape ``_layer_budget`` already exists to
+        # bound on the flat layer path -- and this list had no such bound. A
+        # frame is cheap in isolation (a duration and a uid) but nothing
+        # bounded its count either, and a 1,349-byte file naming 200,000
+        # tracks cost 370.0 MiB and 9.26s. Refused before either list is
+        # built, so the file falls back to the flat read below rather than
+        # spending the allocation first -- this member's own rule for every
+        # other way of being wrong.
+        allowed_tracks = _layer_budget(*size)
+        if len(payload["tracks"]) > allowed_tracks:
+            raise ValueError(
+                f"animation.json holds more than the {allowed_tracks} tracks"
+                f" of {size[0]}x{size[1]} this build will open"
+            )
+        if len(payload["frames"]) > MAX_ORA_FRAMES:
+            raise ValueError(
+                f"animation.json holds more than the {MAX_ORA_FRAMES} frames"
+                " this build will open"
+            )
         # An absent duration is a file written by something that does not carry
         # one, so it gets the default a new frame gets. Falling through to
         # ``clamp_duration``'s floor instead gave it 1 ms -- a hundred times too
@@ -1975,13 +2005,36 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
         if int(payload.get("version", 0)) != TILES_VERSION:
             raise ValueError(f"{TILES_MEMBER} version {payload.get('version')!r}")
 
+        # 2026-09-11 audit, finding inker-03: ``pixelguard`` bounds one
+        # tileset PNG's own size and nothing bounded the *sum* across every
+        # entry this list names -- unlike the flat layer reader, which never
+        # decodes past its own ``_layer_budget``. A 1,134-byte archive naming
+        # the same 512x512 PNG 500 times cost 502.6 MiB and 1.28s, one
+        # independent decode per entry. The count is refused up front, cheaply
+        # and before any decode, the same hard-number half of
+        # ``MAX_ORA_LAYERS``'s own reasoning; the running pixel total below is
+        # the other half, so a handful of maximal tilesets cannot pass the
+        # count check and still exhaust memory the way the layer path's own
+        # ``_layer_budget`` would refuse them.
+        if len(payload["tilesets"]) > MAX_ORA_LAYERS:
+            raise ValueError(
+                f"{TILES_MEMBER} names more than the {MAX_ORA_LAYERS} tilesets"
+                " this build will open"
+            )
         slots: list[TilesetSlot] = []
+        tileset_pixels = 0
         for entry in payload["tilesets"]:
             with pixelguard.opened(
                 io.BytesIO(zf.read(entry["data"])), "a tileset in this drawing"
             ) as im:
                 im.load()
                 pixels = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
+            tileset_pixels += pixels.shape[0] * pixels.shape[1]
+            if tileset_pixels > pixelguard.MAX_DECODE_PIXELS:
+                raise ValueError(
+                    f"{TILES_MEMBER} tilesets hold more than the "
+                    f"{pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+                )
             tileset = Tileset(
                 name=str(entry.get("name") or "tiles"),
                 pixels=pixels,

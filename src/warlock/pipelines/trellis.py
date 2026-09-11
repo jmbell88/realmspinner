@@ -291,9 +291,15 @@ class TrellisServer:
                 return
             self._check_backoff()
             exe = self._resolve_exe()
-            if not exe.exists():
+            # The 2026-09-11 audit (pipelines-03): ``exists()`` is true of a
+            # directory too, and a damaged unpack can leave one named
+            # trellis-server.exe -- exactly the shape doctor.py's own L01 fix
+            # was written to catch. ``exists()`` would pass this check and
+            # then fail inside ``subprocess.Popen`` with a raw, uncaught
+            # OSError instead of the RuntimeError below.
+            if not exe.is_file():
                 raise RuntimeError(f"trellis-server not found at {exe}")
-            if not self._models_dir.exists():
+            if not self._models_dir.is_dir():
                 raise RuntimeError(f"TRELLIS GGUF models not found at {self._models_dir}")
             # Bind-precheck. /health returns a bare ok with no identity field,
             # so a stale orphan holding the port answers the poll below exactly

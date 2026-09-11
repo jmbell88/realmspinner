@@ -1,6 +1,23 @@
 # The SNES/Zelda prop style sweep, 2026-08-10
 
-**Status: procedure written, run not yet taken.** Everything below "What will be
+> **Retired unrun, and read this first.**
+> [`2026-08-17-taxonomy-retirement.md`](2026-08-17-taxonomy-retirement.md) deleted
+> the guidance taxonomy this procedure is written in terms of — `art_style`,
+> `condition` and `genre` as separate axes, `guidance.CATEGORIES`/`FRAMINGS`, and
+> the `scripts/sweep_zelda_*.py` drivers — seven days after this was written and
+> before the run was ever taken. **This pre-registration cannot be executed as
+> written**: the fields it varies and the scripts it names no longer exist.
+> Nothing below is wrong, and the decision rules are still a good example of the
+> form; they simply describe an app that has changed underneath them. A depiction
+> sweep worth taking now would be pre-registered afresh against the taxonomy that
+> replaced this one.
+>
+> The 2026-09-11 audit (finding docs-07) found this document live and unmarked,
+> with no cross-reference in either direction — the retirement document did not
+> mention it, and it did not mention the retirement, so a reader who found it
+> would have tried to run it and hit a dead end immediately.
+
+**Status: procedure written, run never taken — and now unrunnable; see above.** Everything below "What will be
 run" is a pre-registration — the decision rules were written before a single unit
 was queued, which is the only thing that makes the answer worth anything. When the
 run happens the numbers go under "Results" and whichever rule fired is applied

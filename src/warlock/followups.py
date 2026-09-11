@@ -29,10 +29,21 @@ LABELS = {
 #:
 #: Every kind here mints its row with its *source's* prompt, so without a noun
 #: the toast said "fire guardian finished." twice for one character and named
-#: neither half. Seven entries, because seven kinds carry
-#: ``params["source_job"]`` -- the same list :mod:`warlock.studio.asset_open`
-#: routes. (Was "Six" until the 2026-09-07 audit, service-06: ``remesh`` was
-#: added here without updating the count.)
+#: neither half. Eight entries, because eight kinds carry
+#: ``params["source_job"]`` and write into that source's directory rather than
+#: their own -- the shape ``_q_jobs.Worker._discard_artifacts`` enumerates
+#: kind by kind. **Not** the same seven :mod:`warlock.studio.asset_open`
+#: routes "where that asset is": ``separate`` carries ``source_job`` exactly
+#: like the other seven, but ``asset_open.route`` deliberately opens it in
+#: Muse, on the *take*, rather than hopping to the source job the way
+#: ``FOLLOWUP_STAGES`` and the ``charsheet`` special case both do (see the
+#: comment at ``asset_open.py``'s ``if kind == "separate":`` branch) -- so the
+#: two counts, coincidentally equal at seven, diverge here at eight. (Was
+#: "Six" until the 2026-09-07 audit, service-06: ``remesh`` was added here
+#: without updating the count. Was "Seven" -- and still claimed to equal
+#: asset_open's routed count -- until the 2026-09-11 audit, finding muse-08:
+#: ``separate``'s finished-stem toast was falling back to the generic
+#: wording because it had no entry here at all.)
 PRODUCTS = {
     "rig": "Rig",
     "sheet": "Sprite sheet",
@@ -41,6 +52,7 @@ PRODUCTS = {
     "charsheet": "Character sheet",
     "retexture": "Re-texture",
     "remesh": "Remesh",
+    "separate": "Stems",
 }
 
 #: Which stage a follow-up can be attempted from, and therefore which rows may

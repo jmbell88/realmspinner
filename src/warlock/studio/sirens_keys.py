@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import docmodes, sirens_audio, sirens_mode, sirens_state
+from . import docmodes, sirens_mode, sirens_play, sirens_state
 from .sirens_state import SirensState, SongTab, ensure  # noqa: F401
 
 
@@ -27,9 +27,22 @@ def release_all(ctx: Any) -> None:
     primitives, which is why this mode registers none with the backend.
 
     Also the panic key's verb -- ``Shift+Escape`` in :func:`handle_key` calls
-    this directly, since silencing the device is exactly what leaving the mode
-    already does."""
-    sirens_audio.stop()
+    this directly.
+
+    **Goes through ``sirens_play.stop``, not ``sirens_audio.stop`` (the
+    2026-09-11 audit, finding sirens-02).** The device alone used to be enough
+    here, on the premise that silencing it is exactly what leaving the mode
+    already does -- but leaving the mode does no such thing (nothing calls
+    this but the panic key), and silencing the device is not what makes a
+    completion stale. A preview, pattern audition or sound-effect audition
+    already rendering on a task thread at the moment of the press was still
+    judged "still wanted" by ``sirens_mode._still_wanted`` and played once its
+    task landed, because only ``sirens_play.stop`` bumps
+    ``SirensState.play_request`` and clears every tab's ``sounding`` -- the
+    withdrawal mechanism S1 (2026-09-05) built and this second code path
+    bypassed.
+    """
+    sirens_play.stop(ctx)
 
 
 #: The piano rows, as pygame key names -> semitone. Two rows, the tracker

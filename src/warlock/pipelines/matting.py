@@ -108,8 +108,15 @@ def model_dir(config: Any = None) -> Path:
 
 def available(config: Any = None) -> bool:
     """Whether the weights are on disk. Checked before any torch import, which
-    is the ordering tests/test_offline.py requires everywhere."""
-    return (model_dir(config) / "config.json").exists()
+    is the ordering tests/test_offline.py requires everywhere.
+
+    ``is_file`` and not ``exists``: the 2026-09-11 audit (pipelines-06) found
+    a directory left where ``config.json`` belongs -- a partial/broken unpack,
+    the same shape ``doctor.py``'s L01 fix was written for -- read as
+    "present" and let a caller fall through to the flood-fill matte, or worse,
+    into ``from_pretrained`` with an undiagnosed low-level traceback.
+    """
+    return (model_dir(config) / "config.json").is_file()
 
 
 def mask(image: PILImage, config: Any = None, *, device: str = "cpu") -> tuple[Any, str]:

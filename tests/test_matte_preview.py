@@ -17,6 +17,7 @@ Three separate claims, and they are separable on purpose:
 from __future__ import annotations
 
 import io
+import threading
 import time
 from types import SimpleNamespace
 
@@ -442,6 +443,86 @@ def test_an_uploaded_cutout_records_the_same_approval(svc):
 
     assert job["params"]["matte"] == "approved"
     assert job["params"]["bg_removal"] == "auto"
+
+
+# --- concurrent prepare -------------------------------------------------------
+
+
+def test_concurrent_matte_prepare_calls_for_one_job_do_not_share_a_temp_name(svc):
+    """service-02 (2026-09-11 audit): ``prepare`` staged ``cutout.png``
+    through a FIXED temp name (``dest.with_name(f".{dest.name}.tmp")``) with
+    no lock around it, unlike every sibling staged derivation in this segment.
+    ``ensure_prepared`` has three independent doors -- the preview modal, the
+    Inker hand-off, and promote/rerun -- so two of them can call ``prepare``
+    for the same job at once. Reproduced directly against the real service: two
+    threads racing ``prepare`` both raised a Windows ``PermissionError``
+    (WinError 5/32) on ``os.replace``, and ``cutout.png`` was left MISSING
+    after both finished.
+    """
+    job_id = _reference(svc, _subject_rgb())
+
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2)
+
+    def worker() -> None:
+        try:
+            barrier.wait(timeout=5)
+            svc_matte.prepare(svc, job_id)
+        except BaseException as exc:  # noqa: BLE001 -- the race itself is the assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"prepare() raised under a race: {errors!r}"
+    assert (svc.job_dir(job_id) / svc_matte.CUTOUT).exists()
+
+
+def test_matte_prepare_takes_the_convert_lock_for_the_cutout_it_stages(svc, monkeypatch):
+    """service-02's deterministic sibling. The racy test above only fails
+    about two runs in three -- a data race is inherently probabilistic -- which
+    is not a strong enough guard against someone later dropping the
+    ``convert_lock`` this fix added, in a suite CLAUDE.md already flags as
+    flaky under parallel load: a probabilistic guard is hard to tell apart
+    from that noise. This test instead pins the *mechanism* rather than the
+    symptom: it spies on ``svc.convert_lock`` and on ``os.replace`` as
+    ``matte.py`` sees it, and asserts the lock keyed ``(job_id, CUTOUT)`` is
+    both taken and still held at the moment the staged write lands. Remove
+    the lock and this fails every time, immediately.
+    """
+    job_id = _reference(svc, _subject_rgb())
+
+    real_convert_lock = svc.convert_lock
+    calls: list[tuple[str, str]] = []
+
+    def spy_convert_lock(job_id_arg: str, name_arg: str):
+        calls.append((job_id_arg, name_arg))
+        return real_convert_lock(job_id_arg, name_arg)
+
+    monkeypatch.setattr(svc, "convert_lock", spy_convert_lock)
+
+    real_replace = svc_matte.os.replace
+    held_during_replace: list[bool] = []
+
+    def spy_replace(src, dst):
+        # The lock is fetched (not acquired) here purely to read .locked() --
+        # prepare() itself already holds it if the fix is in place.
+        held_during_replace.append(real_convert_lock(job_id, svc_matte.CUTOUT).locked())
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(svc_matte.os, "replace", spy_replace)
+
+    svc_matte.prepare(svc, job_id)
+
+    assert (job_id, svc_matte.CUTOUT) in calls, (
+        "prepare() never took svc.convert_lock(job_id, CUTOUT)"
+    )
+    assert held_during_replace == [True], (
+        f"the lock was not held while cutout.png was being staged: {held_during_replace!r}"
+    )
 
 
 # --- build anyway, at the door ----------------------------------------------

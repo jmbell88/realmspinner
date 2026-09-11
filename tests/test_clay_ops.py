@@ -9,6 +9,7 @@ that nothing here reaches for a GUI.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -355,9 +356,45 @@ def test_parameters_fall_back_to_their_declared_defaults() -> None:
     doc, uid = _doc()
     _faces(doc, uid, 0)
     inset = clay_ops.get("inset")
-    assert clay_ops.defaults_for(inset) == {"thickness": 0.1, "depth": 0.0}
+    assert clay_ops.defaults_for(inset) == {
+        "thickness": 0.1,
+        "depth": 0.0,
+        "region": 0.0,
+    }
     assert clay_ops.run(_Ctx(), doc, inset) is True
     assert bm.face_count(doc.by_uid(uid).mesh) == 10
+
+
+def test_inset_faces_region_mode_is_reachable_through_the_op_registry() -> None:
+    """clay-08 (2026-09-11 audit): ``ops_topo.inset_faces``'s ``region=True`` --
+    a documented, tested second mode that insets the outline of the whole
+    selected block rather than each face on its own -- was tested only by
+    calling ``inset_faces`` directly (``tests/clay/test_ops_topo.py``); the
+    registered "inset" ``Op`` declared just ``thickness``/``depth``, so the
+    mode was unreachable from the menu, the tools pane, the keyboard, and
+    (since ``agent_clay.py`` derives its tool schema from the same
+    ``Op.params``) the agent surface too.
+    """
+    inset = clay_ops.get("inset")
+    region = next((p for p in inset.params if p.name == "region"), None)
+    assert region is not None, "'inset' declares no 'region' param"
+    assert region.boolean is True, "region is a toggle, not a bare number"
+    assert region.default == 0.0, "default stays per-face -- the old behaviour"
+
+    # Per-face (the declared default): each selected face gets its own rim,
+    # so two adjacent faces double the edge between them.
+    doc, uid = _doc()
+    _faces(doc, uid, 0, 2)
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("inset")) is True
+    assert bm.face_count(doc.by_uid(uid).mesh) == 14
+
+    # region=1.0 -- the checkbox's "on", exactly what the pane's own
+    # checkbox writes -- reaches ``inset_faces(..., region=True)`` through
+    # the same ``run`` call every other op's parameter takes.
+    doc, uid = _doc()
+    _faces(doc, uid, 0, 2)
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("inset"), region=1.0) is True
+    assert bm.face_count(doc.by_uid(uid).mesh) == 12
 
 
 def test_a_parameter_passed_in_overrides_the_default() -> None:
@@ -1146,3 +1183,61 @@ def test_every_op_hint_names_a_binding_that_exists() -> None:
         for token in op.hint.replace(",", " ").replace("(", " ").replace(")", " ").split():
             if token.startswith("Ctrl+") or token.startswith("Shift+"):
                 assert token in bindings, f"{op.name}: {token} is not bound to anything"
+
+
+# --- difference and intersection (2026-09-11 audit's clay-04) ---------------
+#
+# ``clay.ops_boolean`` implements and tests three booleans (``KINDS``), and an
+# MCP agent could already reach all three through ``agent_clay.py``'s own
+# ``clay_boolean`` tool -- but the registry only ever offered ``union``, so a
+# human had no menu row, no button and no key chord for Difference or
+# Intersection anywhere in the app. A correspondence test rather than a name
+# check, per the audit: every ``ops_boolean.KINDS`` entry gets a reachable op,
+# so a fourth boolean kind cannot repeat this silently.
+
+
+def test_every_ops_boolean_kind_has_a_human_reachable_op() -> None:
+    from warlock.studio.clay import ops_boolean
+
+    op_names = {op.name for op in clay_ops.OPS}
+    missing = [kind for kind in ops_boolean.KINDS if kind not in op_names]
+    assert not missing, f"boolean kinds with no reachable clay_ops entry: {missing}"
+
+    # And each one actually performs the boolean it is named for -- not merely
+    # a registered no-op -- through the same ``run`` call the menu and the
+    # tools pane make. Boxes half a unit apart so union, difference and
+    # intersection are all well-defined (a disjoint pair leaves difference
+    # and intersection with nothing to return).
+    for kind in ops_boolean.KINDS:
+        doc, first, second = _two_boxes(apart=0.5)
+        op = clay_ops.get(kind)
+        assert op.modes == ("object",), f"{kind}: not offered in object mode"
+        assert op.enabled(doc), f"{kind}: not enabled for two visible objects"
+        assert clay_ops.run(_Ctx(), doc, op) is True, f"{kind}: did not run"
+        assert [o.uid for o in doc.objects] == [first], f"{kind}: kept the wrong survivor"
+        assert doc.selection == {first}, f"{kind}: left the wrong selection"
+        assert second not in {o.uid for o in doc.objects}
+        bm.validate(doc.by_uid(first).mesh)
+
+
+def test_difference_and_intersection_are_enabled_and_forget_the_absorbed_manifold_cache() -> None:
+    """``_union``'s own bookkeeping -- ``has_two_visible``'s predicate and
+    ``_forget_manifold`` for the object each boolean absorbs -- copied
+    exactly, per the audit's own instruction, so a new boolean does not forget
+    the manifold cache the way an earlier op once did (clay-08, 2026-09-08
+    audit)."""
+    doc, _first, _second = _two_boxes(apart=0.5)
+    assert clay_ops.get("difference").enabled(doc)
+    assert clay_ops.get("intersection").enabled(doc)
+
+    class _StateCtx(_Ctx):
+        def __init__(self) -> None:
+            super().__init__()
+            self.state = SimpleNamespace(clay=SimpleNamespace(manifold={}))
+
+    for kind in ("difference", "intersection"):
+        doc, first, second = _two_boxes(apart=0.5)
+        ctx = _StateCtx()
+        ctx.state.clay.manifold[second] = object()
+        assert clay_ops.run(ctx, doc, clay_ops.get(kind)) is True
+        assert second not in ctx.state.clay.manifold, f"{kind}: left a stale cache entry"

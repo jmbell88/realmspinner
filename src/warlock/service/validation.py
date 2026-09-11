@@ -62,9 +62,13 @@ GLB_MAGIC = b"glTF"
 # A rendered snapshot of the viewport at list size.
 MAX_THUMB_BYTES = 512 * 1024
 
-# Matches guidance.MAX_NEGATIVE_PROMPT: the prompt ends up in an SDXL text
-# encoder that truncates far earlier anyway, so anything longer is noise or a
-# mistake -- refuse it rather than store it forever.
+# Matches guidance.MAX_NEGATIVE_PROMPT. Not a stand-in for a text-encoder
+# limit -- pipelines/prompt.chunk() encodes an SDXL prompt in multiple pieces
+# rather than cutting it off at the encoder's own short window (see
+# docs/INVARIANTS.md's "chunk-encoded" paragraph). What a ceiling here still
+# guards against is unbounded: a longer prompt keeps diluting cross-attention
+# chunk over chunk, and it is params stored forever -- refuse it at the door
+# rather than keep it.
 MAX_PROMPT = 1000
 
 

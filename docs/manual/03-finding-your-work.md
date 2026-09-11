@@ -41,8 +41,10 @@ single all-or-nothing question — a session that crashed with one document wort
 worth discarding should not force one answer for all ten. Declining keeps the files; nothing ages
 out from under you.
 
-**The status line** is one quiet row combining health, the queue and anything waiting to be reviewed.
-Each part of it is a link to the screen that answers it.
+**The status line** is one quiet row combining setup, the queue and anything waiting to be reviewed.
+Each part of it that has somewhere to go is a link to the screen that answers it. Health is
+deliberately not here: the rail's badge and the startup banner already carry it, and a third
+rendering of one fact is a third place to keep in step.
 
 ## The library
 

@@ -54,6 +54,64 @@ def open_popup(ctx: Any, tab: Any) -> None:
     imgui.open_popup(inker_flourish.FLOURISH_POPUP)
 
 
+#: :func:`_popup_names_cached`'s memo. The 2026-09-11 audit, inker-11: the
+#: popup listed the presets directory (``presets.names()``, a glob) and
+#: reloaded the selected one (``presets.load()``, a file read, a JSON parse
+#: and a full recipe clamp) unconditionally on every imgui frame it stayed
+#: open, with no memo key -- five frames open produced five calls to each,
+#: though nothing about the directory or the selection had changed since the
+#: last one was drawn. Module state, the way ``widgets._POPUPS_OPEN`` tracks
+#: which plain popups were open last frame: the alternative was a field on
+#: ``InkerState``, which puts a cache invalidated by imgui's own open/close
+#: bookkeeping in the path of every other reader of that state.
+_popup_names: list[str] = []
+
+
+def _popup_names_cached() -> list[str]:
+    """``presets.names()``, refreshed only when the popup reappears.
+
+    ``imgui.is_window_appearing()`` is true only on the first of the frames a
+    popup is open (valid to ask here because ``begin_popup`` has already run
+    in :func:`popup`, which is what makes "appearing" available at all), so
+    re-globbing on it rather than on every frame is "cache once per
+    popup-open" -- the directory cannot change while the popup is up in an
+    offline single-process app, so a name added or removed is picked up the
+    next time it is opened, same as the rest of Inker's popups pick up
+    anything that changed while they were closed.
+    """
+    if imgui.is_window_appearing() or not _popup_names:
+        _popup_names[:] = presets.names()
+    return _popup_names
+
+
+#: name -> its loaded (clamped) recipe, or ``None`` for a name that failed to
+#: load. One entry: only the selected preset is ever read.
+_popup_load: tuple[str, Any] | None = None
+
+
+def _popup_load_cached(name: str) -> Any:
+    """``presets.load(name)``, re-read only when ``name`` is not what was
+    last loaded.
+
+    The combo can hold the same preset for hundreds of frames while the user
+    reads the Facings warning or just leaves the popup open, and the file
+    read, the JSON parse and the clamp behind ``load`` do not change
+    underneath it meanwhile. Keyed on the value *after* the combo below may
+    have just moved it, not before, so a preset picked this same frame is
+    still what loads this same frame -- the popup's own reason for
+    re-running :func:`inker_flourish.facing_afford` immediately rather than a
+    frame late.
+    """
+    global _popup_load
+    if _popup_load is None or _popup_load[0] != name:
+        try:
+            recipe = presets.load(name)
+        except (KeyError, ValueError):
+            recipe = None
+        _popup_load = (name, recipe)
+    return _popup_load[1]
+
+
 def popup(ctx: Any, tab: Any) -> None:
     state = inker_mode.ensure(ctx)
     if not imgui.begin_popup(inker_flourish.FLOURISH_POPUP):
@@ -62,7 +120,7 @@ def popup(ctx: Any, tab: Any) -> None:
     widgets.section("Insert an effect")
     imgui.same_line()
     manual_render.help_button_inline(ctx, "inker-flourish")
-    names = presets.names()
+    names = _popup_names_cached()
     options = [(name, presets.label(name)) for name in names]
     if state.flourish_preset not in names and names:
         state.flourish_preset = names[0]
@@ -75,10 +133,7 @@ def popup(ctx: Any, tab: Any) -> None:
     # inker-05). Checked against the preset's own recipe, ahead of the
     # picker, so a combination roughly a third of the built-in effects cannot
     # bake is visible before Insert is pressed rather than only after.
-    try:
-        active_preset = presets.load(state.flourish_preset)
-    except (KeyError, ValueError):
-        active_preset = None
+    active_preset = _popup_load_cached(state.flourish_preset)
     facing_reasons = (
         {
             int(key): inker_flourish.facing_afford(active_preset, int(key))

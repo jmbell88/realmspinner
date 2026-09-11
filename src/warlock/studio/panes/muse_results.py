@@ -23,7 +23,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, muse_mode, verbs, widgets
+from .. import controls, icons, muse_mode, sirens_audio, verbs, widgets
 from ..tokens import sp
 
 #: A card's size in design pixels. Wide enough for two lines of tags at a
@@ -126,6 +126,33 @@ def _ready_reason(ready: bool) -> str:
     return "" if ready else "this take has not finished yet"
 
 
+def _play_reason(ready: bool) -> str:
+    """Why the tray's transport is greyed. -> "" once it may be pressed.
+
+    muse-01 (2026-09-11 audit): checks the device the same way
+    ``sirens_transport.py`` already does for its own Play/Stop, on top of
+    ``_ready_reason``'s status check -- a status reason wins while the take
+    is not ready, since that is true regardless of the machine's audio
+    device, and the device's own reason otherwise.
+    """
+    if not ready:
+        return _ready_reason(ready)
+    return sirens_audio.unavailable_reason()
+
+
+def _stems_reason(ready: bool, stems: bool) -> str:
+    """Why the Stems button is greyed. -> "" once it may be pressed.
+
+    muse-05 (2026-09-11 audit): this fifth literal -- "this take has already
+    been split" -- was still chosen inline in ``_actions``' ternary after
+    **muse-04**/**muse-07** pulled every other disabled sentence in this mode
+    into a pure, frame-free-testable function beside it.
+    """
+    if stems:
+        return "this take has already been split"
+    return _ready_reason(ready)
+
+
 def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     """Play/Stop and Open in Sirens, both dead until the WAV exists.
 
@@ -135,11 +162,16 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     """
     ready = str(job.get("status") or "") == "done"
     playing = muse_mode.is_playing(ctx, job_id)
+    # muse-01 (2026-09-11 audit): also greyed on ``sirens_audio.available()``,
+    # the same idiom ``sirens_transport.py`` already uses for its own
+    # Play/Stop -- this card used to grey only on the row's status, so a
+    # device-less machine still showed a finished take's transport enabled
+    # and pressing it did nothing at all.
     if widgets.transport(
         f"muse-{job_id}",
         playing,
-        enabled=ready,
-        reason=_ready_reason(ready),
+        enabled=ready and sirens_audio.available(),
+        reason=_play_reason(ready),
         shortcut="",
     ):
         if playing:
@@ -160,7 +192,7 @@ def _actions(ctx: Any, job: dict[str, Any], job_id: str) -> None:
     if widgets.ghost_button(
         "Stems" if not stems else f"{icons.CHECK} Stems",
         enabled=ready and not stems,
-        reason="this take has already been split" if stems else _ready_reason(ready),
+        reason=_stems_reason(ready, stems),
         tooltip=(
             "Split this take into drums, bass, vocals and everything else. "
             "Needs a one-off ~320 MiB download."

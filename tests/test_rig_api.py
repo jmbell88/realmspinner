@@ -7,12 +7,14 @@ import json
 
 import pytest
 
-from warlock import doctor
+from warlock import doctor, rigging
 from warlock.service import Invalid, NotFound, NotReady
 from warlock.service import derive as svc_derive
 from warlock.service import jobs as svc_jobs
 from warlock.service import rig as svc_rig
 from warlock.service import system as svc_system
+
+IDENTITY = [0.0, 0.0, 0.0, 1.0]
 
 
 @pytest.fixture
@@ -278,3 +280,65 @@ def test_rerigging_without_blender_is_refused_at_the_door(svc, assets, monkeypat
             job_id,
             {"bones": [{"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in fitted]},
         )
+
+
+# --- a job's own pose file, validated at the read door -----------------------
+#
+# The library pose door (service.poses._record_or_not_found) re-validates a
+# saved pose's bones on every read, because a pose is a file in a directory
+# any other program can edit. A job-scoped pose (this module's list_poses/
+# save_pose/posed_model) never got that second half: rigging.read_pose only
+# gives read_record's three file-level guards (valid JSON, valid dict, under
+# the byte ceiling), so a hand-edited pose file missing "bones" reached
+# _pose_bake_spec's ``pose["bones"]`` as a bare KeyError, and one with a
+# malformed quaternion was forwarded straight into the Blender worker spec
+# with nothing to catch it (the 2026-09-11 audit, finding poser-01).
+
+
+def _posable_job(svc, assets) -> str:
+    job_id = svc_jobs.create_job(svc, kind="text", prompt="a knight")["id"]
+    job_dir = assets / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"fake-glb")
+    (job_dir / "rig.glb").write_bytes(b"fake-rig")
+    (job_dir / "rig.json").write_text(
+        json.dumps({"version": 1, "bones": [{"name": "hips"}, {"name": "spine"}]})
+    )
+    svc.store.set_status(job_id, "done")
+    return job_id
+
+
+def test_a_job_pose_file_missing_bones_is_refused_cleanly_not_a_key_error(svc, assets, monkeypatch):
+    job_id = _posable_job(svc, assets)
+    job_dir = assets / job_id
+
+    # Case 1: "bones" stripped entirely, exactly like a library pose record
+    # test_pose_library_service.py's own broken-pose case corrupts.
+    record = svc_rig.save_pose(svc, job_id, {"name": "idle", "bones": {"hips": IDENTITY}})
+    pose_path = rigging.pose_path(job_dir, record["id"])
+    on_disk = json.loads(pose_path.read_text(encoding="utf-8"))
+    del on_disk["bones"]
+    pose_path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    called = []
+    monkeypatch.setattr(
+        rigging, "run_worker", lambda spec, **kw: called.append(spec) or {}
+    )
+    with pytest.raises(Invalid) as caught:
+        svc_rig.posed_model(svc, job_id, record["id"])
+    assert caught.value.field == "bones"
+    # Refused before a Blender subprocess would ever have been spent on it.
+    assert not called
+
+    # Case 2: "bones" present but a malformed quaternion (wrong length) --
+    # must be refused before it is forwarded into the worker spec, not baked.
+    record2 = svc_rig.save_pose(svc, job_id, {"name": "wave", "bones": {"hips": IDENTITY}})
+    pose_path2 = rigging.pose_path(job_dir, record2["id"])
+    on_disk2 = json.loads(pose_path2.read_text(encoding="utf-8"))
+    on_disk2["bones"] = {"hips": [1.0, 2.0, 3.0]}
+    pose_path2.write_text(json.dumps(on_disk2), encoding="utf-8")
+
+    with pytest.raises(Invalid) as caught2:
+        svc_rig.posed_model(svc, job_id, record2["id"])
+    assert caught2.value.field == "bones"
+    assert not called

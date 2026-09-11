@@ -225,6 +225,49 @@ def clamp(recipe: Recipe) -> Recipe:
 #: none. The 2026-09-07 audit, inker-10.
 MAX_BAKE_COST = 212_000_000
 
+#: Which two of a primitive's own parameters decide how much more than "one
+#: ordinary layer" it costs to stamp, and the primitive's own default for
+#: each -- the baseline the flat "one layer = one unit" rate below was
+#: already calibrated against, since the nine-layer fireball ``MAX_BAKE_COST``
+#: is measured from is built from layers at roughly their shipped defaults.
+#: Every stamp a "particles"/"smoke"-shaped primitive draws covers roughly
+#: ``size ** 2`` pixels and there are ``count`` of them, so that pair -- not
+#: the layer's mere presence -- is what its cost actually tracks. The
+#: 2026-09-11 audit, inker-06.
+_COST_PARAMS: dict[str, tuple[str, str]] = {
+    "particles": ("count", "size"),
+    "smoke": ("count", "size"),
+}
+
+
+def _layer_units(layer: Layer) -> float:
+    """How many of :func:`bake_cost`'s flat per-layer units ``layer`` is
+    really worth.
+
+    1.0 for every kind :data:`_COST_PARAMS` does not name -- unchanged from
+    the flat rate ``bake_cost`` always charged. For a "particles"/"smoke"
+    layer this is ``(count / default_count) * (size / default_size) ** 2``,
+    floored at 1.0 so an economical layer never costs *less* than the flat
+    rate already budgeted for it: a "particles" layer at its own published
+    slider maximum (count=400, size=64) is worth roughly 17,000 of these,
+    not one, which is the whole of what was missing (the 2026-09-11 audit,
+    inker-06) -- ``bake_cost`` priced a maxed-out particle layer the same as
+    an empty one because it looked at ``len(recipe.layers)`` and never at a
+    layer's own parameters.
+    """
+    names = _COST_PARAMS.get(layer.kind)
+    if names is None:
+        return 1.0
+    count_name, size_name = names
+    specs = prims.params_of(layer.kind)
+    count_spec, size_spec = specs[count_name], specs[size_name]
+    count = _as_float(layer.params.get(count_name), float(count_spec.default))
+    size = _as_float(layer.params.get(size_name), float(size_spec.default))
+    base_count = float(count_spec.default) or 1.0
+    base_size = float(size_spec.default) or 1.0
+    ratio = (max(0.0, count) / base_count) * (max(0.0, size) / base_size) ** 2
+    return max(1.0, ratio)
+
 
 def bake_cost(recipe: Recipe, directions: int | None = None) -> int:
     """The rough supersampled-pixel-frame cost of baking ``recipe``.
@@ -232,16 +275,21 @@ def bake_cost(recipe: Recipe, directions: int | None = None) -> int:
     An upper bound, not a simulation: a layer inactive in every phase still
     counts, the way every individually clamped field already bounds a worst
     case instead of predicting the actual render. ``directions`` mirrors
-    ``bake()``'s own override of the recipe's count.
+    ``bake()``'s own override of the recipe's count. The per-layer term is a
+    sum of :func:`_layer_units` rather than a plain ``len(recipe.layers)``,
+    so a layer that would render far more expensively than "one ordinary
+    layer" -- see :data:`_COST_PARAMS` -- is priced as such instead of as one
+    flat unit regardless of what it actually asks the renderer to do.
     """
     count = int(directions) if directions is not None else int(recipe.directions)
-    return (
+    units = sum(_layer_units(layer) for layer in recipe.layers)
+    return int(
         int(recipe.width)
         * int(recipe.height)
         * int(recipe.supersample) ** 2
         * int(recipe.frame_count)
         * max(1, count)
-        * max(1, len(recipe.layers))
+        * max(1.0, units)
     )
 
 

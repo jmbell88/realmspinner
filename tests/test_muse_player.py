@@ -34,10 +34,16 @@ class _Device:
         self.busy = False
         self.pos = 0.0
         self.level = 1.0
+        # muse-01 (2026-09-11 audit): a device-less machine's whole failure
+        # mode is ``play`` refusing -- this flag is what lets a test put the
+        # recorder in that state without a real mixer.
+        self.refuses = False
 
     RATE = RATE
 
     def play(self, pcm, rate=RATE, *, tag="", loops=0) -> bool:
+        if self.refuses:
+            return False
         self.calls.append(
             {"frames": len(pcm), "rate": rate, "tag": tag, "loops": loops, "pcm": np.array(pcm)}
         )
@@ -65,7 +71,10 @@ class _Device:
         self.level = value
 
     def unavailable_reason(self) -> str:
-        return ""
+        return "no device" if self.refuses else ""
+
+    def available(self) -> bool:
+        return not self.refuses
 
 
 @pytest.fixture
@@ -305,6 +314,36 @@ def test_stop_then_play_resumes_the_same_take_without_losing_its_state(
     assert call["frames"] == pytest.approx(6 * RATE, rel=0.01)
 
 
+def test_pressing_play_with_no_audio_device_tells_the_user_rather_than_doing_nothing(
+    ctx, device
+):
+    """muse-01 (2026-09-11 audit): ``_play_from``'s two ``sirens_audio.play``
+    calls had no ``else`` branch at all, unlike the first-decode landing path
+    in ``on_task_done`` (see ``test_a_device_that_refuses_leaves_nothing_
+    claiming_to_play`` in ``test_muse_mode.py``). Resuming an already-decoded
+    take -- the ordinary Stop-then-Play case -- is exactly the path that
+    never goes through ``on_task_done`` at all, so on a device-less machine it
+    silently did nothing. Fails against the unfixed code, whose ``ctx.toasts``
+    stays empty after both presses below.
+    """
+    one = _loaded(ctx, seconds=10.0, job="a")
+    device.refuses = True
+
+    # The plain, out-of-region path: Stop, then Play again on a take already
+    # sitting in memory (M07's resume branch), never re-reading the file.
+    muse_mode.play(ctx, "a")
+    assert ctx.toasts, "a refused resume must say so rather than doing nothing"
+    assert ctx.toasts[-1] == ("no device", "warn")
+    assert one.play_offset == pytest.approx(0.0), "a refused play must not move the playhead"
+
+    # The looping, in-region path: "Play the loop".
+    ctx.toasts.clear()
+    muse_mode.set_region(ctx, 2.0, 6.0)
+    muse_mode.play_region(ctx)
+    assert ctx.toasts, "a refused loop play must say so rather than doing nothing"
+    assert ctx.toasts[-1] == ("no device", "warn")
+
+
 # --- one buffer for the audition and the export (M09) ------------------------
 
 
@@ -404,6 +443,41 @@ def test_the_finder_runs_on_a_task_and_its_answer_lands_in_on_task_done(ctx, dev
     assert (one.loop_start, one.loop_end) == (0.0, 2.0)
 
 
+def test_a_stale_find_loops_result_does_not_override_a_region_set_after_the_search_was_abandoned(
+    ctx, device
+):
+    """muse-03 (2026-09-11 audit): the FIND_PREFIX branch matched on the
+    player's job id alone, with no ``one.finding`` guard -- unlike the
+    LOAD_PREFIX branch a few lines below it, which checks ``audition_job``
+    before adopting. A search abandoned by switching to another take and back
+    rebuilds a *fresh* ``Player`` (``on_task_done``'s LOAD_PREFIX branch
+    always does), whose ``finding`` defaults back to ``False`` -- but it
+    carries the same job id the abandoned search's key names, so the search's
+    answer still matched and silently overwrote a region the user had since
+    restored by hand. Fails against the unfixed code, whose region here ends
+    up ``(0.0, 2.0)`` -- the finder's stale candidate -- rather than the
+    hand-set ``(5.0, 9.0)``.
+    """
+    one = _loaded(ctx, seconds=10.0, job="a")
+    # The search was requested and then abandoned -- switching away and back
+    # built a fresh Player for the same job id, which is why ``finding`` is
+    # false even though the outstanding task's key still names this job.
+    one.finding = False
+    muse_mode.set_region(ctx, 5.0, 9.0)  # restored/hand-set after the search
+
+    from warlock.studio.muse.loops import Candidate
+
+    done = type("_Done", (), {
+        "key": f"{muse_io.FIND_PREFIX}a", "result": [Candidate(0, RATE * 2, 0.1)],
+    })()
+    muse_mode.on_task_done(ctx, done)
+
+    assert (one.loop_start, one.loop_end) == (5.0, 9.0), (
+        "a search nobody is waiting on any more must not override a region "
+        "set since it was abandoned"
+    )
+
+
 def test_an_answer_for_a_different_take_is_ignored(ctx, device):
     """The player holds one take; a result that arrives after the user moved on
     describes samples that are no longer in memory."""
@@ -459,6 +533,45 @@ def test_a_player_survives_a_frame_where_the_cache_is_empty(ctx, device):
     ctx.cache.jobs = []
     muse_mode.sync(ctx)
     assert muse_mode.player(ctx) is not None
+
+
+class _CountingJobs(list):
+    """A jobs list that counts how many rows a scan actually visits.
+
+    Timing a per-frame cost is meaningless under contention (CLAUDE.md's own
+    rule for the ``perf`` lane); counting work is what stays true regardless
+    of the machine this test runs on.
+    """
+
+    def __init__(self, jobs) -> None:
+        super().__init__(jobs)
+        self.visited = 0
+
+    def __iter__(self):
+        for item in list.__iter__(self):
+            self.visited += 1
+            yield item
+
+
+def test_sync_does_not_allocate_a_set_of_every_job_every_frame(ctx, device):
+    """muse-06 (2026-09-11 audit): ``sync`` built a ``set`` of every job id in
+    ``ctx.cache.jobs`` on every frame just to test whether one id -- the
+    loaded player's -- was a member, so the cost scaled with the whole
+    library's size and was paid 60 times a second for as long as the tray was
+    drawn. The loaded job is first in the list here, so a short-circuiting
+    membership scan visits exactly one row; a ``set`` comprehension has no
+    short circuit and must still visit all four to build it. Fails against
+    the unfixed code, which reports ``visited == 4``.
+    """
+    one = _loaded(ctx, job="target")
+    jobs = _CountingJobs([{"id": "target"}, {"id": "b"}, {"id": "c"}, {"id": "d"}])
+    ctx.cache.jobs = jobs
+    muse_mode.sync(ctx)
+    assert muse_mode.player(ctx) is one, "the loaded take must not have been dropped"
+    assert jobs.visited == 1, (
+        "a membership check for the first row in the list must stop there, "
+        "not build a set of every row in the library"
+    )
 
 
 # --- export ------------------------------------------------------------------
@@ -613,6 +726,67 @@ def test_the_trays_disabled_reasons_are_pure_and_testable():
     assert "not finished yet" in not_ready and not_ready != ""
 
 
+def test_the_stems_already_split_reason_is_a_pure_testable_function():
+    """muse-05 (2026-09-11 audit): the Stems button's "already split" sentence
+    was still chosen inline in ``_actions``' ternary -- ``"this take has
+    already been split" if stems else _ready_reason(ready)`` -- the one
+    literal **muse-04**/**muse-07** missed when they pulled every other
+    disabled-control sentence in this mode into a pure function. Fails
+    against the unfixed code, which has no ``_stems_reason`` at all.
+    """
+    from warlock.studio.panes import muse_results
+
+    assert muse_results._stems_reason(True, False) == ""
+    not_ready = muse_results._stems_reason(False, False)
+    assert "not finished yet" in not_ready and not_ready != ""
+    split = muse_results._stems_reason(True, True)
+    assert "already been split" in split and split != ""
+    # Already-split wins even over "not ready" -- a status this file's own
+    # ``has_stems``/``ready`` combination cannot actually produce (a queued
+    # take has no stems), but the reason function should still be able to
+    # say which fact it is reporting rather than picking one arbitrarily.
+    assert muse_results._stems_reason(False, True) == "this take has already been split"
+
+    # **Revert-sensitive.** The four calls above only exercise
+    # ``_stems_reason``'s return value, and a re-inlined ternary at the
+    # ``_actions`` call site -- keeping ``_stems_reason`` defined but unused,
+    # which is muse-05's exact regression -- would still pass every one of
+    # them, since nothing above asks *where* the sentence is written. Parsed
+    # with ``ast`` and scoped to each function's own body so a coincidental
+    # second appearance of the phrase elsewhere in the module (a docstring, a
+    # comment) cannot pass this by accident: the sentence must live inside
+    # ``_stems_reason`` and nowhere inside ``_actions``.
+    import ast
+    import inspect
+    from pathlib import Path
+
+    source = Path(inspect.getfile(muse_results)).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    functions = {
+        node.name: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name in ("_stems_reason", "_actions")
+    }
+    assert set(functions) == {"_stems_reason", "_actions"}, "both functions must exist"
+
+    def _mentions(node: ast.AST) -> int:
+        return sum(
+            1
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Constant)
+            and isinstance(sub.value, str)
+            and "already been split" in sub.value
+        )
+
+    assert _mentions(functions["_stems_reason"]) == 1, (
+        "the sentence must be written exactly once, inside _stems_reason"
+    )
+    assert _mentions(functions["_actions"]) == 0, (
+        "_actions must ask _stems_reason for the sentence, not spell it again "
+        "inline at the call site"
+    )
+
+
 # --- the untouched marker's anchor (muse-02) ----------------------------------
 
 
@@ -734,3 +908,39 @@ def test_the_drawn_playhead_does_not_move_until_a_seek_drag_releases(ctx, monkey
         imgui.destroy_context(gl_ctx)
         if previous is not None:
             imgui.set_current_context(previous)
+
+
+# --- the file round trip (the 2026-09-11 audit, finding muse-04) -------------
+#
+# ``tests/muse/test_muse_io.py`` does not exist; this file already imports
+# ``muse_io`` directly at module scope and is the one other test file that
+# does, so the round-trip test lives here rather than starting a new module.
+
+
+def test_read_track_round_trips_a_full_scale_int16_sample_exactly(tmp_path):
+    """``read_track`` decodes with ``soundfile``, which normalises 16-bit PCM
+    by dividing by 32768 -- the *negative* peak, the "conventional reading"
+    ``sirens/wavout.py``'s own ``read_wav`` was hand-written to avoid, by its
+    own comment there, for exactly this reason. ``read_track`` then
+    re-quantised that float by multiplying by 32767 to match ``to_int16``'s
+    encode constant -- reproducing, in this soundfile-based reader, precisely
+    the mismatch ``wavout.py`` already worked around. A full-scale sample
+    written by ``muse_io._wav`` came back one LSB quiet on the next
+    ``read_track`` load, contradicting ``_wav``'s own docstring: "the pair is
+    exact, so a take exported unchanged comes back sample for sample."
+
+    ``-32768`` is left out of "full-scale" here on purpose: it is
+    ``to_int16``'s own documented exception (the one value it cannot
+    represent, by its own docstring), not this reader's mismatch, so testing
+    it would conflate two separate things.
+
+    Reproduced against the unfixed code: 32767 comes back as 32766.
+    """
+    pcm = np.array([[32767, -32767], [-1000, 1000], [0, 0]], dtype=np.int16)
+    path = tmp_path / "take.wav"
+    path.write_bytes(muse_io._wav(pcm, RATE))
+
+    loaded = muse_io.read_track(path)
+
+    assert loaded["rate"] == RATE
+    np.testing.assert_array_equal(loaded["pcm"], pcm)

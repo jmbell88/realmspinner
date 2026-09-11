@@ -3830,3 +3830,52 @@ async def test_a_cancel_after_publish_does_not_discard_the_finished_sheet_draft_
     )
     for artifact in artifacts:
         assert artifact.exists(), f"{artifact} was discarded after it was published"
+
+
+# --- the 2026-09-11 audit, finding service-03 ---------------------------------
+#
+# ``_process``'s exception handler had two branches: one for a cancel that had
+# already committed (log it -- it cannot be the cancel's doing) and one for no
+# cancel at all (log it, write the error). A cancel that is merely *pending* --
+# the event set, nothing committed yet, which is the ordinary in-flight-cancel
+# case -- fell through both and was dropped with no log.exception, no error log
+# and no trace anywhere, reading identically to a clean cancel.
+
+
+async def test_an_unrelated_exception_during_a_pending_cancel_is_still_logged(
+    worker, monkeypatch, caplog
+):
+    import logging
+
+    job_id = _make_image_job(worker)
+
+    async def boom(*_args, **_kwargs):
+        # The exact race the finding names: the cancel event lands in the same
+        # instant as an unrelated failure, before anything has committed. An
+        # "image" job's trellis stage never calls ``self._cancel.commit()`` at
+        # all, so this is the ordinary pending-cancel window, not a contrived
+        # one.
+        worker._cancel.event.set()
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(worker.trellis, "generate", boom)
+
+    with caplog.at_level(logging.ERROR, logger="warlock.queue"):
+        worker.start()
+        await _wait_until(lambda: worker.store.get(job_id)["status"] == "cancelled")
+        await worker.shutdown()
+
+    row = worker.store.get(job_id)
+    assert row["status"] == "cancelled"
+    # The claim under test: an exception that merely coincides with a pending
+    # cancel must still leave a trace. Not "cancelled" alone -- that is true
+    # whether or not this bug is fixed, since the row is still written as
+    # cancelled either way (the cancel commit discipline is unrelated to the
+    # logging discipline; only the log line is missing today).
+    tracebacks = [r for r in caplog.records if r.exc_info is not None]
+    assert tracebacks, "an unrelated exception during a pending cancel was not logged at all"
+    # And it has to be *this* exception's traceback, not merely some log line
+    # that happens to carry exc_info -- ``caplog.text`` renders exc_info into
+    # the actual "Traceback (most recent call last)" text.
+    assert "disk full" in caplog.text
+    assert "RuntimeError" in caplog.text

@@ -1131,51 +1131,97 @@ def _done_tileset_import(ctx: Any, state: Any, done: Any) -> None:
 
 
 def _done_convert(ctx: Any, state: Any, done: Any) -> None:
-    """Land Apply from the Convert popup, off the frame thread since 2026-09-08.
+    """Land Apply from the Convert popup: the frame-thread adopter.
 
     ``panes/inker_bridge.apply_convert`` used to run ``commit_convert`` or
     ``set_color_mode`` inline on the button press -- a whole-document
     ``_map_planes`` pass that ``inker/dither.py`` documents at ~43s for one
     Floyd-Steinberg plane, with the pygame frame loop blocked for the
-    duration (the 2026-09-08 audit, finding inker-01). It now submits the
-    same work under ``docmodes.start_save``'s lock, keyed by tab, and this is
-    the landing half: unlock the tab and, only on success, settle the state a
-    conversion invalidates and raise whichever toast the run collected.
+    duration (the 2026-09-08 audit, finding inker-01). It was then moved
+    behind ``docmodes.start_save``, but the submitted callable still called
+    ``Document.commit_convert``/``cancel_convert``/``convert_to_indexed``
+    directly -- so the mutation itself (``color_mode``, ``layer.pixels``,
+    ``layer.indices``, undo history) still ran on the ``TaskRunner`` worker
+    thread, racing ``inker_canvas.draw()``'s per-frame render of the same tab
+    for as long as the conversion ran (the 2026-09-11 audit, finding
+    inker-07).
+
+    So this is now where the mutation actually happens. ``apply_convert``
+    submitted a task that only *dithered* -- ``resolve_indexed_convert``,
+    ``resolve_grayscale_convert`` or ``resolve_palette_convert``, run against
+    plane copies nothing else could write to -- and handed the resolved
+    planes back through ``Done.result``. This unlocks the tab, then hands
+    them to ``Document.convert_to_indexed``/``convert_to_grayscale``/
+    ``convert_to_rgb``/``convert_to_palette``'s own ``_resolved`` parameter,
+    which applies them and pushes the one undo step the whole gesture earns,
+    on this thread -- the same thread every other heavy Inker door (inpaint
+    landing, sheet merge, tileset import) already lands its result on.
+
+    The toast text mirrors ``inker_palette_io.set_color_mode``'s three
+    mode-branch messages by hand (see ``apply_convert``'s docstring for why
+    the two are not one body), and the ``ValueError`` a refused conversion
+    raises (a tilemap layer, an over-long palette, a bad transparent index)
+    is caught here rather than on the task thread for the same reason
+    ``set_color_mode``'s is caught where it is called: raising it off the
+    frame thread would be exactly the kind of frame-thread state this fix
+    exists to stop touching from off it.
     """
     key = done.key
     tab = state.get(key.split(":", 1)[1]) if ":" in key else None
     if tab is not None:
         tab.saving = False
     result = done.result
-    if not isinstance(result, dict):
+    if not isinstance(result, dict) or tab is None:
         return
+    doc = tab.doc
+    target = result.get("target")
     if result.get("mode"):
-        # ``_convert_mode_run`` (panes/inker_bridge.py) computed this; the
-        # toast text mirrors ``inker_palette_io.set_color_mode``'s three
-        # messages by hand, for the reason given on ``_convert_mode_run``.
-        if not result.get("ok"):
-            error = result.get("error")
-            if error:
-                ctx.toast(error, "warn")
+        try:
+            if target == "indexed":
+                moved = doc.convert_to_indexed(
+                    result["colours"],
+                    result["method"],
+                    transparent=result["transparent"],
+                    _resolved=result["resolved"],
+                )
+            elif target == "grayscale":
+                moved = doc.convert_to_grayscale(_resolved=result["resolved"])
+            else:
+                moved = doc.convert_to_rgb()
+        except ValueError as exc:
+            label = inker_palette_io.COLOR_MODE_LABELS[target]
+            ctx.toast(f"Cannot switch to {label}: {exc}.", "warn")
+            return
+        if not moved:
             return
         ctx.cache.invalidate()
         state.palette_slot = 0
         state.palette_slots = []
         state.palette_usage = None
         state.fg_slot = None
-        color_mode = result.get("color_mode")
-        if color_mode == "indexed":
+        if target == "indexed":
             ctx.toast(
-                f"Indexed: {result.get('palette_len', 0)} colours, slot "
-                f"{result.get('transparent_index', 0)} is transparent.",
+                f"Indexed: {len(doc.palette or [])} colours, slot "
+                f"{doc.transparent_index} is transparent.",
                 "success",
             )
-        elif color_mode == "grayscale":
+        elif target == "grayscale":
             ctx.toast("Grayscale. Every write lands on a grey from here.", "success")
         else:
             ctx.toast("RGB colour. The pixels are unchanged.")
         return
-    if not result.get("ok"):
+    if target == "indexed":
+        moved = doc.convert_to_indexed(
+            result["colours"],
+            result["method"],
+            transparent=result["transparent"],
+            _resolved=result["resolved"],
+        )
+    else:
+        moved = doc.convert_to_palette(
+            result["colours"], result["method"], _resolved=result["resolved"]
+        )
+    if not moved:
         return
     ctx.cache.invalidate()
     state.palette_slot = 0

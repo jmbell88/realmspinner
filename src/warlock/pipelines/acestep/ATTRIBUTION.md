@@ -76,15 +76,15 @@ lyric-language stack are declared as the `music` extra in `pyproject.toml`.
 
 ## The modifications
 
-Five, each marked with a `WARLOCK n/5:` comment in the source. Every other
+Six, each marked with a `WARLOCK n/6:` comment in the source. Every other
 line is upstream's, byte for byte.
 
-**Not a sixth: the `\s` in `lyric_normalizer.py`.** `SPACE_PATTERN` is built
+**Not a seventh: the `\s` in `lyric_normalizer.py`.** `SPACE_PATTERN` is built
 from a non-raw string, so `\s` is an invalid escape and Python 3.12+ emits a
 `SyntaxWarning` on import; the line above it uses `r"..."` correctly, so it is
 plainly an upstream slip. It is left alone deliberately. The behaviour is
 identical — `"\s"` still evaluates to `\s` — the fault is upstream's to fix,
-and a modification made for a cosmetic warning buys a renumber of all five
+and a modification made for a cosmetic warning buys a renumber of all six
 markers and a line of re-vendoring diff in exchange for nothing. This is the
 same trade as pinning `torchaudio<2.9` rather than patching the vendored
 `torchaudio.save` call. If the warning ever needs silencing, silence it at the
@@ -164,12 +164,28 @@ import site rather than here.
    `tests/test_music_format.py` pins all of this without weights or a card,
    including a source scan asserting the marker count matches this document.
 
+6. **The extend reattach concatenates the right pad tensor on the right time
+   axis, and the left one on the left** (`pipeline_ace_step.py`,
+   `text2music_diffusion_process`'s post-loop `if is_extend:` block).
+   Upstream's `if to_left_pad_gt_latents is not None:` arm concatenated
+   `to_right_pad_gt_latents` — the *other* arm's variable, `None` unless both
+   a left- and a right-extend trim ran, otherwise raising `TypeError:
+   expected Tensor, not NoneType` — on `dim=0`, the batch axis, instead of
+   `to_left_pad_gt_latents` on `dim=-1`, the time axis its sibling arm above
+   already concatenates on. The 2026-09-11 audit, finding muse-02: whenever an
+   extend actually reaches the sampler's own `max_infer_fame_length` ceiling
+   (`int(240 * 44100 / 512 / 8)` frames, ≈239.907s once truncated — a few
+   hundredths of a second inside `_jobs_music.py`'s `MAX_EXTEND_DURATION`
+   door, which compares raw seconds), this either crashed the job or
+   corrupted the batch dimension of the returned latents, not the "silently
+   trims" behaviour `MAX_EXTEND_DURATION`'s own comment describes.
+
 ## Updating
 
 If the model is ever re-pinned to a newer commit:
 
 1. Re-clone at the new commit, copy the same file set over this directory, and
-   re-apply the five modifications.
+   re-apply the six modifications.
 2. Update the commit, date and SHA-256 table above.
 3. Run `uv run pytest -m gpu -k music` — the seeded golden-checksum parity
    check is what will catch an arithmetic change.

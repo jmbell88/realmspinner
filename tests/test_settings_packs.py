@@ -239,6 +239,36 @@ def test_a_deferred_quit_resumes_once_the_commit_phase_clears(monkeypatch):
     assert app._quit_deferred is False
 
 
+def test_a_deferred_quit_resumes_after_the_commit_phase_fails_not_only_after_it_succeeds():
+    """shell-07 (2026-09-11 audit): ``_resume_deferred_quit`` was called only
+    from ``_on_task_done``'s success-only "pack:" branch. ``_collect_tasks``
+    routes a *failed* task away from ``_on_task_done`` entirely and had no
+    "pack:" case of its own, so a quit deferred for a pack's commit phase was
+    never resumed if that install then failed (disk full, a locked file, a
+    network hiccup) -- despite the toast at ``_ask_quit`` promising "Quitting
+    once it finishes." Exercised through ``_collect_tasks`` itself, not
+    ``_on_task_done`` directly, because that routing is exactly the gap:
+    ``test_a_deferred_quit_resumes_once_the_commit_phase_clears`` above feeds
+    a hand-built ``ok=True`` Done straight to ``_on_task_done``, which cannot
+    catch a failure that never reaches it.
+    """
+    app, _submitted = _app()
+    app.app_ctx.tasks.poll = lambda: [
+        SimpleNamespace(
+            ok=False,
+            key="pack:rig",
+            error=RuntimeError("disk full"),
+            message="Could not install the rig pack.",
+            action=None,
+            tag=None,
+        )
+    ]
+    resumed: list[bool] = []
+    app._resume_deferred_quit = lambda: resumed.append(True)
+    app._collect_tasks()
+    assert resumed == [True]
+
+
 # --- muse-05: per-mode export prefixes never matched the export warning -----
 
 
@@ -264,3 +294,55 @@ def test_quit_summary_warns_while_a_muse_export_task_is_busy():
     ):
         app.app_ctx.tasks = SimpleNamespace(busy_keys={key})
         assert app._quit_summary() == "An export is still being written.", key
+
+
+# --- shell-13: greyed LoRA and model-row buttons say why ---------------------
+#
+# ``tests/test_settings_models.py`` does not exist and no other
+# ``test_settings_*.py`` file covers the Models category (``app_settings._models``,
+# ``_loras``), so the 2026-09-11 audit's shell-13 regression lands here instead
+# -- this file already tests ``app_settings`` busy/reason wording by source for
+# the neighbouring Packs category, which is the same shape of check.
+
+
+def test_lora_and_model_row_buttons_grey_with_a_reason_when_busy():
+    """Five controls greyed silently under a busy gate that every sibling
+    control in the same file explains: the per-LoRA Remove button already
+    carried ``reason="Another LoRA operation is in progress."``, but Import a
+    LoRA file, Train from a folder and Train from my library did not, and
+    neither the per-row model Delete nor Install button said anything about
+    the combined download/remove lock they share.
+
+    By source, not a drawn frame -- ``_loras``, ``_remove_control`` and
+    ``_actions`` all read live ``ctx``/``imgui`` state this file's own docstring
+    says drawing tests are not the place for. What is checked is not merely
+    that the word ``reason=`` appears in the function (true even for an
+    unrelated control) but that it appears in the same ``disabled_button(...)``
+    call as each named label.
+    """
+    import inspect
+
+    from warlock.studio.panes import app_settings
+
+    def _reasoned(source: str, label: str) -> bool:
+        after = source.split(label, 1)[1]
+        # The call's closing paren can be many lines and nested parens away
+        # (the model-row and library buttons' reasons are conditional
+        # expressions) -- a window comfortably longer than any one call in
+        # this file is bounded read rather than an unmatched paren scan.
+        window = after[:400]
+        return "reason=" in window
+
+    lora_source = inspect.getsource(app_settings._loras)
+    for label in (
+        '"Import a LoRA file..."',
+        '"Train from a folder..."',
+        '"Train from my library..."',
+    ):
+        assert _reasoned(lora_source, label), f"{label} has no reason= in _loras"
+
+    remove_source = inspect.getsource(app_settings._remove_control)
+    assert _reasoned(remove_source, "icons.TRASH"), "Delete has no reason= in _remove_control"
+
+    actions_source = inspect.getsource(app_settings._actions)
+    assert _reasoned(actions_source, "icons.DOWNLOAD"), "Install has no reason= in _actions"

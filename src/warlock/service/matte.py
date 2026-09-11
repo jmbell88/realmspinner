@@ -221,6 +221,33 @@ def prepare(svc: WarlockService, job_id: str) -> Prepared:
     a raising save leaves no fragment. ``merge_params`` rather than
     ``set_params`` because this runs off the frame thread while the worker may
     be writing other keys on the same row.
+
+    **The whole body runs under** ``svc.convert_lock(job_id, CUTOUT)``, the
+    same lock ``poses.py``/``rig.py`` take around their own staged writes in
+    this segment. ``ensure_prepared`` has three independent doors --
+    ``matte_preview.py``'s modal, ``inker_open.py``'s Inker hand-off, and
+    ``_jobs_resubmit.py``'s promote/rerun -- and nothing stopped two of them
+    from racing this function for the same job_id: the staging temp was a
+    *fixed* name (``dest.with_name(f".{dest.name}.tmp")``, unlike
+    ``files._staged_write``'s tokenized one), so two concurrent callers wrote
+    and unlinked the same path under each other, and a reproduction against
+    the real service measured a Windows ``PermissionError`` (WinError 5/32)
+    on ``os.replace`` from both threads with ``cutout.png`` left MISSING once
+    both finished (service-02, 2026-09-11 audit).
+
+    A lock was chosen over tokenizing the temp name (the other pattern
+    available here) because a token only fixes the filesystem collision --
+    two callers would still both cut, both write their *own* complete file,
+    and both ``merge_params`` a record, with whichever ``os.replace`` lands
+    last deciding which bytes ``cutout.png`` ends up holding and which
+    caller's record describes them. That is a second caller *observing* the
+    first's cut only by accident (the flood-fill/BiRefNet cut of one
+    ``input.png`` happens to be deterministic today). The lock instead makes
+    a second caller observe the first's completed write and act after it --
+    serialized, not merely non-colliding -- which is what
+    ``ensure_prepared``'s callers actually need: a promote/rerun that lands
+    behind an in-flight preview must see *a* finished cutout, not a torn race
+    between two of them.
     """
     from PIL import Image
 
@@ -229,35 +256,37 @@ def prepare(svc: WarlockService, job_id: str) -> Prepared:
     src = _reference_path(svc, job_id)
     svc.require_job(job_id)
 
-    # Read before the cut, so a file that changes *during* it fingerprints as
-    # the version we did not use and the record expires immediately. The other
-    # order would stamp the new bytes onto the old cutout, permanently.
-    src_fingerprint = file_fingerprint(src)
-    rgba, source, _approved = _cut(svc, src)
-    coverage = float(rgba[:, :, 3].mean()) / 255.0
+    with svc.convert_lock(job_id, CUTOUT):
+        # Read before the cut, so a file that changes *during* it fingerprints
+        # as the version we did not use and the record expires immediately.
+        # The other order would stamp the new bytes onto the old cutout,
+        # permanently.
+        src_fingerprint = file_fingerprint(src)
+        rgba, source, _approved = _cut(svc, src)
+        coverage = float(rgba[:, :, 3].mean()) / 255.0
 
-    image = Image.fromarray(rgba, "RGBA")
-    dest = svc.job_dir(job_id) / CUTOUT
-    tmp = dest.with_name(f".{dest.name}.tmp")
-    try:
-        image.save(tmp, format="PNG")
-        os.replace(tmp, dest)
-    finally:
-        with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
+        image = Image.fromarray(rgba, "RGBA")
+        dest = svc.job_dir(job_id) / CUTOUT
+        tmp = dest.with_name(f".{dest.name}.tmp")
+        try:
+            image.save(tmp, format="PNG")
+            os.replace(tmp, dest)
+        finally:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
 
-    out = Prepared(
-        job_id=job_id,
-        path=dest,
-        source=source,
-        src_fingerprint=src_fingerprint,
-        fingerprint=file_fingerprint(dest),
-        coverage=coverage,
-        report=reference.measure(image).as_dict(),
-    )
-    # Last, and that ordering is the completion gate -- see CUTOUT_PARAM.
-    svc.store.merge_params(job_id, {CUTOUT_PARAM: out.as_params()})
-    return out
+        out = Prepared(
+            job_id=job_id,
+            path=dest,
+            source=source,
+            src_fingerprint=src_fingerprint,
+            fingerprint=file_fingerprint(dest),
+            coverage=coverage,
+            report=reference.measure(image).as_dict(),
+        )
+        # Last, and that ordering is the completion gate -- see CUTOUT_PARAM.
+        svc.store.merge_params(job_id, {CUTOUT_PARAM: out.as_params()})
+        return out
 
 
 def prepared(svc: WarlockService, job_id: str) -> Prepared | None:

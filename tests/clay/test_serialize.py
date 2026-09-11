@@ -378,6 +378,27 @@ def test_a_transform_that_is_not_numbers_is_refused() -> None:
         ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
 
 
+@pytest.mark.parametrize("bad", [[1, 2, 3], "ab", 5, [["k", "v"]]])
+def test_a_wblk_objects_non_dict_params_field_is_refused_by_name_not_a_bare_exception(bad) -> None:
+    """The 2026-09-11 audit, finding clay-07: an object entry's ``params``
+    field was passed straight to ``dict(...)`` with no type check, unlike
+    every other field on this same entry (the uid, each transform vector,
+    each material's own fields). A hand-edited or corrupted archive with a
+    non-mapping ``params`` -- a list, a string, a bare number, or even a
+    list-of-pairs that ``dict()`` would otherwise happily accept -- used to
+    either raise a bare, un-messaged ``TypeError`` or (for the list-of-pairs
+    case) load silently wrong rather than give this reader's own named
+    refusal.
+    """
+
+    def mangle(scene: dict) -> None:
+        for entry in scene["objects"]:
+            entry["params"] = bad
+
+    with pytest.raises(ValueError, match="params"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), mangle))
+
+
 def test_a_wblk_whose_objects_field_is_not_a_list_is_refused_with_a_value_error() -> None:
     """The 2026-09-08 audit's clay-05: ``scene["objects"]`` present but not a
     list used to reach ``len(declared)`` and raise a bare ``TypeError``,

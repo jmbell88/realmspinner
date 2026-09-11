@@ -221,3 +221,64 @@ def test_the_prompt_field_list_is_empty():
     from warlock import guidance
 
     assert guidance._PROMPT_FIELDS == ()
+
+
+def test_author_humanoid_report_uses_the_computed_species_count_not_a_literal():
+    """pipelines-04 (2026-09-11 audit): author_humanoid.py's summary line
+    hardcoded "for the same twelve characters" instead of the dynamic
+    ``count`` variable its three sibling scripts (author_amorphous.py,
+    author_quadruped.py, author_winged.py) already use for the identical
+    sentence. The species count is silently correct today only by
+    coincidence (12 humanoid species); a literal that drifts from its source
+    of truth is a named defect class here. Compared against the siblings'
+    own source text rather than a hardcoded expectation, so this only ever
+    tests that the four scripts agree, not a copy of their wording.
+    """
+    import re
+    from pathlib import Path
+
+    scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+    sentence = re.compile(r'f"for the same .*?characters\."')
+
+    def summary_line(name: str) -> str:
+        text = (scripts_dir / name).read_text(encoding="utf-8")
+        match = sentence.search(text)
+        assert match, f"{name}: could not find the summary sentence to check"
+        return match.group(0)
+
+    siblings = {
+        summary_line("author_amorphous.py"),
+        summary_line("author_quadruped.py"),
+        summary_line("author_winged.py"),
+    }
+    assert len(siblings) == 1, "the three siblings disagree with each other already"
+    assert summary_line("author_humanoid.py") == next(iter(siblings))
+
+
+def test_max_prompt_docstring_does_not_claim_truncation_the_encoder_no_longer_does():
+    """pipelines-07 (2026-09-11 audit): MAX_PROMPT's comment justified the
+    1000-character refusal with "the prompt ends up in an SDXL text encoder
+    that truncates far earlier anyway" -- but ``prompt.chunk()`` (landed
+    2026-08-02, one day before that comment was written 2026-08-03) removed
+    exactly that truncation for the SDXL family, which docs/INVARIANTS.md now
+    states explicitly: "The composed SDXL prompt is chunk-encoded, not
+    truncated." A reader tuning MAX_PROMPT should not reason from a premise
+    the code no longer has. Read from source, not a second copy of the
+    wording, so this only ever tests what is actually written there.
+    """
+    import inspect
+
+    from warlock.service import validation
+
+    lines = inspect.getsource(validation).splitlines()
+    target = next(
+        i for i, line in enumerate(lines) if line.strip().startswith("MAX_PROMPT =")
+    )
+    comment_lines = []
+    i = target - 1
+    while i >= 0 and lines[i].strip().startswith("#"):
+        comment_lines.insert(0, lines[i])
+        i -= 1
+    comment = "\n".join(comment_lines)
+    assert comment, "MAX_PROMPT has no comment above it to check"
+    assert "truncat" not in comment.lower(), comment

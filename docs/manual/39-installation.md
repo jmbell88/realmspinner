@@ -32,7 +32,7 @@ different capability:
 | `studio` | moderngl, pygame-ce, imgui-bundle, zstandard | The window itself. Without it only `warlock doctor` and `warlock sweep` run. |
 | `text2image` | torch cu128, torchvision, diffusers, transformers, accelerate, peft, sentencepiece, protobuf, and BiRefNet's own einops/kornia/timm | Text-to-3D. Image-to-3D from an upload still works. |
 | `rig` | bpy | Rigging, posing and sprite sheets. |
-| `music` | torch cu128, diffusers, transformers, accelerate, peft (ACE-Step's own stack, pinned separately from `text2image`) | Muse's text-to-music generation and its Hybrid Demucs stem separation. |
+| `music` | ACE-Step's own stack, pinned separately from `text2image`: torch cu128, torchaudio (pinned `<2.9`), diffusers, transformers, accelerate, peft, librosa, loguru, spacy, and the lyric-language stack (py3langid, pypinyin, num2words, hangul-romanize, cutlet, fugashi). `pyproject.toml`'s `[project.optional-dependencies].music` is the list that decides, and it carries a comment for every pin. | Muse's text-to-music generation and its Hybrid Demucs stem separation. |
 
 `text2image`'s tail is longer than it looks because two of the things it pulls in are not declared
 by anything else. BiRefNet — the learned matting model — is loaded with `trust_remote_code`, so the
@@ -365,9 +365,11 @@ uv run warlock          # opens the desktop app
 `doctor` prints one row per check, and the split between **fatal** and non-fatal is the whole point
 of reading it:
 
-- **`[FATAL]`** — this install is broken and nothing you can do in the app will fix it:
-  `trellis-server.exe` (which the installer ships) and a VRAM budget too small for one
-  reconstruction. A fatal row is the only thing that makes `warlock doctor` exit non-zero.
+- **`[FATAL]`** — this install is broken and nothing you can do in the app will fix it. One row can
+  say this: a VRAM budget too small for a lone reconstruction, because there is nothing to degrade
+  to. A fatal row is the only thing that makes `warlock doctor` exit non-zero. A missing
+  `trellis-server.exe` is **not** fatal — the engine is a download now, so its absence is a setup
+  row like any other weight.
 - **`[SETUP]`** — you have not downloaded this yet, which is the ordinary state of a fresh
   machine: the TRELLIS GGUF weights, every image model, style LoRA, IP-Adapter, ControlNet, metric,
   pose, matting, music and stem-separation row. Each is reported individually with the command that

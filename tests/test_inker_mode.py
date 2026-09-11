@@ -2343,3 +2343,178 @@ def test_apply_convert_runs_the_whole_document_dither_off_the_frame_thread():
     # Still every one of the ramp's sixteen distinct greys, not the four the
     # popup was asking for -- proof the conversion has not actually run.
     assert len(np.unique(tab.doc.composite[..., 0])) > 4
+
+
+def test_a_document_being_converted_off_thread_is_never_rendered_concurrently():
+    """The 2026-09-11 audit, finding inker-07: ``apply_convert``'s submitted
+    ``run()`` used to call ``Document.commit_convert``/``cancel_convert``/
+    ``convert_to_indexed`` directly -- flipping ``color_mode``, rewriting
+    ``layer.pixels`` and pushing undo history on the task thread -- while
+    ``inker_canvas.draw()`` kept rendering the same tab every frame with no
+    ``tab.busy`` gate anywhere in the render path. The previous test in this
+    file (``test_apply_convert_runs_the_whole_document_dither_off_the_frame_
+    thread``) only proves the work is handed to ``ctx.submit``; a ``ctx`` that
+    never runs the job would pass it even with the mutation left inline in
+    ``run``, as an earlier fixer's warning about that shape of test noted.
+
+    This one actually runs the submitted callable -- to completion, on a
+    real, joined worker thread -- and inspects the document at the one moment
+    that matters: immediately after the task thread finishes and *before*
+    the frame-thread lander (``_done_convert``, reached through
+    ``inker_mode.on_task_done``) has run at all. On unfixed code the
+    assertions right there already fail, because ``commit_convert`` mutated
+    ``color_mode``, ``rev``, ``history.head`` and ``layer.pixels`` straight
+    inside the joined thread. Only once ``on_task_done`` is called explicitly,
+    standing in for the frame thread's own poll, may any of those move --
+    exactly once, as one undoable step.
+    """
+    import threading
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from warlock.studio.panes import inker_bridge
+
+    tab = _tab(size=(16, 4))
+    ramp = np.linspace(0, 255, 16).astype("uint8")
+    tab.doc.stack.active.pixels[:, :, :3] = ramp[None, :, None]
+    tab.doc.stack.active.pixels[:, :, 3] = 255
+    tab.doc.invalidate_all()
+    state = _state(tab)
+
+    def _snapshot() -> dict:
+        return {
+            "mode": tab.doc.color_mode,
+            "rev": tab.doc.rev,
+            "head": tab.doc.history.head,
+            "pixels": tab.doc.stack.active.pixels.copy(),
+        }
+
+    class _JoinedCtx:
+        """``submit`` runs ``fn`` to completion on a real, joined thread
+        before returning, snapshotting the document on either side of the
+        join -- the frame thread's own wait on a future, made observable.
+        """
+
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(inker=state)
+            self.done: SimpleNamespace | None = None
+            self.before: dict | None = None
+            self.after_task: dict | None = None
+            self.cache = SimpleNamespace(invalidate=lambda: None)
+
+        def toast(self, *_a, **_k) -> None:
+            pass
+
+        def submit(self, key, fn, *args, **kwargs) -> bool:
+            self.before = _snapshot()
+            box: dict[str, object] = {}
+
+            def worker() -> None:
+                box["result"] = fn(*args, **kwargs)
+
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join()
+            self.after_task = _snapshot()
+            self.done = SimpleNamespace(key=key, result=box["result"])
+            return True
+
+    ctx = _JoinedCtx()
+    assert tab.doc.begin_convert()
+    state.convert_uid = tab.uid
+    state.convert_mode = ""
+    state.convert_method = "nearest"
+    state.convert_max = 4
+    state.convert_table = tab.doc.built_palette(4)
+
+    assert inker_bridge.apply_convert(ctx, tab)
+    assert ctx.done is not None, "the submitted callable must actually have run"
+
+    # The worker thread has already finished (joined inside ``submit``), but
+    # nothing has landed: the document must read exactly as it did the
+    # instant before the task started.
+    assert ctx.after_task["mode"] == ctx.before["mode"]
+    assert ctx.after_task["rev"] == ctx.before["rev"]
+    assert ctx.after_task["head"] == ctx.before["head"]
+    assert np.array_equal(ctx.after_task["pixels"], ctx.before["pixels"])
+
+    # Only the frame-thread lander applies the resolved planes, as one step.
+    inker_mode.on_task_done(ctx, ctx.done)
+
+    assert tab.doc.color_mode == ctx.before["mode"]
+    assert tab.doc.history.head != ctx.before["head"]
+    assert not np.array_equal(tab.doc.stack.active.pixels, ctx.before["pixels"])
+    assert tab.doc.undo()
+    assert np.array_equal(tab.doc.stack.active.pixels, ctx.before["pixels"])
+
+
+def test_an_off_thread_mode_conversion_lands_as_one_undo_step_and_undo_restores_the_mode():
+    """The other half of the same split (finding inker-07): entering indexed
+    mode through the Convert popup flips ``Document.color_mode`` -- a
+    ``ColorStateEdit``, not the plain pixel patch the palette-snap path above
+    pushes -- and that has to land as *one* gesture, on the frame thread, the
+    same as every other conversion this fix touches. Runs ``apply_convert``'s
+    submitted job inline (``tests/inker/test_convert_to_mode.py``'s own
+    ``_Ctx`` shape) rather than on a joined thread, because the threading
+    hazard itself is already covered above; this one is about undo depth and
+    what a single Ctrl+Z gives back.
+    """
+    from types import SimpleNamespace
+    from typing import Any
+
+    import numpy as np
+
+    from warlock.studio.panes import inker_bridge
+    from warlock.studio.tasks import Done
+
+    class _InlineCtx:
+        def __init__(self) -> None:
+            self.state = SimpleNamespace(inker=state)
+            self.toasts: list[tuple[str, str]] = []
+            self.cache = SimpleNamespace(invalidate=lambda: None)
+
+        def toast(self, text: str, level: str = "info", *_: Any) -> None:
+            self.toasts.append((text, level))
+
+        def submit(self, key: str, fn, *args: Any, **kwargs: Any) -> bool:
+            done = Done(key=key, result=fn(*args, **kwargs))
+            inker_mode.on_task_done(self, done)
+            return True
+
+    tab = _tab(size=(16, 4))
+    ramp = np.linspace(0, 255, 16).astype("uint8")
+    tab.doc.stack.active.pixels[:, :, :3] = ramp[None, :, None]
+    tab.doc.stack.active.pixels[:, :, 3] = 255
+    tab.doc.invalidate_all()
+    state = _state(tab)
+    ctx = _InlineCtx()
+
+    before_mode = tab.doc.color_mode
+    before_depth = len(tab.doc.history)
+    before_pixels = tab.doc.stack.active.pixels.copy()
+
+    assert tab.doc.begin_convert()
+    state.convert_uid = tab.uid
+    state.convert_mode = "indexed"
+    state.convert_method = "nearest"
+    state.convert_max = 4
+    state.convert_table = tab.doc.built_palette(4)
+
+    assert inker_bridge.apply_convert(ctx, tab)
+
+    assert tab.doc.is_indexed
+    assert tab.doc.color_mode != before_mode
+    # One gesture, one step -- not one for the state and a second for the
+    # planes: ``_color_step`` bundles ``ColorStateEdit`` and the replay into
+    # one ``CompoundEdit``, which is one entry on the done stack regardless
+    # of how many ``Edit`` objects it holds (``UndoStack.head`` is a serial,
+    # not a depth, and jumps by more than one per push for exactly that
+    # reason -- ``len(history)`` is the actual step count).
+    assert len(tab.doc.history) == before_depth + 1
+
+    assert tab.doc.undo()
+
+    assert tab.doc.color_mode == before_mode
+    assert not tab.doc.is_indexed
+    assert np.array_equal(tab.doc.stack.active.pixels, before_pixels)

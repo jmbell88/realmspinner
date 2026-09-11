@@ -9,8 +9,10 @@ dirty-clears-only-on-landing rule lives on.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -38,6 +40,10 @@ class FakeCtx:
         self.state = SimpleNamespace(poser=None)
         self.submitted: list[str] = []
         self.results: dict = {}
+        # ``TaskRunner.submit``'s own ``tag``, by key -- real ``submit`` pulls
+        # it off the kwargs before calling ``fn``; this must too; see
+        # ``sync_asset``/``sync_preview`` (create-04, the 2026-09-11 audit).
+        self.tags: dict = {}
         self.accept = accept
         self.busy_keys: set[str] = set()
         self.confirms = _Asks()
@@ -53,8 +59,9 @@ class FakeCtx:
         # a poll -- no cadence to fake, only the state it produces.
         self.jobs: dict[str, dict] = {}
 
-    def submit(self, key, fn, *args, **kwargs) -> bool:
+    def submit(self, key, fn, *args, tag=None, **kwargs) -> bool:
         self.submitted.append(key)
+        self.tags[key] = tag
         if not self.accept:
             return False
         self.results[key] = fn(*args, **kwargs)
@@ -71,6 +78,49 @@ class FakeCtx:
 
     def job(self, job_id):
         return self.jobs.get(job_id)
+
+
+#: ``test_frame_thread_doors.py``'s own worker thread name -- reused here so a
+#: failure reads the same way theirs does.
+WORKER = "warlock-task-test"
+
+
+class _ThreadedCtx(FakeCtx):
+    """``FakeCtx.submit``, but on a real worker thread, joined.
+
+    ``FakeCtx.submit`` runs a task inline, on the calling thread -- fine for
+    most of this file, but useless for proving create-04 (the 2026-09-11
+    audit): a test whose submit already runs on the caller could not tell
+    "the decode ran here" from "the decode ran where it should have". This is
+    ``test_frame_thread_doors.py``'s own ``_Threaded``, reused by shape rather
+    than by import since that file is owned by a different fixer this pass.
+    """
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(svc=None)
+        self._root = root
+
+    def job_dir(self, job_id):
+        return self._root / job_id
+
+    def submit(self, key, fn, *args, tag=None, **kwargs) -> bool:
+        self.submitted.append(key)
+        self.tags[key] = tag
+        if not self.accept:
+            return False
+        box: dict = {}
+
+        def go() -> None:
+            box["result"] = fn(*args, **kwargs)
+            box["thread"] = threading.current_thread().name
+
+        worker = threading.Thread(target=go, name=WORKER)
+        worker.start()
+        worker.join()
+        self.results[key] = box["result"]
+        self.threads = getattr(self, "threads", [])
+        self.threads.append(box["thread"])
+        return True
 
 
 class FakeViewer:
@@ -97,6 +147,10 @@ class FakeViewer:
         # around it, not the skin check itself.
         self.skinned = True
         self.pose_job_id: str | None = None
+        # The real Viewer's parse/adopt tracking (create-04, the 2026-09-11
+        # audit): the path a dispatched-but-not-yet-landed parse is for, or
+        # None. See ``parse_model``/``adopt_model`` below.
+        self.pending: Path | None = None
         if model is not None:
             self.editor.bind(model, bones)
             self.pose_mode = True
@@ -104,6 +158,22 @@ class FakeViewer:
     def load_model(self, path) -> None:
         self.loaded.append(Path(path))
         self.path = Path(path)
+
+    def parse_model(self, path) -> Any:
+        """The task-thread half, real ``Viewer.parse_model``'s contract: pure,
+        touches nothing on ``self``. Returns the path so ``adopt_model`` below
+        has something to tell apart from a stray ``None``."""
+        return ("parsed", Path(path))
+
+    def adopt_model(self, parsed, path) -> None:
+        """The frame-thread half: the ``load_model`` side effects, plus the
+        pose-mode reset the real ``Viewer.adopt_model`` always does -- whatever
+        was bound before this landed is not this."""
+        self.pose_mode = False
+        self.pose_job_id = None
+        self.loaded.append(Path(path))
+        self.path = Path(path)
+        self.pending = None
 
     def enter_pose_authoring(self, bones, mirror_pairs, token) -> bool:
         self.editor.mirror_pairs = [list(p) for p in mirror_pairs]
@@ -137,6 +207,11 @@ class FakeViewer:
         self.path = None
         self.editor.clear()
         self.pose_mode = False
+        # Real ``Viewer.clear`` resets this too (see ``adopt_model``'s own
+        # docstring): a parse dispatched for whatever this viewer was showing
+        # is not wanted once it has been cleared -- create-04's freshness
+        # check depends on this.
+        self.pending = None
 
     def set_pose(self, bones, *, pose_id=None, dirty=True) -> None:
         self.editor.apply(bones, pose_id=pose_id, dirty=dirty)
@@ -365,6 +440,46 @@ def _rigged_job(svc, **meta):
     return job_id
 
 
+def test_poser_does_not_decode_the_rig_on_the_frame_thread(tmp_path):
+    """create-04 (the 2026-09-11 audit). ``sync_asset``/``sync_preview`` run
+    from ``_poser_viewport``'s draw on *every* frame Poser is open, and used
+    to call ``viewer.load_model`` -- a full glTF parse, texture decode and GPU
+    upload -- directly, on whatever thread called them. That is fine for the
+    genuinely click-driven case (``open_asset``'s own proceed, which still
+    binds synchronously -- see the test above and below this one) but not for
+    the *automatic* one: a queued re-rig landing (``_land_rerig``) while the
+    user is doing nothing in particular clears the viewer and leaves the next
+    frame's ``sync_asset`` to rebind it, with no click behind that frame at
+    all.
+
+    Driven the way ``tests/test_frame_thread_doors.py`` drives the other ten
+    doors of this same class: a ``ctx`` whose ``submit`` runs the task on a
+    real, joined worker thread, so a regression that moves the decode back
+    onto the caller shows up as the calling thread's own name rather than
+    ``WORKER``.
+    """
+    ctx = _ThreadedCtx(tmp_path)
+    viewer = ctx.poser_viewer = FakeViewer()
+    state = poser_mode.ensure(ctx)
+    # No open_asset door here on purpose: this asset is already "open" --
+    # the state a re-rig landing while idle finds -- with no click in this
+    # test to hide the wait behind. Only the automatic path is under test.
+    state.job_id = "abcdef012345"
+    state.asset_rig = {}
+
+    assert poser_mode.sync_asset(ctx, viewer) is False, "must not block this call"
+    assert ctx.threads == [WORKER], "the parse must run off the frame thread"
+    assert viewer.loaded == [], "no synchronous load_model call from this thread"
+    assert viewer.pose_mode is False, "not adopted yet -- on_task_done's job"
+
+    key = poser_mode.ASSET_LOAD_KEY
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=key, result=ctx.results[key], tag=ctx.tags[key])
+    )
+    assert viewer.pose_mode is True and viewer.pose_job_id == "abcdef012345"
+    assert viewer.loaded == [ctx.job_dir(state.job_id) / "rig.glb"]
+
+
 def test_open_asset_binds_via_enter_pose_mode_not_authoring(svc):
     """Opening a rigged asset must show its real mesh -- ``enter_pose_mode``,
     the skin-checked entry point -- never fall back to the meshless armature's
@@ -409,7 +524,15 @@ def test_sync_asset_reports_a_skeletonless_glb_without_retrying_every_frame(svc)
 
     poser_mode.retry_asset(ctx)
     viewer.skinned = True
-    assert poser_mode.sync_asset(ctx, viewer) is True
+    # retry_asset only clears the flag: the actual retry runs through
+    # sync_asset like every other automatic bind (create-04, the 2026-09-11
+    # audit) -- dispatched here, adopted once ``on_task_done`` lands it.
+    assert poser_mode.sync_asset(ctx, viewer) is False
+    key = poser_mode.ASSET_LOAD_KEY
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=key, result=ctx.results[key], tag=ctx.tags[key])
+    )
+    assert viewer.pose_mode is True
 
 
 def test_a_dirty_editor_guards_opening_an_asset(svc):
@@ -559,7 +682,7 @@ def test_a_refused_rerig_submit_is_toasted_not_silent(svc, monkeypatch):
     poser_mode.rerig(ctx, "humanoid")
     assert any("re-rig" in msg.lower() for msg, _level in ctx.toasts)
     # Nothing to watch for: the submit never landed.
-    assert poser_mode.ensure(ctx).rerig_job_id == ""
+    assert poser_mode.ensure(ctx).rerig_jobs == {}
 
 
 def test_rerig_is_guarded_by_unsaved_pose_edits(svc, monkeypatch):
@@ -589,21 +712,30 @@ def test_pump_rerig_rebinds_once_the_queued_job_lands(svc, monkeypatch):
     result = ctx.results[key]
     poser_mode.on_task_done(ctx, SimpleNamespace(key=key, result=result))
     state = poser_mode.ensure(ctx)
-    assert state.rerig_job_id == result["id"]
+    assert state.rerig_jobs[job_id] == result["id"]
 
     # The queue has not gotten to it yet: nothing rebinds.
     ctx.jobs[result["id"]] = {"id": result["id"], "status": "queued"}
     poser_mode.pump_rerig(ctx)
     assert viewer.pose_mode is True, "still the old session until the job lands"
-    assert state.rerig_job_id == result["id"]
+    assert state.rerig_jobs[job_id] == result["id"]
 
     ctx.jobs[result["id"]] = {"id": result["id"], "status": "done"}
     poser_mode.pump_rerig(ctx)
     assert viewer.pose_mode is False, "sync_asset's same-job short-circuit is defeated"
-    assert state.rerig_job_id == ""
+    assert job_id not in state.rerig_jobs
 
-    # And genuinely rebindable, not just knocked out of pose mode.
-    assert poser_mode.sync_asset(ctx, viewer) is True
+    # And genuinely rebindable, not just knocked out of pose mode -- through
+    # the parse/adopt split now, since this landing has no click behind it
+    # (create-04, the 2026-09-11 audit): dispatched here, adopted once
+    # ``on_task_done`` lands it, never blocking this call itself.
+    assert poser_mode.sync_asset(ctx, viewer) is False
+    load_key = poser_mode.ASSET_LOAD_KEY
+    poser_mode.on_task_done(
+        ctx,
+        SimpleNamespace(key=load_key, result=ctx.results[load_key], tag=ctx.tags[load_key]),
+    )
+    assert viewer.pose_mode is True
     assert len(viewer.loaded) == 2, "sync_asset reloads rig.glb a second time"
 
 
@@ -631,7 +763,7 @@ def test_land_rerig_asks_before_discarding_a_pose_edited_while_the_job_was_queue
 
     assert viewer.pose_mode is True, "must not discard the unsaved edit with no confirm"
     assert len(ctx.confirms.asked) == 1
-    assert state.rerig_job_id == "", "the landed job is not re-polled while the confirm waits"
+    assert job_id not in state.rerig_jobs, "the landed job is not re-polled while the confirm waits"
 
     ctx.confirms.asked[0].on_confirm()
     assert viewer.pose_mode is False, "confirming goes ahead and lands the re-rig"
@@ -646,8 +778,54 @@ def test_pump_rerig_ignores_a_failed_job(svc, monkeypatch):
 
     ctx.jobs[result["id"]] = {"id": result["id"], "status": "error"}
     poser_mode.pump_rerig(ctx)
-    assert poser_mode.ensure(ctx).rerig_job_id == ""
+    assert poser_mode.ensure(ctx).rerig_jobs == {}
     assert viewer.pose_mode is True, "the old session survives a failed re-rig"
+
+
+def test_rerigging_a_second_asset_does_not_drop_tracking_of_the_first(svc, monkeypatch):
+    """poser-05, the 2026-09-11 audit: rerig_job_id/rerig_source_job were a
+    single pair of fields, so re-rigging asset A and then, before that job
+    landed, opening a different rigged asset B and re-rigging it too silently
+    overwrote A's tracking with B's, dropping pump_rerig's ability to ever
+    notice A's job finish -- exactly the ``asset_poses_loading`` hole the
+    2026-09-08 audit's poser-04 fixed by scoping per job id, never applied
+    here."""
+    ctx, viewer, job_a = _opened_asset(svc, monkeypatch)
+    poser_mode.rerig(ctx, "humanoid")
+    key_a = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_a}"
+    result_a = ctx.results[key_a]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key_a, result=result_a))
+    state = poser_mode.ensure(ctx)
+    assert state.rerig_jobs[job_a] == result_a["id"]
+
+    # Before A's job lands, the user opens a second rigged asset and re-rigs
+    # it too, in the same session.
+    job_b = _rigged_job(svc)
+    poser_mode.open_asset(ctx, {"id": job_b, "name": "Prop 2"})
+    poser_mode.sync_asset(ctx, viewer)
+    poser_mode.rerig(ctx, "humanoid")
+    key_b = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_b}"
+    result_b = ctx.results[key_b]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=key_b, result=result_b))
+
+    # Both re-rigs are still tracked -- landing B's must not have clobbered A's.
+    assert state.rerig_jobs[job_a] == result_a["id"], "A's tracking must survive B's own re-rig"
+    assert state.rerig_jobs[job_b] == result_b["id"]
+
+    # A's queue job lands while B is the asset actually open: it must be
+    # noticed and retired, but never rebind the live, unrelated session.
+    ctx.jobs[result_a["id"]] = {"id": result_a["id"], "status": "done"}
+    cleared_before = viewer.cleared
+    poser_mode.pump_rerig(ctx)
+    assert job_a not in state.rerig_jobs
+    assert job_b in state.rerig_jobs, "B's own tracking must survive A landing"
+    assert viewer.cleared == cleared_before, "A's landing must not touch B's live session"
+
+    # And B's own job landing still rebinds normally.
+    ctx.jobs[result_b["id"]] = {"id": result_b["id"], "status": "done"}
+    poser_mode.pump_rerig(ctx)
+    assert job_b not in state.rerig_jobs
+    assert viewer.pose_mode is False, "B's own landing still defeats the same-job short-circuit"
 
 
 def test_pump_rerig_does_nothing_once_the_session_has_moved_on(svc, monkeypatch):
@@ -767,6 +945,54 @@ def test_apply_preset_resets_the_root(svc):
     viewer.editor.set_root_translation([0.0, 0.0, 0.5], dirty=False)
     poser_mode.apply_preset(ctx, {"name": "idle", "bones": {"spine": [0, 0, 0, 1]}})
     assert viewer.editor.root_translation() == [0.0, 0.0, 0.0]
+
+
+def test_save_pose_to_asset_round_trips_the_root_offset(svc):
+    """poser-02, the 2026-09-11 audit: save_pose_to_asset never put
+    root_translation in the payload it submitted, and apply_asset_pose never
+    restored one -- unlike the shared library's own save/apply pair
+    (_payload/apply_pose), which both do. A root offset authored with Move
+    root and saved directly onto an asset (rather than into the shared
+    library) silently vanished, with no error and nothing on screen to say
+    so. Round-tripped through the real service door (svc_rig.save_pose),
+    not just asserted present in the payload dict -- that door used to drop
+    the field on the floor even when it was sent."""
+    job_id = _rigged_job(
+        svc, bones=[{"name": b["name"]} for b in rigging.get_template("humanoid").bones]
+    )
+    ctx = FakeCtx(svc)
+    state = poser_mode.ensure(ctx)
+    state.job_id = job_id
+    viewer = ctx.poser_viewer = _bound_viewer()
+    viewer.pose_mode = True
+    viewer.pose_job_id = job_id
+    viewer.editor.set_root_translation([0.1, 0.0, 0.25], dirty=True)
+
+    poser_mode.save_pose_to_asset(ctx)
+    assert ctx.prompts.asked, "the name prompt must have been raised"
+    ctx.prompts.asked[-1].on_accept("Crouch")
+
+    save_key = f"{poser_mode.ASSET_SAVE_KEY_PREFIX}{job_id}"
+    saved = ctx.results[save_key]
+    assert saved["root_translation"] == pytest.approx([0.1, 0.0, 0.25]), (
+        "the offset must actually be persisted on disk, not merely present "
+        "in the payload sent to the service door"
+    )
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=save_key, result=saved))
+
+    poses_key = f"{poser_mode.ASSET_POSES_KEY_PREFIX}{job_id}"
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=poses_key, result=ctx.results[poses_key])
+    )
+    assert state.asset_poses and state.asset_poses[0]["root_translation"] == pytest.approx(
+        [0.1, 0.0, 0.25]
+    )
+
+    # Move the root away, then apply the saved pose back -- the actual round
+    # trip, not just a key present in a dict.
+    viewer.editor.set_root_translation([0.0, 0.0, 0.0], dirty=False)
+    poser_mode.apply_asset_pose(ctx, saved["id"])
+    assert viewer.editor.root_translation() == pytest.approx([0.1, 0.0, 0.25])
 
 
 # --- saving ------------------------------------------------------------------
@@ -951,6 +1177,11 @@ def test_poser_results_are_claimed_before_the_asset_pose_branches():
 
 
 def test_sync_preview_binds_once_and_not_again(svc, tmp_path):
+    """The parse is dispatched, never run inline (create-04, the 2026-09-11
+    audit): a preview build lands on an arbitrary frame with no click behind
+    it, so ``sync_preview`` only ever submits the parse here -- landing it is
+    ``on_task_done``'s job, exercised the same way ``test_frame_thread_doors``
+    proves the other nine doors."""
     ctx = FakeCtx(svc)
     state = poser_mode.ensure(ctx)
     glb = tmp_path / "humanoid.glb"
@@ -958,9 +1189,16 @@ def test_sync_preview_binds_once_and_not_again(svc, tmp_path):
     state.preview_path = glb
     state.preview_template = "humanoid"
 
-    viewer = FakeViewer()
+    ctx.poser_viewer = viewer = FakeViewer()
     viewer.editor.model = None
-    assert poser_mode.sync_preview(ctx, viewer) is True
+    assert poser_mode.sync_preview(ctx, viewer) is False
+    key = poser_mode.PREVIEW_LOAD_KEY
+    assert key in ctx.submitted
+    assert viewer.loaded == [], "the parse must not touch the viewer directly"
+
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=key, result=ctx.results[key], tag=ctx.tags[key])
+    )
     assert viewer.loaded == [glb]
     assert viewer.token == "poser:humanoid"
     assert viewer.editor.root == rigging.get_template("humanoid").root

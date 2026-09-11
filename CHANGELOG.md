@@ -698,6 +698,78 @@ engine stopped being something you download whether or not you ever use it.
   is a genuinely new one: an agent whose document has gone is never handed a
   document you already had open.
 
+- **A crafted or corrupted drawing file can no longer exhaust this machine's
+  memory.** An audit of every slice at once, on 2026-09-11, went looking for
+  the shape where a number read out of a file decides how much gets built, and
+  found five: an Aseprite file with a hundred empty layers cost 424 MB from
+  2,544 bytes on disk; an OpenRaster palette cost 704 MB and twenty seconds
+  from 44 KB; one naming a single tile sheet five hundred times cost 502 MB
+  from 1,134 bytes; one declaring two hundred thousand animation tracks cost
+  370 MB from 1,349 bytes; and a hand-ruled tile sheet imported into Plotter
+  asked for a **gigabyte** from a 512-pixel-square picture, on the drawing
+  thread, with an open map's unsaved edits in the balance. Each of these now
+  refuses by name before it allocates. The archive readers already bounded how
+  many *bytes* a file could unpack to; nothing bounded what was then built out
+  of them, which is a different question and the one that mattered.
+- **Exporting or converting from the Library twice in quick succession no
+  longer silently drops one.** Pressing Export zip..., then Save to project or
+  Convert... before the first one's file dialog was answered, published the
+  second confirmation over the first — and the dropped one never got an answer,
+  leaving a background worker waiting for a reply that could no longer arrive,
+  for as long as the app stayed open. The Library now declines to start a second
+  export or convert while one is running, and greys those buttons with why.
+- **Scaling a floating selection while zoomed out no longer crashes Inker.**
+  The scale had a floor and no ceiling, so an ordinary drag at low zoom could
+  ask for an impossibly large picture — and because the new scale was recorded
+  before the attempt failed, every later redraw tried the same impossible thing
+  again until you tore the transform down.
+- **Blind judging is blind again.** Review's sweep list printed what each run
+  varied, and the exact values, in a line under every row — while Blind was on.
+  The per-sweep delete confirmation showed the sweep's real name for the same
+  reason: the bulk version of that dialog had been fixed and this one had not.
+  Both leaked exactly what blinding exists to hide, into the verdicts the
+  whole findings programme is built on.
+- **Clay's Difference and Intersection are reachable.** Both were fully built,
+  tested, and available to an MCP agent; the menu, the tools pane and the
+  keyboard only ever offered Union, so a workspace named for booleans shipped
+  two of its three verbs where no person could reach them. Inset's
+  treat-the-selection-as-one-region mode had the same gap.
+- **Converting a document's colour mode no longer races the canvas drawing it.**
+  An earlier fix moved the slow part — the dithering — off the drawing thread
+  and left the write itself behind, so for as long as a large conversion ran,
+  the thread painting your picture and the thread rewriting it were the same
+  picture's two halves. Only the write moved; the dithering still runs in the
+  background.
+- **Deleting objects across two map layers deletes all of them.** Plotter let
+  you select objects on more than one layer and then removed only the ones on
+  the active layer, cleared the whole selection, and said nothing — so the rest
+  quietly survived. The comment at that code claiming five deletions were one
+  undo step was wrong in exactly the same case.
+- **A tile-set import lands in the atlas that asked for it.** Packwright sent
+  the sprites to whichever tab happened to be in front when the import
+  resolved. Recovering a Packwright document after a crash also no longer
+  freezes the window while it reads.
+- **Poser keeps a root offset saved onto an asset**, which it had been dropping
+  in silence — so a crouch or a hop came back standing. A pose file edited by
+  hand, or a template, pose library or clip library, is now checked when it is
+  read rather than failing deep inside Blender.
+- **Muse says so when there is no audio device**, instead of leaving Play
+  enabled and doing nothing when you press it — which is what its own manual
+  page already promised. Extending a take to the documented maximum no longer
+  risks a crash inside the sampler, and songs saved from Sirens are compressed
+  again: every `.wsng` ever written was stored flat, several times larger than
+  it needed to be, because the archive was told to compress and each piece
+  inside it was not.
+- **Leaving Sirens stops the sound.** Switching to another workspace mid-song
+  left it playing with no transport anywhere to stop it, short of going back.
+- **Fifteen more places where the app said one thing and did another** — a
+  doctor row called fatal that is a setup step, a shortcut sheet pointing at a
+  button that does not exist, a UI-scale slider that is a list of steps, a Home
+  status row that was removed, a keyboard trick in the drawing chapter that
+  never existed, the security policy's count of the ways this app touches the
+  network — are now what the code actually does, and most of them have a test
+  standing behind them so they cannot drift back.
+
 ## 0.0.41 — 2026-09-07
 
 Review stopped being a place where judgements go to be recorded and became

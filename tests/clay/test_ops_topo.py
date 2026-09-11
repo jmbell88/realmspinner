@@ -634,6 +634,94 @@ def test_a_filled_caps_uvs_come_from_the_surface_around_it() -> None:
     assert all(row.tolist() in m.uv.tolist() for row in cap)
 
 
+def _padded_with_disjoint_triangles(m: bm.Mesh, n_extra: int) -> bm.Mesh:
+    """*m* plus ``n_extra`` disconnected triangles, each its own 3-edge hole.
+
+    Every extra triangle gets its own three fresh vertices, so it shares
+    nothing with *m* or with any other extra triangle -- each is a small,
+    unrelated boundary of exactly the kind :mod:`.adjacency`'s own docstring
+    says "importing a real-world GLB routinely" produces many of, inflating
+    the mesh's total boundary length without the selection ever naming any of
+    it. The same pattern as ``test_ops_dissolve.py``'s own ``_padded``.
+    """
+    extra_positions = np.zeros((n_extra * 3, 3), dtype="f4")
+    base_v = len(m.positions)
+    extra_loops = np.arange(base_v, base_v + n_extra * 3, dtype="i4")
+    counts = list(np.diff(m.starts)) + [3] * n_extra
+    return bm.Mesh(
+        positions=np.concatenate([m.positions, extra_positions]),
+        loops=np.concatenate([m.loops, extra_loops]),
+        starts=topo.starts_from_counts(counts),
+        material=np.concatenate([m.material, np.zeros(n_extra, dtype="i4")]),
+        smooth=np.concatenate([m.smooth, np.zeros(n_extra, dtype=bool)]),
+    )
+
+
+def test_filling_a_small_hole_does_not_pay_for_every_other_holes_boundary_walk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-11 audit's clay-05: ``fill_hole`` called
+    ``adjacency.boundary_loops(mesh)`` unconditionally, before its own
+    ``MAX_DISSOLVED_RING`` refusal, and ``boundary_loops`` walks every
+    boundary corner in the whole mesh to build every ring in it -- not only
+    the one the user's selected edge belongs to -- measured at 878 ms on
+    200,000 disjoint boundary quads (800,000 total boundary corners) to fill
+    one 4-edge hole. ``fill_hole`` now walks only the ring(s) reachable from
+    the selected edges (``adjacency.boundary_ring_from``).
+
+    Two checks, because either alone is gameable. A bounded-work count on
+    ``_outgoing_boundary_corners`` alone would still read "under 50" if
+    ``fill_hole`` fell all the way back to ``boundary_loops`` (that helper is
+    never called by it, so the count would read *zero*, still "bounded") --
+    so this also spies on ``boundary_loops`` itself, patched both on
+    :mod:`.adjacency` and, if the caller still imports it by name, on
+    :mod:`.ops_topo`, and asserts it is never reached at all. Proven
+    structurally rather than by wall clock (flaky under load): pad the mesh
+    with many disjoint triangles the selection never touches, each an
+    unrelated boundary hole of its own.
+    """
+    m = _open_tube(6)
+    boundary = adj.check_manifold(m).boundary_edges
+    padded = _padded_with_disjoint_triangles(m, n_extra=20_000)
+
+    boundary_loops_calls = 0
+    original_boundary_loops = adj.boundary_loops
+
+    def spy_boundary_loops(mesh: bm.Mesh):
+        nonlocal boundary_loops_calls
+        boundary_loops_calls += 1
+        return original_boundary_loops(mesh)
+
+    monkeypatch.setattr(adj, "boundary_loops", spy_boundary_loops)
+    # A caller that still imports the name directly (``from .adjacency import
+    # boundary_loops``) binds its own reference to the pre-patch function at
+    # import time, so patching the origin module alone would not see it --
+    # this catches that shape of revert too.
+    monkeypatch.setattr(ops, "boundary_loops", spy_boundary_loops, raising=False)
+
+    outgoing_calls = 0
+    original_outgoing = adj._outgoing_boundary_corners
+
+    def counting_outgoing(mesh: bm.Mesh, a: object, vertex: int) -> list[int]:
+        nonlocal outgoing_calls
+        outgoing_calls += 1
+        return original_outgoing(mesh, a, vertex)
+
+    monkeypatch.setattr(adj, "_outgoing_boundary_corners", counting_outgoing)
+
+    out, sel = ops.fill_hole(padded, el.ElementSel(edges=boundary[:1]))
+    bm.validate(out)
+    assert len(sel.faces) == 1
+    assert bm.face_count(out) == bm.face_count(padded) + 1, "only the one hole was capped"
+    assert boundary_loops_calls == 0, (
+        f"boundary_loops was called {boundary_loops_calls} times -- fill_hole fell back "
+        "to the whole-mesh scan"
+    )
+    assert outgoing_calls < 50, (
+        f"filling one hole visited {outgoing_calls} vertices on a mesh with 20,000 unrelated holes"
+    )
+
+
 def test_fill_hole_refuses_a_ring_past_the_dissolve_sized_ceiling(monkeypatch) -> None:
     """The 2026-09-08 audit's clay-01: ``fill_hole`` caps a boundary ring with
     one n-gon and had no ceiling analogous to ``ops_dissolve``'s

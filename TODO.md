@@ -1434,3 +1434,69 @@ Decisions with arguments beside them, not backlog:
   ships no model, runs no inference, opens no socket and reaches no endpoint;
   `HF_HUB_OFFLINE=1` is untouched. What was refused was the app acquiring an
   appetite for a service somewhere else, and it still has none.
+
+## P44. Re-verify the pixelklein LoRA revision against the hub, and mark it either way
+
+**Why it is yours:** it needs a networked machine, and this one is offline by
+construction. Every other `Fetch` revision in `models.py` is stated in its own
+comment to have been read off downloaded bytes. `Limbicnation/pixel-art-lora`'s
+is not: its comment says outright that the SHA "is unconfirmed against local
+bytes -- the SHA comes from the hub's `refs/main`". That caveat exists in the
+code and nowhere else. `docs/MODELS.md` lists the same revision alongside every
+verified one with nothing to distinguish it, so a reader sizing the risk of a
+pasted `hf download` command cannot tell which pins were checked.
+
+The 2026-09-11 audit found this while diffing all 28 `Fetch` records against
+`docs/MODELS.md` in both directions (finding service-H1, the only one of the
+hundred that a machine could not settle). Everything else in that diff matched
+character for character. A revision pin that was never checked against real
+bytes is the one place an upstream force-push, or a bad initial read, would
+change what a user's download fetches with nothing going red.
+
+**Do:** on a machine with a network, fetch
+`Limbicnation/pixel-art-lora` at the pinned revision
+`0ac8e5c3400af68228811edc324721e25fc26777`, hash the downloaded file, and
+compare it against what the registry expects. Then either (a) confirm the pin,
+and rewrite the code comment to say it was verified on this date like its
+neighbours, or (b) find it has moved, update the revision and say so in
+`docs/MODELS.md`. Whichever happens, remove the asymmetry: the doc should not
+present an unverified pin as though it were a verified one.
+
+**Expected outcome:** the comment in `models.py` no longer says "unconfirmed",
+and `docs/MODELS.md` either needs no caveat or carries one. Strike this out
+with the date it was checked.
+
+## P45. Re-derive the four mesh thresholds nothing measured
+
+**Why it is yours:** it wants a card, a corpus and eyes on the results -- the
+three things this machine does not have. Four tuned numbers decide user-visible
+behaviour with no `docs/measurements/` document behind any of them, which the
+2026-09-11 audit recorded as evidence gaps rather than wrong values (findings
+pipelines-08, pipelines-09, pipelines-10):
+
+- `remesh.FACE_PROFILES` (low 2,000 / medium 8,000 / high 30,000 quads) and
+  `FACES_MIN`/`FACES_MAX`, live in the remesh panel's combo. The sibling
+  `optimize.PROFILES` triangle tiers are deliberately kept *out* of the generate
+  form until a qualification run backs them; these went straight in.
+- `remesh.VOXEL_FRACTION` (0.005) and `BAKE_MARGIN_PX` (8).
+- `meshreport.TRIANGLE_BUDGET` (150,000), `GROUND_TOLERANCE` (0.001) and
+  `SIZE_TOLERANCE` (0.01), which together decide a mesh's ready/review verdict --
+  next to `HOLE_WARN`, which *is* backed
+  (`docs/measurements/2026-08-06-audit-resolution.md`).
+
+Each now carries a comment saying plainly that it is unmeasured and why, so
+nothing reads as measured that is not. That is honest, not finished.
+
+**Do:** take the props corpus and, for each ladder, render the same asset at
+each rung and look at the results. For the remesh budgets the question is
+whether the three named rungs are the right three for a mobile/indie target
+(and whether `medium` is the right default); for `VOXEL_FRACTION` whether a
+finer or coarser voxel closes the plate-crust gaps `meshaudit` flags without
+rounding off a blade; for the `meshreport` thresholds whether the ready/review
+line falls where a person would put it on a corpus of real reconstructions.
+Write one dated document per ladder in `docs/measurements/` before changing any
+value -- these are corpus-keyed the moment a stored report is judged against
+them.
+
+**Expected outcome:** three dated documents, and either the constants confirmed
+where they are or moved with the run that moved them. Strike this out then.

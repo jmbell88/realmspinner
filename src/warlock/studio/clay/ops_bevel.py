@@ -80,6 +80,45 @@ def _walk(
     return faces, edges, closed
 
 
+#: The largest mesh loop_cut will walk, in mesh corners.
+#:
+#: The 2026-09-11 audit's clay-01 found loop_cut had no size ceiling at all,
+#: unlike every other walking op in this package -- bevel_edges's own
+#: MAX_BEVELED_CORNERS/_refuse_size sit a few lines below this. Measured
+#: through the same run_mesh_op path the ceilinged ops use, on a single quad
+#: strip: 10.4 ms at 1,000 quads, 106 ms at 20,000, 263 ms at 50,000, 541 ms
+#: at 100,000 (400,000 corners), 2.26 s at 400,000 (1,600,000 corners) --
+#: linear, about 1.4us per corner.
+#:
+#: This bounds the *mesh's* size rather than the strip length the two _walk
+#: calls will actually visit, exactly as bevel_edges's own _refuse_size does:
+#: the strip length is what the walk exists to discover, so there is no way
+#: to ask it for free before running it, and a mesh that is one long strip
+#: (a terrain grid, a long cylinder -- precisely what this audit finding
+#: names) walks close to its own full size anyway.
+#:
+#: Four hundred thousand corners measured 541 ms -- well under a second --
+#: with margin under the point (around 720,000 corners) where "well under"
+#: stops being true.
+MAX_LOOP_CUT_CORNERS = 400_000
+
+
+def _refuse_loop_cut_size(mesh: Mesh) -> None:
+    """Refuse before ``_walk`` runs, from the mesh's own size.
+
+    See MAX_LOOP_CUT_CORNERS. Follows the same "refuse before the walk"
+    pattern as ops_bevel._refuse_size, ops_subdiv._refuse_growth,
+    ops_dissolve._refuse_ring and ops_boolean._refuse_complexity.
+    """
+    grown = len(mesh.loops)
+    if grown > MAX_LOOP_CUT_CORNERS:
+        raise OpError(
+            f"Loop-cutting on this object would walk up to {grown:,} corners, "
+            f"past the {MAX_LOOP_CUT_CORNERS:,} Clay works with. Cut on a "
+            "simpler mesh, or reduce its face count first."
+        )
+
+
 def loop_cut(mesh: Mesh, sel: ElementSel, *, t: float = 0.5) -> tuple[Mesh, ElementSel]:
     """Ring a quad strip with a new edge loop, cut at *t* along each rung.
 
@@ -103,6 +142,7 @@ def loop_cut(mesh: Mesh, sel: ElementSel, *, t: float = 0.5) -> tuple[Mesh, Elem
     """
     if len(sel.edges) != 1:
         raise OpError("Select exactly one edge to cut a loop through.")
+    _refuse_loop_cut_size(mesh)
     a = adjacency(mesh)
     seed = int(a.edge_ids(sel.edges)[0])
     if seed < 0:
@@ -263,8 +303,11 @@ _BISECTOR_EPS = 1e-9
 #: run_mesh_op calls it on -- the frame thread -- rather than the edge picked.
 #:
 #: The audit measured one edge beveled at 14ms on a 10k-face mesh and 254ms on
-#: a 160k-face mesh: linear, about 1.6us per corner (loops == 4 * faces on a
-#: quad mesh). Extrapolating that rate, a mesh past ~625,000 faces would stall
+#: a 160k-face mesh: linear, about 1.6us per face (loops == 4 * faces on a
+#: quad mesh; the 2026-09-11 audit's clay-09 found the original wording of
+#: this line said "per corner", which reproducing the same measurement shows
+#: is off by 4x -- the true per-corner rate is about 0.4us). Extrapolating
+#: the per-face rate, a mesh past ~625,000 faces would stall
 #: past a second on a single click; 2,000,000 corners (500,000 quad faces)
 #: keeps a margin under that line, the same "well under a second" bar
 #: ops_dissolve.MAX_DISSOLVED_RING uses.

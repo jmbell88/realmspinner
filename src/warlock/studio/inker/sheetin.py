@@ -202,6 +202,20 @@ def _document_from_rects(
 
     if not rects:
         raise ValueError("a sprite sheet needs at least one cell")
+    # MAX_SHEET_FRAMES exists so a cell count read from a file cannot decide
+    # an allocation before it is checked -- grid_rects() enforces it for
+    # document_from_grid's typed-grid door, but document_from_sheet() takes
+    # `cells` verbatim from a rendered sheet's on-disk sidecar JSON with
+    # nothing of its own between that count and "one Frame plus one Layer per
+    # entry", and the sidecar's generic 1MB size cap does not substitute -- a
+    # 1MB sidecar still encodes roughly 28,000 cells, ~7x past this ceiling.
+    # Checked here, the one door every caller of this function shares, rather
+    # than in each door separately. The 2026-09-11 audit, inker-09.
+    if len(rects) > MAX_SHEET_FRAMES:
+        raise ValueError(
+            f"that sheet is {len(rects)} cells; a sprite sheet import holds at "
+            f"most {MAX_SHEET_FRAMES}"
+        )
     height, width = atlas_rgba.shape[:2]
     sizes = {(w, h) for _, _, w, h in rects}
     if len(sizes) != 1:

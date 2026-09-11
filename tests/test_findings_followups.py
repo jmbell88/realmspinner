@@ -5,11 +5,13 @@ struck: the sentences the code contradicted, and the tables that had drifted.
 from __future__ import annotations
 
 import inspect
+import io
 import re
 from importlib import import_module
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 
 def test_every_recent_kind_has_an_opener_with_an_open_path():
@@ -310,3 +312,37 @@ def test_the_size_three_pixel_nib_is_a_plus():
         [0, 1, 0],
     ]
     assert int(brush.make_stamp(5, 1.0, "pixel").sum()) == 21, "5 is 3-5-5-5-3, as before"
+
+
+# --- the 2026-09-11 audit, finding service-05 --------------------------------
+
+
+def _flat_png(color: tuple[int, int, int] = (40, 40, 48)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_promote_to_models_mismatched_cutout_refusal_carries_the_same_field_as_its_siblings(
+    svc,
+):
+    """``promote_to_model`` guards a ``prepared`` cutout with three refusals:
+    a mismatched ``job_id``, a stale ``src_fingerprint``, and a cutout missing
+    from disk. The last two both carry ``field="reference"`` -- the promote
+    modal's cutout preview -- but the first carried no field at all, so the
+    same user-facing situation rang a control for two of the three refusals
+    and reached the UI as a bare toast for the one checked first.
+    """
+    from warlock.service import jobs as svc_jobs
+    from warlock.service import matte as svc_matte
+    from warlock.service.errors import Invalid
+
+    a = svc_jobs.import_reference(svc, _flat_png(), name="a")["id"]
+    b = svc_jobs.import_reference(svc, _flat_png((90, 20, 20)), name="b")["id"]
+    # A real cutout of *a*, handed to a promotion of *b* -- the mismatch this
+    # refusal exists for, reached without hand-building a ``matte.Prepared``.
+    prepared_for_a = svc_matte.prepare(svc, a)
+
+    with pytest.raises(Invalid) as excinfo:
+        svc_jobs.promote_to_model(svc, b, prepared=prepared_for_a, force=True)
+    assert excinfo.value.field == "reference"

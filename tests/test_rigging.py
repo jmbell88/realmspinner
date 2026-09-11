@@ -484,6 +484,110 @@ def test_parse_clip_library_rejects_duplicate_clip_names():
         rigging.parse_clip_library(raw)
 
 
+# --- the read-door ceilings the 2026-09-11 audit added (poser-03/poser-04) --
+#
+# _load_templates, _load_pose_library and _load_clip_library each did a bare
+# json.loads(path.read_text(...)) with no byte ceiling at all -- unlike
+# read_record, which stats the file and refuses anything over MAX_RECORD_BYTES
+# *before* reading it. parse_clip_library separately had no per-item count
+# ceiling, unlike service.clips._check_shape's write-side caps. Both are
+# "a malformed/oversized file costs you that entry, not the app": every
+# loader here already wraps its body in try/except Exception and logs, so a
+# refusal from the new guards is swallowed exactly like a bad body always was.
+
+
+def test_an_oversized_template_is_skipped_not_fully_read(tmp_path, monkeypatch):
+    """A file that *would* parse cleanly -- a real, well-formed template --
+    costs a log line instead of a read once it is over the ceiling, the same
+    way an oversized pose.json already does. A malformed file would be
+    skipped either way and prove nothing about the size guard specifically."""
+    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path)
+    monkeypatch.setattr(rigging, "MAX_TEMPLATE_BYTES", 200)
+    (tmp_path / "giant.json").write_text(
+        json.dumps(
+            {
+                "key": "giant",
+                "label": "Giant",
+                "root": "root",
+                "bones": [
+                    {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 0.5]}
+                ],
+                # Ignored by _parse_template, which reads only key/label/root/
+                # bones/mirror_pairs -- exactly the kind of harmless bulk a
+                # hand-edited or synced file could carry by accident.
+                "padding": "x" * 1000,
+            }
+        ),
+        encoding="utf-8",
+    )
+    # _load_templates, not the cached templates(): the module-level cache
+    # would otherwise still hold whatever earlier tests already loaded.
+    assert rigging._load_templates() == {}
+
+
+def test_an_oversized_pose_library_file_is_skipped_not_fully_read(tmp_path, monkeypatch):
+    monkeypatch.setattr(rigging, "MAX_TEMPLATE_BYTES", 32)
+    (tmp_path / "humanoid.json").write_text(
+        json.dumps({"poses": [{"name": "x" * 200, "bones": {}}]}), encoding="utf-8"
+    )
+    assert rigging._load_pose_library(tmp_path) == {}
+
+
+def test_an_oversized_clip_library_file_is_skipped_not_fully_read(tmp_path, monkeypatch):
+    """poser-03: same gap, the one directory of the three that is genuinely
+    user-editable (rigging.user_clip_dir's own docstring)."""
+    monkeypatch.setattr(rigging, "MAX_CLIP_LIBRARY_BYTES", 32)
+    (tmp_path / "humanoid.json").write_text(
+        json.dumps(
+            {
+                "poses": [{"name": "rest", "bones": {}}],
+                "clips": [{"name": "idle", "keys": ["rest"], "segments": [1]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert rigging._load_clip_library(tmp_path) == {}
+
+
+def test_an_oversized_user_clip_library_is_refused_before_being_read(tmp_path):
+    """poser-04: parse_clip_library had no per-item count ceiling at all, so a
+    library with more poses than service.clips._check_shape's own write-side
+    MAX_LIBRARY_KEYS cap would allow parsed in full instead of being refused
+    the way the write door already refuses it."""
+    raw = {
+        "poses": [
+            {"name": f"p{i}", "bones": {}} for i in range(rigging.MAX_CLIP_LIBRARY_POSES + 1)
+        ],
+        "clips": [{"name": "idle", "keys": ["p0"], "segments": [1]}],
+    }
+    with pytest.raises(ValueError, match="at most 256 key poses"):
+        rigging.parse_clip_library(raw)
+
+    # And the read door built on it: a library this shape sitting on disk --
+    # exactly where service.clips.save would have written a user's edited
+    # library, under rigging.user_clip_dir() -- costs itself, not the app.
+    (tmp_path / "humanoid.json").write_text(json.dumps(raw), encoding="utf-8")
+    assert rigging._load_clip_library(tmp_path) == {}
+
+
+def test_a_clips_key_list_over_the_cap_is_refused():
+    """The other half of poser-04's cap: service.clips._check_shape's
+    MAX_KEYS, restated here so the two doors agree on a single clip's key
+    count too, not just the library's pose count."""
+    raw = {
+        "poses": [{"name": f"p{i}", "bones": {}} for i in range(2)],
+        "clips": [
+            {
+                "name": "long",
+                "keys": ["p0"] * (rigging.MAX_CLIP_KEYS + 1),
+                "segments": [1] * rigging.MAX_CLIP_KEYS,
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="at most 64 keys"):
+        rigging.parse_clip_library(raw)
+
+
 # --- the authored clip libraries --------------------------------------------
 #
 # A template can only produce a character sheet if its skeleton has clips --
@@ -1592,6 +1696,23 @@ def test_an_oversized_rig_json_is_refused_without_being_parsed(tmp_path, monkeyp
         json.dumps({"bones": [{"name": "hips"}] * 20}), encoding="utf-8"
     )
     assert rigging.read_rig(tmp_path) is None
+
+
+def test_list_sheets_skips_a_sidecar_whose_png_name_is_a_directory(tmp_path):
+    """troupe-06, the 2026-09-11 audit: list_sheets guarded a sheet's PNG with
+    ``.exists()``, which is also True for a directory -- unlike the identical
+    presence check everywhere else in this area (sheet.pack,
+    pixelize.reduce_frames, troupe_mode.scores/atlas_texture), fixed to
+    ``.is_file()`` by the 2026-09-07/2026-09-08 audits for the same reason."""
+    sheet_id = rigging.new_id()
+    rigging.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    rigging.sheet_path(tmp_path, sheet_id).write_text(
+        json.dumps({"id": sheet_id, "created": 1.0}), encoding="utf-8"
+    )
+    # A directory where the completed sheet's PNG belongs -- exists() is True
+    # for this, is_file() is not.
+    rigging.sheet_png_path(tmp_path, sheet_id).mkdir()
+    assert rigging.list_sheets(tmp_path) == []
 
 
 def test_root_offset_world_scales_by_the_rig_height():

@@ -55,6 +55,23 @@ _NOT_A_SONG = "this is not a Warlock song"
 _MALFORMED = "this song's manifest is malformed"
 
 
+def _member(name: str) -> zipfile.ZipInfo:
+    """A deflated archive member at the fixed epoch.
+
+    ``inker/ora.py``'s ``_member`` verbatim, and for the reason it names: a
+    bare ``ZipInfo`` defaults to ``ZIP_STORED`` regardless of the mode the
+    ``ZipFile`` itself was opened with, so a writer that skipped this line
+    would silently stop compressing (the 2026-09-11 audit, finding sirens-01)
+    -- every ``.wsng`` this build had ever saved was fully uncompressed
+    despite ``wsng_bytes`` opening the archive with ``ZIP_DEFLATED``, at up to
+    ~30x the size for a sparse pattern grid.
+    """
+    info = zipfile.ZipInfo(name, _EPOCH)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o600 << 16
+    return info
+
+
 def _sequence_json(sequence: inst.Sequence) -> dict[str, Any]:
     """Written only when it has something to say.
 
@@ -176,18 +193,15 @@ def _wav_of(pcm: np.ndarray) -> bytes:
 def wsng_bytes(doc: D.SongDoc) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(zipfile.ZipInfo(MANIFEST, _EPOCH), manifest_json(doc))
+        zf.writestr(_member(MANIFEST), manifest_json(doc))
         for index, pattern in enumerate(doc.patterns):
             buffer = io.BytesIO()
             np.lib.format.write_array(
                 buffer, np.ascontiguousarray(pattern.cells, dtype=np.int16), version=(1, 0)
             )
-            zf.writestr(zipfile.ZipInfo(f"{PATTERN_DIR}/{index}.npy", _EPOCH), buffer.getvalue())
+            zf.writestr(_member(f"{PATTERN_DIR}/{index}.npy"), buffer.getvalue())
         for index, key in enumerate(sorted(doc.samples)):
-            zf.writestr(
-                zipfile.ZipInfo(f"{SAMPLE_DIR}/{index}.wav", _EPOCH),
-                _wav_of(doc.samples[key]),
-            )
+            zf.writestr(_member(f"{SAMPLE_DIR}/{index}.wav"), _wav_of(doc.samples[key]))
     return out.getvalue()
 
 

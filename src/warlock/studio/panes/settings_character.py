@@ -103,12 +103,30 @@ TOAST_SLOT = "character_toast"
 
 
 def options(ctx: Any) -> dict[str, Any]:
-    """``service.characters.character_options``, read once per process."""
+    """``service.characters.character_options``, kept fresh against the
+    palette directory it nests under ``["troupe"]["palettes"]``.
+
+    Keyed on ``stamps.stamp_ns`` of that directory -- ``panes.inspector.
+    palette_names``'s own rule for the identical directory -- rather than read
+    once for the life of the process. Before the 2026-09-11 audit (finding
+    troupe-04) this cached forever with no invalidation, so a palette file
+    dropped in while the app was running never appeared in this form until
+    restart, even though ``service.palettes``' module docstring states the
+    directory's whole design intent is drop-in-while-running use. The rest of
+    the answer -- archetypes, families, ladders -- costs nothing to recompute
+    alongside it; splitting the palette list out into its own cache slot would
+    be a second cache to keep in step with this one for no measured saving.
+    """
+    from . import stamps
+
+    key = stamps.stamp_ns(ctx.svc.config.palette_dir)
     cached = ctx.state.preview.get(OPTIONS_SLOT)
-    if cached is None:
-        cached = svc_characters.character_options(ctx.svc)
-        ctx.state.preview[OPTIONS_SLOT] = cached
-    return cached
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    value = svc_characters.character_options(ctx.svc)
+    if stamps.storable(key):
+        ctx.state.preview[OPTIONS_SLOT] = (key, value)
+    return value
 
 
 def resolution_of(form: dict[str, Any]) -> resolve_mod.Resolution:

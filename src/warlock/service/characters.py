@@ -545,7 +545,11 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> None:
     except KeyError as exc:
         raise Invalid(f"the {clip_library} clip library is missing {exc}") from exc
     except ValueError as exc:
-        raise invalid_from(exc, "That character cannot be laid out") from exc
+        # field="layout", the 2026-09-11 audit's finding troupe-01: the same
+        # plan-and-throw-away shape ``troupe.check_troupe``/``create_charsheet``
+        # carry, with the same fieldless branch -- see the comment in
+        # ``troupe.check_troupe``.
+        raise invalid_from(exc, "That character cannot be laid out", field="layout") from exc
 
 
 def _moved_joints(

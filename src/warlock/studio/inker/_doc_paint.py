@@ -817,6 +817,32 @@ class PaintOps:
             return None
         return layer
 
+    def snapshot_convert_planes(self: Document) -> list[tuple[int, np.ndarray]]:
+        """Every distinct plane's pixels, copied and paired with its layer uid.
+
+        The frame-thread half of a conversion's compute/apply split (the
+        2026-09-11 audit, finding inker-07): ``panes/inker_bridge.apply_convert``
+        calls this before it ever reaches ``ctx.submit``, so the dithering that
+        follows runs against copies nothing else can write to, and the
+        submitted callable never has to read ``self`` at all -- the whole point
+        of the split, since a task thread reading or writing the live document
+        is exactly what let a conversion race ``inker_canvas.draw()``'s texture
+        upload.
+
+        Closes any open preview session first (``cancel_convert``): the current
+        frame's layers may still be showing ``preview_convert``'s converted
+        pixels, and a snapshot taken before they were put back would feed the
+        task pixels the user never actually had. Nothing is pushed, the same as
+        ``cancel_convert`` alone -- only the frame-thread adopter's
+        ``convert_to_*`` call earns a Ctrl+Z, once the task returns.
+
+        Whole-document, through :meth:`_index_planes` -- ``begin_convert``'s own
+        preview snapshot stays the current frame only (see this module's header
+        comment), but the commit it feeds has always been document-wide.
+        """
+        self.cancel_convert()
+        return [(layer.uid, layer.pixels.copy()) for layer in self._index_planes()]
+
     def preview_convert(
         self: Document, colours: Any, method: str = "nearest"
     ) -> bool:

@@ -1494,18 +1494,36 @@ def test_a_seam_report_never_survives_into_a_new_job():
     assert "seam_report" in DERIVED_PARAMS
 
 
-def test_the_source_job_kind_count_matches_the_documented_seven():
-    """service-08 (the 2026-09-08 audit): docs/INVARIANTS.md's paragraph on
-    params["source_job"] rows names the kinds that carry one -- it said "Six"
-    after remesh was added there without updating the count (the 2026-09-07
-    audit, service-06), and followups.py's own PRODUCTS was corrected to
-    seven the same day. This is the cheap executable pin the finding asks
-    for: a kind added to one without the other is caught here rather than
-    only in prose nobody re-reads.
+def test_every_openable_follow_up_kind_can_also_be_named_in_its_toast():
+    """service-08 (the 2026-09-08 audit), re-pointed at the real relationship.
+
+    This used to read ``len(followups.PRODUCTS) == 7`` -- a hand-written count,
+    which is the very defect class it was added to catch, and it held only by
+    coincidence: ``PRODUCTS`` (kinds whose finished toast needs a named product)
+    and ``asset_open``'s route (kinds whose artifact can be opened *where it
+    is*) are different sets that happened to be the same size. The 2026-09-11
+    audit (finding muse-08) added ``separate`` to ``PRODUCTS`` -- correctly,
+    since a stem separation writes into its source job's directory like the
+    others -- and this assertion failed at ``8 == 7`` while nothing was wrong.
+
+    What is actually worth pinning is the direction that has teeth: a kind the
+    app will *open* must also be one it can *name*, or a finished follow-up
+    surfaces as the generic "X finished." with a "Show" button beside it. That
+    is derived from both tables, so a ninth kind cannot break it silently.
+
+    ``tests/test_followup_failures.py`` holds the other half -- every kind that
+    carries ``source_job`` has a ``PRODUCTS`` entry -- derived from
+    ``_discard_artifacts`` rather than hand-listed.
     """
     from warlock import followups
+    from warlock.studio import asset_open
 
-    assert len(followups.PRODUCTS) == 7
+    unnameable = sorted(set(asset_open.FOLLOWUP_STAGES) - set(followups.PRODUCTS))
+    assert not unnameable, (
+        f"asset_open routes {unnameable} to a stage, but followups.PRODUCTS "
+        f"cannot name them, so their completion toast falls back to the "
+        f"generic sentence with a Show button that goes somewhere specific"
+    )
 
 
 def test_the_tile_flag_is_an_input_and_not_a_derived_value():

@@ -53,6 +53,22 @@ MIN_DARK_RATIO = 0.98
 # an image with dark regions in it, not a ruled sheet.
 MAX_SIZE_CV = 0.15
 
+# The ceiling on recompose's *output* allocation, checked before the
+# ``np.zeros`` below and not after -- ``tileset.MAX_COLLECTION_PIXELS``'s own
+# rule, and the same number for the same reason: 8192x8192 is
+# ``pixelguard.MAX_DECODE_PIXELS``, the largest picture this app will hold,
+# repeated here as a literal because this package imports nothing under
+# ``warlock``. The source image is bounded by that ceiling, but recompose's
+# output is ``(grid.rows * tile_h) x (grid.cols * tile_w)`` -- a cell count
+# read off the source times a tile size that is the *map's*, not the
+# source's -- and neither factor alone was checked. The 2026-09-11 audit
+# (plotter-01) found a finely-ruled 512x512 source (single-pixel separator
+# lines) reports thousands of uniform 1px cells that survive MAX_SIZE_CV, and
+# recompose multiplied that count by an ordinary 64px map tile for a 1,073.7
+# MB allocation -- a 1,024x blow-up over the source's own pixel count -- which
+# extrapolates to ~275 GB at the real 8192x8192 ceiling.
+MAX_RECOMPOSE_PIXELS = 8192 * 8192
+
 
 @dataclass(frozen=True)
 class SheetGrid:
@@ -230,7 +246,14 @@ def recompose(
     if not grid.rows or not grid.cols:
         raise ValueError("that grid holds no cells")
     rows, cols = grid.shape
-    out = np.zeros((rows * tile_h, cols * tile_w, 4), dtype=np.uint8)
+    target_w, target_h = cols * tile_w, rows * tile_h
+    # See MAX_RECOMPOSE_PIXELS: checked before the allocation, not after.
+    if target_w * target_h > MAX_RECOMPOSE_PIXELS:
+        raise ValueError(
+            f"this atlas would redraw at {target_w}x{target_h}, past the "
+            f"{MAX_RECOMPOSE_PIXELS} pixels this build will allocate"
+        )
+    out = np.zeros((target_h, target_w, 4), dtype=np.uint8)
     for r, (y0, y1) in enumerate(grid.rows):
         ys = y0 + _nearest_index(y1 - y0 + 1, tile_h)
         for c, (x0, x1) in enumerate(grid.cols):
