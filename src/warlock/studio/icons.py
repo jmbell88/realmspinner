@@ -53,6 +53,7 @@ ARROW_UP_LEFT = "\uE04F"  # arrow-up-left
 ARROW_UP_RIGHT = "\uE051"  # arrow-up-right
 AUDIO_WAVEFORM = "\uE560"  # audio-waveform
 BLEND = "\uE5A1"  # blend
+BLOCKS = "\uE4FF"  # blocks
 BONE = "\uE35C"  # bone
 BOOK_OPEN = "\uE063"  # book-open
 BOX = "\uE065"  # box

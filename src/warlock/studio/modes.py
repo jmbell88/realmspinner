@@ -25,7 +25,7 @@ from . import icons
 # the call sites that only want the sentence keyed by mode.
 #
 # **The order is the rail's order** (the UI redesign, wave 3): where you start and
-# what you look at, then the eight creative workspaces, then Settings. It used to
+# what you look at, then the nine creative workspaces, then Settings. It used to
 # be the *segmented control's* order, grouped by a predicate over
 # ``WORK_MODES`` -- a rule that rendered correctly and explained nothing, and
 # which put Library and Review on the far side of a break from the panes they
@@ -70,6 +70,24 @@ MODES: list[tuple[str, str, str, str]] = [
     ("create", "Create", icons.SPARKLES, "Prompt to picture to mesh."),
     ("inker", "Inker", icons.PEN_TOOL, "Paint and animate pixel art."),
     ("clay", "Clay", icons.RULER, "Build meshes from shapes."),
+    # Mason: the fourteenth mode, and the counterpart to Plotter one dimension
+    # up. Plotter answers "what does my world look like" for a tile map and
+    # nothing answered it for a mesh -- a user with thirty generated props and
+    # a Clay blockout could look at each of them alone and never at the place
+    # they are for.
+    #
+    # It sits *after Clay* rather than beside Plotter, and the two claims are
+    # in tension so this settles it: Plotter is the mode Mason is the answer
+    # *to*, but Clay is the mode it is the answer *with*. A scene is assembled
+    # out of meshes, a blockout becomes a building, and the two are used in one
+    # sitting -- so the adjacency that helps is the 3D one.
+    #
+    # A workspace and not a stage of Create for Plotter's reasons exactly: it
+    # owns a document type (``.wscn``), it has its own tabs and its own undo
+    # stack, and what it makes is an arrangement rather than a job row. What it
+    # *contains* is job rows, which is the thing that makes it a workspace
+    # rather than a second library -- a scene references assets and is not one.
+    ("mason", "Mason", icons.BLOCKS, "Build 3D scenes, export to engines."),
     ("poser", "Poser", icons.PERSON_STANDING, "Rig a mesh, author clips."),
     # Troupe (the Troupe programme's own mode). A workspace of its own rather
     # than a panel in Create for the reason Poser is one: what happens here is
@@ -143,7 +161,7 @@ MODES: list[tuple[str, str, str, str]] = [
 # drawing path.
 RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
     ("home", "library", "create"),
-    ("inker", "clay", "poser", "troupe", "plotter", "packwright", "muse", "sirens"),
+    ("inker", "clay", "mason", "poser", "troupe", "plotter", "packwright", "muse", "sirens"),
     ("review", "settings"),
 )
 
@@ -156,7 +174,7 @@ RAIL_GROUPS: tuple[tuple[str, ...], ...] = (
 #: a caption-height off the item it names.
 #:
 #: The grouping above is a *claim* ("these three are one pipeline;
-#: these eight are workspaces") and until these existed the only thing asserting
+#: these nine are workspaces") and until these existed the only thing asserting
 #: it was a gap, which at a glance reads as an accident of spacing.
 RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 
@@ -166,8 +184,8 @@ RAIL_GROUP_LABELS: tuple[str, ...] = ("Pipeline", "Workspaces", "")
 # shortcuts at all.
 WORK_MODES = frozenset(
     {
-        "create", "inker", "clay", "poser", "review", "plotter", "packwright",
-        "troupe", "muse", "sirens",
+        "create", "inker", "clay", "mason", "poser", "review", "plotter",
+        "packwright", "troupe", "muse", "sirens",
     }
 )
 
@@ -187,16 +205,16 @@ WORK_MODES = frozenset(
 VIEWPORT_MODES = frozenset({"create"})
 
 # Neither one pane nor the asset viewport: a mode that fills the window with
-# its own three-column workspace. Inker, Clay, Poser, Review, Plotter,
-# Packwright, Troupe, Muse and Sirens are the nine; Library is a single pane,
+# its own three-column workspace. Inker, Clay, Mason, Poser, Review, Plotter,
+# Packwright, Troupe, Muse and Sirens are the ten; Library is a single pane,
 # not a workspace, and joins Home/Manual/Settings there. The three categories
 # partition KEYS exactly -- which matters because ``_build_ui``'s dispatch ends
 # in a bare ``else``, so an unlisted mode would draw one of these rather than
 # fail.
 WORKSPACE_MODES = frozenset(
     {
-        "inker", "clay", "poser", "review", "plotter", "packwright", "troupe",
-        "muse", "sirens",
+        "inker", "clay", "mason", "poser", "review", "plotter", "packwright",
+        "troupe", "muse", "sirens",
     }
 )
 
