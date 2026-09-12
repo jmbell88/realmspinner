@@ -237,6 +237,7 @@ def open_row(ctx: Any, row: Row) -> None:
 KIND_OPENERS = {
     "inker": "inker_mode",
     "clay": "clay_mode",
+    "mason": "mason_mode",
     "plotter": "plotter_mode",
     "packwright": "packwright_mode",
     "sirens": "sirens_io",
@@ -708,6 +709,7 @@ def _version() -> str:
 _KIND_MODES = {
     "inker": "inker",
     "clay": "clay",
+    "mason": "mason",
     "plotter": "plotter",
     "packwright": "packwright",
     "sirens": "sirens",
@@ -1215,6 +1217,18 @@ def start_clay(ctx: Any) -> None:
         clay_mode.new_document(ctx)
 
 
+def start_mason(ctx: Any) -> None:
+    """Mason keeps whatever was open, ``start_clay``'s reason and shape: the
+    button says "new scene", so arriving with nothing open and no obvious way
+    to begin is a dead end, and a document is minted only when there are
+    none."""
+    from .. import mason_mode
+
+    set_mode(ctx.state, "mason")
+    if not mason_mode.ensure(ctx).docs:
+        mason_mode.new_document(ctx)
+
+
 def start_plotter(ctx: Any) -> None:
     from .. import plotter_mode
 
@@ -1280,6 +1294,7 @@ NEW_ITEMS: tuple[tuple[str, str, str, object], ...] = (
     ("create-mesh", "New 3D model", icons.BOX, start_3d),
     ("inker", "New drawing", icons.PEN_TOOL, start_inker),
     ("clay", "New Clay model", icons.RULER, start_clay),
+    ("mason", "New scene", icons.BLOCKS, start_mason),
     ("plotter", "New tile map", icons.GRID, start_plotter),
     ("packwright", "New sprite atlas", icons.LAYERS, start_packwright),
     ("sirens", "New song", icons.AUDIO_WAVEFORM, start_sirens),

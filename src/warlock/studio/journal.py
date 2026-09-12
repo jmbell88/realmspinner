@@ -27,7 +27,7 @@ rather than renamed, because a rename would strand every crash copy sitting in
 it right now behind a version that no longer looks there.
 
 Two files per slot: the **payload** (``.ora``, ``.wblk``, ``.wmap``, ``.wpack``,
-``.wsng``, ``.pose.json`` -- each mode's own format, so a recovered file
+``.wsng``, ``.wscn``, ``.pose.json`` -- each mode's own format, so a recovered file
 is openable by hand and by the mode's ordinary reader) and a ``<stem>.meta.json``
 sidecar naming the kind, the title and when it was taken.
 
@@ -158,6 +158,7 @@ def register(provider: Provider) -> Provider:
 _PROVIDER_MODULES = (
     "inker_mode",
     "clay_mode",
+    "mason_mode",
     "plotter_mode",
     "packwright_mode",
     "sirens_mode",

@@ -72,6 +72,10 @@ ARTIFACT_FILTERS = {
     ".aiff": ["AIFF audio (*.aiff)", "*.aiff"],
     ".webp": ["WebP image (*.webp)", "*.webp"],
     ".jpg": ["JPEG image (*.jpg)", "*.jpg"],
+    # Mason's own two, Stage E: each its own list object, the rule the
+    # paragraph above states.
+    ".wscn": ["Warlock scene (*.wscn)", "*.wscn"],
+    ".obj": ["Wavefront OBJ (*.obj)", "*.obj"],
 }
 
 

@@ -70,6 +70,12 @@ def test_it_imports_no_window_and_no_service_at_module_scope():
     three things it imports *lazily* and a substring scan cannot tell the two
     apart. numpy is the one third-party name allowed: :func:`decode_rgba`
     returns one.
+
+    ``dataclasses`` joined the list when ``CameraView`` moved here out of
+    ``clay_state`` (Mason's viewport wanted the identical class, and a second
+    copy would be a second place its goal-field rule could quietly stop being
+    true). It is stdlib and imports nothing, so it costs this pin's actual
+    purpose -- no window, no service -- exactly nothing.
     """
     import ast
 
@@ -82,7 +88,7 @@ def test_it_imports_no_window_and_no_service_at_module_scope():
             roots.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             roots.add("." * node.level + (node.module or "").split(".")[0])
-    assert roots <= {"__future__", "os", "pathlib", "typing", "numpy"}, roots
+    assert roots <= {"__future__", "dataclasses", "os", "pathlib", "typing", "numpy"}, roots
 
 
 # --- start_save ---------------------------------------------------------------

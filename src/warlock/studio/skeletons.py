@@ -507,6 +507,84 @@ def sirens(ctx: Any) -> dict[str, Column]:
     return {"left": left, "right": right}
 
 
+def mason(ctx: Any) -> dict[str, Column]:
+    """Mason's two sidebars: what to place and how, on the left; what the
+    scene contains and is, on the right -- ``clay``'s own shape, one
+    dimension over.
+
+    **Assets over Tools on the left**, mirroring Clay's Tools-alone column
+    with one more slot: a scene editor's "what to add" list (library meshes,
+    the derived primitive grid, lights, a camera) is long enough to want its
+    own SHARE slot above the placement ops, where Clay's single FILL pane had
+    nothing above it to share against.
+
+    **Outliner, Properties, then the document, on the right** -- ``clay``'s
+    own ordering restated: what the scene *contains*, then what the selected
+    part of it *is*, then the file. Three share keys, declared rather than
+    derived from the slot id, ``clay``'s own reason: a key derived from
+    ``mason-outliner`` would tie a saved layout to that pane's name, and
+    renaming it would silently reset every user's column heights.
+    """
+
+    from .panes import mason_bridge, mason_outliner, mason_palette, mason_props, mason_tools
+
+    left = Column(
+        "left",
+        (
+            Slot(
+                "mason-assets",
+                "Assets",
+                mason_palette.draw,
+                role=_role("sidebar"),
+                edge=_edge("right"),
+                sizing=SHARE,
+                share_key="mason-assets",
+            ),
+            Slot(
+                "mason-tools",
+                "Tools",
+                mason_tools.draw,
+                role=_role("sidebar"),
+                edge=_edge("right"),
+                sizing=FILL,
+            ),
+        ),
+    )
+    right = Column(
+        "right",
+        (
+            Slot(
+                "mason-outliner",
+                "Outliner",
+                mason_outliner.draw,
+                role=_role("inspector"),
+                edge=_edge("left"),
+                sizing=SHARE,
+                share_key="mason-outliner",
+            ),
+            Slot(
+                "mason-props",
+                "Properties",
+                mason_props.draw,
+                role=_role("inspector"),
+                edge=_edge("left"),
+                sizing=SHARE,
+                share_key="mason-props",
+            ),
+            Slot(
+                "mason-bridge",
+                "Scene",
+                mason_bridge.draw,
+                role=_role("inspector"),
+                edge=_edge("left"),
+                sizing=FILL,
+                floor=mason_bridge.BRIDGE_FLOOR,
+            ),
+        ),
+    )
+    return {"left": left, "right": right}
+
+
 #: Which builder serves which workspace. A workspace with no entry keeps its
 #: hand-written composition, which is what the centre-heavy ones (Create,
 #: Review, Troupe, Poser) still have -- and Packwright, which is the last of
@@ -514,6 +592,7 @@ def sirens(ctx: Any) -> dict[str, Column]:
 BUILDERS = {
     "clay": clay,
     "inker": inker,
+    "mason": mason,
     "plotter": plotter,
     "sirens": sirens,
 }

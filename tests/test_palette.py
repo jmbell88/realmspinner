@@ -356,6 +356,10 @@ def test_the_document_dispatch_covers_every_document_mode():
         # Sirens exports a folder rather than a file -- song.wav, stems/ and
         # sfx/ -- so its label names the folder's contents.
         "sirens",
+        # Mason joined in Stage E, the stage that gave it a document to save:
+        # a scene's file export is the GLB and its engine manifest, which is
+        # why its label names two files rather than one.
+        "mason",
     }
 
 

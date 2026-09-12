@@ -318,6 +318,13 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
         # share against, so ``clay-tools`` is no longer a key at all.
         "clay-outliner",
         "clay-props",
+        # Mason stacks two shares in each column: the asset palette over the
+        # tools on the left, and the outliner over the properties on the
+        # right, with the document pane taking the FILL underneath. Four
+        # declared keys, three handles -- the bridge shares against nothing.
+        "mason-assets",
+        "mason-outliner",
+        "mason-props",
         "create-inspector",
         "inker-colors",
         # Inker's right column stacks three shareable panes, and the strip

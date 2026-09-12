@@ -98,6 +98,66 @@ def can_drag(job: Any) -> bool:
     return job.get("stage") == "reference" and job.get("status") == "done"
 
 
+# The second, Mason-specific drag-and-drop type. Mason's Assets pane (T44)
+# needs a library *mesh* to lift onto its viewport, and the owner's decision
+# was a parallel payload rather than widening ``can_drag`` to accept a second
+# stage -- see ``draggable_mesh``'s docstring for why. Same construction as
+# ``DRAG_JOB`` immediately above, for the identical reason: the payload's
+# data_id is a constant marker rather than the job id itself (imgui's Python
+# binding carries an integer payload, and a job id's ``id()`` is the address
+# of a temporary), so the job travels in ``AppState.dragging_job`` and one
+# drag is in flight at a time by construction.
+DRAG_MESH = "warlock-mesh"
+_DRAG_MESH_MARKER = 2
+
+
+def draggable_mesh(ctx: Any, job: Any) -> None:
+    """Offer the last-drawn item as a draggable *mesh* asset, for Mason.
+
+    ``draggable_source``'s body, verbatim, against ``can_drag_mesh`` instead
+    of ``can_drag`` and ``DRAG_MESH`` instead of ``DRAG_JOB`` -- not folded
+    into one parameterised function, because a card that lifts under one
+    predicate and a slot that reads a different payload name would be exactly
+    the kind of drift two copies are supposed to make impossible to miss: the
+    body is small and the two payload names must never be spelled the same
+    way twice from memory.
+    """
+    if not can_drag_mesh(job):
+        return
+    if imgui.begin_drag_drop_source():
+        ctx.state.dragging_job = job["id"]
+        imgui.set_drag_drop_payload_py_id(DRAG_MESH, _DRAG_MESH_MARKER)
+        imgui.text(job.get("name") or job.get("prompt") or job["id"])
+        imgui.end_drag_drop_source()
+
+
+def can_drag_mesh(job: Any) -> bool:
+    """A finished mesh, which is what Mason's viewport places.
+
+    ``poser_mode.riggable``'s predicate for "a finished mesh job", minus its
+    ``rig.glb`` requirement -- Mason places the mesh itself, not a rig beside
+    it. Deliberately a **second** predicate rather than ``can_drag`` widened
+    to accept ``stage == "model"`` as well as ``"reference"``: Create's 3D
+    source slot only ever reads ``DRAG_JOB``, so widening the one predicate
+    both drag sources shared would not change what that slot sees, but it
+    would change what a *reader* of this function believes a liftable card
+    is -- and the next person to touch ``can_drag`` would have two stages to
+    reason about instead of one. A card that lifts and a slot that refuses it
+    is worse than a card that does not lift at all, so each drag gets its own
+    honest predicate instead.
+
+    The accepting half -- the drop target inside Mason's viewport pane -- is
+    not this file's to build; this only exposes the payload name and the
+    predicate a drop target reads by.
+    """
+    return (
+        bool(job)
+        and job.get("stage") == "model"
+        and job.get("status") == "done"
+        and not job.get("deleted_at")
+    )
+
+
 def dragged_job(ctx: Any) -> Any:
     """The row being dragged, or ``None``. Read by a drop target that wants to
     highlight itself before the mouse is released."""

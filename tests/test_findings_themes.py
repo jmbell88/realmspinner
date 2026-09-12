@@ -418,6 +418,9 @@ def test_the_caption_is_marked_by_any_unsaved_document_not_only_a_pose():
     assert set(docmodes.DOC_MODES) == {
         "inker",
         "clay",
+        # Mason joined in Stage E, the stage that gave it a document: a scene
+        # with unsaved work has to mark the caption like every other document.
+        "mason",
         "plotter",
         "packwright",
         "sirens",

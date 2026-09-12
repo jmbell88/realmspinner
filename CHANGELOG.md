@@ -20,6 +20,33 @@ the release you are actually running.
 
 ## 0.0.44 — 2026-09-11
 
+**Mason, a new workspace, can now be used.** Mason is the mode for arranging
+the things this app makes into a *place*: open a scene, drop library models and
+primitives into it, select and move and rotate and scale them, and look around
+with the same orbit, pan and dolly every other 3-D view in Warlock uses. It
+saves as a `.wscn`, reopens from Home's Resume list, recovers after a crash
+like every other document, and leaves as a glTF scene (a `scene.glb` with an
+engine-readable manifest beside it) or as merged OBJ geometry with its
+materials. A scene *links* the models it places rather than swallowing copies
+of them, so re-exporting an asset out of Clay updates every scene standing on
+it, and only an export ever embeds geometry.
+
+- **Five hundred copies of one barrel cost one barrel's worth of video
+  memory.** The viewport recognises that two placements of the same asset are
+  the same geometry and uploads it once, which is what makes a dressed scene
+  affordable at all rather than a slideshow. Getting it wrong in the obvious
+  way is invisible — nothing crashes, the frame draws, and every copy but the
+  last quietly stacks up in one spot — so the test for it was written before
+  the code, and the fix was proved by putting the bug back and watching six
+  barrels pile onto the sixth.
+- **An asset that finishes loading now appears.** A model placed in a scene is
+  read from disk in the background, and finishing that read changes the picture
+  without changing the document. The viewport skips frames where nothing moved,
+  so it now counts a newly-arrived model as something that moved — otherwise a
+  prop stayed invisible until you happened to nudge the camera.
+- **Off-screen props stop costing anything**, past a few hundred of them, and
+  see-through surfaces are drawn after the solid ones they show through.
+
 A review of the MCP bridge — the way an external AI agent drives Clay — found
 the feature unreachable for anyone who installed Warlock rather than cloning
 it, and found three ways any other program on the machine could switch it off.

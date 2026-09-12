@@ -80,6 +80,20 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "clay-props": ("30-clay", "materials"),
     "clay-outliner": ("30-clay", "adding-a-primitive"),
     "clay-bridge": ("30-clay", "the-two-ways-out"),
+    # Mason's own chapter is ``31-mason.md``, and Part II (20-38) is full, so
+    # giving it a slot is a fifteen-file renumbering that belongs to a later
+    # stage, not this one (Stage E). These six point at the nearest existing
+    # chapter and anchor that genuinely covers the material -- Clay's own
+    # modelling chapter for the shared ideas (adding a primitive, transform
+    # tools, the outliner, materials, the two ways out of a document) and the
+    # 3D viewport chapter's toolbar section for the header strip -- and are
+    # interim: retarget every one of them at ``31-mason.md`` the day it lands.
+    "mason-header": ("24-the-3d-viewport", "the-toolbar"),
+    "mason-assets": ("30-clay", "adding-a-primitive"),
+    "mason-tools": ("30-clay", "transforming"),
+    "mason-outliner": ("30-clay", "the-outliner"),
+    "mason-props": ("30-clay", "locking-an-axis-and-typing-a-number"),
+    "mason-bridge": ("30-clay", "the-two-ways-out"),
     "plotter-tools": ("31-plotter", "tools"),
     # The sheet over the centre pane: three titled tabs a user interacts with,
     # so an exemption would be false.

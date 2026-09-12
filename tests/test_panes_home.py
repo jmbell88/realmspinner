@@ -338,9 +338,10 @@ def test_a_release_with_nothing_in_it_is_not_a_card():
 
 
 def test_the_new_menu_offers_every_creation_type_exactly_once():
-    """The eight start_* functions are the whole of what this app can begin
-    from nothing, and a menu that lost one would lose the only way into that
-    mode that is not "switch there and find its empty state"."""
+    """The start_* functions are the whole of what this app can begin from
+    nothing, and a menu that lost one would lose the only way into that mode
+    that is not "switch there and find its empty state". Mason's scene joined
+    them in Stage E, which is the stage that gave it a document to begin."""
     keys = [key for key, _label, _icon, _action in landing.NEW_ITEMS]
     assert len(keys) == len(set(keys))
     actions = {action for _key, _label, _icon, action in landing.NEW_ITEMS}
@@ -349,6 +350,7 @@ def test_the_new_menu_offers_every_creation_type_exactly_once():
         landing.start_3d,
         landing.start_inker,
         landing.start_clay,
+        landing.start_mason,
         landing.start_plotter,
         landing.start_packwright,
         landing.start_sirens,

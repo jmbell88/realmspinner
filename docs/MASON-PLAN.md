@@ -717,8 +717,75 @@ against a criterion written before the numbers: peak allocation inside `gltf.MAX
 which a million vertices reaches at 737 MB of a 768 MiB budget. The four viewer modules the
 engine may reach for became four, not three: `glbwrite` joined the pin, deliberately.
 
-**Stage E — the viewport and placing.** `mason_view.py`, `mason_assets.py`, the panes, drag
-from the library. The node-proxy test goes in before the instancing code.
+**Stage E — the viewport and placing. DONE.** `mason_view.py`, `mason_assets.py`,
+`mason_state.py`, `mason_io.py`, `mason_mode.py`, `mason_viewport.py` and eight panes landed,
+plus the registration sweep's remaining sites. The full Windows lane went 20988 -> **21073
+passed, 49 skipped, 0 failed**; `ruff` and `preflight --fast` clean. The three claims the
+plan singled out were each proved against the unfixed code rather than asserted: reverting
+the proxy collapsed six instances onto one shared node (five of six drawing at x=15 instead
+of 0, 3, 6, 9, 12, 15), dropping `source.rev` from the redraw key skipped the adopting frame,
+and writing through the transform arrays left `local()` handing back the pre-drag matrix.
+
+`scripts/exercise_mode.py --mode mason` now reports **58 controls in 2 rounds** and does not
+crash, where Stage A reported 0 in 1.
+
+Six things came out differently from the sections above.
+
+- **`mason_io.py` is Stage E's**, and nothing before this decided it. No earlier stage had a
+  document to save, export or reopen, so nothing needed an io layer; the moment Mason joined
+  the four document tables it needed one, because three of those four are about a file.
+- **The drag has to rebind the transform arrays, and writing through them is a silent
+  staleness bug** — found while writing Stage E's tests rather than predicted anywhere here.
+  `Node.local()` memoizes against the *identity* of `translation`/`rotation`/`scale`, so
+  `node.translation[:] = ...` changes the numbers without changing the objects: the node holds
+  the new transform and the viewport draws the old one. `nodes.Node.trs`'s docstring already
+  stated the rule ("rebind them to change the transform, never write through them") and a
+  viewport written against Clay's habits breaks it on the first mouse-move. The cost of
+  obeying it is a memo miss per frame on the nodes that are actually moving, which is the one
+  case the memo was never there to serve.
+- **`CameraView` moved to `docmodes`** rather than being copied. Clay's class is the identical
+  four numbers with the identical `read_from`/`write_to` pair against `viewer.camera`, and its
+  goal-field rule ("set both halves or the camera eases back to where it was") is exactly the
+  kind that fails invisibly in a second copy. `clay_state.CameraView` is now a re-export, so
+  nothing in Clay changed spelling; Clay's 1252 tests reported the same either side.
+- **The manual is still Stage H's, so the six help targets are interim.** Part II (20–38) is
+  full, so `31-mason.md` costs the fifteen-file renumbering that stage owns — and
+  `tests/manual/` requires every pane's `(?)` to resolve to a chapter and anchor that really
+  exist. So Mason's panes point at `24-the-3d-viewport` and `30-clay`, at anchors verified
+  against the real files, with a comment saying so; Stage H retargets one dict. `mason_hud`
+  and `mason_menu` join `NO_HELP_BUTTON` for `clay_hud`'s and `clay_menu`'s own reasons.
+- **`scripts/_appharness.py`'s `seed()` needed a Mason arm, and the measurement said so.** The
+  first exercise run reported 41 of 60 controls as `hard-reset`, every one carrying the
+  identical delta `documents: () -> ('ms1',)`: with no scene open Mason draws its empty state,
+  so the first press of anything minted the document and no undo takes a document back out of
+  existence. Every verdict in that run was the driver reporting its own missing seed — the
+  fourth instance of the defect that function's docstring already names three times. With the
+  seed in place the count is 6 hard-resets and 1 refusal, which is **exactly** what
+  `--mode clay` reports on the same driver, so those are its shape and not Mason's.
+- **`asset_exits` and `shortcuts.py` were deliberately not touched**, and both are Stage G's
+  or Stage H's rather than skipped by accident. `tests/test_asset_exits.py` pins the exact
+  mode set a mesh row's exits form, and adding Mason's changes an existing assertion about
+  *Clay's* rows — a decision about that pinned set rather than a new builder, and it pairs
+  naturally with Stage G's library round trip. `shortcuts.py`'s table is gated against
+  `38-shortcuts.md` in both directions, and that chapter has no Mason section until Stage H
+  writes one, so adding the block now fails the gate from the other side.
+
+**Two constants Stage E fixed without a `docs/measurements/` document, and the reason is the
+rule rather than an exception to it.** `mason_view.CULL_THRESHOLD` (256) and
+`mason_assets.CACHE_BYTES` (512 MB) are both named in open question 1 as unmeasured. Neither
+is a constant a stored document is keyed on: culling decides only whether a visibility test
+runs on a given frame and every scene draws identically either side of it, and the cache
+budget decides only when an already-placed asset is re-parsed, which costs a frame and never
+correctness. Both say exactly that in their own docstrings, next to the number. What open
+question 1 asked for was a dated document *before* fixing a constant the corpus depends on,
+and these two are outside that set — which is a distinction worth making explicitly rather
+than either skipping the rule quietly or writing a measurement nothing is keyed on.
+
+**Open question 2, VRAM, is still open and Stage E did not close it.** Sixty textured library
+assets is real video memory, `check_vram` guards the queue rather than the studio, and
+nothing in this stage added admission control. What Stage E did add is the byte budget above,
+which bounds the *host* side (decoded geometry in RAM) and says nothing about what the GPU is
+holding. A scene large enough to matter is still a new failure mode with nothing behind it.
 
 **Stage F — hierarchy, prefabs, lights, cameras, terrain in the UI.**
 

@@ -29,6 +29,10 @@ FILTERED = (
     # (T7 of the 2026-09-02 review).
     "review_panes.py",
     "panes/clay_outliner.py",
+    # Mason's outliner, the second scene tree. Filtered for Clay's reason and
+    # then some: a dressed scene is tens of props where a Clay document is a
+    # handful of primitives.
+    "panes/mason_outliner.py",
     # The layers panel is deleted and its filter moved with the list it
     # filtered -- the timeline's track column (W2.5a).
     "panes/inker_timeline.py",

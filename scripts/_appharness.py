@@ -298,10 +298,26 @@ def seed(app) -> None:
     exactly the moment those four were rewritten. The tileset is built in
     process rather than imported: ``add_tileset`` is synchronous where every
     file door goes through the task thread.
+
+    **And a scene** (Mason, Stage E), which is the same defect a fourth time and
+    was measured rather than guessed: the first ``exercise_mode --mode mason``
+    run reported 41 of 60 controls as ``hard-reset``, every one carrying the
+    identical delta ``documents: () -> ('ms1',)``. With no scene open Mason
+    draws its empty state, so the *first* press of any control -- a primitive
+    button, a tool, a pivot -- mints the document, and no undo takes a document
+    back out of existence. Every verdict in that run was the driver reporting
+    its own missing seed, which is exactly what this docstring has had to say
+    three times already.
     """
     import numpy as np
 
-    from warlock.studio import clay_mode, inker_mode, packwright_mode, plotter_mode
+    from warlock.studio import (
+        clay_mode,
+        inker_mode,
+        mason_mode,
+        packwright_mode,
+        plotter_mode,
+    )
     from warlock.studio.tilegrid import gid
     from warlock.studio.tilegrid.tileset import Tileset
 
@@ -310,6 +326,7 @@ def seed(app) -> None:
     if state.active is not None:
         inker_mode.animate(app.app_ctx, state.active)
     clay_mode.new_document(app.app_ctx)
+    mason_mode.new_document(app.app_ctx)
     packwright_mode.new_document(app.app_ctx)
 
     tab = plotter_mode.new_document(app.app_ctx)

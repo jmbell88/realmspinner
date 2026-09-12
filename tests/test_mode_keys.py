@@ -278,7 +278,7 @@ def test_the_quit_chain_stops_at_the_first_cancel():
     quit_calls: list[str] = []
     ctx = SimpleNamespace(
         state=SimpleNamespace(
-            inker=None, clay=None, plotter=None, packwright=None, sirens=None
+            inker=None, clay=None, mason=None, plotter=None, packwright=None, sirens=None
         ),
         confirms=dialogs.ConfirmQueue(),
         viewer=None,
