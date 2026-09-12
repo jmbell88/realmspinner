@@ -92,6 +92,15 @@ def _authored(svc, authored: str) -> dict:
     return job
 
 
+def _mason_row(svc, *, status: str = "done", ready: bool = True) -> dict:
+    """What ``mason_mode.export_library`` mints: an ordinary ``model`` row --
+    ``import_mesh``'s own -- carrying ``params["authored"] == "mason"`` and a
+    ``scene.wscn`` beside it that nothing in ``job["files"]`` ever mentions."""
+    job = _job(svc, "image", stage="model", status=status, params={"authored": "mason"})
+    job["files"] = ["model.glb"] if ready else []
+    return job
+
+
 def _music(svc, *, status: str = "done", has_track: bool = True) -> dict:
     job = _job(svc, "music", stage="music", status=status, params={})
     job["files"] = ["track.wav"] if has_track else []
@@ -118,6 +127,77 @@ def _rows(svc) -> dict[str, dict]:
         "errored_reference": _reference(svc, status="error", ready=False),
         "deleted": deleted,
     }
+
+
+def test_a_mesh_can_be_added_to_a_scene_and_the_door_opens_the_mesh(svc, monkeypatch):
+    """The outward half of Stage G's round trip, from the *library*: a mesh
+    row's exits include somewhere to place it, and the door is handed the mesh
+    rather than the selected row. Both call sites invoke ``exit_.open(ctx,
+    job)`` with the row the user picked, so a rig row's Mason door that read
+    its own ``job`` argument would place a reference to a job id with no
+    ``model.glb`` behind it -- the exact trap ``_clay``'s and ``_poser``'s
+    closures already name."""
+    from warlock.studio import mason_mode
+
+    mesh = _mesh(svc, rigged=True)
+    rig_row = _rig_followup(svc, mesh["id"])
+    ctx = FakeCtx(svc)
+    ctx.cache.rows[mesh["id"]] = mesh
+
+    placed: list = []
+    monkeypatch.setattr(mason_mode, "add_asset_to_scene", lambda ctx, job: placed.append(job))
+    mason = next(e for e in asset_exits.exits_for(ctx, rig_row) if e.mode == "mason")
+    assert mason.label == verbs.add_to("mason", "as a scene item")
+    assert not mason.reason
+    mason.open(ctx, rig_row)
+    assert placed and placed[0]["id"] == mesh["id"], "the door must place the source mesh"
+
+
+def test_an_unfinished_mesh_dims_the_scene_door_with_the_row_s_own_reason(svc):
+    """The near-miss rule: a mesh that is still reconstructing is one step
+    from a scene, so the button is drawn with a reason rather than left off
+    the list -- and the reason is the service's own sentence, not a second
+    spelling of it."""
+    from warlock.service.validation import not_done_message
+
+    ctx = FakeCtx(svc)
+    exits = asset_exits.exits_for(ctx, _mesh(svc, status="running"))
+    mason = next(e for e in exits if e.mode == "mason")
+    assert mason.reason == not_done_message("This", "running")
+
+
+def test_a_mason_authored_row_offers_the_way_back_into_the_scene(svc, monkeypatch):
+    """The inward half. ``params["authored"]`` is the whole gate -- no
+    ``stat``, no service call -- because a reopen has no fallback: a merged
+    scene GLB is not a lesser scene, and ``edit_asset_in_mason`` refuses to
+    substitute it."""
+    from warlock.studio import mason_mode
+
+    row = _mason_row(svc)
+    ctx = FakeCtx(svc)
+    # Both Mason exits are live on this row and they are not the same door --
+    # checked on the unfiltered list, since ``_labels`` collapses by mode and
+    # would show only whichever of the two came last.
+    mason_exits = [e for e in asset_exits.exits_for(ctx, row) if e.mode == "mason"]
+    assert not any(e.reason for e in mason_exits)
+    assert [e.label for e in mason_exits] == [
+        verbs.open_in("mason"),
+        verbs.add_to("mason", "as a scene item"),
+    ]
+
+    opened: list = []
+    monkeypatch.setattr(mason_mode, "edit_asset_in_mason", lambda ctx, job: opened.append(job))
+    mason_exits[0].open(ctx, row)
+    assert opened and opened[0]["id"] == row["id"]
+
+
+def test_an_ordinary_mesh_does_not_offer_to_reopen_a_scene_it_never_was(svc):
+    """The marker is absent rather than empty on every other row, and the
+    reopen door must be gated on that and nothing looser -- offering it for a
+    row with no ``scene.wscn`` is a button that can only fail."""
+    ctx = FakeCtx(svc)
+    labels = [e.label for e in asset_exits.exits_for(ctx, _mesh(svc)) if e.mode == "mason"]
+    assert labels == [verbs.add_to("mason", "as a scene item")]
 
 
 def _labels(exits: list) -> dict[str, tuple[str, bool]]:
@@ -150,11 +230,18 @@ def test_a_tileset_reference_offers_exactly_the_same_run(svc):
     assert plain == tileset == {"inker", "plotter", "packwright"}
 
 
-def test_an_unrigged_mesh_offers_clay_and_troupe_and_dims_poser(svc):
+def test_an_unrigged_mesh_offers_clay_mason_and_troupe_and_dims_poser(svc):
+    """The pinned set gained ``mason`` in Stage G, deliberately: a mesh is a
+    thing a *scene* is built out of, so every row that offers Clay, Poser and
+    Troupe now offers somewhere to place it as well. The set is asserted
+    exactly, not with ``<=``, because the whole reason this module exists is
+    that two surfaces grew different lists -- an assertion that only checked
+    for presence would let a sixth destination appear on one and not the
+    other without saying so."""
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["mesh"])
     by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
     assert by_mode["clay"][1] is False
     assert by_mode["troupe"][1] is False
     assert by_mode["poser"][1] is True
@@ -166,7 +253,7 @@ def test_a_rigged_mesh_dims_nothing(svc):
     ctx = FakeCtx(svc)
     exits = asset_exits.exits_for(ctx, _rows(svc)["rigged_mesh"])
     by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
     assert not any(dimmed for _label, dimmed in by_mode.values())
 
 
@@ -185,7 +272,7 @@ def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, 
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
     by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
     assert not any(dimmed for _label, dimmed in by_mode.values())
 
     opened: list = []
@@ -205,7 +292,7 @@ def test_a_rig_row_over_an_unrigged_mesh_dims_poser_with_the_mesh_reason(svc):
     ctx.cache.rows[mesh["id"]] = mesh
     exits = asset_exits.exits_for(ctx, rig_row)
     by_mode = _labels(exits)
-    assert set(by_mode) == {"clay", "poser", "troupe"}
+    assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
     assert by_mode["clay"][1] is False
     assert by_mode["troupe"][1] is False
     assert by_mode["poser"][1] is True

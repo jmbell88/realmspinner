@@ -53,6 +53,7 @@ from .clay_viewport import ClayViewport
 # same predicate, and a pane importing the frame loop for it is how a leaf comes
 # to depend on the shell.
 from .dialogs import modal_open
+from .mason_viewport import MasonViewport
 from .poser_viewport import PoserViewport
 from .review_panes import ReviewPanes
 from .shortcuts import filter_shortcuts, shortcut_sections
@@ -614,7 +615,7 @@ class StartupRefused(Exception):
         super().__init__(f"{title}: {body}")
 
 
-class App(ClayViewport, PoserViewport, ReviewPanes):
+class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
         self.svc = None
@@ -704,6 +705,13 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         # reason _viewport_hovered exists: the host window is fullscreen, so
         # io.want_capture_mouse is always true and cannot be the gate.
         self._build_hovered = False
+        # Mason's own viewport, its per-tab camera tracking and its hover
+        # flag -- ``clay_view``'s own three fields, restated for the reason
+        # they are: built on first use, per document rather than per
+        # viewport, and read off the render image the pane draws.
+        self.mason_view = None
+        self._mason_camera_tab = ""
+        self._mason_hovered = False
         # Poser's own Viewer and hover flag, for Clay's reasons: built on first
         # entry (a session that never poses pays for no second renderer), and
         # a separate instance so loading the armature preview can never call
@@ -1734,6 +1742,10 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                     # clear ``rendering`` and record why, or the transport
                     # shows a dead Play button with nothing beside it.
                     sirens_mode.on_task_failed(ctx, done)
+                elif done.key.startswith("mason-"):
+                    from . import mason_mode
+
+                    mason_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("muse-"):
                     from . import muse_mode
 
@@ -2035,6 +2047,24 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                 # offscreen GL draw, which belongs on the frame thread rather
                 # than in the task that minted the row.
                 self._capture_clay_thumbnail(done.result["job_id"])
+            return
+        if key.startswith("mason-"):
+            from . import mason_mode
+
+            # ``mason_mode.on_task_done`` gives ``mason_assets`` first
+            # refusal itself: a ``mason-asset:`` key is a background parse,
+            # never a document task, and that module claims the prefix.
+            mason_mode.on_task_done(ctx, done)
+            if isinstance(done.result, dict) and done.result.get("exported_asset"):
+                # The card appears in the library like any other asset, so it
+                # needs the thumbnail every other asset gets -- and that is an
+                # offscreen GL draw, which belongs on the frame thread rather
+                # than in the task that minted the row. From *Mason's* viewport,
+                # not Clay's: the picture has to be of the scene that was
+                # exported, and ``self.clay_view`` is either a different
+                # document or (in a session that never opened Clay) None, which
+                # would silently leave the card on its placeholder.
+                self._capture_thumbnail_from(done.result["job_id"], self.mason_view)
             return
         if key.startswith("inker-"):
             from . import inker_mode
@@ -2994,6 +3024,10 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             if ctx.state.mode == "clay":
                 self._build_event(event)
                 continue
+            # Mason owns its own centre pane too, ``clay``'s reason above.
+            if ctx.state.mode == "mason":
+                self._mason_event(event)
+                continue
             # Poser too, and for a stronger reason: it has its own Viewer
             # instance, so the shared-viewer path below must never see its
             # events or one drag would orbit both cameras.
@@ -3029,6 +3063,22 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         hovered = self._build_hovered
         if _takes_pointer(self.clay_view, hovered):
             self.clay_view.handle_event(tab.doc, event, hovered)
+
+    def _mason_event(self, event: Any) -> None:
+        """Route the mouse to Mason's viewport, on ``_build_event``'s rule."""
+        from . import mason_assets, mason_mode
+
+        tab = mason_mode.active(self.app_ctx)
+        if tab is None or self.mason_view is None:
+            return
+        import pygame
+
+        if tab.saving and event.type == pygame.MOUSEBUTTONDOWN:
+            return
+        hovered = self._mason_hovered
+        if _takes_pointer(self.mason_view, hovered):
+            source = mason_assets.ensure(self.app_ctx)
+            self.mason_view.handle_event(tab.doc, source, event, hovered)
 
     def _poser_event(self, event: Any) -> None:
         """Route the mouse to Poser's viewer, on the same hover rule as Clay's.
@@ -3399,6 +3449,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             # Troupe has replaced with a sprite.
             troupe_mode.handle_key(ctx, event)
             return
+        if ctx.state.mode == "mason":
+            from . import mason_mode
+
+            # Unconditional and returning, for site #8's reason (Mason's own
+            # sweep row): every workspace arm above returns whether or not its
+            # ``handle_key`` consumed the key, because a shared function's
+            # tail is what let Packwright's return "get lost when Troupe's
+            # branch was spliced in ahead of it" and sent Delete in the atlas
+            # packer to the library trash instead. Stage A's ``handle_key``
+            # binds nothing and always answers False, but the return still
+            # has to be here now -- before a later mode's branch is spliced in
+            # above the shared block below, not after.
+            mason_mode.handle_key(ctx, event)
+            return
         # Both edges reach this function, because Inker's space-to-pan is a
         # hold and needs the release. Nothing below is a hold: every one of
         # these is a toggle or an action, so acting on the release too undoes
@@ -3538,6 +3602,20 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                 clay_mode.import_glb_path(ctx, path)
             else:
                 ctx.toast("Clay opens .wblk documents and .glb meshes.", "error")
+            return
+        if ctx.state.mode == "mason":
+            from . import mason_mode, mason_state
+
+            if path.suffix.lower() == mason_state.WSCN_SUFFIX:
+                mason_mode.open_path(ctx, path)
+            elif path.suffix.lower() == ".glb":
+                tab = mason_mode.active(ctx)
+                if tab is None:
+                    ctx.toast("Open or start a scene first: a mesh is placed into one.", "error")
+                else:
+                    mason_mode.import_glb_path(ctx, path)
+            else:
+                ctx.toast("Mason opens .wscn scenes and places .glb meshes.", "error")
             return
         if ctx.state.mode == "plotter":
             from . import plotter_mode, plotter_state
@@ -3790,7 +3868,15 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         clicking "Keep editing" on the first still left two more questions to
         dismiss, after the user has already said they are not quitting.
         """
-        from . import clay_mode, inker_mode, packwright_mode, plotter_mode, poser_mode, sirens_mode
+        from . import (
+            clay_mode,
+            inker_mode,
+            mason_mode,
+            packwright_mode,
+            plotter_mode,
+            poser_mode,
+            sirens_mode,
+        )
         from .panes import pose_panel
 
         ctx = self.app_ctx
@@ -3800,6 +3886,7 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         guards = (
             inker_mode.guard,
             clay_mode.guard,
+            mason_mode.guard,
             plotter_mode.guard,
             packwright_mode.guard,
             sirens_mode.guard,
@@ -4057,6 +4144,8 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
                         self._sirens_workspace()
                     elif mode == "troupe":
                         self._troupe_workspace()
+                    elif mode == "mason":
+                        self._mason_workspace()
                     else:
                         self._inker_workspace()
                 else:
@@ -4200,22 +4289,32 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             self.clay_view.frame_selection(tab.doc)
 
     def _capture_clay_thumbnail(self, job_id: str) -> None:
+        """The library card's picture, from Clay's viewport."""
+        self._capture_thumbnail_from(job_id, self.clay_view)
+
+    def _capture_thumbnail_from(self, job_id: str, view: Any) -> None:
         """The library card's picture, from the viewport that is already drawn.
 
         On the frame thread because it reads a framebuffer, which is the same
         reason ``ctx.capture_thumbnail`` is -- and it is the one deliberate
         exception to "the frame loop never blocks", being a single offscreen
         read rather than work.
+
+        Takes the viewport rather than reaching for ``self.clay_view``, because
+        there are two of them now: Mason exports its own scene from
+        ``self.mason_view``, and a version of this that knew only about Clay's
+        would have photographed whatever Clay happened to be holding -- or
+        nothing at all in a session that never opened it.
         """
         from ..service import files as svc_files
 
         ctx = self.app_ctx
-        if self.clay_view is None:
+        if view is None:
             return
         try:
             # The GL readback only; the PNG encode joins the save on the task
             # thread (D41), exactly as ctx.capture_thumbnail does.
-            image = self.clay_view.screenshot()
+            image = view.screenshot()
         except Exception:
             # A warning rather than an error (E48): the export itself succeeded
             # and the asset is in the library -- what failed is its picture. The
@@ -4753,6 +4852,10 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             bottom=("packwright-bridge", layout_mod.PaneRole.INSPECTOR, packwright_bridge.draw),
         )
 
+    # ``_mason_workspace`` is Stage E's, on the ``MasonViewport`` mixin now --
+    # the sidebar/centre/sidebar skeleton every other mode uses, replacing the
+    # single unsplit pane Stage A drew here.
+
     def _overlays(self, viewport: Any) -> None:
         """Toasts and modals, drawn over whichever layout ran.
 
@@ -5213,6 +5316,7 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             _step("persist settings", lambda: self._persist(ctx))
             _step("persist inker", lambda: self._persist_inker(ctx))
             _step("persist clay", lambda: self._persist_clay(ctx))
+            _step("persist mason", lambda: self._persist_mason(ctx))
             _step("persist plotter", lambda: self._persist_plotter(ctx))
             _step("persist packwright", lambda: self._persist_packwright(ctx))
             _step("write settings", ctx.settings.flush)
@@ -5245,6 +5349,15 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
             # answer every one of them already refuses.
             if ctx is not None:
                 ctx.clay_view = None
+        mason_view = getattr(self, "mason_view", None)
+        if mason_view is not None:
+            _step("release mason view", mason_view.release)
+            if ctx is not None:
+                ctx.mason_view = None
+        if ctx is not None:
+            from . import mason_mode
+
+            _step("release mason", lambda: mason_mode.release_all(ctx))
         poser_viewer = getattr(self, "poser_viewer", None)
         if poser_viewer is not None:
             _step("release poser viewer", poser_viewer.release)
@@ -5296,6 +5409,11 @@ class App(ClayViewport, PoserViewport, ReviewPanes):
         from . import clay_mode
 
         clay_mode.persist(ctx)
+
+    def _persist_mason(self, ctx: Any) -> None:
+        from . import mason_mode
+
+        mason_mode.persist(ctx)
 
     def _persist_plotter(self, ctx: Any) -> None:
         from . import plotter_mode

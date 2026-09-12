@@ -51,53 +51,14 @@ WBLK_SUFFIX = ".wblk"
 _uids = itertools.count(1)
 
 
-@dataclass
-class CameraView:
-    """Where the camera sits for one document. Per document, so a tab switch
-    does not lose your place.
-
-    Named for the camera rather than for Clay because ``ClayView`` is already
-    the GL viewport class in ``studio/clay_view.py``, and two unrelated things
-    under one name in one package is how a reader comes to believe the tab is
-    holding the viewport. This one is plain data: four numbers and a target."""
-
-    yaw: float = 0.6
-    pitch: float = 0.5
-    distance: float = 4.0
-    target: tuple[float, float, float] = (0.0, 0.5, 0.0)
-    # Whether the view has been framed yet. False asks the viewport to fit on
-    # the next frame it draws, which is the only moment it knows how big the
-    # pane is -- the state layer never does. A document opened from a file that
-    # carried a camera arrives already True, which is the whole point of storing
-    # one: framing over it would throw away the answer just read off disk.
-    fitted: bool = False
-
-    def read_from(self, camera: Any) -> None:
-        """Take the live camera's angles. ``theta``/``phi`` are its names for
-        yaw and pitch; the two spellings meet here and nowhere else.
-
-        The **goals** are read rather than the current values. The camera damps
-        toward them, so mid-ease the two differ -- and what a user means by
-        "where I left the camera" is where they pointed it, not the frame the
-        tab switch happened to interrupt.
-        """
-        self.yaw = float(getattr(camera, "_goal_theta", camera.theta))
-        self.pitch = float(getattr(camera, "_goal_phi", camera.phi))
-        self.distance = float(getattr(camera, "_goal_distance", camera.distance))
-        self.target = tuple(float(v) for v in getattr(camera, "_goal_target", camera.target))
-
-    def write_to(self, camera: Any) -> None:
-        """Put these angles back on the live camera, goals included.
-
-        Both halves, or the camera eases straight back to wherever it was: the
-        angles are what the frame draws and the goals are what it converges to,
-        and setting one without the other is a restore that undoes itself over
-        the next few frames.
-        """
-        camera.theta = camera._goal_theta = self.yaw
-        camera.phi = camera._goal_phi = self.pitch
-        camera.distance = camera._goal_distance = self.distance
-        camera.set_target(self.target)
+#: Where this document's camera sits. **Moved to :mod:`.docmodes`** when
+#: Mason's viewport wanted the identical class: the four numbers and the
+#: goal-field rule in ``read_from``/``write_to`` are genuinely one rule for
+#: every 3-D document mode, and a second copy is a second place that rule can
+#: quietly stop being true. Re-exported under this name because it is the name
+#: Clay's tabs, its tests and ``clay_mode`` all reach for -- the class moved,
+#: the spelling did not.
+CameraView = docmodes.CameraView
 
 
 @dataclass

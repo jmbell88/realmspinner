@@ -42,10 +42,10 @@ If you already have a picture, you can skip the first stage entirely and upload 
 
 ## The modes
 
-A rail down the left edge of the window chooses between thirteen modes, and that rail is the single
+A rail down the left edge of the window chooses between fourteen modes, and that rail is the single
 thing that decides what the panes show. It is drawn in every mode, so there is no screen you cannot
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
-route, see [Keyboard shortcuts](38-shortcuts.md).
+route, see [Keyboard shortcuts](39-shortcuts.md).
 
 The rail shows glyphs by default and expands to show the labels beside them; **Window → Navigation
 labels** toggles that, and the choice is remembered. Every mode carries a short purpose sentence
@@ -63,7 +63,7 @@ where you are not making something.
 - **Home.** What the app opens on: what changed in this build, what the machine is doing, and a
   single list of everything you were recently working on. Returning here is never destructive.
 - **Library.** Every asset that has ever been generated, filtered, sorted and searched, with the
-  trash and the prune. Covered in [The library and jobs](36-library-and-jobs.md).
+  trash and the prune. Covered in [The library and jobs](37-library-and-jobs.md).
 - **Create.** One mode for the whole asset pipeline, drawn as five **stages** on a rail above the
   settings column. **Reference** owns the prompt and every control that composes it — the
   negative prompt, the image model and style LoRA, the seed and the candidate count.
@@ -75,40 +75,43 @@ where you are not making something.
   [Generating meshes](23-generating-meshes.md) and
   [Rigging and posing](25-rigging-and-posing.md).
 
-Then the eight workspaces:
+Then the nine workspaces:
 
 - **Inker.** A layered raster editor, wired into the pipeline in both directions. Covered in
   [Inker](28-inker.md), with the timeline in [Inker: animation](29-inker-animation.md).
 - **Clay.** Modelling from primitives: transforms, a material palette, and two ways out —
   export a `.glb` or import the document as an asset. Covered in [Clay](30-clay.md).
+- **Mason.** A 3D scene editor: place library assets and primitives into a scene, group and
+  duplicate them, light it, sculpt a ground, and export the arrangement as a glTF scene, an
+  engine-friendly GLB-plus-manifest, or merged OBJ geometry.
 - **Poser.** Authoring reusable poses against a skeleton template, kept in a global pose library
   rather than belonging to any one asset. Covered in [Poser](26-poser.md).
 - **Troupe.** A character-sprite factory: a prompt becomes a reference, a mesh, a fitted rig and
   then a rendered, pixelised sprite sheet of the clips a character walks and swings through.
   Experimental — the chain runs end to end, but the shipped keyframes are provisional and the
   prompt-to-character half does not currently produce usable humanoids (measured 2026-08-30), so
-  the route worth using is a mesh you supply. Covered in [Troupe](33-troupe.md).
+  the route worth using is a mesh you supply. Covered in [Troupe](34-troupe.md).
 - **Plotter.** A tile-map editor: a grid, a layer stack, one or more tilesets, and the objects an
   engine reads as spawn points and trigger volumes — where a sheet of tiles becomes a level. It
-  speaks Tiled's formats in both directions. Covered in [Plotter](31-plotter.md).
+  speaks Tiled's formats in both directions. Covered in [Plotter](32-plotter.md).
 - **Packwright.** A sprite-atlas packer: many images in, one atlas out, with a sidecar that says
-  where everything landed. Covered in [Packwright](32-packwright.md).
+  where everything landed. Covered in [Packwright](33-packwright.md).
 - **Muse.** Generated music: a comma-separated style-tag string and an optional lyric block become a
   finished track, one job row per take, auditioned in the mode and openable in Sirens as a sample
-  instrument. Covered in [Muse](35-muse.md).
+  instrument. Covered in [Muse](36-muse.md).
 - **Sirens.** A chiptune tracker: NES-era pulse, triangle, noise and sample voices written into a
   pattern grid, stitched into a song by an order list, and saved as a `.wsng`. Instruments carry
   four envelope sequences you drag into shape, a `.wav` dropped on the window becomes a sample, and
   the whole thing exports as a mix, one WAV per channel and one per sound effect. Covered in
-  [Sirens](34-sirens.md).
+  [Sirens](35-sirens.md).
 
 And in the footer:
 
 - **Review.** Judging finished meshes — one at a time or as a parameter sweep — and the "what
-  works" findings the verdicts add up to. Covered in [Review](37-review.md).
+  works" findings the verdicts add up to. Covered in [Review](38-review.md).
 - **Settings.** The app's own preferences — UI scale, the frame-rate readout, layout resets, and the
   list of models it loaded, from which a missing one can be downloaded. See
-  [In-app settings](40-configuration.md#in-app-settings).
+  [In-app settings](41-configuration.md#in-app-settings).
 
 This documentation used to be a mode and is not, for the reason nothing here is: it is *about* the
 screen you are on rather than a place to go. It opens over the window (`F1`, or any pane's (?)
@@ -156,7 +159,7 @@ Above the columns is the menu bar and below them is the status bar, and both are
 
 ## What is the same in every workspace
 
-Eight workspaces are eight editors, and they are deliberately one program eight times. Whichever
+Nine workspaces are nine editors, and they are deliberately one program nine times. Whichever
 one is open:
 
 - **The file panel** in the right column carries the same four verbs — **New**, **Open**, **Save**,
@@ -202,7 +205,7 @@ through, so the menu, `Ctrl+K` and the keyboard cannot disagree about what an ac
 it is available, or why it is not. A row you cannot use is greyed with the reason on hover — the
 same reason the palette gives — and a row with a keyboard binding prints it on the right.
 
-**Workspace** is the one to know about: it holds all thirteen modes, so it is a third way — beside
+**Workspace** is the one to know about: it holds all fourteen modes, so it is a third way — beside
 the rail and the palette — to change what the window is showing.
 
 ## The status bar
@@ -217,8 +220,8 @@ There is no green "all well" state, because a healthy install has nothing to rep
 
 When the window is too narrow to hold all of it, items drop from the *right* end, so the answer to
 "where am I" is the last thing to go. The one item anchored to the right instead is the optional
-system-resource meter — see [App settings](41-app-settings.md#appearance) — which is
+system-resource meter — see [App settings](42-app-settings.md#appearance) — which is
 reserved before the rest is trimmed, because it is read while a generation is being decided on.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
-the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).
+the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).

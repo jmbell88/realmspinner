@@ -112,7 +112,7 @@ snippet above still works. A reader that does not recognise a block should skip 
   and `missing` as lists of cell indices, `metadata` as a list of sentences about the sidecar
   disagreeing with itself, and `reframed` saying whether the wider second render happened. It is a
   report, never a refusal; see
-  [Troupe → Needs repair](33-troupe.md#needs-repair-and-why-it-is-not-the-heatmap).
+  [Troupe → Needs repair](34-troupe.md#needs-repair-and-why-it-is-not-the-heatmap).
 
 One addition is **per cell** rather than top level: a cell rendered with sockets carries a
 **`sockets`** map beside its `pivot_x`/`pivot_y` — one entry per socket the body plan places

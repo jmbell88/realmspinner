@@ -203,7 +203,7 @@ def test_build_script_stages_and_verifies_the_checkout_without_downloading_model
 
 
 def test_the_build_ships_a_launcher_an_mcp_client_can_spawn() -> None:
-    """45-extending.md tells an agent's MCP client to run `uv run warlock mcp`,
+    """46-extending.md tells an agent's MCP client to run `uv run warlock mcp`,
     which only exists in a source checkout with `uv` installed. An installed
     Warlock has neither, and until this launcher existed the only generated
     entry point under `bin\\` was warlock-doctor.cmd -- so an installed

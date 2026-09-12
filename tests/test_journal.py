@@ -826,7 +826,7 @@ def test_every_real_provider_is_registered_by_ensure():
     # ``sirens_mode``'s provider missing from this set, nor would it catch a
     # kind's deletion the way ``test_journal_docstring_and_kind_modes_comment_
     # name_no_deleted_profile_kind`` needs this set to be trustworthy.
-    assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "pose"}
+    assert kinds == {"inker", "clay", "plotter", "packwright", "sirens", "pose", "mason"}
 
 
 @pytest.mark.parametrize(
@@ -868,7 +868,9 @@ def test_no_two_kinds_share_a_name_or_an_extension():
     assert len({p.ext for p in all_of}) == len(all_of)
 
 
-@pytest.mark.parametrize("suffix", [".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json"])
+@pytest.mark.parametrize(
+    "suffix", [".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json", ".wscn"]
+)
 def test_each_document_kind_writes_its_own_format(suffix: str):
     """A recovered file is openable by hand and by the mode's ordinary reader,
     which is what makes a crash copy inspectable rather than opaque. The list
@@ -880,7 +882,7 @@ def test_each_document_kind_writes_its_own_format(suffix: str):
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}
     assert suffix in exts
-    assert len(exts) == 6, sorted(exts)
+    assert len(exts) == 7, sorted(exts)
 
 
 def test_a_map_with_a_layer_tree_journals_and_comes_back():
@@ -1042,7 +1044,7 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
 
     journal.ensure_providers()
     exts = {p.ext for p in journal.providers()}
-    assert exts == {".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json"}
+    assert exts == {".ora", ".wblk", ".wmap", ".wpack", ".wsng", ".pose.json", ".wscn"}
 
     module_doc = journal.__doc__ or ""
     provider_doc = journal.Provider.__doc__ or ""

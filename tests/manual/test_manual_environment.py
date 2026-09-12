@@ -31,7 +31,7 @@ def test_manual_config_lists_native_and_migrate_vars_as_reported_by_effective_co
     that readout, when only WARLOCK_LOG_LEVEL genuinely is -- the other four are
     config.SWITCHES's whole reason to exist.
     """
-    chapter = _chapter("40-configuration.md")
+    chapter = _chapter("41-configuration.md")
     section = chapter.split("### Seeing which of these are actually set", 1)[1]
     section = section.split("\n## ", 1)[0]
 
@@ -90,7 +90,7 @@ def test_installation_md_studio_extra_row_matches_pyproject():
     names = [re.split(r"[<>=!~;\[\s]", dep, maxsplit=1)[0].strip() for dep in studio_extra]
     assert names, "pyproject.toml's [project.optional-dependencies].studio is empty"
 
-    chapter = _chapter("39-installation.md")
+    chapter = _chapter("40-installation.md")
     match = re.search(r"\|\s*`studio`\s*\|([^|]*)\|", chapter)
     assert match, "no `studio` row found in the installation chapter's extras table"
     row_text = match.group(1)

@@ -55,6 +55,15 @@ MAX_NODES = 100_000
 #: as a node, and both are a hang before they are a scene.
 MAX_MATERIALS = 100_000
 MAX_MESHES = 100_000
+#: The same argument one field over, for the two arrays Mason's export added
+#: (cameras and KHR_lights_punctual's lights): both are tiny per entry and
+#: neither is charged against the byte budget at all, because a camera or a
+#: light decodes no accessor and no image -- so a file declaring a million of
+#: either is finding-clay-05's hang wearing a third and fourth name. Same
+#: value for the same reason: a JSON entry of this size is a hang before it
+#: is a scene.
+MAX_CAMERAS = 100_000
+MAX_LIGHTS = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -154,6 +163,64 @@ class Skin:
     inverse_bind: np.ndarray  # (n, 4, 4)
 
 
+#: KHR_lights_punctual's three kinds, verbatim. There is no fourth, and no
+#: second name for any of these three: Mason's ``LightNode`` carries the same
+#: strings, because the export *is* the definition and a parallel vocabulary
+#: buys a conversion function and a place for the two to drift.
+LIGHT_KINDS = ("directional", "point", "spot")
+
+
+@dataclass
+class Camera:
+    """A perspective camera, in glTF's own fields and units (radians, metres).
+
+    Added for Mason's scene export: a scene editor places camera markers and
+    an engine importer reads them back, and neither half has anywhere to put
+    one otherwise. Orthographic is deliberately absent -- nothing in this
+    project authors one, and a field that no writer fills and no reader trusts
+    is worse than its absence.
+
+    ``zfar`` of 0 means the file carries no ``zfar`` at all, which is glTF's
+    own way of saying an infinite perspective projection; ``aspect_ratio`` of
+    0 likewise means "whatever the viewport is", which is what the spec says a
+    missing ``aspectRatio`` means. Zero rather than ``None`` for both because
+    every other optional number in this module is a float a caller can set
+    without first deciding whether the field exists.
+    """
+
+    name: str = ""
+    yfov: float = 1.0471975511965976  # 60 degrees
+    znear: float = 0.1
+    zfar: float = 0.0
+    aspect_ratio: float = 0.0
+
+
+@dataclass
+class Light:
+    """A KHR_lights_punctual light, in the extension's own fields and units.
+
+    **Direction is not a field.** The extension defines a light's direction as
+    its node's local ``-Z``, so the node's rotation is the only place that fact
+    lives -- a separate direction here would be a second copy of one fact that
+    can disagree with the first, which is the same argument
+    ``mason/nodes.py``'s ``LightNode`` docstring makes for carrying no
+    direction either.
+
+    ``range`` of 0 means the file carries no ``range``, which the extension
+    defines as an infinite one; the kinds that ignore it entirely
+    (``directional``) never write it regardless. Cone angles apply to
+    ``spot`` alone and are written only for it.
+    """
+
+    name: str = ""
+    kind: str = "point"
+    color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    intensity: float = 1.0
+    range: float = 0.0
+    inner_cone_angle: float = 0.0
+    outer_cone_angle: float = 0.7853981633974483  # pi / 4
+
+
 @dataclass
 class Node:
     name: str = ""
@@ -163,6 +230,11 @@ class Node:
     children: list[int] = field(default_factory=list)
     mesh: int | None = None
     skin: int | None = None
+    #: Indices into ``Model.cameras`` / ``Model.lights``. A node carries at
+    #: most one of each, which is the spec's rule for ``camera`` and the
+    #: extension's rule for its ``light``.
+    camera: int | None = None
+    light: int | None = None
     # Filled by Model.update_world(); never trusted before that runs.
     world: np.ndarray = field(default_factory=m3.identity)
 
@@ -180,11 +252,20 @@ class Model:
         meshes: list[list[Primitive]],
         skins: list[Skin],
         skipped_textures: int = 0,
+        cameras: list[Camera] | None = None,
+        lights: list[Light] | None = None,
     ) -> None:
         self.nodes = nodes
         self.roots = roots
         self.meshes = meshes
         self.skins = skins
+        # Keyword, defaulted, and after ``skipped_textures``: every existing
+        # caller builds a Model positionally out of the first four arguments
+        # (``Model(nodes, roots, meshes, skins)``), and a document with
+        # neither a camera nor a light is exactly the document every one of
+        # them had before these two existed.
+        self.cameras: list[Camera] = list(cameras or [])
+        self.lights: list[Light] = list(lights or [])
         # How many of this file's images the loader could not use (D42). The
         # stated policy is that a texture is a cosmetic loss and never a reason
         # to refuse a file -- which is right, and left the loss reported only in
@@ -336,7 +417,14 @@ class Model:
 #: Extensions this loader implements. Anything a file lists as *required*
 #: beyond these changes what its bytes mean, so it is refused rather than
 #: decoded as though the extension were absent.
-SUPPORTED_EXTENSIONS: frozenset[str] = frozenset()
+#: ``KHR_lights_punctual`` is here because this loader now reads it: a file
+#: that *requires* it is a file whose lights this build can actually restore,
+#: so refusing it would be refusing a document we write ourselves. Our own
+#: writer lists it under ``extensionsUsed`` rather than
+#: ``extensionsRequired`` -- a reader that drops the lights still gets the
+#: geometry, which is what "used" means -- but a third-party exporter is free
+#: to require it and that file is now readable rather than refused.
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"KHR_lights_punctual"})
 
 
 def load(path: Path | bytes) -> Model:
@@ -369,6 +457,16 @@ def load(path: Path | bytes) -> Model:
             f"this GLB declares {declared_meshes} meshes, "
             "more than this viewer will load"
         )
+    declared_cameras = len(gltf.get("cameras", []))
+    if declared_cameras > MAX_CAMERAS:
+        raise ValueError(
+            f"this GLB declares {declared_cameras} cameras, more than this viewer will load"
+        )
+    punctual = _punctual(gltf)
+    if len(punctual) > MAX_LIGHTS:
+        raise ValueError(
+            f"this GLB declares {len(punctual)} lights, more than this viewer will load"
+        )
     reader = _Reader(gltf, buffer)
     materials = [reader.material(m) for m in gltf.get("materials", [])]
     meshes = [
@@ -378,8 +476,33 @@ def load(path: Path | bytes) -> Model:
     skins = [reader.skin(s) for s in gltf.get("skins", [])]
     nodes = [reader.node(n) for n in gltf.get("nodes", [])]
     return Model(
-        nodes, _roots(gltf, nodes), meshes, skins, skipped_textures=reader.skipped
+        nodes,
+        _roots(gltf, nodes),
+        meshes,
+        skins,
+        skipped_textures=reader.skipped,
+        cameras=[reader.camera(c) for c in gltf.get("cameras", [])],
+        lights=[reader.light(light) for light in punctual],
     )
+
+
+def _punctual(gltf: dict) -> list[Any]:
+    """The ``KHR_lights_punctual`` light array, or an empty list.
+
+    Read defensively at every level rather than indexed: a file may carry no
+    ``extensions`` at all (the ordinary case), an ``extensions`` that is not a
+    mapping, or the extension key holding something other than a list -- and
+    each of those is a malformed *optional* section, which must cost the file
+    its lights and never its geometry.
+    """
+    extensions = gltf.get("extensions")
+    if not isinstance(extensions, dict):
+        return []
+    block = extensions.get("KHR_lights_punctual")
+    if not isinstance(block, dict):
+        return []
+    lights = block.get("lights")
+    return list(lights) if isinstance(lights, list) else []
 
 
 def _roots(gltf: dict, nodes: list[Node]) -> list[int]:
@@ -429,6 +552,26 @@ def _check_int_index(value: Any, what: str) -> None:
     """
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{what} must be a whole number, got {value!r}")
+
+
+def _number(value: Any, default: float) -> float:
+    """One optional float off a camera or light entry, or ``default``.
+
+    A camera and a light are *markers*: neither decodes a byte, neither sizes
+    an allocation, and a malformed one costs a wrongly-shaped frustum or a
+    differently-coloured light rather than a corrupt mesh. So unlike every
+    numeric field this loader reads off a node (see :func:`_trs`), a
+    non-numeric value here falls back instead of refusing the file -- the same
+    trade ``Model.skipped_textures`` already names for an unreadable image,
+    which is also a loss that must not take the geometry with it. A non-finite
+    value falls back too: an infinite ``yfov`` reaches a projection matrix as
+    a frame of NaNs, which is a viewport that draws nothing with no error
+    anywhere to say why.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    number = float(value)
+    return number if np.isfinite(number) else default
 
 
 def _trs(
@@ -999,6 +1142,52 @@ class _Reader:
             ibm = np.tile(np.eye(4), (len(joints), 1, 1))
         return Skin(joints=joints, inverse_bind=ibm)
 
+    # -- cameras and lights ------------------------------------------------
+
+    def camera(self, entry: Any) -> Camera:
+        """One ``cameras`` entry. Orthographic is read as a perspective camera
+        carrying this module's defaults rather than refused: a camera is a
+        marker, not geometry, so a kind this build does not model costs the
+        file one wrongly-shaped frustum and never the scene around it.
+        """
+        if not isinstance(entry, dict):
+            return Camera()
+        persp = entry.get("perspective")
+        persp = persp if isinstance(persp, dict) else {}
+        return Camera(
+            name=str(entry.get("name", "")),
+            yfov=_number(persp.get("yfov"), Camera.yfov),
+            znear=_number(persp.get("znear"), Camera.znear),
+            zfar=_number(persp.get("zfar"), 0.0),
+            aspect_ratio=_number(persp.get("aspectRatio"), 0.0),
+        )
+
+    def light(self, entry: Any) -> Light:
+        """One ``KHR_lights_punctual`` light.
+
+        An unrecognised ``type`` falls back to ``point`` rather than raising,
+        for :meth:`camera`'s reason and one more: the extension is explicitly
+        extensible, so a fourth kind added to it later must not make a file
+        carrying one unopenable.
+        """
+        if not isinstance(entry, dict):
+            return Light()
+        kind = entry.get("type")
+        spot = entry.get("spot")
+        spot = spot if isinstance(spot, dict) else {}
+        color = entry.get("color")
+        if not (isinstance(color, (list, tuple)) and len(color) == 3):
+            color = Light.color
+        return Light(
+            name=str(entry.get("name", "")),
+            kind=kind if kind in LIGHT_KINDS else "point",
+            color=tuple(_number(c, 1.0) for c in color),  # type: ignore[arg-type]
+            intensity=_number(entry.get("intensity"), Light.intensity),
+            range=_number(entry.get("range"), 0.0),
+            inner_cone_angle=_number(spot.get("innerConeAngle"), Light.inner_cone_angle),
+            outer_cone_angle=_number(spot.get("outerConeAngle"), Light.outer_cone_angle),
+        )
+
     def node(self, node: dict) -> Node:
         # Bounds-checked against the file's own declared counts, not decoded
         # length -- both are read from ``self.gltf`` before any node is built,
@@ -1047,11 +1236,39 @@ class _Reader:
         # (test_a_child_index_that_names_no_node_is_skipped_not_raised).
         for child in children:
             _check_int_index(child, f"node {name!r}'s child reference")
+        camera = node.get("camera")
+        if camera is not None:
+            _check_int_index(camera, f"node {name!r}'s camera reference")
+            n_cameras = len(self.gltf.get("cameras", []))
+            if not 0 <= camera < n_cameras:
+                raise ValueError(
+                    f"node {name!r} references camera "
+                    f"{camera}, but this GLB declares {n_cameras} camera(s)"
+                )
+        # The extension hangs its index off the node's own ``extensions``
+        # block rather than off a top-level field, which is the one structural
+        # difference between a light and a camera here.
+        node_ext = node.get("extensions")
+        light = None
+        if isinstance(node_ext, dict):
+            block = node_ext.get("KHR_lights_punctual")
+            if isinstance(block, dict):
+                light = block.get("light")
+        if light is not None:
+            _check_int_index(light, f"node {name!r}'s light reference")
+            n_lights = len(_punctual(self.gltf))
+            if not 0 <= light < n_lights:
+                raise ValueError(
+                    f"node {name!r} references light "
+                    f"{light}, but this GLB declares {n_lights} light(s)"
+                )
         out = Node(
             name=node.get("name", ""),
             children=children,
             mesh=mesh,
             skin=skin,
+            camera=camera,
+            light=light,
         )
         # The 2026-09-09 audit, finding clay-05: none of these four fields
         # was shape-checked at all -- see ``_trs`` above for what that let

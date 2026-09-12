@@ -80,6 +80,7 @@ from ._view_drag import DragOps
 
 # ``__init__`` annotates the live-drag map with it.
 from ._view_drag import _ElementDrag as _ElementDrag
+from ._view_frame import Composite, FrameOps
 from ._view_overlay import OverlayOps
 
 # ``__init__`` annotates the overlay cache with it.
@@ -101,24 +102,6 @@ log = logging.getLogger(__name__)
 # Which gizmo each tool drives. Held as data so the dispatch is one lookup
 # rather than a chain that a fifth tool would have to be threaded through.
 GIZMO_FOR_TOOL = {"move": "translate", "rotate": "rotate", "scale": "scale"}
-
-
-class _Composite:
-    """The renderer's view of many cached objects at once.
-
-    Not a ``GpuModel``: it owns nothing and releases nothing, and the two
-    methods here are the entire surface ``Renderer._draw_model`` uses. Skinning
-    is not part of it -- Clay has no skins, which is also why
-    ``glbwrite`` refuses one.
-    """
-
-    __slots__ = ("draws",)
-
-    def __init__(self, draws: list[Any]) -> None:
-        self.draws = draws
-
-    def palette(self, node: Any) -> None:
-        return None
 
 
 #: How opaque the surface is in X-ray. A third: enough to read the silhouette
@@ -146,7 +129,7 @@ class GizmoDragReadout:
     amount: str
 
 
-class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
+class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
     """The Clay viewport, from the UI's point of view."""
 
     def __init__(self, ctx: Any, app_ctx: Any = None) -> None:
@@ -327,12 +310,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
             bool(self.flat), bool(self.wire_overlay), bool(self.xray),
             id(doc), doc.rev, getattr(self.state, "tool", "select"),
         )
-        if (
-            not self._render_dirty
-            and key == self._last_render_key
-            and self.camera.settled()
-            and self.viewport.texture is not None
-        ):
+        if self._frame_unchanged(key):
             return self.viewport.texture
         self._last_render_key = key
         self._last_doc = doc
@@ -398,30 +376,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps):
             for node, primitive in entry.gpu.draws:
                 node.world = world
                 draws.append((node, primitive))
-        return _Composite(draws) if draws else None
-
-    def _resize(self, width: int, height: int) -> None:
-        """Resize, forgetting the outgoing texture first.
-
-        ``Viewport.resize`` releases its texture and makes a new one, and the
-        imgui backend maps GL names to moderngl objects: releasing without
-        forgetting leaves it holding a dead object under a name the driver is
-        free to reissue, which is how an unrelated image starts rendering as
-        this one.
-        """
-        if (width, height) == self.viewport.size:
-            return
-        self._forget(self.viewport.texture)
-        self.viewport.resize((width, height))
-
-    def _forget(self, texture: Any) -> None:
-        if texture is None:
-            return
-        from . import imgui_backend
-
-        renderer = imgui_backend.current()
-        if renderer is not None:
-            renderer.forget_texture(texture)
+        return Composite(draws) if draws else None
 
     def _gizmo_draws(self, doc: Any, height: int) -> list[Any]:
         gizmo = self.active_gizmo(doc)

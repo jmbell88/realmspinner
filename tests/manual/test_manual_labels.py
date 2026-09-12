@@ -49,19 +49,29 @@ def test_your_first_asset_names_the_actual_generate_button_label_for_3d_model():
     )
 
 
-def test_home_new_menu_manual_lists_all_eight_items_including_song():
-    """The 2026-09-06 audit, finding docs-07: chapter 21 says the New... menu
-    holds "the seven things this app can begin from nothing" and lists seven,
-    but ``landing.NEW_ITEMS`` has eight -- its own comment says "The eight
-    things" -- and the missing one starts a song."""
+def test_home_new_menu_manual_lists_every_item_including_the_scene():
+    """The 2026-09-06 audit, finding docs-07: chapter 21 said the New... menu
+    holds "the seven things this app can begin from nothing" and listed seven,
+    where ``landing.NEW_ITEMS`` had eight, and the missing one started a song.
+
+    The count is derived from ``NEW_ITEMS`` rather than written twice, which is
+    what stops this going stale a second time -- it went stale exactly once
+    more, when Mason's "New scene" made it nine, and a hand-typed number would
+    have had to be found again instead of the chapter simply failing here.
+    """
     from warlock.studio.panes.landing import NEW_ITEMS
 
-    assert len(NEW_ITEMS) == 8
+    words = {8: "eight", 9: "nine", 10: "ten"}
+    counted = words[len(NEW_ITEMS)]
 
     text = _read("21-home")
-    assert "eight things this app can begin from nothing" in text, (
-        "docs/manual/21-home.md still says 'seven things', but NEW_ITEMS has "
-        f"{len(NEW_ITEMS)}"
+    assert f"{counted} things this app can begin from nothing" in text, (
+        f"docs/manual/21-home.md disagrees with NEW_ITEMS, which has "
+        f"{len(NEW_ITEMS)} items"
+    )
+    assert "a scene" in text, (
+        "docs/manual/21-home.md's New... list omits the scene item that "
+        'landing.NEW_ITEMS carries ("New scene")'
     )
     # Every item's noun should show up somewhere in the chapter's prose list.
     # "New song" -> "a song": the chapter writes the list as bare nouns, not

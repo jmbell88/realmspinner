@@ -20,9 +20,111 @@ the release you are actually running.
 
 ## 0.0.44 — 2026-09-11
 
+**Mason, a new workspace, can now be used.** Mason is the mode for arranging
+the things this app makes into a *place*: open a scene, drop library models and
+primitives into it, select and move and rotate and scale them, and look around
+with the same orbit, pan and dolly every other 3-D view in Warlock uses. It
+saves as a `.wscn`, reopens from Home's Resume list, recovers after a crash
+like every other document, and leaves as a glTF scene (a `scene.glb` with an
+engine-readable manifest beside it) or as merged OBJ geometry with its
+materials. A scene *links* the models it places rather than swallowing copies
+of them, so re-exporting an asset out of Clay updates every scene standing on
+it, and only an export ever embeds geometry.
+
+- **Five hundred copies of one barrel cost one barrel's worth of video
+  memory.** The viewport recognises that two placements of the same asset are
+  the same geometry and uploads it once, which is what makes a dressed scene
+  affordable at all rather than a slideshow. Getting it wrong in the obvious
+  way is invisible — nothing crashes, the frame draws, and every copy but the
+  last quietly stacks up in one spot — so the test for it was written before
+  the code, and the fix was proved by putting the bug back and watching six
+  barrels pile onto the sixth.
+- **An asset that finishes loading now appears.** A model placed in a scene is
+  read from disk in the background, and finishing that read changes the picture
+  without changing the document. The viewport skips frames where nothing moved,
+  so it now counts a newly-arrived model as something that moved — otherwise a
+  prop stayed invisible until you happened to nudge the camera.
+- **Off-screen props stop costing anything**, past a few hundred of them, and
+  see-through surfaces are drawn after the solid ones they show through.
+
+**And a scene is now something you can actually dress.** Placing a light used
+to be a row in the outliner and nothing at all in the viewport -- a light and a
+camera have no shape of their own, so there was nothing for the renderer to
+draw -- and the ground was the same: the heightfield could be sculpted and the
+mouse could already find it, so a click landed on hills nobody could see.
+
+- **Lights and cameras are drawn, and can be clicked.** Each gets a wire symbol
+  at its own position: a bulb, a cone at the spot light's real angle, the
+  parallel rays everyone draws a sun as, and a view frustum at the camera's
+  real field of view. Widening a cone in Properties widens the cone on screen.
+  A symbol stays the same size however the node is scaled, because a light
+  scaled to five is not a brighter light, and it is clicked at exactly the size
+  it is drawn.
+- **A ground you can sculpt.** Add one from the Assets panel and shape it with
+  five brushes -- raise, lower, smooth, flatten and seeded noise -- and the
+  whole drag is **one** undo step rather than one per frame of mouse movement.
+  Flatten can take its target height from the ground under the start of the
+  stroke, which is how a plateau is levelled to the height it already is.
+  Deleting the ground is undoable and brings the sculpting back with it.
+- **Clicking in the viewport now places what you picked.** Arming a primitive,
+  a light or a camera in the Assets panel and clicking did nothing at all
+  before; the click now drops it where you pointed -- on the ground, or on the
+  roof of whatever is under the cursor -- snapped to the grid if snapping is
+  on. The arming survives the click, so a row of fence posts is one choice and
+  six clicks, and Esc cancels it.
+- **Prefabs.** Make one from anything selected and it becomes the first
+  instance of its own template; place as many more as you like, and editing the
+  template changes every one of them on the next frame, with no "apply to
+  instances" step to forget. An instance that has to differ is unpacked into an
+  ordinary copy. The Prefabs panel appears only once a scene has a template,
+  so it costs nothing on a scene that never uses one.
+- **Dragging a row in the outliner now puts it *inside* what you dropped it
+  on**, which is what a tree drag is for -- it used to drop it beside instead.
+  Order within a parent, which is also the order a scene exports in, moved to
+  Move up / Move down / Move to root on the row's own menu. Group got its
+  opposite, Ungroup.
+
+**And a scene now goes into the library and comes back out as a scene.**
+Export to the library turns the arrangement into an ordinary asset -- the same
+kind of row a generated model is, so it can be rigged, posed, sheeted,
+retargeted and exported like any other mesh -- and keeps the scene document
+itself tucked beside it. Open in Mason on that row brings the whole arrangement
+back: the groups, the prefab instances, the lights, and the links to the models
+it was standing on, not a single frozen lump of geometry. There is deliberately
+no fall-back if that document has gone: a merged mesh is not a smaller scene,
+and opening one and calling it your scene would show you finished work that is
+not there and let you save over it.
+
+- **A library model can be added to a scene from the library itself**, from the
+  card's overflow menu and from the inspector beside it, wherever you are in
+  the app. If no scene is open, one is started for it -- a button that placed
+  something into nothing and reported success is the failure this avoids.
+- **The exported asset's card gets a picture of the scene**, taken from Mason's
+  own viewport. The shared snapshot code only knew how to photograph Clay's,
+  which in a session that never opened Clay is nothing at all.
+- **Mason is documented**, which is what its (?) buttons were waiting for.
+  There is a reference chapter covering every panel, brush, ceiling and export,
+  a tutorial that builds a room out of library assets and takes it into an
+  engine, and a Mason section in the keyboard-shortcuts chapter and the Ctrl+/
+  sheet alike. Until now every one of Mason's seven help buttons opened Clay's
+  chapter at the nearest paragraph that was nearly about the right thing.
+
 A review of the MCP bridge — the way an external AI agent drives Clay — found
 the feature unreachable for anyone who installed Warlock rather than cloning
 it, and found three ways any other program on the machine could switch it off.
+
+- **A model that carries lights or cameras now opens instead of being turned
+  away.** Warlock's glTF reader listed no extensions it understood, so any file
+  declaring that it *required* `KHR_lights_punctual` — the standard way a glTF
+  says where its lamps are, and what Blender writes by default when a scene has
+  one — was refused outright, geometry and all. It reads them now, and the
+  writer can put them back: a camera or a light survives a trip through Warlock
+  rather than being the reason a file would not come in. Nothing else about an
+  exported file moved, and that is asserted rather than assumed — a fixed Clay
+  document's exported bytes are pinned by hash against the writer as it was
+  before any of this, because every existing mode hands that writer a model
+  with neither a camera nor a light in it and had to go on getting exactly the
+  file it got before.
 
 - **An installed Warlock can now be driven by an agent at all.** The setup
   command the manual gave, `uv run warlock mcp`, needs `uv` and a source

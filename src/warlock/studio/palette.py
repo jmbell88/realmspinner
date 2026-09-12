@@ -191,6 +191,7 @@ _DOC_MODES: dict[str, tuple[str, str]] = {
     # mode -> (module name, export command label)
     "inker": ("inker_mode", "Export PNG"),
     "clay": ("clay_mode", verbs.EXPORT_TO_LIBRARY),
+    "mason": ("mason_mode", "Export .glb + manifest"),
     "plotter": ("plotter_mode", "Export .tmx"),
     "packwright": ("packwright_mode", "Export atlas + JSON"),
     # Named for the folder rather than for a file: this is the one export in
@@ -253,6 +254,8 @@ def _doc_export(ctx: Any) -> None:
         module.export_png(ctx, tab)
     elif ctx.state.mode == "clay":
         module.export_asset(ctx, tab)
+    elif ctx.state.mode == "mason":
+        module.export_glb(ctx, tab)
     elif ctx.state.mode == "plotter":
         module.export_map(ctx, "tmx", tab)
     else:

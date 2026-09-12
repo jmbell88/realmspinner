@@ -473,6 +473,70 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
     return Exit("packwright", label, hint, "", reason, door)
 
 
+# --- Mason --------------------------------------------------------------------
+
+
+def _mason_reopen(ctx: Any, job: Any) -> Exit | None:
+    """Back into the scene a library row was exported from.
+
+    ``_plotter_reopen``'s shape exactly, including the reason it reads the
+    marker rather than the disk: a reopen has **no fallback**
+    (``mason_mode.edit_asset_in_mason``'s docstring says why a merged mesh is
+    not a lesser scene), so the row alone has to answer whether the ``.wscn``
+    is there -- and every gate in this module is answered from the cached row,
+    with no ``stat`` on the frame thread.
+    """
+    if _params(job).get("authored") != "mason":
+        return None
+    from . import mason_mode
+
+    def door(ctx: Any, job: Any) -> None:
+        mason_mode.edit_asset_in_mason(ctx, job)
+
+    return Exit(
+        "mason", verbs.open_in("mason"), "Reopens the authored scene.", "", "", door
+    )
+
+
+def _mason_add(ctx: Any, job: Any) -> Exit | None:
+    """Drop a library mesh into the open scene.
+
+    Gated on the *resolved* mesh like ``_clay``, ``_poser`` and ``_troupe_in``,
+    for their reason: a rig or a retexture row writes into its source's
+    directory and has no ``model.glb`` of its own, so a door keyed on the
+    selected row would place a reference to a job with no mesh behind it.
+
+    It offers to add rather than to open, so the label is ``add_to`` and not
+    ``open_in`` -- ``verbs``' own distinction: the asset joins a document there
+    as a *source*, and the scene it joins is whichever one is already open.
+    A scene is minted if none is, which is what makes this a one-press exit
+    from the library rather than a two-step errand.
+    """
+    mesh = _mesh_for(ctx, job)
+    if mesh is None:
+        return None
+    from . import mason_mode
+
+    label = verbs.add_to("mason", "as a scene item")
+    hint = "Place this mesh in the open scene."
+
+    # Closed over ``mesh``, ``_clay``'s reason: both call sites invoke the door
+    # with the row the user picked, which for a follow-up is not the mesh.
+    def door(ctx: Any, job: Any, _mesh: Any = mesh) -> None:
+        mason_mode.add_asset_to_scene(ctx, _mesh)
+
+    if mesh.get("status") == "done" and "model.glb" in _files(mesh):
+        return Exit("mason", label, hint, "", "", door)
+
+    if mesh.get("status") != "done":
+        reason = _status_reason(mesh)
+    elif "model.glb" not in _files(mesh):
+        reason = "This mesh has no model yet."
+    else:  # pragma: no cover - the ready branch above already claimed it
+        return None
+    return Exit("mason", label, hint, "", reason, door)
+
+
 # --- Sirens -------------------------------------------------------------
 
 
@@ -506,6 +570,8 @@ def _sirens(ctx: Any, job: Any) -> Exit | None:
 _BUILDERS: tuple[Callable[[Any, Any], Exit | None], ...] = (
     _inker,
     _clay,
+    _mason_reopen,
+    _mason_add,
     _poser,
     _troupe_in,
     _troupe_out,

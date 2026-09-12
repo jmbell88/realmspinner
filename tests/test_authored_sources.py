@@ -1,6 +1,8 @@
-"""The authored documents Plotter and Packwright keep beside an exported asset.
+"""The authored documents Plotter, Packwright and Mason keep beside an exported asset.
 
-The ``paint.ora`` / ``build.wblk`` precedent, applied twice more. What matters
+The ``paint.ora`` / ``build.wblk`` precedent, applied three times more -- Mason's
+``scene.wscn`` on the *mesh* side of it, beside a ``model`` row rather than a
+reference, which changes nothing about the rule. What matters
 is not that the bytes land -- it is that they land *invisibly*: absent from the
 served file list, never downloadable, and gone with the job directory for free.
 
@@ -79,6 +81,7 @@ def test_the_marker_is_an_input_and_survives_a_promotion(svc):
     [
         (svc_files.save_plotter_source, svc_files.plotter_source_path, "map.wmap"),
         (svc_files.save_packwright_source, svc_files.packwright_source_path, "pack.wpack"),
+        (svc_files.save_mason_source, svc_files.mason_source_path, "scene.wscn"),
     ],
 )
 def test_a_source_lands_beside_the_asset_under_its_own_name(svc, save, path, name):
@@ -89,7 +92,8 @@ def test_a_source_lands_beside_the_asset_under_its_own_name(svc, save, path, nam
 
 
 @pytest.mark.parametrize(
-    "name", [svc_files.PLOTTER_SOURCE, svc_files.PACKWRIGHT_SOURCE]
+    "name",
+    [svc_files.PLOTTER_SOURCE, svc_files.PACKWRIGHT_SOURCE, svc_files.MASON_SOURCE],
 )
 def test_a_source_is_never_served_and_never_listed(name):
     """The whole of what makes these invisible: a name outside both tables is a
@@ -194,6 +198,29 @@ def test_a_saved_source_lands_where_the_path_helper_says_it_will(svc):
     assert svc_files.plotter_source_path(svc, job_id).exists()
     # And the two documents are separate files, not one flag between them.
     assert not svc_files.packwright_source_path(svc, job_id).exists()
+
+
+def test_the_scene_ceiling_is_the_one_mason_opens_files_at(svc):
+    """One number for one format. ``studio.mason_io`` refuses an oversized
+    ``.wscn`` on the way *in* and this refuses one on the way out, and two
+    constants would be how a file the app opens happily becomes one the
+    service will not store beside the asset it was exported to."""
+    from warlock.studio import mason_io
+
+    assert mason_io.MAX_WSCN_BYTES == svc_files.MAX_SCENE_SOURCE_BYTES
+    job_id = _exported(svc, "plotter")
+    huge = _zip() + b"x" * svc_files.MAX_SCENE_SOURCE_BYTES
+    with pytest.raises(TooLarge):
+        svc_files.save_mason_source(svc, job_id, huge)
+
+
+def test_a_scene_that_is_not_an_archive_is_refused(svc):
+    """A ``.wscn`` is a zip, as every other authored document here is."""
+    job_id = _exported(svc, "plotter")
+    with pytest.raises(Invalid):
+        svc_files.save_mason_source(svc, job_id, b"not a zip at all")
+    with pytest.raises(NotFound):
+        svc_files.save_mason_source(svc, "0" * 12, _zip())
 
 
 def test_job_dir_file_validates_the_id_it_is_given(svc):

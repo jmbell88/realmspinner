@@ -298,10 +298,26 @@ def seed(app) -> None:
     exactly the moment those four were rewritten. The tileset is built in
     process rather than imported: ``add_tileset`` is synchronous where every
     file door goes through the task thread.
+
+    **And a scene** (Mason, Stage E), which is the same defect a fourth time and
+    was measured rather than guessed: the first ``exercise_mode --mode mason``
+    run reported 41 of 60 controls as ``hard-reset``, every one carrying the
+    identical delta ``documents: () -> ('ms1',)``. With no scene open Mason
+    draws its empty state, so the *first* press of any control -- a primitive
+    button, a tool, a pivot -- mints the document, and no undo takes a document
+    back out of existence. Every verdict in that run was the driver reporting
+    its own missing seed, which is exactly what this docstring has had to say
+    three times already.
     """
     import numpy as np
 
-    from warlock.studio import clay_mode, inker_mode, packwright_mode, plotter_mode
+    from warlock.studio import (
+        clay_mode,
+        inker_mode,
+        mason_mode,
+        packwright_mode,
+        plotter_mode,
+    )
     from warlock.studio.tilegrid import gid
     from warlock.studio.tilegrid.tileset import Tileset
 
@@ -310,6 +326,8 @@ def seed(app) -> None:
     if state.active is not None:
         inker_mode.animate(app.app_ctx, state.active)
     clay_mode.new_document(app.app_ctx)
+    mason_mode.new_document(app.app_ctx)
+    _seed_mason(app.app_ctx, mason_mode)
     packwright_mode.new_document(app.app_ctx)
 
     tab = plotter_mode.new_document(app.app_ctx)
@@ -742,3 +760,28 @@ def seed_sheet_form(app, *, arm: str) -> None:
     # The sheet Dimensions section lives inside the disclosure, and the
     # disclosure is AppState rather than settings, so it starts shut.
     state.create_advanced = True
+
+
+def _seed_mason(ctx: object, mason_mode: object) -> None:
+    """A ground and a prefab in the seeded scene, for the reason the empty
+    document was seeded at all (Stage F).
+
+    Half of Mason's controls are behind a condition rather than behind a
+    document: the brush row only exists once the scene has a terrain, and the
+    whole Prefabs pane is a conditional slot that is not in the column until the
+    scene defines a template. Without both, ``exercise_mode --mode mason`` drives
+    every control in the mode **except** the ones Stage F added, and reports full
+    coverage -- which is the same blind spot, one layer up, that the missing
+    document itself was.
+    """
+    from warlock.studio.mason import nodes as nd
+
+    mason_mode.add_terrain(ctx)
+    tab = mason_mode.active(ctx)
+    if tab is None:
+        return
+    doc = tab.doc
+    node = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="Prop"))
+    doc.select([node.uid])
+    mason_mode.define_prefab_from_selection(ctx, "Prop")
+    doc.select([])

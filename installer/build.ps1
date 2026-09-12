@@ -277,7 +277,7 @@ setlocal
 '@
 Set-Content -LiteralPath (Join-Path $Stage "bin\warlock-doctor.cmd") -Value $Doctor -Encoding ascii
 
-# An installed Warlock has no `uv` and no checkout, so 45-extending.md's
+# An installed Warlock has no `uv` and no checkout, so 46-extending.md's
 # `claude mcp add` command needs something an MCP client's config can point
 # at that still routes through the staged interpreter. This is deliberately
 # not a Start Menu or desktop shortcut (see [Icons] in warlock.iss): an MCP

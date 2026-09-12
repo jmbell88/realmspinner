@@ -386,3 +386,226 @@ def test_a_glb_whose_json_chunk_overruns_the_file_is_refused() -> None:
     lied = data[:12] + struct.pack("<I", chunk_len + len(data)) + data[16:]
     with pytest.raises(ValueError, match="truncated GLB"):
         read_glb(lied)
+
+
+# --- the writer's bytes, held still across the Mason change -------------------
+
+
+def _clay_document():
+    """A small, fully-determined Clay document: two primitives and a palette.
+
+    Deliberately untextured. A texture would put Pillow's PNG encoder into the
+    bytes this file pins, which is a dependency's version rather than this
+    writer's behaviour -- and the claim below is about *this* writer.
+    """
+    from warlock.studio.clay import document as bd
+    from warlock.studio.clay import mesh as bm
+    from warlock.studio.clay import primitives as bp
+
+    doc = bd.ClayDoc(
+        materials=[
+            gltf.Material(
+                name="stone",
+                base_color_factor=(0.55, 0.55, 0.6, 1.0),
+                metallic_factor=0.0,
+                roughness_factor=0.85,
+            ),
+            gltf.Material(
+                name="brass",
+                base_color_factor=(0.8, 0.6, 0.2, 1.0),
+                metallic_factor=1.0,
+                roughness_factor=0.25,
+                emissive_factor=(0.05, 0.02, 0.0),
+            ),
+        ]
+    )
+    box = bd.Obj(uid=1, name="Plinth", mesh=bp.box(size=(2.0, 0.5, 2.0)))
+    box.translation = m3.vec3(0.0, 0.25, 0.0)
+    cyl = bd.Obj(uid=2, name="Column", mesh=bp.cylinder(radius=0.4, height=3.0, segments=12))
+    cyl.translation = m3.vec3(0.0, 2.0, 0.0)
+    cyl.rotation = m3.quat_from_axis_angle(m3.vec3(0.0, 1.0, 0.0), 0.25)
+    # On the second palette slot, so the file carries both materials rather
+    # than one: a pin that only ever exercised slot 0 would not notice a
+    # change to how the other is written.
+    cap = bp.cone(radius=0.5, height=0.6, segments=12)
+    cap = bm.Mesh(
+        positions=cap.positions,
+        loops=cap.loops,
+        starts=cap.starts,
+        material=np.ones_like(cap.material),
+        smooth=cap.smooth,
+    )
+    top = bd.Obj(uid=3, name="Capital", mesh=cap)
+    top.translation = m3.vec3(0.0, 3.7, 0.0)
+    top.scale = m3.vec3(1.2, 1.0, 1.2)
+    doc.objects.extend([box, cyl, top])
+    return doc
+
+
+#: sha256 of ``write_glb(to_model(_clay_document()))``, recorded at 8ab32200 --
+#: the commit *before* Mason's cameras-and-lights change to this writer and to
+#: ``viewer/gltf.py``. See the test below for what it is claiming.
+_CLAY_GLB_SHA256 = "2bffd0afac34eaeb489570a806c79e1a3411c3678daa4e6fd1de3a630922a95b"
+
+
+def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrived() -> None:
+    """Mason's one change to a shared file costs Clay, Poser and Troupe nothing.
+
+    Cameras and lights were added to this writer and to ``viewer/gltf.py`` for
+    Mason's scene export (Stage D), and all three of those modes hand this
+    function models that carry neither. The rule the change was made under is
+    that every new key is emitted **only when one exists**, which is a claim
+    about bytes rather than about intent -- so this pins the bytes, digested
+    from a run against the writer as it was before any of it landed.
+
+    A failure here does not mean this document changed: it means the writer
+    did, for a file with no camera and no light in it, which is precisely what
+    the change promised not to do.
+    """
+    import hashlib
+
+    from warlock.studio.clay import document as bd
+
+    data = glbwrite.write_glb(bd.to_model(_clay_document()))
+    assert hashlib.sha256(data).hexdigest() == _CLAY_GLB_SHA256
+
+
+# --- cameras and lights ------------------------------------------------------
+
+
+def test_a_model_with_no_light_or_camera_declares_neither_and_no_extension() -> None:
+    """The emitted-only-when-one-exists rule, asserted on the JSON itself.
+
+    The digest above says Clay's bytes did not move; this says *why* they did
+    not, which is the part that survives a legitimate future change to the
+    document that digest is taken from. An empty ``cameras`` array or an
+    ``extensionsUsed`` naming an extension the file does not use are both
+    things a strict validator complains about and some importers act on.
+    """
+    model, _ = _model()
+    doc, _ = read_glb(glbwrite.write_glb(model))
+    assert "cameras" not in doc
+    assert "extensions" not in doc
+    assert "extensionsUsed" not in doc
+    assert all("camera" not in n and "extensions" not in n for n in doc["nodes"])
+
+
+def test_a_camera_survives_the_round_trip_with_its_node() -> None:
+    model = gltf.Model(
+        [gltf.Node(name="eye", translation=m3.vec3(0.0, 1.6, 4.0), camera=0)],
+        [0],
+        [],
+        [],
+        cameras=[gltf.Camera(name="main", yfov=0.8, znear=0.05, zfar=250.0)],
+    )
+    out = _roundtrip(model)
+    assert len(out.cameras) == 1
+    assert out.cameras[0].name == "main"
+    assert out.cameras[0].yfov == pytest.approx(0.8)
+    assert out.cameras[0].znear == pytest.approx(0.05)
+    assert out.cameras[0].zfar == pytest.approx(250.0)
+    assert out.nodes[0].camera == 0
+
+
+def test_a_camera_with_no_zfar_writes_none_rather_than_a_zero() -> None:
+    """Zero means absent -- and absent is glTF's infinite perspective, where a
+    literal ``zfar`` of 0 is a frustum that clips everything."""
+    model = gltf.Model([gltf.Node(name="eye", camera=0)], [0], [], [], cameras=[gltf.Camera()])
+    doc, _ = read_glb(glbwrite.write_glb(model))
+    persp = doc["cameras"][0]["perspective"]
+    assert "zfar" not in persp and "aspectRatio" not in persp
+    assert doc["cameras"][0]["type"] == "perspective"
+    assert _roundtrip(model).cameras[0].zfar == 0.0
+
+
+def test_all_three_light_kinds_survive_the_round_trip() -> None:
+    """Directional, point and spot, each with the fields its kind actually has.
+
+    Written as one test over the three rather than three tests because the
+    claim is about the set: KHR_lights_punctual has exactly these kinds, and a
+    writer that handled two of them would pass two tests out of three and lose
+    a third of a scene's lighting.
+    """
+    lights = [
+        gltf.Light(name="sun", kind="directional", color=(1.0, 0.95, 0.8), intensity=3.0),
+        gltf.Light(name="lamp", kind="point", color=(1.0, 0.5, 0.2), intensity=40.0, range=12.0),
+        gltf.Light(
+            name="spot",
+            kind="spot",
+            intensity=15.0,
+            range=8.0,
+            inner_cone_angle=0.2,
+            outer_cone_angle=0.6,
+        ),
+    ]
+    nodes = [gltf.Node(name=f"light{i}", light=i) for i in range(3)]
+    out = _roundtrip(gltf.Model(nodes, [0, 1, 2], [], [], lights=lights))
+
+    assert [light.kind for light in out.lights] == ["directional", "point", "spot"]
+    assert [light.name for light in out.lights] == ["sun", "lamp", "spot"]
+    assert out.lights[0].color == pytest.approx((1.0, 0.95, 0.8))
+    assert out.lights[1].intensity == pytest.approx(40.0)
+    assert out.lights[1].range == pytest.approx(12.0)
+    assert out.lights[2].inner_cone_angle == pytest.approx(0.2)
+    assert out.lights[2].outer_cone_angle == pytest.approx(0.6)
+    assert [n.light for n in out.nodes] == [0, 1, 2]
+
+
+def test_the_light_extension_is_declared_used_and_never_required() -> None:
+    """A reader that has never heard of punctual lights still gets every mesh,
+    which is the distinction between the two keys -- requiring the extension
+    would turn an unlit-but-complete import into a refused file."""
+    model = gltf.Model([gltf.Node(name="l", light=0)], [0], [], [], lights=[gltf.Light()])
+    doc, _ = read_glb(glbwrite.write_glb(model))
+    assert doc["extensionsUsed"] == ["KHR_lights_punctual"]
+    assert "extensionsRequired" not in doc
+    assert doc["extensions"]["KHR_lights_punctual"]["lights"][0]["type"] == "point"
+    assert doc["nodes"][0]["extensions"]["KHR_lights_punctual"]["light"] == 0
+
+
+def test_a_field_a_lights_kind_ignores_is_not_written_for_it() -> None:
+    """``range`` on a directional light and a cone on anything but a spot are
+    fields the extension says to ignore -- and several importers read them
+    anyway, producing a different scene than the one exported."""
+    model = gltf.Model(
+        [gltf.Node(name="a", light=0), gltf.Node(name="b", light=1)],
+        [0, 1],
+        [],
+        [],
+        lights=[
+            gltf.Light(kind="directional", range=50.0, outer_cone_angle=0.3),
+            gltf.Light(kind="point", range=5.0, outer_cone_angle=0.3),
+        ],
+    )
+    doc, _ = read_glb(glbwrite.write_glb(model))
+    written = doc["extensions"]["KHR_lights_punctual"]["lights"]
+    assert "range" not in written[0] and "spot" not in written[0]
+    assert written[1]["range"] == pytest.approx(5.0) and "spot" not in written[1]
+
+
+def test_a_node_naming_a_marker_the_model_does_not_carry_loses_the_reference() -> None:
+    """An index past the end of an array is a file a strict reader rejects
+    outright, and rejecting a whole scene over a marker is the wrong trade --
+    the same answer the mesh remap gives for a mesh that was dropped."""
+    model = gltf.Model(
+        [gltf.Node(name="stale", camera=3, light=7)], [0], [], [], cameras=[], lights=[]
+    )
+    doc, _ = read_glb(glbwrite.write_glb(model))
+    assert "camera" not in doc["nodes"][0]
+    assert "extensions" not in doc["nodes"][0]
+    assert _roundtrip(model).nodes[0].camera is None
+
+
+def test_one_camera_and_one_light_shared_by_several_nodes_are_written_once() -> None:
+    """Both arrays are the model's, not the nodes': three markers pointing at
+    one light is one light in the file, the same way six nodes on one mesh
+    index is one mesh."""
+    nodes = [gltf.Node(name=f"n{i}", light=0, camera=0) for i in range(3)]
+    doc, _ = read_glb(
+        glbwrite.write_glb(
+            gltf.Model(nodes, [0, 1, 2], [], [], cameras=[gltf.Camera()], lights=[gltf.Light()])
+        )
+    )
+    assert len(doc["cameras"]) == 1
+    assert len(doc["extensions"]["KHR_lights_punctual"]["lights"]) == 1
+    assert all(n["camera"] == 0 for n in doc["nodes"])

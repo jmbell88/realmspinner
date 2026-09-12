@@ -355,12 +355,30 @@ def save_clay_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
 PLOTTER_SOURCE = "map.wmap"
 PACKWRIGHT_SOURCE = "pack.wpack"
 
+# And the Mason scene behind an exported arrangement, on the *mesh* side of the
+# same precedent: the row this one sits beside is a ``model`` row minted by
+# ``import_mesh``, where the other three sit beside a reference. Nothing about
+# the rule changes -- absent from MEDIA and LISTED, never served, never
+# downloadable, gone with the job directory -- and ``model.glb`` stays the one
+# name every consumer reads.
+MASON_SOURCE = "scene.wscn"
+
 # Both are zips: a ``.wmap`` embeds one PNG per tileset and a ``.wpack`` one per
 # source sprite, so an atlas assembled from a hundred frames is the case these
 # bound. Bounded on the same reasoning as every other ceiling here rather than
 # left open because today's files are small.
 MAX_MAP_SOURCE_BYTES = 5 * MAX_UPLOAD_BYTES
 MAX_PACK_SOURCE_BYTES = 20 * MAX_UPLOAD_BYTES
+
+# A ``.wscn`` is the smallest of the four by construction: it stores **no
+# geometry at all** (``studio.mason.serialize``'s own rule -- primitives
+# regenerate from their parameters and library assets are links), so what it
+# actually holds is a node tree as text, one terrain height array, and a PNG
+# per hand-painted material override. The same number ``studio.mason_io``
+# refuses a file at on the way *in*, imported from here rather than restated,
+# so the door the user's file comes through and the door an export goes out of
+# cannot be set to two different sizes.
+MAX_SCENE_SOURCE_BYTES = 50 * 1024 * 1024
 
 
 def job_dir_file(svc: Any, job_id: str, name: str) -> Path:
@@ -402,6 +420,11 @@ def plotter_source_path(svc: Any, job_id: str) -> Path:
 def packwright_source_path(svc: Any, job_id: str) -> Path:
     check_job_id(job_id)
     return svc.job_dir(job_id) / PACKWRIGHT_SOURCE
+
+
+def mason_source_path(svc: Any, job_id: str) -> Path:
+    check_job_id(job_id)
+    return svc.job_dir(job_id) / MASON_SOURCE
 
 
 def _save_source(
@@ -451,6 +474,24 @@ def save_packwright_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]
         name=PACKWRIGHT_SOURCE,
         limit=MAX_PACK_SOURCE_BYTES,
         what="atlas document",
+    )
+
+
+def save_mason_source(svc: Any, job_id: str, data: bytes) -> dict[str, Any]:
+    """Store the scene beside the merged mesh it exported to.
+
+    The caller writes the GLB first (through ``import_mesh``, which is what
+    creates the row at all) and this second, ``save_clay_source``'s own
+    ordering for its own reason: a crash between the two leaves the sidecar
+    absent rather than describing an arrangement the mesh on disk is not.
+    """
+    return _save_source(
+        svc,
+        job_id,
+        data,
+        name=MASON_SOURCE,
+        limit=MAX_SCENE_SOURCE_BYTES,
+        what="scene document",
     )
 
 

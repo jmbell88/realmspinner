@@ -653,7 +653,7 @@ def _layouts(ctx: Any) -> None:
 def _agents(ctx: Any) -> None:
     """Whether a program on this machine may drive Clay through Warlock.
 
-    Off on a fresh install, matching `docs/manual/41-app-settings.md`'s own
+    Off on a fresh install, matching `docs/manual/42-app-settings.md`'s own
     claim: nothing listens until this switches on. Toggling it takes effect
     in the same frame, not on the next launch -- ``ctx.agent_host`` is built
     once, in ``main.setup_context``, and lives for the app's whole session

@@ -142,7 +142,7 @@ def test_the_grid_offers_exactly_what_each_stage_can_derive():
 def test_a_finished_take_has_a_ui_control_that_requests_its_flac_mp3_or_ogg_export():
     """The 2026-09-05 audit, finding muse-01.
 
-    The manual (docs/manual/35-muse.md) promises FLAC/MP3/OGG "produced on
+    The manual (docs/manual/36-muse.md) promises FLAC/MP3/OGG "produced on
     first request and cached beside the track, the same way the mesh exports
     work". Before this fix ``artifacts_for`` had no music branch, so a music
     job fell through to the mesh ``ARTIFACTS`` tuple: eight mesh buttons, all

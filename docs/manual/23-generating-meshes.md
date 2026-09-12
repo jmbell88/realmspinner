@@ -33,7 +33,7 @@ the promotion inherit whatever the reference happened to record.
 Derived values never carry across. Anything the worker recorded about the *source* run's artifacts
 — the composed prompt, the mesh report, the applied transform — is stripped, so a new job never
 wears a quality verdict about a mesh that does not exist yet. See
-[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).
 
 ## Checking the cutout
 
@@ -102,7 +102,7 @@ Nothing is ever deleted on your behalf, and declining leaves you with ordinary a
 hidden ones.
 
 Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
-See [Review](37-review.md). The picker itself shows what has been graded so far: a candidate you have
+See [Review](38-review.md). The picker itself shows what has been graded so far: a candidate you have
 already graded carries its grade — `+4`, `-2` — beside its status, read once for the whole group rather
 than asked about candidate by candidate. While any finished attempt in the group is still ungraded, a
 line under the picker says so: *"Grade each attempt before you keep one - they feed What works."* That
@@ -210,8 +210,8 @@ launch flag *is* — so the note under the header says so, and this is not a sec
 run. It exists for measurement work: sweeping the token budget or the atlas size to find where a
 default should move, in the same way `docs/measurements/2026-09-03-trellis-detail-sweep.md` and its
 siblings already did through Review's sweep form. See
-[Configuration](40-configuration.md#environment-variables) for what each flag does and the environment
-variable that sets the same thing app-wide, and [Review](37-review.md#what-works) for how a findings
+[Configuration](41-configuration.md#environment-variables) for what each flag does and the environment
+variable that sets the same thing app-wide, and [Review](38-review.md#what-works) for how a findings
 hint next to one of these controls is read.
 
 ## Triangle budget
@@ -229,7 +229,7 @@ Five tiers exist in the code: Raw (as reconstructed — the engine has already s
 Standard (50k), Detailed (100k) and
 Custom. `gltfpack` — the binary every decimating tier runs through — is a one-time manual drop into
 `vendor/gltfpack/` like the reconstruction engine, not something the checkout brings with it; see
-[Installation](39-installation.md#gltfpack). When it is there this panel offers the whole list, and
+[Installation](40-installation.md#gltfpack). When it is there this panel offers the whole list, and
 Custom gains a triangle-count field with its own valid range. When it is not, `warlock doctor` says
 so and every tier ships the engine's own output instead of failing.
 **The generate form still offers Raw alone**, because none of the decimating tiers has been
@@ -384,9 +384,9 @@ job still completes: the GLB is already on disk, and a missing verdict is better
 ## Exports
 
 The **Rig**, **Pose** and **Export** stages each open with the same **Take it somewhere** section
-Reference and Mesh do — Clay, Poser and Troupe stay reachable for a rigged mesh however far through
+Reference and Mesh do — Clay, Mason, Poser and Troupe stay reachable for a rigged mesh however far through
 the pipeline you have taken it, rather than only from the Mesh stage it started on. See
-[The library and jobs](36-library-and-jobs.md) for what the list offers and how a destination one
+[The library and jobs](37-library-and-jobs.md) for what the list offers and how a destination one
 step away (a mesh with no rig yet, and so on) is shown rather than hidden.
 
 Standing on the Export stage, above the grid of buttons, is **Ready for an engine?** — a checklist
@@ -443,4 +443,4 @@ the pixel-art reductions and the manifest — see
 [2D exports](22-generating-references.md#2d-exports).
 
 For bulk export of several assets at once, and for the storage those files occupy, see
-[The library and jobs](36-library-and-jobs.md#storage-and-pruning).
+[The library and jobs](37-library-and-jobs.md#storage-and-pruning).

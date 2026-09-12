@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from . import atomic, clay_state, dialogs, docmodes, journal, sizeguard
+from ._view_frame import AXIS_VIEW_KEYS, axis_view_key
 from .clay_state import ClayState, ClayTab
 
 log = logging.getLogger(__name__)
@@ -670,32 +671,11 @@ ELEMENT_KEYS = {"1": "vertex", "2": "edge", "3": "face", "4": "object"}
 # Ctrl+digit axis views, on the numbers a modeller's hand already knows from
 # Blender's numpad. **Bound here rather than in ``App._shortcut``**: a global
 # binding is checked above the workspace modes and takes its key from them
-# permanently, which is the whole reason the mode switch moved to Alt. These
-# keys belong to Clay and only Clay.
-AXIS_VIEW_KEYS = {"1": "front", "3": "right", "7": "top"}
-
-def axis_view_key(camera: Any, name: str, shift: bool) -> bool:
-    """One Ctrl+digit view key, on any camera. -> whether ``name`` was one.
-
-    Shift is the opposite view, as Blender's numpad does it -- Ctrl+1 is the
-    front and Ctrl+Shift+1 the back, so six views cost three keys; Ctrl+5
-    toggles orthographic. **Shared with Poser rather than restated there**, so
-    the two 3-D viewports cannot come to disagree about which number is the
-    front -- and so that both require Ctrl. Poser's copy tested the bare
-    digit, so a 1 typed into nothing snapped its camera while Clay's did not.
-    """
-    if name in AXIS_VIEW_KEYS:
-        wanted = AXIS_VIEW_KEYS[name]
-        if shift:
-            wanted = {"front": "back", "right": "left", "top": "bottom"}[wanted]
-        camera.look_along(wanted)
-        return True
-    if name == "5":
-        camera.orthographic = not camera.orthographic
-        return True
-    return False
-
-
+# permanently, which is the whole reason the mode switch moved to Alt. The
+# *binding* belongs to Clay; the table and the function do not, and live in
+# ``_view_frame`` -- Poser already called this one function rather than
+# restating it, and they are imported above under the name both call sites
+# already use.
 # Ctrl-shortcuts that change the document. Serialising reads the live document
 # on a task thread, so anything that restructures it or moves the history head
 # the save captured waits for the save, exactly as a gizmo drag does.

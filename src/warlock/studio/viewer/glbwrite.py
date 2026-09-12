@@ -288,7 +288,64 @@ class _Writer:
             doc["children"] = [int(c) for c in node.children]
         if node.mesh is not None:
             doc["mesh"] = int(node.mesh)
+        if node.camera is not None:
+            doc["camera"] = int(node.camera)
+        if node.light is not None:
+            # KHR_lights_punctual hangs a node's light off ``extensions``
+            # rather than off a top-level field, which is the one structural
+            # difference between writing a light and writing a camera.
+            doc["extensions"] = {"KHR_lights_punctual": {"light": int(node.light)}}
         return doc
+
+
+def _camera(camera: gltf.Camera) -> dict[str, Any]:
+    """One camera. ``zfar`` and ``aspectRatio`` are written only when set.
+
+    Zero means absent for both -- see :class:`gltf.Camera` -- and absent is
+    not the same as zero to a reader: a ``zfar`` of 0 is a degenerate frustum
+    that clips everything, where no ``zfar`` at all is glTF's own infinite
+    perspective projection. Writing the zero would turn "I did not say" into
+    "nothing is visible".
+    """
+    persp: dict[str, Any] = {
+        "yfov": float(camera.yfov),
+        "znear": float(camera.znear),
+    }
+    if camera.zfar > 0.0:
+        persp["zfar"] = float(camera.zfar)
+    if camera.aspect_ratio > 0.0:
+        persp["aspectRatio"] = float(camera.aspect_ratio)
+    doc: dict[str, Any] = {"type": "perspective", "perspective": persp}
+    if camera.name:
+        doc["name"] = camera.name
+    return doc
+
+
+def _light(light: gltf.Light) -> dict[str, Any]:
+    """One KHR_lights_punctual light.
+
+    ``range`` is written only when set and only for the kinds the extension
+    says it applies to; the ``spot`` block only for a spot. A ``range`` on a
+    directional light and a cone angle on a point light are both fields the
+    extension says to ignore, and writing one is a claim about a light that
+    the light does not make -- an importer that reads it anyway (several do)
+    then produces a different scene than the one that was exported.
+    """
+    doc: dict[str, Any] = {
+        "type": light.kind,
+        "color": [float(c) for c in light.color],
+        "intensity": float(light.intensity),
+    }
+    if light.name:
+        doc["name"] = light.name
+    if light.range > 0.0 and light.kind != "directional":
+        doc["range"] = float(light.range)
+    if light.kind == "spot":
+        doc["spot"] = {
+            "innerConeAngle": float(light.inner_cone_angle),
+            "outerConeAngle": float(light.outer_cone_angle),
+        }
+    return doc
 
 
 def write_glb(model: gltf.Model) -> bytes:
@@ -325,6 +382,16 @@ def write_glb(model: gltf.Model) -> bytes:
         meshes.append({"primitives": written})
 
     nodes = [writer.node(n) for n in model.nodes]
+    # A node naming a camera or a light the model does not carry loses the
+    # reference rather than writing an out-of-range index, which is the same
+    # answer the mesh remap below gives for a mesh that was dropped: an index
+    # past the end of an array is a file a strict reader rejects outright, and
+    # rejecting the whole scene over a marker is the wrong trade.
+    for source, node in zip(model.nodes, nodes, strict=True):
+        if source.camera is not None and not 0 <= source.camera < len(model.cameras):
+            del node["camera"]
+        if source.light is not None and not 0 <= source.light < len(model.lights):
+            del node["extensions"]
     for node in nodes:
         if "mesh" in node:
             moved = remap.get(node["mesh"])
@@ -349,6 +416,21 @@ def write_glb(model: gltf.Model) -> bytes:
     if writer.accessors:
         doc["accessors"] = writer.accessors
         doc["bufferViews"] = writer.buffer.views
+    # Emitted **only when one exists**. Every other mode in this project --
+    # Clay, Poser, Troupe -- hands this function a model with neither, and
+    # ``tests/test_glbwrite.py``'s digest pin is what says those files' bytes
+    # did not move when Mason's scene export added these two arrays.
+    if model.cameras:
+        doc["cameras"] = [_camera(c) for c in model.cameras]
+    if model.lights:
+        doc["extensions"] = {
+            "KHR_lights_punctual": {"lights": [_light(light) for light in model.lights]}
+        }
+        # ``extensionsUsed``, not ``extensionsRequired``: a reader that has
+        # never heard of punctual lights still gets every mesh in the file,
+        # which is exactly the distinction the two keys draw. Requiring it
+        # would make an unlit-but-complete import into a refusal.
+        doc["extensionsUsed"] = ["KHR_lights_punctual"]
 
     binary = bytes(writer.buffer.data)
     # No empty buffer and no empty BIN chunk. ``byteLength`` has a minimum of

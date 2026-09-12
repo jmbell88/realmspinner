@@ -28,6 +28,7 @@ Part IV explains how it is built.
 - [Making a soundtrack](14-making-a-soundtrack.md) — Sirens: a bassline, an envelope, a sound effect, a WAV.
 - [Casting a spell](15-casting-a-spell.md) — Flourish: a fireball from a recipe, a colour changed, a painted cell kept through a re-render.
 - [Generating a soundtrack](16-generating-a-soundtrack.md) — Muse: a description to a finished track, and into Sirens as a sample.
+- [Dressing a scene](17-dressing-a-scene.md) — Mason: a room built from library assets and primitives, lit, and exported to an engine.
 
 ## Using Warlock Studio
 
@@ -42,24 +43,25 @@ Part IV explains how it is built.
 - [Inker](28-inker.md) — the layered raster editor and the two directions it connects to the pipeline.
 - [Inker: animation](29-inker-animation.md) — the timeline: cels, links, tags, onion skin, ranges and clip exports.
 - [Clay](30-clay.md) — modelling from primitives, and the two ways a built document leaves the mode.
-- [Plotter](31-plotter.md) — tile maps: tilesets, layers, objects, and Tiled import and export.
-- [Packwright](32-packwright.md) — packing sprites into an atlas, and the sidecar that describes it.
-- [Troupe](33-troupe.md) — character sprite sheets: three routes to a rigged mesh, and 256 animated cells out of it.
-- [Sirens](34-sirens.md) — the chiptune tracker: patterns, instruments, sound effects and WAV export.
-- [Muse](35-muse.md) — generated music: style tags, lyrics, takes, and the bridge into Sirens.
-- [The library and jobs](36-library-and-jobs.md) — job status, filters, rerunning, storage and pruning.
-- [Review](37-review.md) — judging finished meshes, parameter sweeps, and the findings the verdicts add up to.
-- [Keyboard shortcuts](38-shortcuts.md) — every binding the app answers to.
+- [Mason](31-mason.md) — the 3D scene editor: placing assets, grouping and instancing, terrain, lights and the three exports.
+- [Plotter](32-plotter.md) — tile maps: tilesets, layers, objects, and Tiled import and export.
+- [Packwright](33-packwright.md) — packing sprites into an atlas, and the sidecar that describes it.
+- [Troupe](34-troupe.md) — character sprite sheets: three routes to a rigged mesh, and 256 animated cells out of it.
+- [Sirens](35-sirens.md) — the chiptune tracker: patterns, instruments, sound effects and WAV export.
+- [Muse](36-muse.md) — generated music: style tags, lyrics, takes, and the bridge into Sirens.
+- [The library and jobs](37-library-and-jobs.md) — job status, filters, rerunning, storage and pruning.
+- [Review](38-review.md) — judging finished meshes, parameter sweeps, and the findings the verdicts add up to.
+- [Keyboard shortcuts](39-shortcuts.md) — every binding the app answers to.
 
 ## Setup & operations
 
-- [Installation](39-installation.md) — requirements, dependencies and the one-time model downloads.
-- [Configuration](40-configuration.md) — environment variables, data locations and VRAM modes.
-- [App settings](41-app-settings.md) — UI scale, pane layout, and the model list with its downloads.
-- [Troubleshooting](42-troubleshooting.md) — what the diagnostics say and what to do about it.
+- [Installation](40-installation.md) — requirements, dependencies and the one-time model downloads.
+- [Configuration](41-configuration.md) — environment variables, data locations and VRAM modes.
+- [App settings](42-app-settings.md) — UI scale, pane layout, and the model list with its downloads.
+- [Troubleshooting](43-troubleshooting.md) — what the diagnostics say and what to do about it.
 
 ## Architecture
 
-- [Architecture](43-architecture.md) — the process, the threads, the job store and the service layer.
-- [Pipelines](44-pipelines.md) — how a job travels from prompt to GLB.
-- [Extending Warlock Studio](45-extending.md) — adding a model, a style or a skeleton.
+- [Architecture](44-architecture.md) — the process, the threads, the job store and the service layer.
+- [Pipelines](45-pipelines.md) — how a job travels from prompt to GLB.
+- [Extending Warlock Studio](46-extending.md) — adding a model, a style or a skeleton.

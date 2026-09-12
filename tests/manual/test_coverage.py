@@ -56,6 +56,11 @@ NO_HELP_BUTTON = {
     # be a seventh thing to click by accident. Both are documented under the
     # Clay chapter's viewport section, which the header's own (?) opens.
     "clay_hud",
+    # Mason's own pair, ``clay_menu``/``clay_hud``'s exemptions restated one
+    # dimension over: a menu bar and a hint-line-plus-corner-readout drawn
+    # over and under the render, neither with a heading to hang a (?) beside.
+    "mason_menu",
+    "mason_hud",
     "plotter_menu",  # a menu bar
     "inker_menu",  # a menu bar
     # The row of tool options above the canvas. Not a pane with a heading: it

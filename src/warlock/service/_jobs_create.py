@@ -779,6 +779,7 @@ def import_mesh(
     name: str | None = None,
     prompt: str | None = None,
     size_m: float | None = None,
+    authored: str | None = None,
 ) -> dict[str, Any]:
     """Mint a finished model row from geometry that was built, not reconstructed.
 
@@ -796,6 +797,18 @@ def import_mesh(
     is the existing invariant rather than a new one -- and it is what keeps
     ``optimize_job``'s retarget working on a built asset, since a retarget
     re-derives from the source.
+
+    ``authored`` is :func:`import_reference`'s own field, on the mesh side --
+    the mode that has a document beside this row, today ``"mason"``. Read that
+    function's docstring for what it is for; what is worth saying *here* is why
+    the mesh side needed it at all. Clay mints rows through this function and
+    does **not** set it, because *Open in Clay* has a fallback: with no
+    ``build.wblk`` it imports ``model.glb`` and the user gets their geometry
+    back as one object. Mason has none -- a merged scene GLB is not a scene,
+    and reopening one as a single mesh node would silently throw the
+    arrangement away -- so *Open in Mason* has to know from the cached row
+    alone whether the ``.wscn`` is there, which is exactly the question
+    ``params["authored"]`` was added to answer for Plotter.
     """
     from ..pipelines import postprocess
 
@@ -815,6 +828,8 @@ def import_mesh(
     }
     if size_m is not None:
         params["size_m"] = float(size_m)
+    if authored:
+        params["authored"] = str(authored)
 
     job_id = uuid.uuid4().hex[:12]
     job_dir = svc.config.job_dir(job_id)

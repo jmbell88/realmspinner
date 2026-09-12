@@ -1103,7 +1103,7 @@ already there, and this repository's rule is that a constant the corpus is keyed
 on gets a dated document *before* it changes.
 
 **Where it stands.** `docs/manual/16-generating-a-soundtrack.md:59` and
-`docs/manual/35-muse.md:57` both say "below about 30 the output audibly falls
+`docs/manual/36-muse.md:57` both say "below about 30 the output audibly falls
 apart; above about 80 you are paying for time". The slider's own tooltip in
 `studio/panes/muse_recipe.py:68` says "past about 60, not better". Two different
 ceilings, and only the manual warns about a floor at all. No

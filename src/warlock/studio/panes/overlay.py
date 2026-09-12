@@ -558,6 +558,17 @@ PLACEHOLDERS: dict[str, tuple[str, str, str]] = {
     ),
     "inker": (icons.PEN_TOOL, "No drawing open", "Ctrl+N starts one, Ctrl+O opens a file."),
     "clay": (icons.RULER, "Empty document", "Add a primitive to start blocking something out."),
+    # Mason's Stage A: the mode opens on an empty workspace and does nothing
+    # yet -- no engine, no document, no library round trip. The hint says what
+    # the mode is *for* rather than what to click, because nothing here is
+    # clickable: an ACTIONS entry would have to name a button wired to a stage
+    # that has not landed.
+    "mason": (
+        icons.BLOCKS,
+        "Empty scene",
+        "Mason will place library assets and primitives into a scene, "
+        "then light and export it.",
+    ),
     "poser": (
         icons.PERSON_STANDING,
         "No skeleton on screen",

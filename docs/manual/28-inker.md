@@ -190,7 +190,7 @@ not a property of the picture.
 ## Tools
 
 The toolbox is an icon grid; hovering a tool shows its name and its letter. Every tool is listed in
-[Keyboard shortcuts](38-shortcuts.md). Under the grid are the foreground and background colours,
+[Keyboard shortcuts](39-shortcuts.md). Under the grid are the foreground and background colours,
 each with its hex value in a box you can type into and a swatch that opens the full picker; the
 shuffle button beneath them swaps the two, as `X` does.
 
@@ -566,7 +566,7 @@ Under those two is the **palette folder**: a list of every palette file in your 
 and a **Load** button that adds the chosen one to the swatch row. Nothing installs a palette there
 and nothing registers one — a palette *is* a file you dropped in that folder, in any of the four
 formats above, and a file added while Warlock is running appears the next time the panel draws. The
-folder is `palettes/` under your Warlock home; [Configuration](40-configuration.md) says how to move
+folder is `palettes/` under your Warlock home; [Configuration](41-configuration.md) says how to move
 it. With nothing in it the panel says so and offers no control, which is the ordinary state of a
 fresh install: Warlock ships no palettes of its own, deliberately.
 
@@ -1063,7 +1063,7 @@ the tile structure gone — the same trade the animation timeline makes, for the
 open map exactly as it stands. It is a **snapshot, not a link**: painting on the tileset here
 afterwards leaves the map's copy alone, and you send it again to bring the changes across. A
 tileset exported as a `.tsx` behaves the same way and for the same reason — see
-[Tilesets](31-plotter.md#tilesets) for the map side of it.
+[Tilesets](32-plotter.md#tilesets) for the map side of it.
 
 ## Filters
 
@@ -1520,4 +1520,4 @@ A painted reference is a real job row that never ran on the worker: the image al
 queueing a run to reproduce what you just drew would be two minutes of GPU for nothing. It is
 created finished, at the reference stage, which is exactly what promotion consumes. It cannot be
 rerolled — there is no generator behind it for a new seed to change — but it can be remeshed. See
-[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).

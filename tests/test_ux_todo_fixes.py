@@ -145,6 +145,15 @@ RETIRED_PLANS = (
     # would have caught, which is how it survived both guards (the 2026-09-07
     # audit, plotter-04).
     "PLOTTER_PLAN" ".md",
+    # Retired 2026-09-11, with Stage H -- the manual -- which was its last
+    # stage. The Mason programme's plan carried its own record of where each
+    # stage turned out to be wrong, and every durable part of it has a home
+    # that outlives the file: the units and handedness in
+    # ``docs/INVARIANTS.md``, the three stored-document ceilings in two dated
+    # ``docs/measurements/`` documents, and the mode itself in
+    # ``docs/manual/31-mason.md``. Its six citations under ``src`` and
+    # ``tests`` were rewritten to name the programme rather than the file.
+    "MASON-PLAN" ".md",
 )
 
 
@@ -406,7 +415,7 @@ def _passes(key_name: str, mods: int, monkeypatch) -> bool:
 
 def test_a_modifier_chord_reaches_the_shortcuts_while_typing(monkeypatch):
     """Ctrl+K is documented as the one binding that works in every mode
-    (``docs/manual/38-shortcuts.md``, ``panes/settings_2d.py``) and it was
+    (``docs/manual/39-shortcuts.md``, ``panes/settings_2d.py``) and it was
     dead in the 2D prompt box -- which is exactly where you are when you want
     to jump somewhere else."""
     import pygame

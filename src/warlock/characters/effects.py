@@ -28,7 +28,7 @@ back to frame 0. At the sizes a character sheet is quantised to (16-64px, 32
 colours) the discontinuity is a flicker in the tongues rather than a pop, which
 is why it ships. Making it loop means either a periodic noise field (a Flourish
 change, and one that would alter every existing recipe's bytes) or rendering a
-longer cycle and picking frames from it. ``docs/manual/33-troupe.md`` says the
+longer cycle and picking frames from it. ``docs/manual/34-troupe.md`` says the
 same thing to the reader.
 
 **Flourish is imported at function scope, always.** ``characters`` is a

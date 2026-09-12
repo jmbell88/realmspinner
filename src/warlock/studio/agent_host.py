@@ -39,7 +39,7 @@ owns the sentence that introduces them, the same division that already puts
 the tool catalogue itself in `agent_clay.tools` rather than here.
 
 **The tab a connecting agent gets is opened before it can ask for one.**
-`docs/manual/45-extending.md` promises "It opens one when it connects", so
+`docs/manual/46-extending.md` promises "It opens one when it connects", so
 the tab has to exist before the first ``tools/call`` a bridge sends, not
 lazily on the first ``clay_add_primitive``. That still has to happen on the
 frame thread (:func:`agent_clay._tab` walks ``ClayState``), so it is routed
