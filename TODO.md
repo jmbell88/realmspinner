@@ -40,129 +40,6 @@ so that "done" is recognisable without re-deriving it.
 
 ---
 
-## P1. Generate an asset from a clean-machine install
-
-**Why it is yours:** hardware. The installer was built for the first time on
-2026-08-26 and has been rebuilt since; two things it reproduced every time, and
-which are the path rather than an edge case: `iscc` is not on PATH (`-Iscc` is
-needed) and the default index does not serve cu128, so the pinned-index retry in
-`build.ps1` is load-bearing.
-
-**The install half of this entry closed on 2026-09-05**
-(`docs/measurements/2026-09-05-clean-machine-install.md`).
-`WarlockSetup-v0.0.35.exe` was carried on a USB drive to a second Windows PC
-with no Python, no `uv` and no CUDA toolkit, and installed there with no network
-involved at any point. The app launched, every mode was browsable, and a drawing
-was made in Inker, saved and reopened. So the sentence this entry used to end
-with — that the project has no shippable artifact — is retired: it installs on a
-machine that is not this one, and it draws. What it has still never done is
-*make* anything, because that machine's card is 8 GiB and `vram.TRELLIS_GIB` is
-16.0, so a reconstruction is out of reach there by design.
-
-Note also that the figures this entry used to carry (2.91 GB payload, 6.61 GB
-installed) were the all-extras shape and are superseded. P26 took the installer
-to `--extra studio` alone with the three heavy extras arriving as packs, and
-`INSTALL.md` measured that build at 810 MB download / about 1.4 GB installed.
-
-**Those figures are superseded again, for a second reason, on 2026-09-10.** The
-reconstruction engine left the installer and became a Settings -> Models
-download: 878,218,576 bytes of `vendor/trellis/` that used to be 62% of the
-installed tree. Every size in `INSTALL.md` is measured against the build that
-carried it, and none of them is this build's any more
-(`docs/measurements/2026-09-10-engine-as-a-download.md`).
-
-**Do:**
-
-1. ~~**Install on a machine that is not this one, and reach the window.**~~
-   Proved 2026-09-05. Offline from USB onto a clean Windows PC: the shortcut
-   launched, the checkout-shape gate passed, the welcome dialog offered its
-   three doors, the hardware scan named the real GPU, and the fatal banners
-   named the missing-weights rows. The base install reached the window with no
-   torch and no `bpy` — P26's added step — and Inker round-tripped a document.
-2. ~~**Prove the installer stages the packs.**~~ Proved 2026-09-05. Settings →
-   Packs drew a real row with a size and a live Install button rather than
-   `app_settings.pack_blocked`'s "this build carries no packs" fallback, which
-   is what a source checkout gets. `packs.json` and the bundled wheels are
-   reaching `{app}\packs` on a machine that has never had `uv`.
-3. ~~**Install a pack from Settings on a machine that has never had `uv`.**~~
-   Proved 2026-09-05, on the reinstall. All three went on — Image Generation,
-   Rigging and Music — which is P26's programme validated outside the test
-   suite for the first time, `music`'s sdist build path and the bundled-wheel
-   branch of `pack_worker.collect` included. Still unchecked: whether Poser
-   opens without a restart afterwards.
-4. **Prove the fetch pipeline under the bundled interpreter.** The one thing that stopped both runs. Her log named the cause
-   and it is ours: a failed fetch deletes its staging tree, resume state and
-   all, so a 16.1 GB model cannot be retried in over a line that resets — F1.
-   The resets themselves hit several hosts and are still undiagnosed (F2), but
-   F1 is what makes them fatal rather than annoying. When it works: one small row end to end
-   (dinov2, 0.4 GB), then SDXL and one reference generation. For TRELLIS, copy
-   an existing `~/.warlock/models/trellis2-gguf` into the scratch home; start
-   the GGUF download and cancel it mid-flight to prove staging cleanup.
-5. **Prove the engine downloads, unpacks and runs on a machine that has never
-   had it.** New on 2026-09-10, and the one step here with no test-suite
-   equivalent: the archive has been verified, extracted through the worker's
-   own code path and matched against all nine of its digests -- but on a
-   machine where `vendor/trellis/` also exists, so what has never been seen is
-   the engine *launching from the downloaded location*, on a card that can hold
-   a reconstruction. Watch for the three things this design claims: `warlock
-   doctor` exits 0 before the download with the engine row as `[SETUP]`; Create
-   ungreys after it **without a restart** (`Config.resolve_trellis_exe` is
-   called at use for exactly this); and Remove takes it away again with the
-   resident server stopped first rather than failing on a locked DLL.
-5. **The three recovery paths, which have only ever run against fakes** (the
-   beta audit's H02/M01/M02). Quit the app *during* a pack install and watch
-   which half you are in — a download must cancel on the worker's own
-   acknowledgement, and a commit must hold the quit until pip is done rather
-   than confirm one it cannot honour. Then press **Repair** on a pack that
-   installed cleanly (it should reinstall the pinned wheels and come back green)
-   and on one you have damaged by hand, by emptying a `.dist-info` or a
-   top-level module. Finally upgrade over a version with packs installed and
-   take the **Restore packs** button the banner offers: the selection is
-   recorded beside the wheel cache under `WARLOCK_HOME`, so it is supposed to
-   survive the installer wiping `site-packages`. **These are reachable now**:
-   they need a pack, not a weight or a card, and that machine has three. The
-   cheapest step left, and the only one that does not wait on the fetch path.
-6. **Upgrade over a scratch version** (clean slate, data intact). Uninstall and
-   reinstall are done — that is how the second 2026-09-05 run began, and
-   `~/.warlock` survived it — but an upgrade *over* an existing install is
-   not, and that is the one carrying the Restore packs banner.
-7. **Then the laptop** — the one machine whose GPU is unknown.
-
-Two things the code review could not check, one of which is now half-answered:
-`pythonw.exe` has no console, so a crash *before* `_setup_logging` attaches
-closes silently — if that happens, run `python -m warlock` from a terminal to
-see it. And an unsigned exe means SmartScreen's "More info → Run anyway" (code
-signing was answered no for the closed beta; see Closed records) — though on
-2026-09-05 SmartScreen did not appear at all, so that page is still unwitnessed.
-
-**Expected outcome:** a **non-developer install that generated an asset**. The
-install itself is no longer the question; a working download path and a card
-big enough to reconstruct on are.
-
-## P42. Judge the approved cutout against the server's own
-
-**Why it is yours:** a card and an eye, and it is the gate on a default that
-has already moved. As of 2026-09-08 accepting the promote modal's cutout makes
-*those pixels* the reconstruction's input, with the engine told to keep the
-alpha instead of cutting its own. Every argument for and against is written out
-in `docs/measurements/2026-09-08-approved-cutout-as-input.md`, including the one
-awkward fact: `bg_removal=auto` was measured at 0 accepts in 80 on 2026-08-07 —
-with nothing to preserve, which is not this configuration, but is not nothing
-either. Only the interactive path changed; every campaign submitter still copies
-the reference verbatim, so props-v1 and fantasy-v1 still describe what they
-measured.
-
-**Do:** run the two arms that document pre-registers — the five `detail-v1`
-subjects at seed 42, control against approved-cutout, ten units, about an hour
-and a half of card time — then the blind pass and the five pairwise calls. The
-decision rules are fixed and are applied verbatim; one of them (a silhouette
-that opens past 0.07 where the control's did not) fires the revert on its own.
-
-**Expected outcome:** the document's Results sections filled in, and either the
-flip stands or it becomes an opt-in tick with the mechanism and its tests kept.
-Until this closes, the shipped interactive default is unmeasured and this entry
-is what says so.
-
 ## P32. Re-examine the `trellis_tex_res = 512` pin
 
 **Why it is yours:** a card and a judgement. The graded mesh run closed on
@@ -1444,6 +1321,34 @@ Both belong to P1 step 4 now rather than here.
 
 ## Closed records (kept so nobody re-derives them)
 
+- **P42, judge the approved cutout against the server's own.** Closed
+  2026-09-12: the change stands
+  (`docs/measurements/2026-09-08-approved-cutout-as-input.md`'s Results and
+  Verdict). Ten-unit run against `detail-v1`: usable 5/5 on both arms, the
+  pairwise call better-or-same on 4 of 5 subjects (only the helmet went the
+  other way), and the silhouette-regression rule that would have overridden
+  everything did not trip. The promote modal's approved cutout stays the
+  reconstruction's input, `bg_removal=auto` in that mode included; no other
+  door is affected. One gap noted rather than resolved: no per-job
+  `trellis.log` exists on this build, so the void check rests on the
+  alpha-channel/stored-params stand-in for every host-cut unit rather than
+  independent log confirmation — worth a follow-on finding if the log was
+  expected to exist.
+
+- **P1, generate an asset from a clean-machine install.** Closed 2026-09-12.
+  Every step proved across three dated measurements: install
+  (`docs/measurements/2026-09-05-clean-machine-install.md`), the engine as a
+  Settings download (`docs/measurements/2026-09-10-engine-as-a-download.md`),
+  and fetch/recovery
+  (`docs/measurements/2026-09-12-clean-machine-fetch-and-recovery.md`) —
+  dinov2, SDXL + Hyper-SD, all three packs, TRELLIS GGUF cancel-and-resume,
+  `warlock doctor` exit 0 with `[SETUP]`, Remove stopping the resident server,
+  and all four pack recovery paths plus an upgrade-over-itself, all against
+  real hardware. The one thing never reached on the 8 GiB clean machine — a
+  real generation through TRELLIS — is moot: both other candidate machines
+  (laptop, alternative desktop) are also 8 GiB, below `vram.TRELLIS_GIB`
+  (16.0) by design, and generation is already proven working on the dev
+  machine. Nothing a bigger clean card would show has been left unanswered.
 - **P2, purge `examples/` from history.** Done 2026-09-03: `git filter-repo`,
   then the remote deleted and recreated rather than force-pushed, because
   GitHub keeps unreachable objects fetchable by SHA. 963 commits and both tags

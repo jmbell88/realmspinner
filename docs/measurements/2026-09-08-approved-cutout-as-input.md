@@ -113,8 +113,73 @@ surface: **better**, **same**, or **worse**. The single-reviewer caveat of
 
 ## Results — machine evidence
 
-*(appended after the run)*
+Run 2026-09-12, ten units (five subjects x two arms), seed 42, shipped
+defaults otherwise, real `WARLOCK_HOME` (deliberate: these are the same rows
+the human grades in Review mode, so a throwaway home would have produced
+nothing to look at).
+
+| subject | arm | job | worst | mean | seconds | source.glb | model.glb |
+|---|---|---|---|---|---|---|---|
+| treasure chest | control | `cda9e2ad5216` | 0.000407 | 0.000102 | 488 | 23,264,748 | 23,264,912 |
+| treasure chest | host-cut | `59e7f7088114` | 0.001112 | 0.000278 | 476 | 21,497,940 | 21,498,104 |
+| barrel | control | `906ce2929a94` | 0.005643 | 0.002434 | 430 | 21,044,268 | 21,044,432 |
+| barrel | host-cut | `f1bddb1866cf` | 0.009680 | 0.003810 | 475 | 26,393,692 | 26,393,856 |
+| skull | control | `c64a10e43bb2` | 0.014156 | 0.010597 | 395 | 20,741,940 | 20,742,104 |
+| skull | host-cut | `0ef9a6cc2b21` | 0.015568 | 0.011525 | 407 | 19,846,284 | 19,846,448 |
+| helmet | control | `5b9bce812a9b` | 0.005399 | 0.001356 | 183 | 17,890,676 | 17,890,840 |
+| helmet | host-cut | `cdfc1c54d5f8` | 0.006008 | 0.001502 | 165 | 17,020,908 | 17,021,072 |
+| pillar capital | control | `a3d1b1d11041` | 0.0 | 0.0 | 450 | 18,501,268 | 18,501,432 |
+| pillar capital | host-cut | `f7d94554de17` | 0.000171 | 0.0001 | 468 | 19,407,304 | 19,407,472 |
+
+**Silhouette rule (decisive on its own if tripped): did not trip.** Every
+`mesh_audit.worst` value across all ten units is at least two orders of
+magnitude under the 0.07 threshold; no host-cut unit opens past its control.
+
+**Void check.** No `assets/trellis.log` exists per job on this build at all —
+a gap the pre-registration did not anticipate, so the log-level confirmation
+of "the server took the pre-matted path" could not be made for any unit. The
+stand-in evidence named in the pre-registration applies uniformly to all five
+host-cut units instead: each `input.png` is RGBA with real (non-flat) alpha,
+and each row's stored params carry `matte: approved` / `bg_removal: auto`.
+This is recorded as a gap in the harness, not as ambiguity about any one
+unit — every host-cut unit has identical, uniform stand-in evidence.
 
 ## Results — grades
 
-*(owed: the blind pass and the pairwise calls)*
+Blind -5..+5 pass (Review mode, real job rows): all ten units graded +4 or
++5, `verdict: accept` — usable (`grade >= vectors.USABLE_GRADE`, i.e. >= +3)
+on **5 of 5** for both arms. Host-cut's usable count is not lower than
+control's.
+
+Pairwise call per subject (host-cut vs. control, fit-to-view then 4x zoom on
+the busiest surface):
+
+| subject | call |
+|---|---|
+| treasure chest | better |
+| barrel | better |
+| skull | better |
+| helmet | worse |
+| pillar capital | better |
+
+Four of five "better or same" (chest, barrel, skull, pillar capital are
+better; helmet is worse) — the pairwise half of the decision rule's threshold
+is met exactly.
+
+## Verdict
+
+**The change stands.** Both halves of the first decision rule fired in the
+change's favour: host-cut's usable count (5/5) is not lower than control's
+(5/5), and the pairwise call is "better or same" on 4 of 5 subjects, meeting
+the >=4-of-5 threshold. The silhouette-regression rule, which would have
+overridden everything else, did not trip on any unit. No result here licenses
+a change to `guidance.DEFAULT_BG_REMOVAL` — this measured `auto` with a matte
+already in hand, not `auto` on an opaque image.
+
+The one open note: the void check could not be made at the log level because
+no per-job `trellis.log` exists on this build, so "the server took the
+pre-matted path" rests on the alpha-channel and stored-params stand-in for
+every host-cut unit uniformly, not on independent per-unit confirmation. This
+does not change the verdict — the pre-registration named this stand-in as
+acceptable when the log cannot distinguish the two paths — but it is worth a
+follow-on finding if `trellis.log` was expected to exist and does not.
