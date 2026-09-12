@@ -38,15 +38,20 @@ wrong, and the file says what. `CLAUDE.md` has the one-line summaries.
 The ones that most often surprise people:
 
 - **The app is fully offline.** `HF_HUB_OFFLINE=1` is set before anything
-  imports. Nothing downloads at runtime except the user-initiated fetch worker,
-  in its own environment.
+  imports. Three user-initiated subprocesses are the only code that reaches the
+  network, each in its own environment: `fetch_worker` (model weights),
+  `pack_worker` (dependency packs) and `update_worker` (the release-feed check
+  and installer download). `tests/test_docs_inventories.py` derives that set
+  from the tree, so a fourth fails a test rather than quietly making this
+  sentence wrong -- which is what it was until 2026-09-12.
 - **Three threads.** The pygame frame loop never blocks; the asyncio worker
   lives on `warlock-loop`; everything blocking goes through `TaskRunner`. One GL
   context.
 - **`service/` is the only business-logic layer.** Panes and tests both call it.
   Refusals raise `service.errors` exceptions carrying a `field`.
 - **`bpy` never runs in the app process**, and every subprocess goes in the
-  `winjob` kill-on-close job. A scan test enforces both.
+  `winjob` kill-on-close job. A scan test enforces each: `tests/test_poser_imports.py`
+  for the import, `tests/test_vram.py` for the job.
 - **The headless editor packages** (`studio/inker/`, `clay/`, `mason/`,
   `plotter/`, `packwright/`, `sirens/`, `troupe/`, `muse/`) import no imgui,
   moderngl, pygame or `service`. Import-pinning tests enforce the exact

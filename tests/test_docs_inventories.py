@@ -1,4 +1,5 @@
-"""Regressions for the 2026-09-12 audit, findings docs-04, docs-05, docs-07.
+"""Regressions for the 2026-09-12 audit, findings docs-04, docs-05, docs-07,
+and for the fifth copy found the same evening.
 
 Three root documents each carried a hand-kept inventory that had drifted from
 the tree: CLAUDE.md's Offline bullet and README.md's Setup section each named
@@ -10,6 +11,11 @@ and CONTRIBUTING.md's headless-package list named four of the eight packages
 hard-coded, the way ``tests/_pure_packages.py``'s own docstring argues for --
 a hand list "fails open", so the next worker or package this repo grows would
 have slid past a test that just checked for today's names.
+
+The audit fixed the two documents it knew about. Reviewing CLAUDE.md later the
+same day turned up a fifth carrying the same undercount -- CONTRIBUTING.md's
+"surprises people" list -- which nothing here covered, because the *list of
+documents* was itself hand-kept. Both lists are derived now.
 """
 
 from __future__ import annotations
@@ -145,3 +151,27 @@ def test_contributing_headless_package_list_matches_pure_packages():
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     missing = [name for name in editor_packages() if name not in text]
     assert not missing, f"CONTRIBUTING.md never names headless package(s) {missing} (docs-07)"
+
+
+def test_contributing_md_offline_bullet_names_every_network_worker():
+    """CONTRIBUTING.md was the *fifth* copy of this fact, and the one nobody
+    counted.
+
+    ``docs/INVARIANTS.md`` records the offline exceptions as being stated in
+    four documents -- itself, ``SECURITY.md``, ``README.md`` and ``CLAUDE.md``
+    -- and docs-04/docs-05 fixed the two of those four that had gone stale.
+    CONTRIBUTING.md holds the same fact in its "surprises people" list and was
+    not in anybody's inventory, so it still said "Nothing downloads at runtime
+    except the user-initiated fetch worker" on the evening of the day the other
+    two were corrected. Found 2026-09-12 while reviewing CLAUDE.md.
+
+    That is the fails-open shape twice over: a hand list of *documents* around
+    a hand list of *workers*. This test closes the outer one, so the derived
+    set now holds every document that makes the claim.
+    """
+    text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    missing = [w for w in network_workers() if w not in text]
+    assert not missing, (
+        f"CONTRIBUTING.md never names {missing} as network-reaching workers -- "
+        "the same undercount docs-04 and docs-05 fixed in CLAUDE.md and README"
+    )

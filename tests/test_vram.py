@@ -8,7 +8,7 @@ to test.
 
 from __future__ import annotations
 
-import re
+import ast
 import subprocess
 import threading
 import time
@@ -475,7 +475,55 @@ def test_no_test_reads_the_real_card(request):
 
 # -- the invariant that stops the next orphan ---------------------------------
 
-_SPAWN = re.compile(r"subprocess\.(Popen|run)\s*\(")
+def _spawn_sites(tree):
+    """Each ``subprocess.Popen``/``run`` call paired with the scope that owns it.
+
+    The scope is the *innermost* enclosing function, or the module for a call at
+    top level. A nested ``def`` counts as inside its parent, because ``rigging``
+    assigns from an ``on_start`` callback the spawning function hands off and
+    that is the same guarantee one frame down.
+    """
+    found = []
+
+    def walk(node, owner):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owner = node
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("Popen", "run")
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+        ):
+            found.append((node, owner))
+        for child in ast.iter_child_nodes(node):
+            walk(child, owner)
+
+    walk(tree, tree)
+    return found
+
+
+def _assigns(scope):
+    return any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "assign"
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "winjob"
+        for n in ast.walk(scope)
+    )
+
+
+def _scanned_modules():
+    for path in sorted(SRC.rglob("*.py")):
+        if path.name == "winjob.py":
+            continue  # the implementation itself
+        try:
+            yield path.relative_to(SRC).as_posix(), ast.parse(
+                path.read_text(encoding="utf-8")
+            )
+        except SyntaxError:  # pragma: no cover - nothing here fails to parse
+            continue
 
 
 def test_every_subprocess_spawn_is_in_the_kill_on_close_job():
@@ -485,22 +533,52 @@ def test_every_subprocess_spawn_is_in_the_kill_on_close_job():
     which for `import bpy` or gltfpack means a stray process, and for
     trellis-server meant a stale listener on port 17971 that the health poll
     could not tell from the server it had just spawned.
+
+    **This reads the AST rather than the text, since 2026-09-12.** It used to
+    match a ``subprocess.Popen``/``subprocess.run`` regex line by line and
+    accept the spawn
+    if ``winjob.assign`` appeared anywhere in the next fifteen lines, which is
+    proximity and not scope: an ``assign`` belonging to a *neighbouring
+    function* satisfied it, so a spawn added beside an already-correct one
+    passed while being wrong. The same window failed open the other way round,
+    counting a ``subprocess.Popen`` written inside a docstring as a real call
+    site -- the instrument this repo already refuses for the `pygame.mixer`
+    rule, where writing the invariant down in prose would otherwise break the
+    grep enforcing it.
     """
     offenders = []
-    for path in SRC.rglob("*.py"):
-        if path.name == "winjob.py":
-            continue  # the implementation itself
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for i, line in enumerate(lines):
-            if line.lstrip().startswith("#") or not _SPAWN.search(line):
+    for rel, tree in _scanned_modules():
+        for spawn, owner in _spawn_sites(tree):
+            if _assigns(owner):
                 continue
-            window = "\n".join(lines[i : i + 15])
-            if "winjob.assign" not in window:
-                offenders.append(f"{path.relative_to(SRC)}:{i + 1}")
+            where = getattr(owner, "name", "<module>")
+            offenders.append(f"{rel}:{spawn.lineno} (in {where})")
     assert not offenders, (
         "these spawn a child outside the kill-on-close job; use winjob.run() "
         f"or call winjob.assign(proc.pid): {offenders}"
     )
+
+
+def test_the_spawn_scan_still_sees_the_call_sites_it_is_guarding():
+    """A scan whose matcher has drifted passes by finding nothing.
+
+    That is the ``PUBLISHERS`` failure this codebase already names, and it is
+    the specific risk of moving an enforcement from text to AST: a matcher
+    typo turns the gate into a no-op that reports success. Pin the floor at
+    the eight live ``Popen`` sites as of 2026-09-12.
+    """
+    spawning = {rel for rel, tree in _scanned_modules() if _spawn_sites(tree)}
+    expected = {
+        "pipelines/matting.py",
+        "pipelines/music_client.py",
+        "pipelines/t2i_client.py",
+        "pipelines/trellis.py",
+        "rigging.py",
+        "service/downloads.py",
+        "service/packs.py",
+        "service/updates.py",
+    }
+    assert expected <= spawning, f"the scan stopped seeing {expected - spawning}"
 
 
 def test_winjob_run_is_shaped_like_subprocess_run():
