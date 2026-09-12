@@ -2,7 +2,8 @@
 
 `warlock doctor` checks dependencies and configuration; `warlock sweep`
 measures mesh quality across trellis-server's --band values; `warlock mcp`
-relays MCP JSON-RPC between an AI agent and a running Studio.
+is the MCP server an agent's client dials, translating MCP into a running
+Studio's own private RPC and back.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ def main() -> None:
         "command", nargs="?", choices=["doctor", "sweep", "mcp"], default=None,
         help="omit to open the app; 'doctor' checks dependencies and configuration; "
              "'sweep' measures mesh quality across trellis --band values; "
-             "'mcp' relays MCP JSON-RPC between an AI agent and a running Studio "
+             "'mcp' is the MCP server an agent's client dials, driving a running Studio "
              "(Settings -> Advanced -> Allow AI agents to drive the Studio)",
     )
     # sweep only. Kept as plain options rather than a subparser so the
@@ -123,7 +124,7 @@ def _run_sweep(args: argparse.Namespace) -> None:
 
 
 def _run_mcp() -> None:
-    """`warlock mcp`: relay MCP JSON-RPC between an agent's stdio and the app.
+    """`warlock mcp`: the MCP server itself, speaking Studio's private RPC.
 
     Imported here, not at module scope, for the same reason as the app path
     below: this has to keep working on a machine with no display, so nothing

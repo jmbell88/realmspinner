@@ -20,6 +20,21 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**`warlock mcp` is the MCP server now, not a relay, and it speaks both
+eras of the protocol.** It used to copy stdio bytes to the app and back, so
+every MCP revision the app did not understand was refused inside the app.
+The bridge now answers MCP itself: `initialize` for 2025-11-25, 2025-06-18,
+2025-03-26 and 2024-11-05, and `server/discover` with per-request `_meta`
+versions (-32022 for one it does not serve) for 2026-07-28. The app behind
+it only runs tools, over the private RPC. A tool result is spliced into its
+envelope as bytes and never re-parsed, so an 8 MB render costs no second
+`json.loads`; the round trip measures inside the 2026-09-10 figures plus
+0.5 ms. Two defects closed on the way. A 2025-03-26 batch array was advertised
+and then refused as a parse error. And the relay read a stdin line with no
+bound at all; a line over `MAX_FRAME` is now refused and the connection
+carries on. `WARLOCK_MCP_RELAY=1` brings the old relay back if a client
+misbehaves with the new server.
+
 **A call refused because agents were switched off stops appearing in the
 benchmark transcript as a call that ran.** Switching the agent toggle off
 while a call waited in the frame queue answered it "switched off" without ever

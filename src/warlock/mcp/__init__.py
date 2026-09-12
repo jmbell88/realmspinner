@@ -22,13 +22,20 @@ The layering this buys:
 - `pipe.py` is the transport: a named pipe (Windows) or a Unix socket
   (everywhere else) via `multiprocessing.connection`, guarded by a token so
   a stray local connection cannot drive the Studio.
-- `bridge.py` is `warlock mcp` itself -- a dumb byte relay between an agent's
-  stdio and that pipe. It contains no MCP semantics; all of those live in
-  `protocol.py`, which runs inside the app (see `studio/agent_host.py`),
-  because the app is the only side that can actually act on a tool call.
-  `studio/agent_host.py` also sniffs a connection's first frame for `rpc.py`'s
-  format and answers it directly -- `bridge.py` itself is
-  unchanged and does not yet speak it.
+- `bridge.py` is `warlock mcp` itself -- the real MCP server. It speaks
+  `rpc.py`'s private RPC v1 to Studio (`hello`, `catalogue`, `call`) and
+  dual-era MCP (`protocol.bridge_dispatch`) to whatever client dialled its
+  stdio: legacy, `initialize`-first JSON-RPC (with batching only for the one
+  legacy revision that still had it) and a newer "modern" era that drops
+  `initialize` for `server/discover` and versions each request through
+  `params._meta`. Studio keeps all per-call state (dedup, replay,
+  `warlock_status`, transcript, timeouts) behind the RPC v1 `call` op; this
+  module never re-parses a tool result, only splices its raw bytes into
+  whichever MCP envelope the connection's era calls for. `WARLOCK_MCP_RELAY=1`
+  keeps the old dumb byte-relay behaviour available as an escape hatch.
+  `studio/agent_host.py` still sniffs a connection's first frame to serve
+  the old, unwrapped MCP path directly too, for a bridge that has not been
+  updated to speak RPC v1 yet.
 """
 
 from __future__ import annotations

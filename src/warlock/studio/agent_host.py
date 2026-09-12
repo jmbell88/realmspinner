@@ -37,7 +37,11 @@ shape and the versioning rule. Both paths route a ``call``/``tools/call``
 through the exact same :meth:`AgentHost._call` (dedup, replay,
 ``warlock_status``, transcript, timeout refusals included) -- there is one
 copy of that logic, not two wire formats each with their own. `bridge.py`
-does not speak RPC v1 yet; only Studio's side of the pipe does.
+now speaks RPC v1 as its primary path and is the real MCP server a
+third-party client dials; the bare-MCP-over-the-pipe path answered here is
+what a bridge not yet updated to RPC v1 still gets, and
+``WARLOCK_MCP_RELAY=1`` is `bridge.py`'s own escape hatch back to relaying
+it byte-for-byte with no protocol logic on either side.
 
 **`initialize`'s `instructions` text is supplied by `agent_clay`, not written
 here or in `protocol.py`.** `protocol.dispatch` takes `instructions` as a

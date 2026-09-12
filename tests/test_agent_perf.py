@@ -26,8 +26,9 @@ need as many samples to stop moving):
 
 * ``clay_scene`` on a 1-object document: ~1.7 ms.
 * ``clay_scene`` on a 50-object document: ~5.6 ms.
-* ``tools/list`` (25 Clay tools plus ``warlock_status``, all rebuilt from the
-  live registries every time): ~0.5 ms.
+* ``tools/list`` (26 Clay tools plus ``warlock_status``, 27 total, all rebuilt
+  from the live registries every time -- ``len(agent_clay.tools())`` is the
+  source of truth, not this count): ~0.5 ms.
 
 See ``docs/measurements/2026-09-10-agent-bridge-round-trip.md`` for the full
 before/after against ``9fd36833`` (the commit just before this tranche) and
@@ -52,6 +53,7 @@ Excluded from the parallel run for the reason every ``perf`` case is (see
 
 from __future__ import annotations
 
+import json
 import statistics
 import threading
 import time
@@ -60,7 +62,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.mcp import pipe, protocol
+from warlock.mcp import pipe, protocol, rpc
 from warlock.studio import agent_host
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
@@ -226,7 +228,7 @@ def test_clay_scene_round_trip_on_a_fifty_object_document(bridge: _Bridge) -> No
 
 @pytest.mark.perf
 def test_tools_list_round_trip(bridge: _Bridge) -> None:
-    """``tools/list`` rebuilds all 25 ``Tool`` schemas from the live
+    """``tools/list`` rebuilds every ``Tool`` schema from the live
     registries on every call (``agent_clay.tools``'s own docstring) -- the
     one call in this file whose cost is pure catalogue construction, nothing
     to do with a document at all.
@@ -234,7 +236,112 @@ def test_tools_list_round_trip(bridge: _Bridge) -> None:
 
     def one_call() -> None:
         reply = bridge.call("tools/list")
-        assert len(reply["result"]["tools"]) >= 25
+        assert len(reply["result"]["tools"]) >= 26
 
     median_ms = _median_round_trip_ms(one_call, TOOLS_LIST_RUNS, "tools/list")
     assert median_ms < MAX_MEDIAN_MS_TOOLS_LIST, f"{median_ms:.3f} ms median"
+
+
+# =============================================================================
+# The bridge's own added cost: RPC v1 to a real AgentHost, then
+# ``protocol.bridge_dispatch`` on top -- the two layers this tranche put
+# between an MCP client's stdio and Studio, in place of the old dumb relay
+# (which added none). Budget is the module docstring's own ``clay_scene``
+# figures plus 0.5 ms, per this tranche's own instructions -- the two layers
+# are pure Python and small JSON, so a regression that makes either scale
+# badly (an unbounded catalogue refetch, a quadratic splice) should fail
+# here well before it is noticed as a sluggish agent session.
+# =============================================================================
+
+MAX_MEDIAN_MS_BRIDGE_SMALL_SCENE = MAX_MEDIAN_MS_SMALL_SCENE + 0.5
+MAX_MEDIAN_MS_BRIDGE_LARGE_SCENE = MAX_MEDIAN_MS_LARGE_SCENE + 0.5
+
+
+class _RpcBridge:
+    """As ``_Bridge`` above, but speaking RPC v1 to the host directly and
+    running each call through ``protocol.bridge_dispatch`` in this process
+    -- the same two steps ``bridge.py`` itself performs, without a child
+    process or its own pipe I/O in the way of the measurement."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.host = agent_host.AgentHost(_Ctx(), tmp_path)
+        self.host.start()
+        self._stop = threading.Event()
+        self._pumper = threading.Thread(target=self._pump_loop, daemon=True)
+        self._pumper.start()
+        self.conn = pipe.connect(tmp_path)
+        self.conn.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="test"))
+        header, _ = rpc.split_reply(self.conn.recv_bytes())
+        assert "error" not in header, header
+        self.conn.send_bytes(rpc.encode_request("catalogue"))
+        cat_header, _ = rpc.split_reply(self.conn.recv_bytes())
+        self.catalogue = cat_header
+        self.era = protocol.BridgeEra()
+        self.mcp_call("initialize", {})
+
+    def _pump_loop(self) -> None:
+        while not self._stop.is_set():
+            self.host.pump(budget=0.01)
+            time.sleep(0.001)
+
+    def call_tool(self, name: str, args: dict) -> bytes:
+        self.conn.send_bytes(rpc.encode_request("call", tool=name, args=args))
+        _header, body = rpc.split_reply(self.conn.recv_bytes())
+        return body
+
+    def mcp_call(self, method: str, params: dict) -> dict:
+        line = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(
+            "utf-8"
+        )
+        reply = protocol.bridge_dispatch(
+            line, self.era, catalogue=self.catalogue, call_tool=self.call_tool
+        )
+        return json.loads(reply)
+
+    def add_box(self) -> None:
+        reply = self.mcp_call(
+            "tools/call", {"name": "clay_add_primitive", "arguments": {"generator": "box"}}
+        )
+        assert reply["result"]["isError"] is False, reply
+
+    def close(self) -> None:
+        self.conn.close()
+        self._stop.set()
+        self._pumper.join(timeout=WAIT)
+        self.host.stop()
+
+
+@pytest.fixture
+def rpc_bridge(tmp_path):
+    b = _RpcBridge(tmp_path)
+    try:
+        yield b
+    finally:
+        b.close()
+
+
+@pytest.mark.perf
+def test_bridge_clay_scene_round_trip_on_a_one_object_document(rpc_bridge: _RpcBridge) -> None:
+    rpc_bridge.add_box()
+
+    def one_call() -> None:
+        reply = rpc_bridge.mcp_call("tools/call", {"name": "clay_scene", "arguments": {}})
+        assert reply["result"]["isError"] is False
+
+    median_ms = _median_round_trip_ms(one_call, SMALL_SCENE_RUNS, "bridge clay_scene, 1 object")
+    assert median_ms < MAX_MEDIAN_MS_BRIDGE_SMALL_SCENE, f"{median_ms:.3f} ms median"
+
+
+@pytest.mark.perf
+def test_bridge_clay_scene_round_trip_on_a_fifty_object_document(rpc_bridge: _RpcBridge) -> None:
+    for _ in range(50):
+        rpc_bridge.add_box()
+
+    def one_call() -> None:
+        reply = rpc_bridge.mcp_call("tools/call", {"name": "clay_scene", "arguments": {}})
+        result = reply["result"]
+        assert result["isError"] is False
+        assert len(result["structuredContent"]["objects"]) == 50
+
+    median_ms = _median_round_trip_ms(one_call, LARGE_SCENE_RUNS, "bridge clay_scene, 50 objects")
+    assert median_ms < MAX_MEDIAN_MS_BRIDGE_LARGE_SCENE, f"{median_ms:.3f} ms median"

@@ -220,7 +220,12 @@ The arrow only ever points inwards. Warlock ships no language model, runs no inf
 no endpoint; an agent that is already running connects to it. The transport is a local named pipe
 rather than a port, so there is nothing to open in a firewall and nothing off your machine can
 reach it. The pipe's key lives in `mcp.token` in your Warlock home and is written when you switch
-the setting on, so a program that cannot read your files cannot connect either.
+the setting on, so a program that cannot read your files cannot connect either. `warlock mcp` is
+the actual MCP server your agent's client dials over stdio; it speaks whichever protocol revision
+that client negotiates — both the classic, `initialize`-first family and a newer era that opens
+with `server/discover` instead — and translates every call into Studio's own private RPC over the
+pipe, so Studio itself only ever has to answer that one, versioned RPC rather than every MCP
+revision a client might bring.
 
 **An agent gets a Clay tab of its own, and can reach no other.** It opens one when it connects, and
 every tool it has addresses that tab by name. A document you already have open is not merely
