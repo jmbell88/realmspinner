@@ -222,7 +222,8 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
     if controls.menu_item("Ungroup", "Shift+G", False, _groupish(doc))[0]:
         mason_mode.ungroup_selected(ctx)
     if controls.menu_item(f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1)[0]:
-        mason_mode.define_prefab_from_selection(ctx)
+        # The 2026-09-12 audit's docs-03: see ``mason_menu.py``'s identical row.
+        mason_mode.prompt_define_prefab_from_selection(ctx)
     if controls.menu_item(f"{icons.UNLINK} Unpack instance", "", False, _instanceish(doc))[0]:
         mason_mode.unpack_selected(ctx)
     widgets.divider()

@@ -12,7 +12,7 @@ Part IV explains how it is built.
 
 ## Tutorials
 
-- [Before you begin](01-before-you-begin.md) — hardware, the two downloads, and what works without them.
+- [Before you begin](01-before-you-begin.md) — hardware, the downloads, and what works without them.
 - [Your first asset](02-your-first-asset.md) — a prompt to a textured mesh, and why it stops halfway.
 - [Finding your work again](03-finding-your-work.md) — Home, the library, and the four kinds of delete.
 - [Judging what you made](04-judging-what-you-made.md) — grades, tags, and what the measurements are worth.

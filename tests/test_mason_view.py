@@ -39,16 +39,45 @@ RECT = (0.0, 0.0, 128.0, 96.0)
 
 class _State:
     """The *app*'s Mason state. The view reads the tool and the pivot off it
-    and holds neither, because both are app settings shared across documents."""
+    and holds neither, because both are app settings shared across documents.
 
-    def __init__(self, tool: str = "select", pivot: str = "median") -> None:
+    The four ``snap*`` fields default off/zero, matching ``MasonState``'s own
+    defaults, so every test that does not care about snapping is unaffected by
+    their presence -- only the docs-01/docs-02 regression tests below set them.
+    """
+
+    def __init__(
+        self,
+        tool: str = "select",
+        pivot: str = "median",
+        snap: bool = False,
+        snap_translate: float = 0.0,
+        snap_rotate: float = 0.0,
+        snap_ground: bool = False,
+    ) -> None:
         self.tool = tool
         self.pivot = pivot
+        self.snap = snap
+        self.snap_translate = snap_translate
+        self.snap_rotate = snap_rotate
+        self.snap_ground = snap_ground
 
 
 class _Ctx:
-    def __init__(self, tool: str = "select", pivot: str = "median") -> None:
-        self.state = type("S", (), {"mason": _State(tool, pivot)})()
+    def __init__(
+        self,
+        tool: str = "select",
+        pivot: str = "median",
+        snap: bool = False,
+        snap_translate: float = 0.0,
+        snap_rotate: float = 0.0,
+        snap_ground: bool = False,
+    ) -> None:
+        self.state = type(
+            "S",
+            (),
+            {"mason": _State(tool, pivot, snap, snap_translate, snap_rotate, snap_ground)},
+        )()
 
 
 def _box_primitive(material: Any = None) -> gltf.Primitive:
@@ -290,6 +319,7 @@ def test_a_drag_rebinds_the_transform_arrays_so_the_local_memo_cannot_go_stale()
     doc = _scene(count=1)
     node = doc.roots[0]
     view = mason_view.MasonView.__new__(mason_view.MasonView)
+    view.app_ctx = _Ctx()
     view._drag_start = {node.uid: tuple(np.array(v, copy=True) for v in node.trs())}
     view._drag_pivot = np.zeros(3)
 
@@ -321,6 +351,54 @@ def test_a_locked_node_is_not_dragged_even_though_it_is_selected() -> None:
 
     assert first.uid in view._drag_start
     assert second.uid not in view._drag_start
+
+
+def test_dragging_a_node_with_the_move_gizmo_snaps_translation_to_the_grid_when_snap_is_on() -> (
+    None
+):
+    """The 2026-09-12 audit's docs-01: Chapter 17 has the reader turn on Snap
+    with **grid (m)** at 1 and drag a box, promising "it lands on whole
+    metres," but ``_apply_drag`` never read ``state.snap`` or
+    ``state.snap_translate`` at all -- only the first-click placement path
+    (``_drop_point``) did. The audit's own probe dragged a node by 2.37 m with
+    Snap on and a 1 m grid and it landed at exactly 2.37, unsnapped; this
+    encodes that same drag and asserts the grid-aligned answer instead.
+    """
+    doc = _scene(count=1)
+    node = doc.roots[0]
+    view = mason_view.MasonView.__new__(mason_view.MasonView)
+    view.app_ctx = _Ctx(tool="move", snap=True, snap_translate=1.0)
+    view._drag_start = {node.uid: tuple(np.array(v, copy=True) for v in node.trs())}
+    view._drag_pivot = np.zeros(3)
+
+    view._apply_drag(doc, delta=np.array([2.37, 0.0, 0.0]))
+
+    assert node.translation[0] == pytest.approx(2.0)
+
+
+def test_dragging_a_node_with_drop_to_ground_enabled_keeps_it_on_the_terrain_surface() -> None:
+    """The 2026-09-12 audit's docs-02: ``state.snap_ground`` is written by its
+    own toggle in ``panes/mason_tools.py`` and read nowhere else, so Chapter
+    17's "Drop to ground ... it lands on the ground rather than floating above
+    or sinking into it" did nothing during the one gesture -- dragging -- the
+    chapter tells the reader to use it for. The audit's own probe dragged a
+    node starting 5 m above the ground with the toggle on and its height was
+    unchanged after the drag; this drags the same node and asserts its box
+    actually rests on the ground plane afterward.
+    """
+    doc = _scene(count=1)
+    node = doc.roots[0]
+    view = mason_view.MasonView.__new__(mason_view.MasonView)
+    view.app_ctx = _Ctx(tool="move", snap_ground=True)
+    view._drag_start = {node.uid: tuple(np.array(v, copy=True) for v in node.trs())}
+    view._drag_pivot = np.zeros(3)
+    source = _Source()
+
+    view._apply_drag(doc, source, delta=np.array([0.0, 5.0, 0.0]))
+
+    box = msc.world_bounds(doc, source, uids=[node.uid])
+    assert box is not None
+    assert box[0][1] == pytest.approx(0.0)
 
 
 # --- culling ------------------------------------------------------------------

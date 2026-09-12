@@ -285,6 +285,61 @@ def test_the_docs_name_every_repository_the_registry_does():
     assert not missing, f"in models.py but in neither README.md nor docs/MODELS.md: {missing}"
 
 
+def test_docs_models_md_gives_a_paste_able_command_for_every_fetch_record_it_lists():
+    """docs-08 (2026-09-12 audit): the GGUF weights row -- ``ilintar/trellis2-gguf``,
+    "the one thing Create cannot do without" per this page's own text -- had no
+    ``uvx hf download`` block, even though every other Fetch record on this
+    page gets one and README.md / the installation chapter both carry it.
+
+    The old gate right above (``test_the_docs_name_every_repository_the_registry_does``)
+    missed this because it only asks whether a repo id appears *somewhere*
+    across README.md **or** docs/MODELS.md combined -- so README's copy of the
+    command already satisfied the union and the gap in this document alone was
+    invisible to it. This one is scoped to ``docs/MODELS.md`` by itself and
+    demands a paste-able command for every record the registry actually holds,
+    not just a mention, derived by walking ``fetch.entries()`` rather than by
+    hard-coding the repository list -- so the next entry added without its
+    command fails here.
+
+    Two records are not ``hf download`` at all: the TRELLIS.2 engine archive
+    and Hybrid Demucs are the sha256-pinned direct-URL transport (``Fetch.url``),
+    which renders a ``curl`` line instead, so they get their own, weaker check
+    (the digest and the URL both appear) rather than being forced through the
+    Hub-shaped assertion below.
+    """
+    root = SRC.parents[1]
+    text = (root / "docs" / "MODELS.md").read_text(encoding="utf-8")
+
+    for entry in fetch.entries():
+        for one in entry.fetch:
+            if one.url:
+                # Exempted from the `hf download` shape on purpose (see
+                # docstring): a direct-URL fetch pins by digest and renders
+                # `curl`, not `uvx hf download`.
+                assert one.url in text, (
+                    f"{entry.row_key} ({one.url}) has no curl command in docs/MODELS.md"
+                )
+                assert one.sha256 in text, (
+                    f"{entry.row_key}'s digest {one.sha256} is not stated in "
+                    "docs/MODELS.md"
+                )
+                continue
+            marker = f"uvx hf download {one.repo_id}"
+            assert marker in text, (
+                f"{entry.row_key} ({one.repo_id}) has no paste-able `hf download` "
+                "command in docs/MODELS.md (docs-08, the 2026-09-12 audit)"
+            )
+            # The same short window ``test_a_documented_command_names_the_commit_the_registry_pins``
+            # uses: a closing quote and a line break can sit between the
+            # repository and ``--revision`` in the hand-written PowerShell here.
+            idx = text.index(marker)
+            window = text[idx : idx + len(marker) + 200]
+            assert f"--revision {one.revision}" in window, (
+                f"{entry.row_key} ({one.repo_id})'s command in docs/MODELS.md "
+                f"does not pin --revision {one.revision}"
+            )
+
+
 def test_the_installation_chapter_names_every_repository_too():
     """The manual is read *inside the app*, where docs/MODELS.md cannot be
     opened -- which is why chapter 38 carries the commands rather than a

@@ -288,6 +288,17 @@ class RigOps:
                 on_progress=on_progress,
                 pack_target=png_tmp,
             )
+            # The second of the two checks the comment above already promised:
+            # the 2026-09-12 audit (docs-10) found this docstring claimed a
+            # cancel is caught "again after the render" when the body never
+            # made a second check, so a cancel landing mid-render still
+            # published the QA sheet and its sidecar. There is exactly as much
+            # left to skip here as there was for the rig's own render a few
+            # lines up in ``_rig``: png_tmp already holds the packed atlas, so
+            # skipping the publish below leaves nothing but a temp for the
+            # ``finally`` to discard.
+            if self._cancel is not None and self._cancel.event.is_set():
+                return None
             await asyncio.to_thread(os.replace, png_tmp, png)
         finally:
             with contextlib.suppress(OSError):

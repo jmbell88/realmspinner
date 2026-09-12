@@ -170,8 +170,8 @@ one is open:
   library, send to Troupe, export the audio.
 - **The same gestures.** The wheel zooms, in 5% steps, in every canvas; `Shift` and the wheel scrolls
   sideways; the middle button pans. In a 3D view, `Alt`+drag orbits and the middle button pans.
-  `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay and
-  in Poser alike.
+  `Ctrl+1`, `Ctrl+3` and `Ctrl+7` look along an axis and `Ctrl+5` toggles perspective, in Clay, in
+  Poser and in Mason alike.
 - **The same chords.** `Ctrl+S` and `Ctrl+Shift+S` save; `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` walk
   the history; `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle the tabs; `Ctrl+W` closes one; `Ctrl+Shift+E`
   is the file export and `Ctrl+E` the library export wherever each exists. A chord is printed in a

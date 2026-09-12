@@ -61,6 +61,14 @@ curl -L -o $HOME/.warlock/engine/trellis/trellis-cuda-windows-x64.zip `
 # then unpack it into $HOME/.warlock/engine/trellis
 ```
 
+The GGUF weights are an ordinary Hub fetch, and this is the one on this page you actually need:
+
+```powershell
+# TRELLIS.2 GGUF weights (~16 GB) -> ~/.warlock/models/trellis2-gguf/
+uvx hf download ilintar/trellis2-gguf --revision a57397bd3d351599d9729fc144b3f87c3f87d65b --include "*.gguf" --exclude "q4/*" --exclude "q8/*" `
+  --local-dir $HOME/.warlock/models/trellis2-gguf
+```
+
 **An NVIDIA card is required and there is no CPU build.** A source checkout keeps its own copy in
 `vendor/trellis/` (README step 2); a downloaded copy wins over that one, and `WARLOCK_TRELLIS_EXE`
 beats both — which is the sideload path for a machine that cannot reach GitHub.

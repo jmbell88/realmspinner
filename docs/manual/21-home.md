@@ -82,7 +82,7 @@ to go is clickable.
 
 | Line | What it says | Where it goes |
 |---|---|---|
-| Setup | "Generation is not set up yet — N downloads", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
+| Setup | "Generation is not set up yet — N downloads, about G GB", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
 | Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | — |
 | Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](38-review.md). |
 

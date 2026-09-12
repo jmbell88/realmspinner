@@ -97,5 +97,8 @@ regenerates next week.
 
 ## Where to go next
 
+Next: [Generating a soundtrack](16-generating-a-soundtrack.md) — Muse, which writes music from a
+description rather than a recipe.
+
 [Effects](29-inker-animation.md#effects) for the reference; [Putting it in a
 game](13-putting-it-in-a-game.md) for the engines.

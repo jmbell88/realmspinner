@@ -120,10 +120,10 @@ than seven.
 
 ## What to read next
 
-One tutorial left, and it is the only one that makes a sound:
+Three tutorials left, starting with the only one that makes a sound:
 [Making a soundtrack](14-making-a-soundtrack.md) — Sirens, the tracker.
 
-After that the reference chapters go deeper on everything touched here —
+The reference chapters go deeper on everything touched here, whenever you want them —
 [Overview](20-overview.md) is the front door to them, and each workspace has its own.
 
 If something is not behaving, [Troubleshooting](43-troubleshooting.md) is organised by symptom, and

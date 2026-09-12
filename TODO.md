@@ -1102,12 +1102,15 @@ would have written a figure into the manual on no more authority than the one
 already there, and this repository's rule is that a constant the corpus is keyed
 on gets a dated document *before* it changes.
 
-**Where it stands.** `docs/manual/16-generating-a-soundtrack.md:59` and
-`docs/manual/36-muse.md:57` both say "below about 30 the output audibly falls
+**Where it stands.** `docs/manual/16-generating-a-soundtrack.md` and
+`docs/manual/36-muse.md` both say "below about 30 the output audibly falls
 apart; above about 80 you are paying for time". The slider's own tooltip in
-`studio/panes/muse_recipe.py:68` says "past about 60, not better". Two different
+`studio/panes/muse_recipe.py` says "past about 60, not better". Two different
 ceilings, and only the manual warns about a floor at all. No
-`docs/measurements/` document is keyed on either figure.
+`docs/measurements/` document is keyed on either figure. (The line numbers this
+entry used to carry had drifted by up to eighteen lines when the 2026-09-12
+audit checked them, finding docs-11; the sentences are named instead, because a
+citation that has to be re-verified to be followed is worse than none.)
 
 **Do:**
 

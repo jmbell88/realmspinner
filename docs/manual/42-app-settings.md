@@ -352,7 +352,7 @@ reports that something went wrong, tells you whether there is unsaved work waiti
 back on the next launch, and asks whether to open the folder your log is in. Answering no costs
 nothing — the log is written either way, and the recovery offer does not depend on it.
 
-Not everything the app remembers has a control in this pane. `studio_settings.json` also holds your
+Not everything the app remembers has a control in this pane. `studio_settings.json` also holds
 the sidebar's internal split, and the pixel-art export
 preferences — the
 size and palette set in an asset's [Pixel art](22-generating-references.md#pixel-art) section, which

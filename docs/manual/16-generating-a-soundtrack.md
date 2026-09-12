@@ -98,6 +98,8 @@ engine or use it as material in Sirens rather than as a finished loop.
 
 ## What to read next
 
+- [Dressing a scene](17-dressing-a-scene.md) — the next tutorial, and the last one: Mason, a room
+  built from what you have already made.
 - [Muse](36-muse.md) — the reference chapter: every control, and what each recipe value does.
 - [Sirens](35-sirens.md) — the tracker the bridge lands in.
 - [Making a soundtrack](14-making-a-soundtrack.md) — the same goal, authored by hand.

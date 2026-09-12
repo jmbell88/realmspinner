@@ -188,5 +188,6 @@ mixer and they line up.
 [Sirens](35-sirens.md) — the reference chapter: every effect letter, the sample instruments, what
 `Fxx` does differently here from FamiTracker, and what the mode deliberately does not do.
 
-That is the last tutorial. The reference chapters go deeper on all of it —
+Next: [Casting a spell](15-casting-a-spell.md) — Flourish, which paints with recipes rather than
+notes. The reference chapters go deeper on all of it —
 [Overview](20-overview.md) is the front door.

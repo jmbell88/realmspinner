@@ -87,6 +87,7 @@ from typing import Any
 import numpy as np
 
 from ._view_frame import Composite, FrameOps
+from .mason import ops as mops
 from .mason import pick as mpick
 from .mason import scene as msc
 from .mason import terrain as mterrain
@@ -814,8 +815,6 @@ class MasonView(FrameOps):
                     else np.asarray(self.camera.target, dtype="f8")
                 )
         if getattr(self.state, "snap", False):
-            from .mason import ops as mops
-
             point = mops.snap_translation(point, float(getattr(self.state, "snap_translate", 0.0)))
         return point
 
@@ -1137,7 +1136,9 @@ class MasonView(FrameOps):
             point = self.translate_gizmo.update(origin, direction)
             if point is None:
                 return
-            self._apply_drag(doc, delta=np.asarray(point, dtype="f8") - self._drag_origin)
+            self._apply_drag(
+                doc, source, delta=np.asarray(point, dtype="f8") - self._drag_origin
+            )
         elif tool == "rotate":
             step = self.rotate_gizmo.update(origin, direction)
             if step is None:
@@ -1147,15 +1148,21 @@ class MasonView(FrameOps):
             # applied against the transforms recorded at the press, and an
             # increment applied to those would be the last mouse-move alone.
             self._drag_quat = m3.quat_mul(np.asarray(step, dtype="f8"), self._drag_quat)
-            self._apply_drag(doc, quat=self._drag_quat)
+            self._apply_drag(doc, source, quat=self._drag_quat)
         elif tool == "scale":
             factor = self.scale_gizmo.update(origin, direction)
             if factor is None:
                 return
-            self._apply_drag(doc, scale=np.asarray(factor, dtype="f8"))
+            self._apply_drag(doc, source, scale=np.asarray(factor, dtype="f8"))
 
     def _apply_drag(
-        self, doc: Any, *, delta: Any = None, quat: Any = None, scale: Any = None
+        self,
+        doc: Any,
+        source: Any = None,
+        *,
+        delta: Any = None,
+        quat: Any = None,
+        scale: Any = None,
     ) -> None:
         """Write the drag onto every node it holds, in that node's *parent* space.
 
@@ -1170,6 +1177,18 @@ class MasonView(FrameOps):
         A parent whose own basis has no inverse (scaled flat on an axis) is
         skipped rather than written with a non-finite transform, which is the
         guard ``objout._normal_matrix`` states the reason for.
+
+        **Snap is read here, not just at the initial placement click.** The
+        2026-09-12 audit (docs-01) found that Chapter 17 promises "turn on
+        Snap ... drag the box: it lands on whole metres," but this method
+        never once consulted ``state.snap`` -- only ``_drop_point`` (the first
+        click) did, so Clay's identical toggle worked and Mason's did not. The
+        grid is a *world* quantity (a floor is flat in world space whatever
+        group a prop sits under), so the local ``translation``/rotation this
+        method already carries in the parent's frame is turned back into a
+        world point, snapped there, and carried back through ``inverse`` --
+        the same round trip the pivot maths below already does for a rotate
+        or scale about a world-space pivot.
         """
         for uid, (t0, r0, s0) in self._drag_start.items():
             node = doc.node(uid)
@@ -1180,10 +1199,25 @@ class MasonView(FrameOps):
                 continue
             inverse, parent_world = basis
             translation, rotation, scale_out = t0, r0, s0
+            snap_on = bool(getattr(self.state, "snap", False))
             if delta is not None:
                 translation = t0 + inverse @ np.asarray(delta, dtype="f8")
+                if snap_on:
+                    step = float(getattr(self.state, "snap_translate", 0.0))
+                    world_point = parent_world[:3, :3] @ translation + parent_world[:3, 3]
+                    world_point = mops.snap_translation(world_point, step)
+                    translation = inverse @ (world_point - parent_world[:3, 3])
             elif quat is not None:
                 turn = np.asarray(quat, dtype="f8")
+                if snap_on:
+                    # The *total* turn since the press is what snaps, the same
+                    # register Clay's ``_view_drag`` snaps its own accumulated
+                    # delta in rather than the absolute orientation: an object
+                    # tilted off the cardinal axes at rest is not yanked
+                    # straight the instant the drag starts.
+                    turn = mops.snap_rotation(
+                        turn, float(getattr(self.state, "snap_rotate", 0.0))
+                    )
                 rotation = m3.quat_mul(turn, r0)
                 # The position orbits the pivot as well as the node turning on
                 # the spot, which is what makes a multi-node rotate turn the
@@ -1211,7 +1245,43 @@ class MasonView(FrameOps):
             node.translation = np.array(translation, dtype="f8")
             node.rotation = np.array(rotation, dtype="f8")
             node.scale = np.array(scale_out, dtype="f8")
+            if delta is not None and source is not None:
+                self._drop_dragged_node_to_ground(doc, source, uid, inverse)
         doc.touch()
+
+    def _drop_dragged_node_to_ground(
+        self, doc: Any, source: Any, uid: int, inverse: Any
+    ) -> None:
+        """After a translate drag writes ``uid``'s new position, rest it on the
+        terrain if ``state.snap_ground`` is on.
+
+        The 2026-09-12 audit (docs-02) found ``state.snap_ground`` written by
+        its own toggle and read nowhere else: Chapter 17 promises a dragged
+        prop "lands on the ground rather than floating," and the field that
+        promise names was wired to nothing during the one gesture the chapter
+        tells the reader to use it for. This is the same ``mops.drop_to_ground``
+        the one-shot "Drop selection to ground" button already calls
+        (``panes/mason_tools.py``), applied per node, per frame, against the
+        position the drag has *just* written -- so the box it measures is
+        the box the drag actually produced, not the one before it moved.
+        A node with no resolvable geometry (a light, a camera, an unexpanded
+        prefab instance) contributes no box, the same as it contributes
+        nothing to ``world_bounds`` everywhere else, and is left alone.
+        """
+        if not bool(getattr(self.state, "snap_ground", False)):
+            return
+        box = self.world_bounds(doc, source, uids=[uid])
+        if box is None:
+            return
+        ground_delta = mops.drop_to_ground({uid: box}, terrain=doc.terrain).get(uid)
+        if ground_delta is None:
+            return
+        node = doc.node(uid)
+        if node is None:
+            return
+        node.translation = np.array(node.translation, dtype="f8") + inverse @ np.asarray(
+            ground_delta, dtype="f8"
+        )
 
     def _parent_basis(self, doc: Any, uid: int) -> Any:
         """``(inverse_of_the_parent_basis, parent_world)``, or ``None``.

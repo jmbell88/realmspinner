@@ -196,10 +196,12 @@ repository into a staging directory beside the destination, verifies the hub's
 recorded digests, moves the files in only if it succeeded, and exits. The app
 process keeps `HF_HUB_OFFLINE=1` for its entire life. The packaged installer's
 **Settings → Packs** works the same way through a second such subprocess,
-`pack_worker` — those two are the only code in the project that reaches the
-network, and neither of them is the app process. Free disk is checked
-against the whole plan before anything is spawned, and a killed download leaves
-a partial directory that `present()` treats as absent rather than as installed.
+`pack_worker`, and **Settings → Advanced**'s update check works the same way
+through a third, `update_worker` — those three are the only code in the
+project that reaches the network, and none of them is the app process. Free
+disk is checked against the whole plan before anything is spawned, and a
+killed download leaves a partial directory that `present()` treats as absent
+rather than as installed.
 
 ### The same downloads, from a terminal
 

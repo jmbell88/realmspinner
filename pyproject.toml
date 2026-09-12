@@ -1,6 +1,6 @@
 [project]
 name = "warlock"
-version = "0.0.44"
+version = "0.0.45"
 description = "Local AI 3D asset generator (Meshy-style) for game development"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -255,6 +255,13 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+# The Clay-assistant dataset recipes are hundreds of prompt-phrasing lambdas and
+# call-building one-liners each; wrapping every f-string at 100 columns would make
+# the recipe harder to read against the JSONL it emits, for no gain the rest of
+# the lint set does not already give. Line length and one-letter loop names only.
+[tool.ruff.lint.per-file-ignores]
+"training/clay-assistant/drafts/_gen_*.py" = ["E501", "E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -941,6 +941,65 @@ async def test_a_cancel_after_the_rig_is_published_still_records_it_as_done(
     await worker.shutdown()
 
 
+async def test_deform_qa_docstrings_second_cancel_check_that_does_not_exist(
+    worker, monkeypatch
+):
+    """The 2026-09-12 audit (docs-10): ``_deform_qa``'s own comment claimed a
+    cancel is "checked at the top and again after the render", but the body
+    only ever checked once, before the render call. A cancel arriving while
+    the QA battery was rendering used to publish the sheet and its sidecar
+    anyway -- the exact "sidecar write avoided is work avoided" the comment
+    already promised for the top-of-function case.
+
+    The rig job itself still finishes "done" either way (it committed its own
+    cancel before the QA tail ever starts, exactly as
+    ``test_a_cancel_after_the_rig_is_published_still_records_it_as_done``
+    above exercises for the rig proper) -- this test is about the QA sheet's
+    own artifacts, which a cancel mid-render should be able to skip the way a
+    cancel mid-solve already skips ``finalize_rig``.
+    """
+    calls = _Calls()
+    hold = threading.Event()
+    registered = threading.Event()
+
+    def fake(spec, *, on_progress=None, on_start=None, timeout=0.0):
+        if spec.get("op") == "sheet":
+            from PIL import Image
+
+            registered.set()
+            hold.wait(timeout=10)
+            calls.sheets.append({"spec": spec, "timeout": timeout})
+            size = int(spec["frame_size"])
+            for cell in spec["cells"]:
+                frame = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+                frame.save(Path(spec["frames_dir"]) / f"{cell['index']:04d}.png")
+            return {"ok": True, "frames": [c["index"] for c in spec["cells"]]}
+        calls.append({"spec": spec, "timeout": timeout})
+        Path(spec["out_glb"]).write_bytes(b"fake-rig")
+        Path(spec["out_json"]).write_bytes(b'{"bones": []}')
+        return {"ok": True, "weighting": "automatic", "bones": 19}
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+    source = _mesh_job(worker)
+    source_dir = worker.config.job_dir(source)
+    rig_id = worker.store.create("rig", None, {"source_job": source})
+
+    worker.start()
+    await _wait_until(registered.is_set)
+    await worker.request_cancel(rig_id)
+    hold.set()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+
+    job = worker.store.get(rig_id)
+    assert "deform_qa" not in job["params"], (
+        "a cancel mid-render must skip the QA sidecar the same way a cancel "
+        "mid-solve skips finalize_rig"
+    )
+    assert not (source_dir / "rig_qa.json").exists()
+    assert not (source_dir / "rig_qa.png").exists()
+    await worker.shutdown()
+
+
 def test_a_publish_that_lands_the_glb_but_not_the_json_leaves_no_stale_marker(
     tmp_path, monkeypatch
 ):

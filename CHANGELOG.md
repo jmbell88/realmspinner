@@ -2,21 +2,65 @@
 
 Hand-written, newest first. Nothing here is derived from git: most commit
 subjects name what changed and why, but a changelog built from them would
-still be commit-shaped â€” one entry per change, in developer language, with no
+still be commit-shaped — one entry per change, in developer language, with no
 editorial judgment about what a player actually needs to know. This file is
 the curated record instead. The top heading's version must match
-`pyproject.toml` â€” a test asserts it, so a release bump cannot leave this file
+`pyproject.toml` — a test asserts it, so a release bump cannot leave this file
 behind.
 
 **A note on how this reads.** These entries are written for whoever maintains
 this next, which means they name the measurement that made a default wrong, the
-review score that condemned a mode, and what a crash actually was â€” in the
+review score that condemned a mode, and what a crash actually was — in the
 belief that a fix nobody can audit is a fix nobody should trust. A long run of
 "fixed: X crashed" is therefore a record of things *found and closed*, usually
 by the project's own test suite or its own audits, and not a weather report on
 stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
+
+## 0.0.45 — 2026-09-12
+
+**Mason's Snap and Drop to ground now work while you are dragging, not only
+when you first place something.** Turning Snap on, setting the grid to a metre
+and dragging a crate with the move gizmo used to leave the crate exactly where
+the mouse let go of it: the grid applied to the click that *placed* an object
+and to nothing afterwards. Drop to ground was worse — the toggle was written
+when you pressed it and read nowhere at all, so a prop dragged into the air
+stayed in the air while the panel said it would not. Both now apply on every
+mouse-move, which is what the tutorial has always said they do. If you have a
+scene you dressed before this release, nothing in it moves on open; the
+alignment you thought you had is still the alignment you actually have, and
+re-dragging a row of crates with Snap on is now how you get the other one.
+
+- **Make prefab asks you what to call it.** The gesture used to name the new
+  template after whatever you had selected and give you no say, and if that
+  name happened to collide with a template the selection already places, the
+  whole action failed silently — no prefab, no message, nothing on screen to
+  suggest you had done anything at all. It now prompts for a name, and a name
+  it cannot use says so instead of disappearing.
+- **A light's range is a control again.** The Properties panel described one
+  and did not draw one, so the field existed in the file and in the export with
+  no way to set it. Point and spot lights now have it; a directional light
+  still does not, because the sun has no range.
+- **Cancelling a rig no longer publishes its QA sheet.** A cancel arriving
+  while the deformation battery was rendering wrote the sheet, its sidecar and
+  its record anyway. Nothing was corrupted — the rig itself was already
+  finished and the row was always going to read *done* — but you got an
+  artifact from work you had told the app to stop.
+
+**What the documentation was claiming, and was wrong about.** An audit of every
+document in this repository found the offline promise undercounted in two
+places: this project's own README and its contributor notes each said that one
+or two subprocesses were the only code here that reaches the network, when
+there are three (model weights, dependency packs, and the update check). The
+security policy had it right the whole time, which is the good news and also
+the problem — four documents stating one fact by hand is three chances to
+drift. A test now derives the list from the code and holds every document to
+it. The same pass fixed a manual whose tutorial chain stopped at chapter 14
+while three more tutorials sat unlinked behind it, an index that promised two
+downloads where there are now three, a model reference missing the one download
+Create cannot run without, and a handful of sentences quoting the app slightly
+wrong.
 
 ## 0.0.44 — 2026-09-11
 

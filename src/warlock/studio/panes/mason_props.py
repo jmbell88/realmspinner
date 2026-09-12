@@ -187,6 +187,22 @@ def _light_block(doc: Any, node: Any) -> None:
     changed, intensity = controls.input_float("##mlightintensity", float(node.intensity), 0.1, 0.0)
     if changed:
         doc.set_props(node.uid, intensity=max(0.0, intensity))
+    if node.kind in ("point", "spot"):
+        # The 2026-09-12 audit's docs-06: Chapter 17 says a selected light's
+        # Properties panel shows "colour, intensity, and range," but this
+        # block drew no control for it even though ``LightNode.range`` exists
+        # and reaches glTF export (``gltfout._light``) -- a reader looking for
+        # the field the chapter names had no way to set it from this panel.
+        # Guarded to point/spot, the two kinds ``KHR_lights_punctual`` gives a
+        # range at all (``viewer.gltf.Light``'s own docstring: a directional
+        # light ignores it entirely and never writes it).
+        widgets.field_label("range (m)")
+        changed, light_range = controls.input_float(
+            "##mlightrange", float(node.range), 0.5, 0.0
+        )
+        widgets.help_marker("Distance the light reaches. 0 means no limit.")
+        if changed:
+            doc.set_props(node.uid, range=max(0.0, light_range))
     if node.kind == "spot":
         widgets.field_label("inner cone (rad)")
         changed, inner = controls.input_float(

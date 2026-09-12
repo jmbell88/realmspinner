@@ -457,7 +457,14 @@ def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
     mark = doc.mark()
     try:
         doc.define_prefab(name, node)
-    except ValueError:
+    except ValueError as exc:
+        # The 2026-09-12 audit's docs-03: this refusal used to be swallowed
+        # here with no toast at either context-menu call site, so a name that
+        # collided with a template the selection already places (the
+        # recursion ``document.define_prefab`` itself refuses) did nothing
+        # that the reader could see -- Chapter 17's "give it a name" gesture
+        # looked like it simply failed to register.
+        ctx.toast(f"Could not make a prefab: {exc}", "error")
         return ""
     instance = nd.PrefabNode(uid=nd.new_uid(), name=node.name or name, template=name)
     instance.translation = node.translation
@@ -468,6 +475,44 @@ def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
     doc.collapse_since(mark)
     doc.select([instance.uid])
     return name
+
+
+def prompt_define_prefab_from_selection(ctx: Any) -> None:
+    """Ask for the new template's name, then define it -- the gesture Chapter
+    17 describes as "right-click it. Choose Make prefab and give it a name."
+
+    The other half of the 2026-09-12 audit's docs-03: both context-menu call
+    sites (``panes/mason_menu.py``, ``panes/mason_outliner.py``) used to call
+    :func:`define_prefab_from_selection` with no name at all, so there was
+    nowhere in the whole gesture the chapter's naming step could happen --
+    the template was silently named after the node it was made from. This
+    follows the house pattern (``poser_mode.name_pose``'s own ``ctx.prompts``
+    call) rather than inventing a second way to ask a one-line question.
+    Seeded with the selected node's own name so confirming with no edit keeps
+    today's behaviour exactly, and refused up front (no popup) for the same
+    selection shapes :func:`define_prefab_from_selection` itself refuses, so a
+    disabled menu row never opens a dialog with nothing it can do.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving or len(tab.doc.selection) != 1:
+        return
+    doc = tab.doc
+    uid = next(iter(doc.selection))
+    node = doc.node(uid)
+    if node is None:
+        return
+    from .mason import nodes as nd
+
+    if isinstance(node, (nd.TerrainNode, nd.PrefabNode)):
+        return
+    default = node.name or "Prefab"
+
+    def accept(name: str) -> None:
+        define_prefab_from_selection(ctx, name)
+
+    ctx.prompts.ask(
+        dialogs.Prompt(title="Make prefab", label="Name", value=default, on_accept=accept)
+    )
 
 
 def unpack_selected(ctx: Any) -> None:
