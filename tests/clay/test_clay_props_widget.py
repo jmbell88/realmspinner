@@ -107,3 +107,29 @@ def test_a_plane_size_still_draws_and_edits(ui, monkeypatch) -> None:
     out, changed = _drawn(ui, "size", (1.0, 1.0), (1.0, 1.0))
     assert changed is True
     assert out == (2.0, 1.0)
+
+
+def test_removing_the_last_palette_material_greys_out_with_a_stated_reason() -> None:
+    """The 2026-09-12 audit's clay-05: with exactly one material, the old
+    inline ``removable = users == 0 and len(doc.materials) > 1`` was always
+    False, but the explanatory line right below it was gated on that same
+    ``len(doc.materials) > 1``, so it never fired either -- Remove greyed out
+    with nothing on screen saying a document must keep at least one material,
+    unlike the "still in use" case one line below it in the same file.
+
+    ``_palette_remove_reason`` is the pure function this decision now lives
+    in, so it is testable without a live imgui frame the way
+    ``clay_ops.reason_for`` and ``plotter_menu._layer_reason`` already are.
+    """
+    # A single material and no users at all: the one case the old code left
+    # silently disabled.
+    reason = clay_props._palette_remove_reason(material_count=1, users=0)
+    assert reason, "Remove is greyed with no stated reason"
+    assert "at least one material" in reason
+
+    # The pre-existing "still in use" case must keep working unchanged.
+    reason = clay_props._palette_remove_reason(material_count=2, users=3)
+    assert "3 face(s) use this slot" in reason
+
+    # And the control is enabled -- no reason -- only when it truly can act.
+    assert clay_props._palette_remove_reason(material_count=2, users=0) == ""

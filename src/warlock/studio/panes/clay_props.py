@@ -467,6 +467,27 @@ def _material(doc: Any, obj: Any) -> None:
         doc.set_material(index, fresh)
 
 
+def _palette_remove_reason(material_count: int, users: int) -> str:
+    """Why "Remove" is refused for the palette's current slot, or ``""``.
+
+    A pure function beside the draw call -- the shape ``clay_ops.reason_for``
+    and ``plotter_menu._layer_reason`` already use for the same rule -- so the
+    decision is testable without a live imgui frame. Split out for the
+    2026-09-12 audit's finding clay-05: the single-material case fell through
+    both the enabling check and the explaining one, because both were gated
+    on the same ``len(doc.materials) > 1``, so a document with exactly one
+    material showed Remove greyed with nothing on screen saying why.
+    """
+    if material_count <= 1:
+        return "A document keeps at least one material."
+    if users:
+        # The count spans objects the undo stack still holds, not only the
+        # ones in the document -- a slot removed while an undone deletion was
+        # the last thing using it came back magenta on redo.
+        return f"{users} face(s) use this slot (including undone deletions)"
+    return ""
+
+
 def _palette_row(doc: Any, obj: Any) -> None:
     """Add, rename and remove palette entries.
 
@@ -487,15 +508,12 @@ def _palette_row(doc: Any, obj: Any) -> None:
         # after this click left a stray, unreferenced palette entry behind.
         doc.add_material_and_assign(obj.uid)
     imgui.same_line()
-    removable = users == 0 and len(doc.materials) > 1
-    if widgets.disabled_button("Remove##matdel", removable):
+    reason = _palette_remove_reason(len(doc.materials), users)
+    if widgets.disabled_button("Remove##matdel", not reason):
         # Same fold as Add, for the same reason.
         doc.remove_material_and_reassign(obj.uid, index)
-    if not removable and len(doc.materials) > 1:
-        # The count spans objects the undo stack still holds, not only the ones
-        # in the document -- a slot removed while an undone deletion was the
-        # last thing using it came back magenta on redo.
-        widgets.muted(f"{users} face(s) use this slot (including undone deletions)")
+    if reason:
+        widgets.muted(reason)
 
     # commit=True for the reason ``_identity``'s name field needs it: the
     # 2026-09-06 audit's clay-02 found this one reporting per keystroke too,

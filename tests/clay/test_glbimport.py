@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock import glbio
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import glbimport
 from warlock.studio.clay import mesh as bm
@@ -361,3 +362,36 @@ def test_a_malformed_glb_still_reaches_the_loaders_own_refusal() -> None:
     falls through to ``gltf.load``'s own, more specific message."""
     with pytest.raises(OpError, match="could not be read"):
         glbimport.glb_to_claydoc(b"not a glb at all")
+
+
+def test_declared_budget_does_not_crash_on_a_non_dict_accessor_or_mesh_entry() -> None:
+    """The 2026-09-12 audit, finding clay-03: ``_declared_budget``'s ``_count``
+    helper called ``accessors[index].get("count", 0)``, and the loop around it
+    called ``meshes[mesh_index].get("primitives")``, with no check that the
+    entry itself was a mapping -- only that its *index* was an in-range int.
+    A bare string or list at that slot is legal JSON and illegal glTF, and
+    used to raise an uncaught ``AttributeError`` straight out of
+    ``glb_to_claydoc`` (which wraps only ``gltf.load`` in a try/except, a few
+    lines below the declared-budget preflight) instead of the module's own
+    named ``OpError`` a corrupted or hand-edited GLB is supposed to get.
+    """
+    header, doc, rest = glbio.split_glb(_glb(_one_box()))
+
+    non_dict_accessor = dict(doc)
+    non_dict_accessor["nodes"] = [{"mesh": 0}]
+    non_dict_accessor["meshes"] = [{"primitives": [{"attributes": {"POSITION": 1}}]}]
+    # accessors[1] is a bare string, not a mapping.
+    non_dict_accessor["accessors"] = [
+        {"componentType": 5126, "count": 3, "type": "VEC3"},
+        "not-a-dict",
+    ]
+
+    non_dict_mesh = dict(doc)
+    non_dict_mesh["nodes"] = [{"mesh": 0}]
+    # meshes[0] is a bare string, not a mapping.
+    non_dict_mesh["meshes"] = ["not-a-dict"]
+
+    for mutated in (non_dict_accessor, non_dict_mesh):
+        data = glbio.rebuild_glb(header, mutated, rest)
+        with pytest.raises(OpError):
+            glbimport.glb_to_claydoc(data)

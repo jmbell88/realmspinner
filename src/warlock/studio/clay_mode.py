@@ -527,13 +527,30 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
     if name == "clay-open":
         if isinstance(result, dict):
-            adopt(
-                ctx,
-                result["doc"],
-                path=Path(result["path"]),
-                title=result.get("title"),
-                view=result.get("view"),
-            )
+            # ``open_path`` submits ``clay-open:<path key>`` and the picker
+            # (``ask_open``) submits bare ``clay-open``, so both land here --
+            # this is the one place that can dedupe both. Before the
+            # 2026-09-12 audit (finding clay-02), only ``open_path`` checked
+            # ``find_path``; the picker had no check anywhere in its path, so
+            # opening a document already open in another tab forked a second,
+            # independent tab on the same file instead of focusing the first.
+            # Two tabs over one path race on save, and whichever wrote last
+            # silently overwrote the other's edits. The decode has already
+            # happened on the task thread by the time we get here -- that
+            # freshly-built ``doc`` is simply dropped in favour of the tab
+            # that is already open, which is also whatever the user has
+            # unsaved in it, so nothing the user typed is discarded either.
+            existing = state.find_path(Path(result["path"]))
+            if existing is not None:
+                state.activate(existing.uid)
+            else:
+                adopt(
+                    ctx,
+                    result["doc"],
+                    path=Path(result["path"]),
+                    title=result.get("title"),
+                    view=result.get("view"),
+                )
             _enter_clay(ctx)
         return
 

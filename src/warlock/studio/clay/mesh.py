@@ -48,6 +48,7 @@ makes undo a snapshot rather than an inverse operation.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from typing import Any
@@ -686,14 +687,21 @@ def render_from_layout(
 #: an immutable ``Mesh``), which is what makes "same layout object" the correct
 #: revision stamp here rather than any array's identity.
 #:
-#: Unsynchronized by construction, not oversight: every caller of
-#: ``render_from_layout``/``raw_face_normals`` runs on the frame thread --
-#: ``_view_drag.py``'s per-frame drag preview, ``_view_cache.py``'s mesh-cache
-#: build, and ``clay_mode.py``'s ``export_asset`` (whose docstring states the
-#: GLB and document are both built on the frame thread and only the service
-#: call goes to the task thread). A lock here would be guarding against a
-#: caller that does not exist.
+#: Was unsynchronized on the premise that every caller of
+#: ``render_from_layout``/``raw_face_normals`` runs on the frame thread. The
+#: 2026-09-12 audit, finding clay-04, found a second caller: Mason places
+#: Clay's primitives (``mason.PrimitiveRef``), and resolving one --
+#: ``mason_assets.AssetSource._resolve_primitive``, reached from
+#: ``mason_mode.export_glb``/``export_obj``/``export_library`` via
+#: ``docmodes.start_save`` -> ``TaskRunner.submit`` -- runs
+#: ``document.to_primitives`` -> ``render_arrays`` -> ``render_from_layout`` on
+#: a ``warlock-task`` thread, concurrently with any Clay viewport's per-frame
+#: drag preview on the frame thread. The lock below closes that gap; it costs
+#: an uncontended acquire (tens of nanoseconds) against a function that is
+#: already doing a numpy pass over every face, so the frame-thread drag path's
+#: cost is unchanged.
 _RAW_CACHE: dict[int, tuple[RenderLayout, np.ndarray]] = {}
+_RAW_CACHE_LOCK = threading.Lock()
 
 
 def _stash(layout: RenderLayout, raw: np.ndarray) -> None:
@@ -701,9 +709,10 @@ def _stash(layout: RenderLayout, raw: np.ndarray) -> None:
     # material group, and an unbounded cache of face-normal arrays over a
     # session of imports is megabytes nobody asked for. Bounded by clearing when
     # it grows past a handful.
-    if len(_RAW_CACHE) > 8:
-        _RAW_CACHE.clear()
-    _RAW_CACHE[id(layout)] = (layout, raw)
+    with _RAW_CACHE_LOCK:
+        if len(_RAW_CACHE) > 8:
+            _RAW_CACHE.clear()
+        _RAW_CACHE[id(layout)] = (layout, raw)
 
 
 def raw_face_normals(layout: RenderLayout) -> np.ndarray | None:
@@ -715,10 +724,11 @@ def raw_face_normals(layout: RenderLayout) -> np.ndarray | None:
     object means the same topology, where a recycled array id would mean
     nothing at all.
     """
-    found = _RAW_CACHE.get(id(layout))
-    if found is None or found[0] is not layout:
-        return None
-    return found[1]
+    with _RAW_CACHE_LOCK:
+        found = _RAW_CACHE.get(id(layout))
+        if found is None or found[0] is not layout:
+            return None
+        return found[1]
 
 
 # --- transforms and measurement ---------------------------------------------

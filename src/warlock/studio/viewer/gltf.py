@@ -661,8 +661,34 @@ class _Reader:
         self._accessors[index] = out
         return out
 
+    def _accessor_entry(self, index: int, what: str = "an accessor reference") -> dict:
+        """The raw ``accessors[index]`` entry, range-checked the same way
+        every sibling index-shaped field in this loader is.
+
+        The 2026-09-12 audit, finding clay-01: every other index-shaped field
+        this loader reads (node.mesh/skin/child/camera/light, a skin's
+        joints, a material's texture/image index, an image's own bufferView,
+        the document's scene index) is both type- and range-checked -- but a
+        primitive attribute's own accessor index (POSITION/NORMAL/
+        TEXCOORD_0/JOINTS_0/WEIGHTS_0/indices, and a skin's
+        inverseBindMatrices) was only type-checked (clay-04) here, never
+        range-checked, so a negative index silently wrapped through Python's
+        own negative-index semantics onto a different, unrelated accessor --
+        no error, no log, no toast, just geometry read from the wrong stream
+        -- and a positive out-of-range index reached the list indexing below
+        as a bare ``IndexError`` instead of the named ``ValueError`` every
+        sibling boundary raises and callers key on.
+        """
+        _check_int_index(index, what)
+        accessors = self.gltf.get("accessors", [])
+        if not 0 <= index < len(accessors):
+            raise ValueError(
+                f"{what} is {index}, but this GLB declares {len(accessors)} accessor(s)"
+            )
+        return accessors[index]
+
     def _decode_accessor(self, index: int) -> np.ndarray:
-        acc = self.gltf["accessors"][index]
+        acc = self._accessor_entry(index)
         if "sparse" in acc:
             # Nothing in this pipeline emits one, and silently dropping the
             # overrides would render a subtly wrong mesh rather than fail.
@@ -703,7 +729,20 @@ class _Reader:
             # file is. Charged like every other allocation below.
             self._charge(count * ncomp * np.dtype(dtype).itemsize)
             return np.zeros((count, ncomp), dtype=dtype)
-        view = self.gltf["bufferViews"][acc["bufferView"]]
+        # clay-01 (2026-09-12): an accessor's own ``bufferView`` used to index
+        # straight into ``bufferViews`` with no check at all -- despite the
+        # comment on the image/bufferView branch below (``_image_bytes``)
+        # already, incorrectly, claiming this boundary raised the named
+        # refusal. It does now, in the same message shape as that sibling.
+        bv = acc["bufferView"]
+        _check_int_index(bv, "an accessor's bufferView reference")
+        buffer_views = self.gltf.get("bufferViews", [])
+        if not 0 <= bv < len(buffer_views):
+            raise ValueError(
+                f"an accessor references bufferView {bv}, but this GLB "
+                f"declares {len(buffer_views)} bufferView(s)"
+            )
+        view = buffer_views[bv]
         self._check_buffer(view)
         start = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
         item = np.dtype(dtype).itemsize * ncomp
@@ -745,8 +784,11 @@ class _Reader:
         # ``accessor()``'s own check below, for a primitive's POSITION/NORMAL/
         # TEXCOORD_0/JOINTS_0/WEIGHTS_0 -- reproduced with a string
         # ``attributes.POSITION`` raising a bare ``TypeError`` here.
-        _check_int_index(index, "an accessor reference")
-        acc = self.gltf["accessors"][index]
+        # clay-01 (2026-09-12): the same direct index was never range-checked
+        # either, so an out-of-range/negative value reached this line before
+        # ``accessor()``'s own (equally unchecked, at the time) lookup ever
+        # ran. ``_accessor_entry`` now carries both checks for both call sites.
+        acc = self._accessor_entry(index)
         raw = self.accessor(index)
         if not acc.get("normalized") or raw.dtype.kind not in "iu":
             return raw

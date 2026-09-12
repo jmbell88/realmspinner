@@ -115,6 +115,13 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
     def _count(index: Any) -> int:
         if not isinstance(index, int) or not 0 <= index < len(accessors):
             return 0
+        # The 2026-09-12 audit, finding clay-03: a legal JSON array can still
+        # hold an illegal glTF accessor -- a bare string or list at this slot
+        # -- and that used to reach ``.get`` as an uncaught AttributeError
+        # rather than falling back to 0 the way an out-of-range index already
+        # does a few lines up.
+        if not isinstance(accessors[index], dict):
+            return 0
         try:
             return max(0, int(accessors[index].get("count", 0)))
         except (TypeError, ValueError):
@@ -125,6 +132,10 @@ def _declared_budget(data: bytes) -> tuple[int, int]:
     for node in doc.get("nodes") or []:
         mesh_index = node.get("mesh") if isinstance(node, dict) else None
         if not isinstance(mesh_index, int) or not 0 <= mesh_index < len(meshes):
+            continue
+        # Same shape of guard, same incident: a mesh entry can be present and
+        # in range while still not being an object.
+        if not isinstance(meshes[mesh_index], dict):
             continue
         for prim in meshes[mesh_index].get("primitives") or []:
             if not isinstance(prim, dict):

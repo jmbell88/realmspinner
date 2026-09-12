@@ -62,6 +62,37 @@ downloads where there are now three, a model reference missing the one download
 Create cannot run without, and a handful of sentences quoting the app slightly
 wrong.
 
+**A GLB with a bad index into itself now says so instead of loading the wrong
+shape.** A hand-edited or hostile model file naming a *negative* accessor index
+— on a mesh's positions, normals, UVs, joints, weights or index stream, or on a
+skin's inverse-bind matrices — loaded with no error at all, silently reading
+geometry or a rig's bind pose out of a different, unrelated part of the file.
+Python's own negative indexing did it, quietly, and nothing anywhere said the
+model you were looking at was not the model in the file. A positive index off
+the end, or a malformed `bufferView` on an accessor, crashed the loader with an
+internal error rather than the ordinary "this file can't be opened" message.
+Every other index-shaped field in this loader had been hardened over four
+earlier passes; these were the ones left. It affects Clay import, the Poser
+preview, Library compare and Mason's asset preview, since all four share the
+loader.
+
+- **File > Open no longer forks a second tab onto a document you already had
+  open.** Ctrl+O and File > Open in Clay skipped the same-path check the recents
+  list and Home's Resume rows already had, so picking a `.wblk` that was open in
+  another tab silently opened a second, independent copy of it — and whichever
+  tab you saved last overwrote whatever the other one held, with nothing on
+  screen to say so. The picker now focuses the tab you already have.
+- **A corrupt GLB gets Clay's own refusal rather than "Something went wrong".**
+  A file whose JSON was valid but carried a bare string where an accessor or a
+  mesh belongs crashed the import budget check before any of this module's
+  named refusals could fire, so an ordinary damaged download produced the
+  generic toast instead of a message naming what was wrong with the file.
+- **Clay's palette says why Remove is greyed when a document has one material
+  left.** The check that disabled the button and the line that explains it
+  shared a condition, so the one case the "still in use" message did not cover
+  was the one case with nothing on screen at all. It now reads that a document
+  keeps at least one material.
+
 ## 0.0.44 — 2026-09-11
 
 **Mason, a new workspace, can now be used.** Mason is the mode for arranging

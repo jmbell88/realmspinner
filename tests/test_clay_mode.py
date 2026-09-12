@@ -614,6 +614,34 @@ def test_opening_a_file_that_is_already_open_focuses_it(svc, tmp_path) -> None:
     assert len(ctx.state.clay.docs) == 2
 
 
+def test_opening_the_same_file_twice_through_the_file_picker_focuses_the_existing_tab(
+    svc, tmp_path, monkeypatch
+) -> None:
+    """``ask_open`` (Ctrl+O / File>Open) is a second door onto the same
+    documents ``open_path`` opens from Home/recents, and it had no
+    ``find_path`` check anywhere in its path -- unlike ``open_path``, whose
+    own comment states the invariant this violates: two tabs over one path
+    would race on save, and whichever saved last would silently overwrite
+    the other's edits with no warning anything was lost (2026-09-12 audit,
+    finding clay-02)."""
+    from warlock.studio import dialogs
+
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    path = tmp_path / "scene.wblk"
+    _save(ctx, tab, path)
+
+    other = _tab(ctx)
+    ctx.state.clay.activate(other.uid)
+
+    monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: path)
+    clay_mode.ask_open(ctx)
+    clay_mode.on_task_done(ctx, _Done("clay-open", ctx.result))
+
+    assert ctx.state.clay.active is tab
+    assert len(ctx.state.clay.docs) == 2
+
+
 def test_a_file_that_will_not_open_is_reported_and_forgotten(svc, tmp_path) -> None:
     bad = tmp_path / "broken.wblk"
     bad.write_bytes(b"not a wblk")

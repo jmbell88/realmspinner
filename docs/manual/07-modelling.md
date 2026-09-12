@@ -103,7 +103,8 @@ the viewport, `.wblk` and export without damaging them, but it does not paint th
 job.
 
 Adding a material always appends and never inserts, because inserting would renumber every face
-assignment in the document. Removing one is only allowed when nothing uses it.
+assignment in the document. Removing one is only allowed when nothing uses it, and a document always
+keeps at least one material — with a single material left, Remove greys out and says so.
 
 Every primitive already has sensible UVs. **Box Unwrap** re-projects an object planar-per-face by
 dominant axis — quick and not conformal, which is the right trade for a blockout and the wrong one

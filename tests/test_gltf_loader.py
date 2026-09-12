@@ -1460,6 +1460,107 @@ def test_a_light_of_a_kind_this_build_has_never_heard_of_reads_as_a_point():
     assert model.lights[0].kind == "point"
 
 
+# --- an accessor's own index and bufferView, range-checked ------------------
+#
+# The 2026-09-12 audit, finding clay-01: every sibling index-shaped field in
+# this file (node.mesh/skin/child/camera/light, a skin's joints, a material's
+# texture/image index, an image's own bufferView, the document's scene index)
+# is both type- and range-checked, but a primitive attribute's own accessor
+# index (POSITION/NORMAL/TEXCOORD_0/JOINTS_0/WEIGHTS_0/indices, and a skin's
+# inverseBindMatrices) was only type-checked (clay-04) -- never range-checked
+# -- and an accessor's own "bufferView" was neither, despite a comment
+# claiming otherwise.
+
+
+def test_a_negative_position_accessor_index_is_refused_rather_than_silently_wrapping_onto_another_accessor():  # noqa: E501
+    """``attributes.POSITION: -1`` used to satisfy Python's own negative-index
+    semantics and resolve to ``accessors[-1]`` -- a real but unrelated
+    accessor -- rather than being refused. No error, no log, no toast: the
+    primitive loaded with geometry read from the wrong stream."""
+    zeros = np.zeros((3, 3), dtype="<f4").tobytes()
+    ones = np.ones((3, 3), dtype="<f4").tobytes()
+    binary = zeros + ones
+    data = _minimal(
+        [
+            {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3"},
+        ],
+        [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(zeros)},
+            {"buffer": 0, "byteOffset": len(zeros), "byteLength": len(ones)},
+        ],
+        binary,
+        # -1 wraps onto accessor 1 (the "ones" accessor) instead of being
+        # refused as the invalid reference it is.
+        meshes=[{"primitives": [{"attributes": {"POSITION": -1}}]}],
+    )
+    with pytest.raises(ValueError, match="accessor reference is -1"):
+        gltf.load(data)
+
+
+def test_an_out_of_range_positive_accessor_index_on_a_primitive_attribute_is_refused_with_a_value_error_not_an_index_error():  # noqa: E501
+    """The positive-index twin of the wraparound above: ``POSITION: 5`` with
+    only one accessor declared used to index straight into ``accessors`` and
+    raise a bare ``IndexError`` instead of the named refusal every sibling
+    boundary in this file gives."""
+    binary = np.zeros((3, 3), dtype="<f4").tobytes()
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        binary,
+        meshes=[{"primitives": [{"attributes": {"POSITION": 5}}]}],
+    )
+    with pytest.raises(ValueError, match="accessor reference is 5"):
+        gltf.load(data)
+
+
+def test_an_out_of_range_buffer_view_referenced_by_an_accessor_is_refused_with_a_value_error_not_an_index_error():  # noqa: E501
+    """An accessor's own ``bufferView`` was neither type- nor range-checked at
+    all -- unlike every sibling boundary in this file -- despite a comment on
+    the image/bufferView branch (``_image_bytes``) claiming this one already
+    raised the named refusal. It reached ``bufferViews[99]`` as a bare
+    ``IndexError`` instead."""
+    data = _minimal(
+        [{"bufferView": 99, "componentType": 5126, "count": 1, "type": "VEC3"}],
+        [],
+        b"",
+    )
+    with pytest.raises(ValueError, match="bufferView 99"):
+        gltf.load(data)
+
+
+def test_a_negative_inverse_bind_matrices_accessor_index_is_refused_rather_than_wrapping_onto_another_accessor():  # noqa: E501
+    """Same boundary, one accessor field over: a skin's own
+    ``inverseBindMatrices`` reaches ``accessor()`` the same unchecked way a
+    primitive attribute does, so ``-1`` wrapped onto whichever accessor
+    happens to sit last in the file's list -- here, a MAT4 accessor that
+    is not the skin's own inverse-bind data at all -- and loaded clean."""
+    positions = np.zeros((3, 3), dtype="<f4").tobytes()
+    decoy_ibm = np.tile(np.eye(4, dtype="<f4"), (1, 1, 1)).tobytes()
+    binary = positions + decoy_ibm
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0, 1]}],
+        "nodes": [{"mesh": 0, "skin": 0}, {"name": "joint"}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        # -1 wraps onto accessor 1 (a real, but unrelated, MAT4 accessor)
+        # instead of being refused.
+        "skins": [{"joints": [1], "inverseBindMatrices": -1}],
+        "buffers": [{"byteLength": len(binary)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(positions)},
+            {"buffer": 0, "byteOffset": len(positions), "byteLength": len(decoy_ibm)},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": 1, "type": "MAT4"},
+        ],
+    }
+    with pytest.raises(ValueError, match="accessor reference is -1"):
+        gltf.load(_glb(doc, binary))
+
+
 def test_a_file_declaring_more_markers_than_this_build_holds_is_refused(monkeypatch):
     """finding clay-05's argument at its third and fourth name: a camera and a
     light are charged against no byte budget at all -- neither decodes an

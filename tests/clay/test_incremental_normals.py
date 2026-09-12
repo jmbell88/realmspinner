@@ -11,6 +11,8 @@ whole and why these tests compare exact equality rather than closeness.
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 from warlock.studio.clay import document as bd
@@ -127,6 +129,46 @@ def test_the_cache_is_stamped_on_the_layout_object_not_an_array() -> None:
     second = bm.render_layout(mesh)
     assert second is not first
     assert bm.raw_face_normals(second) is None
+
+
+def test_stashing_raw_face_normals_from_two_threads_never_corrupts_or_crashes_the_cache() -> None:
+    """The 2026-09-12 audit, finding clay-04: Mason resolving a placed Clay
+    primitive (``mason_assets.AssetSource._resolve_primitive``, reached from
+    ``mason_mode.export_glb``/``export_obj``/``export_library`` via
+    ``docmodes.start_save`` -> ``TaskRunner.submit``) calls
+    ``document.to_primitives`` -> ``render_arrays`` -> ``render_from_layout``
+    on a task thread, concurrently with any Clay viewport's per-frame drag
+    preview on the frame thread -- both stash into the same module-level
+    ``_RAW_CACHE``.
+
+    A hammer test that races two threads and hopes for corruption would flake:
+    the computation is pure, so a lost race only ever produces a cache miss,
+    never a wrong answer. What must be true instead is the *mechanism* --
+    that ``_stash``/``raw_face_normals`` are serialised on a lock -- so this
+    test asserts that directly and deterministically: while the test thread
+    holds ``_RAW_CACHE_LOCK``, a concurrent ``render_from_layout`` call (which
+    stashes) must block, and it must complete and populate the cache the
+    moment the lock is released.
+    """
+    mesh = _mesh()
+    layout = bm.render_layout(mesh)
+
+    with bm._RAW_CACHE_LOCK:
+        finished = threading.Event()
+
+        def worker() -> None:
+            bm.render_from_layout(layout, mesh.positions)
+            finished.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        # The lock is held here, so the worker's _stash must not have run yet.
+        blocked_while_held = not finished.wait(timeout=0.2)
+
+    thread.join(timeout=2)
+    assert blocked_while_held, "a concurrent stash ran without waiting on the lock"
+    assert finished.is_set(), "the worker never completed after the lock was released"
+    assert bm.raw_face_normals(layout) is not None
 
 
 def test_face_of_every_corner_covers_every_corner() -> None:
