@@ -47,12 +47,31 @@ def _rows(ctx: Any, tab: Any) -> None:
         mason_mode.duplicate_selected(ctx)
     if controls.menu_item("Group", "Ctrl+G", False, selected)[0]:
         mason_mode.group_selected(ctx)
+    if controls.menu_item("Ungroup", "Ctrl+Shift+G", False, selected)[0]:
+        mason_mode.ungroup_selected(ctx)
+    controls.menu_separator()
+    # Where the *first* prefab is made, and it has to be somewhere that exists
+    # before one does: the Prefabs pane is a conditional slot that only appears
+    # once the document has a template, so it cannot be the place a template is
+    # authored. See ``panes/mason_prefabs``'s own docstring.
+    if controls.menu_item(
+        f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1
+    )[0]:
+        mason_mode.define_prefab_from_selection(ctx)
+    if controls.menu_item(f"{icons.UNLINK} Unpack instance", "", False, _any_instance(doc))[0]:
+        mason_mode.unpack_selected(ctx)
     controls.menu_separator()
     if controls.menu_item("Drop to ground", "", False, selected)[0]:
         _drop_to_ground(ctx, tab)
     controls.menu_separator()
     if controls.menu_item(f"{icons.TRASH} Delete", "Del", False, selected)[0]:
         mason_mode.delete_selected(ctx)
+
+
+def _any_instance(doc: Any) -> bool:
+    from ..mason import nodes as nd
+
+    return any(isinstance(doc.node(uid), nd.PrefabNode) for uid in doc.selection)
 
 
 def _drop_to_ground(ctx: Any, tab: Any) -> None:

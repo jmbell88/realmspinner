@@ -161,9 +161,9 @@ def _kind_block(doc: Any, node: Any) -> None:
     elif kind == "camera":
         _camera_block(doc, node)
     elif kind == "prefab":
-        widgets.muted(f"instance of '{node.template}'")
+        _prefab_block(doc, node)
     elif kind == "terrain":
-        widgets.muted("the document's one terrain node")
+        _terrain_block(doc)
     else:
         widgets.muted("a group -- holds other nodes, nothing of its own")
 
@@ -214,6 +214,49 @@ def _camera_block(doc: Any, node: Any) -> None:
     changed, far = controls.input_float("##mcamfar", float(node.zfar), 1.0, 0.01)
     if changed:
         doc.set_props(node.uid, zfar=max(node.znear + 0.01, far))
+
+
+def _prefab_block(doc: Any, node: Any) -> None:
+    """Which template this instance follows, and whether that template exists.
+
+    No per-child override editor, and that is the decision rather than a gap --
+    ``document.unpack_instance``'s own docstring carries the argument. What this
+    block can honestly say is the one thing a user needs from it: the name, and
+    whether anything is behind the name, because an instance of a removed
+    template is legal, resolves as dangling, and would otherwise be an empty
+    space in the viewport with no explanation anywhere in the UI.
+    """
+    widgets.muted(f"instance of '{node.template}'")
+    if node.template in doc.prefabs:
+        widgets.muted("edit the template through any instance of it")
+        return
+    widgets.secondary("No template of that name -- this instance draws nothing.")
+
+
+def _terrain_block(doc: Any) -> None:
+    """The ground's extent, which belongs to the ``Terrain`` rather than to its
+    node -- so it is set through ``set_terrain_config`` and not ``set_props``.
+
+    The *resolution* is deliberately not editable here. Changing a height
+    field's side means resampling every height, which is a different operation
+    from configuring one (and a lossy one), and offering it as a spinbox beside
+    two sizes would make it look like the three are the same kind of edit.
+    """
+    terrain = doc.terrain
+    if terrain is None:
+        # A terrain node with no height field behind it: reachable for one frame
+        # mid-undo, and a real state in a hand-edited file.
+        widgets.secondary("No height field -- this node draws nothing.")
+        return
+    widgets.muted(f"{terrain.side} x {terrain.side} cells")
+    widgets.field_label("size x / z (m)")
+    changed_x, size_x = controls.input_float("##mterrainx", float(terrain.size_x), 1.0, 0.01)
+    changed_z, size_z = controls.input_float("##mterrainz", float(terrain.size_z), 1.0, 0.01)
+    if changed_x or changed_z:
+        # ``max`` and not a refusal: ``set_terrain_config`` raises on a
+        # non-positive size, and a spinbox that can be dragged to zero must not
+        # be able to raise out of a draw call.
+        doc.set_terrain_config(size_x=max(0.01, size_x), size_z=max(0.01, size_z))
 
 
 def _properties(doc: Any, node: Any) -> None:

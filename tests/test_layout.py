@@ -325,6 +325,12 @@ def test_every_split_has_a_handle_and_every_handle_a_split():
         "mason-assets",
         "mason-outliner",
         "mason-props",
+        # The Prefabs pane is a *conditional* slot -- in the column only while
+        # the scene defines a template -- and a conditional slot still declares
+        # a share key: ``layout.column`` derives its handle from the key of
+        # whichever slots are live that frame, so the proportion is draggable
+        # exactly when the pane is there to drag.
+        "mason-prefabs",
         "create-inspector",
         "inker-colors",
         # Inker's right column stacks three shareable panes, and the strip

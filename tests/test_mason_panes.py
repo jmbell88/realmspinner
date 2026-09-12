@@ -7,6 +7,7 @@ Each test's name is its claim, ``clay_tools`` test module's own convention.
 from __future__ import annotations
 
 import inspect
+from typing import Any
 
 from _ui_context import imgui_context
 
@@ -183,3 +184,164 @@ def test_mason_bridge_facts_warn_only_past_the_real_threshold(monkeypatch):
     stats = mason_mode.scene_stats(FakeCtx(), tab)
     assert stats["warn"] is True
     assert stats["threshold"] == 2
+
+
+# --- Stage F: the ground, the brushes, the prefab slot, the tree drag --------
+
+
+class _Settings:
+    """``docmodes.remember_path`` writes a recents list, which ``adopt`` calls on
+    every new document -- so a ctx that opens a scene needs one."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, Any] = {}
+
+    def get(self, key: str) -> Any:
+        return self.store.get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        self.store[key] = value
+
+
+def _ctx_with_a_scene():
+    from warlock.studio import mason_mode
+
+    ctx = FakeCtx()
+    ctx.settings = _Settings()
+    mason_mode.new_document(ctx)
+    return ctx, mason_mode
+
+
+def _drawn(monkeypatch, draw, *args):
+    """Every control one pane body drew this frame, by label."""
+    from warlock.studio import probe
+
+    with imgui_context(monkeypatch) as imgui:
+        probe.begin_frame()
+        imgui.new_frame()
+        imgui.set_next_window_size((320.0, 1400.0))
+        imgui.begin("##host")
+        draw(*args)
+        imgui.end()
+        imgui.end_frame()
+        return [c.label for c in probe.FRAME_CONTROLS]
+
+
+def test_the_assets_pane_offers_a_button_for_every_registered_brush(monkeypatch):
+    """Derived from ``mason_state.BRUSHES``, so a sixth brush gets a button on
+    the day it is written -- the rule the primitive grid already follows and for
+    the same reason: a hand-listed palette is a palette that silently lags the
+    engine."""
+    from warlock.studio import mason_state
+
+    ctx, mason_mode = _ctx_with_a_scene()
+    state = mason_mode.ensure(ctx)
+    tab = state.active
+    mason_mode.add_terrain(ctx)
+
+    labels = _drawn(monkeypatch, mason_palette._terrain, ctx, state, tab)
+    for key, label, _tip in mason_state.BRUSHES:
+        assert any(f"{label}##masonbrush{key}" == found for found in labels), key
+
+
+def test_the_assets_pane_offers_the_ground_before_there_is_one_and_the_brushes_after(
+    monkeypatch,
+):
+    """A brush with no ground to apply it to is a control that cannot work, and
+    "Add ground" after there is one is a second ground the document refuses."""
+    ctx, mason_mode = _ctx_with_a_scene()
+    state = mason_mode.ensure(ctx)
+    tab = state.active
+
+    before = _drawn(monkeypatch, mason_palette._terrain, ctx, state, tab)
+    assert any("masonterrainadd" in label for label in before)
+    assert not any("masonbrush" in label for label in before)
+
+    mason_mode.add_terrain(ctx)
+    after = _drawn(monkeypatch, mason_palette._terrain, ctx, state, tab)
+    assert not any("masonterrainadd" in label for label in after)
+    assert any("masonbrush" in label for label in after)
+
+
+def test_choosing_a_brush_also_puts_the_sculpt_tool_in_hand(monkeypatch):
+    """A brush chosen while the Move gizmo is still in hand is a brush the left
+    button never reaches -- the gizmo takes the press. This is the one place
+    outside the tool grid that writes ``state.tool``, which is said out loud in
+    the pane because a second such place would be two controls fighting over one
+    setting."""
+    source = inspect.getsource(mason_palette._terrain)
+    assert 'state.tool = "sculpt"' in source
+    writers = [
+        name
+        for name, fn in vars(mason_palette).items()
+        if callable(fn) and getattr(fn, "__module__", "") == mason_palette.__name__
+        and "state.tool" in inspect.getsource(fn)
+    ]
+    assert writers == ["_terrain"]
+
+
+def test_the_prefabs_pane_is_in_the_column_only_while_the_scene_has_a_template():
+    """The first conditional slot in this workspace: a permanently-empty panel in
+    a four-panel column costs the outliner and Properties the height it sits in,
+    on every scene that never authors a prefab."""
+    from warlock.studio import skeletons
+
+    ctx, mason_mode = _ctx_with_a_scene()
+    right = skeletons.mason(ctx)["right"]
+    assert "mason-prefabs" not in [slot.id for slot in right.live(ctx)]
+
+    doc = mason_mode.ensure(ctx).active.doc
+    node = doc.add_node(nd.MeshNode(uid=nd.new_uid(), name="Barrel"))
+    doc.select([node.uid])
+    mason_mode.define_prefab_from_selection(ctx)
+
+    assert "mason-prefabs" in [slot.id for slot in right.live(ctx)]
+    # The slot is still *declared* either way -- a saved layout has something to
+    # be a permutation of whether or not this scene uses prefabs.
+    assert "mason-prefabs" in [slot.id for slot in right.slots]
+
+
+def test_the_prefabs_pane_counts_the_instances_in_the_scene_tree():
+    """What a row answers is "how many of these are in my scene", so an instance
+    that only exists inside another template's subtree is deliberately not
+    counted: that number would change when the *outer* template was placed
+    again."""
+    from warlock.studio.panes import mason_prefabs
+
+    doc = md.MasonDoc()
+    doc.prefabs["post"] = nd.MeshNode(uid=nd.new_uid(), name="post")
+    for _ in range(3):
+        doc.add_node(nd.PrefabNode(uid=nd.new_uid(), name="post", template="post"))
+    assert mason_prefabs._instance_counts(doc) == {"post": 3}
+
+
+def test_the_make_prefab_gesture_is_not_in_the_pane_that_needs_one_to_exist():
+    """A pane that only exists once a template does cannot be where the first one
+    is made. The gesture lives on the selection instead -- the viewport's context
+    menu and the outliner's row menu."""
+    from warlock.studio.panes import mason_menu, mason_outliner, mason_prefabs
+
+    assert "define_prefab_from_selection" not in inspect.getsource(mason_prefabs)
+    assert "define_prefab_from_selection" in inspect.getsource(mason_menu)
+    assert "define_prefab_from_selection" in inspect.getsource(mason_outliner)
+
+
+def test_an_outliner_drop_reparents_rather_than_reordering_among_the_targets_siblings():
+    """The drag used to insert the dropped node at the target's own index under
+    the target's *parent*, which is a reorder dressed as a tree drag: dropping a
+    prop onto a group put it beside the group rather than into it, so the one
+    thing an outliner drag is for could not be done at all.
+
+    Asserted at the source level, because the drop itself is an imgui payload
+    exchange across two frames and what is in question is the one line inside
+    it. The engine half -- that a reparent onto a descendant is refused, and that
+    ``len(children)`` appends -- is ``tests/mason/test_document.py``'s.
+    """
+    source = inspect.getsource(mason_outliner._reorder)
+    assert "parent_uid=node.uid" in source
+    assert "doc.parent_uid_of(node.uid)" not in source
+    # And sibling order stayed addressable, which it has to: it is export order
+    # and outliner order both.
+    menu = inspect.getsource(mason_outliner._context_menu)
+    assert "Move up" in menu and "Move down" in menu
+    assert "doc.index_of(node.uid)" in menu

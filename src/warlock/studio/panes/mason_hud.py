@@ -43,6 +43,8 @@ def _hint(state: Any) -> str:
     """Pure: no imgui, no document -- the same split ``clay_hints`` makes, so
     "does the hint change with the tool" is a headless assertion rather than
     one that needs a GL context."""
+    if state.place_prefab:
+        return f"Click in the viewport to place '{state.place_prefab}' -- Esc to cancel"
     if state.place_kind:
         kind = state.place_kind.replace("_", " ")
         return f"Click in the viewport to place {kind} -- Esc to cancel"
@@ -51,6 +53,7 @@ def _hint(state: Any) -> str:
         "move": "Drag to move the selection -- type a number, or X/Y/Z to lock an axis",
         "rotate": "Drag to rotate the selection about its pivot",
         "scale": "Drag to scale the selection about its pivot",
+        "sculpt": "Drag on the ground to sculpt -- Alt+drag still orbits",
     }.get(state.tool, "")
     return label
 

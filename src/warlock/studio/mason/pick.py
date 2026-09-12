@@ -50,6 +50,12 @@ exactly. :func:`ray_terrain` marches the ray through ``terrain.height_at``
 instead, in the terrain's own local space, and is the one piece of this module
 that is not "call ``viewer.picking`` once per item".
 
+**A light and a camera are picked as a sphere, because they have no geometry.**
+:func:`ray_marker` and :data:`MARK_SIZE` are the whole of it, and they sit in
+the same nearest-wins loop as the meshes rather than in a pass of their own --
+see :data:`MARK_SIZE` for why the radius is fixed in world metres and ignores
+the node's own scale.
+
 **Hidden items are not pickable; locked items are.** ``scene.py`` and
 ``plotter/scene.py`` both state the lock rule the same way -- a lock stops the
 user, not the document, and enforcing it here (skipping a locked item's ray
@@ -70,12 +76,33 @@ from typing import Any
 import numpy as np
 
 from ..viewer import picking
-from .nodes import TerrainNode
+from .nodes import CameraNode, LightNode, TerrainNode
 from .refs import GeometrySource, Ref, ref_key
 from .scene import Placed
 from .terrain import Terrain, height_at
 
-__all__ = ["Hit", "ray_scene", "ray_terrain"]
+__all__ = ["MARK_SIZE", "Hit", "ray_marker", "ray_scene", "ray_terrain"]
+
+#: The world-space radius a light's or a camera's marker is clicked at, in
+#: metres -- and the size ``mason_marks`` draws that marker, which imports this
+#: number rather than keeping its own.
+#:
+#: A :class:`~.nodes.LightNode` and a :class:`~.nodes.CameraNode` have no
+#: geometry and never will, so there is nothing for a BVH to be built over and
+#: nothing for a ray to intersect: before this existed a placed light could be
+#: selected only from the outliner, and the plan's own sentence ("pickable and
+#: gizmo-draggable like any node") was false of half the node kinds. A sphere
+#: around the node's world position is the whole test -- it needs no geometry,
+#: it is exact, and it is independent of the node's scale for
+#: ``mason_marks._placement``'s stated reason: a light scaled to five is not a
+#: bigger light, so neither its symbol nor its hit radius grows.
+#:
+#: Chosen rather than measured, and defensible for ``mason_view
+#: .CULL_THRESHOLD``'s reason: nothing stored is keyed on it. It decides only
+#: how close a click has to be to a symbol, every ``.wscn`` reads back the same
+#: either side of it, and a quarter-metre is the radius at which the drawn
+#: symbol and the clickable area visibly agree at the scale a scene is built in.
+MARK_SIZE = 0.25
 
 #: ``(primitives_list, positions, tris, box, bvh)`` -- everything one ref's
 #: geometry needs for a ray test, plus the exact list object it was built
@@ -200,7 +227,21 @@ def ray_scene(
     best_item: Placed | None = None
 
     for item in placed:
-        if not item.visible or item.ref is None:
+        if not item.visible:
+            continue
+        if item.ref is None:
+            # A light or a camera: a sphere around where its symbol is drawn.
+            # Folded into the same nearest-wins loop rather than tested in a
+            # pass of its own, so a light behind a wall loses to the wall --
+            # which is what the depth-tested marker overlay already shows.
+            if isinstance(item.node, (LightNode, CameraNode)):
+                found = ray_marker(origin, direction, item.world)
+                if found is not None and (
+                    best_t is None
+                    or found < best_t
+                    or (found == best_t and item.owner < best_item.owner)
+                ):
+                    best_t, best_item = found, item
             continue
         key = ref_key(item.ref)
         if key not in cache:
@@ -234,6 +275,41 @@ def ray_scene(
     if terrain_hit is not None:
         t, point, item = terrain_hit
         return Hit(owner=item.owner, placed=item, distance=t, point=point)
+    return None
+
+
+# --- markers: a sphere at a world position -----------------------------------
+
+
+def ray_marker(
+    origin: np.ndarray,
+    direction: np.ndarray,
+    world: np.ndarray,
+    radius: float = MARK_SIZE,
+) -> float | None:
+    """``t`` where the ray first meets a sphere of ``radius`` at ``world``'s
+    translation, or ``None``.
+
+    The translation alone, with the rest of ``world`` ignored: see
+    :data:`MARK_SIZE` for why a marker's size is not the node's scale. Only the
+    *nearer* root is of interest and a ray starting inside the sphere reports
+    zero rather than the exit point, so a click that began inside a light's
+    symbol selects it instead of reaching through to the far side.
+    """
+    centre = np.asarray(world, dtype="f8")[:3, 3]
+    to_centre = np.asarray(origin, dtype="f8") - centre
+    unit = np.asarray(direction, dtype="f8")
+    b = float(unit @ to_centre)
+    c = float(to_centre @ to_centre) - float(radius) * float(radius)
+    discriminant = b * b - c
+    if discriminant < 0.0:
+        return None
+    root = math.sqrt(discriminant)
+    near, far = -b - root, -b + root
+    if near >= 0.0:
+        return near
+    if far >= 0.0:
+        return 0.0
     return None
 
 

@@ -36,12 +36,44 @@ WSCN_SUFFIX = ".wscn"
 # Name, label, and the key that selects it. Clay's four tools, verbatim: the
 # transform gizmos are one idea, not two, and a scene editor needs the same
 # three plus Select.
+#
+# **Sculpt is a fifth tool rather than an armed placement**, and the difference
+# is what the mouse does: placing a light is one click that ends, where a brush
+# owns the left button for a sustained drag the way Move does -- and a mode the
+# left button behaves differently in is exactly what a *tool* is. It draws no
+# gizmo (``mason_view.GIZMO_FOR_TOOL`` has no entry), which is what leaves the
+# button free for the stroke.
 TOOLS = (
     ("select", "Select", "Q"),
     ("move", "Move", "W"),
     ("rotate", "Rotate", "E"),
     ("scale", "Scale", "R"),
+    ("sculpt", "Sculpt", "T"),
 )
+
+#: The terrain brushes, by the ``mason.terrain`` function each one calls. Order
+#: is the order they are offered in, and the labels are the whole of what the
+#: Assets pane needs -- the arithmetic is that module's.
+BRUSHES = (
+    ("raise", "Raise", "Pull the ground up under the brush"),
+    ("lower", "Lower", "Push it down"),
+    ("smooth", "Smooth", "Blend each cell toward its neighbours"),
+    ("flatten", "Flatten", "Pull the ground toward one height"),
+    ("noise", "Noise", "Add falloff-shaped, seeded roughness"),
+)
+
+#: The side, in cells, a new terrain is created at -- a quarter of
+#: ``terrain.MAX_TERRAIN_SIDE``, which is where that measurement put a full
+#: mesh rebuild at a third of a frame. A sculpt drag rebuilds the mesh on every
+#: frame it is open (the memo is keyed on the ``heights`` array a brush
+#: rebinds), so the default is the resolution a drag is comfortable at and the
+#: ceiling is what a user may raise it to knowing that.
+DEFAULT_TERRAIN_SIDE = 64
+
+#: How wide a new terrain is, in metres. Sixty-four metres over
+#: ``DEFAULT_TERRAIN_SIDE`` cells is a metre a cell, which is the scale props
+#: are placed at.
+DEFAULT_TERRAIN_SIZE = 64.0
 
 # The snap increments a scene editor opens on. A scene is placed in metres --
 # a wall, a barrel, a lamp post -- and a quarter-metre grid is the useful
@@ -191,6 +223,39 @@ class MasonState:
     # the same reason: the list reorders, and an anchor that was an index
     # would silently point at a different row.
     outliner_anchor: int = 0
+
+    # -- the terrain brush -------------------------------------------------
+    #
+    # App settings like the snap ones above and for the same reason: switching
+    # scenes must not silently change the brush in your hand. A ``BRUSHES``
+    # key, and the four numbers the five brushes between them read.
+    brush: str = "raise"
+    #: The brush's radius in *cells*, which is what ``terrain``'s brushes take
+    #: -- they work in height-field index space, and the conversion from a
+    #: world click to a cell centre is the viewport's.
+    brush_radius: float = 6.0
+    #: Metres per second of drag for raise/lower. Per *frame* would make the
+    #: same stroke a different hill on a faster machine, which is the bug the
+    #: viewport's own sculpt step multiplies this by ``dt`` to avoid.
+    brush_amount: float = 4.0
+    #: 0..1, how far toward the target one second of smoothing or flattening
+    #: gets. Both brushes scale it by their own falloff again.
+    brush_strength: float = 0.5
+    #: The height Flatten pulls toward. Set by the pane, or picked up from the
+    #: ground under the first click of a stroke when ``brush_level_from_pick``
+    #: is on -- which is how a user levels a plateau to the height it already
+    #: is somewhere.
+    brush_level: float = 0.0
+    brush_level_from_pick: bool = True
+    #: Noise's seed. Bumped per stroke rather than per frame, so one drag lays
+    #: down one field instead of re-rolling it forty times.
+    brush_seed: int = 1
+
+    #: The prefab name the next viewport click places an instance of, or "".
+    #: Separate from ``place_kind`` because a prefab's "kind" is a user-chosen
+    #: name and the two namespaces must not be able to collide -- a prefab
+    #: called ``camera`` is a perfectly reasonable thing to author.
+    place_prefab: str = ""
 
     # No drag state here. A live drag is the *view*'s to own -- Clay's own
     # comment on this point is the whole argument: ``ClayState`` used to carry

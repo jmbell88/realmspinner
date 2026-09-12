@@ -400,3 +400,112 @@ def test_ray_terrain_honours_a_translated_world_matrix():
     assert on_bump[1][1] == pytest.approx(3.0, abs=1e-3)
     assert off_bump is not None
     assert off_bump[1][1] == pytest.approx(0.0, abs=1e-3)
+
+
+# --- markers: a light and a camera have no geometry at all --------------------
+
+
+def _marker_placed(owner: int, world: np.ndarray, node: nd.Node) -> Placed:
+    """A placement with **no ref**, which is what a light or a camera resolves
+    to -- and therefore what nothing in this module could hit before
+    :func:`pick.ray_marker` existed."""
+    return Placed(
+        node=node,
+        path=(owner,),
+        owner=owner,
+        world=world,
+        visible=True,
+        locked=False,
+        static=False,
+        ref=None,
+        material=None,
+        prefab="",
+        dangling=False,
+    )
+
+
+def test_a_light_is_picked_as_a_sphere_at_its_own_position():
+    """**The regression.** A ``LightNode`` resolves to a placement with no ref,
+    and the ray loop skipped every one of those outright -- so a placed light
+    could be selected from the outliner and never from the viewport, which made
+    the plan's own sentence ("pickable and gizmo-draggable like any node") false
+    of two of the six node kinds.
+    """
+    source = _CountingSource()
+    light = nd.LightNode(uid=7, kind="point")
+    placed = [_marker_placed(7, _world((0.0, 0.0, 0.0)), light)]
+
+    hit = pick.ray_scene(placed, source, origin=(0.0, 10.0, 0.0), direction=DOWN)
+
+    assert hit is not None
+    assert hit.owner == 7
+    # The near surface of the symbol, not its centre: ``distance`` is a true
+    # world distance for every kind of hit, which is what makes one comparable
+    # against a mesh's.
+    assert hit.distance == pytest.approx(10.0 - pick.MARK_SIZE)
+
+
+def test_a_camera_is_picked_the_same_way():
+    source = _CountingSource()
+    placed = [_marker_placed(9, _world((2.0, 0.0, -3.0)), nd.CameraNode(uid=9))]
+    hit = pick.ray_scene(placed, source, origin=(2.0, 10.0, -3.0), direction=DOWN)
+    assert hit is not None and hit.owner == 9
+
+
+def test_a_group_with_no_ref_is_still_not_pickable():
+    """The marker pass must be about the two kinds that *draw* a symbol, not
+    about "anything with no ref": a group is a transform and a terrain node is
+    picked by its own height march, and a sphere around either would put an
+    invisible click target in the middle of the scene."""
+    source = _CountingSource()
+    for node in (nd.GroupNode(uid=3), nd.TerrainNode(uid=4)):
+        placed = [_marker_placed(node.uid, _world((0.0, 0.0, 0.0)), node)]
+        assert pick.ray_scene(placed, source, origin=(0.0, 10.0, 0.0), direction=DOWN) is None
+
+
+def test_a_hidden_light_is_not_picked():
+    source = _CountingSource()
+    light = _marker_placed(7, _world((0.0, 0.0, 0.0)), nd.LightNode(uid=7, kind="point"))
+    hidden = Placed(**{**light.__dict__, "visible": False})
+    assert pick.ray_scene([hidden], source, origin=(0.0, 10.0, 0.0), direction=DOWN) is None
+
+
+def test_a_light_behind_a_prop_loses_to_the_prop():
+    """Folded into the same nearest-wins loop rather than tested in a pass of its
+    own, so what a click selects agrees with what the depth-tested marker overlay
+    shows: a light behind a wall is behind the wall."""
+    source = _CountingSource()
+    ref = _box_ref()
+    wall = _placed(1, _world((0.0, 5.0, 0.0)), ref)
+    light = _marker_placed(2, _world((0.0, 0.0, 0.0)), nd.LightNode(uid=2, kind="point"))
+
+    hit = pick.ray_scene([light, wall], source, origin=(0.0, 20.0, 0.0), direction=DOWN)
+    assert hit is not None and hit.owner == 1
+
+
+def test_a_marker_is_the_same_size_however_the_node_is_scaled():
+    """``mason_marks`` draws a marker at a fixed world size because a light
+    scaled to five is not a bigger light; the hit radius has to agree, or the
+    symbol's clickable area is a lie."""
+    source = _CountingSource()
+    world = _world((0.0, 0.0, 0.0)) @ m3.scaling((5.0, 5.0, 5.0))
+    placed = [_marker_placed(7, world, nd.LightNode(uid=7, kind="point"))]
+    hit = pick.ray_scene(placed, source, origin=(0.0, 10.0, 0.0), direction=DOWN)
+    assert hit is not None
+    assert hit.distance == pytest.approx(10.0 - pick.MARK_SIZE)
+    # Just outside the fixed radius is a miss, scale or no scale.
+    missed = pick.ray_scene(
+        placed, source, origin=(pick.MARK_SIZE * 2.0, 10.0, 0.0), direction=DOWN
+    )
+    assert missed is None
+
+
+def test_a_ray_starting_inside_a_marker_reports_zero_rather_than_the_far_side():
+    """So a click that began inside a light's symbol selects it instead of
+    reaching through to whatever the exit point would have been nearest to."""
+    assert pick.ray_marker((0.0, 0.0, 0.0), DOWN, IDENTITY) == pytest.approx(0.0)
+
+
+def test_a_marker_behind_the_ray_is_not_hit():
+    """Both roots negative: the sphere is behind the camera, not in front of it."""
+    assert pick.ray_marker((0.0, 10.0, 0.0), np.array([0.0, 1.0, 0.0]), IDENTITY) is None

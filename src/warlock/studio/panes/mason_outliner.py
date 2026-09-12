@@ -89,12 +89,25 @@ def _body(ctx: Any) -> None:
 
 def _visibility_row(doc: Any) -> None:
     hidden = sum(1 for node in doc.all_nodes() if not node.visible)
-    if widgets.disabled_button(f"{icons.EYE} Solo##masonsolo", bool(doc.selection)):
+    # Both carry a ``reason`` as well as a tooltip, which is what
+    # ``disabled_button`` exists to make possible: a greyed control that cannot
+    # say why is what ``exercise_mode`` reports as ``disabled-no-reason``, and it
+    # reported both of these the moment the driver's seed had a node for the
+    # outliner to draw a row for.
+    if widgets.disabled_button(
+        f"{icons.EYE} Solo##masonsolo",
+        bool(doc.selection),
+        tooltip="Show only the selected nodes",
+        reason="Select something to show on its own.",
+    ):
         doc.isolate(doc.selection)
-    if imgui.is_item_hovered():
-        imgui.set_tooltip("Show only the selected nodes")
     imgui.same_line()
-    if widgets.disabled_button(f"{icons.EYE} Show all##masonshowall", hidden > 0):
+    if widgets.disabled_button(
+        f"{icons.EYE} Show all##masonshowall",
+        hidden > 0,
+        tooltip="Unhide every hidden node",
+        reason="Nothing is hidden.",
+    ):
         doc.show_all()
     if hidden:
         widgets.muted(f"{hidden} hidden")
@@ -134,9 +147,31 @@ def _range(doc: Any, anchor: int, uid: int) -> list[int]:
 
 
 def _reorder(ctx: Any, doc: Any, node: Any, *, filtered: bool, saving: bool) -> None:
-    """Drag one row onto another to reparent/reorder -- ``clay_outliner``'s
-    ``_reorder``, restated over ``doc.move_node``. Disabled while filtered or
-    saving for the identical reasons that pane states."""
+    """Drag one row onto another to **reparent** it -- the dropped node becomes
+    the target's last child.
+
+    This used to insert the dropped node at the target's own index under the
+    target's own *parent*, which is a reorder dressed as a tree drag: dropping a
+    prop onto a group put it beside the group rather than into it, so the one
+    thing a scene editor's outliner drag is for could not be done at all.
+    Reparenting is what a drop onto a row means everywhere else, and
+    ``move_node``'s own refusal (a target that is the node or one of its
+    descendants) is what makes it safe to offer over every row rather than only
+    over groups -- caught below, so an impossible drop is a no-op rather than an
+    exception on the frame thread.
+
+    **Sibling order is still addressable, and has to be**: it is export order and
+    outliner order both. It moved to the row menu's Move up / Move down, which
+    are an *index* computed from the node's uid at the moment of the press --
+    never a row position held across a frame, the rule every address in
+    ``mason/`` follows. A drop-between-rows target would be the other way to
+    offer it and was not taken: it needs an invisible gap widget per row, which
+    is a control the ``controls.py`` census cannot see.
+
+    Disabled while filtered or saving for the identical reasons ``clay_outliner``
+    states: a filtered list is not the tree, and a restructure mid-encode would
+    write a file describing a document that never existed.
+    """
     if filtered or saving:
         return
     if imgui.begin_drag_drop_source(imgui.DragDropFlags_.source_no_hold_to_open_others.value):
@@ -149,9 +184,7 @@ def _reorder(ctx: Any, doc: Any, node: Any, *, filtered: bool, saving: bool) -> 
             with contextlib.suppress(KeyError, ValueError):
                 dropped_uid = int(payload.data_id)
                 if dropped_uid != node.uid:
-                    parent_uid = doc.parent_uid_of(node.uid)
-                    index = doc.index_of(node.uid)
-                    doc.move_node(dropped_uid, index, parent_uid=parent_uid)
+                    doc.move_node(dropped_uid, len(node.children), parent_uid=node.uid)
     del ctx
 
 
@@ -168,9 +201,53 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
     if controls.menu_item(f"{icons.EYE} Solo", "", False)[0]:
         doc.isolate([node.uid])
     widgets.divider()
+    # Sibling order, by uid: ``index_of`` is read here, at the press, rather
+    # than passed in from the row loop -- a number captured a frame ago would
+    # address whatever has since moved into that position.
+    index = doc.index_of(node.uid)
+    siblings = doc.children_of(doc.parent_uid_of(node.uid))
+    if controls.menu_item(f"{icons.ARROW_UP} Move up", "", False, index > 0)[0]:
+        doc.move_node(node.uid, index - 1)
+    if controls.menu_item(
+        f"{icons.ARROW_DOWN} Move down", "", False, index < len(siblings) - 1
+    )[0]:
+        doc.move_node(node.uid, index + 1)
+    if controls.menu_item(
+        f"{icons.ARROW_LEFT} Move to root", "", False, doc.parent_uid_of(node.uid) is not None
+    )[0]:
+        doc.move_node(node.uid, len(doc.roots), parent_uid=None)
+    widgets.divider()
+    if controls.menu_item("Group", "Ctrl+G", False)[0]:
+        mason_mode.group_selected(ctx)
+    if controls.menu_item("Ungroup", "Ctrl+Shift+G", False, _groupish(doc))[0]:
+        mason_mode.ungroup_selected(ctx)
+    if controls.menu_item(f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1)[0]:
+        mason_mode.define_prefab_from_selection(ctx)
+    if controls.menu_item(f"{icons.UNLINK} Unpack instance", "", False, _instanceish(doc))[0]:
+        mason_mode.unpack_selected(ctx)
+    widgets.divider()
     if controls.menu_item(f"{icons.TRASH} Delete", "Del", False)[0]:
         mason_mode.delete_selected(ctx)
     imgui.end_popup()
+
+
+def _groupish(doc: Any) -> bool:
+    """Whether anything selected is a group with children -- what Ungroup can
+    act on. Asked of the *document* rather than of the clicked row, because
+    Ungroup (like Group) works on the selection and the context menu has already
+    made the clicked row part of it."""
+    from ..mason import nodes as nd
+
+    return any(
+        isinstance(doc.node(uid), nd.GroupNode) and doc.node(uid).children
+        for uid in doc.selection
+    )
+
+
+def _instanceish(doc: Any) -> bool:
+    from ..mason import nodes as nd
+
+    return any(isinstance(doc.node(uid), nd.PrefabNode) for uid in doc.selection)
 
 
 def _row(

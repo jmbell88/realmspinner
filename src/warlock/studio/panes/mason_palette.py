@@ -28,7 +28,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, mason_mode, tool_palette, widgets
+from .. import controls, icons, mason_mode, mason_state, tool_palette, widgets
 from ..clay import primitives as bp
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -81,6 +81,8 @@ def _body(ctx: Any) -> None:
     _lights(ctx, state)
     imgui.dummy((0, sp(8)))
     _camera(ctx, state)
+    imgui.dummy((0, sp(8)))
+    _terrain(ctx, state, tab)
     imgui.end_disabled()
 
 
@@ -163,6 +165,89 @@ def _lights(ctx: Any, state: Any) -> None:
         ):
             state.place_kind = key
     del ctx
+
+
+def _terrain(ctx: Any, state: Any, tab: Any) -> None:
+    """The ground: make one, sculpt it, or take it away again.
+
+    **Here rather than in the Tools pane**, and the reason is measured: Mason's
+    Tools column already runs 14 controls past the bottom of its column at the
+    default sidebar width (``exercise_mode`` reports 18 clipped for Mason
+    against 10 for Clay on the same driver), and the align/distribute/array
+    block it ends with is what overflows. Terrain is also a *thing the scene
+    holds*, which is what this pane is a list of -- the brush that shapes it
+    travels with it for the reason the primitive grid and its placement do.
+
+    Choosing a brush also switches the transform tool to Sculpt, because a
+    brush with a gizmo still in hand is a brush the left button never reaches.
+    The tool grid is where it can be switched back, and this is the one place
+    that writes ``state.tool`` from outside that grid -- said out loud because a
+    second such place would be two controls fighting over one setting.
+    """
+    doc = tab.doc
+    widgets.field_label("terrain")
+    width = widgets.grid_width(1)
+    if doc.terrain is None:
+        if controls.button(
+            f"{icons.GRID} Add ground##masonterrainadd",
+            (width, sp(28)),
+            tooltip="A flat height field to sculpt, exported as an ordinary mesh",
+        ):
+            mason_mode.add_terrain(ctx)
+        return
+
+    side = doc.terrain.side
+    widgets.muted(f"{side}x{side} cells  -  {doc.terrain.size_x:.0f} x {doc.terrain.size_z:.0f} m")
+    for key, label, tip in mason_state.BRUSHES:
+        if controls.button(
+            f"{label}##masonbrush{key}",
+            (width, sp(26)),
+            selected=state.brush == key and state.tool == "sculpt",
+            tooltip=tip,
+        ):
+            state.brush = key
+            state.tool = "sculpt"
+    widgets.field_label("radius (cells)")
+    _, state.brush_radius = controls.input_float("##masonbrushradius", state.brush_radius, 1.0, 0.5)
+    state.brush_radius = max(0.5, float(state.brush_radius))
+    if state.brush in ("raise", "lower", "noise"):
+        widgets.field_label("metres / second")
+        _, state.brush_amount = controls.input_float(
+            "##masonbrushamount", state.brush_amount, 0.5, 0.0
+        )
+        state.brush_amount = max(0.0, float(state.brush_amount))
+    if state.brush in ("smooth", "flatten"):
+        widgets.field_label("strength")
+        _, state.brush_strength = controls.input_float(
+            "##masonbrushstrength", state.brush_strength, 0.05, 0.0
+        )
+        state.brush_strength = min(1.0, max(0.0, float(state.brush_strength)))
+    if state.brush == "flatten":
+        changed, value = widgets.toggle(
+            "Level from the first click", state.brush_level_from_pick, tag="masonbrushpick"
+        )
+        if changed:
+            state.brush_level_from_pick = value
+        widgets.help_marker(
+            "Flatten toward the height the ground already is where the stroke "
+            "started, which is how a plateau is levelled to itself."
+        )
+        imgui.begin_disabled(state.brush_level_from_pick)
+        widgets.field_label("level (m)")
+        _, state.brush_level = controls.input_float(
+            "##masonbrushlevel", state.brush_level, 0.25, 0.0
+        )
+        imgui.end_disabled()
+    if state.brush == "noise":
+        widgets.field_label("seed")
+        _, seed = controls.input_int("##masonbrushseed", int(state.brush_seed), 1)
+        state.brush_seed = max(0, int(seed))
+    if controls.button(
+        f"{icons.TRASH} Delete ground##masonterrainremove",
+        (width, sp(26)),
+        tooltip="Undoable -- the height field travels with the undo step",
+    ):
+        mason_mode.remove_terrain(ctx)
 
 
 def _camera(ctx: Any, state: Any) -> None:

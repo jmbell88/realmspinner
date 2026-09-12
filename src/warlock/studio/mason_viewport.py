@@ -115,6 +115,13 @@ class MasonViewport:
                 "Pick one from the Assets panel.",
                 action=overlay.action_for(ctx, "mason"),
             )
+        # The armed placement the viewport's own click asked for, drained here
+        # because what a placement *means* is ``mason_mode``'s and the view does
+        # not import the controller -- ``menu_request`` just above is drained the
+        # same way for the same reason.
+        if view.place_request is not None:
+            point, view.place_request = view.place_request, None
+            mason_mode.place_armed(ctx, point)
         mason_hud.stats_overlay(ctx, view, rect)
         mason_menu.draw(ctx, view)
         imgui.set_cursor_screen_pos((rect[0], rect[1] + rect[3]))

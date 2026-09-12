@@ -47,6 +47,43 @@ it, and only an export ever embeds geometry.
 - **Off-screen props stop costing anything**, past a few hundred of them, and
   see-through surfaces are drawn after the solid ones they show through.
 
+**And a scene is now something you can actually dress.** Placing a light used
+to be a row in the outliner and nothing at all in the viewport -- a light and a
+camera have no shape of their own, so there was nothing for the renderer to
+draw -- and the ground was the same: the heightfield could be sculpted and the
+mouse could already find it, so a click landed on hills nobody could see.
+
+- **Lights and cameras are drawn, and can be clicked.** Each gets a wire symbol
+  at its own position: a bulb, a cone at the spot light's real angle, the
+  parallel rays everyone draws a sun as, and a view frustum at the camera's
+  real field of view. Widening a cone in Properties widens the cone on screen.
+  A symbol stays the same size however the node is scaled, because a light
+  scaled to five is not a brighter light, and it is clicked at exactly the size
+  it is drawn.
+- **A ground you can sculpt.** Add one from the Assets panel and shape it with
+  five brushes -- raise, lower, smooth, flatten and seeded noise -- and the
+  whole drag is **one** undo step rather than one per frame of mouse movement.
+  Flatten can take its target height from the ground under the start of the
+  stroke, which is how a plateau is levelled to the height it already is.
+  Deleting the ground is undoable and brings the sculpting back with it.
+- **Clicking in the viewport now places what you picked.** Arming a primitive,
+  a light or a camera in the Assets panel and clicking did nothing at all
+  before; the click now drops it where you pointed -- on the ground, or on the
+  roof of whatever is under the cursor -- snapped to the grid if snapping is
+  on. The arming survives the click, so a row of fence posts is one choice and
+  six clicks, and Esc cancels it.
+- **Prefabs.** Make one from anything selected and it becomes the first
+  instance of its own template; place as many more as you like, and editing the
+  template changes every one of them on the next frame, with no "apply to
+  instances" step to forget. An instance that has to differ is unpacked into an
+  ordinary copy. The Prefabs panel appears only once a scene has a template,
+  so it costs nothing on a scene that never uses one.
+- **Dragging a row in the outliner now puts it *inside* what you dropped it
+  on**, which is what a tree drag is for -- it used to drop it beside instead.
+  Order within a parent, which is also the order a scene exports in, moved to
+  Move up / Move down / Move to root on the row's own menu. Group got its
+  opposite, Ungroup.
+
 A review of the MCP bridge — the way an external AI agent drives Clay — found
 the feature unreachable for anyone who installed Warlock rather than cloning
 it, and found three ways any other program on the machine could switch it off.

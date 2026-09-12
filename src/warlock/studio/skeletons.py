@@ -518,7 +518,8 @@ def mason(ctx: Any) -> dict[str, Column]:
     own SHARE slot above the placement ops, where Clay's single FILL pane had
     nothing above it to share against.
 
-    **Outliner, Properties, then the document, on the right** -- ``clay``'s
+    **Outliner, Properties, the prefabs if there are any, then the document, on
+    the right** -- ``clay``'s
     own ordering restated: what the scene *contains*, then what the selected
     part of it *is*, then the file. Three share keys, declared rather than
     derived from the slot id, ``clay``'s own reason: a key derived from
@@ -526,7 +527,14 @@ def mason(ctx: Any) -> dict[str, Column]:
     renaming it would silently reset every user's column heights.
     """
 
-    from .panes import mason_bridge, mason_outliner, mason_palette, mason_props, mason_tools
+    from .panes import (
+        mason_bridge,
+        mason_outliner,
+        mason_palette,
+        mason_prefabs,
+        mason_props,
+        mason_tools,
+    )
 
     left = Column(
         "left",
@@ -570,6 +578,22 @@ def mason(ctx: Any) -> dict[str, Column]:
                 edge=_edge("left"),
                 sizing=SHARE,
                 share_key="mason-props",
+            ),
+            Slot(
+                "mason-prefabs",
+                "Prefabs",
+                mason_prefabs.draw,
+                role=_role("inspector"),
+                edge=_edge("left"),
+                sizing=SHARE,
+                share_key="mason-prefabs",
+                # The first conditional slot in this workspace, and the reason is
+                # that pane's own: a permanently-empty panel in a four-panel
+                # column costs the outliner and Properties the height it sits in
+                # on every scene that never authors a prefab. The predicate lives
+                # with the pane rather than as a lambda here, ``plotter``'s own
+                # ``has_object_layer`` arrangement.
+                when=mason_prefabs.has_prefab,
             ),
             Slot(
                 "mason-bridge",

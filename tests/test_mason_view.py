@@ -384,3 +384,244 @@ def test_the_gizmo_sits_at_the_pivot_the_user_chose() -> None:
     source = _Source()
     assert median_view.selection_centre(doc, source)[0] == pytest.approx(1.5)
     assert origin_view.selection_centre(doc, source)[0] == pytest.approx(0.0)
+
+
+# --- Stage F: the ground, which has geometry and no ref -----------------------
+
+
+def _ground(side: int = 4, size: float = 8.0) -> md.MasonDoc:
+    """A flat terrain and the node that places it."""
+    from warlock.studio.mason.terrain import Terrain
+    from warlock.studio.viewer import gltf as _gltf
+
+    doc = md.MasonDoc()
+    doc.set_terrain(
+        Terrain(
+            heights=np.zeros((side + 1, side + 1), dtype="f4"),
+            size_x=size,
+            size_z=size,
+            material=_gltf.Material(name="ground"),
+        )
+    )
+    doc.add_node(nd.TerrainNode(uid=nd.new_uid(), name="Terrain"))
+    return doc
+
+
+def test_the_ground_is_drawn_even_though_it_has_no_ref(view) -> None:
+    """The second half of the "no ref, no picture" gap -- the first being lights.
+
+    Terrain geometry is generated from ``doc.terrain`` rather than resolved from
+    a ``GeometrySource``, so the ref-keyed cache has nowhere to put it and the
+    composite's ``ref is None`` skip threw it away. Picking already worked: the
+    ray found ground the eye could not see.
+    """
+    doc = _ground()
+    source = _Source()
+    view.sync(doc, source)
+    composite = view._composite(doc, source)
+
+    assert composite is not None
+    assert len(composite.draws) == 1
+    assert view.terrain_rebuilds == 1
+
+
+def test_the_ground_is_uploaded_once_and_reused_until_a_brush_rebinds_it(view) -> None:
+    """Keyed on the identity of ``heights``, which is sound precisely because
+    every brush **rebinds** that array rather than writing into it -- the same
+    property ``terrain_mesh``'s own memo rests on, so the mesh build and the
+    upload invalidate together on one signal rather than on two."""
+    doc = _ground()
+    source = _Source()
+    view.sync(doc, source)
+    view.sync(doc, source)
+    assert view.terrain_rebuilds == 1
+
+    doc.begin_sculpt()
+    doc.sculpt((0, 0, 2, 2), np.full((2, 2), 1.0, dtype="f4"))
+    doc.end_sculpt()
+    view.sync(doc, source)
+    assert view.terrain_rebuilds == 2
+
+
+def test_a_ground_nothing_places_any_more_gives_its_buffers_back(view) -> None:
+    """The rule the ref cache already follows, kept true of the one drawable
+    that has no ref: holding an upload for geometry that does not draw, does not
+    export and is not picked would make it the one of the three that is only
+    half true."""
+    doc = _ground()
+    source = _Source()
+    view.sync(doc, source)
+    assert view._terrain is not None
+
+    for node in [n for n in doc.all_nodes() if isinstance(n, nd.TerrainNode)]:
+        doc.remove_node(node.uid)
+    view.sync(doc, source)
+    assert view._terrain is None
+
+
+def test_a_sculpt_stroke_changes_the_picture_without_changing_the_document(view) -> None:
+    """**The frame that would otherwise be skipped.**
+
+    ``document.sculpt`` pushes nothing and touches no revision on purpose -- the
+    whole drag is one undo step that only ``end_sculpt`` commits -- so the
+    document does not see a stroke in progress. Without the height array's
+    identity in the redraw key, every frame of a drag is skipped as "nothing
+    moved" and the ground jumps to its new shape on release.
+    """
+    doc = _ground()
+    source = _Source()
+    view.draw(doc, source, RECT, 0.0)
+    settled, rev = view._last_render_key, doc.rev
+    # Nothing changed: the frame is skipped, which is what makes the rest mean
+    # something.
+    view.draw(doc, source, RECT, 0.0)
+    assert view._last_render_key == settled
+
+    doc.begin_sculpt()
+    doc.sculpt((0, 0, 3, 3), np.full((3, 3), 2.0, dtype="f4"))
+    # The claim, stated as the assertion the key has to survive: the document is
+    # *unchanged* as far as every other redraw signal is concerned.
+    assert doc.rev == rev
+
+    view.draw(doc, source, RECT, 0.0)
+    assert view._last_render_key != settled
+    assert view.terrain_rebuilds == 2
+
+
+# --- the sculpt session, from the pointer -------------------------------------
+
+
+def test_a_whole_drag_is_one_undo_step(view) -> None:
+    """A pane that pushed a ``TerrainEdit`` per mouse-move would make one stroke
+    fifty presses of Ctrl+Z. The session is what makes it one, and the view is
+    what opens and closes it."""
+    doc = _ground(side=16, size=16.0)
+    view._rect = RECT
+    view.camera.target = m3.vec3(0.0, 0.0, 0.0)
+    state = view.state
+    state.tool = "sculpt"
+    state.brush = "raise"
+    state.brush_radius = 4.0
+    steps = len(doc.history)
+    centre = (RECT[2] / 2.0, RECT[3] / 2.0)
+
+    assert view._press(doc, _Source(), 1, centre) is True
+    assert view._grab == "sculpt"
+    for step in range(1, 6):
+        view._motion(doc, _Source(), (centre[0] + step, centre[1]))
+    assert doc.sculpting is True
+    assert len(doc.history) == steps
+
+    view._release(doc, 1)
+    assert doc.sculpting is False
+    assert len(doc.history) == steps + 1
+    assert float(doc.terrain.heights.max()) > 0.0
+    doc.undo()
+    assert float(doc.terrain.heights.max()) == pytest.approx(0.0)
+
+
+def test_a_sculpt_press_selects_nothing_and_starts_no_orbit(view) -> None:
+    """The brush owns the left button for the whole stroke, which is what makes
+    Sculpt a tool rather than an armed placement: a press that also picked would
+    change the selection under every stroke."""
+    doc = _ground(side=16, size=16.0)
+    view._rect = RECT
+    state = view.state
+    state.tool = "sculpt"
+    view._press(doc, _Source(), 1, (RECT[2] / 2.0, RECT[3] / 2.0))
+    assert doc.selection == set()
+    assert view._grab == "sculpt"
+
+
+def test_a_press_that_misses_the_ground_starts_no_stroke(view) -> None:
+    """A sky click with the brush in hand must fall through to the ordinary
+    press behaviour rather than opening a session nothing will ever close."""
+    doc = _ground(side=8, size=8.0)
+    view._rect = RECT
+    view.state.tool = "sculpt"
+    # Straight up, away from the ground plane.
+    view.camera.target = m3.vec3(0.0, 0.0, 0.0)
+    view.camera.pitch = -80.0
+    view.camera.update(1.0)
+    view._press(doc, _Source(), 1, (RECT[2] / 2.0, 1.0))
+    assert doc.sculpting is False
+
+
+def test_a_cancelled_drag_still_commits_the_stroke_it_had_already_made(view) -> None:
+    """The asymmetry is deliberate: a gizmo drag's "before" is three arrays the
+    view still holds, where a stroke's is a whole height field the session
+    snapshotted -- and ``end_sculpt`` is the only thing that turns what is
+    already on the ground into something Ctrl+Z can reach. Dropping the session
+    would leave a sculpted ground with no undo step for it at all."""
+    doc = _ground(side=16, size=16.0)
+    view._rect = RECT
+    view.state.tool = "sculpt"
+    steps = len(doc.history)
+    view._press(doc, _Source(), 1, (RECT[2] / 2.0, RECT[3] / 2.0))
+    view.cancel_drag(doc)
+    assert doc.sculpting is False
+    assert len(doc.history) == steps + 1
+
+
+def test_a_live_stroke_counts_as_dragging_so_an_undo_cannot_land_inside_it(view) -> None:
+    """``mason_mode._DRAG_BLOCKED_CTRL`` reads ``view.dragging`` to refuse
+    Ctrl+Z mid-drag, and an undo between two dabs would leave the session
+    holding a "before" snapshot of a height field the history has replaced."""
+    doc = _ground(side=16, size=16.0)
+    view._rect = RECT
+    view.state.tool = "sculpt"
+    view._press(doc, _Source(), 1, (RECT[2] / 2.0, RECT[3] / 2.0))
+    assert view.dragging is True
+    view._release(doc, 1)
+    assert view.dragging is False
+
+
+# --- the armed placement is a request, not a placement ------------------------
+
+
+def test_an_armed_click_asks_the_pane_to_place_and_does_not_place_itself(view) -> None:
+    """The view owns the pointer and the camera; what a placement *means* --
+    which document, which node kind, which undo step -- is ``mason_mode``'s, and
+    this module does not import the controller. ``menu_request`` is drained the
+    same way for the same reason."""
+    doc = _scene(count=0)
+    view._rect = RECT
+    view.state.place_kind = "box"
+
+    assert view._press(doc, _Source(), 1, (RECT[2] / 2.0, RECT[3] / 2.0)) is True
+    assert view.place_request is not None
+    # Nothing was added, and nothing was selected: this press is a question.
+    assert doc.roots == []
+    assert doc.selection == set()
+
+
+def test_an_armed_click_lands_on_what_it_points_at(view) -> None:
+    """The point is where the ray *hits*, so a prop drops onto the ground or onto
+    the roof of another prop -- which is the answer a user pointing at a surface
+    means. With nothing under the cursor it is the ground plane."""
+    doc = _ground(side=8, size=8.0)
+    view._rect = RECT
+    view.state.place_kind = "box"
+    view._press(doc, _Source(), 1, (RECT[2] / 2.0, RECT[3] / 2.0))
+
+    point = view.place_request
+    assert point is not None
+    assert abs(float(point[1])) < 1e-6
+
+
+def test_an_armed_click_snaps_to_the_grid_when_snapping_is_on(view) -> None:
+    """Through ``ops.snap_translation`` rather than arithmetic in the view -- the
+    rule the Tools pane already follows: this file decides *whether*, the engine
+    decides *where*."""
+    doc = _scene(count=0)
+    view._rect = RECT
+    state = view.state
+    state.place_kind = "box"
+    state.snap = True
+    state.snap_translate = 5.0
+    view._press(doc, _Source(), 1, (RECT[2] / 3.0, RECT[3] / 3.0))
+
+    point = view.place_request
+    assert point is not None
+    for value in point:
+        assert float(value) % 5.0 == pytest.approx(0.0, abs=1e-6)

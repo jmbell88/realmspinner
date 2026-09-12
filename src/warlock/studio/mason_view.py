@@ -60,6 +60,23 @@ prefab boundary falls.
 draws one asset and needs neither. Culling is skipped under
 :data:`CULL_THRESHOLD` because the test itself costs something, and a library
 asset's material need not be opaque where every Clay material is.
+
+**Two things a scene holds that the ref-keyed cache has nowhere to put.** A
+light and a camera have no geometry at all, and draw as ``DrawItem`` overlays
+through :mod:`.mason_marks` -- without which placing a light put a row in the
+outliner and nothing whatever in the viewport. The ground has geometry but no
+``Ref``, because it is generated from ``doc.terrain`` rather than resolved from
+a :class:`~.mason.refs.GeometrySource`, so :meth:`MasonView.sync_terrain` is its
+own one-entry upload path keyed on the identity of the ``heights`` array. Both
+gaps were invisible rather than loud: the resolver, the picker and the exporters
+all handled these nodes from Stage C, so the ray found ground the eye could not
+see.
+
+**A sculpt stroke is a session the view owns.** ``document.begin_sculpt`` /
+``sculpt`` / ``end_sculpt`` is one undo step, and the press/motion/release that
+drive it are here. It is also the one gesture that changes the picture with no
+change the *document* can see -- ``sculpt`` pushes nothing and touches no
+revision -- which is why the redraw key carries the height array's identity.
 """
 
 from __future__ import annotations
@@ -72,7 +89,9 @@ import numpy as np
 from ._view_frame import Composite, FrameOps
 from .mason import pick as mpick
 from .mason import scene as msc
+from .mason import terrain as mterrain
 from .mason.refs import ref_key
+from .mason_marks import SceneMarks
 from .viewer import capture, glctx
 from .viewer import math3d as m3
 from .viewer import scene as scenelib
@@ -195,7 +214,25 @@ class MasonView(FrameOps):
         self.rotate_gizmo = RotateGizmo(ctx, self.renderer.programs)
         self.scale_gizmo = ScaleGizmo(ctx, self.renderer.programs)
 
+        # The wire symbols for the node kinds that have no geometry. Without
+        # them a placed light or camera is a row in the outliner and nothing at
+        # all in the viewport -- see :mod:`.mason_marks`.
+        self.marks = SceneMarks(ctx, self.renderer.programs)
+
         self._cache: dict[tuple[Any, ...], _Entry] = {}
+        # The ground's own upload, outside the ref-keyed cache because terrain
+        # geometry does not come from a ``GeometrySource`` and so has no ref to
+        # be keyed on: ``(heights_array, GpuModel, model)``, valid only while
+        # the pinned array *is* ``doc.terrain.heights``. Identity and not
+        # ``id()``, ``terrain.terrain_mesh``'s own memo rule and for its reason:
+        # an id is an address CPython may hand to a different array once the old
+        # one is collected, so an id-keyed check can validate against the wrong
+        # object. Every brush rebinds the array rather than writing into it,
+        # which is what makes the identity check a sound invalidation signal.
+        self._terrain: tuple[Any, Any, Any] | None = None
+        # What the terrain GPU state was built from, so a rebuild is counted
+        # the way a ref's is.
+        self.terrain_rebuilds = 0
         # Counted rather than inferred: "five hundred instances are one upload"
         # is the claim this whole module is built around, and there is no other
         # way to see it from outside.
@@ -208,6 +245,11 @@ class MasonView(FrameOps):
         self._last_mouse = (0.0, 0.0)
         self._rmb_at: tuple[float, float] | None = None
         self.menu_request: tuple[float, float] | None = None
+        # Where a click asked for the armed placement to land, for the pane to
+        # drain -- ``menu_request``'s own idiom, and ``MasonState.frame_pending``'s
+        # reason: what a placement *means* belongs to ``mason_mode``, which this
+        # module deliberately does not import.
+        self.place_request: Any = None
         # Where an Alt press went down. Alt+drag orbits in every 3-D view in
         # this app and must never be reinterpreted: it is how a user looks at
         # what they are about to click.
@@ -227,6 +269,9 @@ class MasonView(FrameOps):
         # ever says an asset arrived.
         self._last_doc: Any = None
         self._last_source: Any = None
+        # The height array the redraw key's ``id`` named, pinned for the same
+        # reason -- see that key's own comment.
+        self._last_heights: Any = None
 
         # What ``resolve`` last answered, and the key it was answered for.
         # Memoized because a frame asks for it up to four times (the sync, the
@@ -237,6 +282,17 @@ class MasonView(FrameOps):
         # How many the frustum test threw away last frame -- read by the HUD,
         # which is the only honest way to see culling working.
         self.culled = 0
+
+        # The live sculpt stroke's own bookkeeping. A stroke is a *session* and
+        # not a stream of edits -- ``document.begin_sculpt``/``sculpt``/
+        # ``end_sculpt`` -- so what is held here is only what the session needs
+        # between frames: which document it was opened against (so a tab switch
+        # mid-drag closes it rather than sculpting the wrong ground), and the
+        # flatten level and noise seed the *whole* stroke shares. Re-rolling the
+        # seed per frame would lay forty different noise fields down one drag.
+        self._sculpt_doc: Any = None
+        self._sculpt_level = 0.0
+        self._sculpt_seed = 0
 
         # A live gizmo drag: every selected node's transform at the press, the
         # drag's accumulated rotation, and the pivot it started from. Recorded
@@ -270,8 +326,16 @@ class MasonView(FrameOps):
 
     @property
     def dragging(self) -> bool:
-        """Whether a *transform* drag is live -- not an orbit and not a pan."""
-        return self._grab == "gizmo"
+        """Whether a gesture that is *changing the document* is live -- not an
+        orbit and not a pan.
+
+        A sculpt stroke counts, and has to: ``mason_mode._DRAG_BLOCKED_CTRL``
+        reads this to refuse Ctrl+Z, Ctrl+S and a tab switch mid-drag, and an
+        undo landing between two dabs of one stroke would leave the session
+        holding a "before" snapshot of a height field the history has already
+        replaced.
+        """
+        return self._grab in ("gizmo", "sculpt")
 
     # -- resolving ---------------------------------------------------------
 
@@ -335,6 +399,18 @@ class MasonView(FrameOps):
                 entry.gpu.release()
             self._cache[key] = self._build(placed, key, prims)
             self.rebuilds += 1
+        # The ground, in the same phase and by the same rule: uploaded if a
+        # visible terrain node places it, and released the moment nothing does
+        # -- which is what keeps "a ref nothing places any more takes its
+        # buffers with it" true of the one drawable that has no ref.
+        ground = next(
+            (p for p in self.resolved(doc) if p.visible and isinstance(p.node, _terrain_node())),
+            None,
+        )
+        if ground is None:
+            self._release_terrain()
+        else:
+            self.sync_terrain(doc, ground.material)
         for key in [k for k in self._cache if k not in live]:
             # A ref nothing places any more takes its buffers with it, the rule
             # Clay's cache already applies to a hidden object: holding an
@@ -369,10 +445,68 @@ class MasonView(FrameOps):
             prims,
         )
 
+    def sync_terrain(self, doc: Any, override: Any = None) -> Any:
+        """The ground's ``GpuModel``, uploaded or re-uploaded as needed. ->
+        ``(model, gpu)`` or ``None``.
+
+        **Its own path, outside the ref-keyed cache**, because terrain geometry
+        does not come from a :class:`~.mason.refs.GeometrySource`: there is no
+        ``Ref`` for the cache to key it on and no asset for it to be shared
+        between, since the document has exactly one ground (``mason/terrain.py``
+        states why two would be two ground planes nobody asked for). What stands
+        in for the key is the identity of ``heights``, which is sound precisely
+        because every brush **rebinds** that array -- the same property
+        ``terrain_mesh``'s own memo rests on, so the mesh build and the upload
+        invalidate together on the same signal rather than on two.
+
+        A sculpt drag therefore pays one mesh rebuild *and* one upload per frame
+        it is open, which is measured and is why ``MAX_TERRAIN_SIDE`` is 256:
+        at that side a rebuild alone is 5.65 ms, a third of a frame. See
+        ``docs/measurements/2026-09-11-mason-scene-ceilings.md``.
+
+        ``override`` is the resolver's nearest-ancestor material, part of what
+        the pinned state is validated against for ``_entry_key``'s reason: a
+        ground drawn under an override that has since changed would otherwise
+        keep the old surface with nothing in the data to say why.
+        """
+        terrain = doc.terrain
+        if terrain is None:
+            self._release_terrain()
+            return None
+        if (
+            self._terrain is not None
+            and self._terrain[0] is terrain.heights
+            and self._terrain[1] is override
+        ):
+            return self._terrain[2], self._terrain[3]
+        self._release_terrain()
+        from dataclasses import replace as _replace
+
+        from .viewer import gltf
+
+        primitive = mterrain.terrain_mesh(terrain)
+        if override is not None:
+            # A copy, never a write through what ``terrain_mesh`` handed back:
+            # that primitive is the memo's own and is handed to the *next* caller
+            # too, so an override written into it would outlive this draw.
+            primitive = _replace(primitive, material=override)
+        node = gltf.Node(name="terrain", mesh=0)
+        model = gltf.Model([node], [0], [[primitive]], [])
+        gpu = scenelib.GpuModel(self.ctx, model)
+        self._terrain = (terrain.heights, override, model, gpu)
+        self.terrain_rebuilds += 1
+        return model, gpu
+
+    def _release_terrain(self) -> None:
+        if self._terrain is not None:
+            self._terrain[3].release()
+            self._terrain = None
+
     def clear(self) -> None:
         for entry in self._cache.values():
             entry.gpu.release()
         self._cache.clear()
+        self._release_terrain()
         self._placed = []
         self._placed_key = None
 
@@ -408,12 +542,27 @@ class MasonView(FrameOps):
             int(getattr(source, "rev", 0)),
             str(getattr(self.state, "tool", "select")),
             str(getattr(self.state, "pivot", "median")),
+            # **The ground, by the identity of its height array.** A sculpt
+            # stroke deliberately does not touch ``doc.rev``: ``document
+            # .sculpt`` pushes nothing and calls nothing, because the whole
+            # drag is one undo step that only ``end_sculpt`` commits. So the
+            # document *does not see* a stroke in progress, and without this
+            # entry every frame of a drag would be skipped as "nothing moved"
+            # and the ground would jump to its new shape on release -- the same
+            # shape of miss ``source.rev`` above closes for an arriving asset.
+            #
+            # An ``id`` is sound here for the reason ``_last_doc`` is: the array
+            # it names is pinned on ``self._last_heights`` below, so the address
+            # cannot be reissued to a different array while this key still
+            # claims it.
+            id(None if doc.terrain is None else doc.terrain.heights),
         )
         if self._frame_unchanged(key):
             return self.viewport.texture
         self._last_render_key = key
         self._last_doc = doc
         self._last_source = source
+        self._last_heights = None if doc.terrain is None else doc.terrain.heights
         self._render_dirty = False
         self._resize(width, height)
         self.camera.update(dt)
@@ -428,9 +577,21 @@ class MasonView(FrameOps):
             show_grid=self.show_grid,
             wire_overlay=self.wire_overlay,
             alpha=XRAY_ALPHA if self.xray else 1.0,
-            overlays=self._gizmo_draws(doc, source, height),
+            overlays=self._overlays(doc, source, height),
         )
         return self.viewport.texture
+
+    def _overlays(self, doc: Any, source: Any, height: int) -> list[Any]:
+        """The marker symbols, then the gizmo over them.
+
+        Order matters and is the renderer's own: it draws depth-tested items
+        first and depth-off items over them, so the gizmo (depth off) lands on
+        top of a light's symbol (depth tested) whatever order this list is in.
+        The order here is the one a reader expects anyway -- the scene's symbols,
+        then the handle being dragged over them.
+        """
+        marks = self.marks.draws(self.resolved(doc), doc.selection)
+        return marks + self._gizmo_draws(doc, source, height)
 
     def _composite(self, doc: Any, source: Any) -> Any:
         """Every visible placement as one thing the renderer draws in one pass.
@@ -466,8 +627,17 @@ class MasonView(FrameOps):
         opaque: list[tuple[Any, Any]] = []
         blended: list[tuple[float, Any, Any]] = []
         eye = np.asarray(self.camera.position, dtype="f8")
+        terrain_node = _terrain_node()
         for item in placed:
-            if not item.visible or item.ref is None:
+            if not item.visible:
+                continue
+            if item.ref is None:
+                # The ground is the one drawable with no ref -- see
+                # ``sync_terrain``. A light or a camera is the other reason a
+                # placement has none, and those draw as overlays instead.
+                if isinstance(item.node, terrain_node) and self._terrain is not None:
+                    proxy = self._pool.node(item.world)
+                    opaque += [(proxy, primitive) for _n, primitive in self._terrain[3].draws]
                 continue
             entry = self._cache.get(_entry_key(item))
             if entry is None:
@@ -614,6 +784,179 @@ class MasonView(FrameOps):
             terrain_world=terrain_world,
         )
 
+    def _drop_point(self, doc: Any, source: Any, local: tuple[float, float]) -> np.ndarray:
+        """Where a click in the viewport means, in world metres.
+
+        What the ray hits, if it hits anything -- so a prop drops onto the
+        terrain or onto the roof of another prop, which is the answer a user
+        pointing at a surface means. Otherwise the ground plane, and if the ray
+        runs parallel to that (a camera looking dead along the horizon), the
+        camera's own target, because a click has to mean *somewhere* and the
+        thing being looked at is the only defensible somewhere left.
+
+        Snapped by the app's grid when snapping is on, through
+        ``ops.snap_translation`` rather than arithmetic here -- the same rule the
+        Tools pane follows for align and array: this file decides *whether*, the
+        engine decides *where*.
+        """
+        hit = self.pick(doc, source, local)
+        if hit is not None:
+            point = np.asarray(hit.point, dtype="f8")
+        else:
+            origin, direction = self._ray(local)
+            if abs(float(direction[1])) < 1e-9:
+                point = np.asarray(self.camera.target, dtype="f8")
+            else:
+                t = -float(origin[1]) / float(direction[1])
+                point = (
+                    origin + direction * t
+                    if t > 0.0
+                    else np.asarray(self.camera.target, dtype="f8")
+                )
+        if getattr(self.state, "snap", False):
+            from .mason import ops as mops
+
+            point = mops.snap_translation(point, float(getattr(self.state, "snap_translate", 0.0)))
+        return point
+
+    # -- sculpting ---------------------------------------------------------
+
+    def _begin_sculpt(self, doc: Any, local: tuple[float, float]) -> bool:
+        """Open a sculpt session from a press on the ground. -> whether it did.
+
+        The session, not the stroke's first dab, is what this opens: a pane that
+        pushed a ``TerrainEdit`` per mouse-move would turn one drag into fifty
+        presses of Ctrl+Z, which is why ``document.begin_sculpt``/``sculpt``/
+        ``end_sculpt`` exists at all. The level Flatten pulls toward and the seed
+        Noise uses are read **once, here**, so one drag lays down one field and
+        levels to one height however many frames it lasts.
+        """
+        cell = self._brush_cell(doc, local)
+        if cell is None:
+            return False
+        state = self.state
+        self._sculpt_level = float(getattr(state, "brush_level", 0.0))
+        if getattr(state, "brush_level_from_pick", False):
+            self._sculpt_level = float(self._brush_height(doc, cell))
+        self._sculpt_seed = int(getattr(state, "brush_seed", 1))
+        doc.begin_sculpt()
+        self._sculpt_doc = doc
+        self._grab = "sculpt"
+        # The first dab, so a click without a drag still does something: every
+        # brush is a function of where the cursor is, and a press that waited for
+        # motion would read as a dead click.
+        self._sculpt_at(doc, cell, self._SCULPT_STEP)
+        return True
+
+    def _brush_cell(self, doc: Any, local: tuple[float, float]) -> tuple[float, float] | None:
+        """The ground cell under the cursor as fractional ``(col, row)``, or
+        ``None`` if the ray misses the ground.
+
+        The brushes work in height-field index space -- they take ``cx``/``cz``
+        in cells, because that is the space a falloff radius is honest in -- so
+        the conversion from a world ray to a cell is the viewport's, here, and
+        not duplicated in a pane.
+        """
+        terrain = doc.terrain
+        if terrain is None:
+            return None
+        found = next(
+            (p for p in self.resolved(doc) if p.visible and isinstance(p.node, _terrain_node())),
+            None,
+        )
+        if found is None:
+            return None
+        origin, direction = self._ray(local)
+        march = mpick.ray_terrain(terrain, found.world, origin, direction)
+        if march is None:
+            return None
+        _t, point = march
+        world = np.asarray(found.world, dtype="f8")
+        determinant = float(np.linalg.det(world[:3, :3]))
+        if abs(determinant) < _SINGULAR_DET_EPS:
+            return None
+        local_point = np.linalg.inv(world) @ np.array([*point[:3], 1.0], dtype="f8")
+        side = terrain.side
+        col = (float(local_point[0]) / terrain.size_x + 0.5) * side
+        row = (float(local_point[2]) / terrain.size_z + 0.5) * side
+        return col, row
+
+    def _brush_height(self, doc: Any, cell: tuple[float, float]) -> float:
+        """The ground's height at a cell, clamped to the field -- what Flatten
+        levels to when it is told to take its level from the first click."""
+        heights = doc.terrain.heights
+        col = int(min(max(round(cell[0]), 0), heights.shape[1] - 1))
+        row = int(min(max(round(cell[1]), 0), heights.shape[0] - 1))
+        return float(heights[row, col])
+
+    #: What one mouse-motion event is worth, as a fraction of a second. The
+    #: brush strengths on ``MasonState`` are per second, so something has to
+    #: convert; a *motion event* is the unit rather than a frame, because that is
+    #: what a stroke is actually delivered in and it is the only one of the two
+    #: that does not make the brush stronger on a machine that renders faster.
+    #: One sixtieth, so a drag that samples at a typical pointer rate deposits
+    #: about the stated amount per second of dragging.
+    _SCULPT_STEP = 1.0 / 60.0
+
+    def _sculpt_at(self, doc: Any, cell: tuple[float, float], step: float) -> None:
+        """Apply one dab of the current brush. Pushes nothing -- the session
+        does, on release.
+
+        ``step`` scales raise/lower and the two strength brushes; see
+        :data:`_SCULPT_STEP` for what it is and why it is not a frame time.
+        """
+        state = self.state
+        terrain = doc.terrain
+        if terrain is None:
+            return
+        radius = float(getattr(state, "brush_radius", 6.0))
+        brush = str(getattr(state, "brush", "raise"))
+        col, row = cell
+        result = None
+        if brush in ("raise", "lower"):
+            amount = float(getattr(state, "brush_amount", 1.0)) * step
+            result = mterrain.raise_lower(
+                terrain.heights, col, row, radius, -amount if brush == "lower" else amount
+            )
+        elif brush == "smooth":
+            strength = float(getattr(state, "brush_strength", 0.5)) * step
+            result = mterrain.smooth(terrain.heights, col, row, radius, strength)
+        elif brush == "flatten":
+            result = mterrain.flatten(
+                terrain.heights,
+                col,
+                row,
+                radius,
+                self._sculpt_level,
+                float(getattr(state, "brush_strength", 0.5)) * step,
+            )
+        elif brush == "noise":
+            result = mterrain.noise(
+                terrain.heights,
+                col,
+                row,
+                radius,
+                float(getattr(state, "brush_amount", 1.0)) * step,
+                seed=self._sculpt_seed,
+            )
+        if result is not None:
+            doc.sculpt(*result)
+            self._render_dirty = True
+
+    def _end_sculpt(self) -> None:
+        """Close the session, if one is open. Safe to call from anywhere.
+
+        ``document.end_sculpt`` is idempotent on purpose -- a release can be
+        missed to focus loss, Esc or a save beginning mid-drag -- and this
+        wrapper is what lets every one of those paths say "close whatever is
+        open" without first working out whether anything is.
+        """
+        doc, self._sculpt_doc = self._sculpt_doc, None
+        if doc is not None:
+            doc.end_sculpt()
+            doc.touch()
+            self._render_dirty = True
+
     # -- input -------------------------------------------------------------
 
     def handle_event(self, doc: Any, source: Any, event: Any, hovered: bool) -> bool:
@@ -669,6 +1012,23 @@ class MasonView(FrameOps):
             self._alt_at = local
             return True
 
+        # The brush owns the left button for the whole stroke, which is what makes
+        # Sculpt a tool rather than an armed placement: no gizmo, no pick, no
+        # selection change, and an orbit has to be Alt+drag (which the branch
+        # above already took).
+        sculpting = str(getattr(self.state, "tool", "")) == "sculpt" and doc.terrain is not None
+        if sculpting and self._begin_sculpt(doc, local):
+            return True
+
+        if getattr(self.state, "place_kind", "") or getattr(self.state, "place_prefab", ""):
+            # A *request*, not a placement. The view owns the pointer and the
+            # camera; what a placement means -- which document, which node kind,
+            # which undo step -- is ``mason_mode``'s, and this module does not
+            # import the controller (``clay_view`` does not either). The pane
+            # drains this the way it already drains ``menu_request``.
+            self.place_request = self._drop_point(doc, source, local)
+            return True
+
         origin, direction = self._ray(local)
         gizmo = self.active_gizmo(doc)
         axis = gizmo.hit(origin, direction) if gizmo is not None else None
@@ -715,6 +1075,18 @@ class MasonView(FrameOps):
             self.camera.pan(dx, dy, height)
         elif self._grab == "gizmo":
             self._drag_gizmo(doc, source, local)
+        elif self._grab == "sculpt":
+            if self._sculpt_doc is not doc:
+                # The tab changed under a live stroke. Closed against the
+                # document it was opened on rather than carried over: a session
+                # holds a snapshot of *that* ground, and sculpting a second
+                # document through it would commit one scene's undo step onto
+                # another's history.
+                self._end_sculpt()
+                return True
+            cell = self._brush_cell(doc, local)
+            if cell is not None:
+                self._sculpt_at(doc, cell, self._SCULPT_STEP)
         return True
 
     def _release(self, doc: Any, button: int = 1) -> bool:
@@ -722,6 +1094,8 @@ class MasonView(FrameOps):
         self._alt_at = None
         if was == "gizmo":
             self._end_gizmo_drag(doc)
+        elif was == "sculpt":
+            self._end_sculpt()
         return was is not None
 
     # -- the gizmo drag ----------------------------------------------------
@@ -890,6 +1264,15 @@ class MasonView(FrameOps):
 
     def cancel_drag(self, doc: Any) -> None:
         """Put every node back where the press found it, and push nothing."""
+        # A sculpt stroke is *committed* rather than discarded by a cancel, and
+        # the asymmetry is deliberate: a gizmo drag's "before" is three arrays
+        # this method still holds, where a stroke's is a whole height field the
+        # session snapshotted -- and ``end_sculpt`` is the only thing that turns
+        # what is already on the ground into something Ctrl+Z can reach. Dropping
+        # the session here would leave the sculpted ground in the document with
+        # no undo step for it at all, which is strictly worse than one extra step
+        # the user can undo.
+        self._end_sculpt()
         start, self._drag_start = self._drag_start, {}
         for uid, (t0, r0, s0) in start.items():
             node = doc.node(uid)
@@ -912,6 +1295,7 @@ class MasonView(FrameOps):
 
     def release(self) -> None:
         self.clear()
+        self.marks.release()
         self.translate_gizmo.release()
         self.rotate_gizmo.release()
         self.scale_gizmo.release()

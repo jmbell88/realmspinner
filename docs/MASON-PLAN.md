@@ -787,7 +787,52 @@ nothing in this stage added admission control. What Stage E did add is the byte 
 which bounds the *host* side (decoded geometry in RAM) and says nothing about what the GPU is
 holding. A scene large enough to matter is still a new failure mode with nothing behind it.
 
-**Stage F — hierarchy, prefabs, lights, cameras, terrain in the UI.**
+**Stage F — hierarchy, prefabs, lights, cameras, terrain in the UI. DONE.**
+`mason_marks.py` and `mason/pick.ray_marker` landed, plus `MasonView.sync_terrain`, the
+sculpt session on the view, the armed-placement request the pane drains, the Prefabs pane as
+this workspace's first conditional slot, the outliner's reparenting drop, and `ungroup`.
+The full Windows lane went 21073 -> **21132 passed, 49 skipped, 0 failed**; `ruff` and
+`preflight --fast` clean. The plan's own end-to-end walk was driven headlessly to the end:
+two primitives placed by armed clicks, grouped, made a prefab, three more instances, a light,
+a camera, a sculpted 64-cell ground, saved, reopened byte-for-byte on the heights, and out
+through all three exporters (192 KB GLB, a manifest naming the same nineteen nodes, an OBJ of
+4,705 vertices reporting the light and the camera as losses).
+
+Four things came out differently from the sections above.
+
+- **Three of Stage F's features were invisible rather than missing**, and that is the whole
+  shape of this stage. The resolver, the picker and all three exporters handled lights,
+  cameras and terrain from Stage C; only the *viewport* did not, because its cache is keyed on
+  a ref and none of the three has one. So the work was two new draw paths (a `DrawItem`
+  overlay and a one-entry terrain upload) rather than any new model, and the corresponding
+  *pick* gap — a light could be selected from the outliner and never from the viewport —
+  was one the plan asserted away in a subordinate clause ("pickable and gizmo-draggable like
+  any node") and nothing had made true.
+- **`place_kind` was armed by a pane and read by nothing**, which no stage had noticed: Stage
+  E shipped the Assets pane's lights, camera and primitive grid writing a field whose only
+  reader was the hint line. The fix is a `place_request` on the view drained by
+  `mason_viewport`, because `mason_view` may not import `mason_mode` (`clay_view` does not
+  import `clay_mode` either), and the dispatch from an arming key to a node kind is a table so
+  the two halves cannot drift apart again.
+- **Sculpt is a fifth tool, not an armed placement**, and the terrain block went in the
+  *Assets* pane rather than Tools. The tool part is what the left button does — a brush owns a
+  sustained drag the way Move does, where placing a light is one click that ends. The pane part
+  is the measured clipping this plan's own open question names: Mason's Tools column already
+  ran 14 controls past its bottom, and the align/distribute/array block it ends with is what
+  overflows, so terrain went where the other *things a scene holds* are listed.
+- **The driver's seed needed a ground and a prefab**, the fifth instance of the defect
+  `scripts/_appharness.py`'s docstring now names four times. Both of Stage F's new panes are
+  behind a *condition* rather than behind a document — the brush row exists only once the scene
+  has a terrain, and the Prefabs pane is a conditional slot not in the column until a template
+  exists — so `exercise_mode --mode mason` drove every control in the mode *except* the ones
+  this stage added, and reported full coverage. With the richer seed it reports **78 controls,
+  3 hard-resets and 1 refusal** against `--mode clay`'s 75, 6 and 1: no crash, no dead control,
+  nothing greyed without a reason (the three it found were given one, two of them Stage E's).
+  **Clipping is the number that got worse**: 29 against Clay's 10, where Stage E measured 18.
+  Twelve of those are the align/array block this stage deliberately did not add to, and the
+  rest are the brush row and the prefab rows now existing at all. Both columns scroll, so every
+  control is reachable; a 300 dp sidebar holding four panels is the real constraint, and
+  narrowing it is a layout decision rather than Stage F's.
 
 **Stage G — the library round trip.** `import_mesh`, the `.wscn` sidecar, `asset_exits`,
 `asset_open`, a scene thumbnail through `viewer/capture.py`.

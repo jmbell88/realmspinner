@@ -199,6 +199,91 @@ def place_camera(ctx: Any) -> int | None:
     return node.uid
 
 
+def place_prefab(ctx: Any, name: str) -> int | None:
+    """Place one instance of the template called ``name``.
+
+    Refused -- ``None``, nothing added -- if the document has no such template.
+    A :class:`~.mason.nodes.PrefabNode` naming a template that does not exist
+    is a legal thing for a *loaded* document to contain (``remove_prefab``'s
+    own docstring says so, and ``scene.py`` resolves one as dangling), but
+    minting one on purpose would be authoring the dangling case.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving or name not in tab.doc.prefabs:
+        return None
+    from .mason import nodes as nd
+
+    node = nd.PrefabNode(uid=nd.new_uid(), name=name, template=name)
+    tab.doc.add_node(node)
+    tab.doc.select([node.uid])
+    return node.uid
+
+
+#: What :func:`place_armed` does with each ``MasonState.place_kind`` prefix.
+#: A table rather than a chain of ``startswith`` tests, so the Assets pane's
+#: arming keys and this dispatch cannot drift into a kind the pane can arm and
+#: nothing can place -- which is exactly what Stage E shipped: ``place_kind``
+#: was written by the pane and read by nothing but the hint line, so arming a
+#: primitive, a light or a camera and clicking in the viewport placed nothing
+#: at all.
+_PLACERS = {
+    "light:": lambda ctx, key: place_light(ctx, key.split(":", 1)[1]),
+    "camera": lambda ctx, _key: place_camera(ctx),
+}
+
+
+def place_armed(ctx: Any, point: Any = None) -> int | None:
+    """Place whatever the Assets pane has armed, at ``point`` if given.
+
+    The viewport's click handler is the only caller: a primitive, a light and a
+    camera have no position of their own until the user says where, which is
+    why the pane arms rather than places (``mason_palette``'s own docstring
+    draws that line) and why this takes a world point.
+
+    The arming is **not** cleared afterwards. Placing a row of fence posts is
+    one arming and six clicks, and a palette that disarmed itself after the
+    first would make the other five a trip back to the sidebar each; Esc is
+    what clears it, and the hint line says so.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving:
+        return None
+    state = ensure(ctx)
+    # Before the add, not between the add and the move: ``collapse_since``
+    # folds what was pushed *after* its mark, so a mark taken later would leave
+    # the add as a step of its own and a first Ctrl+Z would undo only the move,
+    # leaving the new node at the origin.
+    mark = tab.doc.mark()
+    if state.place_prefab:
+        uid = place_prefab(ctx, state.place_prefab)
+    else:
+        key = state.place_kind
+        if not key:
+            return None
+        placer = next((fn for prefix, fn in _PLACERS.items() if key.startswith(prefix)), None)
+        uid = placer(ctx, key) if placer is not None else place_primitive(ctx, key)
+    if uid is not None and point is not None:
+        _move_to(tab.doc, uid, point)
+        tab.doc.collapse_since(mark)
+    return uid
+
+
+def _move_to(doc: Any, uid: int, point: Any) -> None:
+    """Put a just-placed node's *local* translation where a world click was.
+
+    A world point is a local one here only because :func:`place_armed` adds at
+    the root, where the two coincide. Said rather than assumed: the day a
+    placement lands under a selected group, this needs the inverse of that
+    group's world matrix and the node will otherwise be off by it.
+    """
+    import numpy as np
+
+    node = doc.node(uid)
+    if node is None:
+        return
+    doc.set_transform(uid, translation=np.asarray(point, dtype="f8"), was=node.trs())
+
+
 def import_glb_path(ctx: Any, path: Path) -> None:
     """A bare ``.glb`` dropped on Mason: import it into the library, then
     place the resulting job as a mesh node.
@@ -266,6 +351,207 @@ def group_selected(ctx: Any) -> None:
         doc.move_node(uid, len(group.children), parent_uid=group.uid)
     doc.collapse_since(mark)
     doc.select([group.uid])
+
+
+def ungroup_selected(ctx: Any) -> None:
+    """Lift every selected group's children up to the group's own parent and
+    remove the group, as one step.
+
+    The companion to :func:`group_selected` and the reason that function's
+    "preserved by construction" argument holds in both directions: the group
+    node starts at the identity and is never given a transform by grouping, so
+    dissolving one cannot move what it held either. A group the *user* has since
+    moved is a different matter -- its children do move, because their local
+    transforms were always relative to it -- and that is the honest answer
+    rather than a silent re-expression of six transforms that would then
+    disagree with the numbers in Properties.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving:
+        return
+    doc = tab.doc
+    from .mason import nodes as nd
+
+    groups = [
+        uid
+        for uid in sorted(doc.selection)
+        if isinstance(doc.node(uid), nd.GroupNode) and doc.node(uid).children
+    ]
+    if not groups:
+        return
+    mark = doc.mark()
+    freed: list[int] = []
+    for uid in groups:
+        group = doc.node(uid)
+        parent_uid = doc.parent_uid_of(uid)
+        index = doc.index_of(uid)
+        # Children in order, each inserted where the group sat, so sibling
+        # order -- which is export order -- reads the way the outliner did.
+        for offset, child in enumerate(list(group.children)):
+            doc.move_node(child.uid, index + offset, parent_uid=parent_uid)
+            freed.append(child.uid)
+        doc.remove_node(uid)
+    doc.collapse_since(mark)
+    doc.select(freed)
+
+
+def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
+    """Turn the one selected node into a template, and the selection itself
+    into an instance of it. -> the template's name, or "" if refused.
+
+    **Two mechanisms, not conflated** -- the plan's own instruction. This is the
+    *authoring* half: ``document.define_prefab`` stores the subtree and the
+    scene node is then replaced by a :class:`~.mason.nodes.PrefabNode`, so what
+    the user selected becomes the first instance rather than staying a
+    one-off copy beside the template. Without that replacement, "make prefab"
+    would leave the thing the user was looking at untracked by the template it
+    just defined, and editing the template would visibly change every instance
+    *except* the one it was made from.
+
+    One node only, for ``mason_props._selected``'s reason: a prefab of "these
+    four things" is a prefab of a group, and asking the user to group them
+    first is one gesture they can see rather than a group this silently mints
+    under a name they did not choose.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving or len(tab.doc.selection) != 1:
+        return ""
+    doc = tab.doc
+    uid = next(iter(doc.selection))
+    node = doc.node(uid)
+    if node is None:
+        return ""
+    from .mason import nodes as nd
+
+    if isinstance(node, (nd.TerrainNode, nd.PrefabNode)):
+        # The terrain is a document singleton whose large array must not be
+        # copied into a template (``mason/nodes.py``'s own reason for the
+        # node/array split), and an instance of an instance is the recursion
+        # ``define_prefab`` refuses at the door anyway -- refused here instead
+        # so it reads as a disabled button rather than an exception.
+        return ""
+    name = name or node.name or "Prefab"
+    parent_uid = doc.parent_uid_of(uid)
+    index = doc.index_of(uid)
+    mark = doc.mark()
+    try:
+        doc.define_prefab(name, node)
+    except ValueError:
+        return ""
+    instance = nd.PrefabNode(uid=nd.new_uid(), name=node.name or name, template=name)
+    instance.translation = node.translation
+    instance.rotation = node.rotation
+    instance.scale = node.scale
+    doc.remove_node(uid)
+    doc.add_node(instance, parent_uid=parent_uid, index=index)
+    doc.collapse_since(mark)
+    doc.select([instance.uid])
+    return name
+
+
+def unpack_selected(ctx: Any) -> None:
+    """Replace every selected prefab instance with an independent copy of its
+    template -- ``document.unpack_instance``, which is the one escape hatch
+    Mason offers instead of per-child overrides."""
+    tab = active(ctx)
+    if tab is None or tab.saving:
+        return
+    doc = tab.doc
+    from .mason import nodes as nd
+
+    uids = [uid for uid in sorted(doc.selection) if isinstance(doc.node(uid), nd.PrefabNode)]
+    if not uids:
+        return
+    mark = doc.mark()
+    fresh: list[int] = []
+    for uid in uids:
+        try:
+            fresh.append(doc.unpack_instance(uid).uid)
+        except (KeyError, TypeError):
+            # A dangling instance -- its template was removed -- has nothing to
+            # unpack into. Skipped rather than raised: the Prefabs pane can
+            # offer the button over a mixed selection without having to resolve
+            # every instance itself first.
+            continue
+    doc.collapse_since(mark)
+    if fresh:
+        doc.select(fresh)
+
+
+def remove_prefab(ctx: Any, name: str) -> bool:
+    """Drop a template. Instances are left naming it and resolve as dangling --
+    ``document.remove_prefab``'s own rule, restated here so a caller does not
+    have to read that one to know this does not delete anything from the
+    scene."""
+    tab = active(ctx)
+    if tab is None or tab.saving:
+        return False
+    return tab.doc.remove_prefab(name)
+
+
+# --- terrain --------------------------------------------------------------------
+
+
+def add_terrain(ctx: Any, side: int = 0, size: float = 0.0) -> int | None:
+    """Give the document its one ground: a flat height field, and the
+    :class:`~.mason.nodes.TerrainNode` that refers to it, as one undo step.
+
+    Both halves together, because either alone is a state nothing in the app
+    can act on: ``doc.terrain`` with no node has no outliner row, no transform
+    and no export (``scene.py`` yields geometry for the *node*), and a node with
+    no ``doc.terrain`` draws and picks nothing. ``set_terrain`` is already one
+    undoable step and the add is another, so the two are folded --
+    ``unpack_instance``'s pattern -- and one Ctrl+Z takes the ground away whole.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving or tab.doc.terrain is not None:
+        return None
+    import numpy as np
+
+    from .mason import nodes as nd
+    from .mason.terrain import Terrain
+    from .viewer import gltf
+
+    side = int(side or mason_state.DEFAULT_TERRAIN_SIDE)
+    size = float(size or mason_state.DEFAULT_TERRAIN_SIZE)
+    doc = tab.doc
+    terrain = Terrain(
+        heights=np.zeros((side + 1, side + 1), dtype=np.float32),
+        size_x=size,
+        size_z=size,
+        material=gltf.Material(name="terrain"),
+    )
+    node = nd.TerrainNode(uid=nd.new_uid(), name="Terrain")
+    mark = doc.mark()
+    doc.set_terrain(terrain)
+    # At the front, so the ground is the first row in the outliner and the
+    # first node in every export -- which is the order a scene reads in.
+    doc.add_node(node, index=0)
+    doc.collapse_since(mark)
+    doc.select([node.uid])
+    return node.uid
+
+
+def remove_terrain(ctx: Any) -> bool:
+    """Take the ground back out, node and height field together, as one step.
+
+    Recoverable by Ctrl+Z: ``set_terrain`` pushes a ``TerrainSwapEdit`` holding
+    the array itself, which is exactly why that edit type exists -- see its own
+    docstring for the incident where clearing a terrain silently discarded
+    however long someone had spent sculpting it.
+    """
+    tab = active(ctx)
+    if tab is None or tab.saving or tab.doc.terrain is None:
+        return False
+    doc = tab.doc
+    from .mason import nodes as nd
+
+    mark = doc.mark()
+    for node in [n for n in doc.all_nodes() if isinstance(n, nd.TerrainNode)]:
+        doc.remove_node(node.uid)
+    doc.set_terrain(None)
+    doc.collapse_since(mark)
+    return True
 
 
 def duplicate_selected(ctx: Any) -> None:
@@ -662,12 +948,21 @@ def handle_key(ctx: Any, event: Any) -> bool:
     if name in TOOL_KEYS and not shift:
         state.tool = TOOL_KEYS[name]
     elif name == "g" and not tab.saving:
-        group_selected(ctx)
+        ungroup_selected(ctx) if shift else group_selected(ctx)
     elif event.key == pygame.K_DELETE:
         if not tab.saving:
             delete_selected(ctx)
     elif event.key == pygame.K_ESCAPE:
-        doc.select([])
+        # Disarm first, and clear the selection only if nothing was armed. One
+        # key, two jobs, in the order the user means them: Esc after arming a
+        # light is "not that after all", and it must not also throw away the
+        # selection they are about to place it beside. The hint line promises
+        # exactly this ("Esc to cancel") while a placement is armed.
+        if state.place_kind or state.place_prefab:
+            state.place_kind = ""
+            state.place_prefab = ""
+        else:
+            doc.select([])
     return True
 
 
