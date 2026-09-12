@@ -40,18 +40,6 @@ so that "done" is recognisable without re-deriving it.
 
 ---
 
-## P32. Re-examine the `trellis_tex_res = 512` pin
-
-**Why it is yours:** a card and a judgement. The graded mesh run closed on
-2026-09-02 (props-v1 11 of 22 usable, fantasy-v1 10 of 20; see Closed
-records), and this is what survived from its first decision rule.
-
-**Do:** reproduce the auto-tex-res noise with `trellis-cli.exe --tex-res 1024`
-on one byte-stable reference from props-v1 (the rock, jug or loaf — not the
-pouch or branches). If the texture is clean on v0.6.0, a measurement document
-lifts the pin; if not, it records the reproduction and the pin stays. One
-reference, one judgement, well under an hour of card time.
-
 ## P4. A textured, rigged humanoid `.glb` — one file, three jobs
 
 **Why it is yours:** art. Every Troupe frame to date quantises into the pale
@@ -1320,6 +1308,19 @@ Both belong to P1 step 4 now rather than here.
 ---
 
 ## Closed records (kept so nobody re-derives them)
+
+- **P32, re-examine the `trellis_tex_res = 512` pin.** Closed 2026-09-12: the
+  pin stays
+  (`docs/measurements/2026-09-12-trellis-tex-res-pin-reexamined.md`). One
+  props-v1 reference (the jug), byte-identical geometry both arms, `--tex-res
+  1024` against the shipped `--tex-res 512`: the 1024 texture shows visible
+  per-texel noise the 512 one does not, so the noise reproduces on v0.6.0 and
+  `config.py`'s pin is confirmed current rather than stale. No `src/` change.
+  One side-note recorded there: omitting `--tex-res` decodes at res1024 on
+  this binary, not res512 as the CLI's own help text claims for "auto" — not
+  a finding about the shipped path, since Warlock pins the value explicitly
+  rather than relying on auto, but worth knowing if anyone reaches for an
+  unflagged run as a control again.
 
 - **P42, judge the approved cutout against the server's own.** Closed
   2026-09-12: the change stands
