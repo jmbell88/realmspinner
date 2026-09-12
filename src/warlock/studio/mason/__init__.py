@@ -9,10 +9,14 @@ prefab actually land and what a sculpt brush costs the undo budget is assertable
 with no window and no GPU.
 
 The outward set is :mod:`warlock.studio.undo` -- the history engine the raster
-editor, Clay and Plotter already share -- three modules of the viewer, the
+editor, Clay and Plotter already share -- four modules of the viewer, the
 container-level GLB reader, and the four guard leaves. It is pinned exactly by
 ``tests/mason/test_mason_imports.py``, which was written before this package
-existed, so the next outward import is a decision rather than a discovery.
+existed, so the next outward import is a decision rather than a discovery. The
+fourth viewer module is ``glbwrite``, and it arrived with the exporters: there
+is one GLB writer in this project, and a second one living here would be a
+second home for the four container details that writer's own docstring names as
+easy to get wrong, with no loader beside it to round-trip against.
 
 **The one that is deliberately absent is ``clay``.** Mason places Clay's
 primitives, and importing ``clay.primitives`` to build them is the obvious move

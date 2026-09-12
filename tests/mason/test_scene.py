@@ -348,3 +348,58 @@ def test_the_soft_warning_threshold_sits_below_the_hard_refusal_and_both_are_pos
     edit that raises one past the other. What must never happen is a scene
     that warns only after it would already have been refused."""
     assert 0 < scene.PLACED_WARN_THRESHOLD < scene.MAX_PLACED
+
+
+def test_a_path_names_every_uid_from_the_root_and_not_only_the_segment_it_is_in():
+    """``Placed.path`` is "uids root-first", and for a node inside a group it
+    was not.
+
+    This used to be ``parent_path + (node.uid,)`` computed off the *segment's*
+    base rather than off the node's own parent, so a mesh three groups down
+    came back as a one-element path. Every Stage C consumer wanted the path
+    only as a unique key -- and one uid already is unique within a segment --
+    so nothing caught it. What it broke is the instruction this module's own
+    docstring gives a structural exporter, "hang it under ``path[:-1]``'s
+    node": with the ancestry missing, every node in the file lands at the
+    root and the exported scene is a flattening of exactly the hierarchy the
+    export exists to keep. ``gltfout.py`` found it in Stage D, which is the
+    consumer that sentence was written for.
+    """
+    d = doc.MasonDoc()
+    outer = nd.GroupNode(uid=nd.new_uid())
+    inner = nd.GroupNode(uid=nd.new_uid())
+    leaf = nd.MeshNode(uid=nd.new_uid(), ref=_box_ref())
+    inner.children.append(leaf)
+    outer.children.append(inner)
+    d.add_node(outer)
+
+    by_uid = {p.node.uid: p.path for p in _collect(d)}
+    assert by_uid[outer.uid] == (outer.uid,)
+    assert by_uid[inner.uid] == (outer.uid, inner.uid)
+    assert by_uid[leaf.uid] == (outer.uid, inner.uid, leaf.uid)
+
+
+def test_a_path_crosses_a_prefab_boundary_carrying_both_halves_of_the_ancestry():
+    """The instance's own path, then the template's own nesting under it --
+    which is what distinguishes one instance's copy of a template leaf from
+    another's, and what lets an exporter rebuild the tree on either side of
+    the boundary from the path alone."""
+    d = doc.MasonDoc()
+    template_root = nd.GroupNode(uid=nd.new_uid())
+    template_leaf = nd.MeshNode(uid=nd.new_uid(), ref=_box_ref())
+    template_root.children.append(template_leaf)
+    d.define_prefab("crate", template_root)
+
+    holder = nd.GroupNode(uid=nd.new_uid())
+    instance = nd.PrefabNode(uid=nd.new_uid(), template="crate")
+    holder.children.append(instance)
+    d.add_node(holder)
+
+    leaf = scene.resolve(d)[0]
+    assert leaf.path == (
+        holder.uid,
+        instance.uid,
+        template_root.uid,
+        template_leaf.uid,
+    )
+    assert leaf.owner == instance.uid

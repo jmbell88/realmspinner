@@ -242,11 +242,35 @@ def walk(
     *,
     include_hidden: bool = False,
     expand_prefabs: bool = True,
+    enter: VisitFn | None = None,
 ) -> None:
     """The single traversal every other function in this module is built on.
 
     See the module docstring for the five combination rules, the prefab
     expansion rule, the ``owner`` deviation, and the hidden-subtree trade.
+
+    ``enter`` is called for a :class:`~.nodes.PrefabNode` **the moment the
+    walk crosses into it**, with the same eleven values ``visit`` takes, and
+    it exists because of a gap in this module's own docstring. That docstring
+    tells a structural exporter to "build one gltf node per visit call and
+    hang it under ``path[:-1]``'s node" -- which is exactly right for every
+    node except the one place a path has a uid in it that ``visit`` was never
+    called for. An expanded instance's template roots carry
+    ``(..., prefab_node_uid, template_root_uid)``, and the instance itself
+    ``continue``s below without being visited, so ``path[:-1]`` names a
+    node the exporter has never seen. Without this hook the only way back to
+    the instance's own transform is ``world @ inv(node.local())``, an inverse
+    per instance that is singular the moment anything in the scene is scaled
+    to zero -- for a transform the walk is holding in its hand at the time.
+    Default ``None``, so :func:`resolve`, :func:`resolved_for` and
+    :func:`world_bounds` are the traversal they always were.
+
+    It fires only when the expansion actually happens. An instance whose
+    template is missing, cyclic or nested past :data:`~.nodes.MAX_DEPTH`
+    yields nothing at all -- the "the corrupt branch costs itself" rule the
+    module docstring states -- and an exporter that emitted a node for one
+    anyway would put something in the file that the viewport does not draw,
+    which is the one disagreement between them this module exists to prevent.
     """
     _walk_segment(
         doc.roots,
@@ -260,6 +284,7 @@ def walk(
         inherited=_IDENTITY_STATE,
         prefab_chain=frozenset(),
         prefab_depth=0,
+        enter=enter,
     )
 
 
@@ -276,6 +301,7 @@ def _walk_segment(
     inherited: _State,
     prefab_chain: frozenset[str],
     prefab_depth: int,
+    enter: VisitFn | None = None,
 ) -> None:
     """One ``nodes.walk`` over one contiguous object graph -- the scene's own
     roots, or one expanded prefab instance's template roots -- carrying the
@@ -289,15 +315,33 @@ def _walk_segment(
     it.
     """
     state_by_id: dict[int, _State] = {}
+    # The path each node was reached by, for the reason ``state_by_id``
+    # exists: ``nodes.walk`` is pre-order, so a node's parent has already
+    # recorded its answer by the time the node itself is processed.
+    #
+    # This used to be ``parent_path + (node.uid,)`` computed straight off the
+    # *segment's* base, which meant a node's own ancestry inside the segment
+    # was simply not in its path -- a mesh three groups down came back as
+    # ``(mesh_uid,)``. Nothing in Stage C noticed, because every consumer it
+    # had wanted the path only as a unique key and one uid is already unique
+    # within a segment. What it broke is the thing this module's own docstring
+    # tells a structural exporter to do -- "hang it under ``path[:-1]``'s
+    # node" -- which lands every node at the root. Found by ``gltfout.py``
+    # in Stage D, which is exactly the consumer that sentence was written for.
+    path_by_id: dict[int, tuple[int, ...]] = {}
     hidden_ids: set[int] = set()
     for node, parent, _index, _depth in nd.walk(roots):
         if parent is None:
             p_world, p_visible, p_locked, p_static, p_material = inherited
+            p_path = parent_path
             parent_hidden = False
         else:
             p_world, p_visible, p_locked, p_static, p_material = state_by_id[id(parent)]
+            p_path = path_by_id[id(parent)]
             parent_hidden = id(parent) in hidden_ids
 
+        path = p_path + (node.uid,)
+        path_by_id[id(node)] = path
         world = p_world @ node.local()
         visible = p_visible and bool(node.visible)
         locked = p_locked or bool(node.locked)
@@ -310,7 +354,6 @@ def _walk_segment(
             hidden_ids.add(id(node))
             continue
 
-        path = parent_path + (node.uid,)
         this_owner = owner if owner is not None else node.uid
 
         if isinstance(node, PrefabNode) and expand_prefabs:
@@ -320,6 +363,17 @@ def _walk_segment(
                 and node.template not in prefab_chain
                 and prefab_depth < nd.MAX_DEPTH
             ):
+                if enter is not None:
+                    # ``prefab`` here is the template this *instance* was
+                    # reached through -- "" for one placed in the scene tree,
+                    # and the outer name for an instance that is itself part
+                    # of another template -- not ``node.template``, which is
+                    # what it expands into and is already the ``prefab`` every
+                    # node under it is handed.
+                    enter(
+                        node, path, this_owner, world, visible, locked, static,
+                        None, material, prefab, False,
+                    )
                 _walk_segment(
                     [template],
                     doc,
@@ -332,6 +386,7 @@ def _walk_segment(
                     inherited=(world, visible, locked, static, material),
                     prefab_chain=prefab_chain | {node.template},
                     prefab_depth=prefab_depth + 1,
+                    enter=enter,
                 )
             # A missing template, a name already on this path (a prefab
             # cycle), or a chain nested past MAX_DEPTH each yield nothing for

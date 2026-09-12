@@ -365,13 +365,14 @@ everything staged before anything is replaced), which is `plotter_io._write`'s r
    dropped** — `Model.skipped_textures` is the precedent: a loss that is stated is not the
    same as a loss that is invisible.
 
-   Two implementations are defensible and the choice is open: hand-written and pure inside
-   `mason/objout.py` (deterministic bytes, headless test, owns its material names — the
-   `plotter/pngio.py` precedent), or handing the scene GLB to
-   `pipelines.postprocess.glb_to_obj_zip` from a task thread in the studio layer. The pure
-   package may not import `pipelines`, so the second option puts the call in `mason_io.py`.
-   Decide at the start of the export stage; the hand-written one is preferred for byte
-   determinism, which every other format here has.
+   **Decided, Stage D: hand-written and pure inside `mason/objout.py`.** Byte determinism
+   is the deciding reason — trimesh's float formatting, material naming and traversal order
+   are not ours to pin, and every other format here holds still for an unchanged document.
+   Layering is the second: the pure package may not import `pipelines`, so the trimesh route
+   would put one of three exporters outside the package the other two are tested in and make
+   "every exporter returns a mapping of paths to bytes" a rule with an exception in it.
+   Reporting is the third — trimesh has nowhere to say what it could not carry. The reasons
+   are in the module's own docstring, as the plan asked.
 
 ### The one shared-file change: cameras and lights in the glTF writer
 
@@ -677,13 +678,44 @@ from the pure packages that exist (the way `test_accessibility.py` parametrizes 
 `sorted(tokens.PALETTES)`) rather than adding a seventh hand list, and a package added
 after Mason enrols itself.
 
-**Stage D — serialisation and the three exporters, still headless**, including the
-`viewer/gltf.py` and `viewer/glbwrite.py` camera and light extension. Gates: two saves are
-byte-identical; the version gate refuses a newer file; a missing member is refused; a missing
-library reference opens with a proxy and is listed; the GLB round trip with cameras, three
-light kinds and one mesh shared by six nodes; **an existing Clay document's GLB is
-byte-identical before and after the writer change**; the manifest and the GLB name the same
-nodes; the OBJ's bounds match `world_bounds` and it reports what it could not carry.
+**Stage D — serialisation and the three exporters, still headless. DONE.** `serialize`,
+`gltfout`, `manifest` and `objout` landed with the `viewer/gltf.py` and `viewer/glbwrite.py`
+camera and light extension. Every gate this section listed was written and is green: two
+saves byte-identical, the version gate, the missing member, a dangling library reference that
+opens and is listed, the GLB round trip with cameras and three light kinds, the Clay
+document's GLB byte-identical across the writer change (pinned by sha256 recorded against
+8ab32200's writer), the manifest and the GLB naming the same nodes, and the OBJ's reported
+losses. The full Windows lane went 20845 -> 20988 passed, 49 skipped, 0 failed.
+
+Four things came out differently from what the sections above assumed, and each is recorded
+in `docs/INVARIANTS.md` rather than only here:
+
+- **`Placed.path` was only segment-deep.** Stage C computed it as the segment's base plus the
+  node's own uid, so a mesh three groups down came back as a one-element path. Every Stage C
+  consumer wanted the path only as a unique key and one uid already is unique within a
+  segment, so nothing caught it — but it made `scene.py`'s own instruction to a structural
+  exporter ("hang it under `path[:-1]`'s node") land every node at the root. Fixed, with a
+  regression test proved against the unfixed code.
+- **`scene.walk` gained an optional `enter` hook**, the second half of the same gap: an
+  expanded `PrefabNode` never reaches `visit`, so `path[:-1]` names a node a structural
+  exporter has never seen and the instance's own transform was only recoverable through
+  `world @ inv(node.local())` — an inverse per instance, singular the moment anything is
+  scaled to zero. It defaults to `None`, so `resolve`/`resolved_for`/`world_bounds` are the
+  traversal they always were.
+- **`scene_model` hands back a `SceneExport`, not a bare `gltf.Model`.** The manifest has to
+  name the same nodes the GLB does, and uniquifying a name is a rule with state in it, so the
+  names are *recorded* on `ExportedNode` and read by `manifest.py` rather than recomputed —
+  by construction rather than by running one stateful rule twice.
+- **The OBJ's group names are deliberately not the GLB's.** One naming *rule*, imported from
+  `gltfout`, not one set of names: the GLB names groups and prefab instances that a merged OBJ
+  has no room for, so the two number their duplicates from different populations. An OBJ and
+  its MTL refer to nothing outside themselves, so nothing needs them to agree — stated in the
+  module docstring and asserted by a test, because it would otherwise read as a bug.
+
+`MAX_OBJ_VERTS` is 1,000,000, measured in `docs/measurements/2026-09-11-mason-obj-ceiling.md`
+against a criterion written before the numbers: peak allocation inside `gltf.MAX_TOTAL_BYTES`,
+which a million vertices reaches at 737 MB of a 768 MiB budget. The four viewer modules the
+engine may reach for became four, not three: `glbwrite` joined the pin, deliberately.
 
 **Stage E — the viewport and placing.** `mason_view.py`, `mason_assets.py`, the panes, drag
 from the library. The node-proxy test goes in before the instancing code.
@@ -738,11 +770,14 @@ survived → Export to the library and confirm the row reopens in Mason.
 4. **`panes/library.can_drag` lifts only finished 2D references today.** Dragging mesh rows
    into Mason means either widening that predicate — which changes what Create's drop slot
    sees — or a Mason-specific payload. That is a decision to take with the library's owner.
-5. **Units and handedness.** The manifest asserts metres and Y-up, and nothing in the repo
-   states a scene unit today. This plan is *making* that decision, so it belongs in
-   `docs/INVARIANTS.md` rather than only in an exporter.
-6. **Terrain material layers / splat maps are out of scope** (one material). Adding them
-   later changes the document format *and* the exporter, so if they are wanted, say so
-   before the `.wscn` version is frozen.
+5. **Units and handedness. ANSWERED, Stage D:** metres, Y-up, right-handed, -Z forward,
+   rotations as XYZW quaternions, angles in radians. They are glTF's own, so nothing converts
+   anything — which is what fixing them buys. Written in `docs/INVARIANTS.md` as a property of
+   the project, restated as machine-readable data by `manifest.CONVENTIONS` and as a comment
+   header by `objout`, so a fourth exporter reads the paragraph rather than inventing a fourth
+   answer.
+6. **Terrain material layers / splat maps: still out of scope, and `.wscn` is now frozen at
+   version 1 with one terrain material.** Said before the freeze, as this entry asked: adding
+   layers later changes the document format *and* the exporter, and costs a version bump.
 7. **The engine manifest's schema is ours to invent**, and no importer exists to test it
    against, so it is verified by shape rather than by a round trip through an engine.

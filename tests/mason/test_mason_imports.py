@@ -11,7 +11,7 @@ and a pin written first is a contract.
 Two sets, because they answer different questions and move at different rates.
 
 :data:`CEILING` is the contract, and it does not move as the stages land: the
-shared history engine, three modules of the viewer, the container-level GLB
+shared history engine, the viewer's pure modules, the container-level GLB
 reader, and the four guard leaves. Anything outside it is a design change and
 should read as one.
 
@@ -89,22 +89,46 @@ OUTWARD_IMPORTS = {
     ("scene.py", "warlock.studio.viewer"),
     ("ops.py", "warlock.studio.viewer"),
     ("pick.py", "warlock.studio.viewer"),
+    ("serialize.py", "warlock.studio.viewer"),
+    ("serialize.py", "warlock.studio.zipguard"),
+    ("serialize.py", "warlock.studio.npyguard"),
+    ("serialize.py", "warlock.studio.pixelguard"),
+    # The three exporters. ``gltfout`` is the row that moved
+    # :data:`VIEWER_MODULES` from three names to four -- see its comment
+    # below -- and ``objout`` and ``manifest`` reach for the viewer only for
+    # the types they are writing out (``gltf.Primitive``/``gltf.Material``,
+    # and ``math3d.decompose`` for the manifest's world TRS).
+    ("gltfout.py", "warlock.studio.viewer"),
+    ("manifest.py", "warlock.studio.viewer"),
+    ("objout.py", "warlock.studio.viewer"),
 }
 
 #: Which modules of the viewer, since the entry above is recorded at package
 #: granularity the way ``test_clay_imports`` records it. The viewer package
-#: also holds the GL-side loader, the renderer's programs and the offscreen
+#: also holds the GL-side model, the renderer's programs and the offscreen
 #: context, and reaching for one of those is the import this pin exists to
 #: catch: it would make the scene engine untestable in exactly the lane that
 #: is supposed to test all of it.
-VIEWER_MODULES = {"gltf", "math3d", "picking"}
+#:
+#: ``glbwrite`` is the fourth, and it arrived with Stage D's exporters rather
+#: than being reserved up front -- which is the point of pinning the tally
+#: separately from the ceiling. It is the *writer*, not the GL layer: there is
+#: one GLB writer in this project and the loader beside it is the only thing
+#: that can test it, so a Mason-owned writer would have been a second home for
+#: the four container details ``glbwrite``'s own docstring names as easy to
+#: get wrong (the POSITION accessor's min/max, four-byte view alignment, the
+#: index component width, the two chunks' different padding) with no loader to
+#: round-trip against. Adding it was a decision; this line is where it was
+#: written down.
+VIEWER_MODULES = {"gltf", "math3d", "picking", "glbwrite"}
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 
-#: Imported inside the functions that need it, never at module scope. Only the
-#: serializer will ever touch a pixel (a material override's texture), and a
-#: top-level Pillow import would put a tenth of a second onto importing
-#: ``nodes``, which every test in this directory does.
+#: Imported inside the functions that need it, never at module scope. Two
+#: modules touch a pixel -- ``serialize`` writes a material override's texture
+#: into the document's zip and ``objout`` writes a base-colour map beside the
+#: MTL -- and a top-level Pillow import would put a tenth of a second onto
+#: importing ``nodes``, which every test in this directory does.
 LAZY_ONLY = {"PIL", "trimesh"}
 
 
@@ -231,8 +255,15 @@ def test_the_only_outward_imports_are_the_ones_written_down():
     assert found == OUTWARD_IMPORTS
 
 
-def test_only_three_modules_of_the_viewer_are_reached_for():
-    """The allowlist above is at package granularity; this says *which*."""
+def test_only_the_four_pinned_modules_of_the_viewer_are_reached_for():
+    """The allowlist above is at package granularity; this says *which*.
+
+    Named for the set rather than for the count it happened to have when it
+    was written: it said "three" until Stage D's exporters reached for
+    ``glbwrite``, and a test whose name is a number is a test that has to be
+    renamed every time the thing it guards legitimately grows -- which is
+    exactly the moment nobody wants to be editing a gate's name.
+    """
     reached = {
         alias.name
         for path in _modules()

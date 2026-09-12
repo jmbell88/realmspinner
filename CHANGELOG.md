@@ -24,6 +24,19 @@ A review of the MCP bridge — the way an external AI agent drives Clay — foun
 the feature unreachable for anyone who installed Warlock rather than cloning
 it, and found three ways any other program on the machine could switch it off.
 
+- **A model that carries lights or cameras now opens instead of being turned
+  away.** Warlock's glTF reader listed no extensions it understood, so any file
+  declaring that it *required* `KHR_lights_punctual` — the standard way a glTF
+  says where its lamps are, and what Blender writes by default when a scene has
+  one — was refused outright, geometry and all. It reads them now, and the
+  writer can put them back: a camera or a light survives a trip through Warlock
+  rather than being the reason a file would not come in. Nothing else about an
+  exported file moved, and that is asserted rather than assumed — a fixed Clay
+  document's exported bytes are pinned by hash against the writer as it was
+  before any of this, because every existing mode hands that writer a model
+  with neither a camera nor a light in it and had to go on getting exactly the
+  file it got before.
+
 - **An installed Warlock can now be driven by an agent at all.** The setup
   command the manual gave, `uv run warlock mcp`, needs `uv` and a source
   checkout, which nobody who runs the installer has. The installer staged

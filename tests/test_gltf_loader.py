@@ -1349,3 +1349,128 @@ def test_a_node_with_a_three_element_rotation_is_refused_by_name_not_by_unpack_e
     with pytest.raises(ValueError, match="rotation of 3 numbers, not 4") as exc_info:
         gltf.load(_graph([{"name": "bad", "rotation": [0.0, 0.0, 0.0]}], [0]))
     assert "'bad'" in str(exc_info.value)
+
+
+# --- cameras and lights ------------------------------------------------------
+
+
+def _marker_glb(**extra):
+    """A one-node, geometry-free document, for the two marker arrays."""
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"name": "marker"}],
+        "scenes": [{"nodes": [0]}],
+        **extra,
+    }
+    return _glb(doc, b"")
+
+
+def test_the_light_extension_is_no_longer_refused_when_a_file_requires_it():
+    """This loader now reads KHR_lights_punctual, so a file that *requires* it
+    is a file whose lights this build can restore. It used to be refused
+    outright by the same door that refuses KHR_mesh_quantization -- which was
+    right while nothing here could read a light and is wrong now that Mason
+    writes them.
+    """
+    data = _marker_glb(
+        extensionsRequired=["KHR_lights_punctual"],
+        extensions={"KHR_lights_punctual": {"lights": [{"type": "point"}]}},
+    )
+    assert len(gltf.load(data).lights) == 1
+
+
+def test_a_malformed_extensions_block_costs_the_lights_and_not_the_file():
+    """Every level is read defensively rather than indexed. A light is a
+    marker: losing one is a differently-lit scene, and refusing the file over
+    it would lose the geometry as well -- which is the trade
+    ``Model.skipped_textures`` already names for an unreadable image.
+    """
+    for extensions in ({"KHR_lights_punctual": []}, {"KHR_lights_punctual": {"lights": 7}}, 5):
+        model = gltf.load(_marker_glb(extensions=extensions))
+        assert model.lights == []
+        assert model.nodes[0].name == "marker"
+
+
+def test_a_node_naming_a_light_the_file_does_not_declare_is_refused_by_name():
+    """The same named refusal every other index-shaped field in this loader
+    gives -- an out-of-range one used to be the only kind of index here that
+    could not exist at all, and now there are two more."""
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"extensions": {"KHR_lights_punctual": {"light": 4}}}],
+        "scenes": [{"nodes": [0]}],
+        "extensions": {"KHR_lights_punctual": {"lights": [{"type": "point"}]}},
+    }
+    with pytest.raises(ValueError, match="references light"):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_node_naming_a_camera_the_file_does_not_declare_is_refused_by_name():
+    doc = {
+        "asset": {"version": "2.0"},
+        "nodes": [{"camera": 2}],
+        "scenes": [{"nodes": [0]}],
+        "cameras": [{"type": "perspective", "perspective": {"yfov": 0.8, "znear": 0.1}}],
+    }
+    with pytest.raises(ValueError, match="references camera"):
+        gltf.load(_glb(doc, b""))
+
+
+def test_a_camera_or_light_index_that_is_not_a_whole_number_is_refused():
+    """clay-04's rule, at the two boundaries it did not exist for yet: a
+    string index reaching Python's own ``<=`` is a bare TypeError where every
+    sibling field here raises a named ValueError."""
+    for node, message in (
+        ({"camera": "1"}, "camera reference"),
+        ({"extensions": {"KHR_lights_punctual": {"light": 1.0}}}, "light reference"),
+    ):
+        doc = {
+            "asset": {"version": "2.0"},
+            "nodes": [node],
+            "scenes": [{"nodes": [0]}],
+            "cameras": [{"type": "perspective", "perspective": {"yfov": 1.0, "znear": 0.1}}],
+            "extensions": {"KHR_lights_punctual": {"lights": [{"type": "point"}]}},
+        }
+        with pytest.raises(ValueError, match=message):
+            gltf.load(_glb(doc, b""))
+
+
+def test_a_non_numeric_or_infinite_camera_field_falls_back_rather_than_refusing():
+    """An infinite ``yfov`` reaches a projection matrix as a frame of NaNs --
+    a viewport that draws nothing with no error anywhere to say why. Falling
+    back rather than raising, because a camera decodes no bytes and sizes no
+    allocation: it is a marker, and a malformed one costs a frustum."""
+    data = _marker_glb(
+        cameras=[
+            {"type": "perspective", "perspective": {"yfov": "wide", "znear": 1e400, "zfar": None}}
+        ]
+    )
+    camera = gltf.load(data).cameras[0]
+    assert camera.yfov == pytest.approx(gltf.Camera.yfov)
+    assert camera.znear == pytest.approx(gltf.Camera.znear)
+    assert camera.zfar == 0.0
+
+
+def test_a_light_of_a_kind_this_build_has_never_heard_of_reads_as_a_point():
+    """KHR_lights_punctual is explicitly extensible, so a fourth kind added to
+    it later must not make a file carrying one unopenable."""
+    model = gltf.load(
+        _marker_glb(extensions={"KHR_lights_punctual": {"lights": [{"type": "area"}]}})
+    )
+    assert model.lights[0].kind == "point"
+
+
+def test_a_file_declaring_more_markers_than_this_build_holds_is_refused(monkeypatch):
+    """finding clay-05's argument at its third and fourth name: a camera and a
+    light are charged against no byte budget at all -- neither decodes an
+    accessor or an image -- so a million of either is a hang with no bytes to
+    refuse."""
+    monkeypatch.setattr(gltf, "MAX_CAMERAS", 2)
+    monkeypatch.setattr(gltf, "MAX_LIGHTS", 2)
+    empty = {"type": "perspective", "perspective": {"yfov": 1.0, "znear": 0.1}}
+    with pytest.raises(ValueError, match="declares 3 cameras"):
+        gltf.load(_marker_glb(cameras=[empty] * 3))
+    with pytest.raises(ValueError, match="declares 3 lights"):
+        gltf.load(
+            _marker_glb(extensions={"KHR_lights_punctual": {"lights": [{"type": "point"}] * 3}})
+        )
