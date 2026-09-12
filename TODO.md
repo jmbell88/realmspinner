@@ -1289,13 +1289,82 @@ point it becomes ordinary code work -- or a struck-out line saying it did not
 recur across N runs of the shape that produced it. A single dump with no
 reproduction is not something this file should carry indefinitely.
 
+## P47. Open a Mason scene in a real engine
+
+**Why it is yours:** an engine this repository does not have. Mason's GLB
+export is ordinary glTF and is verified as such, but the `scene.json` manifest
+beside it is **ours** -- format `warlock-mason-scene`, version 1 -- invented
+with no importer to invent it against, so every claim it makes is checked by
+shape rather than by anything reading it. This was the Mason programme's open
+question 7 and it is the one that plan closed with an admission rather than an
+answer.
+
+The rule is P6's and P7's exactly: a green test proves our writer agrees with
+our own reader, and a round trip through two halves we wrote cannot catch an
+error both halves make together.
+
+**Do:** build a scene worth testing -- a ground, a few library assets, a group,
+a prefab with three instances, a point light, a spot light with a narrowed
+cone, a directional light and a camera -- and export it all three ways. Then,
+in at least two engines (Godot and Unity are the ones this project's users
+name):
+
+1. Import `scene.glb` alone and check the hierarchy, the instance transforms,
+   the lights and the camera all arrived. The lights are the sharp ones: they
+   go out as `KHR_lights_punctual`, and intensity units are where glTF
+   importers most often disagree with each other.
+2. Check the handedness and the scale without converting anything. Metres,
+   Y-up, -Z forward and right-handed are glTF's own, and the whole point of
+   fixing them there was that nothing should need to convert -- a scene that
+   arrives mirrored or at a hundredth scale means that claim is wrong
+   somewhere.
+3. Read `scene.json` beside it and ask whether a person writing an importer
+   could actually use it: are the node addresses stable, are the counts the
+   ones an engine would want, do the user properties arrive in a usable shape.
+4. Import `scene.obj` in the same two engines and confirm the named losses are
+   the only losses.
+
+**Expected outcome:** either the manifest is confirmed against something that
+reads it and `docs/manual/13-putting-it-in-a-game.md` gains real per-engine
+rows for Mason, or the first version of a format we still control is fixed
+before anyone has stored scenes against it. If the manifest survives, write
+the engine rows into `docs/COMPAT.md` the way the Tiled rows are written, so
+the next change to the exporter has something to fail against.
+
+## P48. Decide whether library mesh rows can be dragged into Mason
+
+**Why it is yours:** it is the library's to decide, not Mason's. `panes/library.can_drag`
+lifts only *finished 2D references* today, which is why a mesh reaches a scene
+through the exits panel and the Assets pane's own list rather than by being
+dragged. Widening that predicate is the obvious fix and it is not Mason's to
+make: Create's drop slot reads the same predicate, so widening it changes what
+Create accepts as well, and a Mason-specific payload is the alternative that
+costs a second mechanism.
+
+This was the Mason programme's open question 4. Stages E, F and G each left it
+alone deliberately rather than taking it on the way past, which is the right
+call for a predicate two modes read and the reason it has survived to here.
+
+**Do:** decide which of the three it is -- widen `can_drag` and accept what
+that means for Create's drop slot, add a Mason-specific drag payload, or leave
+it as it is and accept that the Assets pane is how meshes reach a scene. If the
+answer is "leave it", say so in `docs/INVARIANTS.md` beside the predicate, so
+the next person to notice does not re-derive the question.
+
+**Expected outcome:** one of those three, taken rather than deferred. The
+current state is defensible and is not the problem; what is owed is a decision
+on record rather than three stages of "not mine".
+
+---
+
 ## Open findings
 
 Code work a review or a real run turned up. Each is buildable and is struck out
-the day it is built; this section is deleted when it is empty. All four below
-came out of the 2026-09-05 clean-machine install
+the day it is built; this section is deleted when it is empty. F1-F4 came out
+of the 2026-09-05 clean-machine install
 (`docs/measurements/2026-09-05-clean-machine-install.md`) — two installs, four
 app sessions, and her `warlock.log` read — and all four were built the same day.
+F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
 
 1. ~~**F1. A failed fetch discarded everything it downloaded.**~~ Built
    2026-09-05. `fetch_one`'s unwind was `except BaseException:
@@ -1338,6 +1407,30 @@ app sessions, and her `warlock.log` read — and all four were built the same da
    the rail, its tooltip and `set_mode`'s refusal all read that one answer, and
    the library escape applies to both halves so nobody is locked out of
    finished work. `tests/test_pack_gate.py`.
+5. **F5. A Mason scene has no VRAM admission control.** Sixty textured library
+   assets placed in one scene is real video memory, and `service.validation.check_vram`
+   guards the **queue** — the thing that runs jobs — not the studio. Mason's
+   asset cache has a byte budget and instancing means N placements of one asset
+   are one upload, so the cheap cases are already cheap; what has no answer is a
+   scene that genuinely wants more than the card has. `MAX_PLACED` (100,000) and
+   the 1,500-item warning are about what a *frame* can afford and say nothing
+   about texture memory. The failure mode is a driver-level allocation failure
+   with no refusal in front of it, which is the one shape of failure this app
+   otherwise always puts a sentence before. Wants a measurement first — what a
+   scene of sixty distinct textured assets actually costs on the target card —
+   and then a decision about whether the answer is a refusal, a warning, or
+   evicting the cache harder. The measurement is the part that needs a card.
+6. **F6. A material override costs a second upload of identical geometry.** The
+   override is in the GPU cache key, so a retinted copy of a shared asset is a
+   second upload of the same triangles. That is also true on the way out —
+   glTF puts the material on the primitive rather than on the node, so the
+   exporter has the same cost and `mason/gltfout.py`'s docstring says so — but
+   the exporter's copy is written once and the renderer's is paid every frame.
+   The fix is a per-draw material uniform rather than a cache key, which is a
+   renderer change and was out of scope for the mode that found it. Worth doing
+   only if overrides turn out to be common: place a few dozen retinted copies of
+   one asset and see whether it matters before changing how the renderer binds
+   materials.
 
 **What is left on that machine is not code**: whether the resets stop once a
 retry can outlast them (F1 and F2 together should turn "never finishes" into
