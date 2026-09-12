@@ -52,7 +52,7 @@ raises the other side.
 
 **Fix.** Set `WARLOCK_VRAM_EXCLUSIVE=1` and restart. Text jobs then run sequentially — the engine is
 stopped, the image model loads, generates and unloads, and the engine restarts. It costs seconds per
-job and buys back roughly 7 GB of headroom. See [VRAM modes](40-configuration.md#vram-modes).
+job and buys back roughly 7 GB of headroom. See [VRAM modes](41-configuration.md#vram-modes).
 
 If it still fails, drop the geometry resolution: **Mesh resolution** at the Mesh stage, choosing "2D" rather
 than "3D" — see
@@ -77,7 +77,7 @@ does, and that fetch runs in its own process.
 **Fix.** Open **Settings → Models**. Every registered model is listed with its size, where it comes
 from and whether it is on this card; tick what you need and press *Download selected*, which fetches
 the whole selection as one transaction and shows a rate and an ETA. A download can be cancelled from
-its own row, and cancelling installs nothing. See [Models](41-app-settings.md#models).
+its own row, and cancelling installs nothing. See [Models](42-app-settings.md#models).
 
 **A download that fails is safe to retry, and it does not start again from zero.** Whatever had
 already arrived is kept beside the destination, and pressing *Install* again continues from there —
@@ -94,7 +94,7 @@ technical detail is written to `warlock.log` every time.
 
 **Or from a terminal**, which is the only route on a headless box: `uv run warlock doctor` lists each
 missing item individually with the exact command that fetches it, and the same commands are
-collected in [Model weights](39-installation.md#model-weights).
+collected in [Model weights](40-installation.md#model-weights).
 
 None of these rows is **fatal**. `trellis-server.exe` and the TRELLIS GGUF weights were once, back
 when the installer shipped the engine; both are downloads now, so a machine that has not fetched
@@ -260,4 +260,4 @@ profile. When something needs investigating, these are the places to look:
 
 All of those move with `WARLOCK_DATA_DIR` except the note, which sits at the top of `WARLOCK_HOME`,
 and the store, which has its own `WARLOCK_DB`. The full layout, and the one-time move, are in
-[Data locations](40-configuration.md#data-locations).
+[Data locations](41-configuration.md#data-locations).

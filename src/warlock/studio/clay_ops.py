@@ -1443,7 +1443,7 @@ def _register_defaults() -> None:
     # further wiring (``panes/clay_menu.py``'s ``_rows`` and
     # ``panes/clay_tools.py``'s ``_actions`` both iterate ``clay_ops.menu``),
     # so that is the complete fix and the one taken here -- and it is why
-    # ``docs/manual/38-shortcuts.md``, gated bidirectionally against the
+    # ``docs/manual/39-shortcuts.md``, gated bidirectionally against the
     # keyboard table, needs no new line for either op.
     register(
         Op(

@@ -51,7 +51,7 @@ them.
 
 ## Style LoRAs trained from the library
 
-Settings' **Train from my library...** button (see [App settings](41-app-settings.md#your-style-loras))
+Settings' **Train from my library...** button (see [App settings](42-app-settings.md#your-style-loras))
 builds a training set out of work you have already judged — favourited jobs, references you
 accepted, and the reference images behind meshes that graded usable or better — instead of a folder
 you point it at by hand. It is a convenience for gathering images, nothing more.

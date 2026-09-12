@@ -40,7 +40,7 @@ def test_models_md_flux1_paragraph_names_flux1_before_dev_and_schnell():
     paragraph began "Both `dev` and `schnell` are click-through gated..."
     with no antecedent anywhere in the file for what `dev` and `schnell`
     *are* -- two blank lines sat where the lead sentence should be. The same
-    paragraph in docs/manual/39-installation.md opens "**FLUX.1 is not
+    paragraph in docs/manual/40-installation.md opens "**FLUX.1 is not
     offered; FLUX.2 klein is.**"; this is the swallowed-lead-in failure the
     2026-09-04 audit's L05 already found once in this exact file.
 

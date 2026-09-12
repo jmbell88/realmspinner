@@ -77,11 +77,21 @@ from . import parser
 # They go first because they are written for the reader who has just installed
 # the app and has never seen it. Appended, they would have sat behind
 # Architecture, which is written for the reader changing its code.
+#
+# Mason joined Part II as chapter 31 on 2026-09-11, moving everything from the
+# old 31 onward by one -- fifteen renames, the fifth time this cascade has been
+# taken and for the same reason as Troupe's and Sirens': the order in Part II is
+# the *rail's*, and Mason sits immediately after Clay in the workspaces group,
+# so it belongs there rather than appended at 39 behind the keyboard-shortcuts
+# chapter. Appending would have been seven renames instead of fifteen and would
+# have told every reader the mode was an afterthought. Its tutorial
+# (17-dressing-a-scene) cost zero renames, which is what reserving 01-19 as a
+# block bought -- the second time that reservation has paid for itself.
 PARTS: tuple[tuple[str, range], ...] = (
     ("Tutorials", range(1, 20)),
-    ("Using Warlock Studio", range(20, 39)),
-    ("Setup & operations", range(39, 43)),
-    ("Architecture", range(43, 46)),
+    ("Using Warlock Studio", range(20, 40)),
+    ("Setup & operations", range(40, 44)),
+    ("Architecture", range(44, 47)),
 )
 
 _H1 = re.compile(r"^# +(.+)$", re.MULTILINE)

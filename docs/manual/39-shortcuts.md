@@ -201,6 +201,46 @@ nothing, so grabbing the wrong button mid-orbit costs you nothing.
 In an element mode, left-click selects an element, `Shift`+click adds and `Ctrl`+click removes;
 left-drag in empty space with `Q` selected sweeps a marquee.
 
+## Mason
+
+Mason shares Clay's viewport and its transform gizmo, and almost nothing else: there are no element
+modes, so there is nothing for the digits to switch between and nothing to extrude. What it has
+instead is a scene — things placed in it, grouped, instanced and lit.
+
+| Keys | Action |
+| --- | --- |
+| Q / W / E / R | Select / move / rotate / scale |
+| T | Sculpt — the terrain brush, which owns the left button for the whole stroke |
+| G / Shift+G | Group the selection under a new group node / ungroup it |
+| Ctrl+J | Duplicate the selection |
+| Delete | Delete the selection |
+| Esc | Cancel an armed placement; with nothing armed, clear the selection instead |
+| F | Frame the selection — the one binding that works with no scene open |
+| Ctrl+A / Ctrl+D | Select everything / deselect |
+| Ctrl+Z / Ctrl+Y | Undo / redo (Ctrl+Shift+Z also redoes) |
+| Ctrl+S / Ctrl+Shift+S | Save / save as |
+| Ctrl+N / Ctrl+O | New / open a scene |
+| Ctrl+W | Close the scene |
+| Ctrl+E | Export the scene as a GLB |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous scene |
+| Ctrl+1 / Ctrl+3 / Ctrl+7 | Look along front / right / top |
+| Ctrl+Shift+1 / +3 / +7 | The opposite view: back / left / bottom |
+| Ctrl+5 | Toggle orthographic and perspective |
+| Alt+drag | Orbit, whatever tool is selected |
+
+**The mouse.** Left-drag in empty space orbits, and `Alt`+left-drag always orbits — including
+mid-sculpt, which is the reason that gesture is reserved. Middle-drag pans and the wheel dollies.
+Right-click opens the context menu.
+
+Left-click selects the thing under the pointer, and both `Shift`+click and `Ctrl`+click *extend* the
+selection rather than replacing it — `Ctrl` toggles, so a mis-clicked prop comes back out without
+starting over. With a placement armed from the Assets panel, the next left-click is where it lands
+instead; with the Sculpt tool active and a terrain in the scene, the left button is the brush and
+nothing else.
+
+`Esc` does two jobs in the order you mean them: it disarms a pending placement first, and only
+clears the selection when there was nothing armed.
+
 ## Inker
 
 | Keys | Action |
@@ -442,7 +482,7 @@ Ctrl+Enter were all bound and none of them was written down anywhere.
 
 The last four need a take under the player, which appears once you have pressed Play on one. The
 bracket keys place a marker exactly where you are listening — the thing a mouse is bad at. See
-[Muse](35-muse.md#the-player).
+[Muse](36-muse.md#the-player).
 
 ## Sirens
 
@@ -485,7 +525,7 @@ twice above. The piano rows fire in the **note** column only: `e` in the effect 
 of an effect rather than an E natural, and `c` in the volume column is the hex digit twelve. The
 instrument and parameter columns take two digits — the first fills the high nibble, the second the
 low, and the caret rings whichever one is next — while volume takes one. See
-[Sirens](34-sirens.md#the-pattern-grid).
+[Sirens](35-sirens.md#the-pattern-grid).
 
 Those are *letter* positions rather than physical key positions, so the layout is right for anyone
 arriving from another tracker and wrong on an AZERTY keyboard.

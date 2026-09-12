@@ -62,7 +62,7 @@ source**. If no atlas is open, one is started for you.
 
 **From Troupe** is the door a rendered character sheet uses: **Add to Packwright** on the sheet's
 own export bar contributes one sprite per cell to whatever atlas is open, alongside everything else
-being packed. See [Troupe](33-troupe.md).
+being packed. See [Troupe](34-troupe.md).
 
 Each source keeps a stable identity derived from where it came from, not from what it is called. So
 renaming a sprite changes what the sidecar calls it and nothing else: two layers legitimately called
@@ -87,7 +87,7 @@ written verbatim into the sidecar, where a consumer may treat it as a filename.
 
 **Grid** puts every sprite in a uniform cell the size of the largest one, row-major. The result is a
 *tileset* — a regular atlas an engine can slice by arithmetic — so it exports a `.tsx` as well as
-the JSON, and can be used directly as a tileset in [Plotter](31-plotter.md) or in Tiled.
+the JSON, and can be used directly as a tileset in [Plotter](32-plotter.md) or in Tiled.
 
 **MaxRects** packs tightly and irregularly. The atlas comes out considerably smaller, but the cells
 are not a grid, so an importer has to read the JSON to find anything.
@@ -208,5 +208,5 @@ reopen the real document rather than a flat picture. It follows the same precede
 | `~/.warlock/assets/<job>/input.png` | The atlas, for one exported to the library. |
 | `~/.warlock/assets/<job>/pack.wpack` | The document behind it. Not served; reopened by **Open in Packwright**. |
 
-See [Keyboard shortcuts](38-shortcuts.md) for every binding, and [Plotter](31-plotter.md) for the
+See [Keyboard shortcuts](39-shortcuts.md) for every binding, and [Plotter](32-plotter.md) for the
 mode that consumes a grid pack as a tileset.

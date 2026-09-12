@@ -40,7 +40,7 @@ Tags are legal at any grade, and that is deliberate. They describe the mesh rath
 verdict, so "+4, holes" is a sensible thing to say: mostly good, one specific flaw.
 
 A grade you file here follows the mesh back to the
-[library](36-library-and-jobs.md#the-job-lifecycle): its card carries a small grade pill from then
+[library](37-library-and-jobs.md#the-job-lifecycle): its card carries a small grade pill from then
 on, and the library's own **Usable** filter and **grade** sort both read it — "usable" there means
 exactly the +3 cut in the table above, not a second definition of the word.
 

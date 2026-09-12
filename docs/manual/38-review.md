@@ -204,7 +204,7 @@ either way, and anything a benchmark run tagged. Warlock used to lose those: fil
 of a sweep is what triggers the automatic cleanup, so finishing a grading pass was also what deleted
 the meshes that pass had just judged, and a later question about them had a row saying "this was bad"
 with nothing behind it. The archive lives beside your library rather than inside it, so no delete
-reaches it; [Settings → Storage](41-app-settings.md#storage) says how big it is, and
+reaches it; [Settings → Storage](42-app-settings.md#storage) says how big it is, and
 `warlock doctor` prints the same figure. Deleting one asset by hand is unaffected — that is one
 deliberate act on one named thing, and it is still the way to make a mesh really go.
 
@@ -314,5 +314,5 @@ instead of guessing](12-tuning-what-you-get.md#measuring-instead-of-guessing).
 Verdicts, measurements and matched pairs all survive pruning and sweep deletion; the corpus outlives
 the assets it was learned from.
 
-Next: [Keyboard shortcuts](38-shortcuts.md) has the full Review table, and
-[The library and jobs](36-library-and-jobs.md) covers where sweep units do and do not appear.
+Next: [Keyboard shortcuts](39-shortcuts.md) has the full Review table, and
+[The library and jobs](37-library-and-jobs.md) covers where sweep units do and do not appear.

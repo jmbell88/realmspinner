@@ -102,6 +102,12 @@ not there and let you save over it.
 - **The exported asset's card gets a picture of the scene**, taken from Mason's
   own viewport. The shared snapshot code only knew how to photograph Clay's,
   which in a session that never opened Clay is nothing at all.
+- **Mason is documented**, which is what its (?) buttons were waiting for.
+  There is a reference chapter covering every panel, brush, ceiling and export,
+  a tutorial that builds a room out of library assets and takes it into an
+  engine, and a Mason section in the keyboard-shortcuts chapter and the Ctrl+/
+  sheet alike. Until now every one of Mason's seven help buttons opened Clay's
+  chapter at the nearest paragraph that was nearly about the right thing.
 
 A review of the MCP bridge — the way an external AI agent drives Clay — found
 the feature unreachable for anyone who installed Warlock rather than cloning

@@ -236,7 +236,7 @@ asset to the next: there is no separate store of saved styles to keep in step.
 
 Every job owns a directory under `~/.warlock/assets/`, named for its job id, and the SQLite job
 store lives at `~/.warlock/assets/jobs.sqlite`. That home directory is outside the source tree on
-purpose; see [Data locations](40-configuration.md#data-locations). A job directory holds:
+purpose; see [Data locations](41-configuration.md#data-locations). A job directory holds:
 
 - `input.png` — the reference image the mesh was made from.
 - `source.glb` — the raw reconstruction, kept forever.
@@ -254,7 +254,7 @@ foot of the library shows a **storage meter**: how many job directories exist an
 they occupy. It is measured on a background thread, so it never stalls the window.
 
 The two ways to make that number smaller live in
-[Settings → Storage](41-app-settings.md#storage), not here: a button under a scrolling list of assets
+[Settings → Storage](42-app-settings.md#storage), not here: a button under a scrolling list of assets
 reads as an action on the assets you can see, and neither of these is.
 
 **Prune...** deletes everything but the newest N jobs, after a confirm — the confirm
@@ -267,7 +267,7 @@ Anything you graded, and anything a benchmark run tagged, is copied to the **evi
 the way out. That archive sits beside your library rather than inside it, so nothing here reaches it,
 and it holds the reference, the cutout the mesh was rebuilt from, both meshes and a small file saying
 what the job was and how you scored it. Ordinary work you never judged is not archived — otherwise
-reclaiming space would only be moving it. [Settings → Storage](41-app-settings.md#storage) shows the
+reclaiming space would only be moving it. [Settings → Storage](42-app-settings.md#storage) shows the
 size.
 
 **Clean library...** is the other end of the same scale: it deletes *every* asset, trashed

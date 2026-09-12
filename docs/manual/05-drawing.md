@@ -35,7 +35,7 @@ the table below are the whole story, and a group's letter is simply the letter o
 letter usually means. `B` is the brush and `A` is the spray; pressing `B` twice leaves you on the
 brush. Where a tool has a second binding it is the group letter with Shift, so Spray answers to
 both `A` and `Shift+B`. The Aseprite bindings are the primary ones; see
-[Keyboard shortcuts](38-shortcuts.md) for the full table and the compatibility aliases.
+[Keyboard shortcuts](39-shortcuts.md) for the full table and the compatibility aliases.
 
 | Key | Tools |
 | --- | --- |

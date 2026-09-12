@@ -90,8 +90,8 @@ class MasonDoc:
         # The palette a node's ``material`` field can point at. Unlike Clay's
         # ``ClayDoc.materials``, nothing here indexes into this list -- a
         # node's material override holds the ``gltf.Material`` object itself
-        # (``clay/document.py``'s own argument for materials-as-objects,
-        # restated in ``docs/MASON-PLAN.md``'s node section) -- so this list
+        # (``clay/document.py``'s own argument for materials-as-objects, which the
+        # Mason programme restated rather than revisited) -- so this list
         # is a save/export convenience, not an addressing scheme.
         self.materials: list[gltf.Material] = list(materials or [])
         # ``ref_key``s the *host* has told this document it could not

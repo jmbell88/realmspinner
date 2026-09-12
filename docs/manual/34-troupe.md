@@ -80,7 +80,7 @@ out. The difference is not cosmetic and it shows up two steps later, at the rig.
 rig template is itself an A-pose, so an A-posed mesh is fitted straight to it. A T-posed mesh is not
 — fitting that template to one runs the arm chain down through the ribcage — so its joints are
 *measured* off the mesh instead, which needs the pose model
-[Installation](39-installation.md) covers.
+[Installation](40-installation.md) covers.
 T-pose separates the limbs further, which is the one thing a single view has the most trouble with,
 so it is the one to reach for if the arms come back fused to the body.
 
@@ -96,7 +96,7 @@ of the two-step shape.
 
 The form above starts from nothing. If you already have a character — one you generated, uploaded,
 or built in Clay — **Send to Troupe** takes it in directly. It is on the mesh's right-click menu in
-the [library](36-library-and-jobs.md), on the inspector under the asset, and inside Troupe itself
+the [library](37-library-and-jobs.md), on the inspector under the asset, and inside Troupe itself
 under **Or use a mesh you already have**, below the form, which is collapsed until you open it.
 
 There is no reference and no gate on this route: the mesh already exists, so the only decision left
@@ -289,7 +289,7 @@ is what says which cell is `walk` facing south-east, so a folder holding one wit
 an asset nothing can interpret. Either both land or neither does.
 
 The sheet and its sidecar are on disk beside the mesh either way, in that job's directory, and the
-[library](36-library-and-jobs.md)'s export list is where the files themselves are.
+[library](37-library-and-jobs.md)'s export list is where the files themselves are.
 
 ## When it goes wrong
 

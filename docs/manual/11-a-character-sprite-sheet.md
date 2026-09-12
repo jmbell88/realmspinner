@@ -21,7 +21,7 @@ about each.
 
 What happens next has no gate in it. The body is built in the app, minted as a finished mesh asset,
 and a rig is queued behind it; when the rig lands the sheet follows, and the finished character
-plays in [Troupe](33-troupe.md). Create moves to the **Mesh** stage rather than the Reference stage,
+plays in [Troupe](34-troupe.md). Create moves to the **Mesh** stage rather than the Reference stage,
 because there is no drawing behind a character to look at.
 
 **None of it needs a GPU.** The mesh is generated in-process, the rig and the render are Blender on
@@ -72,7 +72,7 @@ optimisation. It also keeps the smooth resize used for previews away from your p
 
 If your species carries a fire theme, the flame is composited in that same gap — after the reduce,
 before the pack — so its oranges go through the same colour cut as the character's skin. *Troupe →
-[Characters that are on fire](33-troupe.md#characters-that-are-on-fire)* is why.
+[Characters that are on fire](34-troupe.md#characters-that-are-on-fire)* is why.
 
 ## Watching it
 
@@ -139,7 +139,7 @@ route — a built character ships its own joints, so there is nothing to guess.
 
 The third route is the original one, and it is in Troupe's own form: describe a character, let the
 app draw a pose reference, approve that drawing, and let it be reconstructed into a mesh which is
-then rigged and rendered. See [Making a character](33-troupe.md#making-a-character).
+then rigged and rendered. See [Making a character](34-troupe.md#making-a-character).
 
 It is still there, and it is still the only route that will draw you a creature the registry does
 not model. What it is not is reliable, and the next section is the measurement.

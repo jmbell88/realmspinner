@@ -79,7 +79,7 @@ ASSET_INTENT = "character"
 #: before the user presses the button. **An estimate, not a measurement** --
 #: there is no dated document behind these two numbers, so nothing may key a
 #: decision on them and they are only ever rendered as "about N minutes".
-#: Rigging is the fixed half (``docs/manual/33-troupe.md``: "rigging is minutes
+#: Rigging is the fixed half (``docs/manual/34-troupe.md``: "rigging is minutes
 #: of CPU"), the cells are the linear half, and both are CPU: a character sheet
 #: spends no GPU at all.
 RIG_MINUTES = 1.5

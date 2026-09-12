@@ -66,7 +66,7 @@ shipped product was ever on 3.12 anyway.
 Everything above is what a *source checkout* does. The Windows installer works the other way round:
 it carries the app, its renderer and the reconstruction engine, and nothing else. The three heavy
 extras — `text2image`, `rig` and `music` — travel as **packs**, and each is a button in
-[Settings → Packs](41-app-settings.md#packs). The download is around a gigabyte instead of three,
+[Settings → Packs](42-app-settings.md#packs). The download is around a gigabyte instead of three,
 and someone who only ever draws pixel art never downloads torch at all.
 
 A pack is the same resolution the installer was built from, wheel for wheel: it comes out of one
@@ -89,7 +89,7 @@ The pinned build is **v0.6.0** (2026-08-19). Unpacking it by hand is a **source-
 only**: since 2026-09-10 the installed app downloads that same archive itself, from **Settings →
 Models**, and unpacks it under `~/.warlock/engine/trellis`. A downloaded copy wins over a vendored
 one, and `WARLOCK_TRELLIS_EXE` beats both — see
-[Environment variables](40-configuration.md#environment-variables). That variable is also the way to
+[Environment variables](41-configuration.md#environment-variables). That variable is also the way to
 install the engine on a machine that cannot reach GitHub: unpack the archive anywhere and point the
 variable at the executable.
 
@@ -161,7 +161,7 @@ was fitted to, the weight it was *measured* at, and its trigger words — none o
 carries, and each of which is wrong-by-default rather than merely missing. A LoRA trained with
 `use_rslora` needs a default weight an order of magnitude smaller than an ordinary one; an adapter
 fitted to another architecture raises with the checkpoint already resident in VRAM. Adding a model
-is [an ordinary code change](45-extending.md), and a small one.
+is [an ordinary code change](46-extending.md), and a small one.
 
 Base models are one-resident-at-a-time: a 32 GB card holds the reconstruction engine plus a single
 SDXL-class pipeline, not two, so switching between jobs costs a reload. Style LoRAs are the
@@ -319,7 +319,7 @@ the asset. What each one changes when present:
 
 | Model | Without it | With it |
 | --- | --- | --- |
-| DINOv2 | An attached reference has no anchor similarity; the judge has no probes. | [Review](37-review.md) works fully. |
+| DINOv2 | An attached reference has no anchor similarity; the judge has no probes. | [Review](38-review.md) works fully. |
 | PickScore | Candidates rank on composition and style anchor alone. | A human-preference term joins the ranking — see [Seeds and candidates](22-generating-references.md#seeds-and-candidates). |
 | ViTPose | Skeletons are fitted by bounding box. | Humanoid rigs start from measured joints — see [Where the joints come from](25-rigging-and-posing.md#where-the-joints-come-from). |
 | BiRefNet | A 2D export's alpha comes from a corner flood fill. | The cutout is matted properly, which shows on hair and anything thin. |
@@ -327,7 +327,7 @@ the asset. What each one changes when present:
 **FLUX.1 is not offered; FLUX.2 klein is.** The two `FLUX.1` checkpoints — `dev` and `schnell` —
 are click-through gated on Hugging Face, and 12B parameters will not coexist with the reconstruction
 engine on one card. Using a local copy anyway is possible but constrained — see
-[Using a different image model](40-configuration.md#using-a-different-image-model). The FLUX.2 klein
+[Using a different image model](41-configuration.md#using-a-different-image-model). The FLUX.2 klein
 pair above is neither gated nor 12B, which is why those two are ordinary entries in the model list.
 
 Because klein is a different architecture, the controls fitted to SDXL do not apply to it, and the
@@ -339,7 +339,7 @@ never leaves a stale choice behind.
 
 ## The music model (Muse)
 
-One entry, and the only model [Muse](35-muse.md) can use. It is ~8.3 GB and lives beside every
+One entry, and the only model [Muse](36-muse.md) can use. It is ~8.3 GB and lives beside every
 other model in the model root, so nothing new has to be configured to hold it.
 
 ```powershell

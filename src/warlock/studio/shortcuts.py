@@ -145,6 +145,44 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Ctrl+5", "Orthographic / perspective"),
         ],
     )
+    # Mason's own group, added with chapter 31 (Stage H of the Mason
+    # programme). Deliberately not a copy of Clay's table above: the two modes
+    # share a viewport and a transform gizmo and almost nothing else, so what
+    # is listed here is what ``mason_mode.handle_key`` actually binds and only
+    # that. The tool letters are read off ``mason_state.TOOLS`` for the same
+    # reason Clay's are read off ``TOOL_KEYS`` -- a sixth tool added there
+    # must not need a second edit here to be discoverable.
+    #
+    # The block and the chapter's Mason section landed together on purpose:
+    # ``tests/manual/test_shortcuts.py`` gates the two against each other in
+    # both directions, so adding this table before the section existed failed
+    # from the section's side, which is why Stage E left it out rather than
+    # half-doing it.
+    from . import mason_state
+
+    table(
+        "Mason",
+        [
+            (
+                " / ".join(shortcut for _key, _label, shortcut in mason_state.TOOLS),
+                " / ".join(label for _key, label, _shortcut in mason_state.TOOLS),
+            ),
+            ("G / Shift+G", "Group / ungroup the selection"),
+            ("Ctrl+J", "Duplicate the selection"),
+            ("Delete", "Delete the selection"),
+            ("Esc", "Cancel an armed placement, or clear the selection"),
+            ("F", "Frame the selection"),
+            ("Ctrl+A / Ctrl+D", "Select all / deselect"),
+            ("Ctrl+Z / Ctrl+Y", "Undo / redo (Ctrl+Shift+Z also redoes)"),
+            ("Ctrl+S / Ctrl+Shift+S", "Save / save as"),
+            ("Ctrl+N / O / W", "New / open / close"),
+            ("Ctrl+E", "Export the scene as a GLB"),
+            ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous scene"),
+            ("Ctrl+1 / 3 / 7", "Look along front / right / top"),
+            ("Ctrl+Shift+1 / 3 / 7", "The opposite view: back / left / bottom"),
+            ("Ctrl+5", "Orthographic / perspective"),
+        ],
+    )
     # **The letters, named, six to a row.** This was one squashed row
     # reading "A, B, C, D, E, ..." with the note "hover a tool for its
     # letter" -- which is a shortcut sheet declining to be one, and the

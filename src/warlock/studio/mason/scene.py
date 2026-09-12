@@ -567,8 +567,8 @@ def world_bounds(
 
 # --- the per-draw node proxy -------------------------------------------------
 #
-# See the module docstring's sibling in ``docs/MASON-PLAN.md`` ("Six things
-# Mason must do differently", item 2): Clay's GPU cache is one entry per
+# The one thing Mason must do differently from Clay here: Clay's GPU cache
+# is one entry per
 # *object*, so ``clay_view._composite`` writing ``node.world = world`` on the
 # cached entry's own ``gltf.Node`` is sound -- one object, one write, one
 # reader. Mason's cache is keyed on the *ref* (item 1: five hundred instances

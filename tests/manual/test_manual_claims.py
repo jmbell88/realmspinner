@@ -98,9 +98,9 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
 
     ``wavout.MAX_SAMPLE_FRAMES`` was raised from four minutes to ten
     (``48_000 * 600``) on 2026-09-07 ("Muse ... reaches ten minutes"), and
-    that commit updated ``docs/manual/35-muse.md`` and
+    that commit updated ``docs/manual/36-muse.md`` and
     ``docs/manual/16-generating-a-soundtrack.md`` but never touched
-    ``docs/manual/34-sirens.md``'s own Samples section, which still promised
+    ``docs/manual/35-sirens.md``'s own Samples section, which still promised
     "one sample runs to four minutes ... and past that the import is
     refused" -- telling a reader that a 5-9 minute Muse take would be refused
     on import when the code has accepted it since the day before.
@@ -131,13 +131,13 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
     # of the number passes -- the chapter's own style (spelled out) and the
     # digit form both say the same true thing, and this pin cares which
     # *number* the chapter states, not which numeral style it is written in.
-    normalized = re.sub(r"\s+", " ", _chapter("34-sirens.md"))
+    normalized = re.sub(r"\s+", " ", _chapter("35-sirens.md"))
     phrasings = (
         f"one sample runs to {word} minutes",
         f"one sample runs to {minutes} minutes",
     )
     assert any(phrasing in normalized for phrasing in phrasings), (
-        "docs/manual/34-sirens.md's Samples section does not say 'one sample"
+        "docs/manual/35-sirens.md's Samples section does not say 'one sample"
         f" runs to {word} minutes' or '...{minutes} minutes', which is what"
         f" wavout.MAX_SAMPLE_FRAMES ({wavout.MAX_SAMPLE_FRAMES}) is"
     )

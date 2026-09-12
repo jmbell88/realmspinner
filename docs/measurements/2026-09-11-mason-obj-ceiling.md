@@ -1,8 +1,8 @@
 # Mason's merged-OBJ ceiling — 2026-09-11
 
 `mason/objout.MAX_OBJ_VERTS` is the third constant Mason fixes that a stored
-document is measured against, and the plan (`docs/MASON-PLAN.md`, the OBJ
-section) named it as the one Stage D would have to decide. This repo's rule is
+document is measured against, and the Mason programme's plan named it
+as the one Stage D would have to decide. This repo's rule is
 that such a constant gets a dated document here *before* it is fixed, so this
 is that document.
 

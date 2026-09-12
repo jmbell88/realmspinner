@@ -23,7 +23,7 @@ reference, so there is history to show. Picking one replaces what is in the box.
 the session (it is saved with your other Studio preferences and is there again after a restart), and
 it is per prompt text only — if you want a whole recipe back, use **Copy settings to form** from a
 job's overflow menu instead, which is described in [Rerun and
-promotion](36-library-and-jobs.md#rerun-and-promotion).
+promotion](37-library-and-jobs.md#rerun-and-promotion).
 
 Under **Avoid**, further down the pane, is a second box listing what the image must not
 contain. It is pre-filled with the things that most often ruin a reconstruction, and it is yours:
@@ -251,7 +251,7 @@ Each finished reference therefore carries a **rank**, shown as a percentage on i
 it exists to answer one question: which of these is worth opening first. It is labelled *rank* and
 nothing else, because that is all it claims — where this candidate sits in its own strip, not whether
 it is any good. (Through v0.0.38 the same figure was drawn as "judge: N% likely a keeper", which named
-the wrong instrument: the trained probe in [Review](37-review.md) is a different thing and is never
+the wrong instrument: the trained probe in [Review](38-review.md) is a different thing and is never
 consulted here.)
 
 Three things go into it, and each is absent-changes-nothing — a term that could not be measured
@@ -266,11 +266,11 @@ leaves the score exactly what it would have been without it:
   when there is one.
 - **Human preference** — how likely a person is to pick this image for this prompt, from PickScore.
   Optional; see [Optional measuring and helper
-  models](39-installation.md#optional-measuring-and-helper-models).
+  models](40-installation.md#optional-measuring-and-helper-models).
 
 **Nothing here rejects anything.** The score sorts, and that is all it does — a low-scoring
 candidate is still generated, still kept, and still promotable to a mesh. Turn the whole thing off
-with `WARLOCK_RANK=off` (see [Configuration](40-configuration.md#environment-variables)) and the
+with `WARLOCK_RANK=off` (see [Configuration](41-configuration.md#environment-variables)) and the
 gallery falls back to submission order.
 
 ## Conditioning on an image
@@ -371,7 +371,7 @@ supplied, and **Dither** (offered only with one) mixes two nearby entries where 
 pick one.
 
 A palette is a file you drop into the palette directory (`~/.warlock/palettes/` by default — see
-[Configuration](40-configuration.md)), in any of the four formats palette sites and editors publish:
+[Configuration](41-configuration.md)), in any of the four formats palette sites and editors publish:
 Lospec's `.hex`, one `rrggbb` per line, GIMP's `.gpl`, Paint Shop Pro's `.pal` or Paint.NET's
 `.txt`. Nothing ships with the app, because a palette is
 art direction rather than a default. Colours are matched perceptually (in Oklab) rather than by raw
@@ -394,7 +394,7 @@ the artifact is derived, so it is rebuilt whenever the settings above make the c
 and a document that saved back over it would have that edit thrown away — the first `Ctrl+S` is a
 Save As. **Export as PNG** writes the size selected here to wherever you choose. Both derive the
 artifact first if it does not exist yet, so neither waits on **Preview pixels**. The
-[downloads grid](36-library-and-jobs.md) exports the same files; what these add is that they act on
+[downloads grid](37-library-and-jobs.md) exports the same files; what these add is that they act on
 the size you are looking at.
 
 Both settings are app preferences rather than properties of the job, so they persist across
@@ -513,7 +513,7 @@ both, so two separate generations come back sharing a world and a palette ("a te
 It is not a description of the join: the join is computed from a coverage field, and drawn edge art
 would be cut straight across by it. What comes out is a complete forty-seven-case blob set, and it
 lands in **Plotter** with the Terrain tool already working — see
-[Tools](31-plotter.md#tools).
+[Tools](32-plotter.md#tools).
 
 *Grid (legacy)* is the original single-generation path. It stays for two reasons and the pane says
 both: it is the only layout that offers a **View** other than top-down, and it is how a sheet made
@@ -603,7 +603,7 @@ colours this particular render happened to contain. It is the single highest-lev
 the program: a derived table is the average of whatever came back, which is where "muddy" comes
 from, while a designed ramp is a decision. The picker appears once you have palette files
 installed — `.hex`, `.gpl`, `.pal` or `.txt` in the palette folder (see
-[Configuration](40-configuration.md)) — and also when the form names a palette that is no longer
+[Configuration](41-configuration.md)) — and also when the form names a palette that is no longer
 there, listed and marked rather than silently reverting to *Derived from the render*. Naming the
 same palette on each run is how a set of sheets is kept on one set of colours.
 
@@ -651,7 +651,7 @@ ways forward, and each of them is a press you make:
   winged thing, never a puddle.
 - **Sprite sheet (experimental)** switches the asset type and leaves your brief alone. SDXL will
   draw things the registry does not model; see [Sheets](#sheets) for what that costs.
-- **Draw it in Troupe** copies the brief into [Troupe](33-troupe.md) and opens it, which is the
+- **Draw it in Troupe** copies the brief into [Troupe](34-troupe.md) and opens it, which is the
   route through a generated reference and a reconstruction.
 
 A brief that names no creature at all is refused in the same register, and the Species picker is
@@ -679,7 +679,7 @@ row and never blocks Generate, so it is safe to press while you are still decidi
 Generate builds the mesh, mints it as a finished asset, and queues the rig that will produce the
 sheet. Create moves to the Mesh stage, because there is no reference image to look at — a character
 has no drawing behind it. When the rig lands, the sheet follows, and the finished character is
-played in [Troupe](33-troupe.md).
+played in [Troupe](34-troupe.md).
 
 Rigging needs Blender. Without it the press is refused before anything is built, because a body with
 no skeleton is half an asset and the whole ordering of that door exists to prevent one.

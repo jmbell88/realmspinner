@@ -5,8 +5,8 @@ Mason's scene engine fixes two constants that a saved `.wscn` is keyed on:
 read back at all, and `scene.MAX_PLACED`, which decides whether a document's
 tree can be resolved into something drawable. This repo's rule is that a
 constant the stored corpus is keyed on gets a dated document here *before* it
-is fixed, so this is that document. The plan (`docs/MASON-PLAN.md`, open
-question 1) recorded both as unmeasured and said so outright: "no performance
+is fixed, so this is that document. The Mason programme's plan recorded both
+as unmeasured and said so outright: "no performance
 numbers exist".
 
 They exist now. Both were measured on the development machine against the

@@ -102,7 +102,7 @@ There are three doors in:
 - The inspector's Pose panel, on the asset itself — its own **Open in Poser** link (see
   [Posing](25-rigging-and-posing.md#posing)).
 - The **"Take it somewhere"** section on any rigged mesh, wherever the library shows one (see
-  [The library and jobs](36-library-and-jobs.md)) — including a rig row you have selected directly,
+  [The library and jobs](37-library-and-jobs.md)) — including a rig row you have selected directly,
   which offers the same list its mesh does.
 - The **Rigged assets** picker at the top of Poser's own sidebar, above the skeleton block. It lists
   every rigged mesh newest first, with the one you currently have open marked, and a click opens it
@@ -152,7 +152,7 @@ again, and **Look at the front** turns the camera back to the recorded angle wit
 framing — useful for checking a front you set earlier, or one set from the 3D viewport.
 
 Only the **turntable** angle is taken. How far above the horizon a sheet is shot from stays the
-Camera preset on the Troupe form ([Troupe](33-troupe.md#the-options)), because that is a choice
+Camera preset on the Troupe form ([Troupe](34-troupe.md#the-options)), because that is a choice
 about the whole sheet's projection rather than about this model. Tilting the view here changes
 nothing.
 
@@ -268,4 +268,4 @@ that could not do anything.
 Blender ships CPython 3.13 wheels only, so on any other Python version the optional extra installs
 nothing at all. See [When rigging is
 unavailable](25-rigging-and-posing.md#when-rigging-is-unavailable) for the full list of what that
-takes with it, and [Installation](39-installation.md) for how to get it.
+takes with it, and [Installation](40-installation.md) for how to get it.

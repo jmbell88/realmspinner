@@ -3,8 +3,8 @@ and Clay's does not.
 
 ``clay_view._composite`` does ``node.world = world`` on the cached entry's own
 ``gltf.Node``, and that is sound only because Clay's GPU cache is one entry
-per *object*. Mason's cache is keyed on the ref (``docs/MASON-PLAN.md``,
-"Six things Mason must do differently", item 1), so N placements of one
+per *object*. Mason's cache is keyed on the ref -- five hundred
+instances of one asset are one upload -- so N placements of one
 asset share one cached node -- and a composite that wrote ``.world`` on that
 shared object N times a frame would leave N-1 instances drawing at wherever
 the last write left it, with nothing on screen or in a log to say so. That is

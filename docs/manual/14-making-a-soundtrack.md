@@ -185,7 +185,7 @@ mixer and they line up.
 
 ## What to read next
 
-[Sirens](34-sirens.md) — the reference chapter: every effect letter, the sample instruments, what
+[Sirens](35-sirens.md) — the reference chapter: every effect letter, the sample instruments, what
 `Fxx` does differently here from FamiTracker, and what the mode deliberately does not do.
 
 That is the last tutorial. The reference chapters go deeper on all of it —

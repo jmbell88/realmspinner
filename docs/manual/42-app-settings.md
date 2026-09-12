@@ -122,8 +122,8 @@ one repository and exits, into a staging folder beside the destination that is o
 if the fetch succeeded — so a download interrupted halfway leaves nothing behind rather than a model
 directory that looks finished. Free disk is checked against the whole selection first, and the whole
 selection is refused if it will not fit. Everything is still equally installable by hand — see
-[Model weights](39-installation.md#model-weights) and
-[Adding an image model](45-extending.md#adding-an-image-model).
+[Model weights](40-installation.md#model-weights) and
+[Adding an image model](46-extending.md#adding-an-image-model).
 
 **The reconstruction engine is two rows, at the top.** *TRELLIS.2 engine* is the program that turns
 a picture into a mesh — about 0.7 GB — and *TRELLIS.2 GGUF weights* is the model it loads, about
@@ -222,7 +222,7 @@ tooltip names the pack by its own size; once it is installed, clicking the mode 
 
 On a source checkout there is nothing to install: no build ever generated a pack manifest, and each
 row prints the `uv sync --extra ...` line that does the same job. See
-[Installation](39-installation.md#if-you-installed-rather-than-cloned).
+[Installation](40-installation.md#if-you-installed-rather-than-cloned).
 
 ## Updates
 
@@ -258,7 +258,7 @@ while one you pressed the button for tells you what went wrong.
 ## Storage
 
 Four figures and two buttons. The figures are how many job directories exist and what they occupy,
-what is sitting in the [trash](36-library-and-jobs.md#the-trash) waiting to be emptied, how much
+what is sitting in the [trash](37-library-and-jobs.md#the-trash) waiting to be emptied, how much
 disk the downloaded model weights are actually using, and what the evidence archive holds. All four
 are measured on a background thread and the last answer is drawn until a new one arrives, so none of
 them walks the disk while you are looking at something else. The first two are the same measurements
@@ -274,7 +274,7 @@ jobs" would be a permanent fixture explaining a thing that has not happened.
 count — N is yours to choose and it starts at twenty every time it is asked. Running jobs are never
 touched, and neither is anything you accepted or labelled. Anything you *did* grade, and anything a
 benchmark run tagged, has its files copied to the evidence archive on the way out — see
-[Library and jobs](36-library-and-jobs.md#storage-and-pruning).
+[Library and jobs](37-library-and-jobs.md#storage-and-pruning).
 
 **Clean library...** is the other end of the same scale: every asset, trashed or not, including the
 accepted ones and the labelled images the quality judge and the tier checks are measured against.
@@ -285,7 +285,7 @@ anything is queued or running.
 
 Both used to sit at the foot of the library, under the list of assets, which is the one place where
 "clean library" reads as an action on the assets you can see rather than on all of them.
-[Library and jobs](36-library-and-jobs.md#storage-and-pruning) has the longer account of what
+[Library and jobs](37-library-and-jobs.md#storage-and-pruning) has the longer account of what
 each one deletes and why prune removes from disk rather than trashing.
 
 ## Health
@@ -303,7 +303,7 @@ missing so rigging is unavailable, is otherwise a count and a tooltip.
 to paste into a bug report. **Run checks again** re-runs every probe including the slow ones the
 startup path defers — worth pressing after installing something a row complained about, because the
 static checks are otherwise only recomputed at launch. **Troubleshooting** opens
-[chapter 12](42-troubleshooting.md), which is where a check that keeps failing after its remedy is
+[chapter 12](43-troubleshooting.md), which is where a check that keeps failing after its remedy is
 covered.
 
 **Dismissed** appears only when you have dismissed something from the error banner. The banner's
@@ -337,7 +337,7 @@ is no port, no firewall prompt, and nothing off your machine can reach it. Warlo
 language model of its own and still connects to nothing — an agent already running on this computer
 connects to *it*. While one is attached the status bar says so. An agent works in a Clay tab it opens
 for itself and cannot address any other document, so nothing you have open is at risk; see
-[Extending Warlock Studio](45-extending.md#driving-warlock-from-an-ai-agent) for the tools it is
+[Extending Warlock Studio](46-extending.md#driving-warlock-from-an-ai-agent) for the tools it is
 given and how to point one at the app.
 
 **Configuration.** *Effective configuration* lists every environment variable the app reads and what

@@ -23,12 +23,12 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # The Rig stage's own column (the UI redesign, wave 5). Rigging was three
     # buttons in three places and no pane of its own, so it had no (?) either.
     "settings-rig": ("25-rigging-and-posing", "rigging-a-mesh"),
-    "library": ("36-library-and-jobs", None),
+    "library": ("37-library-and-jobs", None),
     "inspector": ("23-generating-meshes", "exports"),
     "retarget": ("23-generating-meshes", "triangle-budget"),
     "retexture": ("23-generating-meshes", "surface-texture"),
     "remesh": ("23-generating-meshes", "game-ready-remesh"),
-    "loras": ("41-app-settings", "your-style-loras"),
+    "loras": ("42-app-settings", "your-style-loras"),
     "pose": ("25-rigging-and-posing", "posing"),
     "poser-library": ("26-poser", "the-pose-library"),
     "poser-controls": ("26-poser", "posing-a-skeleton"),
@@ -80,41 +80,38 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "clay-props": ("30-clay", "materials"),
     "clay-outliner": ("30-clay", "adding-a-primitive"),
     "clay-bridge": ("30-clay", "the-two-ways-out"),
-    # Mason's own chapter is ``31-mason.md``, and Part II (20-38) is full, so
-    # giving it a slot is a fifteen-file renumbering that belongs to a later
-    # stage, not this one. These seven point at the nearest existing
-    # chapter and anchor that genuinely covers the material -- Clay's own
-    # modelling chapter for the shared ideas (adding a primitive, transform
-    # tools, the outliner, materials, the two ways out of a document) and the
-    # 3D viewport chapter's toolbar section for the header strip -- and are
-    # interim: retarget every one of them at ``31-mason.md`` the day it lands.
-    # ``mason-prefabs`` (Stage F) shares the outliner anchor because prefabs are
-    # the scene-tree idea Clay's chapter comes closest to; it is the one of the
-    # seven whose real subject that chapter does not cover at all, which is
-    # worth knowing when 31 is written.
-    "mason-header": ("24-the-3d-viewport", "the-toolbar"),
-    "mason-assets": ("30-clay", "adding-a-primitive"),
-    "mason-tools": ("30-clay", "transforming"),
-    "mason-outliner": ("30-clay", "the-outliner"),
-    "mason-props": ("30-clay", "locking-an-axis-and-typing-a-number"),
-    "mason-prefabs": ("30-clay", "the-outliner"),
-    "mason-bridge": ("30-clay", "the-two-ways-out"),
-    "plotter-tools": ("31-plotter", "tools"),
+    # Mason's seven, pointed at its own chapter. They were interim from Stage E
+    # until ``31-mason.md`` landed: Part II was full at 20-38, so giving Mason a
+    # slot was a fifteen-file renumbering, and until that was taken these rows
+    # named the nearest existing anchor that genuinely covered the material --
+    # Clay's modelling chapter for the shared ideas and the 3D viewport
+    # chapter's toolbar section for the header strip. ``mason-prefabs`` was the
+    # one whose real subject nothing covered at all, and it now has a section of
+    # its own. Every row here names a heading the chapter actually has, and
+    # ``tests/manual/test_docs.py`` checks that in both directions.
+    "mason-header": ("31-mason", "the-viewport-header"),
+    "mason-assets": ("31-mason", "the-assets-panel"),
+    "mason-tools": ("31-mason", "transforming"),
+    "mason-outliner": ("31-mason", "the-outliner"),
+    "mason-props": ("31-mason", "properties"),
+    "mason-prefabs": ("31-mason", "prefabs-and-instances"),
+    "mason-bridge": ("31-mason", "the-three-ways-out"),
+    "plotter-tools": ("32-plotter", "tools"),
     # The sheet over the centre pane: three titled tabs a user interacts with,
     # so an exemption would be false.
-    "plotter-tileset-editor": ("31-plotter", "tilesets"),
-    "plotter-tileset": ("31-plotter", "tilesets"),
+    "plotter-tileset-editor": ("32-plotter", "tilesets"),
+    "plotter-tileset": ("32-plotter", "tilesets"),
     "inker-image-size": ("28-inker", "image-size"),
     "inker-canvas-size": ("28-inker", "canvas-size"),
-    "plotter-layers": ("31-plotter", "layers"),
-    "plotter-objects": ("31-plotter", "objects"),
-    "plotter-stamps": ("31-plotter", "tile-stamps"),
-    "plotter-properties": ("31-plotter", "layer-and-map-properties"),
-    "plotter-bridge": ("31-plotter", "files"),
-    "packwright-sources": ("32-packwright", "sources"),
-    "packwright-settings": ("32-packwright", "settings"),
-    "packwright-items": ("32-packwright", "when-it-does-not-fit"),
-    "packwright-bridge": ("32-packwright", "exporting"),
+    "plotter-layers": ("32-plotter", "layers"),
+    "plotter-objects": ("32-plotter", "objects"),
+    "plotter-stamps": ("32-plotter", "tile-stamps"),
+    "plotter-properties": ("32-plotter", "layer-and-map-properties"),
+    "plotter-bridge": ("32-plotter", "files"),
+    "packwright-sources": ("33-packwright", "sources"),
+    "packwright-settings": ("33-packwright", "settings"),
+    "packwright-items": ("33-packwright", "when-it-does-not-fit"),
+    "packwright-bridge": ("33-packwright", "exporting"),
     # Sirens' six panes, pointed at the chapter that now exists. Every one of
     # them sat on ``20-overview#the-modes`` between phases 2 and 5 -- a
     # placeholder rather than a missing button, because a (?) that appears
@@ -125,32 +122,32 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # instrument list's; what a release point splits is the envelope editor's;
     # why an effect keeps its own tempo is the effects panel's; and what a
     # folder of WAVs contains is the bridge's.
-    "sirens-transport": ("34-sirens", "playing-it"),
-    "sirens-orders": ("34-sirens", "patterns-and-the-order"),
-    "sirens-instruments": ("34-sirens", "instruments"),
-    "sirens-envelopes": ("34-sirens", "the-envelope-editor"),
-    "sirens-effects": ("34-sirens", "sound-effects"),
-    "sirens-bridge": ("34-sirens", "exporting-the-audio"),
+    "sirens-transport": ("35-sirens", "playing-it"),
+    "sirens-orders": ("35-sirens", "patterns-and-the-order"),
+    "sirens-instruments": ("35-sirens", "instruments"),
+    "sirens-envelopes": ("35-sirens", "the-envelope-editor"),
+    "sirens-effects": ("35-sirens", "sound-effects"),
+    "sirens-bridge": ("35-sirens", "exporting-the-audio"),
     # Muse's one target. The recipe column carries it, because that is the pane
     # whose controls a reader has a question about; the brief is a bar and
     # carries none, exactly as ``create_brief`` does -- a (?) in a one-row
     # command bar competes with the button the bar exists for. The results tray
     # is exempt rather than targeted: it is the surface the mode is *about*, the
     # way the pattern grid and the two canvases are.
-    "muse-recipe": ("35-muse", "the-window"),
-    "muse-player": ("35-muse", "the-player"),
+    "muse-recipe": ("36-muse", "the-window"),
+    "muse-player": ("36-muse", "the-player"),
     # Troupe's four panes. Four entries rather than one chapter-wide target
     # because the questions differ per pane: what a sheet *is* is the cast's
     # question, what the options mean is the form's, why the preview never
     # stops is the centre's, and what a stray-pixel count means is the sheet
     # panel's.
-    "troupe-characters": ("33-troupe", "what-a-character-sheet-contains"),
-    "troupe-settings": ("33-troupe", "making-a-character"),
-    "troupe-preview": ("33-troupe", "watching-it"),
-    "troupe-sheets": ("33-troupe", "the-sheet-panel"),
-    "troupe-bridge": ("33-troupe", "taking-it-somewhere"),
-    "review": ("37-review", None),
-    "app-settings": ("41-app-settings", None),
+    "troupe-characters": ("34-troupe", "what-a-character-sheet-contains"),
+    "troupe-settings": ("34-troupe", "making-a-character"),
+    "troupe-preview": ("34-troupe", "watching-it"),
+    "troupe-sheets": ("34-troupe", "the-sheet-panel"),
+    "troupe-bridge": ("34-troupe", "taking-it-somewhere"),
+    "review": ("38-review", None),
+    "app-settings": ("42-app-settings", None),
     # The chooser the app opens on (F56/O118): the one pane a first run
     # certainly sees, and the only one that had no way into the manual at all.
     "home": ("21-home", None),
@@ -165,4 +162,4 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
 # are a red banner, a popup and a Home row, none of which is a pane with a (?).
 # Named once rather than spelled at each of the three, so a chapter that moved
 # does not have to be found in three places (F57).
-TROUBLESHOOTING: tuple[str, str | None] = ("42-troubleshooting", None)
+TROUBLESHOOTING: tuple[str, str | None] = ("43-troubleshooting", None)

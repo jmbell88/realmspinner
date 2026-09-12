@@ -823,7 +823,7 @@ def cycle_direction(ctx: Any, delta: int) -> None:
     """Turn the character one direction round the compass.
 
     Through :func:`set_direction`, which deliberately does *not* reset the
-    clock -- ``docs/manual/33-troupe.md`` promises that turning mid-stride shows
+    clock -- ``docs/manual/34-troupe.md`` promises that turning mid-stride shows
     the same frame from the other side, and that promise is this function's
     whole point at the keyboard.
     """

@@ -10,7 +10,7 @@ the finished track opened in Sirens as a sample. Ten minutes of your attention a
 your card.
 
 You need the ACE-Step weights on disk — about 8.3 GB, and Muse refuses at the door without them
-rather than generating something worse. [Installation](39-installation.md) has the download, and
+rather than generating something worse. [Installation](40-installation.md) has the download, and
 Settings → Models has a button that does it for you.
 
 ## Describing what you want
@@ -84,11 +84,11 @@ pad into a sustained instrument, or using a finished track as a reference to wri
 
 **And back again.** In Sirens, **Compose in Muse...** renders the open song and hands it to the
 model as a reference — you write the shape of the piece in the tracker and ask the model to perform
-it. See [Muse](35-muse.md#composing-from-a-song).
+it. See [Muse](36-muse.md#composing-from-a-song).
 
 ## Where the file is
 
-Every take is a job row like any other, so it is in the [library](36-library-and-jobs.md) with its
+Every take is a job row like any other, so it is in the [library](37-library-and-jobs.md) with its
 prompt, its seed and its recipe, and the file itself is `track.wav` in that job's directory. Export
 it the way you export anything else.
 
@@ -98,6 +98,6 @@ engine or use it as material in Sirens rather than as a finished loop.
 
 ## What to read next
 
-- [Muse](35-muse.md) — the reference chapter: every control, and what each recipe value does.
-- [Sirens](34-sirens.md) — the tracker the bridge lands in.
+- [Muse](36-muse.md) — the reference chapter: every control, and what each recipe value does.
+- [Sirens](35-sirens.md) — the tracker the bridge lands in.
 - [Making a soundtrack](14-making-a-soundtrack.md) — the same goal, authored by hand.

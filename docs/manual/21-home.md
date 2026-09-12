@@ -82,9 +82,9 @@ to go is clickable.
 
 | Line | What it says | Where it goes |
 |---|---|---|
-| Setup | "Generation is not set up yet — N downloads", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](41-app-settings.md), opened on **Models**. |
+| Setup | "Generation is not set up yet — N downloads", when a fresh machine still owes weights. It is the one line here about getting started rather than about work in progress, and it is absent once nothing is owed. | [App settings](42-app-settings.md), opened on **Models**. |
 | Queue | What is running or queued, with a percentage when the worker is reporting one, or "Queue idle". | — |
-| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](37-review.md). |
+| Unreviewed | How many finished meshes nobody has judged, when there are any. | [Review](38-review.md). |
 
 There used to be a **Library** line here too, counting assets and disk. It went when Resume became a
 grid of those same assets: a count of the thing you are looking at is not news, and the Library is
@@ -130,4 +130,4 @@ title as well as in the banner across the top of every mode. Dismissing the bann
 the text: it moves into the Issues popup under a **Dismissed** heading, which is the only copy
 there is.
 
-See [Troubleshooting](42-troubleshooting.md) for what the individual checks mean.
+See [Troubleshooting](43-troubleshooting.md) for what the individual checks mean.

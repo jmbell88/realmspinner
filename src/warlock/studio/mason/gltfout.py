@@ -22,8 +22,9 @@ shared.
 **The mesh key carries the material override alongside the ref**, because glTF
 puts the material on the primitive rather than on the node: a retinted copy of
 a shared asset is a second mesh in the file whether we like it or not. That is
-the same cost ``docs/MASON-PLAN.md``'s open question 3 names for the GPU side
-and it is stated here rather than discovered later.
+the same cost the Mason programme left open for the GPU side -- a material
+override buys a second upload of identical geometry, because the override is
+in the cache key -- and it is stated here rather than discovered later.
 
 **Names are made unique on the way out.** Every importer's find-by-name assumes
 it, the engine manifest addresses nodes by it, and a Mason document cheerfully

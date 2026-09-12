@@ -45,7 +45,7 @@ If you already have a picture, you can skip the first stage entirely and upload 
 A rail down the left edge of the window chooses between fourteen modes, and that rail is the single
 thing that decides what the panes show. It is drawn in every mode, so there is no screen you cannot
 leave. There is no per-mode keyboard shortcut — the command palette (`Ctrl+K`) is the keyboard
-route, see [Keyboard shortcuts](38-shortcuts.md).
+route, see [Keyboard shortcuts](39-shortcuts.md).
 
 The rail shows glyphs by default and expands to show the labels beside them; **Window → Navigation
 labels** toggles that, and the choice is remembered. Every mode carries a short purpose sentence
@@ -63,7 +63,7 @@ where you are not making something.
 - **Home.** What the app opens on: what changed in this build, what the machine is doing, and a
   single list of everything you were recently working on. Returning here is never destructive.
 - **Library.** Every asset that has ever been generated, filtered, sorted and searched, with the
-  trash and the prune. Covered in [The library and jobs](36-library-and-jobs.md).
+  trash and the prune. Covered in [The library and jobs](37-library-and-jobs.md).
 - **Create.** One mode for the whole asset pipeline, drawn as five **stages** on a rail above the
   settings column. **Reference** owns the prompt and every control that composes it — the
   negative prompt, the image model and style LoRA, the seed and the candidate count.
@@ -90,28 +90,28 @@ Then the nine workspaces:
   then a rendered, pixelised sprite sheet of the clips a character walks and swings through.
   Experimental — the chain runs end to end, but the shipped keyframes are provisional and the
   prompt-to-character half does not currently produce usable humanoids (measured 2026-08-30), so
-  the route worth using is a mesh you supply. Covered in [Troupe](33-troupe.md).
+  the route worth using is a mesh you supply. Covered in [Troupe](34-troupe.md).
 - **Plotter.** A tile-map editor: a grid, a layer stack, one or more tilesets, and the objects an
   engine reads as spawn points and trigger volumes — where a sheet of tiles becomes a level. It
-  speaks Tiled's formats in both directions. Covered in [Plotter](31-plotter.md).
+  speaks Tiled's formats in both directions. Covered in [Plotter](32-plotter.md).
 - **Packwright.** A sprite-atlas packer: many images in, one atlas out, with a sidecar that says
-  where everything landed. Covered in [Packwright](32-packwright.md).
+  where everything landed. Covered in [Packwright](33-packwright.md).
 - **Muse.** Generated music: a comma-separated style-tag string and an optional lyric block become a
   finished track, one job row per take, auditioned in the mode and openable in Sirens as a sample
-  instrument. Covered in [Muse](35-muse.md).
+  instrument. Covered in [Muse](36-muse.md).
 - **Sirens.** A chiptune tracker: NES-era pulse, triangle, noise and sample voices written into a
   pattern grid, stitched into a song by an order list, and saved as a `.wsng`. Instruments carry
   four envelope sequences you drag into shape, a `.wav` dropped on the window becomes a sample, and
   the whole thing exports as a mix, one WAV per channel and one per sound effect. Covered in
-  [Sirens](34-sirens.md).
+  [Sirens](35-sirens.md).
 
 And in the footer:
 
 - **Review.** Judging finished meshes — one at a time or as a parameter sweep — and the "what
-  works" findings the verdicts add up to. Covered in [Review](37-review.md).
+  works" findings the verdicts add up to. Covered in [Review](38-review.md).
 - **Settings.** The app's own preferences — UI scale, the frame-rate readout, layout resets, and the
   list of models it loaded, from which a missing one can be downloaded. See
-  [In-app settings](40-configuration.md#in-app-settings).
+  [In-app settings](41-configuration.md#in-app-settings).
 
 This documentation used to be a mode and is not, for the reason nothing here is: it is *about* the
 screen you are on rather than a place to go. It opens over the window (`F1`, or any pane's (?)
@@ -220,8 +220,8 @@ There is no green "all well" state, because a healthy install has nothing to rep
 
 When the window is too narrow to hold all of it, items drop from the *right* end, so the answer to
 "where am I" is the last thing to go. The one item anchored to the right instead is the optional
-system-resource meter — see [App settings](41-app-settings.md#appearance) — which is
+system-resource meter — see [App settings](42-app-settings.md#appearance) — which is
 reserved before the rest is trimmed, because it is read while a generation is being decided on.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
-the command palette, and it is reproduced in [Keyboard shortcuts](38-shortcuts.md).
+the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).

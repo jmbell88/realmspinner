@@ -43,11 +43,11 @@ without the UI knowing anything about either.
 
 Only one base model is resident at a time. Selecting a different one unloads the previous pipeline
 before building the next, because the card holds the reconstruction engine plus one SDXL-class
-pipeline and not two. See [VRAM modes](40-configuration.md#vram-modes).
+pipeline and not two. See [VRAM modes](41-configuration.md#vram-modes).
 
 A registry entry is also the right answer when `WARLOCK_T2I_DIR` is not — that variable redirects
 where the built-in `turbo` entry loads from and changes nothing about how it is run. See
-[Using a different image model](40-configuration.md#using-a-different-image-model).
+[Using a different image model](41-configuration.md#using-a-different-image-model).
 
 ## Adding a style LoRA
 
@@ -87,7 +87,7 @@ adapter trained with `use_rslora` declares a much larger one than an ordinary ad
 
 A missing LoRA file is skipped at load time rather than failing the job, and the diagnostics name it.
 See [Models and style LoRAs](22-generating-references.md#models-and-style-loras) and
-[Optional image models and style LoRAs](39-installation.md#optional-image-models-and-style-loras).
+[Optional image models and style LoRAs](40-installation.md#optional-image-models-and-style-loras).
 
 ## Adding a palette
 
@@ -179,7 +179,7 @@ adapter that cannot have run is a lie about provenance.
 Inputs are bounded at the door rather than deep in the pipeline: an upload is size-checked before it
 is decoded and pixel-checked from its header before pixels are allocated, prompts are length-capped,
 and every service entry point that accepts a seed range-checks it. See
-[Rerun and promotion](36-library-and-jobs.md#rerun-and-promotion).
+[Rerun and promotion](37-library-and-jobs.md#rerun-and-promotion).
 
 ## Pure-module boundaries
 
@@ -194,7 +194,7 @@ what makes every rule about pixels assertable headlessly — and there are a lot
 undo is addressed by layer uid rather than index precisely so that an undo issued after a reorder
 still lands on the layer the edit was made to.
 
-**Sheet planning.** As described in [Sheet planning](44-pipelines.md#sheet-planning), the grid is
+**Sheet planning.** As described in [Sheet planning](45-pipelines.md#sheet-planning), the grid is
 decided in a module with no Blender and no GPU, so the layout can be tested exhaustively and the
 preview cannot drift from the render.
 
@@ -417,6 +417,57 @@ generating against the shape — and when the shape is one already written down,
 than copying it out again, the way `clay_add_mesh`'s own schema is the shared object-row schema
 `clay_add_primitive` already declares, plus the two keys only it answers with. Otherwise leave it
 off, the same as every other tool in this file already does.
+
+## Adding a mode
+
+A mode is a rung on the rail and a workspace behind it, and adding one is a sweep rather than a
+file. `studio/modes.py` is the authoritative list — the module's own comments explain, inline, why
+each structure beside `MODES` is hand-written rather than derived — and everything below is a site
+that list does not reach on its own. Mason was the fourteenth and walked all of it; the order here
+is the order it went in.
+
+**The rail.** `MODES` is one list of four-tuples: key, label, icon, and a one-line purpose. `KEYS`
+and `PURPOSE` and the rail's drawing order are derived from it, so they need no edit. `RAIL_GROUPS`
+decides which of the three sections the new rung joins — where an asset begins, the creative
+workspaces, or the footer — and `MODES` is asserted to be its flattening, so the two move together.
+If a section's size changes, the comment stating that size is read as data by `tests/test_modes.py`
+and changes with it.
+
+**The partition.** `WORK_MODES`, `WORKSPACE_MODES` and `main._SINGLE_PANE_MODES` must partition the
+mode keys exactly, because `_build_ui`'s dispatch ends in a bare `else`. A mode in the right set with
+no arm of its own is the failure this is worth spelling out: it draws Inker's workspace, tools and
+all, while every membership test in the tree passes. The scan over `_build_ui`'s own source that
+catches it was written the day Mason hit it. `VIEWPORT_MODES` and `NAV_KEY_MODES` are narrower and
+most modes join neither.
+
+**The shell.** A workspace mode's arm in `_shortcut` ends with its own `return`, consumed or not, or
+a later mode inherits keys it never claimed. `DROP_REFUSALS` needs an entry saying, in the mode's own
+words, what it works on instead — unless the mode opens files, in which case it needs a branch of its
+own above that table. The quit guard needs to know the mode can hold unsaved work.
+
+**A document mode costs more.** If the mode edits a saved document rather than running jobs, it also
+joins `docmodes.DOC_MODES`, `recents.KINDS`, `palette._DOC_MODES`, `journal`'s recoverable kinds, and
+Home's own list of things you can start. `palette._DOC_MODES` is the sharp one: joining it before the
+mode's module answers `active(ctx)` is an `AttributeError` rather than a missing row.
+
+**The workspace.** `skeletons` gets a function returning the mode's three columns, and `layout`'s
+pane tables learn its pane keys. Every interactive widget goes through `controls.py`. Every pane
+either carries a `(?)` and a `HELP_TARGETS` row, or is named in `tests/manual/test_coverage.py` with
+the reason it has neither — a menu bar and a hint line are the two exemptions that keep being
+granted.
+
+**The prose.** A chapter for the mode, in the part the rail's order puts it in — see the next
+section, and expect a renumbering rather than an append. A section in the keyboard-shortcuts chapter
+*and* a group in `shortcuts.py`, which are gated against each other in both directions, so neither
+lands alone. The overview chapter's mode list and the mode-count words in `docs/INVARIANTS.md` and
+`README.md`, all three of which are read off `modes.MODES` by a test rather than kept in step by
+hand.
+
+The one geometry check worth running early is
+`tests/test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale`. It asserts the
+rail's row-height ladder still fits every mode inside the resize floor at every DPI scale, and a
+mode that fails it has made an *existing* mode unreachable by four physical pixels — which no
+membership check would ever see.
 
 ## Writing manual chapters
 

@@ -78,7 +78,7 @@ same thing.
 
 You can also send a library asset straight in — right-click any reference card and choose **Add to
 Plotter as a tileset**. If no map is open, the **New map** dialog appears first and the asset is
-added to whatever you make there. A [Packwright](32-packwright.md) grid pack is the natural source:
+added to whatever you make there. A [Packwright](33-packwright.md) grid pack is the natural source:
 it writes a `.tsx` beside its atlas precisely so it can be used here with no conversion.
 
 A generated tilesheet — the kind an image model produces when you ask it for a tileset — usually
@@ -738,5 +738,5 @@ Hidden layers are not rendered. One flag decides both what you see and what come
 | `~/.warlock/assets/<job>/input.png` | The flat render, for a map exported to the library. |
 | `~/.warlock/assets/<job>/map.wmap` | The map behind that render. Not served; reopened by **Open in Plotter**. |
 
-See [Keyboard shortcuts](38-shortcuts.md) for every binding, and
-[Packwright](32-packwright.md) for building the tilesets this mode consumes.
+See [Keyboard shortcuts](39-shortcuts.md) for every binding, and
+[Packwright](33-packwright.md) for building the tilesets this mode consumes.

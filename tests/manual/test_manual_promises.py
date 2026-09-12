@@ -125,9 +125,9 @@ def test_packwright_manual_does_not_promise_a_gitignored_examples_directory():
     gitignore = (MANUAL.parent.parent / ".gitignore").read_text(encoding="utf-8")
     assert "/examples/" in gitignore, "sanity: examples/ expected gitignored"
 
-    text = _chapter("32-packwright.md")
+    text = _chapter("33-packwright.md")
     assert "examples/" not in text, (
-        "docs/manual/32-packwright.md still points the reader at examples/, "
+        "docs/manual/33-packwright.md still points the reader at examples/, "
         "which .gitignore excludes from every checkout"
     )
 
@@ -299,7 +299,7 @@ def test_manual_ch04_and_ch37_name_the_labelling_section_teach_the_judge():
         "section -- update this test and the manual together"
     )
 
-    for name in ("04-judging-what-you-made.md", "37-review.md"):
+    for name in ("04-judging-what-you-made.md", "38-review.md"):
         text = _chapter(name)
         assert "Teaching the judge" not in text, (
             f"docs/manual/{name} still calls the section 'Teaching the "
@@ -329,7 +329,7 @@ def test_chapter_03_and_32_quote_the_real_add_to_packwright_label():
         f"sanity: verbs.add_to changed shape, got {label!r}"
     )
 
-    for name in ("03-finding-your-work.md", "32-packwright.md"):
+    for name in ("03-finding-your-work.md", "33-packwright.md"):
         text = _chapter(name)
         assert "Add to a Packwright atlas" not in text, (
             f"docs/manual/{name} still quotes the stale 'Add to a "
@@ -399,10 +399,10 @@ def test_the_packwright_manual_chapter_lists_every_source_door_the_code_has():
     for bridge in ch10_bridges:
         assert f"**{bridge}**" in ch10, f"sanity: chapter 10 no longer lists {bridge!r}"
 
-    sources = _section(_chapter("32-packwright.md"), "Sources")
+    sources = _section(_chapter("33-packwright.md"), "Sources")
     missing = [b for b in ch10_bridges if f"**{b}**" not in sources]
     assert not missing, (
-        "docs/manual/32-packwright.md's Sources section is missing the "
+        "docs/manual/33-packwright.md's Sources section is missing the "
         f"door(s) {missing}, which chapter 10 documents and the code has "
         "(troupe_mode.add_to_packwright -> packwright_mode.add_rendered_sheet)"
     )
@@ -454,18 +454,18 @@ def test_manual_ui_scale_paragraph_matches_the_ui_scale_steps():
     from warlock.studio import tokens
 
     top = max(tokens.UI_SCALE_STEPS)
-    appearance = _section(_chapter("41-app-settings.md"), "Appearance")
+    appearance = _section(_chapter("42-app-settings.md"), "Appearance")
 
     assert "2×" not in appearance, (
-        "docs/manual/41-app-settings.md still offers UI scale up to 2x; "
+        "docs/manual/42-app-settings.md still offers UI scale up to 2x; "
         f"tokens.UI_SCALE_STEPS tops out at {top}"
     )
     assert f"{int(top * 100)}%" in appearance, (
-        "docs/manual/41-app-settings.md does not name the real UI-scale "
+        "docs/manual/42-app-settings.md does not name the real UI-scale "
         f"ceiling ({int(top * 100)}%) from tokens.UI_SCALE_STEPS"
     )
     assert "as you drag it" not in appearance, (
-        "docs/manual/41-app-settings.md still describes dragging the UI-scale "
+        "docs/manual/42-app-settings.md still describes dragging the UI-scale "
         "control; it is a combo of named steps, not a slider"
     )
 
@@ -476,22 +476,22 @@ def test_manual_does_not_call_the_engine_or_gguf_rows_fatal():
     a download, leaving the VRAM budget as the only fatal row. Three chapters
     went on calling a missing engine fatal -- and chapter 39 contradicted
     itself, saying both."""
-    ch39 = _chapter("39-installation.md")
-    ch42 = _chapter("42-troubleshooting.md")
-    ch40 = _chapter("40-configuration.md")
+    ch39 = _chapter("40-installation.md")
+    ch42 = _chapter("43-troubleshooting.md")
+    ch40 = _chapter("41-configuration.md")
 
     fatal_bullet = ch39[ch39.index("- **`[FATAL]`**") :][:600]
     assert "trellis-server.exe` (which the installer ships) and a VRAM" not in fatal_bullet, (
-        "docs/manual/39-installation.md's [FATAL] bullet still names "
+        "docs/manual/40-installation.md's [FATAL] bullet still names "
         "trellis-server.exe; doctor reports it as a setup row"
     )
 
     assert "Two of these rows are **fatal**" not in ch42, (
-        "docs/manual/42-troubleshooting.md still calls the engine and the "
+        "docs/manual/43-troubleshooting.md still calls the engine and the "
         "GGUF weights fatal; both are pending_install rows"
     )
     assert "Missing it is a fatal check." not in ch40, (
-        "docs/manual/40-configuration.md still calls a missing "
+        "docs/manual/41-configuration.md still calls a missing "
         "WARLOCK_TRELLIS_EXE a fatal check"
     )
 
@@ -536,7 +536,7 @@ def test_installation_music_extras_table_lists_every_declared_package():
     names = {re.split(r"[<>=\[]", spec, maxsplit=1)[0].strip() for spec in declared}
     row = next(
         line
-        for line in _chapter("39-installation.md").splitlines()
+        for line in _chapter("40-installation.md").splitlines()
         if line.startswith("| `music` |")
     )
     # Not every pin needs naming, but the ones a reader would size the install
@@ -544,7 +544,7 @@ def test_installation_music_extras_table_lists_every_declared_package():
     for package in ("torchaudio", "librosa", "spacy"):
         assert package in names, f"sanity: pyproject's music extra lost {package}"
         assert package in row, (
-            f"docs/manual/39-installation.md's music extras row omits "
+            f"docs/manual/40-installation.md's music extras row omits "
             f"{package!r}, which [project.optional-dependencies].music declares"
         )
 
@@ -563,12 +563,12 @@ def test_the_shortcuts_chapter_does_not_send_the_reader_to_a_rail_button_that_do
         "backwards"
     )
 
-    text = _chapter("38-shortcuts.md")
+    text = _chapter("39-shortcuts.md")
     assert "rail's footer" not in text, (
-        "docs/manual/38-shortcuts.md sends the reader to a Shortcuts button "
+        "docs/manual/39-shortcuts.md sends the reader to a Shortcuts button "
         f"in the rail's footer; RAIL_GROUPS' footer group is {footer}"
     )
     assert "Help" in text, (
-        "docs/manual/38-shortcuts.md no longer names where the sheet actually "
+        "docs/manual/39-shortcuts.md no longer names where the sheet actually "
         "lives (the Help menu / command palette)"
     )
