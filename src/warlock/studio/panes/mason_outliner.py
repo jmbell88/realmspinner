@@ -217,9 +217,9 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
     )[0]:
         doc.move_node(node.uid, len(doc.roots), parent_uid=None)
     widgets.divider()
-    if controls.menu_item("Group", "Ctrl+G", False)[0]:
+    if controls.menu_item("Group", "G", False)[0]:
         mason_mode.group_selected(ctx)
-    if controls.menu_item("Ungroup", "Ctrl+Shift+G", False, _groupish(doc))[0]:
+    if controls.menu_item("Ungroup", "Shift+G", False, _groupish(doc))[0]:
         mason_mode.ungroup_selected(ctx)
     if controls.menu_item(f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1)[0]:
         mason_mode.define_prefab_from_selection(ctx)

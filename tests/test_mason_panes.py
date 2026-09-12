@@ -345,3 +345,56 @@ def test_an_outliner_drop_reparents_rather_than_reordering_among_the_targets_sib
     menu = inspect.getsource(mason_outliner._context_menu)
     assert "Move up" in menu and "Move down" in menu
     assert "doc.index_of(node.uid)" in menu
+
+
+def test_every_accelerator_a_mason_menu_advertises_is_one_handle_key_answers():
+    """The two menus said ``Ctrl+G`` and ``Ctrl+Shift+G`` for Group and Ungroup
+    for as long as both existed, and ``handle_key`` binds plain ``G`` and
+    ``Shift+G`` -- ``_ctrl_key`` has no ``g`` arm at all, so the chord the menu
+    taught did nothing whatsoever. A user who read the menu once and then
+    reached for the keyboard got silence, and the only record they had of the
+    binding was wrong.
+
+    Nothing could have caught it: ``tests/manual/test_shortcuts.py`` gates the
+    Ctrl+/ sheet against the chapter in both directions, and a *menu's* own
+    accelerator column is in neither document. This is that third surface, read
+    off ``mason_mode``'s own dispatch rather than off a list written here, so
+    the next binding a menu advertises has to be one the mode actually answers.
+
+    Source-level on purpose: what is in question is a literal string in a
+    ``menu_item`` call, and pressing the key would test the handler rather than
+    the label beside it.
+    """
+    import re
+
+    from warlock.studio import mason_mode
+    from warlock.studio.panes import mason_menu, mason_outliner
+
+    # What the mode dispatches on, from the two functions that do the
+    # dispatching: the ``name == "x"`` arms, plus the tool letters and the axis
+    # views, both of which are tables rather than arms.
+    def _names(func):
+        return set(re.findall(r'name == "([^"]+)"', inspect.getsource(func)))
+
+    plain = _names(mason_mode.handle_key) | set(mason_mode.TOOL_KEYS)
+    chords = _names(mason_mode._ctrl_key) | set(mason_mode.AXIS_VIEW_KEYS) | {"5"}
+    assert "g" in plain, "handle_key no longer binds G -- this gate has nothing to check"
+
+    advertised = re.findall(
+        r'menu_item\(\s*(?:f?"[^"]*"|[^,]+),\s*"([^"]+)"',
+        inspect.getsource(mason_menu) + inspect.getsource(mason_outliner),
+    )
+    assert advertised, "no accelerators found -- the scan has stopped matching"
+
+    wrong = []
+    for accel in advertised:
+        key = accel.split("+")[-1].lower()
+        if key == "del":  # the one named key these menus use; K_DELETE, not a letter
+            continue
+        known = chords if accel.startswith("Ctrl+") else plain
+        if key not in known:
+            wrong.append(accel)
+    assert not wrong, (
+        f"Mason's menus advertise {wrong}, which mason_mode.handle_key does not "
+        f"bind -- the menu is the only place a user reads that binding"
+    )

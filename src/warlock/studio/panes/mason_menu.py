@@ -45,9 +45,9 @@ def _rows(ctx: Any, tab: Any) -> None:
         return
     if controls.menu_item(f"{icons.COPY} Duplicate", "Ctrl+J", False, selected)[0]:
         mason_mode.duplicate_selected(ctx)
-    if controls.menu_item("Group", "Ctrl+G", False, selected)[0]:
+    if controls.menu_item("Group", "G", False, selected)[0]:
         mason_mode.group_selected(ctx)
-    if controls.menu_item("Ungroup", "Ctrl+Shift+G", False, selected)[0]:
+    if controls.menu_item("Ungroup", "Shift+G", False, selected)[0]:
         mason_mode.ungroup_selected(ctx)
     controls.menu_separator()
     # Where the *first* prefab is made, and it has to be somewhere that exists

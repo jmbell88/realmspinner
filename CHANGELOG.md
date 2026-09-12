@@ -102,6 +102,13 @@ not there and let you save over it.
 - **The exported asset's card gets a picture of the scene**, taken from Mason's
   own viewport. The shared snapshot code only knew how to photograph Clay's,
   which in a session that never opened Clay is nothing at all.
+- **Group and Ungroup are on the keys the menu says they are.** Both of
+  Mason's context menus advertised Ctrl+G and Ctrl+Shift+G; the mode binds
+  plain G and Shift+G, and the chord the menus taught did nothing at all. The
+  menus now say what the mode answers to, and every accelerator either of them
+  advertises is checked against the mode's own key handling -- a menu's
+  shortcut column was the one place a binding was written down that neither
+  the manual nor the Ctrl+/ sheet could see.
 - **Mason is documented**, which is what its (?) buttons were waiting for.
   There is a reference chapter covering every panel, brush, ceiling and export,
   a tutorial that builds a room out of library assets and takes it into an
