@@ -20,6 +20,20 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**A call refused because agents were switched off stops appearing in the
+benchmark transcript as a call that ran.** Switching the agent toggle off
+while a call waited in the frame queue answered it "switched off" without ever
+running it — correctly — and then recorded it into `WARLOCK_AGENT_TRANSCRIPT`
+as completed, so a replay would try to rebuild an edit that never happened. A
+dropped job is now delivered and not recorded;
+`test_a_switched_off_refusal_for_a_job_that_never_ran_is_absent_from_the_transcript`
+failed against the old guard. Alongside it, and invisible to an agent today:
+the Studio end of the pipe also answers a private, versioned RPC (a `hello`, a
+`catalogue` and a `call`, replies spliced rather than re-parsed) and writes
+`mcp.catalogue.json` into the Warlock home at start. It is groundwork for the
+`warlock mcp` bridge serving MCP itself, both the 2026-07-28 revision and the
+four older ones; nothing speaks it yet.
+
 **An agent building in Clay over the pipe gets refusals it can act on where it
 used to get a crash.** Three defects, all found by one authoring session on
 2026-09-12 rather than by a test, and all in the surface an external agent

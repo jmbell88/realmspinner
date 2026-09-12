@@ -2,7 +2,7 @@
 
 **One thread reads the pipe; only the frame thread ever touches a document,
 GL or imgui.** ``AgentHost`` owns a :class:`~warlock.mcp.pipe.Server` and a
-daemon thread that loops ``accept`` -> a per-connection ``recv_bytes` ->
+daemon thread that loops ``accept`` -> a per-connection ``recv_bytes`` ->
 ``protocol.decode`` -> ``protocol.dispatch`` -> ``protocol.encode`` ->
 ``send_bytes``. ``protocol.dispatch`` needs a ``call(name, arguments)``
 callback to actually run a tool, and running a tool means touching a
@@ -27,6 +27,17 @@ nothing for a notification would leave the bridge blocked in its own
 would then be misread as. ``b""`` is a legitimate, empty frame on this
 transport (length-prefixed, per ``pipe.py``'s use of ``multiprocessing.
 connection``) and is exactly what keeps the two sides in step.
+
+**``_serve`` sniffs the first frame of a connection to decide which
+of two private wire formats the rest of it speaks.** A first frame that
+parses as a JSON object containing ``"jsonrpc"`` is the MCP path described
+above, unchanged. A first frame containing ``"rpc"`` instead is ``warlock.
+mcp.rpc``'s own versioned RPC v1 -- see that module's docstring for the wire
+shape and the versioning rule. Both paths route a ``call``/``tools/call``
+through the exact same :meth:`AgentHost._call` (dedup, replay,
+``warlock_status``, transcript, timeout refusals included) -- there is one
+copy of that logic, not two wire formats each with their own. `bridge.py`
+does not speak RPC v1 yet; only Studio's side of the pipe does.
 
 **`initialize`'s `instructions` text is supplied by `agent_clay`, not written
 here or in `protocol.py`.** `protocol.dispatch` takes `instructions` as a
@@ -119,7 +130,6 @@ transcript path happened to be unwritable.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import logging
 import os
@@ -212,10 +222,9 @@ def _fingerprint(tool: str, args: dict) -> str:
     fingerprint, and an 8-byte digest over the full canonical argument text
     does not do that by accident.
     """
-    canonical = json.dumps(
-        {"tool": tool, "args": args}, sort_keys=True, separators=(",", ":"), default=str
-    )
-    return hashlib.blake2b(canonical.encode("utf-8"), digest_size=8).hexdigest()
+    from ..mcp import rpc
+
+    return rpc.canonical_hash({"tool": tool, "args": args})
 
 
 def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
@@ -569,6 +578,7 @@ class AgentHost:
             daemon=True,
         )
         self._thread.start()
+        self._write_catalogue_snapshot()
         return True
 
     def stop(self) -> None:
@@ -655,8 +665,14 @@ class AgentHost:
 
     def _serve(self, conn: Any) -> None:
         """One bridge's whole lifetime: open a session and a tab for it,
-        answer every request until it disconnects, then say so."""
-        from ..mcp import protocol
+        answer every request until it disconnects, then say so.
+
+        The *first* frame decides which of two wire formats the rest of the
+        connection speaks -- see the module docstring's first-frame paragraph. Every
+        frame after that goes through the same branch: a connection cannot
+        switch formats mid-stream, since nothing on either side ever needs
+        it to."""
+        from ..mcp import protocol, rpc
 
         session = agent_clay.Session()
         calls = _Calls()
@@ -667,6 +683,7 @@ class AgentHost:
         # inspected: ``create=True`` cannot fail, and every tool call after
         # this resolves the tab fresh through ``agent_clay._tab`` regardless.
         self._run_on_frame(lambda: agent_clay._tab(self.ctx, session, create=True))
+        rpc_mode: bool | None = None
         try:
             while True:
                 try:
@@ -675,26 +692,35 @@ class AgentHost:
                     # The bridge went away -- not this host's problem to
                     # report, just to notice.
                     return
-                try:
-                    message = protocol.decode(frame_bytes)
-                except ValueError as exc:
-                    reply_bytes = _parse_error_frame(exc)
-                    if reply_bytes is None:
-                        return
+                if rpc_mode is None:
+                    rpc_mode = rpc.looks_like_rpc(frame_bytes)
+                if rpc_mode:
+                    reply_bytes = self._serve_rpc_frame(session, calls, frame_bytes)
                 else:
-                    reply = protocol.dispatch(
-                        message,
-                        # Clay's derived catalogue, plus the transport-level
-                        # tools this module publishes itself -- see
-                        # _transport_tools for why STATUS_TOOL cannot join
-                        # agent_clay._HANDLERS instead.
-                        tools=lambda: [*agent_clay.tools(), *_transport_tools()],
-                        call=lambda name, arguments: self._call(session, calls, name, arguments),
-                        instructions=agent_clay.instructions(),
-                    )
-                    # A notification: see the module docstring for why this
-                    # is a zero-length frame and never a skipped write.
-                    reply_bytes = b"" if reply is None else protocol.encode(reply)
+                    try:
+                        message = protocol.decode(frame_bytes)
+                    except ValueError as exc:
+                        reply_bytes = _parse_error_frame(exc)
+                        if reply_bytes is None:
+                            return
+                    else:
+                        reply = protocol.dispatch(
+                            message,
+                            # Clay's derived catalogue, plus the
+                            # transport-level tools this module publishes
+                            # itself -- see _transport_tools for why
+                            # STATUS_TOOL cannot join agent_clay._HANDLERS
+                            # instead.
+                            tools=lambda: [*agent_clay.tools(), *_transport_tools()],
+                            call=lambda name, arguments: self._call(
+                                session, calls, name, arguments
+                            ),
+                            instructions=agent_clay.instructions(),
+                        )
+                        # A notification: see the module docstring for why
+                        # this is a zero-length frame and never a skipped
+                        # write.
+                        reply_bytes = b"" if reply is None else protocol.encode(reply)
                 try:
                     conn.send_bytes(reply_bytes)
                 except OSError:
@@ -705,6 +731,91 @@ class AgentHost:
             self._active_conn = None
             self._connected = False
             self._toast("The agent disconnected.")
+
+    def _serve_rpc_frame(
+        self, session: agent_clay.Session, calls: _Calls, frame_bytes: bytes
+    ) -> bytes:
+        """One RPC v1 request answered, per ``warlock.mcp.rpc``'s wire
+        shape. Never raises: an undecodable frame or an unknown op both get
+        an ``{"error": ...}`` header rather than taking the connection down,
+        the same tolerance the MCP path gives a malformed frame via
+        :func:`_parse_error_frame`."""
+        from ..mcp import rpc
+
+        try:
+            message = rpc.decode_request(frame_bytes)
+        except ValueError:
+            return rpc.encode_reply(rpc.bad_request_header())
+
+        op = message.get("op")
+        if op == "hello":
+            header = rpc.hello_header(
+                message.get("versions"),
+                studio_version=self._rpc_studio_version(),
+                catalogue_hash=self._catalogue_hash(),
+                call_timeout=CALL_TIMEOUT,
+            )
+            return rpc.encode_reply(header)
+        if op == "catalogue":
+            return rpc.encode_reply(self._catalogue_payload())
+        if op == "call":
+            name = message.get("tool")
+            arguments = message.get("args")
+            if not isinstance(name, str) or not name or not isinstance(arguments, dict):
+                return rpc.encode_reply(rpc.bad_request_header())
+            result = self._call(session, calls, name, arguments)
+            body = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            return rpc.encode_reply({"hash": rpc.canonical_hash(result)}, body)
+        return rpc.encode_reply(rpc.unknown_op_header())
+
+    def _rpc_studio_version(self) -> str:
+        from ..mcp import protocol
+
+        return protocol.SERVER_VERSION
+
+    def _rpc_tools(self) -> list[Any]:
+        """The exact tool list both wire formats publish -- see
+        ``_serve``'s ``tools=`` lambda for the MCP-path twin of this."""
+        return [*agent_clay.tools(), *_transport_tools()]
+
+    def _catalogue_payload(self) -> dict[str, Any]:
+        from ..mcp import protocol, rpc
+
+        return rpc.catalogue_payload(
+            self._rpc_tools(),
+            instructions=agent_clay.instructions(),
+            server_name=protocol.SERVER_NAME,
+            server_version=protocol.SERVER_VERSION,
+        )
+
+    def _catalogue_hash(self) -> str:
+        return self._catalogue_payload()["hash"]
+
+    def _write_catalogue_snapshot(self) -> None:
+        """``<home>/mcp.catalogue.json`` = the ``catalogue`` op's own reply
+        header, staged to a temp file and ``os.replace``d -- this repo's rule
+        for every write onto a name another process reads (see ``CLAUDE.md``'s
+        "Artifacts" paragraph and ``pipe.write_token`` for the same pattern).
+        Written once, at :meth:`start`, from whatever the catalogue looks
+        like right then; nothing changes the catalogue mid-session today, and
+        whatever first does must call this again.
+        Failure is logged and otherwise ignored, the same tolerance
+        :func:`_record_completed_call` gives a diagnostic write -- a snapshot
+        nobody has read yet must not stop the agent server from starting.
+        """
+        import secrets
+
+        dest = self.home / "mcp.catalogue.json"
+        tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
+        try:
+            payload = json.dumps(self._catalogue_payload(), separators=(",", ":"))
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, dest)
+        except OSError:
+            log.exception("agent host: could not write %s", dest)
+        finally:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
 
     def _call(
         self, session: agent_clay.Session, calls: _Calls, name: str, arguments: dict
@@ -781,7 +892,19 @@ class AgentHost:
             # ``_record_completed_call``'s own docstring for why buying it
             # back would cost every operation the arguments it deliberately
             # drops.
-            _record_completed_call(name, arguments, result)
+            #
+            # ``state == DROPPED`` here is a third case, not a fourth
+            # wording of the second: it means the job never ran at all --
+            # ``_fail_pending`` (switched off mid-flight) or the "never
+            # queued" early-out in ``_run_on_frame_job`` (switched off
+            # before this call was even placed on the queue) both stamp a
+            # refusal straight onto ``result`` so the peer gets an answer
+            # on this call rather than a timeout later. That refusal is
+            # delivered, correctly, but it is not a completed tool call --
+            # recording it here misfiled a refusal as tier-two data for a
+            # call that never touched the document at all.
+            if state != DROPPED:
+                _record_completed_call(name, arguments, result)
             return result
         # The result never reached the peer -- a timeout refusal is about to
         # be returned instead -- so keep this operation replayable rather

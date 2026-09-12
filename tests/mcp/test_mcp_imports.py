@@ -144,4 +144,4 @@ def test_the_scan_would_catch_a_lazy_studio_import(tmp_path):
 
 def test_every_module_imports():
     from warlock import mcp  # noqa: F401
-    from warlock.mcp import bridge, pipe, protocol  # noqa: F401
+    from warlock.mcp import bridge, pipe, protocol, rpc  # noqa: F401

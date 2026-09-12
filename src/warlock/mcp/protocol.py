@@ -22,10 +22,11 @@ this module still turns it into `isError` rather than propagating it."
 
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import Callable, Sequence
-from typing import Any, NamedTuple
+from typing import Any
+
+from .rpc import MAX_FRAME, Tool, fail, image_png, ok, text  # noqa: F401 -- re-exported
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "warlock-studio"
@@ -69,28 +70,10 @@ configuration is a module-level knob rather than a parameter threaded through
 every call.
 """
 
-MAX_FRAME = 8 << 20
-"""Ceiling on one newline-delimited JSON frame, in `encode`/`decode`.
-
-MCP messages here are small requests and modest tool results (an image is
-carried as base64 content, not a raw blob); 8 MiB is generous for that and
-tight enough that a confused or hostile peer sending an unbounded line gets a
-clean refusal instead of an unbounded `bytes` accumulation on the read side."""
-
-
-class Tool(NamedTuple):
-    name: str
-    title: str
-    description: str
-    schema: dict[str, Any]  # JSON Schema for the tool's arguments
-    output_schema: dict[str, Any] | None = None
-    """JSON Schema for `structuredContent`, when a tool declares one. `None`
-    (the default) for every tool that does not -- which is what keeps
-    `_tool_json` leaving `outputSchema` off the wire entirely for it, rather
-    than sending `null`, so a tool that declares none produces exactly the
-    JSON this module emitted before this field existed. Declaring one is the
-    rare, deliberate case; see `agent_clay.py`'s module docstring for which
-    three tools do and why the rest do not."""
+# Tool, ok, fail, text, image_png and MAX_FRAME now live in `rpc.py` -- the
+# private RPC v1 wire format shares them with this MCP one -- and are
+# imported above so every existing `protocol.Tool` / `protocol.ok` / etc.
+# call site keeps working unchanged.
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -115,55 +98,6 @@ def decode(line: bytes) -> dict[str, Any]:
     if not isinstance(message, dict):
         raise ValueError(f"expected a JSON object, got {type(message).__name__}")
     return message
-
-
-def text(s: str) -> dict[str, str]:
-    return {"type": "text", "text": s}
-
-
-def image_png(data: bytes) -> dict[str, str]:
-    return {
-        "type": "image",
-        "data": base64.b64encode(data).decode("ascii"),
-        "mimeType": "image/png",
-    }
-
-
-def ok(*content: dict[str, Any], structured: dict[str, Any] | None = None) -> dict[str, Any]:
-    """A tool result that succeeded.
-
-    `content` is the text (and image) blocks a model actually reads --
-    always present, never optional. `structured` is the same answer again,
-    as data, for a client that wants to branch on a field instead of
-    re-parsing prose out of `content[0]["text"]` -- the successful-result
-    counterpart to `fail`'s own `extra` below. Per MCP, `structuredContent`
-    is an **object**, never a list or a scalar, which is why this takes a
-    `dict` rather than whatever shape a payload happens to be; `agent_clay.
-    _json` checks that before it ever passes one. Keyword-only because
-    `*content` is already variadic -- a positional argument after it would
-    be ambiguous about which content block it belonged to. Left `None` (the
-    default), the key is omitted from the result entirely rather than sent
-    as `null`, so every caller written before this parameter existed still
-    produces a byte-identical result.
-    """
-    result: dict[str, Any] = {"content": list(content), "isError": False}
-    if structured is not None:
-        result["structuredContent"] = structured
-    return result
-
-
-def fail(message: str, **extra: Any) -> dict[str, Any]:
-    """A tool result that reports failure without ever becoming a JSON-RPC error.
-
-    `message` always lands as readable text content -- an agent's model reads
-    that, not `structuredContent` -- and `extra` (e.g. `field="thickness"`,
-    echoing `service.errors`' own convention) rides along as structured data
-    for a caller that wants to branch on it instead of parsing prose.
-    """
-    result: dict[str, Any] = {"content": [text(message)], "isError": True}
-    if extra:
-        result["structuredContent"] = extra
-    return result
 
 
 def _tool_json(tool: Tool) -> dict[str, Any]:
