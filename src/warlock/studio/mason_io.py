@@ -20,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..service.files import MAX_SCENE_SOURCE_BYTES
 from . import atomic, mason_state, sizeguard
 
 WSCN_FILTER = ["Warlock scene (*.wscn)", "*.wscn"]
@@ -34,7 +35,17 @@ GLB_FILTER = ["glTF binary (*.glb)", "*.glb"]
 # mesh's full vertex and index arrays. Fifty megabytes is generous against
 # that shape and still small enough to refuse before an unreasonable file is
 # ever unzipped.
-MAX_WSCN_BYTES = 50 * 1024 * 1024
+#
+# **Imported, not restated.** Stage G gave a scene a second door -- the
+# ``scene.wscn`` sidecar beside an exported library row -- and the ceiling on
+# the way *out* through that door is ``service.files.MAX_SCENE_SOURCE_BYTES``.
+# Two numbers for one format is how a file this module opens happily comes to
+# be one the service refuses to store, so there is one number and this is a
+# view of it. The import is at module scope deliberately: ``mason_io`` already
+# reaches into ``service`` nowhere else, but a lazy import here would put the
+# only statement of the ceiling behind a function call, and the constant is
+# read by ``sizeguard`` on a path that must not be able to find it missing.
+MAX_WSCN_BYTES = MAX_SCENE_SOURCE_BYTES
 
 
 def load(path: Path) -> dict[str, Any]:

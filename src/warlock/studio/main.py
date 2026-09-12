@@ -2055,6 +2055,16 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             # refusal itself: a ``mason-asset:`` key is a background parse,
             # never a document task, and that module claims the prefix.
             mason_mode.on_task_done(ctx, done)
+            if isinstance(done.result, dict) and done.result.get("exported_asset"):
+                # The card appears in the library like any other asset, so it
+                # needs the thumbnail every other asset gets -- and that is an
+                # offscreen GL draw, which belongs on the frame thread rather
+                # than in the task that minted the row. From *Mason's* viewport,
+                # not Clay's: the picture has to be of the scene that was
+                # exported, and ``self.clay_view`` is either a different
+                # document or (in a session that never opened Clay) None, which
+                # would silently leave the card on its placeholder.
+                self._capture_thumbnail_from(done.result["job_id"], self.mason_view)
             return
         if key.startswith("inker-"):
             from . import inker_mode
@@ -4279,22 +4289,32 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             self.clay_view.frame_selection(tab.doc)
 
     def _capture_clay_thumbnail(self, job_id: str) -> None:
+        """The library card's picture, from Clay's viewport."""
+        self._capture_thumbnail_from(job_id, self.clay_view)
+
+    def _capture_thumbnail_from(self, job_id: str, view: Any) -> None:
         """The library card's picture, from the viewport that is already drawn.
 
         On the frame thread because it reads a framebuffer, which is the same
         reason ``ctx.capture_thumbnail`` is -- and it is the one deliberate
         exception to "the frame loop never blocks", being a single offscreen
         read rather than work.
+
+        Takes the viewport rather than reaching for ``self.clay_view``, because
+        there are two of them now: Mason exports its own scene from
+        ``self.mason_view``, and a version of this that knew only about Clay's
+        would have photographed whatever Clay happened to be holding -- or
+        nothing at all in a session that never opened it.
         """
         from ..service import files as svc_files
 
         ctx = self.app_ctx
-        if self.clay_view is None:
+        if view is None:
             return
         try:
             # The GL readback only; the PNG encode joins the save on the task
             # thread (D41), exactly as ctx.capture_thumbnail does.
-            image = self.clay_view.screenshot()
+            image = view.screenshot()
         except Exception:
             # A warning rather than an error (E48): the export itself succeeded
             # and the asset is in the library -- what failed is its picture. The

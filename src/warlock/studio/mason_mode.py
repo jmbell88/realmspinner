@@ -317,6 +317,27 @@ def place_job(ctx: Any, job: Any) -> int | None:
     return place_ref(ctx, ref, name=name or "Asset")
 
 
+def add_asset_to_scene(ctx: Any, job: Any) -> int | None:
+    """A library mesh -> a node in the open scene, from anywhere in the app.
+
+    :func:`place_job` with the two things the Assets pane already has and the
+    library's overflow menu does not: a document to place into, and Mason on
+    screen to see it happen. Both are the same defect in two halves -- an exit
+    that quietly placed a node into a scene the user is not looking at, or into
+    no scene at all, would report success and show nothing. So a scene is minted
+    if none is open (``new_document``, exactly what the empty state's own "New
+    scene" button does) and the mode is switched to afterwards.
+
+    -> the new node's uid, or None if the placement itself refused.
+    """
+    if active(ctx) is None:
+        new_document(ctx)
+    uid = place_job(ctx, job)
+    if uid is not None:
+        _enter_mason(ctx)
+    return uid
+
+
 # --- editing --------------------------------------------------------------------
 
 
@@ -759,6 +780,108 @@ def export_obj(ctx: Any, tab: MasonTab | None = None) -> None:
     _start(ctx, tab, f"mason-exportobj:{tab.uid}", run)
 
 
+# --- the library ------------------------------------------------------------------
+
+
+def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
+    """Mint an ordinary asset from the scene: the round trip's outward half.
+
+    ``clay_mode.export_asset``'s shape and the same payoff -- what comes out is
+    a ``done`` **model** row, so the library, the inspector, every mesh export
+    and the whole 3D pipeline work on it without any of them learning that
+    Mason exists. The merged GLB goes first (``import_mesh`` is what creates
+    the row at all) and the ``scene.wscn`` sidecar second, so a crash between
+    the two leaves the sidecar absent rather than describing an arrangement the
+    mesh on disk is not.
+
+    **The GLB written here is the scene's own, not the OBJ's merge.** A
+    ``scene.glb`` keeps the node graph -- the groups, the instances, the lights
+    and the cameras -- and ``import_mesh`` stores it as ``source.glb`` with
+    ``model.glb`` derived from it, so the hierarchy survives into the library
+    row rather than being flattened on the way in. The *manifest* half of
+    :func:`export_glb`'s bundle is deliberately not written beside it: it is
+    the provenance sidecar for a **file** export an engine import script reads,
+    and the library row's provenance is the ``.wscn`` itself, which says
+    strictly more and is the thing that reopens.
+
+    ``authored="mason"`` is the marker :func:`edit_asset_in_mason` is offered
+    from -- see ``service._jobs_create.import_mesh`` for why the mesh side
+    needed a field the reference side already had.
+    """
+    from .mason import serialize
+
+    tab = tab or active(ctx)
+    if tab is None or tab.saving:
+        return
+    doc, title = tab.doc, tab.title
+    if not doc.roots:
+        # Refused here rather than at the service door, so no job directory is
+        # ever created for it -- ``clay_mode.export_asset``'s own reason:
+        # ``check_glb`` would refuse the same empty bytes, but only after this
+        # had told the user an export was under way.
+        docmodes.refuse(ctx, "There is nothing in this scene to export.")
+        return
+    camera_of(ctx, tab)
+    snap = serialize.snapshot(doc)
+
+    def run() -> dict[str, Any]:
+        from ..service import files as svc_files
+        from ..service import jobs as svc_jobs
+        from .mason import gltfout
+        from .viewer import glbwrite
+
+        source = mason_assets.ensure(ctx)
+        export = gltfout.scene_model(doc, source)
+        result = svc_jobs.import_mesh(
+            ctx.svc,
+            glbwrite.write_glb(export.model),
+            name=title,
+            prompt=title,
+            authored="mason",
+        )
+        job_id = result["id"]
+        svc_files.save_mason_source(ctx.svc, job_id, serialize.snapshot_bytes(snap))
+        return {"job_id": job_id, "exported_asset": True}
+
+    _start(ctx, tab, f"mason-library:{tab.uid}", run)
+
+
+def edit_asset_in_mason(ctx: Any, job: Any) -> None:
+    """Reopen the ``scene.wscn`` beside a library asset: the round trip's
+    inward half.
+
+    **No fallback, unlike ``clay_mode.edit_asset_in_clay``**, and the asymmetry
+    is the point rather than an omission. Clay falls back to importing
+    ``model.glb`` because a Clay document *is* geometry, so the mesh is a
+    lesser but honest version of the document. A Mason document is an
+    arrangement, and its merged mesh is not a lesser scene -- it is one mesh
+    node where there were sixty, with the groups, the instances, the lights and
+    the links gone. Opening that and calling it the scene would show the user
+    finished work that is not there and let them save over it, which is exactly
+    what ``.wblk``'s refuse-rather-than-substitute rule is about. So the door is
+    offered only for a row that carries ``params["authored"] == "mason"``, and
+    if the sidecar has gone anyway the task raises and the failure is reported.
+    """
+    job_id = job["id"] if isinstance(job, dict) else str(job)
+    name = (job.get("name") if isinstance(job, dict) else "") or "Scene"
+    ensure(ctx)
+
+    def run() -> dict[str, Any]:
+        from ..service import files as svc_files
+        from ..service.errors import invalid_from
+        from .mason import serialize
+
+        path = svc_files.mason_source_path(ctx.svc, job_id)
+        data = _within_ceiling(Path(path)).read_bytes()
+        try:
+            doc = serialize.read_wscn(data)
+        except ValueError as exc:
+            raise invalid_from(exc, "This scene could not be reopened", field="file") from exc
+        return {"doc": doc, "title": name, "job_id": job_id, "view": doc.view or None}
+
+    ctx.submit(f"mason-reopen:{job_id}", run)
+
+
 # --- scene stats ------------------------------------------------------------------
 
 
@@ -817,6 +940,24 @@ def on_task_done(ctx: Any, done: Any) -> None:
             ctx.cache.invalidate()
         return
 
+    if name == "mason-reopen":
+        if isinstance(result, dict):
+            # ``path=None``: the row is not a file on disk the user chose, so
+            # there is nothing to put in the recent list and nothing a plain
+            # Save could write over -- ``plotter_mode``'s reopen takes the same
+            # floor. ``job_id`` is carried onto the tab so a second export from
+            # the reopened scene can say which row it last became.
+            tab = adopt(
+                ctx,
+                result["doc"],
+                path=None,
+                title=result.get("title"),
+                view=result.get("view"),
+            )
+            tab.job_id = str(result.get("job_id") or "")
+            _enter_mason(ctx)
+        return
+
     if name == "mason-recover":
         if result is None:
             journal.adopt_failed(ctx, "scene")
@@ -833,6 +974,20 @@ def on_task_done(ctx: Any, done: Any) -> None:
     tab.saving = False
     if not isinstance(result, dict):
         return  # a cancelled dialog
+
+    if result.get("exported_asset"):
+        # The thumbnail is the App's: it is an offscreen GL draw and belongs on
+        # the frame thread, so ``main`` takes it from the same ``done`` this
+        # arm is reading. What is left here is the tab's own memory of which
+        # row it became, which the Document pane reports.
+        tab.job_id = str(result.get("job_id") or "")
+        # The library draws from the cache, so a row minted behind its back is
+        # invisible until something invalidates it -- ``plotter_mode``'s own
+        # arm does exactly this, and without it the user is told the export
+        # worked and finds nothing in the workshop.
+        ctx.cache.invalidate()
+        ctx.toast("Exported to the library.")
+        return
 
     if result.get("exported"):
         skipped = result.get("skipped") or []

@@ -834,8 +834,47 @@ Four things came out differently from the sections above.
   control is reachable; a 300 dp sidebar holding four panels is the real constraint, and
   narrowing it is a layout decision rather than Stage F's.
 
-**Stage G — the library round trip.** `import_mesh`, the `.wscn` sidecar, `asset_exits`,
-`asset_open`, a scene thumbnail through `viewer/capture.py`.
+**Stage G — the library round trip. DONE.** `service.files.MASON_SOURCE` /
+`save_mason_source` / `mason_source_path`, `import_mesh`'s new `authored` field,
+`mason_mode.export_library` / `edit_asset_in_mason` / `add_asset_to_scene`, two builders in
+`asset_exits`, the Document pane's third button, and the thumbnail taken from Mason's own
+viewport. The full Windows lane went 21132 -> **21158 passed, 49 skipped, 0 failed**; `ruff`
+and `preflight --fast` clean.
+
+Four things came out differently from the sections above.
+
+- **`asset_open.py` needed no change at all, and the plan's line item for it was wrong about
+  what kind of row this is.** A Mason export is a genuine mesh -- stage `model`, status
+  `done`, with a real `model.glb` -- so `route()` already lands it on Create's Mesh stage,
+  which is exactly where it is drawn. The precedent settles it rather than a new judgement:
+  a Plotter-authored *reference* also routes to Create's Reference stage, and its reopen
+  lives in `asset_exits` alone. "Where does this row open" and "where else can this row go"
+  are two questions, and Stage G only ever had an answer to the second.
+- **The pinned exit set gained `mason`, deliberately, and it gained it twice.** Every mesh
+  row now offers *Add to Mason as a scene item* beside Clay, Poser and Troupe, so four
+  assertions in `tests/test_asset_exits.py` changed from `{clay, poser, troupe}` to
+  `{clay, mason, poser, troupe}` -- the decision Stage E and Stage F both deferred here. The
+  second builder is `_mason_reopen`, gated on the marker the way `_plotter_reopen` is, and a
+  Mason-authored row therefore carries *both*: one door back into the scene it was, one to
+  place it inside another. The assertions stay exact rather than `<=` for this module's own
+  reason -- it exists because two surfaces grew different lists.
+- **The thumbnail was a live defect one line wide, not new plumbing.** `viewer/capture.py`
+  and `MasonView.screenshot` both already existed, as this section says; what did not was a
+  caller that could name a viewport. `App._capture_clay_thumbnail` reached for
+  `self.clay_view` by name, and Plotter and Packwright have been routed through it since
+  they shipped. It is now `_capture_thumbnail_from(job_id, view)` with Clay's as a one-line
+  wrapper, and Mason passes `self.mason_view`.
+- **One ceiling, two doors.** `mason_io.MAX_WSCN_BYTES` and the new
+  `files.MAX_SCENE_SOURCE_BYTES` are the same fifty megabytes and the first is now *imported*
+  from the second. Two numbers for one format is how a `.wscn` the app opens happily becomes
+  one the service refuses to store beside the asset it was exported from, and a test asserts
+  the identity rather than the value.
+
+**Open question 4 stays open and Stage G did not touch it.** `panes/library.can_drag` still
+lifts only finished 2D references; the library's mesh rows reach a scene through the exits
+panel and the Assets pane's own payload, which is what Stage E chose instead of widening a
+predicate Create's drop slot also reads. That remains a decision to take with the library's
+owner rather than one this stage could take on the way past.
 
 **Stage H — the manual**: `31-mason.md`, `17-dressing-a-scene.md`, the fifteen renames, the
 `PARTS` widening, the overview and README and INVARIANTS counts, the shortcuts section, and

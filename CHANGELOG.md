@@ -84,6 +84,25 @@ mouse could already find it, so a click landed on hills nobody could see.
   Move up / Move down / Move to root on the row's own menu. Group got its
   opposite, Ungroup.
 
+**And a scene now goes into the library and comes back out as a scene.**
+Export to the library turns the arrangement into an ordinary asset -- the same
+kind of row a generated model is, so it can be rigged, posed, sheeted,
+retargeted and exported like any other mesh -- and keeps the scene document
+itself tucked beside it. Open in Mason on that row brings the whole arrangement
+back: the groups, the prefab instances, the lights, and the links to the models
+it was standing on, not a single frozen lump of geometry. There is deliberately
+no fall-back if that document has gone: a merged mesh is not a smaller scene,
+and opening one and calling it your scene would show you finished work that is
+not there and let you save over it.
+
+- **A library model can be added to a scene from the library itself**, from the
+  card's overflow menu and from the inspector beside it, wherever you are in
+  the app. If no scene is open, one is started for it -- a button that placed
+  something into nothing and reported success is the failure this avoids.
+- **The exported asset's card gets a picture of the scene**, taken from Mason's
+  own viewport. The shared snapshot code only knew how to photograph Clay's,
+  which in a session that never opened Clay is nothing at all.
+
 A review of the MCP bridge — the way an external AI agent drives Clay — found
 the feature unreachable for anyone who installed Warlock rather than cloning
 it, and found three ways any other program on the machine could switch it off.

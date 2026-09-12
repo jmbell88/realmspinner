@@ -25,7 +25,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import icons, mason_mode, tokens, widgets
+from .. import icons, mason_mode, tokens, verbs, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 
@@ -126,6 +126,21 @@ def _outputs(ctx: Any, tab: Any) -> None:
     if imgui.is_item_hovered():
         imgui.set_tooltip(
             "A static mesh dump, no hierarchy -- for a pipeline step that only wants triangles."
+        )
+    imgui.dummy((0, sp(tokens.SP_1)))
+    # The primary of the three, and the only one that stays inside the app:
+    # the two above write a file somewhere the user picks and are done with it,
+    # while this one mints a row the library, the inspector and every mesh
+    # export can reach -- and, because the ``.wscn`` rides along beside the
+    # mesh, the only one the scene comes back out of.
+    if widgets.primary_button(
+        f"{icons.DOWNLOAD} {verbs.EXPORT_TO_LIBRARY}", enabled=ready, reason=why
+    ):
+        mason_mode.export_library(ctx, tab)
+    if imgui.is_item_hovered():
+        imgui.set_tooltip(
+            "The scene as an ordinary asset, with the document kept beside it -- so it "
+            "picks up every mesh export, and Open in Mason brings the arrangement back."
         )
     if tab.job_id:
         widgets.muted(f"Last exported as {tab.job_id}")
