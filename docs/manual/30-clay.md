@@ -520,7 +520,9 @@ it *duplicates* the selection and reflects the copies across a plane you place a
 space, perpendicular to the axis you choose, at the `offset` you give it — which is what mirroring a
 limb across a body's centre-line means, with the original left exactly where it was. Like Mirror
 X/Y/Z the result is baked into the mesh for the identical reason, so a mirrored copy is no longer
-what its generator would build and its size field disappears from Properties.
+what its generator would build and its size field disappears from Properties. It leaves the copies
+selected alongside the originals, the way both Arrays do, so a second Mirror Copy across a different
+axis doubles what the first one made: one table leg, mirrored across X and then across Z, is four.
 
 ## Axis views
 

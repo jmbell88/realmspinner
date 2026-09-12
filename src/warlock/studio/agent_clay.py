@@ -1039,6 +1039,73 @@ def _validate_params_values(params: dict, field: str) -> dict | None:
     return fail(" ".join(messages), field=field)
 
 
+def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str) -> dict | None:
+    """Every value of *params* held to the **shape of the generator's own
+    default** for that key, or a refusal naming every key that disagrees.
+
+    :func:`_validate_params_values` checks a value is made of finite numbers
+    and stops there, because that is all the wire schema declares: a param
+    value is ``number | array-of-numbers | array-of-arrays``, one shape for
+    every key of every generator. Which of the three a *particular* key
+    wants is not in that schema, and nothing downstream asked either -- so
+    ``clay_add_primitive("pyramid", params={"base": [1, 1, 1]})`` walked
+    straight into ``primitives.pyramid``'s ``float(base)`` and came back as
+    "failed unexpectedly; see the log" with a ``TypeError`` traceback in it,
+    the generic backstop catching what should have been a field-named
+    refusal (found by the furniture author, 2026-09-12). The same hole ran
+    the other way: ``box`` with ``size=1.0`` raised ``TypeError`` on the
+    unpack, and ``size=[1, 1]`` a ``ValueError`` about three values, both
+    with the same unhelpful face.
+
+    The rule is **derived from ``GENERATORS``' defaults, never listed**, for
+    the reason :func:`tools` is: every default dictionary is a complete call
+    (``primitives.GENERATORS``' own docstring), so the default *is* the
+    shape, and a sixteenth generator enrols itself. A scalar default wants a
+    scalar; a flat sequence default wants a flat array of exactly that many
+    numbers; a sequence-of-rows default (``lathe``'s ``profile``,
+    ``tube``'s ``path``, ``sweep``'s ``outline``) wants an array of rows of
+    exactly that row's width. The outer length of a row array is free --
+    that is how many points the profile has, which is the caller's to
+    choose -- but the row width is not, and a three-number row handed to
+    ``lathe`` silently dropped its third column rather than saying so.
+
+    *subject* is what the message calls the generator (``'pyramid'`` for
+    ``clay_add_primitive``, ``"'pyramid' (uid 4)"`` for ``clay_set_params``,
+    which addresses many objects and must say which one). ``field`` on the
+    refusal stays exactly *field*, for the reason
+    :func:`_validate_params_values` gives: only the message may name a key.
+    """
+    messages = []
+    for key in sorted(params):
+        if key not in defaults:
+            continue
+        want, value = defaults[key], params[key]
+        if not isinstance(want, list | tuple):
+            if isinstance(value, list):
+                messages.append(f"{field}.{key} must be a single number for {subject}.")
+            continue
+        rows = [r for r in want if isinstance(r, list | tuple)]
+        if rows:
+            width = len(rows[0])
+            ok = (
+                isinstance(value, list)
+                and bool(value)
+                and all(isinstance(row, list) and len(row) == width for row in value)
+            )
+            if not ok:
+                messages.append(
+                    f"{field}.{key} must be a non-empty array of "
+                    f"{width}-number arrays for {subject}."
+                )
+        elif not (isinstance(value, list) and len(value) == len(want)):
+            messages.append(
+                f"{field}.{key} must be an array of {len(want)} numbers for {subject}."
+            )
+    if not messages:
+        return None
+    return fail(" ".join(messages), field=field, recovery="fix_arguments")
+
+
 def _repaint(doc: Any, uids: Iterable[int], index: int) -> None:
     """Rewrite every face of each object in *uids* to material *index*.
 
@@ -1788,7 +1855,12 @@ def tools() -> list[Any]:
                 "'kind' of one finding this call reported (or a prior one) "
                 "to switch to that finding's own element mode and select "
                 "exactly the elements it names -- refused if that object has "
-                "no finding of that kind right now."
+                "no finding of that kind right now. A whole-document call "
+                "also answers with 'scene': findings about how objects "
+                "relate rather than about one mesh, such as a family of "
+                "copies (Box, Box.001...) that no longer agree about their "
+                "material -- what naming only the original in clay_material "
+                "after arraying or mirroring it leaves behind."
             ),
             schema={
                 "type": "object",
@@ -2234,6 +2306,21 @@ def _clay_diagnose_output_schema() -> dict:
                     },
                 },
             },
+            # Document-level rows, present only on a whole-document call and
+            # only when there is something to say. Not ``findings``' shape:
+            # they point at objects (``uids``) rather than at elements, so
+            # they carry no ``mode`` and are not reachable through ``select``.
+            "scene": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string"},
+                        "label": {"type": "string"},
+                        "uids": {"type": "array", "items": {"type": "integer"}},
+                    },
+                },
+            },
             "selected": {
                 "type": "object",
                 "properties": {
@@ -2629,6 +2716,12 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
         # ``_validate_number_or_vec`` so a bad value's refusal names *which*
         # key it was, not just "params" -- see that function's own docstring.
         failure = _validate_params_values(params, "params")
+        if failure:
+            return failure
+        # ...and then each value against the *shape* that generator's own
+        # default declares, which the wire schema cannot say -- see
+        # ``_params_shape_refusal`` for the pyramid that crashed on a list.
+        failure = _params_shape_refusal(params, defaults, "params", repr(generator))
         if failure:
             return failure
 
@@ -3155,6 +3248,15 @@ def _h_set_params(ctx: Any, session: Session, args: dict) -> dict:
                 field="params",
                 uids=[obj.uid],
             )
+        # Shape is per-generator, so unlike the finiteness sweep below this
+        # cannot be hoisted out of the loop: one params dict may be aimed at
+        # two objects whose generators want different shapes for the same
+        # key name.
+        failure = _params_shape_refusal(
+            params, defaults, "params", f"{obj.generator!r} (uid {obj.uid})"
+        )
+        if failure:
+            return failure
     # Every value validated before pass 2 touches anything -- ``bp.clamp_params``
     # only clamps the handful of keys it knows a floor or a relational limit
     # for, so a NaN or an infinity in a key it does not (or does, past the
@@ -4080,6 +4182,15 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
         }
 
     payload: dict[str, Any] = {"objects": report}
+    # Document-level findings only on a whole-document call: they are about
+    # how objects relate to each other, so asking them of a single named uid
+    # would answer about objects the caller did not ask about.
+    if uid is None:
+        scene = clay_diagnose.scene_findings(list(doc.objects))
+        if scene:
+            payload["scene"] = [
+                {"kind": row.kind, "label": row.label, "uids": list(row.uids)} for row in scene
+            ]
     if selected is not None:
         payload["selected"] = selected
     return _json(payload)

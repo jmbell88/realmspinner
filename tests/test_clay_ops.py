@@ -743,6 +743,28 @@ def test_mirror_copy_is_one_undo_step_for_the_whole_selection() -> None:
     assert len(doc.history) == depth + 1
 
 
+def test_mirror_copy_selects_its_copies_so_mirroring_twice_makes_four() -> None:
+    """One leg, mirrored across X and then across Z, is four table legs --
+    but only if the second press sees the pair. Leaving the copies
+    unselected (what mirror-copy used to do, while both arrays selected
+    theirs) meant the second press re-mirrored the original alone and the
+    fourth corner silently never appeared."""
+    doc, uid = _doc()
+    doc.select([uid])
+    doc.set_transform(uid, translation=[1.0, 0.0, 1.0])
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-copy"), axis=0, offset=0.0)
+    assert doc.selection == {obj.uid for obj in doc.objects}, "originals and copies both"
+
+    clay_ops.run(_Ctx(), doc, clay_ops.get("mirror-copy"), axis=2, offset=0.0)
+    assert len(doc.objects) == 4
+    corners = sorted(
+        (round(float(obj.translation[0]), 6), round(float(obj.translation[2]), 6))
+        for obj in doc.objects
+    )
+    assert corners == [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)]
+
+
 def test_mirror_copy_distinguishes_itself_from_mirror_x_y_z_in_its_hint() -> None:
     """The manual draws the same distinction in the paragraph that already
     describes Mirror X/Y/Z (docs/manual/30-clay.md); the hint is the one

@@ -3725,3 +3725,109 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
         f"in the same commit; if it is not, find what grew unnoticed among "
         f"the tools above."
     )
+
+
+def test_a_params_value_is_held_to_the_shape_its_generator_default_declares() -> None:
+    """``pyramid`` given a list for ``base`` is a refusal that names the key,
+    not a crash.
+
+    Fails today: the wire schema says a param value is ``number |
+    array-of-numbers | array-of-arrays`` for every key of every generator,
+    and nothing checked which of the three *this* key wants -- so a list
+    reached ``primitives.pyramid``'s ``float(base)`` and came back through
+    ``call()``'s generic backstop as "failed unexpectedly; see the log",
+    with a ``TypeError`` traceback beside it. The same hole ran the other
+    way for ``box``'s ``size``: a bare number, or two numbers instead of
+    three, raised out of the generator just as unhelpfully.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session)
+
+    bad = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {"generator": "pyramid", "params": {"base": [1.0, 1.0, 1.0]}},
+    )
+    assert bad["isError"] is True
+    assert bad["structuredContent"]["field"] == "params"
+    text = bad["content"][0]["text"]
+    assert "base" in text and "pyramid" in text
+    assert "failed unexpectedly" not in text
+
+    for value in (1.0, [1.0, 1.0], [[1.0, 1.0, 1.0]]):
+        wrong = agent_clay.call(
+            ctx, session, "clay_add_primitive", {"generator": "box", "params": {"size": value}}
+        )
+        assert wrong["isError"] is True, value
+        assert "size" in wrong["content"][0]["text"]
+
+    # A row array's *width* is fixed by the default too, even though how many
+    # rows it has is the caller's to choose -- an over-wide row used to have
+    # its extra column silently dropped.
+    ragged = agent_clay.call(
+        ctx,
+        session,
+        "clay_add_primitive",
+        {"generator": "lathe", "params": {"profile": [[0.5, 0.0, 9.0], [0.4, 0.5, 9.0]]}},
+    )
+    assert ragged["isError"] is True
+    assert "profile" in ragged["content"][0]["text"]
+
+    # And the same gate on the other door, where the refusal must say which
+    # object it is talking about.
+    on_set = agent_clay.call(ctx, session, "clay_set_params", {"uid": uid, "params": {"size": 2.0}})
+    assert on_set["isError"] is True
+    assert f"uid {uid}" in on_set["content"][0]["text"]
+
+    # What the shapes really are still passes, both doors.
+    good = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "pyramid", "params": {"base": 2.0}}
+    )
+    assert good["isError"] is False, good
+    fine = agent_clay.call(
+        ctx, session, "clay_set_params", {"uid": uid, "params": {"size": [2.0, 1.0, 2.0]}}
+    )
+    assert fine["isError"] is False, fine
+
+
+def test_diagnose_reports_a_copy_family_that_no_longer_agrees_on_its_material() -> None:
+    """Place a box, array it, then paint only the original: the copies keep
+    the material they were made with, and that is the right behaviour -- a
+    copy is an independent object. What was wrong is that it had no symptom
+    at all short of a render, which is the one thing an agent over a pipe
+    cannot read cheaply.
+
+    Fails today: ``clay_diagnose`` measures meshes and nothing else, so a
+    whole-document call on a half-painted array answered "clean" for every
+    object in it.
+    """
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session)
+
+    select = agent_clay.call(ctx, session, "clay_select", {"uids": [uid]})
+    assert select["isError"] is False, select
+    array = agent_clay.call(
+        ctx, session, "clay_op", {"name": "array-linear", "params": {"count": 3}}
+    )
+    assert array["isError"] is False, array
+
+    before = agent_clay.call(ctx, session, "clay_diagnose", {})
+    assert "scene" not in _payload(before), "a uniform family says nothing"
+
+    painted = agent_clay.call(
+        ctx, session, "clay_material", {"uids": [uid], "name": "Red", "color": [1.0, 0.0, 0.0]}
+    )
+    assert painted["isError"] is False, painted
+
+    after = _payload(agent_clay.call(ctx, session, "clay_diagnose", {}))
+    assert "scene" in after, "a half-painted family has something to say"
+    row = next(r for r in after["scene"] if r["kind"] == "copies_disagree_on_material")
+    assert uid in row["uids"]
+    assert len(row["uids"]) == 3
+
+    # A single named object is asked about itself only, so a finding about how
+    # three objects relate has no business in that answer.
+    assert "scene" not in _payload(agent_clay.call(ctx, session, "clay_diagnose", {"uid": uid}))

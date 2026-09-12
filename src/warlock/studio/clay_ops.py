@@ -922,13 +922,21 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
 
     del ctx
     taken = [obj.name for obj in doc.objects]
+    originals = list(doc.selection)
     made: list[Any] = []
-    for uid in list(doc.selection):
+    for uid in originals:
         copy = clay_ops_geom.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
         taken.append(copy.name)
         mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset)
         made.append(replace(mirrored, generator=None, params={}))
     doc.add_objects(made)
+    # Originals *and* copies, exactly as both arrays leave them, and for the
+    # same reason: mirroring a mirror is a normal thing to want. Leaving the
+    # copies unselected made "mirror across X, then mirror the pair across Z"
+    # -- four table legs from one -- silently produce three, because the
+    # second press saw only the original and re-mirrored it over a leg that
+    # was already there (found by the furniture author, 2026-09-12).
+    doc.select(originals + [obj.uid for obj in made])
     return bool(made)
 
 

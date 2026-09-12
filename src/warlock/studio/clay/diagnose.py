@@ -27,7 +27,9 @@ it. That is the same doctrine ``widgets.quality_badge`` is written under.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -35,7 +37,7 @@ from . import elements as el
 from .adjacency import ManifoldReport, boundary_loops, check_manifold
 from .mesh import Mesh
 
-__all__ = ["Finding", "findings", "rows_for"]
+__all__ = ["Finding", "SceneFinding", "findings", "rows_for", "scene_findings"]
 
 
 @dataclass(frozen=True)
@@ -149,3 +151,81 @@ def _edge_row(kind: str, one: str, many: str, edges: np.ndarray) -> Finding:
         mode="edge",
         sel=el.ElementSel(edges=edges),
     )
+
+
+@dataclass(frozen=True)
+class SceneFinding:
+    """One defect of the *document* rather than of a mesh, said in a sentence
+    and pointing at the objects it is about.
+
+    Deliberately not a :class:`Finding`: every field of that one exists to be
+    read in an element mode (a ``mode`` and an ``ElementSel``), and a defect
+    whose subject is "these three objects" has no elements to select. So it
+    carries ``uids`` where the other carries a selection, and the two lists
+    stay separate all the way out to the tool's answer.
+    """
+
+    kind: str
+    label: str
+    uids: tuple[int, ...]
+
+
+_COPY_SUFFIX = 4
+"""The length of ``ops.next_name``'s ``.001`` suffix, counted once here rather
+than spelled as a magic 4 twice below."""
+
+
+def _family(name: str) -> str:
+    """The name a copy was counted up from -- ``Box.001`` -> ``Box``, ``Box``
+    -> ``Box``.
+
+    Read off the name rather than off a provenance field, because there is no
+    provenance field and adding one would have to survive save, load and undo
+    to be worth anything. That makes this a *hint*: renaming a copy takes it
+    out of its family, which is exactly the reader's own signal that it is no
+    longer one of a set. A hint is all this finding claims to be.
+    """
+    if len(name) > _COPY_SUFFIX and name[-_COPY_SUFFIX] == "." and name[-3:].isdigit():
+        return name[:-_COPY_SUFFIX]
+    return name
+
+
+def scene_findings(objects: Sequence[Any]) -> list[SceneFinding]:
+    """Every defect measurable from the document's object list alone.
+
+    Today that is one: a family of copies (``Box``, ``Box.001``,
+    ``Box.002`` -- what ``clay_ops``' arrays and Mirror Copy leave behind)
+    whose members no longer agree about their material. Nothing refuses that
+    and nothing could: a copy is an independent object and painting one of a
+    set a different colour is a legitimate thing to want. What was wrong is
+    that the *accidental* version of it -- placing an object, arraying it,
+    and only then naming the original in ``clay_material``, which leaves
+    every copy on the material it was made with -- had no symptom at all
+    short of looking at a render, which is the one thing an agent working
+    over a pipe cannot do cheaply.
+
+    Objects are duck-typed on ``uid``, ``name`` and ``material``, so this
+    reads a document without importing one.
+    """
+    families: dict[str, list[Any]] = {}
+    for obj in objects:
+        families.setdefault(_family(obj.name), []).append(obj)
+    out: list[SceneFinding] = []
+    for family in sorted(families):
+        members = families[family]
+        if len(members) < 2:
+            continue
+        slots = {int(obj.material) for obj in members}
+        if len(slots) < 2:
+            continue
+        out.append(
+            SceneFinding(
+                kind="copies_disagree_on_material",
+                label=(
+                    f"{_plural(len(members), 'copy', 'copies')} of {family!r} "
+                    f"use {len(slots)} different materials"
+                ),
+                uids=tuple(int(obj.uid) for obj in members),
+            )
+        )
+    return out

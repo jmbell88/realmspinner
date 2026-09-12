@@ -20,6 +20,38 @@ the release you are actually running.
 
 ## 0.0.45 — 2026-09-12
 
+**An agent building in Clay gets a refusal it can act on where it used to get
+a crash.** Three defects found by an authoring session on 2026-09-12, all in
+the surface an external agent drives over the pipe. Asking for a pyramid with
+three numbers for its `base` reached the generator function's own `float(base)`
+and came back as "failed unexpectedly; see the log" with a `TypeError`
+traceback behind it: the wire schema declares a parameter value as a number
+*or* an array for every key of every shape, and which of the two a particular
+key wants was checked nowhere. The same hole ran the other way -- a box with
+one number for its `size` instead of three raised just as unhelpfully, and a
+lathe profile row one column too wide silently dropped the extra. Every value
+is now held to the shape that shape's own default declares, read off the
+generator registry rather than listed, so the sixteenth generator is covered
+without anyone editing the check.
+
+**Mirror Copy leaves its copies selected, so mirroring twice makes four.** Both
+Arrays left originals and copies selected and Mirror Copy left only the
+originals, which is a difference nothing announced and a render was the only
+way to see: mirroring one table leg across X and then across Z gave three legs,
+because the second press saw only the original and reflected it back over a leg
+that was already there. It now leaves the whole group selected, the way the
+Arrays do.
+
+**Diagnose answers for the document as well as for a mesh.** Arraying an object
+and only then painting the original leaves every copy on the material it was
+made with -- correct, since a copy is an independent object, but until now it
+had no symptom short of looking at a render, which is the one thing an agent
+working over a pipe cannot do cheaply. A whole-document check now reports a
+family of copies that no longer agrees about its material, naming them. The
+family is read off the `.001` naming rather than from any record of what was
+copied from what, which makes it a hint on purpose: rename a copy and it leaves
+the family, which is the same signal a person would read.
+
 **Mason's Snap and Drop to ground now work while you are dragging, not only
 when you first place something.** Turning Snap on, setting the grid to a metre
 and dragging a crate with the move gizmo used to leave the crate exactly where
