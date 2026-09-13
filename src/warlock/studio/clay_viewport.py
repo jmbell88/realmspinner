@@ -136,6 +136,8 @@ class ClayViewport:
         view.wire_overlay = bool(state.overlays.get("wire", False))
         view.xray = bool(state.xray)
         view.show_grid = state.grid
+        view.grid_size = float(state.grid_size)
+        view.god_light = bool(state.god_light)
         texture = view.draw(tab.doc, rect, 1.0 / TARGET_FPS)
         imgui.image(widgets.texture_ref(texture), (rect[2], rect[3]), (0, 1), (1, 0))
         self._build_hovered = imgui.is_item_hovered()

@@ -409,6 +409,61 @@ void main() {
 }
 """
 
+GROUND_VERT = """
+#version 330 core
+in vec3 a_position;
+in vec3 a_normal;
+uniform mat4 u_view;
+uniform mat4 u_proj;
+out vec3 v_world;
+out vec3 v_normal;
+void main() {
+    // Already world-space (Renderer._Ground bakes the span and the y-offset
+    // into the vertices, the way ``grid.build`` does), so there is no
+    // ``u_model`` here -- one ground plane per frame, never instanced.
+    v_world = a_position;
+    v_normal = a_normal;
+    gl_Position = u_proj * u_view * vec4(a_position, 1.0);
+}
+"""
+
+GROUND_FRAG = """
+#version 330 core
+in vec3 v_world;
+in vec3 v_normal;
+out vec4 f_color;
+
+uniform float u_exposure;
+uniform vec3 u_hemi_sky;
+uniform vec3 u_hemi_ground;
+uniform vec3 u_light_dir;
+uniform vec3 u_light_color;
+
+__COLOR__
+
+void main() {
+    // A dark, unremarkable grey -- the ground exists to catch the god light's
+    // shadowless falloff and give the grid something lit to sit on, not to
+    // be looked at itself, so no texture and no material slot.
+    vec3 albedo = vec3(0.18);
+    vec3 normal = normalize(v_normal);
+
+    vec3 lightDir = normalize(u_light_dir);
+    float dotNL = clamp(dot(normal, lightDir), 0.0, 1.0);
+    vec3 lit = dotNL * u_light_color * RECIPROCAL_PI * albedo;
+
+    // Same hemisphere term the PBR fragment shader adds as indirect diffuse
+    // -- lifted rather than reinvented, so a flat plane and a flat-shaded
+    // model agree about what "ambient" looks like.
+    float hemiWeight = 0.5 * dot(normal, vec3(0.0, 1.0, 0.0)) + 0.5;
+    vec3 ambient = mix(u_hemi_ground, u_hemi_sky, hemiWeight);
+    lit += ambient * RECIPROCAL_PI * albedo;
+
+    f_color = outputColor(lit, 1.0);
+}
+"""
+
+
 def _expand(source: str, defines: tuple[str, ...]) -> str:
     """Splice the shared chunks in and put the #defines after the #version.
 
@@ -469,4 +524,5 @@ SOURCES: dict[str, tuple[str, str]] = {
     "unlit": (UNLIT_VERT, UNLIT_FRAG),
     "solid": (SOLID_VERT, SOLID_FRAG),
     "lines": (LINES_VERT, LINES_FRAG),
+    "ground": (GROUND_VERT, GROUND_FRAG),
 }

@@ -1461,3 +1461,80 @@ def test_ctrl_z_is_not_blocked_during_a_camera_orbit(svc, gl) -> None:
         assert len(tab.doc.history) < depth, "the undo must have run"
     finally:
         view.release()
+
+
+# --- the view block: grid size, grid, god light (Task A / Task C) -----------
+
+
+def test_persist_round_trips_grid_size_and_god_light() -> None:
+    """``ensure`` reads back exactly what ``persist`` wrote, the round trip
+    ``inker_mode``'s canvas furniture already promises for the same reason:
+    a preference that resets on the next launch is a control a user has to
+    rediscover."""
+    ctx = FakeCtx()
+    state = clay_mode.ensure(ctx)
+    state.grid_size = 37.0
+    state.grid = False
+    state.god_light = True
+    clay_mode.persist(ctx)
+
+    ctx2 = FakeCtx()
+    ctx2.settings.store = ctx.settings.store
+    restored = clay_mode.ensure(ctx2)
+    assert restored.grid_size == 37.0
+    assert restored.grid is False
+    assert restored.god_light is True
+
+
+def test_persist_merges_rather_than_replacing_the_clay_block() -> None:
+    """A future block this function does not know about must survive a write
+    that only touches the view -- ``inker_mode.persist``'s own reason for
+    merging rather than overwriting ``ctx.settings.get('clay')`` whole."""
+    ctx = FakeCtx()
+    ctx.settings.set("clay", {"future": {"untouched": True}})
+    state = clay_mode.ensure(ctx)
+    state.grid_size = 12.0
+    clay_mode.persist(ctx)
+    assert ctx.settings.get("clay")["future"] == {"untouched": True}
+    assert ctx.settings.get("clay")["view"]["grid_size"] == 12.0
+
+
+@pytest.mark.parametrize(
+    "stored,expected",
+    [
+        ({"grid_size": 0}, 1.0),  # clamped up to the floor
+        ({"grid_size": 5000}, 1000.0),  # clamped down to the ceiling
+        ({"grid_size": "junk"}, 100.0),  # the wrong type is ignored, not raised
+        ({"grid_size": True}, 100.0),  # a bool is an int in Python; excluded by name
+        ({"grid": "not a bool"}, True),  # truthy junk still coerces, never raises
+    ],
+)
+def test_ensure_clamps_a_hand_edited_view_block(stored, expected) -> None:
+    """``settings.json`` is hand-editable, ``inker_mode._restore_canvas``'s own
+    doctrine: a junk value must clamp or fall back rather than reach the
+    field raw, or a bad edit crashes Clay on the very next launch."""
+    ctx = FakeCtx()
+    ctx.settings.set("clay", {"view": stored})
+    state = clay_mode.ensure(ctx)
+    key = next(iter(stored))
+    assert getattr(state, key) == expected
+
+
+def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
+    """The bug ``grid_size`` exists to fix: before Task A, ``F`` re-fit the
+    grid to whatever was just framed, so a 100 m grid vanished into a 1 m
+    prop's footprint the moment you pressed it."""
+    from warlock.studio import clay_view
+    from warlock.studio.clay import document as bd
+    from warlock.studio.clay import primitives as bp
+
+    view = clay_view.ClayView(gl, None)
+    try:
+        view.renderer.grid.set_span(100.0, divisions=100)
+        doc = bd.ClayDoc()
+        doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
+        view.frame_selection(doc)
+        assert view.renderer.grid.span == 100.0
+        assert view.renderer.grid.divisions == 100
+    finally:
+        view.release()

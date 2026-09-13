@@ -161,6 +161,23 @@ class ClayState:
     proportional: bool = False
     proportional_radius: float = 0.5
     grid: bool = True
+    # The grid's own size, in metres -- a user setting rather than something
+    # derived from the document, unlike Mason's, Poser's and the asset
+    # viewer's grids (``viewer/grid.py``'s ``span_for``). 100 m at 1 m cells
+    # by default: room enough for most props with no resize needed, and a
+    # round unit a user reads at a glance. Persisted with ``grid`` (see
+    # ``clay_mode.persist``) rather than reset every launch, and **not**
+    # touched by ``F`` -- ``_view_bounds.BoundsOps.frame_selection`` frames the
+    # camera on the selection and deliberately leaves this alone, which is the
+    # bug this field exists to fix (Task A, 2026-09-12).
+    grid_size: float = 100.0
+    # A directional light straight down onto a ground plane under the grid,
+    # replacing the ordinary key light rather than adding to it -- see
+    # ``viewer.env.Environment.god_light`` and ``viewer.render.Renderer.
+    # light_override``. Off by default: it is a deliberately flat, shadowless
+    # look for checking silhouette and proportions, not the render most
+    # editing happens under. Persisted alongside ``grid``/``grid_size``.
+    god_light: bool = False
 
     # How the surface itself is drawn: "solid", "material" or "wireframe".
     #

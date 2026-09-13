@@ -163,6 +163,14 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         # ``state.grid`` and the renderer was never told. One field, set by the
         # pane layer beside ``wireframe``, which already worked that way.
         self.show_grid = True
+        # The grid's span, in metres, and the god-light toggle -- both pushed
+        # by the pane each frame beside ``show_grid`` (``clay_viewport.
+        # _clay_viewport``), from ``ClayState.grid_size``/``god_light``. Plain
+        # fields rather than reads through ``self.state`` so a headless view
+        # (every test in this file, ``render_png``) behaves the same with no
+        # app state at all -- ``show_grid`` already works this way.
+        self.grid_size = 100.0
+        self.god_light = False
         self.radius = 1.0
 
         self.translate_gizmo = TranslateGizmo(ctx, self.renderer.programs)
@@ -309,6 +317,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             # the switch reads as broken until something else forces a redraw.
             bool(self.flat), bool(self.wire_overlay), bool(self.xray),
             id(doc), doc.rev, getattr(self.state, "tool", "select"),
+            float(self.grid_size), bool(self.god_light),
         )
         if self._frame_unchanged(key):
             return self.viewport.texture
@@ -318,6 +327,22 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         self._resize(width, height)
         self.camera.update(dt)
         self.sync(doc)
+        # The grid follows ``grid_size`` every frame rather than the model
+        # (Task A) -- set here, after ``camera.update``, so a stale span from
+        # a previous document or from ``render_png`` never reaches this draw.
+        # Divisions are picked so ``span / divisions`` comes out to 1.0: a 1 m
+        # cell whatever the size, which is the promise the size field makes.
+        divisions = max(1, int(round(self.grid_size)))
+        self.renderer.grid.set_span(self.grid_size, divisions=divisions)
+        # ``Camera.frame`` sizes the far plane off the *subject*'s own radius
+        # (``radius * 100``), which cuts a 100 m grid clean in half for any
+        # prop smaller than a metre. Clamped rather than refactored into
+        # ``frame`` itself: every other caller of that method wants the far
+        # plane sized to what it framed, and a camera restored from a saved
+        # ``.wblk`` never goes through ``frame`` at all on this draw, so the
+        # clamp has to live where both paths pass through regardless.
+        self.camera.far = max(self.camera.far, self.camera.distance + self.grid_size)
+        self.renderer.light_override = self.renderer.env.god_light if self.god_light else None
 
         self.renderer.draw(
             self.viewport,
@@ -328,6 +353,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             show_grid=self.show_grid,
             wire_overlay=self.wire_overlay,
             alpha=XRAY_ALPHA if self.xray else 1.0,
+            ground=self.god_light,
             overlays=self._element_overlays(doc) + self._gizmo_draws(doc, height),
         )
         return self.viewport.texture
@@ -477,6 +503,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         angles: tuple[float, float] | None = None,
         bounds: tuple[Any, Any] | None = None,
         grid: bool = False,
+        god_light: bool = False,
     ) -> bytes:
         """One offscreen square draw of *doc*, flat on white, as PNG bytes.
 
@@ -551,21 +578,40 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         is a **scale cue**, not decoration, and it is the one legitimate
         reason this call ever draws one. When it is true *and* framing found
         bounds to draw (``bounds`` or the document's own), ``renderer.
-        fit_grid(lo, hi)`` runs first, the same pairing :meth:`BoundsOps.
-        frame_selection` already does before every interactive draw, so the
-        ground plane is sized to the subject rather than left at whatever span
-        the previous draw set. Sized the way every grid in this app is:
-        ``viewer/grid.py``'s ``DIVISIONS = 16`` cells across a span
-        ``span_for`` rounds up to a power of ten containing 2.5x the
-        footprint, so one cell reads as span/16 metres.
+        fit_grid(lo, hi)`` runs first, so the ground plane is sized to the
+        subject rather than left at whatever span the *interactive* viewport
+        currently shows -- Clay's own grid is fixed-size now (Task A,
+        ``ClayState.grid_size``) and no longer answers this question the way
+        :meth:`BoundsOps.frame_selection` used to. Sized the way every
+        model-following grid in this app is: ``viewer/grid.py``'s
+        ``DIVISIONS = 16`` cells across a span ``span_for`` rounds up to a
+        power of ten containing 2.5x the footprint, so one cell reads as
+        span/16 metres -- saved and restored below so it does not leak into
+        the live viewport's own, differently-sized grid.
 
         The default path -- no ``angles``, no ``bounds``, ``grid=False`` -- is
         byte-identical to what this method drew before any of the three
         existed: ``_render_clay_reference`` and every stored-corpus comparison
         keyed on its input depend on that, and it is pinned by
         ``test_render_png_defaults_are_the_picture_the_trellis_path_already_got``.
+
+        ``god_light``, Task C's flat overhead light and ground plane, exists
+        here so a test can exercise it through the same headless draw every
+        other picture in this method goes through -- **it is not a parameter
+        ``agent_clay`` exposes**: an agent asking what an object looks like
+        wants the render it will actually be shown under, and a second
+        lighting mode on the MCP surface is a second thing a client has to
+        know exists before it can ask a useful question.
+
+        ``self.renderer.grid``'s span and divisions are saved and restored in
+        the ``finally`` below, the same shape ``self.camera``'s fields are:
+        ``fit_grid`` (for ``grid=True``) sizes the grid to *this* subject on
+        the app's one shared ``Renderer``, and leaving that in place would
+        have an agent's render silently resize the grid the user is looking
+        at in the live viewport, the next time it redraws.
         """
         self.sync(doc)
+        saved_grid = (self.renderer.grid.span, self.renderer.grid.divisions)
         # Shallow-copied, with arrays copied: ``target`` and ``_goal_target``
         # are numpy vectors that ``frame``/``look_angles`` rebind, but a caller
         # that wrote through one in place would otherwise see the restore
@@ -602,6 +648,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         try:
             if grid and lo is not None:
                 self.renderer.fit_grid(lo, hi)
+            self.renderer.light_override = self.renderer.env.god_light if god_light else None
             self.renderer.draw(
                 target,
                 self.camera,
@@ -610,11 +657,14 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
                 show_grid=grid,
                 background=(1.0, 1.0, 1.0, 1.0),
                 overlays=[],
+                ground=god_light,
             )
             return capture.png_bytes(target)
         finally:
             target.release()
             vars(self.camera).update(saved)
+            self.renderer.grid.set_span(saved_grid[0], divisions=saved_grid[1])
+            self.renderer.light_override = None
 
     def release(self) -> None:
         self.clear()

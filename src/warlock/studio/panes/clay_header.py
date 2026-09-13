@@ -266,7 +266,7 @@ def _proportional_popup(state: Any) -> None:
 #: a second home in the dict would be two places that can disagree about one
 #: switch. The table says which is which and the popover does not care.
 OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
-    ("grid", "Grid", "The ground plane, at the snap size"),
+    ("grid", "Grid", "The ground plane, in 1 m cells -- its size is set below"),
     ("wire", "Wireframe", "Every edge, over the shaded surface"),
     (
         "stats",
@@ -274,6 +274,12 @@ OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
         "Objects, vertices, edges, faces and triangles -- and how many are "
         "selected. Every one of these was unavailable anywhere in Clay before "
         "the overlay existed.",
+    ),
+    (
+        "god_light",
+        "God light",
+        "Light straight down from 100 m overhead onto a ground plane under "
+        "the grid",
     ),
 )
 
@@ -283,18 +289,52 @@ OVERLAY_ROWS: tuple[tuple[str, str, str], ...] = (
 #: ``stats`` out, so turning Statistics on and nothing else drew the button
 #: unselected: the one overlay with no other sign it is on was the one the
 #: button would not report.
-OVERLAY_DEFAULTS: dict[str, bool] = {"grid": True, "wire": False, "stats": False}
+OVERLAY_DEFAULTS: dict[str, bool] = {
+    "grid": True, "wire": False, "stats": False, "god_light": False,
+}
 
 
 def overlay_value(state: Any, key: str) -> bool:
-    return bool(state.grid if key == "grid" else state.overlays.get(key, False))
+    if key == "grid":
+        return bool(state.grid)
+    if key == "god_light":
+        return bool(state.god_light)
+    return bool(state.overlays.get(key, False))
 
 
 def set_overlay(state: Any, key: str, value: bool) -> None:
     if key == "grid":
         state.grid = bool(value)
+    elif key == "god_light":
+        state.god_light = bool(value)
     else:
         state.overlays[key] = bool(value)
+
+
+def _grid_size_field(ctx: Any, state: Any) -> None:
+    """The grid's size, in metres -- Task A. Indented under the Grid row it
+    belongs to, the way the snap popup indents the vertex switch under Snap.
+
+    ``commit=True``: this is a settings write on every keystroke otherwise,
+    which is undo-stack spam's sibling for a preference rather than a
+    document edit -- typing "37" would persist "3" first. Clamped and rounded
+    to a whole metre on commit, the doctrine every clamped-not-validated field
+    in this popup already follows (``_snap_popup``'s grid step, ``_
+    proportional_popup``'s radius): a hand-typed 0 or a negative size is
+    meaningless for a ground plane, and a fractional one breaks the "1 m
+    cells" promise the field makes.
+    """
+
+    imgui.indent()
+    widgets.field_label("size (m)")
+    imgui.set_next_item_width(sp(90))
+    settled, value = controls.input_float(
+        f"##{BAR}/gridsize", float(state.grid_size), 1.0, 10.0, "%.0f", commit=True
+    )
+    if settled:
+        state.grid_size = max(1.0, min(1000.0, round(float(value))))
+        clay_mode.persist(ctx)
+    imgui.unindent()
 
 
 def _overlays_popup(ctx: Any, state: Any) -> None:
@@ -310,6 +350,9 @@ def _overlays_popup(ctx: Any, state: Any) -> None:
             )
             if bool(hit[0] if isinstance(hit, tuple) else hit):
                 set_overlay(state, key, not overlay_value(state, key))
+                clay_mode.persist(ctx)
+            if key == "grid":
+                _grid_size_field(ctx, state)
 
 
 #: Front / Right / Top and their opposites, with the chord that reaches each.

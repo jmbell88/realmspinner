@@ -73,12 +73,36 @@ def ensure(ctx: Any) -> ClayState:
 
     Lazy because a session that never opens Clay should not pay for it,
     and because ``AppState`` deliberately knows nothing about it.
+
+    The view block -- the grid, its size and the god light -- is read back
+    from settings on this first build only, the same point ``inker_mode.
+    ensure`` restores its canvas furniture from. Validated rather than
+    trusted (``_restore_view``): the file is hand-editable.
     """
     state = ctx.state.clay
     if state is None:
         state = ClayState()
+        # The agent host and the headless test contexts build Clay with no
+        # settings store at all; a missing store means defaults, not a crash
+        # that fails every agent tool call.
+        settings = getattr(ctx, "settings", None)
+        stored = settings.get("clay") if callable(getattr(settings, "get", None)) else None
+        _restore_view(state, stored.get("view") if isinstance(stored, dict) else None)
         ctx.state.clay = state
     return state
+
+
+def _restore_view(state: ClayState, stored: Any) -> None:
+    """The grid/god-light preferences back off disk, clamped rather than
+    trusted -- ``inker_mode._restore_canvas``'s doctrine for the same reason:
+    a hand-edited ``settings.json`` can hold anything JSON allows."""
+    if not isinstance(stored, dict):
+        return
+    state.grid = bool(stored.get("grid", state.grid))
+    size = stored.get("grid_size")
+    if isinstance(size, int | float) and not isinstance(size, bool):
+        state.grid_size = max(1.0, min(1000.0, round(float(size))))
+    state.god_light = bool(stored.get("god_light", state.god_light))
 
 
 # The three recents wrappers every document mode carries, over the one
@@ -87,11 +111,34 @@ remember_path, forget_path, recent_paths = docmodes.recents_for("clay")
 
 
 def persist(ctx: Any) -> None:
-    """Nothing to write any more: the recent list moved to :mod:`.recents`,
-    which persists itself on every write. Kept as a no-op because it is called
-    from a dozen places after every open and save, and turning each of those
-    into "call this only if the mode still has settings" is how one of them
-    comes to skip a write that mattered later."""
+    """The view block: the grid, its size and the god light.
+
+    The recent list moved to :mod:`.recents`, which persists itself on every
+    write, so this used to be a no-op -- kept callable from a dozen places
+    after every open and save on purpose, so a mode with nothing to persist
+    today can gain a setting tomorrow without a second door being wired in.
+    Task A's ``grid_size`` and Task C's ``god_light`` are that setting:
+    properties of the person rather than of any document, ``inker_mode.
+    persist``'s own distinction, so they live beside the swatches and the
+    canvas furniture rather than in a ``.wblk``.
+
+    Merged into whatever is already stored, ``inker_mode.persist``'s reason:
+    a block this function does not know about yet (there is none today, but
+    the shape is worth keeping) must survive a write that only touches the
+    view.
+    """
+    state = ctx.state.clay
+    settings = getattr(ctx, "settings", None)
+    if state is None or not callable(getattr(settings, "set", None)):
+        return
+    stored = settings.get("clay")
+    block = dict(stored) if isinstance(stored, dict) else {}
+    block["view"] = {
+        "grid": bool(state.grid),
+        "grid_size": float(state.grid_size),
+        "god_light": bool(state.god_light),
+    }
+    ctx.settings.set("clay", block)
 
 
 

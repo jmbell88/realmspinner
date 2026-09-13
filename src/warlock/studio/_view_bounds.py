@@ -138,7 +138,18 @@ class BoundsOps:
         return bops.world_box(obj)
 
     def frame_selection(self: ClayView, doc: Any) -> float:
-        """Put the selection -- or the whole document -- on screen."""
+        """Put the selection -- or the whole document -- on screen.
+
+        **Does not resize the grid.** Every other ``fit_grid`` caller (Mason's
+        own ``frame_selection``, ``ClayView.render_png``) sizes the grid to
+        whatever it just framed, because their grid follows the model. Clay's
+        does not: ``grid_size`` is a user setting Task A gives its own field
+        and its own persistence, and ``F`` shrinking a 100 m grid down to a
+        1 m prop's footprint the moment it was framed was the bug the field
+        exists to fix. ``BoundsOps`` is mixed into ``ClayView`` alone --
+        ``MasonView`` keeps its own ``frame_selection`` -- so this is safe to
+        change here without a second caller to consider.
+        """
         lo, hi = self.world_bounds(doc, selected_only=bool(doc.selection))
         if lo is None:
             lo, hi = self.world_bounds(doc)
@@ -146,5 +157,4 @@ class BoundsOps:
             return 0.0
         self.radius = self.camera.frame(lo, hi)
         self.camera.set_target((lo + hi) * 0.5)
-        self.renderer.fit_grid(lo, hi)
         return self.radius

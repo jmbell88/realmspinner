@@ -28,6 +28,70 @@ from .scene import GpuModel
 #: the meshes a wireframe is reached for.
 WIRE_TINT = (0.05, 0.05, 0.06, 0.75)
 
+#: A hair below y=0, so the ground plane and the grid -- both nominally at
+#: y=0 -- are not exactly coplanar. Without it the two z-fight: which one wins
+#: a given pixel flickers with the camera angle, and a grid that flickers
+#: reads as broken rather than as "on top of something". Pushed *down* rather
+#: than pulling the grid up, so ``grid.py`` -- shared with Mason, Poser and
+#: the asset viewer, none of which ever draw a ground plane under it -- needs
+#: no change at all for this.
+GROUND_Y_OFFSET = -0.001
+
+
+def _ground_geometry(span: float) -> tuple[np.ndarray, np.ndarray]:
+    """-> (positions (6, 3), normals (6, 3)): two triangles, one quad."""
+    half = max(span, 0.0) * 0.5
+    y = GROUND_Y_OFFSET
+    positions = np.array(
+        [
+            [-half, y, -half], [half, y, -half], [half, y, half],
+            [-half, y, -half], [half, y, half], [-half, y, half],
+        ],
+        dtype="f4",
+    )
+    normals = np.tile(np.array([0.0, 1.0, 0.0], dtype="f4"), (6, 1))
+    return positions, normals
+
+
+class _Ground:
+    """The god-light ground plane's GPU buffers, rebuilt only when the span
+    changes -- ``grid.Grid``'s own rule, restated here because a quad is a
+    different enough shape (two triangles, a normal per vertex, no colour)
+    that sharing the class would mean branching it in half."""
+
+    def __init__(self, ctx: moderngl.Context, programs: ProgramCache) -> None:
+        self.ctx = ctx
+        self.program = programs.get("ground")
+        self.span = -1.0
+        self._vbo = None
+        self._vao = None
+
+    def set_span(self, span: float) -> None:
+        if span == self.span:
+            return
+        self.release()
+        self.span = span
+        positions, normals = _ground_geometry(span)
+        data = np.concatenate([positions, normals], axis=1)
+        self._vbo = self.ctx.buffer(np.ascontiguousarray(data).tobytes())
+        self._vao = self.ctx.vertex_array(
+            self.program, [(self._vbo, "3f 3f", "a_position", "a_normal")]
+        )
+
+    def render(self, view: np.ndarray, proj: np.ndarray) -> None:
+        if self._vao is None:
+            return
+        self.program["u_view"].write(m3.gl_bytes(view))
+        self.program["u_proj"].write(m3.gl_bytes(proj))
+        self._vao.render(mode=moderngl.TRIANGLES)
+
+    def release(self) -> None:
+        for obj in (self._vao, self._vbo):
+            if obj is not None:
+                obj.release()
+        self._vao = self._vbo = None
+        self.span = -1.0
+
 
 @dataclass
 class DrawItem:
@@ -63,7 +127,16 @@ class Renderer:
         self.programs = ProgramCache(ctx)
         self.env = Environment(ctx)
         self.grid = Grid(ctx, self.programs)
+        self.ground = _Ground(ctx, self.programs)
         self.exposure = 1.0
+        # ``(direction, color)`` in place of the environment's own key light,
+        # or ``None`` for the ordinary key light. Clay's god-light mode is the
+        # one setter (``ClayView.draw``, from ``self.env.god_light``); nothing
+        # else in this class reads Clay's state, so it arrives as a plain
+        # value rather than a flag this module would have to know the name of.
+        self.light_override: (
+            tuple[tuple[float, float, float], tuple[float, float, float]] | None
+        ) = None
 
     # -- frame -------------------------------------------------------------
 
@@ -81,6 +154,7 @@ class Renderer:
         overlays: list[DrawItem] | None = None,
         wire_overlay: bool = False,
         alpha: float = 1.0,
+        ground: bool = False,
     ) -> None:
         """One frame: the grid, the model, and the overlays over it.
 
@@ -93,6 +167,15 @@ class Renderer:
         behind it can be picked. It also turns the depth *write* off, because a
         translucent surface that still wrote depth would hide exactly what it
         was made transparent to reveal -- the far side of its own mesh.
+
+        ``ground`` draws a flat, lit quad at y=0 sized to the current grid
+        span, before the grid -- Clay's god-light mode, and nobody else's: it
+        is what the god light (``self.light_override``) has to fall on for
+        the effect to be visible at all, since without it the light shines
+        past every object onto the clear colour and only the model itself
+        shows the change. Not pickable and not counted in any bounds -- it is
+        drawn straight from ``self.grid.span`` rather than through
+        :class:`DrawItem` or the scene it lights.
         """
         ctx = self.ctx
         viewport.use()
@@ -106,6 +189,13 @@ class Renderer:
         ctx.enable(moderngl.DEPTH_TEST)
         ctx.enable(moderngl.BLEND)
         ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+
+        if ground and self.grid.span > 0.0:
+            self.ground.set_span(self.grid.span)
+            program = self.ground.program
+            program["u_exposure"].value = self.exposure
+            self.env.bind(program, light=self.light_override)
+            self.ground.render(view, proj)
 
         if show_grid:
             ctx.wireframe = False
@@ -218,7 +308,7 @@ class Renderer:
                     program["u_alpha"].value = float(alpha)
                 if "u_camera_pos" in program:
                     program["u_camera_pos"].value = camera_pos
-                    self.env.bind(program)
+                    self.env.bind(program, light=self.light_override)
             if "u_normal_matrix" in program:
                 # The inverse transpose, so a non-uniform scale does not tilt
                 # the normals. Per node because the placement transform is
@@ -248,7 +338,7 @@ class Renderer:
                 # A five-texture material walks its units up to 4, which is
                 # the environment probe's slot -- rebind it, since the hoist
                 # above only bound it once per program.
-                self.env.bind(program)
+                self.env.bind(program, light=self.light_override)
             if primitive.skinned and "u_joints" in program:
                 palette = gpu.palette(node)
                 if palette:
@@ -271,5 +361,6 @@ class Renderer:
 
     def release(self) -> None:
         self.grid.release()
+        self.ground.release()
         self.env.release()
         self.programs.release()

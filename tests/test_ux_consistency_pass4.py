@@ -32,7 +32,7 @@ from pathlib import Path
 # territory), and would otherwise false-positive here.
 _RAW_LABELLED = re.compile(
     r"controls\.(slider_float|slider_int|checkbox|input_int|input_float"
-    r"|input_float2|input_float3|drag_int|drag_float|color_edit4)"
+    r"|input_float2|input_float3|input_vec|drag_int|drag_float|color_edit4)"
     r"\(\s*\n?\s*\"(?!##)([^\"]+)\"",
 )
 
@@ -82,6 +82,11 @@ _ALLOW: dict[str, set[str]] = {
         # per-param widget and the material sliders were).
         "position##bt",
         "scale##bs",
+        # ``input_vec`` (2026-09-12) draws its own X/Y/Z/W letters above each
+        # box, but the field's own label is still this hidden id, same as its
+        # siblings above -- the axis letters are the label this pass asked
+        # for, drawn a different way because there is one line, not three.
+        "rotation##br",
     },
     "clay_header.py": set(),
     "clay_menu.py": set(),

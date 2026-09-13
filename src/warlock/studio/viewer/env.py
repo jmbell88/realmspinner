@@ -290,8 +290,23 @@ class Environment:
             probe.write(pixels.tobytes(), level=mip)
         return probe
 
-    def bind(self, program: Any, unit: int = 4) -> None:
-        """Set every environment uniform a lit program declares."""
+    def bind(
+        self,
+        program: Any,
+        unit: int = 4,
+        *,
+        light: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None,
+    ) -> None:
+        """Set every environment uniform a lit program declares.
+
+        ``light``, when given, is a ``(direction, color)`` pair used in place
+        of the key light -- Clay's god-light mode (``self.god_light`` below),
+        which the caller reads and passes through rather than this method
+        knowing Clay exists. Read into locals and never written back onto
+        ``self.key_direction``/``self.key_color``: those are shared with
+        every other caller of this environment, and an override that mutated
+        them would leak into the very next draw that did not ask for one.
+        """
         if "u_sh" in program:
             program["u_sh"].write(np.ascontiguousarray(self.sh).tobytes())
         if "u_env" in program:
@@ -302,8 +317,24 @@ class Environment:
             program["u_hemi_sky"].value = self.hemi_sky
             program["u_hemi_ground"].value = self.hemi_ground
         if "u_light_dir" in program:
-            program["u_light_dir"].value = self.key_direction
-            program["u_light_color"].value = self.key_color
+            direction, color = light if light is not None else (self.key_direction, self.key_color)
+            program["u_light_dir"].value = direction
+            program["u_light_color"].value = color
+
+    @property
+    def god_light(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """The ``light`` override for Clay's god-light mode: straight down,
+        at the key light's own intensity.
+
+        ``(0, 1, 0)`` is the direction *toward* the light in ``bind``'s
+        convention (it is ``dot(normal, lightDir)``, not a position), so this
+        is a light at ``(0, 100, 0)`` in world space -- effectively
+        directional at any scale this app models a prop at, the same way the
+        sun is. Reusing ``self.key_color`` rather than a second intensity
+        constant means "replaces the key light" is true by construction
+        rather than by two numbers kept in sync by hand.
+        """
+        return ((0.0, 1.0, 0.0), self.key_color)
 
     def release(self) -> None:
         self.probe.release()

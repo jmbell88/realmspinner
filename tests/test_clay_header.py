@@ -58,6 +58,33 @@ def test_the_grid_keeps_its_own_field_rather_than_moving_into_the_dict():
     assert "grid" not in state.overlays
 
 
+def test_god_light_also_keeps_its_own_field_rather_than_moving_into_the_dict():
+    """Task C's row: a ``ClayState`` field like ``grid``, not a third home in
+    ``state.overlays`` -- the same reason ``grid`` gets one."""
+    state = clay_state.ClayState()
+    clay_header.set_overlay(state, "god_light", True)
+    assert state.god_light is True
+    assert "god_light" not in state.overlays
+
+
+def test_the_overlay_popup_has_a_grid_size_field():
+    """Task A: the size field sits under the Grid row, not as a fifth item in
+    ``OVERLAY_ROWS`` -- it is not a switch, it is the number the Grid switch
+    governs, the same shape ``_snap_popup``'s grid step and ``_
+    proportional_popup``'s radius already have."""
+    assert hasattr(clay_header, "_grid_size_field")
+    keys = [key for key, _label, _tip in clay_header.OVERLAY_ROWS]
+    assert keys.index("grid") < keys.index("god_light")
+
+
+def test_the_grid_tooltip_says_1m_cells_not_the_snap_size():
+    """The row used to say "at the snap size", which stopped being true the
+    moment the grid got its own ``grid_size`` field independent of Snap."""
+    tips = {key: tip for key, _label, tip in clay_header.OVERLAY_ROWS}
+    assert "1 m" in tips["grid"]
+    assert "snap" not in tips["grid"].lower()
+
+
 def test_every_axis_row_names_a_view_the_camera_has():
     from warlock.studio.viewer.camera import Camera
 

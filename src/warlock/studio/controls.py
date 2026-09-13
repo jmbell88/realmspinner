@@ -522,6 +522,67 @@ def input_float4(*args: Any, **kwargs: Any) -> Any:
     return _field_call("input_float4", *args, **kwargs)
 
 
+def input_vec(
+    label: str,
+    values: Sequence[float],
+    axes: Sequence[str],
+    **kwargs: Any,
+) -> Any:
+    """A 2-, 3- or 4-component field with an axis letter over each box.
+
+    ``input_floatN`` draws no header of its own, so a rotation field and a
+    scale field are three identical-looking boxes apart from a count -- a
+    user has to *count* boxes to tell them apart rather than read them (the
+    2026-09-12 consistency pass's finding on Clay's transform panel). The
+    letters answer that without touching ``input_floatN``'s own layout: imgui
+    splits an N-component field into ``N`` boxes of equal width separated by
+    ``style.item_inner_spacing.x`` (``InputScalarN``'s own layout, mirrored
+    here rather than imported since imgui exposes no query for it), and this
+    centres one letter over each box before drawing it.
+
+    Drawn with :func:`imgui.dummy` to advance the cursor rather than
+    ``same_line`` -- ``tests/test_studio_smoke.py`` counts overflowing
+    ``same_line`` calls, and a dummy the width of the field plus one text
+    line reserves exactly the row the letters were painted onto.
+
+    Dispatches to ``input_float{n}`` looked up on this module *by name* at
+    call time (``globals()``) rather than called directly, so a test that
+    monkeypatches ``controls.input_float3``/``input_float2`` still intercepts
+    a call made through here.
+    """
+    n = len(axes)
+    if len(values) != n:
+        raise ValueError(f"input_vec: {len(values)} values for {n} axes")
+    if not 2 <= n <= 4:
+        raise ValueError(f"input_vec: {n} axes, expected 2..4")
+
+    enabled = kwargs.get("enabled", True)
+    try:
+        width = imgui.calc_item_width()
+        spacing = imgui.get_style().item_inner_spacing.x
+        origin = imgui.get_cursor_screen_pos()
+        component_w = (width - spacing * (n - 1)) / n
+        draw = imgui.get_window_draw_list()
+        colour = imgui.get_color_u32(theme.rgba(theme.MUTED, 1.0 if enabled else 0.5))
+        for i, axis in enumerate(axes):
+            box_x = origin.x + i * (component_w + spacing)
+            text_w = imgui.calc_text_size(axis).x
+            draw.add_text(
+                (box_x + (component_w - text_w) * 0.5, origin.y),
+                colour,
+                axis,
+            )
+        imgui.dummy((width, imgui.get_text_line_height()))
+    except (AttributeError, RuntimeError, TypeError):
+        # Headless source/unit tests deliberately supply tiny ImGui stubs
+        # with no draw list, style or cursor -- draw nothing rather than
+        # break the field this wraps.
+        pass
+
+    field = globals()[f"input_float{n}"]
+    return field(label, values, **kwargs)
+
+
 def color_edit4(*args: Any, **kwargs: Any) -> Any:
     """Four-channel colour field with the shared field-state treatment."""
 

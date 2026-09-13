@@ -150,7 +150,9 @@ def _transform(doc: Any, obj: Any) -> None:
     widgets.field_label("transform")
     was = tuple(v.copy() for v in obj.trs())
     changed = False
-    edited, translation = controls.input_float3("position##bt", list(obj.translation))
+    edited, translation = controls.input_vec(
+        "position##bt", list(obj.translation), ("X", "Y", "Z")
+    )
     # The 2026-09-07 audit's clay-01: these three fields fired ``set_transform``
     # -- an unconditional ``history.push`` -- on every keystroke, same as the
     # material sliders below already fold. ``InputFloat3``/``InputFloat4`` fire
@@ -159,10 +161,16 @@ def _transform(doc: Any, obj: Any) -> None:
     # the last character back rather than the whole edit.
     controls.fold_undo(doc.history)
     changed |= edited
-    edited, scale = controls.input_float3("scale##bs", list(obj.scale))
+    edited, scale = controls.input_vec("scale##bs", list(obj.scale), ("X", "Y", "Z"))
     controls.fold_undo(doc.history)
     changed |= edited
-    edited, rotation = controls.input_float4("rotation##br", list(obj.rotation))
+    # Rotation stays a quaternion (the 2026-09-12 consistency pass's call --
+    # the viewer gizmo and the pose files are both XYZW, and converting the
+    # field to Euler would need the panel to pick a rotation order the rest
+    # of the app doesn't have) -- so its fourth letter is W, not a repeated Z.
+    edited, rotation = controls.input_vec(
+        "rotation##br", list(obj.rotation), ("X", "Y", "Z", "W")
+    )
     controls.fold_undo(doc.history)
     widgets.help_marker(
         "A quaternion, XYZW -- the same order the viewer and the pose files "
@@ -339,10 +347,8 @@ def _widget(key: str, value: Any, default: Any) -> tuple[Any, bool]:
         if values is not None:
             pad = max(0, len(default) - len(values))
             values = values[: len(default)] + [0.0] * pad
-            if len(default) == 2:
-                changed, out = controls.input_float2(label, values)
-            else:
-                changed, out = controls.input_float3(label, values)
+            axes = ("X", "Y") if len(default) == 2 else ("X", "Y", "Z")
+            changed, out = controls.input_vec(label, values, axes)
             return tuple(float(v) for v in out), changed
     # A parameter type nobody has added yet: shown, not editable, rather than
     # silently dropped from the panel.

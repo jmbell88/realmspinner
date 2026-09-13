@@ -165,8 +165,18 @@ shows silhouette and topology without a specular highlight sitting on the vertex
 because it changes what a click *selects* as well as what is drawn.
 
 **Overlays** is what the viewport draws over the model — the grid, a wireframe over whichever shading
-is showing, and the statistics line. **View** is where the camera looks from and how it projects; both
-are described below, under [Axis views](#axis-views) and [Snapping](#snapping).
+is showing, the statistics line, and the god light. **View** is where the camera looks from and how it
+projects; both are described below, under [Axis views](#axis-views) and [Snapping](#snapping).
+
+The **Grid** is a fixed size — 100 m by default, in 1 m cells, with a brighter line every ten of them
+— rather than one that follows whatever is on screen, and its own field sits under the Grid row in the
+Overlays popover, from 1 to 1000 m. Pressing `F` to frame the selection moves the camera only; it no
+longer resizes the grid out from under you. The size is remembered across sessions, the way the switch
+itself already was.
+
+**God light** replaces the ordinary render with a single light straight down from 100 m overhead onto
+a flat ground plane under the grid — a deliberately flat, shadowless look for checking silhouette and
+proportions rather than the lit render you model under day to day.
 
 ### Statistics
 
@@ -341,7 +351,8 @@ for the marquee.
 
 The **Move**, **Rotate** and **Scale** values are also typed directly in the properties panel, which
 is the better way to place something exactly. Rotation is shown as a quaternion in `XYZW` order,
-which is what every file this app writes uses. Under them is a read-only **size** row: the object's
+which is what every file this app writes uses. Position and scale boxes are labelled X, Y and Z;
+rotation is a quaternion labelled X, Y, Z and W. Under them is a read-only **size** row: the object's
 world-space width, depth and height in metres, after its transform — the number a scale of 2 on a
 generator whose radius is 0.35 does not tell you.
 
