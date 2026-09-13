@@ -5618,15 +5618,21 @@ def test_the_wand_row_renders_and_no_dead_generator_route_remains(app_ctx, imgui
     assert found.stdout.strip() == "", found.stdout
 
 
-def test_the_menu_bar_and_status_bar_actually_render(app_ctx, imgui_ctx):
+def test_the_menu_bar_and_bottom_pane_actually_render(app_ctx, imgui_ctx):
     """The half of the editor shell that ``test_editor_shell`` cannot reach.
 
-    That file tests ``menus.specs`` and ``status_bar.items`` -- the pure data
-    behind the two surfaces -- and nothing anywhere tested the imgui half:
-    ``begin_menu_bar``/``end_menu_bar`` pairing, the style vars pushed around
-    it, and the status bar's ``begin_child``. Every other pane in this app is
-    smoke-rendered; these two were the exception, which is a poor thing for the
-    two newest modules in the shell to be.
+    ``test_editor_shell`` and ``test_menus`` test ``menus.specs`` and
+    ``status_bar.items`` -- the pure data behind the shell -- and nothing
+    anywhere tested the imgui half: ``begin_menu_bar``/``end_menu_bar``
+    pairing, the style vars pushed around it, and the bottom pane's
+    ``begin_child``. Every other pane in this app is smoke-rendered; these two
+    were the exception, which is a poor thing for the two newest modules in
+    the shell to be.
+
+    T0 of the Familiar programme replaced the old flat status bar
+    (``status_bar.draw``, now deleted) with a right-aligned group inside
+    ``menus.draw`` itself and a one-row ``panes.bottom_pane.draw`` at the
+    foot -- so this renders those two instead of the two originals.
 
     The assertion is the frame completing. An unbalanced style stack or a
     missing ``end_menu_bar`` does not raise where it happens -- it corrupts the
@@ -5634,7 +5640,8 @@ def test_the_menu_bar_and_status_bar_actually_render(app_ctx, imgui_ctx):
     is the real check, and ``imgui.end()`` would already have thrown if the
     window stack were wrong.
     """
-    from warlock.studio import menus, status_bar
+    from warlock.studio import menus
+    from warlock.studio.panes import bottom_pane
 
     imgui, renderer = imgui_ctx
     imgui.new_frame()
@@ -5644,7 +5651,7 @@ def test_the_menu_bar_and_status_bar_actually_render(app_ctx, imgui_ctx):
     # only ever exercised the early return would be the same gap again.
     imgui.begin("##shell-host", None, imgui.WindowFlags_.menu_bar.value)
     menus.draw(app_ctx)
-    status_bar.draw(app_ctx)
+    bottom_pane.draw(app_ctx)
     imgui.end()
     imgui.render()
     renderer.render(imgui.get_draw_data())

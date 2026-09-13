@@ -403,15 +403,22 @@ def _ring(hole: tuple[float, float, float, float]) -> None:
     )
 
 
-def _card_pos(viewport: Any, hole: tuple[float, float, float, float] | None) -> tuple[float, float]:
+def _card_pos(
+    viewport: Any,
+    hole: tuple[float, float, float, float] | None,
+    bottom_offset: float = 0.0,
+) -> tuple[float, float]:
     """Bottom-right by default, and out of the hole's way when there is one.
 
     Only the horizontal side is swapped. A card that also chased the hole
     vertically would jump the length of the window between two steps pointing
     at the top and bottom of the same pane, and a reader tracking a moving card
     is not reading it.
+
+    ``bottom_offset`` -- already-scaled design pixels -- lifts the card clear
+    of ``panes.bottom_pane``, which anchors to the same edge.
     """
-    margin = sp(tokens.SP_4)
+    margin = sp(tokens.SP_4) + bottom_offset
     y = viewport.work_pos.y + viewport.work_size.y - margin
     right = viewport.work_pos.x + viewport.work_size.x - margin
     if hole is not None:
@@ -475,9 +482,11 @@ def _card(
     hole: tuple[float, float, float, float] | None,
     appearing: bool,
 ) -> None:
+    from . import bottom_pane
+
     state = ctx.state.tour
     alpha, rise = widgets.popover_enter("tour", appearing)
-    x, y = _card_pos(viewport, hole)
+    x, y = _card_pos(viewport, hole, sp(bottom_pane.height(ctx)))
     imgui.set_next_window_pos((x, y + rise), imgui.Cond_.always.value, (1.0, 1.0))
     imgui.set_next_window_size((sp(CARD_W), 0))
     frosted = widgets.frosted()

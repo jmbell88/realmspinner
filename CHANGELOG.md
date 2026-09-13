@@ -20,6 +20,15 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Status moves into the menu bar.** The status bar at the foot of the window is
+gone. Its readouts (workspace, document, tool, zoom, queue, health) now sit
+right-aligned in the top menu bar, which drops the lowest-priority ones first
+when a mode's menus need the room — the resource meter, then zoom, tool,
+document and queue — and never drops health. The foot of the window is now a
+single `✦ Familiar isn't installed — Install…` row, where Familiar, the
+built-in assistant, will live; there is nothing to install yet. Toasts, the
+progress card, the frame-rate meter and the tour card sit above that row.
+
 **The 2026-09-13 audit's first fixes.** A refused Inker op from the keyboard
 (Shift+H on a tile layer that does not divide the canvas) now toasts instead of
 ending the session. Repeat Last Export keeps a per-tag or per-layer split.

@@ -3785,7 +3785,13 @@ def toast_style(level: str) -> tuple[int, str]:
     }.get(level, (theme.ELEV_2, ""))
 
 
-def toasts(state: Any, viewport_size: tuple[float, float], on_action: Any = None) -> None:
+def toasts(
+    state: Any,
+    viewport_size: tuple[float, float],
+    on_action: Any = None,
+    *,
+    bottom_offset: float = 0.0,
+) -> None:
     """Stacked bottom-right, newest lowest; born sliding up, dying fading out.
 
     Info and success toasts stay ``no_inputs`` -- they never mattered enough to
@@ -3799,13 +3805,17 @@ def toasts(state: Any, viewport_size: tuple[float, float], on_action: Any = None
     from ``born`` in four places, and a second field saying "but not that age"
     is how two of them come to disagree. Only a toast that takes input can be
     hovered at all, which is the same set that is worth pausing.
+
+    ``bottom_offset`` -- design pixels already scaled by the caller -- lifts
+    the whole stack clear of ``panes.bottom_pane``, which sits at the same
+    screen edge this stack anchors to.
     """
     state.expire_toasts()
     if not state.toasts:
         return
     now = time.monotonic()
     delta = imgui.get_io().delta_time
-    margin = sp(16)
+    margin = sp(16) + bottom_offset
     y = viewport_size[1] - margin
     dismissed: list[Any] = []
     hidden = max(0, len(state.toasts) - TOAST_VISIBLE)

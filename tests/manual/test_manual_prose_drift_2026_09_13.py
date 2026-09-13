@@ -44,13 +44,18 @@ def test_manual_status_bar_issues_claim_matches_the_app():
     """Chapter 20 must not claim the amber count is clickable or that there
     is an ``Issues`` palette command -- ``status_bar.py`` never wires
     ``is_item_clicked`` on it and ``palette.py`` defines no such command.
+
+    T0 of the Familiar programme moved the health figure (and the rest of the
+    per-item status readouts) from a status bar at the window's foot into a
+    right-aligned group in the menu bar -- "The status group", chapter 20's
+    new heading for it -- so this now reads that section instead.
     """
     status_bar = (STUDIO / "status_bar.py").read_text(encoding="utf-8")
     palette = (STUDIO / "palette.py").read_text(encoding="utf-8")
     assert "is_item_clicked" not in status_bar
     assert '"Issues"' not in palette
 
-    text = _section(_chapter("20-overview.md"), "The status bar")
+    text = _section(_chapter("20-overview.md"), "The status group")
     assert "Clicking that last one opens the Issues list" not in text
     assert "it is **Issues** in the command\npalette" not in text
     assert "Settings → Health" in text or "Settings → Health" in text
