@@ -384,6 +384,23 @@ void main() {
 }
 """
 
+#: The object-id pass shares ``SOLID_VERT`` -- it needs nothing SOLID_FRAG's
+#: own vertex shader does not already provide (a position, a model/view/proj
+#: triple) -- but not ``SOLID_FRAG``, whose whole job is putting a swatch
+#: through the same tone map every other draw uses. An id colour must survive
+#: the round trip through an 8-bit framebuffer exactly, and a tone map is
+#: exactly the kind of transform that would stop it: it is non-linear, so
+#: undoing it byte-perfect to recover the colour this pass actually asked for
+#: is not a decoder any caller should have to write. Flat, straight through.
+ID_FRAG = """
+#version 330 core
+out vec4 f_color;
+uniform vec3 u_color;
+void main() {
+    f_color = vec4(u_color, 1.0);
+}
+"""
+
 LINES_VERT = """
 #version 330 core
 in vec3 a_position;
@@ -468,5 +485,6 @@ SOURCES: dict[str, tuple[str, str]] = {
     "pbr": (PBR_VERT, PBR_FRAG),
     "unlit": (UNLIT_VERT, UNLIT_FRAG),
     "solid": (SOLID_VERT, SOLID_FRAG),
+    "id": (SOLID_VERT, ID_FRAG),
     "lines": (LINES_VERT, LINES_FRAG),
 }

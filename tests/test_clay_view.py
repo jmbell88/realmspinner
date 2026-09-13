@@ -13,11 +13,13 @@ asserted headlessly.
 
 from __future__ import annotations
 
+import io
 import math
 from typing import Any
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from warlock.studio import _view_drag, clay_view
 from warlock.studio.clay import document as bd
@@ -1671,10 +1673,14 @@ def test_the_alt_state_is_consumed_so_a_later_release_is_not_a_click(view) -> No
 
 def test_render_png_defaults_are_the_picture_the_trellis_path_already_got(view) -> None:
     """The default path has to stay byte-identical to what it drew before
-    ``angles``/``bounds``/``grid`` existed -- ``_render_clay_reference`` and
-    every stored-corpus comparison keyed on its input depend on it."""
+    ``angles``/``bounds``/``grid``/``shading`` existed -- ``_render_clay_reference``
+    and every stored-corpus comparison keyed on its input depend on it.
+    ``shading="unlit"`` is that same default spelled out: ``main.py``'s
+    Trellis caller never passes ``shading`` at all, so the picture it gets is
+    exactly the one this second assertion names."""
     doc = _doc(count=1)
     assert view.render_png(doc) == view.render_png(doc, angles=None, bounds=None, grid=False)
+    assert view.render_png(doc) == view.render_png(doc, shading="unlit")
 
 
 def test_render_png_with_angles_does_not_move_the_cameras_own_state(view) -> None:
@@ -1737,6 +1743,101 @@ def test_render_png_with_bounds_frames_those_bounds_rather_than_the_whole_docume
     just_the_first_object = view.render_png(doc, bounds=(lo, hi))
 
     assert whole_document != just_the_first_object
+
+
+# --- shading: the agent-visible enum, and object_id's own render_ids pass ----
+
+
+def _significant_greys(png_bytes: bytes, *, bin_size: int = 8, min_fraction: float = 0.01) -> set:
+    """Coarse-binned grey levels covering at least *min_fraction* of the
+    picture's non-background pixels.
+
+    Binned rather than compared by exact value, and a fraction floor rather
+    than "any pixel at all": a handful of anti-aliased edge pixels between a
+    flat face and the white background sit at intermediate grey values, and
+    counting those as their own "distinct" level would make a truly flat
+    render look shaded. A real lit face is thousands of pixels; a stray AA
+    fringe is a handful -- the floor is what tells them apart.
+    """
+    pixels = np.asarray(Image.open(io.BytesIO(png_bytes)).convert("L"))
+    values = pixels[pixels < 250]  # 250+ is the white background
+    if values.size == 0:
+        return set()
+    binned = values.astype("i4") // bin_size
+    lo = int(binned.min())
+    counts = np.bincount(binned - lo)
+    total = int(values.size)
+    return {b for b, c in enumerate(counts) if c / total >= min_fraction}
+
+
+def test_render_png_lit_shading_shows_more_than_one_face_grey(view) -> None:
+    """'unlit' is flat material colour with no lighting at all -- every
+    visible face of an unpainted box comes back the same grey. 'lit' is the
+    one shading value that turns the same light the interactive viewport
+    uses back on, and a box lit from one direction has at least two faces at
+    different brightness, which a byte-diff against the unlit picture cannot
+    tell from a colour-only change."""
+    doc = _doc(count=1)
+    view.frame_selection(doc)
+
+    lit_greys = _significant_greys(view.render_png(doc, shading="lit"))
+    assert len(lit_greys) >= 2, lit_greys
+
+
+def test_render_png_unlit_shading_is_the_documents_material_colour_with_no_shading(view) -> None:
+    """The other half of the same claim: 'unlit' has no significant
+    face-to-face brightness variation to find, which is what makes 'lit' the
+    one that needs a distinct-greys check rather than a byte-diff at all."""
+    doc = _doc(count=1)
+    view.frame_selection(doc)
+
+    unlit_greys = _significant_greys(view.render_png(doc, shading="unlit"))
+    assert len(unlit_greys) == 1, unlit_greys
+
+
+def test_id_color_is_8bit_never_white_and_distinct_across_many_uids() -> None:
+    """No GL needed -- this is a pure function of the uid. Checked over a few
+    hundred uids rather than a handful: golden-ratio hue stepping is only a
+    *good* answer to "well separated colours" if it does not degrade as more
+    objects are coloured."""
+    colors = [clay_view._id_color(uid) for uid in range(500)]
+    for r, g, b in colors:
+        assert 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255
+        assert (r, g, b) != (255, 255, 255)
+    assert len(set(colors)) == len(colors), "two different uids landed on the same colour"
+
+
+def test_render_ids_every_non_white_pixel_is_one_of_the_maps_colours(view) -> None:
+    """The decode-by-exact-match contract ``Renderer.draw_ids`` exists for:
+    no blending, no MSAA, no tone map, so every pixel the id pass produces is
+    either the white clear colour or one object's own colour -- nothing in
+    between."""
+    doc = _doc(count=2)
+    view.frame_selection(doc)
+
+    png, rows = view.render_ids(doc)
+    pixels = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+    found = {tuple(c) for c in pixels.reshape(-1, 3).tolist()}
+    found.discard((255, 255, 255))
+    mapped = {
+        tuple(int(hexcolor[i : i + 2], 16) for i in (1, 3, 5)) for _uid, hexcolor, _px in rows
+    }
+    assert found, "the render drew nothing but background"
+    assert found <= mapped
+
+
+def test_render_ids_reports_a_zero_pixel_count_for_an_object_this_view_cannot_see(view) -> None:
+    """'0 means hidden from this view, not that it does not exist': every
+    visible object gets a row, even one the framed picture never actually
+    shows a pixel of."""
+    doc = _doc(count=1)
+    lo, hi = np.array([100.0, -0.5, -0.5]), np.array([101.0, 0.5, 0.5])
+
+    _png, rows = view.render_ids(doc, bounds=(lo, hi))
+    assert len(rows) == 1
+    uid, _hexcolor, px = rows[0]
+    assert uid == doc.objects[0].uid
+    assert px == 0
 
 
 # --- Camera.look_angles: the split that keeps look_along's coupling in one place --

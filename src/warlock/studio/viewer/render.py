@@ -172,6 +172,57 @@ class Renderer:
 
         viewport.resolve()
 
+    def draw_ids(
+        self,
+        viewport: Viewport,
+        camera: Any,
+        composite: Any | None,
+        *,
+        id_colors: dict[int, tuple[int, int, int]],
+    ) -> None:
+        """One object-id pass: every primitive flat-shaded in its own
+        object's colour, no lighting, no tone map, no blending and no
+        culling -- the properties a caller decoding pixels back into uids by
+        exact match needs. Blending and MSAA both mix an edge pixel's colour
+        with its neighbour's or the background's, which is a pixel neither
+        colour can claim afterwards; ``viewport`` being single-sample is the
+        caller's job (see ``ClayView.render_ids``, the only one), and turning
+        blending off here is this method's own half of that promise. Culling
+        is off too: the id an interior or a back face reads back as does not
+        depend on which way it faces, so there is nothing to gain by leaving
+        gaps a normal draw would cull for fill-rate reasons alone.
+
+        ``composite.uids`` is walked in lockstep with ``composite.draws`` --
+        see :class:`~.._view_frame.Composite`'s own docstring -- so a draw
+        whose uid is not in *id_colors* (an object the caller chose not to
+        colour-code) is skipped rather than drawn in whatever the last
+        uniform write left behind.
+        """
+        ctx = self.ctx
+        viewport.use()
+        viewport.draw_target.clear(1.0, 1.0, 1.0, 1.0, depth=1.0)
+        camera.aspect = viewport.size[0] / max(viewport.size[1], 1)
+        view = camera.view()
+        proj = camera.projection()
+        ctx.enable(moderngl.DEPTH_TEST)
+        ctx.disable(moderngl.BLEND)
+        ctx.disable(moderngl.CULL_FACE)
+        if composite is not None and composite.draws:
+            program = self.programs.get("id")
+            program["u_view"].write(m3.gl_bytes(view))
+            program["u_proj"].write(m3.gl_bytes(proj))
+            uids = composite.uids or ()
+            for (node, primitive), uid in zip(composite.draws, uids, strict=True):
+                color = id_colors.get(uid)
+                if color is None:
+                    continue
+                program["u_model"].write(m3.gl_bytes(node.world))
+                program["u_color"].value = (
+                    color[0] / 255.0, color[1] / 255.0, color[2] / 255.0,
+                )
+                primitive.vao(program).render()
+        viewport.resolve()
+
     def _draw_model(
         self,
         gpu: GpuModel,

@@ -428,6 +428,19 @@ envelope around the image blocks costs bytes of its own; without this an
 encode that is over by a few hundred bytes would reach ``send_bytes`` and
 fail there, past the point a refusal could explain itself."""
 
+RENDER_SHADINGS = (
+    "unlit", "lit", "wireframe", "wire_overlay", "xray", "object_id",
+)
+"""``clay_render``'s ``shading`` enum, one place rather than two: this tuple
+is what the schema's own ``enum`` is built from below, so a seventh value
+added here reaches the wire with no second edit. ``unlit`` is first because
+it is the default -- ``args.get("shading", RENDER_SHADINGS[0])`` in
+:func:`_h_render` reads that position rather than a duplicated literal, so
+the two cannot name a different default by accident. The first five map onto
+``ClayView.render_png``'s own ``shading`` (see ``clay_view._SHADING_DRAW_KWARGS``
+for that table); ``object_id`` is answered by ``ClayView.render_ids``
+instead, a different draw with a different return shape."""
+
 ELEMENT_PAGE_MAX = 4096
 """The most element indices one ``clay_elements`` call may hand back for one
 kind, per object. This is **not** a wire limit the way ``RENDER_PIXEL_BUDGET``
@@ -1841,24 +1854,40 @@ def tools() -> list[Any]:
             name="clay_render",
             title="Render the document",
             description=(
-                "One or more flat-shaded, white-background square renders "
-                "of the document -- no gizmos -- from the standard "
-                "three-quarter framing, a named axis view, or a free "
-                "yaw/pitch pair. 'view' and 'views' are exclusive; giving "
-                "both is refused. 'grid' draws the ground plane at y=0, the "
-                "one scale cue available with no viewport to walk around in: "
-                "16 cells across a span rounded up to a power of ten "
-                "containing 2.5x the framed footprint, so one cell reads as "
-                "span/16 metres. 'focus' points the camera at the union of "
-                "the named objects' boxes -- everything else is still "
-                "drawn, since the renderer has no per-object alpha. Refused, "
-                "before any GPU work, when the requested views would exceed "
-                f"the {RENDER_PIXEL_BUDGET:,}-pixel render budget or would "
-                "not fit in one reply frame once encoded -- ask for fewer or "
-                "smaller views instead. Pass 'compare' (a stored reference's "
-                "name) to render exactly one view beside it or blended over "
-                "it instead of the normal multi-view result -- see "
-                "clay_reference_add."
+                "One or more white-background square renders of the "
+                "document -- no gizmos -- from the standard three-quarter "
+                "framing, a named axis view, or a free yaw/pitch pair. "
+                "'view' and 'views' are exclusive; giving both is refused. "
+                "'shading' picks how the surface is drawn: 'unlit' "
+                "(default) is the material's own colour with no lighting -- "
+                "not 'flat-shaded' in the lit-and-shaded sense that phrase "
+                "usually means, just the albedo, which is what makes two "
+                "renders comparable regardless of where the light sits. "
+                "'lit' adds the same lighting the viewport itself uses. "
+                "'wireframe' draws edges only, 'wire_overlay' draws the "
+                "shaded surface with edges over it, and 'xray' draws the "
+                "surface translucent. 'object_id' draws every visible "
+                "object as a flat, unique colour instead -- see 'ids' below "
+                "-- and refuses combined with 'grid'. 'grid' draws the "
+                "ground plane at y=0, the one scale cue available with no "
+                "viewport to walk around in: 16 cells across a span rounded "
+                "up to a power of ten containing 2.5x the framed footprint, "
+                "so one cell reads as span/16 metres. 'focus' points the "
+                "camera at the union of the named objects' boxes -- "
+                "everything else is still drawn, since the renderer has no "
+                "per-object alpha. Refused, before any GPU work, when the "
+                f"requested views would exceed the {RENDER_PIXEL_BUDGET:,}"
+                "-pixel render budget or would not fit in one reply frame "
+                "once encoded -- ask for fewer or smaller views instead. "
+                "Pass 'compare' (a stored reference's name) to render "
+                "exactly one view beside it or blended over it instead of "
+                "the normal multi-view result -- see clay_reference_add; "
+                "'object_id' cannot be combined with 'compare'. An "
+                "'object_id' render's text reply carries 'ids': one row per "
+                "visible object, [uid, '#rrggbb' colour, pixel count], the "
+                "same colour for a uid in every view of one call -- a pixel "
+                "count of 0 means that object is hidden from that view, not "
+                "that it does not exist."
             ),
             schema={
                 "type": "object",
@@ -1887,6 +1916,7 @@ def tools() -> list[Any]:
                             ]
                         },
                     },
+                    "shading": {"type": "string", "enum": list(RENDER_SHADINGS)},
                     "grid": {"type": "boolean"},
                     "focus": {"type": "array", "items": {"type": "integer"}},
                     "compare": {"type": "string"},
@@ -4179,6 +4209,19 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     if not isinstance(grid, bool):
         return fail("grid must be a boolean.", field="grid")
 
+    shading = args.get("shading", RENDER_SHADINGS[0])
+    if shading not in RENDER_SHADINGS:
+        return fail(
+            f"shading must be one of {', '.join(RENDER_SHADINGS)}.", field="shading"
+        )
+    if shading == "object_id" and grid:
+        # The id pass (``ClayView.render_ids``) never draws a grid at all --
+        # a grid line would be false colour with no uid behind it, corrupting
+        # the very pixel counts this shading exists to produce. Refused here,
+        # named at the field a caller can actually drop, rather than the grid
+        # silently doing nothing or the id map silently going wrong.
+        return fail("grid cannot be combined with shading 'object_id'.", field="grid")
+
     focus = args.get("focus")
     bounds = None
     if focus is not None:
@@ -4198,6 +4241,15 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     compare_mode = args.get("compare_mode", "beside")
     alpha = args.get("alpha", 0.5)
     if compare is not None:
+        if shading == "object_id":
+            # A compare reply is a picture-vs-picture comparison
+            # (agent_refs.beside/overlay) with no room in its header for the
+            # uid/colour/pixel table object_id exists to answer with, and a
+            # reference was captured as an ordinary render in the first
+            # place -- comparing it against flat id colours is not a
+            # coherent question. Refused rather than silently dropping the
+            # 'ids' table a caller would otherwise expect.
+            return fail("shading 'object_id' cannot be combined with compare.", field="shading")
         reference = session.references.get(compare)
         if reference is None:
             return fail(f"no reference named {compare!r}.", field="compare")
@@ -4221,7 +4273,12 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             # the comparison is framed the way the picture being matched was.
             label = reference.view if reference.view in valid_views else "three_quarter"
             parsed = [(label, {"view": label})]
-        size = min(size, 1024)
+        # Refused, not clamped -- the same rule ``size`` above already
+        # follows: this used to silently answer a smaller picture than the
+        # one asked for, with nothing telling a caller the ceiling it named
+        # was never the one actually enforced.
+        if size > 1024:
+            return fail("size must be 1024 or less when comparing to a reference.", field="size")
     else:
         total_pixels = len(parsed) * size * size
         if total_pixels > RENDER_PIXEL_BUDGET:
@@ -4237,14 +4294,48 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         log.exception("agent render of a Clay document failed")
         return fail("That document could not be rendered; see the log.")
 
+    ids_by_uid: dict[int, tuple[str, int]] = {}
     try:
-        pngs = [
-            view_obj.render_png(doc, size=size, grid=grid, bounds=bounds, **kwargs)
-            for _label, kwargs in parsed
-        ]
+        if shading == "object_id":
+            pngs = []
+            for _label, kwargs in parsed:
+                png, rows = view_obj.render_ids(doc, size=size, bounds=bounds, **kwargs)
+                pngs.append(png)
+                # Summed across views rather than kept apart: the header has
+                # one row per uid, not one per view, and "share one map"
+                # (this tool's own description) is a promise about the
+                # colour, not about collapsing a multi-view answer down to
+                # whichever view happened to see the most of an object.
+                for uid, hexcolor, px in rows:
+                    _prev_hex, prev_px = ids_by_uid.get(uid, (hexcolor, 0))
+                    ids_by_uid[uid] = (hexcolor, prev_px + px)
+        else:
+            pngs = [
+                view_obj.render_png(
+                    doc, size=size, grid=grid, bounds=bounds, shading=shading, **kwargs
+                )
+                for _label, kwargs in parsed
+            ]
     except Exception:
         log.exception("agent render of a Clay document failed")
         return fail("That document could not be rendered; see the log.")
+
+    # base64 costs 4 bytes for every 3 of input, rounded up: the frame budget
+    # is checked against what actually crosses the wire, not the raw PNG
+    # size. Applied identically to the compare path below and to the
+    # ordinary multi-view path further down -- it used to run only on the
+    # latter, so a beside/overlay sheet built from two large enough
+    # references could reach `send_bytes` and fail there, past the point a
+    # refusal could explain itself, exactly the failure mode this check
+    # exists to head off.
+    def _over_frame_budget(payload_pngs: list[bytes]) -> dict | None:
+        b64_total = sum(((len(png) + 2) // 3) * 4 for png in payload_pngs)
+        if b64_total > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
+            return fail(
+                "This render is too large to send back in one reply frame; "
+                "ask for fewer or smaller views."
+            )
+        return None
 
     if compare is not None:
         from . import agent_refs
@@ -4253,6 +4344,11 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             sheet = agent_refs.beside(reference.png, pngs[0], compare, "render", size=size)
         else:
             sheet = agent_refs.overlay(reference.png, pngs[0], alpha, size=size)
+
+        over_budget = _over_frame_budget([sheet])
+        if over_budget is not None:
+            return over_budget
+
         import io
 
         from PIL import Image
@@ -4275,17 +4371,19 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             image_png(sheet),
         )
 
-    # base64 costs 4 bytes for every 3 of input, rounded up: the frame budget
-    # is checked against what actually crosses the wire, not the raw PNG size.
-    b64_total = sum(((len(png) + 2) // 3) * 4 for png in pngs)
-    if b64_total > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
-        return fail(
-            "This render is too large to send back in one reply frame; ask "
-            "for fewer or smaller views."
-        )
+    over_budget = _over_frame_budget(pngs)
+    if over_budget is not None:
+        return over_budget
 
     session.last_render_png = pngs[0]
-    header = text(json.dumps({"views": [label for label, _ in parsed], "size": size, "grid": grid}))
+    header_obj: dict[str, Any] = {
+        "views": [label for label, _ in parsed], "size": size, "grid": grid,
+    }
+    if shading == "object_id":
+        header_obj["ids"] = [
+            [uid, hexcolor, px] for uid, (hexcolor, px) in sorted(ids_by_uid.items())
+        ]
+    header = text(json.dumps(header_obj))
     # Deliberately not `_json` -- an image block has no JSON to duplicate,
     # and this header is already checked twice against `protocol.MAX_FRAME`
     # above (`RENDER_PIXEL_BUDGET`, `RENDER_FRAME_RESERVE`) before it leaves,

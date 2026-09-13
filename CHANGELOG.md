@@ -20,6 +20,17 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**`clay_render` takes a `shading`: `unlit` (the default, unchanged), `lit`,
+`wireframe`, `wire_overlay`, `xray` or `object_id`.** `lit` shows form that the
+unlit albedo picture flattens. `object_id` paints each object one flat colour
+and adds an `ids` table to the header, `[uid, "#rrggbb", pixels]`, where a zero
+pixel count means that view can't see the object. Several views share one map
+and sum their pixel counts. `object_id` is refused with `grid` or `compare`.
+Two fixes came with it. A `compare` over 1,024 px is now refused rather than
+silently clamped, as the tool's own description always promised. A compare
+sheet now also goes through the reply-frame size check, which it used to skip.
+The Trellis send-to-3D render is untouched.
+
 **An agent can measure a Clay scene with `clay_analyze`.** For each object it
 reports exact world bounds, area, volume (for closed meshes), connected
 components, how the object meets the ground, and per-axis mirror symmetry. For

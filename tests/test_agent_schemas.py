@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-171/33/30/41/21/26/16/19/17/13/3/1 respectively (391 total) -- see
+172/33/30/41/21/26/17/19/17/13/3/1 respectively (393 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -55,11 +55,11 @@ never a case, because ``agent_clay.call`` only ever reaches a handler with
 ``arguments`` already a dict -- there is nothing there for a schema's own
 root type to promise that is not already true by construction. What
 survives after subtracting those (30 ``properties`` + 41 ``items`` + 3
-schema-valued ``additionalProperties`` + 27 root ``type``) is 290 violable
+schema-valued ``additionalProperties`` + 27 root ``type``) is 292 violable
 markers; ``required``'s remaining 21 occurrences are *lists*, each naming
 one or more keys -- 28 individual keys between them, one violation apiece
 rather than one per list -- which nets the walk's own exercise total to
-**297** concrete violation attempts (290 - 21 + 28), pinned by
+**299** concrete violation attempts (292 - 21 + 28), pinned by
 ``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
 so a schema edit that silently drops a case from the walk is caught here
 rather than only by a shrinking "exercised" count nobody happens to notice.
@@ -1183,13 +1183,13 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 171,
+        "type": 172,
         "additionalProperties": 33,
         "properties": 30,
         "items": 41,
         "required": 21,
         "minItems": 26,
-        "enum": 16,
+        "enum": 17,
         "maxItems": 19,
         "minimum": 17,
         "maximum": 13,
@@ -1216,16 +1216,18 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """297 -- see the module docstring's own derivation: 391 measured markers,
+    """299 -- see the module docstring's own derivation: 393 measured markers,
     minus 74 structural ones that only route recursion (30 ``properties`` +
     41 ``items`` + 3 schema-valued ``additionalProperties``), minus 27 root
     ``type: object`` markers that are true by construction, minus 21
     ``required`` *lists* replaced by the 28 individual keys they actually
-    name. Pinned so a schema edit that silently drops a case from the walk
-    is caught here rather than only by a shrinking "exercised" count nobody
-    happens to notice.
+    name. ``clay_render``'s new ``shading`` enum is the +2 over the previous
+    297: one ``type`` marker and one ``enum`` marker, both violable, neither
+    structural nor a root type nor a ``required`` list. Pinned so a schema
+    edit that silently drops a case from the walk is caught here rather than
+    only by a shrinking "exercised" count nobody happens to notice.
     """
-    assert len(_ALL_CASES) == 297
+    assert len(_ALL_CASES) == 299
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

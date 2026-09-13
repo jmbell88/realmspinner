@@ -206,9 +206,13 @@ class _FakeView:
     a moderngl context to actually read pixels back from.
     """
 
-    def __init__(self, png: bytes | None = None) -> None:
+    def __init__(self, png: bytes | None = None, id_rows: list[tuple] | None = None) -> None:
         self.png = png or _tiny_png()
         self.calls: list[dict[str, Any]] = []
+        self.id_calls: list[dict[str, Any]] = []
+        # A per-uid (hex, px) row an object_id test can shape; empty by
+        # default, since most callers of this fake never touch render_ids.
+        self.id_rows = id_rows if id_rows is not None else []
 
     def render_png(
         self,
@@ -220,16 +224,36 @@ class _FakeView:
         bounds: Any = None,
         grid: bool = False,
         frame: bool = True,
+        shading: str = "unlit",
     ) -> bytes:
         del doc, frame
         self.calls.append(
-            {"size": size, "view": view, "angles": angles, "bounds": bounds, "grid": grid}
+            {
+                "size": size, "view": view, "angles": angles, "bounds": bounds,
+                "grid": grid, "shading": shading,
+            }
         )
         return self.png
 
+    def render_ids(
+        self,
+        doc: Any,
+        *,
+        size: int,
+        view: str | None = None,
+        angles: Any = None,
+        bounds: Any = None,
+        frame: bool = True,
+    ) -> tuple[bytes, list[tuple]]:
+        del doc, frame
+        self.id_calls.append({"size": size, "view": view, "angles": angles, "bounds": bounds})
+        return self.png, self.id_rows
 
-def _install_fake_view(monkeypatch: pytest.MonkeyPatch, png: bytes | None = None) -> _FakeView:
-    fake = _FakeView(png)
+
+def _install_fake_view(
+    monkeypatch: pytest.MonkeyPatch, png: bytes | None = None, id_rows: list[tuple] | None = None
+) -> _FakeView:
+    fake = _FakeView(png, id_rows)
     monkeypatch.setattr(agent_clay, "_view_for", lambda ctx: fake)
     return fake
 
@@ -2705,6 +2729,130 @@ def test_clay_render_folds_a_single_view_into_the_views_list(
     assert result["content"][1]["type"] == "image"
 
 
+# --- shading -------------------------------------------------------------
+
+
+def test_clay_render_shading_defaults_to_unlit_and_threads_through_to_render_png(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    fake = _install_fake_view(monkeypatch)
+
+    default = agent_clay.call(ctx, session, "clay_render", {})
+    assert default["isError"] is False, default
+    assert fake.calls[0]["shading"] == "unlit"
+
+    explicit = agent_clay.call(ctx, session, "clay_render", {"shading": "wireframe"})
+    assert explicit["isError"] is False, explicit
+    assert fake.calls[1]["shading"] == "wireframe"
+
+
+def test_clay_render_refuses_grid_combined_with_object_id_shading() -> None:
+    """The id pass never draws a grid -- a grid line has no uid behind it,
+    which would corrupt the very pixel counts 'ids' exists to report. Refused
+    before any GL work, exactly like every other named-field render refusal
+    above."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "grid": True}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "grid"
+
+
+def test_clay_render_refuses_object_id_combined_with_compare() -> None:
+    """A compare reply is a picture-vs-picture comparison with no room for
+    the uid/colour/pixel table object_id answers with, and a stored
+    reference was captured as an ordinary picture -- comparing it against
+    flat id colours is not a coherent question."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "compare": "ref1"}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "shading"
+
+
+def test_clay_render_object_id_shares_one_colour_map_and_sums_pixels_across_views(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'share one map' means the same uid gets the same colour in every
+    requested view, and this file has no GPU to actually draw one -- so the
+    fake's own per-call rows stand in for two views seeing the same object,
+    and this checks ``_h_render`` merges them into one row summed across
+    views rather than keeping (or overwriting) one view's count."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session)
+    fake = _install_fake_view(monkeypatch, id_rows=[(uid, "#112233", 40)])
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "views": ["front", "back"]}
+    )
+    assert result["isError"] is False, result
+    assert len(fake.id_calls) == 2
+    header = _payload(result)
+    ids = {row[0]: row for row in header["ids"]}
+    assert ids[uid] == [uid, "#112233", 80]
+
+
+# --- regressions: the compare path's clamp and skipped frame-size check ------
+
+
+def test_clay_render_compare_refuses_a_size_over_1024_instead_of_clamping_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for the silent ``size = min(size, 1024)`` clamp: before the
+    fix this call answered ``isError: False`` with a 1024-square picture
+    nobody asked for instead of refusing the 1500 actually given -- the same
+    'Refused, not clamped' rule the plain ``size`` check already states for
+    itself just upstream, not followed here until now. Fails against the
+    unfixed handler, which reports success with the clamped size silently
+    substituted."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1", "size": 1500})
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "size"
+
+
+def test_clay_render_compare_is_refused_when_the_sheet_would_not_fit_one_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the compare branch used to ``return`` its sheet before the
+    reply-frame size check further down ever ran, so a beside/overlay sheet
+    over ``protocol.MAX_FRAME`` reached the caller with ``isError: False``
+    instead of being refused the way the ordinary multi-view path already
+    was. ``MAX_FRAME`` is monkeypatched absurdly small so the tiny fake PNG
+    this file uses is still over budget, rather than needing a real
+    multi-megapixel sheet to prove the same point. Fails against the
+    unfixed handler, which never reaches the check on this path at all."""
+    from warlock.mcp import rpc
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+    monkeypatch.setattr(rpc, "MAX_FRAME", 10)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is True
+
+
 # ==============================================================================
 # B8 -- references on the session
 # ==============================================================================
@@ -3792,20 +3940,22 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     ``warlock_status`` out would undercount what a connecting agent is
     actually billed for by one whole tool; the honest number includes it.
 
-    Measured on 2026-09-13, after ``clay_analyze`` landed: catalogue JSON
-    40,865 chars + instructions 6,499 chars = 47,364 chars total (27 Clay
-    tools plus ``warlock_status``, at ``rpc.tool_dict`` encoding). Ceiling
-    here is still 48,000, but ``clay_analyze``'s own ~3,375-char schema ate
-    almost all of the headroom the previous measurement had (42,394 chars,
-    26 tools) -- only about 636 chars, well under any single existing tool's
-    schema, are left above this measurement. The next tool that grows the
-    catalogue at all will need to raise this ceiling and say why; this one
-    did not, but only just.
+    Measured on 2026-09-13, after ``clay_render`` grew a ``shading`` enum
+    (six values, plus the description explaining what each one draws and the
+    new ``object_id``/``compare``/``grid`` refusals): catalogue JSON 41,861
+    chars + instructions 6,499 chars = 48,360 chars total (still 27 Clay
+    tools plus ``warlock_status`` -- ``shading`` is a property on an
+    existing tool, not a 28th one -- at ``rpc.tool_dict`` encoding).
+    ``clay_render`` itself is now 2,883 chars, the previous measurement's
+    entire 636-char headroom plus more, so the ceiling below is raised to
+    48,500 -- just past this measurement, the same "minimal, and say why"
+    rule the previous raise (47,364 of 48,000) already followed. The next
+    tool that grows the catalogue at all will need to raise it again.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 48_000
+    CEILING = 48_500
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]
