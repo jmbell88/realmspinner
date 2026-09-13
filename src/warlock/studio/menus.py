@@ -10,7 +10,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from . import icons
 from .tour import scripts as tour_scripts
 
 
@@ -282,13 +281,11 @@ def roots(rows: list[MenuSpec]) -> list[str]:
 #: space -- it is drawn before the status group's available width is
 #: measured, the same way any other root would be.
 #:
-#: The sigil is drawn as ``icons.SPARKLES`` rather than the literal ✦
-#: (U+2726 BLACK FOUR POINTED STAR) that character stands in for: none of
-#: the vendored faces -- Inter or Lucide -- carry that codepoint, so it fell
-#: through to the box-with-hex missing-glyph glyph (imgui's stand-in reads as
-#: "?" at menu-bar size). Lucide's own sparkle icon is already merged into
-#: every face (:mod:`.fonts`) and reads the same way at a glance.
-FAMILIAR_LABEL = f"{icons.SPARKLES} Familiar"
+#: The mark is the literal ✦ (U+2726 BLACK FOUR POINTED STAR), not
+#: ``icons.SPARKLES``: neither Inter nor Lucide carries that codepoint, so a
+#: one-glyph subset of Noto Sans Symbols 2 is merged into every face
+#: alongside Lucide (:mod:`.fonts`) to draw it.
+FAMILIAR_LABEL = "✦ Familiar"
 
 #: Status keys the right-aligned menu-bar group drops, lowest priority first,
 #: when the roots and the Familiar menu leave it no room. ``health`` (and the

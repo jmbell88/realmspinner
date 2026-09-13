@@ -66,6 +66,7 @@ inside the runtime tree the installer copies).
 |---|---|---|---|
 | Inter (PUA-stripped) | <https://github.com/rsms/inter> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-inter.txt` |
 | Lucide icons | <https://github.com/lucide-icons/lucide> | ISC | `src/warlock/studio/resources/fonts/LICENSE-lucide.txt` |
+| Familiar sigil (U+2726 subset of Noto Sans Symbols 2) | <https://github.com/notofonts/symbols> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-familiar-sigil.txt` |
 
 ## Vendored source
 

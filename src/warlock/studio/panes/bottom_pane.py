@@ -104,7 +104,7 @@ def draw(ctx: Any) -> None:
 
     from imgui_bundle import imgui
 
-    from .. import fonts, icons, theme, tokens
+    from .. import fonts, theme, tokens
 
     pad_x = tokens.sp(tokens.SP_2)
     # Same vertical-centring ordering as the status bar this replaces: the
@@ -125,10 +125,11 @@ def draw(ctx: Any) -> None:
         imgui.pop_style_color()
         imgui.pop_style_var()
         if visible:
-            # icons.SPARKLES, not the literal ✦ -- see menus.FAMILIAR_LABEL's
-            # docstring; neither vendored face carries U+2726.
+            # The literal ✦ -- see menus.FAMILIAR_LABEL's docstring; the
+            # familiar-sigil face merged into every font (fonts.py) is what
+            # draws U+2726.
             imgui.text_colored(
                 imgui.ImVec4(*theme.rgba(theme.MUTED)),
-                f"{icons.SPARKLES} Familiar isn't installed — Install…",
+                "✦ Familiar isn't installed — Install…",
             )
         imgui.end_child()
