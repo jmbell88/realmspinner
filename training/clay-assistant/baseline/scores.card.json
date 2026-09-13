@@ -1,0 +1,43 @@
+{
+  "variant": "card",
+  "rows": [
+    {
+      "subject": "bracket",
+      "outcome": "refused",
+      "detail": "unknown keys in a batch call entry: ['params'].",
+      "sub_calls": 2,
+      "objects": 0
+    },
+    {
+      "subject": "chair",
+      "outcome": "refused",
+      "detail": "unknown keys in a batch call entry: ['params'].",
+      "sub_calls": 9,
+      "objects": 0
+    },
+    {
+      "subject": "colonnade",
+      "outcome": "refused",
+      "detail": "unknown keys in a batch call entry: ['params'].",
+      "sub_calls": 10,
+      "objects": 0
+    },
+    {
+      "subject": "serpent",
+      "outcome": "refused",
+      "detail": "unknown keys in a batch call entry: ['params'].",
+      "sub_calls": 5,
+      "objects": 0
+    },
+    {
+      "subject": "telescope",
+      "outcome": "refused",
+      "detail": "unknown keys in a batch call entry: ['params'].",
+      "sub_calls": 6,
+      "objects": 0
+    }
+  ],
+  "tally": {
+    "refused": 5
+  }
+}

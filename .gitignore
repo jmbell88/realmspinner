@@ -98,3 +98,24 @@ imgui.ini
 # above, no history purge was done -- the files are still readable in every
 # earlier commit, and were never secret.
 /.claude/
+
+# The Clay-assistant training programme's own generated output: renders,
+# training run artefacts and weights. The JSONL under training/clay-assistant/
+# (drafts/, dataset/) is tracked -- it is the reproducible input and the
+# verified dataset; everything below is regenerable from it, or is a model
+# weight file too large (and too far from source) to belong in git.
+/training/clay-assistant/gallery/
+/training/clay-assistant/runs/
+/training/clay-assistant/out/
+/training/**/*.gguf
+/training/**/*.safetensors
+# The Unsloth-shaped export repeats the ~8k-character system turn on every row, so
+# it is ten times the size of the dataset it is derived from (24 MB for 2,159 rows)
+# and carries no information train.jsonl/val.jsonl do not: `build.py --export
+# unsloth` regenerates it in seconds. Tracked: drafts/, dataset/{train,val,rejects}
+# .jsonl and manifest.json.
+/training/clay-assistant/dataset/unsloth_*.jsonl
+# Unsloth writes its torch.compile cache into the current directory when a training
+# script runs from the repo root (training/clay-assistant/train/*.py under Studio's
+# Python); machine-local, regenerable, and a ruff failure the moment it appears.
+/unsloth_compiled_cache/

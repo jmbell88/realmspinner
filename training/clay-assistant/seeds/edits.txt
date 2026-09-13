@@ -1,0 +1,69 @@
+# edits seed prompts for the Clay assistant training corpus, 2026-09-12
+#
+# One subject per line: `class | <starting object, one clause> :: <edit
+# request>`. The `::` is a plain convention inside the free-text prompt
+# field, not special syntax to the reader -- scripts/campaign_props.read_corpus
+# only ever splits on the first `|`, so everything after it, `::` included,
+# is one prompt string. Blank lines and `#` lines are ignored. class is one
+# of easy | medium | hard, meaning difficulty of *construction*: how the
+# edit's own result would be classed if built from scratch, per
+# docs/measurements/corpora/clay-agent-v1.txt's header (easy: params/
+# transform/material/delete on the existing object; medium: a boolean, an
+# array op, a lathe/sweep swap, or a multi-object selection; hard: a swept
+# or tapered reshape).
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here, as starting object or as edit, and the
+# words slatted, gusset, telescope, tripod, colonnade, fluted, serpentine
+# are avoided throughout this file.
+
+easy | a plain wooden table :: make the tabletop twice as thick
+easy | a metal storage crate :: change its material to rusted iron
+easy | a round wooden stool :: raise the seat height by ten centimetres
+easy | a stone archway :: make it twice as wide
+easy | a simple wooden barrel :: change its material to dark oak
+easy | a small clay pot :: shrink it to half its current size
+easy | a plain metal pipe :: move it up by one metre
+easy | a wooden bookshelf :: delete the topmost shelf
+easy | a round shield :: change its material to bronze
+easy | a wooden cart :: rotate it ninety degrees around its vertical axis
+easy | a stone column :: make it half as tall
+easy | a simple humanoid figure :: change its material to carved stone
+easy | a wooden crate :: move it two metres to the left
+easy | a plain hammer :: lengthen the handle by twenty centimetres
+easy | a metal bucket :: change its material to polished copper
+easy | a low coffee table :: widen the tabletop by half a metre
+easy | a garden bench :: change its material to weathered grey wood
+easy | a stone plinth :: make it narrower
+easy | a simple quadruped figure :: scale the whole figure up by fifty percent
+easy | a wooden wardrobe :: darken its material
+easy | a metal gear disc :: shrink its radius by a third
+easy | a stone well :: raise the wall height by twenty centimetres
+easy | a plain wooden chest :: delete it from the scene
+easy | a round side table :: change its material to pale marble
+easy | a wooden footstool :: move it directly in front of the armchair
+medium | a wooden barrel :: cut a round hole in the lid
+medium | a set of three wooden crates :: delete the middle one
+medium | a stone archway :: cut a small window into the keystone
+medium | a metal storage locker :: cut a rectangular vent into the door
+medium | a treasure chest :: bevel all the top edges
+medium | a wooden table with four legs :: replace the front-left leg with a lathe-turned one
+medium | a shield with a domed boss :: mirror a second boss onto the opposite side
+medium | a stone wall :: cut an arched doorway through the middle
+medium | a wooden ladder :: add one more evenly spaced rung
+medium | a metal pipe :: cut a branch socket into its side
+medium | a wooden dresser with three drawers :: cut a recessed handle into each drawer front
+medium | a round wagon wheel :: array eight identical spokes around the hub
+medium | a stone column :: cut a decorative groove ring around its shaft
+medium | a simple quadruped figure :: lengthen its tail into a tube shape
+medium | a wooden bench :: cut identical seat divots along its length
+medium | a metal grate :: cut a grid of square holes through it
+medium | a wooden chest :: bevel the lid's leading edge and cut a hinge notch
+medium | a stone tower :: cut evenly spaced window openings up its height
+medium | a ceramic jug :: cut a handle loop through its side
+medium | a wooden cart with two wheels :: mirror the near wheel to add a matching far wheel
+hard | a straight wooden chair leg :: reshape it to taper smoothly from a thick top to a narrow foot
+hard | a plain sword blank :: taper the blade smoothly along its length to a point
+hard | a straight tail on a quadruped figure :: sweep it into a curved, tapering shape
+hard | a plain metal pipe :: bend and taper it into a curved nozzle
+hard | a stone spire :: taper its profile smoothly from base to tip

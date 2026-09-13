@@ -1,0 +1,71 @@
+# creatures seed prompts for the Clay assistant training corpus, 2026-09-12
+#
+# One subject per line: `class | prompt`. Blank lines and `#` lines are
+# ignored. Parsed by scripts/campaign_props.read_corpus. class is one of
+# easy | medium | hard, meaning difficulty of *construction* -- which parts
+# of Clay's surface the object cannot be built without -- exactly as defined
+# in docs/measurements/corpora/clay-agent-v1.txt's header:
+#   easy   -- primitives, placement and materials alone (here: an unmodified
+#             clay_add_figure preset).
+#   medium -- needs a boolean, a lathe/sweep profile, an array op, or
+#             element-mode selection and a topology op.
+#   hard   -- needs a swept or tapered form along a path.
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here. In particular the held-out creature is
+# a body that tapers from head to tail on four short legs; four-legged
+# creatures and tapering creatures are each still wanted for this family,
+# just not that combination and not that phrasing. The words slatted,
+# gusset, telescope, tripod, colonnade, fluted, serpentine, and the phrase
+# "tapers from head to tail" are avoided throughout this file.
+
+easy | a simple humanoid figure standing in a neutral pose
+easy | a basic quadruped creature, four-legged and stocky
+easy | a small bird figure with folded wings
+easy | a simple fish figure, streamlined body
+easy | a blobby amorphous creature, round and simple
+easy | a basic insect figure with six legs
+easy | a stout goblin-like humanoid figure
+easy | a simple biped creature with a short tail
+easy | a plain round slime creature
+easy | a small round beetle-like insect figure
+easy | a basic four-legged pack animal figure
+easy | a simple long-necked bird figure
+easy | a plain humanoid guard figure, standing at attention
+easy | a basic quadruped mount, horse-like proportions
+easy | a simple winged biped figure
+easy | a plain round jellyfish-like blob creature
+easy | a basic six-legged crawling insect
+easy | a simple fish figure with a rounded belly
+easy | a stout dwarf-like humanoid figure
+easy | a plain biped figure with a short stubby tail
+easy | a basic quadruped, cat-sized and low to the ground
+easy | a simple bird figure perched upright
+easy | a plain amorphous puddle-like creature
+easy | a basic humanoid child figure, small proportions
+easy | a simple quadruped, long-legged and slender
+medium | a quadruped creature with an elongated tube-shaped tail
+medium | a biped figure with an exaggerated long tail curling upward
+medium | a bird figure with a mirrored pair of outstretched wings
+medium | a fish figure with a tapered tube fin running along its back
+medium | an insect figure with legs arranged in a radial pattern around its body
+medium | a quadruped whose body is stretched and thinned compared to the base preset
+medium | a biped creature with a bulky humanoid torso and a stubby tube tail
+medium | a blob creature with several eye-like bumps added across its surface
+medium | a bird figure with an oversized beak extending from its head
+medium | a quadruped with a boolean-cut armour plate set into its back
+medium | a coiled snake resting in a loose loop, no legs
+medium | a fish figure with a set of small fins mirrored along both sides
+medium | a humanoid figure with a single oversized tube-shaped horn on its head
+medium | an insect figure with two long antennae swept back from its head
+medium | a quadruped with a short tube tail and stubby capsule legs
+medium | a biped figure with wing-like flaps mirrored across its back
+medium | a blob creature stretched into a long tube-like worm shape
+medium | a bird figure standing on one leg with the other tucked up
+medium | a small coiled snake figure curled into a tight ring, legless
+medium | a quadruped whose legs are arranged as a mirrored left-right pair
+hard | a crocodile-like creature whose long snout tapers along a swept curve to a narrow point
+hard | a legless serpent whose entire body sweeps in one long smooth curve, thickest in the middle and narrow at both ends
+hard | a dragon-like creature whose neck sweeps and tapers gracefully up toward its head
+hard | a worm-like creature whose body tapers evenly along a gently curved sweep
+hard | a chameleon-like creature whose tail curls and tapers into a tight spiral

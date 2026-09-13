@@ -1,0 +1,71 @@
+# mechanical seed prompts for the Clay assistant training corpus, 2026-09-12
+#
+# One subject per line: `class | prompt`. Blank lines and `#` lines are
+# ignored. Parsed by scripts/campaign_props.read_corpus. class is one of
+# easy | medium | hard, meaning difficulty of *construction* -- which parts
+# of Clay's surface the object cannot be built without -- exactly as defined
+# in docs/measurements/corpora/clay-agent-v1.txt's header:
+#   easy   -- primitives, placement and materials alone.
+#   medium -- needs a boolean, a lathe/sweep profile, an array op, or
+#             element-mode selection and a topology op.
+#   hard   -- needs a swept or tapered form along a path.
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here. In particular the held-out mechanical
+# subject is a flat plate with two bolt holes and a right-angle gusset;
+# brackets are still wanted for this family as long as they do not
+# reproduce that shape -- an L-shaped bracket with no holes cut into it, or
+# a bracket of a different form entirely, is a different object. The words
+# slatted, gusset, telescope, tripod, colonnade, fluted, serpentine and the
+# phrase "bolt holes" are avoided throughout this file.
+
+easy | a plain metal pipe running along the ceiling
+easy | a single round wheel, plain and flat
+easy | a simple metal storage locker, a rectangular box with a door
+easy | an L-shaped shelf bracket with no holes cut into it
+easy | a plain steel I-beam section
+easy | a simple hand crank, a straight rod with a perpendicular handle
+easy | a metal toolbox, a plain rectangular box
+easy | a round manhole cover, flat and circular
+easy | a plain metal ladder rung
+easy | a cylindrical oil drum standing upright
+easy | a flat metal plate with rounded corners
+easy | a simple axle, a plain cylindrical rod
+easy | a metal support strut, a straight bar
+easy | a plain valve wheel, a flat disc with a central hub
+easy | a rectangular electrical junction box
+easy | a plain metal hinge, two flat plates joined at an edge
+easy | a simple pulley wheel, round and grooved
+easy | a metal conduit pipe bent at a right angle
+easy | a plain steel girder, a long rectangular beam
+easy | a simple wrench-shaped hand tool, flat and elongated
+easy | a metal control panel, a flat plate with a raised lip
+easy | a round metal cap for a pipe end
+easy | a plain hex-shaped bolt head, a short six-sided prism
+easy | a simple metal footrest, a flat plate on two short legs
+easy | a small metal cable spool, a plain squat cylinder
+medium | a gear disc with teeth cut evenly around its rim
+medium | a flat mounting plate with a row of five holes cut through it
+medium | a pipe fitting with a threaded socket cut into one end
+medium | a wheel rim with a radial pattern of eight spokes
+medium | a metal grate with a grid of square holes cut through it
+medium | a pipe elbow joint bent at ninety degrees
+medium | a valve wheel with a radial pattern of spokes cut through the disc
+medium | a gear wheel with evenly spaced teeth arranged radially
+medium | a hinge with a row of pin cut-outs arranged along its length
+medium | a manifold with several pipe stubs arranged in a row
+medium | a sprocket wheel with teeth arranged radially around its rim
+medium | a triangular support bracket with a cut-out in the middle
+medium | a wheel hub with a radial pattern of lug holes
+medium | a cable reel with a series of radial spokes
+medium | a fan blade assembly with blades arranged radially around a hub
+medium | a pipe rack holding a row of five identical pipes
+medium | a metal grille with a repeating grid of horizontal bars
+medium | a valve assembly with a cylindrical body and a boolean-cut clearance notch for the handle
+medium | a chain link, a flattened torus shape
+medium | a turbine wheel with blades arranged in a radial array
+hard | a flexible metal hose that tapers and curves from a wide fitting to a narrow nozzle
+hard | an exhaust pipe that curves and tapers along a swept path
+hard | a robotic arm segment that tapers smoothly along a curved sweep
+hard | a drill bit that tapers to a sharp twisting point
+hard | a wrench whose handle sweeps in a curved taper toward the jaw

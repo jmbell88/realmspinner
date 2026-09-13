@@ -1,0 +1,71 @@
+# architecture seed prompts for the Clay assistant training corpus, 2026-09-12
+#
+# One subject per line: `class | prompt`. Blank lines and `#` lines are
+# ignored. Parsed by scripts/campaign_props.read_corpus. class is one of
+# easy | medium | hard, meaning difficulty of *construction* -- which parts
+# of Clay's surface the object cannot be built without -- exactly as defined
+# in docs/measurements/corpora/clay-agent-v1.txt's header:
+#   easy   -- primitives, placement and materials alone.
+#   medium -- needs a boolean, a lathe/sweep profile, an array op, or
+#             element-mode selection and a topology op.
+#   hard   -- needs a swept or tapered form along a path.
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here. In particular the held-out architecture
+# subject is a *circular* ring of *eight fluted* columns on a *stepped round
+# base*; rings and rows of columns are still wanted for this family (they
+# are the family's own array-radial/linear material) as long as they do not
+# reproduce that count, that cross-section, and that base together. The
+# words slatted, gusset, telescope, tripod, colonnade, fluted, serpentine,
+# and the phrase "stepped round base" are avoided throughout this file.
+
+easy | a simple stone archway spanning a garden path
+easy | a plain rectangular watchtower with a flat roof
+easy | a short flight of stone steps leading to a doorway
+easy | a single stone column standing alone in a courtyard
+easy | a low garden wall made of stacked rectangular blocks
+easy | a simple wooden gate flanked by two square posts
+easy | a small stone well with a round low wall
+easy | a plain brick chimney, a tall narrow box
+easy | a castle battlement wall with square notches along the top
+easy | a simple bridge made of a flat plank over two support blocks
+easy | a lighthouse tower, a tall tapering cone
+easy | a stone doorway with a flat lintel
+easy | a modest bell tower, a square shaft topped with a pyramid roof
+easy | a plain obelisk, a tall four-sided tapering pillar
+easy | a simple stone plinth for a statue
+easy | a wooden watchtower platform on four support posts
+easy | a low fence made of evenly spaced posts
+easy | a small shrine, a box with a peaked roof
+easy | a plain stone gatepost with a pyramid cap
+easy | a simple aqueduct arch spanning a narrow gap
+easy | a courtyard fountain basin, a wide shallow cylinder
+easy | a stone staircase of five even steps
+easy | a squat guard tower with a single window opening
+easy | a simple flagpole base, a short cylinder with a socket
+easy | a plain garden pergola, four posts supporting a flat lattice roof
+medium | a straight row of six plain round columns holding up a portico roof
+medium | a ring of five plain round columns arranged around a small courtyard
+medium | a staircase with a repeating pattern of identical steps
+medium | a castle wall with a repeated row of arrow-slit windows
+medium | a temple facade with a row of matching columns and a triangular pediment
+medium | an arcade of repeating stone arches along a covered walkway
+medium | a tower with a spiral staircase wrapped around its central column
+medium | a fence made from a linear array of identical pickets
+medium | a small rotunda roof held up by five columns in a radial ring
+medium | a bridge with a repeating row of arch supports underneath
+medium | a garden gazebo with six columns arranged in a circle under a domed roof
+medium | a keep wall with evenly spaced buttresses
+medium | a row of plain round columns forming a covered courtyard walkway
+medium | a windmill tower with a boolean-cut doorway near its base
+medium | a stone archway with a keystone cut into the top of the curve
+medium | a tower with window openings cut at regular intervals up its height
+medium | a set of five matching round columns holding up a temple roof
+medium | a battlement wall whose merlons repeat evenly along its length
+medium | a courtyard well surrounded by a ring of six support posts
+medium | a lighthouse with a ring of support struts arranged radially near its base
+hard | a tower whose walls taper smoothly from a wide base to a narrow spire
+hard | a stone archway whose profile sweeps in a continuous curve from post to post
+hard | a spire that tapers along a gentle twisting sweep from base to tip
+hard | a flying buttress whose arm sweeps outward and tapers to a point
+hard | a minaret that tapers gradually along its swept vertical profile

@@ -1,0 +1,157 @@
+[
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_f",
+   "params": {
+    "height": 0.5,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "rotation": [
+    20.0,
+    0.0,
+    0.0
+   ],
+   "translation": [
+    0.1,
+    0.25,
+    0.2
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_b",
+   "params": {
+    "height": 0.5,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "rotation": [
+    30.0,
+    0.0,
+    0.0
+   ],
+   "translation": [
+    -0.1,
+    0.25,
+    0.2
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_r",
+   "params": {
+    "height": 0.5,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "rotation": [
+    -20.0,
+    0.0,
+    0.0
+   ],
+   "translation": [
+    0.0,
+    0.25,
+    -0.2
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "mount",
+   "params": {
+    "height": 0.12,
+    "radius": 0.08,
+    "segments": 20
+   },
+   "translation": [
+    0.0,
+    0.56,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "tube",
+   "params": {
+    "height": 0.64,
+    "radius": 0.02,
+    "segments": 10
+   },
+   "rotation": [
+    90.0,
+    0.0,
+    0.0
+   ],
+   "translation": [
+    0.0,
+    0.6,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "sphere",
+   "name": "lens",
+   "params": {
+    "radius": 0.03,
+    "rings": 8,
+    "segments": 16
+   },
+   "translation": [
+    0.0,
+    0.8,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.72,
+    0.68,
+    0.45
+   ],
+   "metallic": 0.7,
+   "name": "Brass",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "leg_f"
+    },
+    {
+     "$ref": "leg_b"
+    },
+    {
+     "$ref": "leg_r"
+    },
+    {
+     "$ref": "mount"
+    },
+    {
+     "$ref": "tube"
+    },
+    {
+     "$ref": "lens"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

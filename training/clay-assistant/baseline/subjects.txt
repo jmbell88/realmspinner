@@ -1,0 +1,10 @@
+# The five docs/measurements/corpora/clay-agent-v1.txt subjects, in the
+# `key | subject` form run_baseline.py reads. Regenerable from that corpus
+# file (see its own header for the pre-registration these subjects are
+# fixed by); kept here as a plain static copy so a baseline run needs
+# nothing beyond this directory to reproduce the Phase 0 result.
+chair | a four-legged wooden chair with a slatted back
+bracket | a mechanical bracket: a flat plate with two bolt holes and a right-angle gusset
+telescope | a brass telescope on a three-legged tripod
+colonnade | a circular colonnade: eight fluted columns on a stepped round base
+serpent | a serpentine creature whose body tapers from head to tail, on four short legs

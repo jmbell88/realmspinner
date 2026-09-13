@@ -1,0 +1,68 @@
+# containers & props seed prompts for the Clay assistant training corpus,
+# 2026-09-12
+#
+# One subject per line: `class | prompt`. Blank lines and `#` lines are
+# ignored. Parsed by scripts/campaign_props.read_corpus. class is one of
+# easy | medium | hard, meaning difficulty of *construction* -- which parts
+# of Clay's surface the object cannot be built without -- exactly as defined
+# in docs/measurements/corpora/clay-agent-v1.txt's header:
+#   easy   -- primitives, placement and materials alone.
+#   medium -- needs a boolean, a lathe/sweep profile, an array op, or
+#             element-mode selection and a topology op.
+#   hard   -- needs a swept or tapered form along a path.
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here, and the words slatted, gusset,
+# telescope, tripod, colonnade, fluted, serpentine are avoided throughout
+# this file.
+
+easy | a sturdy wooden shipping crate with metal corner plates
+easy | a plain wooden storage chest with a flat lid
+easy | a small clay pot, round and squat
+easy | a glass bottle with a narrow neck
+easy | a metal bucket with a simple handle
+easy | a sci-fi supply crate with rounded corners
+easy | a woven wicker basket, round and open-topped
+easy | a ceramic vase, tall and cylindrical
+easy | a simple burlap sack, rendered as a rounded box
+easy | a treasure chest with a domed lid
+easy | a stack of three identical wooden crates
+easy | a large storage barrel standing upright
+easy | a small tin can, plain cylinder
+easy | a flowerpot, a truncated cone shape
+easy | a canteen, a flattened cylinder with a cap
+easy | a fantasy potion bottle, small and round-bodied
+easy | a modern plastic storage bin with a flat lid
+easy | a rain barrel, a wide squat cylinder
+easy | a medieval grain sack, a soft rounded box shape
+easy | a metal ammo box, a plain rectangular container
+easy | a cardboard moving box, a simple cube
+easy | a ceramic jug with a small spout
+easy | a fuel drum, a tall metal cylinder
+easy | a woven basket holding a few round apples
+easy | a squat iron cauldron standing on three short feet
+medium | a wine barrel with lathe-turned bulging sides and metal bands
+medium | a ceramic amphora with a lathe-turned neck and two mirrored side handles
+medium | a treasure chest with a round keyhole cut through the lock plate
+medium | a glass jar with a boolean-cut opening for a threaded lid
+medium | a wooden barrel with a round hole cut in the lid for pouring
+medium | a lathe-turned wine goblet with a wide bowl and a thin stem
+medium | a chest with a hinge cut-out along the back edge
+medium | a decorative urn, lathe-turned with a flared lip
+medium | a fantasy potion bottle with a lathe-turned stopper
+medium | a crate with a round port-hole cut in one side for reaching inside
+medium | a lathe-turned candle holder with a socket cut for the candle
+medium | a ceramic bowl with a lathe-turned foot ring
+medium | a metal drum with a row of rivets arranged radially around the rim
+medium | a wine rack shaped as a lathe-turned pedestal holding a bottle
+medium | a stack of barrels arranged in a repeating pyramid pattern
+medium | a chest whose lid has a carved emblem cut into the surface
+medium | a jug with a handle loop cut through the side
+medium | a set of five identical storage jars arranged in a row
+medium | a barrel with a spigot hole cut near its base
+medium | a lathe-turned incense burner with a perforated lid
+hard | a leather waterskin whose body tapers and bends like a sagging pouch
+hard | a woven vine basket whose handle sweeps in a smooth arc from side to side
+hard | a ceremonial horn container that tapers from a wide mouth to a curled point
+hard | a sack whose bulging profile sweeps outward then tapers to a tied neck
+hard | a curved drinking horn mounted on a stand, tapering along its length

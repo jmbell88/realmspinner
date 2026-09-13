@@ -1,0 +1,119 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "web",
+   "params": {
+    "size": [
+     0.2,
+     0.015,
+     0.1
+    ]
+   },
+   "translation": [
+    0,
+    0.0075,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "gusset",
+   "params": {
+    "size": [
+     0.15,
+     0.03,
+     0.02
+    ]
+   },
+   "translation": [
+    0.1,
+    0.015,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_cut_1",
+   "params": {
+    "height": 0.02,
+    "radius": 0.008,
+    "segments": 12
+   },
+   "rotation": [
+    90,
+    0,
+    0
+   ],
+   "translation": [
+    -0.05,
+    0.015,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_cut_2",
+   "params": {
+    "height": 0.02,
+    "radius": 0.008,
+    "segments": 12
+   },
+   "rotation": [
+    90,
+    0,
+    0
+   ],
+   "translation": [
+    0.05,
+    0.015,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "web"
+    },
+    {
+     "$ref": "bolt_cut_1"
+    },
+    {
+     "$ref": "bolt_cut_2"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.55,
+    0.42,
+    0.18
+   ],
+   "metallic": 0.9,
+   "name": "Brass",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "web"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

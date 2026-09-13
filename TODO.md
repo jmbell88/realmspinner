@@ -83,6 +83,40 @@ It no longer blocks anything.
 generator, and a verdict on whether the ramp works at sprite scale on it.
 Unblocks P11.
 
+**In progress, 2026-09-12 — leaving off here for a future session.** Found a
+usable candidate mesh: `docs/examples/Universal Base Characters/` (Quaternius,
+CC0 1.0 — `License_Standard.txt`), male and female variants, textured,
+pre-rigged, both cleared through the real pipeline. The male
+(`Base Characters/Godot - UE/Superhero_Male_FullBody.gltf`, converted to
+`.glb` via Blender's own exporter with `--webp off`/PNG textures since
+`trellis-cli`'s WebP default and Mason's viewer don't implement
+`EXT_texture_webp`) imports clean: 14,318 faces, T-pose, correct +Z-up axis
+convention after `_import_glb`, 65 incoming bones stripped with no crash by
+`_strip_incoming_rig` (bone-name mapping turned out not to matter — Warlock
+discards any incoming rig rather than adopting it, so the finger-bone-length
+risk this entry's constraints list warns about never bites). Ran the whole
+chain for real: `service.jobs.import_mesh` → `service.troupe.send_to_troupe`
+→ rig → charsheet, all `done`, no errors. One deviation: `palette=cosmos`
+this entry names is not installed on this machine (only `dawnlight.hex` is,
+in `~/.warlock/palettes/`) — this entry's own background text claiming
+`cosmos`/`light_world` are installed is stale; rendered with `dawnlight`
+instead.
+
+**What stopped this from closing today:** looking at the actual sheet
+surfaced two rig-template defects that were never visible on CesiumMan or a
+generated species — **F7** (jump's knee bends backward, root-caused to a
+sign error in `humanoid.json`'s pose data) and **F8** (walk may play backward
+left/right, unconfirmed, needs to be seen in motion rather than as static
+frames). Closing this entry on a ramp verdict taken over a visibly broken rig
+would be worse than not closing it, so F7 at minimum should be fixed and
+re-rendered before asking for the ramp verdict itself. **Next session:** fix
+F7, chase F8 (play the yaw-90 walk frames back, or read `rigging.py`'s
+yaw/mirroring path against the leading-leg convention), re-render this same
+mesh's sheet, *then* hand it over for the actual ramp-at-sprite-scale
+judgement this entry is asking for. The mesh, the license, and the working
+import/rig/render chain are the hard part and are already proven — what's
+left is fixing what looking at it found.
+
 ## P6. Open a Warlock-written `.aseprite` in real Aseprite
 
 **Why it is yours:** an app this repository does not have. A green test proves
@@ -1225,6 +1259,34 @@ on record rather than three stages of "not mine".
 
 ---
 
+## P49. Decide whether `clay_render` gives an agent a lit picture
+
+**Why it is yours:** the default is a design call, and the one default that
+cannot move is already pinned. `clay_render` goes through
+`ClayView.render_png`, which always draws `flat=True` -- Clay's *Solid*,
+albedo with no lighting. Every face of a default-grey object comes back the
+same grey, so a box's three visible sides merge into one silhouette (seen in the
+2026-09-12 live bridge check: a box and a sphere rendered as one flat blob).
+That is inherited from build-to-trellis (`main.py:_render_clay_reference`),
+whose byte-identical default is pinned by
+`test_render_png_defaults_are_the_picture_the_trellis_path_already_got`
+because stored corpora are keyed on it. An agent checking its own modelling,
+though, cannot see face orientation, an inset or bevel inside the outline, or
+which way a boolean cut went. The tool's description says "flat-shaded",
+which reads as lit.
+
+**Do:** decide whether an agent render should be lit, and if so whether lit is
+`clay_render`'s default or opt-in. The shape that leaves trellis alone: a
+`shading` argument (`"lit"`/`"flat"`) on `clay_render` passing a new keyword
+through `render_png`, whose own default stays unlit; reword the description;
+a regression test that a lit box shows at least two distinct face greys. Check
+the Clay agent round-two plan's T-items first -- shading is listed there.
+
+**Expected outcome:** a default chosen, and either the argument built or a
+line in `docs/INVARIANTS.md` saying why agent renders stay unlit.
+
+---
+
 ## Open findings
 
 Code work a review or a real run turned up. Each is buildable and is struck out
@@ -1299,11 +1361,47 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    only if overrides turn out to be common: place a few dozen retinted copies of
    one asset and see whether it matters before changing how the renderer binds
    materials.
+7. **F7. The jump clip's knee bends the wrong way.** Found 2026-09-12 running
+   a real human-authored mesh (Quaternius's CC0 "Superhero Male") through
+   *Send to Troupe* for P4 — the first time this template has been judged on
+   art rather than CesiumMan. `src/warlock/templates/clips/humanoid.json`'s
+   pose data has a consistent rule across every other flexed pose: `thigh.L`/
+   `thigh.R` and `shin.L`/`shin.R` rotate in the **same sign** when a leg
+   bends (walk's "passing A" pose: `thigh.R +0.0698, shin.R +0.2924` — hip
+   flexes a little, knee bends more, which is a normal swing-through). `jump
+   crouch` (`thigh +0.4384, shin -0.6428`) and `jump land`
+   (`thigh +0.3746, shin -0.5299`) break that rule — shin rotates opposite in
+   sign to thigh, both bent hard. Given every other pose's convention, that
+   bends the knee backward rather than forward: confirmed visually on the
+   rendered sheet, the landing/crouch legs look reverse-jointed. Reproducible
+   on any humanoid character, not specific to the test mesh.
+
+   **Do:** flip the sign of `shin.L`/`shin.R` in `jump crouch` and `jump land`
+   (candidates: `+0.6428`/`+0.5299`, matching the walk/run poses' sign
+   agreement) and re-render the same character's jump clip to confirm the
+   knee now bends forward. Check `jump launch`/`rise`/`fall`/`apex` too —
+   they read as closer to straight-legged so the sign disagreement may not
+   bite there, but they were not checked with the same rigor this pass gave
+   crouch/land.
+8. **F8. The walk clip may play backward left/right — unconfirmed.** Same run
+   as F7: side-view (yaw 90/270) walk frames looked, on a static contact
+   sheet, like the gait was reversed. Unlike F7 this is **not yet backed by
+   data** — `walk contact A/B` and `walk passing A/B`'s thigh/shin signs are
+   internally consistent with each other (unlike jump's), so if there is a
+   real bug here it is a different mechanism than F7's — a candidate is a
+   yaw-mirroring or leading-leg/screen-direction mismatch for opposite-facing
+   views, but this was not traced into code before the session ended. A
+   static frame cannot settle "is this backward" on its own; needs the actual
+   sheet played back (Troupe's own preview, or a GIF of the yaw-90 walk
+   frames in sequence) before concluding anything.
 
 **What is left on that machine is not code**: whether the resets stop once a
 retry can outlast them (F1 and F2 together should turn "never finishes" into
 "finishes eventually"), and the still-unrun `HF_HUB_DISABLE_XET=1` experiment.
-Both belong to P1 step 4 now rather than here.
+Both belonged to P1 step 4, which is now closed (see Closed records) — that
+machine work is done; these two items were not re-run and are not tracked
+elsewhere, noted here only so they are not lost with the entry that named
+them.
 
 ---
 

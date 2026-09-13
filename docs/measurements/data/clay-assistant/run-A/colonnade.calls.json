@@ -1,0 +1,258 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_1",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    -1.125,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_2",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    -0.875,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_3",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    -0.625,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_4",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    -0.375,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_5",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    0.375,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_6",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    0.625,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_7",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    0.875,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column_8",
+   "params": {
+    "size": [
+     0.21,
+     2.8,
+     0.21
+    ]
+   },
+   "translation": [
+    1.125,
+    1.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Base_1",
+   "params": {
+    "size": [
+     1.8,
+     0.54,
+     1.8
+    ]
+   },
+   "translation": [
+    0.0,
+    0.27,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Step2",
+   "params": {
+    "size": [
+     1.26,
+     0.54,
+     1.26
+    ]
+   },
+   "translation": [
+    0.0,
+    0.72,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Step3",
+   "params": {
+    "size": [
+     0.63,
+     0.54,
+     0.63
+    ]
+   },
+   "translation": [
+    0.0,
+    1.17,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.76,
+    0.65,
+    0.48
+   ],
+   "name": "Colonnade Stone",
+   "roughness": 0.8,
+   "uids": [
+    {
+     "$ref": "Column_1"
+    },
+    {
+     "$ref": "Column_2"
+    },
+    {
+     "$ref": "Column_3"
+    },
+    {
+     "$ref": "Column_4"
+    },
+    {
+     "$ref": "Column_5"
+    },
+    {
+     "$ref": "Column_6"
+    },
+    {
+     "$ref": "Column_7"
+    },
+    {
+     "$ref": "Column_8"
+    },
+    {
+     "$ref": "Base_1"
+    },
+    {
+     "$ref": "Step2"
+    },
+    {
+     "$ref": "Step3"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

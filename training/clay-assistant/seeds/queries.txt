@@ -1,0 +1,68 @@
+# queries seed prompts for the Clay assistant training corpus, 2026-09-12
+#
+# One subject per line: `class | <starting object, one clause> :: <question>`.
+# The `::` is a plain convention inside the free-text prompt field, not
+# special syntax to the reader -- scripts/campaign_props.read_corpus only
+# ever splits on the first `|`, so everything after it, `::` included, is
+# one prompt string. Blank lines and `#` lines are ignored. class is one of
+# easy | medium | hard, meaning difficulty of *construction* of the scene
+# being asked about, per docs/measurements/corpora/clay-agent-v1.txt's
+# header (easy: the scene is primitives/placement/materials only; medium:
+# the scene needs a boolean, an array op, a lathe/sweep profile, or
+# element-mode to describe; hard: the scene involves a swept or tapered
+# form). Every row is answered from `clay_scene` alone; no mutation.
+#
+# Held-out rule: the five clay-agent-v1.txt subjects and their near
+# neighbours must never appear here, and the words slatted, gusset,
+# telescope, tripod, colonnade, fluted, serpentine are avoided throughout
+# this file.
+
+easy | a stack of three crates :: how tall is the whole stack?
+easy | a wooden table with four legs :: how many objects are in the scene?
+easy | a round wooden stool :: what material is the seat?
+easy | a stone archway :: how wide is the opening?
+easy | a metal storage locker :: is the door open or closed?
+easy | a simple humanoid figure :: how tall does it stand?
+easy | a wooden barrel :: what is its radius at the widest point?
+easy | a bookshelf with four shelves :: how many shelves does it have?
+easy | a garden bench :: what material is it made of?
+easy | a stone column :: how tall is the column?
+easy | a wooden cart with two wheels :: how far apart are the wheels?
+easy | a round shield :: what is its diameter?
+easy | a simple quadruped figure :: how many legs does it have?
+easy | a wooden chest :: is the lid currently open?
+easy | a metal bucket :: what colour is it?
+easy | a low coffee table :: how far off the ground is the tabletop?
+easy | a stone well :: how deep is the wall?
+easy | a wooden wardrobe :: how many doors does it have?
+easy | a plain hammer :: how long is the handle?
+easy | a small clay pot :: what shape is its base?
+easy | a wooden ladder :: how many rungs does it have?
+easy | a stone plinth :: what are its dimensions?
+easy | a round side table :: what material is the tabletop?
+easy | a metal gear disc :: how many objects make up the gear?
+easy | a simple bird figure :: is it standing or perched?
+medium | a wagon wheel with eight spokes :: how many spokes does the wheel have?
+medium | a treasure chest with a round keyhole cut in the lock plate :: where is the keyhole positioned?
+medium | a wine barrel with metal bands :: how many bands wrap around it?
+medium | a tower with evenly spaced windows :: how many windows are cut into it?
+medium | a dresser with three drawers, each with a recessed handle :: do all the drawers match?
+medium | a row of six columns supporting a roof :: how far apart are the columns?
+medium | a shield with a mirrored emblem :: is the emblem symmetrical?
+medium | a metal grate with a grid of holes :: how many holes are cut into it?
+medium | a lathe-turned goblet :: how wide is the bowl compared to the stem?
+medium | a quadruped figure with a tube-shaped tail :: how long is the tail relative to the body?
+medium | a staircase of repeating steps :: how many steps does it have?
+medium | a cart with a mirrored pair of wheels :: are the two wheels identical?
+medium | a shelf held up by an array of support pegs :: how many pegs hold up the shelf?
+medium | a jug with a lathe-turned handle loop :: where does the handle attach?
+medium | a fence made from a linear array of pickets :: how many pickets are there?
+medium | a battlement wall with repeating merlons :: how many merlons run along the wall?
+medium | a sprocket wheel with radial teeth :: how many teeth does it have?
+medium | a coat rack with a radial ring of pegs :: how many pegs does it have?
+medium | a bookshelf held up by an array of support pegs :: are the pegs evenly spaced?
+hard | a creature whose tail tapers along a swept curve :: how does the tail's thickness change from base to tip?
+hard | a sword whose blade tapers to a point :: where along the blade is it widest?
+hard | a spire that tapers from base to tip :: what is the taper ratio between base and tip?
+hard | a pipe that bends and tapers into a nozzle :: how much does the diameter shrink by the end?
+hard | a snake figure coiled into a loop :: how many coils does it make?

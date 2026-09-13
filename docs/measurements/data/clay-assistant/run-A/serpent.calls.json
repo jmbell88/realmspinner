@@ -1,0 +1,439 @@
+[
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "seg_0_body",
+   "params": {
+    "path": [
+     [
+      0.0,
+      0.2,
+      0.0
+     ],
+     [
+      0.1,
+      0.16,
+      0.0
+     ],
+     [
+      0.2,
+      0.08,
+      0.0
+     ]
+    ],
+    "radius": 0.05,
+    "sides": 10
+   },
+   "translation": [
+    0.0,
+    0.1,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "seg_1_body",
+   "params": {
+    "path": [
+     [
+      0.14,
+      0.08,
+      0.0
+     ],
+     [
+      0.26,
+      0.06,
+      0.0
+     ],
+     [
+      0.38,
+      0.04,
+      0.0
+     ]
+    ],
+    "radius": 0.035,
+    "sides": 10
+   },
+   "translation": [
+    0.14,
+    0.14,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "seg_2_body",
+   "params": {
+    "path": [
+     [
+      0.39,
+      0.04,
+      0.0
+     ],
+     [
+      0.51,
+      0.02,
+      0.0
+     ],
+     [
+      0.63,
+      -0.015,
+      0.0
+     ]
+    ],
+    "radius": 0.02,
+    "sides": 10
+   },
+   "translation": [
+    0.39,
+    0.18,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "seg_3_body",
+   "params": {
+    "path": [
+     [
+      0.59,
+      -0.015,
+      0.0
+     ],
+     [
+      0.71,
+      -0.03,
+      0.0
+     ],
+     [
+      0.83,
+      -0.045,
+      0.0
+     ]
+    ],
+    "radius": 0.011,
+    "sides": 10
+   },
+   "translation": [
+    0.59,
+    0.18,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "seg_4_body",
+   "params": {
+    "path": [
+     [
+      0.75,
+      -0.045,
+      0.0
+     ],
+     [
+      0.87,
+      -0.03,
+      0.0
+     ],
+     [
+      0.99,
+      -0.015,
+      0.0
+     ]
+    ],
+    "radius": 0.0055,
+    "sides": 10
+   },
+   "translation": [
+    0.75,
+    0.14,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "head",
+   "params": {
+    "radius": 0.09,
+    "rings": 8,
+    "segments": 16
+   },
+   "translation": [
+    0.99,
+    0.18,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "tail",
+   "params": {
+    "radius": 0.09,
+    "rings": 8,
+    "segments": 16
+   },
+   "translation": [
+    0.87,
+    0.14,
+    -0.12
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.15,
+    0.12,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_ip",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.15,
+    0.12,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_ir",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.15,
+    0.12,
+    -0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_is",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.28,
+    0.06,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_it",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.28,
+    0.06,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_io",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.41,
+    0.02,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_ii",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.41,
+    0.02,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_ir_2",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.53,
+    0.12,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_is_2",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.53,
+    0.12,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_is_3",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.66,
+    0.04,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_it_2",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.66,
+    0.04,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_io_2",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.79,
+    0.01,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_ii_2",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.79,
+    0.01,
+    0.15
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_is_4",
+   "params": {
+    "radius": 0.018,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.92,
+    0.05,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ }
+]
