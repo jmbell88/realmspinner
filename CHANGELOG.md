@@ -20,6 +20,12 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Groundwork for Familiar.** The plumbing an external agent already used to
+drive Clay over the pipe now works for Warlock's own built-in assistant too,
+with no pipe involved: Familiar keeps working while Settings' agent-server
+switch is off, and switching that pipe off never drops a call Familiar has
+in flight. Nothing user-visible yet — there is still nothing to install.
+
 **Status moves into the menu bar.** The status bar at the foot of the window is
 gone. Its readouts (workspace, document, tool, zoom, queue, health) now sit
 right-aligned in the top menu bar, which drops the lowest-priority ones first
