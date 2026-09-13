@@ -1882,10 +1882,15 @@ def tools() -> list[Any]:
                 "Pass 'compare' (a stored reference's name) to render "
                 "exactly one view beside it or blended over it instead of "
                 "the normal multi-view result -- see clay_reference_add; "
-                "'object_id' cannot be combined with 'compare'. An "
-                "'object_id' render's text reply carries 'ids': one row per "
-                "visible object, [uid, '#rrggbb' colour, pixel count], the "
-                "same colour for a uid in every view of one call -- a pixel "
+                "'object_id' cannot be combined with 'compare'. A compare "
+                "reply's header also carries 'silhouette': shape IoU and "
+                "bounding-box aspect between the reference and the render, "
+                "or null with a 'reason' (no subject, a flood-fill leak, or "
+                "a mask covering almost the whole frame) -- never a "
+                "refusal, the picture returns either way. An 'object_id' "
+                "render's text reply carries 'ids': one row per visible "
+                "object, [uid, '#rrggbb' colour, pixel count], the same "
+                "colour for a uid in every view of one call -- a pixel "
                 "count of 0 means that object is hidden from that view, not "
                 "that it does not exist."
             ),
@@ -4355,6 +4360,28 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
 
         with Image.open(io.BytesIO(sheet)) as im:
             width, height = im.width, im.height
+
+        # A second, private render: pngs[0] carries whatever shading the
+        # caller asked for (lighting, wireframe...), and the IoU below wants
+        # the flat, guaranteed-non-white object-id picture instead --
+        # 'object_id' shading draws exactly that through render_ids, but is
+        # refused combined with 'compare' above, so this takes that picture
+        # for itself rather than the caller's. Never a refusal: the sheet
+        # above is already worth returning whatever this finds, so any
+        # failure here (including a moderngl one) reads as a null 'reason'
+        # rather than losing the picture.
+        try:
+            from ..bench import metrics as bench_metrics
+
+            ids_png, _ids_rows = view_obj.render_ids(
+                doc, size=size, bounds=bounds, **parsed[0][1]
+            )
+            render_mask = bench_metrics.render_ids_mask(ids_png)
+            silhouette = bench_metrics.compare_silhouette(reference.png, render_mask)
+        except Exception:
+            log.exception("agent render silhouette compare failed")
+            silhouette = {"iou": None, "reason": "silhouette could not be measured; see the log."}
+
         session.last_render_png = sheet
         return ok(
             text(
@@ -4365,6 +4392,7 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
                         "mode": compare_mode,
                         "width": width,
                         "height": height,
+                        "silhouette": silhouette,
                     }
                 )
             ),

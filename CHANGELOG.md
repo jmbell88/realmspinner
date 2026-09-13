@@ -20,6 +20,16 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**A `clay_render` compare now scores the silhouette against the reference.**
+The header gains `silhouette`: `iou`, both masks' aspect ratios and their
+error, and whether the reference mask came from alpha or a flood fill. The
+render mask is a private object-id pass at the compare size. Some cases have
+nothing meaningful to measure: a flood fill that leaks, a mask covering more
+than 98 % of the frame, or an empty subject. Those give `iou: null` with a
+reason, and the picture still comes back. The mask maths moved out of
+`bench.metrics.silhouette_iou` into mask-level functions it now delegates to.
+A parity test holds the two paths together. Nothing runs inference.
+
 **`clay_render` takes a `shading`: `unlit` (the default, unchanged), `lit`,
 `wireframe`, `wire_overlay`, `xray` or `object_id`.** `lit` shows form that the
 unlit albedo picture flattens. `object_id` paints each object one flat colour

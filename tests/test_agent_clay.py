@@ -2999,6 +2999,174 @@ def test_clay_render_compare_refuses_more_than_one_view() -> None:
     assert result["structuredContent"]["field"] == "views"
 
 
+# --- compare's silhouette header ---------------------------------------------
+
+
+def _shape_png(size: int, rect: tuple[int, int, int, int], *, alpha: bool = False) -> bytes:
+    """A ``size`` x ``size`` picture with ``rect`` (x0, y0, x1, y1) filled in
+    and the rest of the canvas white (or, ``alpha=True``, transparent) --
+    a hand-built stand-in for both a ``render_ids`` picture (never white
+    where an object is) and an alpha-carrying reference, so a test can put an
+    exact, known footprint on either side of the comparison."""
+    x0, y0, x1, y1 = rect
+    if alpha:
+        arr = np.zeros((size, size, 4), dtype=np.uint8)
+        arr[y0:y1, x0:x1] = (10, 20, 30, 255)
+        mode = "RGBA"
+    else:
+        arr = np.full((size, size, 3), 255, dtype=np.uint8)
+        arr[y0:y1, x0:x1] = (10, 20, 30)
+        mode = "RGB"
+    buf = io.BytesIO()
+    Image.fromarray(arr, mode).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _busy_reference_png(size: int = 300) -> bytes:
+    """An RGB (no alpha) reference with no clean background to flood-fill:
+    a uniform patch in each corner (so the fill seeds and spreads there,
+    exactly as ``pipelines.reference.subject_mask``'s own corner sampling
+    expects) surrounded by salt-and-pepper noise the tight fill tolerance
+    cannot cross -- so the 'background' the fill finds is a sliver and the
+    'subject' it leaves behind covers the whole frame, over
+    ``bench.metrics.MASK_COVERAGE_CEILING``. Seeded, so the noise pattern is
+    fixed rather than a source of a flaky test."""
+    rng = np.random.default_rng(0)
+    arr = rng.integers(0, 2, size=(size, size, 3), dtype=np.uint8) * 255
+    p = 16
+    corner = np.array([200, 200, 200], dtype=np.uint8)
+    arr[:p, :p] = corner
+    arr[:p, -p:] = corner
+    arr[-p:, :p] = corner
+    arr[-p:, -p:] = corner
+    buf = io.BytesIO()
+    Image.fromarray(arr, "RGB").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _add_reference_png(
+    ctx: _Ctx, session: agent_clay.Session, name: str, png: bytes, view: str = "other"
+) -> dict:
+    b64 = base64.b64encode(png).decode("ascii")
+    result = agent_clay.call(
+        ctx, session, "clay_reference_add", {"name": name, "png_base64": b64, "view": view}
+    )
+    assert result["isError"] is False, result
+    return result
+
+
+def test_clay_render_compare_silhouette_scores_identical_footprints_near_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference whose alpha matches the render's own footprint exactly --
+    taken, in the real app, from a ``render_ids`` pass of the same scene at
+    the same size -- is the case the metric exists to score highest."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    rect = (32, 32, 96, 96)
+    render_png = _shape_png(128, rect)
+    _add_reference_png(ctx, session, "ref1", _shape_png(128, rect, alpha=True))
+    _install_fake_view(monkeypatch, png=render_png)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    silhouette = payload["silhouette"]
+    assert silhouette["iou"] >= 0.99, silhouette
+    assert silhouette["reference_mask"] == "alpha"
+    assert silhouette["aspect_error"] == 0.0
+    assert result["content"][1]["type"] == "image"  # the picture, regardless
+
+
+def test_clay_render_compare_silhouette_is_null_with_a_reason_for_a_busy_background(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference with no alpha and no clean corner-to-fill background is
+    not a silhouette to score -- null with a reason (a leak or near-total
+    coverage), and the comparison picture still comes back regardless."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _busy_reference_png())
+    _install_fake_view(monkeypatch, png=_shape_png(64, (16, 16, 48, 48)))
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    silhouette = payload["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_silhouette_is_null_when_the_reference_has_no_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An all-white reference (no alpha, nothing for the flood fill to find
+    but background) refuses no call -- the picture still returns, with a
+    null silhouette naming why."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _tiny_png())
+    _install_fake_view(monkeypatch, png=_shape_png(64, (16, 16, 48, 48)))
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette == {"iou": None, "reason": silhouette["reason"]}
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_silhouette_is_null_when_the_render_has_no_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The render side of the same rule: the fake's default picture is a
+    blank white square, so ``render_ids_mask`` finds nothing even though the
+    reference has a real, alpha-clean subject."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _shape_png(64, (16, 16, 48, 48), alpha=True))
+    _install_fake_view(monkeypatch)  # default fake.png is a blank white square
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_returns_the_picture_even_if_silhouette_measurement_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'Never a refusal' stated as a test: whatever goes wrong measuring the
+    silhouette, the comparison picture an agent asked for is not held
+    hostage to it."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+
+    from warlock.bench import metrics as bench_metrics
+
+    def _boom(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bench_metrics, "compare_silhouette", _boom)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
 # ==============================================================================
 # B9 -- the mesh, taken apart: element mode, explicit index, query, the read
 # ==============================================================================
@@ -3951,11 +4119,20 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     48,500 -- just past this measurement, the same "minimal, and say why"
     rule the previous raise (47,364 of 48,000) already followed. The next
     tool that grows the catalogue at all will need to raise it again.
+
+    A second growth the same day: ``clay_render``'s description gained one
+    more sentence naming the compare header's new ``silhouette`` block (shape
+    IoU, aspect, a null reading's ``reason``) -- catalogue JSON 42,136 chars +
+    instructions 6,499 chars = 48,635 chars total, over the 48,500 raised
+    above by 135. ``clay_render`` itself is now 3,158 chars. No schema
+    changed (``silhouette`` is a reply field, not an argument), so this is the
+    description alone; the ceiling is raised to 48,700, again just past the
+    measurement.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 48_500
+    CEILING = 48_700
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]
