@@ -148,11 +148,38 @@ own comment), and the two families that push nothing (references, the
 selection tools) are exactly as untouched by a rollback as by an ordinary
 ``clay_undo``.
 
+**``clay_program`` compiles a small declarative program to a list of tool
+calls (:mod:`.agent_program`) and folds the whole run into one undo step,
+the same shape ``clay_batch`` already gives a run built by hand.** Where
+``clay_batch`` takes calls an agent already assembled, one at a time,
+``clay_program`` takes a program -- ``variables``, a nested ``steps`` list
+with ``repeat``/``array``/``mirror``/``group``/``let``/``if`` sugar over
+expressions, and its own ``id``/``$ref`` namespace reusing ``clay_batch``'s
+own convention -- and :func:`agent_program.compile_program` expands it,
+*before* any of it runs, into the identical ``(tool_name, arguments)`` shape
+``_fold_run`` already knows how to run for ``clay_batch``. It is always
+atomic, unlike ``clay_batch``'s opt-in ``rollback_on_error``: a program that
+stops partway rolls the whole attempt back rather than keeping a prefix,
+because a compiled program is one request an agent reasons about as a
+whole, not a sequence it is watching call by call. ``dry_run`` runs the
+compiled program for real -- the only way to answer "would this refuse
+partway through" honestly -- and then always undoes it with
+``redoable=False`` before returning, the same reversal ``rollback_on_error``
+uses, so a dry run costs exactly what the run it previews would have cost
+and leaves nothing behind. A compiled ``("live", kind, arguments, path)``
+placeholder -- a relative move, a runtime assertion, none of them
+answerable without the live document a batch alone cannot see -- is refused
+the moment its turn comes, which folds and rolls back precisely like any
+other mid-run refusal; :data:`PROGRAM_DEADLINE_S` bounds the whole run the
+same way, so an agent-visible refusal always beats a frame stalled past
+what one MCP round trip should cost.
+
 **The undo enumeration, in full.** Together with ``clay_undo``/``clay_redo``
 (which move the history head rather than pushing one of their own),
-``clay_batch`` is one of two exceptions that fold or move a step -- what
-makes "one tool call is one undo step" true rather than approximately true.
-Two families push none at all instead: references (``clay_reference_add``
+``clay_batch`` and ``clay_program`` are three exceptions that fold or move a
+step -- what makes "one tool call is one undo step" true rather than
+approximately true. Two families push none at all instead: references
+(``clay_reference_add``
 and friends), because nothing in the document changes when a picture is
 merely held on the session, and the selection tools (``clay_element_mode``,
 ``clay_select_elements``, ``clay_select_by``, ``clay_select``), because
@@ -324,6 +351,7 @@ import functools
 import json
 import logging
 import math
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -333,7 +361,7 @@ import numpy as np
 from ..service import files as svc_files
 from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
-from . import clay_mode, clay_ops
+from . import agent_program, clay_mode, clay_ops
 from .clay import analyze as clay_analyze
 from .clay import diagnose as clay_diagnose
 from .clay import document as bd
@@ -392,6 +420,12 @@ list, and the test below is what catches one of them going stale.
 BATCH_EXCLUDED = frozenset(
     {
         "clay_batch",  # nesting buys nothing and bounds nothing
+        # A program already folds its own run into one step the identical
+        # way; nesting one inside a batch entry buys nothing either, and
+        # agent_program.compile_program never emits a name in this set (see
+        # test_the_compiler_never_emits_a_batch_excluded_tool), so the two
+        # surfaces cannot disagree about what is nestable.
+        "clay_program",
         # An image block is a result a client must see as one; a batch can
         # only hand back JSON text, so neither of these has a shape a batch
         # result could carry.
@@ -406,6 +440,18 @@ BATCH_EXCLUDED = frozenset(
 )
 """Tools ``clay_batch`` refuses to run -- see :func:`_h_batch`'s docstring
 for the derivation, and the comments above for why each one is excluded."""
+
+PROGRAM_DEADLINE_S = 4.0
+"""The wall-clock budget one ``clay_program`` call gets, measured from the
+moment its compiled calls start running and checked between them (never
+mid-call, so one already-running call is never cut off) -- past it, the run
+rolls back and refuses rather than keep going into a second, third frame.
+``clay_program`` is deliberately not chunked across frames the way ``pump``'s
+own queued-job budget chunks ordinary calls (see ``docs/INVARIANTS.md``'s
+agent paragraph): a program's whole point is that it is one MCP round trip,
+and a caller that needs more than this buys should split the program into
+several smaller ``clay_program`` calls rather than have this tool silently
+spread one across an unbounded number of frames."""
 
 MAX_REFERENCES = 8
 """How many pictures one session may hold at once. A session's references
@@ -1280,10 +1326,11 @@ def instructions() -> str:
         "object, and every other tool that names an object takes one. "
         "Names are for humans and may be renamed (clay_rename); a uid never "
         "changes.\n\n"
-        "One tool call is one undo step, with two exceptions that fold or "
-        "move steps -- clay_batch folds its whole run into one, and "
-        "clay_undo/clay_redo move the history head rather than pushing one "
-        "of their own -- and two families that push none at all: adding a "
+        "One tool call is one undo step, with three exceptions that fold or "
+        "move steps -- clay_batch and clay_program each fold their whole "
+        "run into one, and clay_undo/clay_redo move the history head "
+        "rather than pushing one of their own -- and two families that "
+        "push none at all: adding a "
         "reference (clay_reference_add) touches nothing in the document, and "
         "the selection tools (clay_element_mode, clay_select_elements, "
         "clay_select_by, clay_select) change the document without pushing a "
@@ -1348,6 +1395,19 @@ def instructions() -> str:
         "stack, so a tab this same batch minted, an element mode or "
         "selection change, or a reference added along the way all survive "
         "it untouched.\n\n"
+        "clay_program compiles a declarative program -- variables, "
+        "expressions, repeat/array/mirror/group/let/if -- to the same kind "
+        "of call list and runs it the same way, always atomic: unlike "
+        "clay_batch's opt-in rollback_on_error, any failure rolls the "
+        "whole attempt back. Prefer clay_program over clay_batch once a "
+        "build has real structure -- a repeated part, a computed "
+        "placement, a name reused across several steps -- rather than "
+        "assembling and resolving that structure call by call; reach for "
+        "clay_batch instead when the calls are already known and few, or "
+        "when a partial, kept prefix is useful on a refusal. clay_program "
+        "cannot be a clay_batch entry, and dry_run lets a program be "
+        "previewed -- built for real and then undone -- before it is run "
+        "for keeps.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
         "second timeout is handled one of two ways, and the reply says "
         "which. If Warlock had not started the call yet, it is dropped and "
@@ -2110,7 +2170,7 @@ def tools() -> list[Any]:
                 "successful prefix. If this session owns no document yet, "
                 "the first call must be one of "
                 f"{', '.join(MINTS_A_DOCUMENT)}. "
-                "clay_batch, clay_render, clay_export, "
+                "clay_batch, clay_program, clay_render, clay_export, "
                 "clay_undo, clay_redo and clay_reference_get cannot be "
                 "batched -- see their own tools for why. Anywhere inside a "
                 "later entry's arguments, {\"$ref\": \"<name>\"} resolves to "
@@ -2151,6 +2211,83 @@ def tools() -> list[Any]:
                     "rollback_on_error": {"type": "boolean"},
                 },
                 "required": ["calls"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_program",
+            title="Compile and run a build program",
+            description=(
+                "Compile a small declarative program to a list of tool "
+                "calls and run it as one atomic undo step, labelled 'Agent "
+                "program' -- like clay_batch but built from a program "
+                "rather than assembled call by call, and always atomic: "
+                "any failure rolls the whole attempt back rather than "
+                "keeping a prefix. 'variables' seeds named numbers; "
+                "'steps' is a list, each entry exactly one kind: add "
+                "(generator/params/translation/rotation/scale/id/material, "
+                "like clay_add_primitive), figure (key/translation/yaw/"
+                "scale/id, like clay_add_figure), mesh (positions/faces/uv/"
+                "translation/rotation/scale/id/material, like "
+                "clay_add_mesh), transform (uid/translation/rotation/"
+                "scale), params (uid or uids, plus params), material "
+                "(uids/color/name/metallic/roughness), delete (uids), op "
+                "(name/params/uids -- an object-mode clay_op row only), "
+                "boolean (kind/uids), select (uids), repeat (ranges/steps, "
+                "expanding every named range's cartesian product), array "
+                "(id/count/var/add, sugar for a numbered row), mirror "
+                "(axis/add, places the original and a reflected copy -- "
+                "placement only, never the mesh itself), group (id/"
+                "members, names a set for a later uids field), let (vars, "
+                "binds more variables for the rest of this steps list) and "
+                "if (cond/then/else). A numeric field (translation, a "
+                "params value, a range bound, ...) takes a plain number or "
+                "an expression string: + - * / % and ^ for power, "
+                "comparisons and and/or/not, parentheses, degree trig "
+                "(sin/cos/tan/asin/acos/atan2), sqrt/abs/min/max/floor/"
+                "ceil/clamp/lerp/round, the constant pi, and $name for a "
+                "variable -- never Python, nothing is eval'd. An id field "
+                "takes a plain string or one templated with {name} (e.g. "
+                "\"leg_{i}\" inside a repeat over i) -- never $name, which "
+                "is for numeric fields only. A reference to an object this "
+                "program placed is its id (a bare string, or {\"id\": "
+                "...}/{\"$ref\": ...}, the same convention clay_batch "
+                "uses); a reference to one already in the document is its "
+                "uid (an integer, or {\"uid\": ...}); a uids field also "
+                "takes a group name or a list mixing any of those. "
+                "Limits: up to "
+                f"{agent_program.PROGRAM_MAX_STEPS} steps in one list "
+                "(every nested repeat/if body counts its own, up to "
+                f"{agent_program.PROGRAM_MAX_NESTING} lists deep), "
+                f"{agent_program.PROGRAM_MAX_CALLS} expanded tool calls "
+                f"total, {agent_program.PROGRAM_MAX_REPEAT} iterations per "
+                f"repeat/array, {agent_program.PROGRAM_MAX_BOOLEANS} "
+                "boolean steps, and "
+                f"{agent_program.PROGRAM_MAX_VARIABLES} variables in scope "
+                "at once. dry_run runs the program for real and then "
+                "undoes it before returning, reporting what would have "
+                "been built (uids omitted) with no lasting change; with no "
+                "document open yet, a dry run only compiles and never "
+                "starts one. clay_program cannot itself be a clay_batch "
+                "entry. A program expensive enough to near these limits -- "
+                "many repeat iterations, several booleans -- is exactly "
+                "what a client that has declared the MCP Tasks extension "
+                "should let run as a task rather than wait on "
+                "synchronously."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "variables": {"type": "object"},
+                    "steps": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": agent_program.PROGRAM_MAX_STEPS,
+                        "items": {"type": "object"},
+                    },
+                    "dry_run": {"type": "boolean"},
+                },
+                "required": ["steps"],
                 "additionalProperties": False,
             },
         ),
@@ -4839,10 +4976,118 @@ def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | No
     return value, None
 
 
+def _resolve_and_call(
+    ctx: Any, session: Session, doc: Any, name: str, arguments: dict
+) -> dict:
+    """Resolve every ``{"$ref": "<name>"}`` in *arguments* against *doc* --
+    see :func:`_resolve_batch_ref` -- and run *name* through :func:`call`.
+    The single-entry step :func:`_fold_run` takes for a plain ``(name,
+    arguments)`` entry, factored out so a caller that has to interpose
+    something of its own around the call (``clay_program``'s deadline check)
+    still reaches the identical ``$ref`` handling rather than a second copy
+    of it."""
+    resolved: dict[str, Any] = {}
+    for key, value in (arguments or {}).items():
+        resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
+        if ref_failure:
+            return ref_failure
+    return call(ctx, session, name, resolved)
+
+
+def _run_entry(ctx: Any, session: Session, doc: Any, entry: Any) -> dict:
+    """One :func:`_fold_run` entry: a plain ``(name, arguments)`` pair, run
+    through :func:`_resolve_and_call`, or a live thunk -- anything callable,
+    taking ``(doc, session)`` and returning a tool result already built --
+    invoked directly. The thunk shape is what lets a caller other than
+    ``clay_batch`` (``clay_program``'s own live-kind placeholders, and its
+    deadline check ahead of an ordinary call) plug into the identical fold
+    with nothing in :func:`_fold_run` itself needing to know about either."""
+    if callable(entry):
+        return entry(doc, session)
+    name, arguments = entry
+    return _resolve_and_call(ctx, session, doc, name, arguments)
+
+
+def _fold_run(
+    ctx: Any,
+    session: Session,
+    doc: Any,
+    entries: list[Any],
+    *,
+    rollback: bool,
+    label: str,
+) -> tuple[list[dict], int | None, bool, bool]:
+    """Run *entries* -- see :func:`_run_entry` for the two shapes one may
+    take -- under one ``history.mark()``/``collapse_since`` fold, stopping at
+    the first refusal and keeping the successful prefix. Shared by
+    ``clay_batch`` and ``clay_program``, which differ only in what they hand
+    it: a batch's entries are the calls an agent already assembled, one at a
+    time; a program's are :func:`agent_program.compile_program`'s own
+    expanded call list, wrapped in a deadline-checking thunk apiece.
+
+    -> ``(results, stopped_at, rolled_back, changed)``: *results* is one
+    tool result per entry actually run (stopping at the first refusal, so
+    shorter than *entries* on a stop); *stopped_at* is that entry's index, or
+    ``None`` if every entry succeeded; *rolled_back* is whether *rollback*
+    fired; *changed* is ``doc.history.head != mark`` after everything above,
+    true whether the run completed, stopped with a successful prefix kept,
+    or (once a rollback has run) landed back at ``mark`` by construction --
+    the same single expression answers all three rather than a rollback
+    branch hand-setting it.
+
+    ``rollback``: when true and the run stops at a refusal, the folded step
+    is undone with ``history.undo(doc, redoable=False)`` before this
+    returns -- not left for a later ``clay_undo``, and not redoable, because
+    the whole point of asking for this is that the partial work should never
+    have existed. ``redoable=True`` (the default ``undo()`` a human's Ctrl+Z
+    takes) would leave the abandoned attempt on the redo stack, where a
+    later ``clay_redo`` could bring back exactly the work the caller asked
+    to erase -- the cancelled-lift shape ``UndoStack.undo``'s own docstring
+    describes that keyword for. Only the document's own undo stack is
+    unwound: a tab this same run minted still exists, because minting one
+    pushes no undo step to begin with, and neither does an element-mode or
+    selection change, or a reference add, along the way -- both of those
+    families survive this exactly as they survive an ordinary ``clay_undo``.
+    Gated on ``doc.history.head != mark`` first, never merely on ``stopped_at
+    is not None``: a run that stopped at its very first entry, before that
+    entry ever mutated anything, has nothing to undo, and calling
+    ``history.undo`` there would unwind whatever step was already on top
+    before this run started -- the caller's *previous* action, not this
+    one's.
+
+    ``label``: the step this run just pushed is renamed to *label* -- but
+    only when it actually pushed one, and skipped entirely once rolled back
+    (undoing the folded step already put ``doc.history.head`` back at
+    ``mark``, so there is no step left on top to rename) -- see
+    :func:`_label_top`.
+    """
+    mark = doc.history.mark()
+    results: list[dict] = []
+    stopped_at: int | None = None
+    for i, entry in enumerate(entries):
+        result = _run_entry(ctx, session, doc, entry)
+        results.append(result)
+        if result.get("isError"):
+            stopped_at = i
+            break
+    doc.history.collapse_since(mark)
+
+    rolled_back = False
+    if rollback and stopped_at is not None and doc.history.head != mark:
+        doc.history.undo(doc, redoable=False)
+        rolled_back = True
+
+    if not rolled_back:
+        _label_top(doc, mark, label)
+
+    changed = doc.history.head != mark
+    return results, stopped_at, rolled_back, changed
+
+
 def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
-    """Run several tools as one undo step. See the module docstring's own
-    paragraph on the fold and :data:`BATCH_EXCLUDED` for what this refuses to
-    run and why.
+    """Run several tools as one undo step, through :func:`_fold_run`. See the
+    module docstring's own paragraph on the fold and :data:`BATCH_EXCLUDED`
+    for what this refuses to run and why.
 
     The whole list's shape is validated before anything runs, so a malformed
     batch runs nothing. If the session owns no tab yet, this refuses unless
@@ -4939,75 +5184,20 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
 
-    mark = doc.history.mark()
-    results: list[dict] = []
-    stopped_at: int | None = None
-    for i, entry in enumerate(calls):
-        arguments = entry.get("arguments") or {}
-        # Resolved fresh against *doc* on every entry, not once up front --
-        # see this function's own docstring's ``$ref`` paragraph for why an
-        # unresolvable name refuses here rather than before the loop starts.
-        resolved: dict[str, Any] = {}
-        ref_failure: dict | None = None
-        for key, value in arguments.items():
-            resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
-            if ref_failure:
-                break
-        result = ref_failure if ref_failure else call(ctx, session, entry["name"], resolved)
-        results.append(result)
-        if result.get("isError"):
-            stopped_at = i
-            break
-    doc.history.collapse_since(mark)
-
-    rolled_back = False
-    # Keyed off ``doc.history.head != mark``, never off ``collapse_since``'s
-    # own return value: that return is a folding decision -- ``False`` for a
-    # run that pushed exactly one step, because wrapping a lone edit in a
-    # ``CompoundEdit`` would read as "compound" in the history panel where
-    # the edit already reads as what it did -- not a "did anything happen"
-    # signal. A single pushed step is still the right thing to undo, and
-    # ``head != mark`` answers "did the document move" the same way whether
-    # collapsing found one step or several to fold.
-    if rollback_on_error and stopped_at is not None and doc.history.head != mark:
-        # ``redoable=False``: this batch's whole point is that the agent
-        # wants the partial work to never have existed. ``redoable=True``
-        # (the default ``undo()`` a human's Ctrl+Z takes) would leave the
-        # abandoned attempt sitting on the redo stack, where a later
-        # ``clay_redo`` would bring back exactly the work this call was
-        # asked to erase -- the same cancelled-lift shape ``UndoStack.undo``'s
-        # own docstring describes: the buffer needs putting back, but the
-        # user asked for the lift to not have happened, so redoable=True
-        # would let Ctrl+Y replay it. Only the document's own undo stack is
-        # unwound here -- a tab this batch minted still exists (that mint
-        # pushed no undo step to begin with, so it sits before ``mark`` and
-        # is untouched), and neither does an element-mode/selection change
-        # or a reference add along the way, because neither ever pushed a
-        # step either.
-        doc.history.undo(doc, redoable=False)
-        rolled_back = True
-
-    # Skipped once rolled back: undoing the folded step already put
-    # ``doc.history.head`` back at ``mark``, so there is no step left on top
-    # to (mis)label -- ``_label_top`` would no-op on its own guard here too,
-    # but this says so rather than relying on that guard to be read.
-    if not rolled_back:
-        _label_top(doc, mark, "Agent batch")
+    # ``$ref`` resolution, the ``history.head != mark`` fold key,
+    # ``redoable=False`` and the top-step label are all in :func:`_fold_run`
+    # now -- entries here are plain ``(name, arguments)`` pairs, exactly the
+    # shape it already knows how to run.
+    entries = [(entry["name"], entry.get("arguments") or {}) for entry in calls]
+    results, stopped_at, rolled_back, changed = _fold_run(
+        ctx, session, doc, entries, rollback=rollback_on_error, label="Agent batch",
+    )
 
     # "completed" is diagnostic and unaffected by rollback: how many calls
     # succeeded before the refusal fired stays true regardless of whether
     # that work was then reversed, so "completed: 2, rolled_back: true" is
     # not a contradiction -- one reports what ran, the other what remains.
     completed = len(results) - (1 if stopped_at is not None else 0)
-    # Truthfully computed, not hard-coded: ``mark`` is the head serial before
-    # the loop above ran anything, so a head that has moved past it means at
-    # least one sub-call genuinely pushed a step -- exactly what "did the
-    # document move" asks, whether the batch ran to completion, stopped at
-    # its first refusal with a successful prefix already folded in, or (once
-    # a rollback above has run) landed back at ``mark`` by construction. The
-    # same expression answers all three rather than a rollback branch hand-
-    # setting ``changed`` to ``False``.
-    changed = doc.history.head != mark
     payload = {
         "completed": completed,
         "stopped_at": stopped_at,
@@ -5043,6 +5233,197 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # free the way every other tool's is -- it is passed explicitly above,
     # which is also why this is the one JSON-answering tool that would have
     # been left without a structured twin had this call not been written out.
+    result["isError"] = stopped_at is not None
+    return result
+
+
+def _step_locator(compiled_call: tuple[Any, ...]) -> dict[str, Any]:
+    """Where one :class:`agent_program.Compiled` call came from, and what it
+    is -- the ``{"step", "call"}`` shape :func:`_h_program` reports in
+    ``stopped_at`` and ``failure``. ``step`` is the compiler's own path
+    (``"steps[2].add"``, ...), the same string a compile refusal's message
+    already carries; ``call`` is the tool name, or ``"live:<kind>"`` for one
+    of :data:`agent_program.LIVE_KINDS`, which has no tool name of its own."""
+    if compiled_call[0] == "live":
+        return {"step": compiled_call[-1], "call": f"live:{compiled_call[1]}"}
+    return {"step": compiled_call[-1], "call": compiled_call[0]}
+
+
+def _describe_compiled_call(compiled_call: tuple[Any, ...]) -> dict[str, Any]:
+    """One compiled call, as ``dry_run``'s own ``calls`` preview reports it --
+    what would run, without running it."""
+    if compiled_call[0] == "live":
+        _, kind, arguments, _path = compiled_call
+        return {"live": kind, "arguments": arguments}
+    name, arguments, _path = compiled_call
+    return {"name": name, "arguments": arguments}
+
+
+def _h_program(ctx: Any, session: Session, args: dict) -> dict:
+    """Compile a declarative program (:mod:`.agent_program`) and run it as
+    one atomic undo step, through the same :func:`_fold_run` ``clay_batch``
+    runs on. See the module docstring's own paragraph on the fold for the
+    contract in full; this docstring covers only what is specific to this
+    handler.
+
+    Always atomic, unlike ``clay_batch``'s opt-in ``rollback_on_error``: a
+    program that stops at a refusal always rolls the whole attempt back
+    (``_fold_run(..., rollback=True, ...)``), because a compiled program is
+    one request an agent reasons about as a whole rather than a sequence it
+    watches call by call and might want a kept prefix from.
+
+    ``dry_run``: with no document open yet, this only compiles -- reported as
+    ``validated: "compile"`` -- and never mints a tab, because there would be
+    nothing to run the program against without minting one first, and a dry
+    run's whole point is to cost nothing lasting. With a document already
+    open (or once one exists), a dry run behaves exactly like a real run and
+    then, on success, undoes it the same ``redoable=False`` way a rollback
+    does -- so a dry run costs what the run it previews would have cost and
+    leaves nothing behind; ``doc.dirty`` is a comparison against
+    ``saved_head`` (``document.py``), not a latch, so undoing back to the
+    same head restores it exactly as it stood before this call. ``objects``
+    is read off the document immediately after the run, before that undo, so
+    a dry run still reports what *would* exist -- with ``uid`` omitted,
+    since by the time a caller reads the reply those uids are gone.
+
+    Object mode is required at the start: every compiled step is object-mode
+    (:func:`agent_program._Compiler._compile_op` already refuses to compile
+    an element-mode op), so a document left in vertex/edge/face mode could
+    only ever have every compiled call refuse in turn -- refusing once,
+    up front, is the honest version of that rather than a confusing
+    per-step echo of it.
+
+    A compiled ``("live", kind, arguments, path)`` placeholder -- one of
+    :data:`agent_program.LIVE_KINDS`, none of them answerable without the
+    live document a batch alone cannot see -- is refused the moment its turn
+    in the run comes, with no tool ever called for it; that refusal folds
+    into the run exactly like any other, so it rolls the whole attempt back
+    the same way a real tool's refusal would.
+    """
+    dry_run = args.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return fail("dry_run must be a boolean.", field="dry_run")
+
+    state = clay_mode.ensure(ctx)
+    existing_tab = state.get(session.tab_uid) if session.tab_uid else None
+    live_names = (
+        frozenset(o.name for o in existing_tab.doc.objects) if existing_tab is not None
+        else frozenset()
+    )
+
+    try:
+        compiled = agent_program.compile_program(args, live_names=live_names)
+    except agent_program.ProgramError as error:
+        return fail(str(error), field=error.field)
+
+    if dry_run and existing_tab is None:
+        payload = {
+            "dry_run": True,
+            "validated": "compile",
+            "expanded": compiled.expanded,
+            "completed": 0,
+            "stopped_at": None,
+            "changed": False,
+            "rolled_back": False,
+            "objects": [],
+            "groups": {name: list(members) for name, members in compiled.groups.items()},
+            "calls": [_describe_compiled_call(c) for c in compiled.calls],
+        }
+        return _json(payload)
+
+    tab, failure = _tab(ctx, session, create=True)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    if doc.element_mode != "object":
+        return fail(
+            "clay_program requires object mode -- every compiled step is "
+            "object-mode. Call clay_element_mode with mode='object' first.",
+            recovery="switch_mode",
+        )
+
+    # Captured before anything runs, so a rollback below can put it back:
+    # ``doc.select`` pushes no undo step (selection is not undoable by
+    # design), so ``history.undo`` alone would leave whatever a compiled
+    # ``add`` step's own selecting-on-placement left behind -- the newly
+    # created object's own uid, already gone -- rather than what was
+    # selected before this call ever touched the document.
+    prior_selection = set(doc.selection)
+
+    deadline = time.monotonic() + PROGRAM_DEADLINE_S
+
+    def _make_entry(index: int, compiled_call: tuple[Any, ...]) -> Any:
+        def _run(doc: Any, session: Session) -> dict:
+            # Checked between calls, never mid-call -- a call already running
+            # is never cut off, and the very first call always gets to run
+            # regardless of how close the budget already is, so a run that
+            # does nothing at all can never be blamed on this.
+            if index > 0 and time.monotonic() > deadline:
+                return fail(
+                    f"clay_program exceeded its {PROGRAM_DEADLINE_S:g}s "
+                    "deadline before this step ran; split the program into "
+                    "smaller clay_program calls.",
+                )
+            if compiled_call[0] == "live":
+                kind = compiled_call[1]
+                return fail(
+                    f"the {kind!r} step kind cannot run yet.", field="steps"
+                )
+            name, arguments, _path = compiled_call
+            return _resolve_and_call(ctx, session, doc, name, arguments)
+
+        return _run
+
+    entries = [_make_entry(i, c) for i, c in enumerate(compiled.calls)]
+    results, stopped_at, rolled_back, changed = _fold_run(
+        ctx, session, doc, entries, rollback=True, label="Agent program",
+    )
+
+    # Read off *doc* right now, before any dry-run undo below -- a program
+    # id that was deleted or consumed by a boolean along the way genuinely
+    # has no object to report, exactly as the document itself would say.
+    by_name = {obj.name: obj for obj in doc.objects}
+    objects_out: list[dict[str, Any]] = []
+    for pid, wire_name in compiled.objects.items():
+        obj = by_name.get(wire_name)
+        if obj is not None:
+            objects_out.append({"id": pid, "name": wire_name, "uid": obj.uid})
+
+    if dry_run and not rolled_back and changed:
+        doc.history.undo(doc, redoable=False)
+        rolled_back = True
+        changed = False
+
+    # A rollback (a run that failed, or a dry run undoing its own success)
+    # leaves the document exactly as it stood before this call in every way
+    # ``history.undo`` reaches -- except the selection, which never pushed a
+    # step for it to reach; restored by hand here for the identical reason.
+    if rolled_back:
+        doc.select(prior_selection)
+
+    if dry_run:
+        objects_out = [{"id": r["id"], "name": r["name"]} for r in objects_out]
+
+    completed = len(results) - (1 if stopped_at is not None else 0)
+    payload = {
+        "dry_run": dry_run,
+        "validated": "execute",
+        "expanded": compiled.expanded,
+        "completed": completed,
+        "stopped_at": None if stopped_at is None else _step_locator(compiled.calls[stopped_at]),
+        "changed": changed,
+        "rolled_back": rolled_back,
+        "objects": objects_out,
+        "groups": {name: list(members) for name, members in compiled.groups.items()},
+    }
+    if dry_run:
+        payload["calls"] = [_describe_compiled_call(c) for c in compiled.calls]
+    if stopped_at is not None:
+        payload["failure"] = results[stopped_at]
+
+    encoded = json.dumps(payload)
+    result = ok(text(encoded), structured=json.loads(encoded))
     result["isError"] = stopped_at is not None
     return result
 
@@ -5232,6 +5613,7 @@ _HANDLERS = {
     "clay_delete": _h_delete,
     "clay_rename": _h_rename,
     "clay_batch": _h_batch,
+    "clay_program": _h_program,
     "clay_reference_add": _h_reference_add,
     "clay_reference_list": _h_reference_list,
     "clay_reference_get": _h_reference_get,

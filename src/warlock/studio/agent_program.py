@@ -7,16 +7,19 @@ document, or even a session, to run against.
 **This module does not execute anything.** :func:`compile_program` turns a
 program into a :class:`Compiled` -- a flat list of ``(tool_name, arguments,
 path)`` entries plus ``("live", kind, arguments, path)`` placeholders for the
-four kinds no tool answers yet -- and stops there. A later change folds
-``calls`` into one ``clay_batch``-shaped run (reusing that tool's own
-``$ref`` convention, which is why a compiled reference is already shaped
-``{"$ref": "<name>"}`` rather than something this module invents) and a
-further one executes the ``live`` entries against the document a batch alone
-cannot answer for (a relative move, a runtime assertion). Because there is no
-document here, an id resolves to a *name* -- ``{"$ref": name}`` -- never to a
-uid; a literal integer or ``{"uid": n}``/``{"uids": [...]}`` passes straight
-through instead, addressing an object that already exists live, outside this
-program's own namespace.
+four kinds no tool answers yet -- and stops there. ``agent_clay._h_program``
+is what runs the result, folding ``calls`` into one atomic run through the
+same ``_fold_run`` ``clay_batch`` uses (reusing that tool's own ``$ref``
+convention, which is why a compiled reference is already shaped
+``{"$ref": "<name>"}`` rather than something this module invents); a
+``("live", kind, ...)`` placeholder is refused there, by name, the moment
+its turn in the run comes, because none of :data:`LIVE_KINDS` is answerable
+without the live document a batch alone cannot see (a relative move, a
+runtime assertion). Because there is no document here, an id resolves to a
+*name* -- ``{"$ref": name}`` -- never to a uid; a literal integer or
+``{"uid": n}``/``{"uids": [...]}`` passes straight through instead,
+addressing an object that already exists live, outside this program's own
+namespace.
 
 **Expressions** are a tiny numeric mini-language, never Python: a tokenizer,
 a recursive-descent parser (precedence climbing over binary operators) into
@@ -1352,6 +1355,13 @@ def compile_program(program: dict, *, live_names: frozenset[str] = frozenset()) 
 
     if "steps" not in program:
         raise _err("steps is required.", field="steps", path="steps")
+    # The wire schema declares the top-level list ``minItems: 1`` -- checked
+    # here, once, rather than inside `_compile_top`, because that function is
+    # also how a `repeat`/`if` branch's own nested list compiles, and an
+    # empty `if` branch (`body.get(branch_key, [])` when the taken side was
+    # never given) is a legitimate empty list this same walk must accept.
+    if isinstance(program["steps"], list) and not program["steps"]:
+        raise _err("steps must not be empty.", field="steps", path="steps")
 
     compiler = _Compiler(live_names=frozenset(live_names))
     _compile_top(compiler, program["steps"], "steps", scope, nesting=1)

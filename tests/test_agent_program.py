@@ -993,6 +993,26 @@ class TestStructuralRefusals:
         err = compile_err({"steps": [], "bogus": 1})
         assert "unknown top-level keys" in err.reason
 
+    def test_empty_top_level_steps_is_refused(self):
+        """``clay_program``'s wire schema declares ``steps`` ``minItems: 1``;
+        an empty top-level list used to compile to a program with zero calls
+        rather than being refused, so the declared constraint was not
+        actually enforced -- see ``tests/test_agent_schemas.py``'s own
+        exercise walk, which is what a schema/enforcement mismatch like this
+        is built to catch."""
+        err = compile_err({"steps": []})
+        assert err.field == "steps"
+        assert "must not be empty" in err.reason
+
+    def test_an_if_branch_with_no_matching_side_is_an_empty_list_not_a_refusal(self):
+        """The check above is deliberately top-level only: an ``if`` whose
+        taken branch was never given (``body.get(branch_key, [])``) compiles
+        an empty nested steps list, and that must stay legal."""
+        compiled = compile_ok(
+            {"steps": [{"if": {"cond": "0", "then": [{"add": {"generator": "box"}}]}}]}
+        )
+        assert compiled.calls == ()
+
     def test_unknown_generator(self):
         err = compile_err({"steps": [{"add": {"generator": "not-a-generator"}}]})
         assert "unknown generator" in err.reason

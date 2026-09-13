@@ -20,6 +20,21 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**An agent can build a whole assembly in one call with `clay_program`.** A
+program's steps compile to tool calls that run on the frame thread as a single
+undo step labelled "Agent program". A program is all or nothing: if any call
+refuses, everything rolls back, no step is pushed, the prior selection comes
+back, and the result names where it stopped and nests the failing tool's reply.
+A dry run executes and then undoes itself, so the scene and its dirty flag are
+unchanged. With no document open, a dry run only compiles and never opens a
+tab. A program must start in object mode and has a four-second deadline,
+checked between calls, that rolls back and says to split it. A maximal program
+is recorded as an accepted one-shot stall. `clay_batch`'s run loop is now
+shared with it, and `clay_program` can't appear inside a batch. A new
+transcript test walks the program grammar's uid-bearing keys, so object
+schemas the gate couldn't see into are covered. The catalogue grew to about
+52,500 characters, and the Clay-assistant manifest hash still refuses.
+
 **Clay programs have a compiler, though no tool publishes it yet.**
 `studio/agent_program.py` turns a program into a validated list of tool calls.
 A program is variables plus steps: add, figure, mesh, transform, params,

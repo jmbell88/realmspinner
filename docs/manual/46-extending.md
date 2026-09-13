@@ -387,9 +387,12 @@ A refusal now also *reports* that nothing moved. Every one built through `agent_
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
 refusal that never reaches a mutation is `changed: false` for free, and there is nothing to write.
 Only a tool that can genuinely refuse *after* changing something has to think about it, and today
-exactly one can: `clay_batch`, whose own payload computes `changed` from whether the fold it just
+two can: `clay_batch`, whose own payload computes `changed` from whether the fold it just
 closed actually moved the undo history's head, because a batch that stops at its third call has
-already kept the first two. Writing this down is what found the one place that did not follow the
+already kept the first two, and `clay_program`, for the identical reason over a compiled program's
+own call list — except a program is always atomic, so its own rollback already puts `changed` back
+to `false` before the reply is built, rather than leaving a kept prefix the way `clay_batch` can.
+Writing this down is what found the one place that did not follow the
 rule — `clay_boolean` used to set the object selection before checking there were two visible
 objects to work with, so a refused boolean quietly replaced whatever you had selected. The order
 is fixed rather than the flag being made to admit it, which is the point of asking a tool to state
