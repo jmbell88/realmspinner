@@ -3,7 +3,8 @@
 **One thread reads the pipe; only the frame thread ever touches a document,
 GL or imgui.** ``AgentHost`` owns a :class:`~warlock.mcp.pipe.Server` and a
 daemon thread that loops ``accept`` -> a per-connection ``recv_bytes`` ->
-``rpc.decode_request`` -> one of ``hello``/``catalogue``/``call`` ->
+``rpc.decode_request`` -> one of ``hello``/``catalogue``/``call`` (or the
+resource and prompt ops) ->
 ``rpc.encode_reply`` -> ``send_bytes``. A ``call`` op needs a
 ``call(name, arguments)`` step to actually run a tool, and running a tool
 means touching a :class:`~.clay.document.Document` and, for ``clay_render``,
@@ -129,7 +130,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import agent_clay, agent_transcript
+from . import agent_clay, agent_prompts, agent_resources, agent_transcript
 
 log = logging.getLogger(__name__)
 
@@ -763,7 +764,69 @@ class AgentHost:
             if self._served_catalogue_hash is None:
                 self._served_catalogue_hash = self._catalogue_hash()
             return rpc.encode_reply({"hash": self._served_catalogue_hash}, body)
+        if op == "resources":
+            return rpc.encode_reply(
+                {"resources": agent_resources.list_resources(), "templates": []}
+            )
+        if op == "read":
+            uri = message.get("uri")
+            if not isinstance(uri, str) or not uri:
+                return rpc.encode_reply(rpc.bad_request_header())
+            return self._read_resource(session, uri)
+        if op == "prompts":
+            return rpc.encode_reply({"prompts": agent_prompts.list_prompts()})
+        if op == "prompt":
+            name = message.get("name")
+            arguments = message.get("arguments")
+            if arguments is None:
+                arguments = {}
+            if not isinstance(name, str) or not name or not isinstance(arguments, dict):
+                return rpc.encode_reply(rpc.bad_request_header())
+            return self._prompt(name, arguments)
         return rpc.encode_reply(rpc.unknown_op_header())
+
+    def _read_resource(self, session: agent_clay.Session, uri: str) -> bytes:
+        """The ``read`` RPC v1 op. A static resource (conventions,
+        generators, operations) is answered right here, on the listener
+        thread -- :func:`agent_resources.read_static` touches no document
+        and no GL, the same reasoning :data:`STATUS_TOOL` already gets. A
+        dynamic one (the scene, the last render) has to run on the frame
+        thread, through the same job queue as an ordinary tool call, and is
+        given the same :data:`CALL_TIMEOUT` a call gets -- a read that
+        cannot be serviced within it is reported as `not_found` rather than
+        replayed or retried, since a resource read carries no dedup story of
+        its own (see :meth:`_call`'s for why a tool call needs one and a
+        read does not: nothing here mutates the document, so running it
+        again costs nothing a retry would not already cost)."""
+        from ..mcp import rpc
+
+        static = agent_resources.read_static(uri)
+        if static is not None:
+            mime, body = static
+            return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
+        if uri not in agent_resources.DYNAMIC_URIS:
+            return rpc.encode_reply({"error": {"code": "not_found"}})
+        result, error, state = self._run_on_frame(
+            lambda: agent_resources.read_dynamic(self.ctx, session, uri)
+        )
+        if error is not None or state == DROPPED or result is None:
+            return rpc.encode_reply({"error": {"code": "not_found"}})
+        mime, body = result
+        return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
+
+    def _prompt(self, name: str, arguments: dict) -> bytes:
+        """The ``prompt`` RPC v1 op. Rendering a prompt is pure text
+        templating (:mod:`agent_prompts`) -- no document, no GL -- so this
+        answers on the listener thread directly, never queued."""
+        from ..mcp import rpc
+
+        rendered = agent_prompts.render(name, arguments)
+        if rendered is None:
+            return rpc.encode_reply({"error": {"code": "not_found"}})
+        if isinstance(rendered, list):
+            return rpc.encode_reply({"error": {"code": "bad_arguments", "missing": rendered}})
+        description, messages = rendered
+        return rpc.encode_reply({"description": description, "messages": messages})
 
     def _rpc_studio_version(self) -> str:
         return self._version
@@ -781,6 +844,8 @@ class AgentHost:
             instructions=agent_clay.instructions(),
             server_name=rpc.SERVER_NAME,
             server_version=self._version,
+            resources=agent_resources.catalogue_resources(),
+            prompts=agent_prompts.list_prompts(),
         )
 
     def _catalogue_hash(self) -> str:

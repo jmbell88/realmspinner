@@ -100,6 +100,52 @@ class _FakeStudio:
                     self.calls.append((message.get("tool"), message.get("args")))
                     body = json.dumps(self._tool_result, separators=(",", ":")).encode("utf-8")
                     conn.send_bytes(rpc.encode_reply({"hash": self._catalogue()["hash"]}, body))
+                elif op == "resources":
+                    conn.send_bytes(
+                        rpc.encode_reply(
+                            {"resources": self._catalogue()["resources"], "templates": []}
+                        )
+                    )
+                elif op == "read":
+                    uri = message.get("uri")
+                    if uri == "warlock://clay/conventions":
+                        conn.send_bytes(
+                            rpc.encode_reply(
+                                {"uri": uri, "mimeType": "text/markdown"}, b"units are metres"
+                            )
+                        )
+                    else:
+                        conn.send_bytes(rpc.encode_reply({"error": {"code": "not_found"}}))
+                elif op == "prompts":
+                    conn.send_bytes(rpc.encode_reply({"prompts": self._catalogue()["prompts"]}))
+                elif op == "prompt":
+                    name = message.get("name")
+                    arguments = message.get("arguments") or {}
+                    if name != "model_from_description":
+                        conn.send_bytes(rpc.encode_reply({"error": {"code": "not_found"}}))
+                    elif "description" not in arguments:
+                        conn.send_bytes(
+                            rpc.encode_reply(
+                                {"error": {"code": "bad_arguments", "missing": ["description"]}}
+                            )
+                        )
+                    else:
+                        conn.send_bytes(
+                            rpc.encode_reply(
+                                {
+                                    "description": "d",
+                                    "messages": [
+                                        {
+                                            "role": "user",
+                                            "content": {
+                                                "type": "text",
+                                                "text": f"build {arguments['description']}",
+                                            },
+                                        }
+                                    ],
+                                }
+                            )
+                        )
                 else:
                     conn.send_bytes(rpc.encode_reply(rpc.unknown_op_header()))
         except (EOFError, OSError):
@@ -111,6 +157,29 @@ class _FakeStudio:
             instructions="Clay measures in metres.",
             server_name="warlock-studio",
             server_version="9.9.9",
+            resources=[
+                {
+                    "uri": "warlock://clay/conventions",
+                    "name": "clay-conventions",
+                    "mimeType": "text/markdown",
+                    "text": "units are metres",
+                },
+                {
+                    "uri": "warlock://clay/scene",
+                    "name": "clay-scene",
+                    "mimeType": "application/json",
+                },
+            ],
+            prompts=[
+                {
+                    "name": "model_from_description",
+                    "title": "Model from a description",
+                    "description": "d",
+                    "arguments": [
+                        {"name": "description", "description": "d", "required": True}
+                    ],
+                }
+            ],
         )
 
     def start(self) -> None:
@@ -203,5 +272,89 @@ def test_an_oversize_stdin_line_is_refused_and_the_connection_keeps_going(
     replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
     assert replies[0]["error"]["code"] == -32600
     assert replies[1]["result"]["protocolVersion"] in protocol.LEGACY
+
+
+# --- resources and prompts, through a real bridge process against a fake Studio --
+
+
+def test_legacy_client_can_list_and_read_resources_and_prompts(studio, monkeypatch) -> None:
+    """The e2e-shaped claim this tranche's plan calls for: a legacy MCP
+    client listing resources and prompts, and reading one of each, against
+    `bridge.main` -- driven here with a fake Studio speaking RPC v1 directly
+    (see `_FakeStudio`) rather than a real `AgentHost` subprocess, which
+    `test_bridge_e2e.py` covers separately for `tools/call`."""
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "resources/list"}),
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "resources/read",
+                "params": {"uri": "warlock://clay/conventions"},
+            }
+        ),
+        json.dumps({"jsonrpc": "2.0", "id": 4, "method": "prompts/list"}),
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "prompts/get",
+                "params": {
+                    "name": "model_from_description",
+                    "arguments": {"description": "a red barrel"},
+                },
+            }
+        ),
+    ]
+    stdin_bytes = ("\n".join(lines) + "\n").encode("utf-8")
+    stdout = _patch_stdio(monkeypatch, stdin_bytes)
+
+    assert bridge.main([]) == 0
+
+    replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
+    assert {r["uri"] for r in replies[1]["result"]["resources"]} == {
+        "warlock://clay/conventions",
+        "warlock://clay/scene",
+    }
+    assert replies[2]["result"]["contents"][0]["text"] == "units are metres"
+    assert {p["name"] for p in replies[3]["result"]["prompts"]} == {"model_from_description"}
+    assert replies[4]["result"]["messages"][0]["content"]["text"] == "build a red barrel"
+
+
+def test_resources_read_not_found_is_minus_32002_on_legacy(studio, monkeypatch) -> None:
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "resources/read",
+                "params": {"uri": "warlock://nonsense"},
+            }
+        ),
+    ]
+    stdout = _patch_stdio(monkeypatch, ("\n".join(lines) + "\n").encode("utf-8"))
+    assert bridge.main([]) == 0
+    replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
+    assert replies[1]["error"]["code"] == -32002
+
+
+def test_prompts_get_missing_argument_is_minus_32602_on_legacy(studio, monkeypatch) -> None:
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {"name": "model_from_description", "arguments": {}},
+            }
+        ),
+    ]
+    stdout = _patch_stdio(monkeypatch, ("\n".join(lines) + "\n").encode("utf-8"))
+    assert bridge.main([]) == 0
+    replies = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
+    assert replies[1]["error"]["code"] == -32602
 
 

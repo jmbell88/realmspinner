@@ -139,4 +139,31 @@ def test_catalogue_payload_hash_changes_when_tools_change() -> None:
 
 def test_catalogue_payload_key_order() -> None:
     payload = rpc.catalogue_payload([], instructions=None, server_name="s", server_version="1")
-    assert list(payload.keys()) == ["hash", "tools", "instructions", "server"]
+    assert list(payload.keys()) == [
+        "hash",
+        "tools",
+        "instructions",
+        "server",
+        "resources",
+        "prompts",
+    ]
+
+
+def test_catalogue_payload_resources_and_prompts_default_to_empty_lists() -> None:
+    payload = rpc.catalogue_payload([], instructions=None, server_name="s", server_version="1")
+    assert payload["resources"] == []
+    assert payload["prompts"] == []
+
+
+def test_catalogue_payload_hash_changes_when_resources_or_prompts_change() -> None:
+    base = rpc.catalogue_payload([], instructions="hi", server_name="s", server_version="1")
+    with_resources = rpc.catalogue_payload(
+        [], instructions="hi", server_name="s", server_version="1",
+        resources=[{"uri": "warlock://x"}],
+    )
+    with_prompts = rpc.catalogue_payload(
+        [], instructions="hi", server_name="s", server_version="1",
+        prompts=[{"name": "p"}],
+    )
+    assert base["hash"] != with_resources["hash"]
+    assert base["hash"] != with_prompts["hash"]

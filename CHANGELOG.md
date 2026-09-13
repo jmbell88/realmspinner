@@ -20,6 +20,22 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**An agent can read Clay's scene, last render and registries as MCP
+resources, and start from four prompts.** Resources:
+`warlock://clay/scene`, `warlock://clay/render/last`,
+`warlock://clay/conventions` (the instructions text, for a 2026-07-28 client
+that skips `server/discover`), `warlock://clay/generators` and
+`warlock://clay/operations`. The last two are derived from the generator and
+operation registries with their parameter metadata, never hand-listed. The
+two per-session reads go through the frame queue like a tool call, carry
+`cacheScope: "private"` and `ttlMs: 0`, and keep only the session's latest
+render in memory. The static three ride in `mcp.catalogue.json`, so they
+answer with the app closed. Prompts: `model_from_description`,
+`model_from_reference`, `repair_mesh` and `prepare_for_export`; a test proves
+every tool name their text mentions exists. A missing resource is -32002 to
+an `initialize` client and -32602 to a 2026-07-28 one. The Clay-assistant
+dataset is not regenerated for the larger catalogue.
+
 **The app no longer speaks MCP at all; `warlock mcp` is the only MCP
 server.** Once a real Claude Code client had passed all four live checks
 through the new bridge (the tool list, a render, starting before the app, and

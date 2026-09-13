@@ -200,10 +200,13 @@ def splice_tool_result(msg_id: Any, body: bytes, *, meta: dict[str, Any] | None 
 def discover_result(
     *, instructions: str | None, server_name: str, server_version: str
 ) -> dict[str, Any]:
-    """The `server/discover` result object, modern era."""
+    """The `server/discover` result object, modern era. `capabilities`
+    advertises `resources` and `prompts` alongside `tools` -- both empty
+    objects, the same "this exists, nothing further to negotiate" shape
+    `tools` already used."""
     result: dict[str, Any] = {
         "supportedVersions": list(LEGACY) + list(MODERN),
-        "capabilities": {"tools": {}},
+        "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
         "ttlMs": 60000,
         "cacheScope": "public",
         "resultType": "complete",
@@ -226,12 +229,167 @@ def _legacy_initialize(
     version = requested if requested in LEGACY else LEGACY[0]
     result: dict[str, Any] = {
         "protocolVersion": version,
-        "capabilities": {"tools": {"listChanged": True}},
+        "capabilities": {
+            "tools": {"listChanged": True},
+            "resources": {"listChanged": False},
+            "prompts": {"listChanged": False},
+        },
         "serverInfo": {"name": server_name, "version": server_version},
     }
     if instructions:
         result["instructions"] = instructions
     return version, _result_bytes(msg_id, result)
+
+
+_NOT_HANDLED = object()
+"""Sentinel :func:`_resource_prompt_method` returns for any method that is
+not one of the five resources/prompts methods -- distinct from `None`,
+which that function also returns legitimately (a notification with no id
+gets no reply)."""
+
+
+def _strip_inline_content(resources: list[Any]) -> list[dict[str, Any]]:
+    """*resources*, each with its `text`/`blob` key (if any) removed.
+
+    A `resources/list` result is metadata only (`uri`, `name`, `title`,
+    `description`, `mimeType`) -- the catalogue's own resource entries carry
+    an inline `text` for the three static Clay resources too, so a bridge
+    dialled while Studio is unreachable can still answer `resources/read`
+    for them from the snapshot (see `studio/agent_resources.py`), but that
+    inline copy has no business riding along on a mere listing."""
+    return [{k: v for k, v in r.items() if k not in ("text", "blob")} for r in resources]
+
+
+def _resource_prompt_method(
+    method: str,
+    msg_id: Any,
+    has_id: bool,
+    params: dict[str, Any],
+    *,
+    modern: bool,
+    catalogue: dict[str, Any],
+    read_resource: Callable[[str], dict[str, Any] | None] | None,
+    get_prompt: Callable[[str, dict[str, Any]], Any] | None,
+    server_info_meta: dict[str, Any] | None,
+) -> bytes | None:
+    """The five MCP resources/prompts methods, shared between the legacy and
+    modern branches of :func:`_dispatch_one` -- the two eras differ only in
+    whether a success result carries `ttlMs`/`cacheScope`/`resultType`/
+    `_meta` (*modern*) or not, and in the not-found error code (`-32002`
+    legacy, `-32602` modern, per the MCP spec's own per-era numbering).
+
+    *read_resource* answers one `resources/read`: `None` for "no such
+    resource", or `{"contents": [...], "ttlMs": ..., "cacheScope": ...}`.
+    *get_prompt* answers one `prompts/get`: `None` for "no such prompt", a
+    `list[str]` of missing required argument names, or `{"description":
+    ..., "messages": [...]}`. Both are `None` (rather than a callable) when
+    the caller has nothing to reach Studio with -- see `bridge.py`'s own
+    `_Session` for what it passes when the app is down and only the
+    catalogue snapshot is available.
+
+    Returns :data:`_NOT_HANDLED` for any other method, so a caller can fall
+    through to its own "unknown method" refusal."""
+    if method == "resources/list":
+        if not has_id:
+            return None
+        result: dict[str, Any] = {
+            "resources": _strip_inline_content(catalogue.get("resources", []))
+        }
+        if modern:
+            result.update(
+                ttlMs=60000, cacheScope="public", resultType="complete", _meta=server_info_meta
+            )
+        return _result_bytes(msg_id, result)
+
+    if method == "resources/templates/list":
+        if not has_id:
+            return None
+        result = {"templates": []}
+        if modern:
+            result.update(
+                ttlMs=60000, cacheScope="public", resultType="complete", _meta=server_info_meta
+            )
+        return _result_bytes(msg_id, result)
+
+    if method == "resources/read":
+        uri = params.get("uri")
+        if not isinstance(uri, str) or not uri:
+            return (
+                _error_bytes(msg_id, -32602, "resources/read needs a string 'uri'")
+                if has_id
+                else None
+            )
+        if read_resource is None:
+            return _error_bytes(msg_id, -32601, f"unknown method: {method}") if has_id else None
+        found = read_resource(uri)
+        if found is None:
+            code = -32602 if modern else -32002
+            return (
+                _error_bytes(msg_id, code, "resource not found", data={"uri": uri})
+                if has_id
+                else None
+            )
+        if not has_id:
+            return None
+        result = {"contents": found.get("contents", [])}
+        if modern:
+            result.update(
+                ttlMs=found.get("ttlMs", 0),
+                cacheScope=found.get("cacheScope", "private"),
+                resultType="complete",
+                _meta=server_info_meta,
+            )
+        return _result_bytes(msg_id, result)
+
+    if method == "prompts/list":
+        if not has_id:
+            return None
+        result = {"prompts": catalogue.get("prompts", [])}
+        if modern:
+            result.update(
+                ttlMs=60000, cacheScope="public", resultType="complete", _meta=server_info_meta
+            )
+        return _result_bytes(msg_id, result)
+
+    if method == "prompts/get":
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            return (
+                _error_bytes(msg_id, -32602, "prompts/get needs a string 'name'")
+                if has_id
+                else None
+            )
+        arguments = params.get("arguments", {})
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return (
+                _error_bytes(msg_id, -32602, "'arguments' must be an object") if has_id else None
+            )
+        if get_prompt is None:
+            return _error_bytes(msg_id, -32601, f"unknown method: {method}") if has_id else None
+        found = get_prompt(name, arguments)
+        if found is None:
+            code = -32602 if modern else -32002
+            return (
+                _error_bytes(msg_id, code, "prompt not found", data={"name": name})
+                if has_id
+                else None
+            )
+        if isinstance(found, list):
+            return (
+                _error_bytes(msg_id, -32602, "missing required arguments", data={"missing": found})
+                if has_id
+                else None
+            )
+        if not has_id:
+            return None
+        result = {"description": found.get("description"), "messages": found.get("messages", [])}
+        if modern:
+            result["_meta"] = server_info_meta
+        return _result_bytes(msg_id, result)
+
+    return _NOT_HANDLED  # type: ignore[return-value]
 
 
 def _dispatch_one(
@@ -240,6 +398,8 @@ def _dispatch_one(
     *,
     catalogue: dict[str, Any],
     call_tool: Callable[[str, dict[str, Any]], bytes],
+    read_resource: Callable[[str], dict[str, Any] | None] | None = None,
+    get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
 ) -> bytes | None:
     """One JSON-RPC request or notification, either era. `None` means "this
     was a notification -- say nothing", the same convention `dispatch`
@@ -308,6 +468,19 @@ def _dispatch_one(
             return _result_bytes(msg_id, {"tools": catalogue.get("tools", [])})
         if method == "tools/call":
             return _dispatch_tools_call(msg_id, params, call_tool=call_tool, meta=None)
+        handled = _resource_prompt_method(
+            method,
+            msg_id,
+            has_id,
+            params,
+            modern=False,
+            catalogue=catalogue,
+            read_resource=read_resource,
+            get_prompt=get_prompt,
+            server_info_meta=None,
+        )
+        if handled is not _NOT_HANDLED:
+            return handled
         return _error_bytes(msg_id, -32601, f"unknown method: {method}")
 
     # modern
@@ -333,6 +506,19 @@ def _dispatch_one(
     if method == "tools/call":
         splice_prefix = {"resultType": "complete", "_meta": server_info_meta}
         return _dispatch_tools_call(msg_id, params, call_tool=call_tool, meta=splice_prefix)
+    handled = _resource_prompt_method(
+        method,
+        msg_id,
+        has_id,
+        params,
+        modern=True,
+        catalogue=catalogue,
+        read_resource=read_resource,
+        get_prompt=get_prompt,
+        server_info_meta=server_info_meta,
+    )
+    if handled is not _NOT_HANDLED:
+        return handled
     return _error_bytes(msg_id, -32601, f"unknown method: {method}")
 
 
@@ -368,6 +554,8 @@ def bridge_dispatch(
     *,
     catalogue: dict[str, Any],
     call_tool: Callable[[str, dict[str, Any]], bytes],
+    read_resource: Callable[[str], dict[str, Any] | None] | None = None,
+    get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
 ) -> bytes | None:
     """One line of stdin, from an MCP client, answered as one line of
     stdout (or `None` for "nothing to send": an all-notification batch, or a
@@ -398,7 +586,15 @@ def bridge_dispatch(
         if not parsed:
             return _error_bytes(None, -32600, "empty batch") + b"\n"
         fragments = [
-            _dispatch_one(item, state, catalogue=catalogue, call_tool=call_tool) for item in parsed
+            _dispatch_one(
+                item,
+                state,
+                catalogue=catalogue,
+                call_tool=call_tool,
+                read_resource=read_resource,
+                get_prompt=get_prompt,
+            )
+            for item in parsed
         ]
         fragments = [f for f in fragments if f is not None]
         if not fragments:
@@ -408,5 +604,12 @@ def bridge_dispatch(
     if not isinstance(parsed, dict):
         return _error_bytes(None, -32600, "invalid request: expected a JSON object") + b"\n"
 
-    reply = _dispatch_one(parsed, state, catalogue=catalogue, call_tool=call_tool)
+    reply = _dispatch_one(
+        parsed,
+        state,
+        catalogue=catalogue,
+        call_tool=call_tool,
+        read_resource=read_resource,
+        get_prompt=get_prompt,
+    )
     return None if reply is None else reply + b"\n"

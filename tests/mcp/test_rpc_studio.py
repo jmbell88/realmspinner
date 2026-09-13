@@ -12,6 +12,7 @@ hand with ``rpc.encode_request``/``rpc.split_reply`` rather than through
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import threading
@@ -335,3 +336,349 @@ def test_fingerprint_is_byte_identical_to_the_old_implementation() -> None:
     ]
     for tool, args in samples:
         assert agent_host._fingerprint(tool, args) == _old_fingerprint(tool, args)
+
+
+# --- resources and prompts, RPC v1 -------------------------------------------
+
+
+def test_resources_op_lists_every_resource_uri(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("resources"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            uris = {r["uri"] for r in header["resources"]}
+            assert uris == {
+                "warlock://clay/scene",
+                "warlock://clay/render/last",
+                "warlock://clay/conventions",
+                "warlock://clay/generators",
+                "warlock://clay/operations",
+            }
+            assert header["templates"] == []
+            # A listing is metadata only -- the static resources' inline
+            # content must not ride along on it.
+            for row in header["resources"]:
+                assert "text" not in row
+                assert "blob" not in row
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_every_listed_resource_uri_is_readable(tmp_path) -> None:
+    """Every URI ``resources`` lists is readable, except the last-render
+    resource before any render has happened -- proven ``not_found`` on its
+    own, below."""
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("resources"))
+            listed, _ = rpc.split_reply(_recv(conn))
+            uris = [
+                r["uri"]
+                for r in listed["resources"]
+                if r["uri"] != "warlock://clay/render/last"
+            ]
+            for uri in uris:
+                conn.send_bytes(rpc.encode_request("read", uri=uri))
+                header, body = rpc.split_reply(_recv(conn))
+                assert "error" not in header, (uri, header)
+                assert header["uri"] == uri
+                assert header["mimeType"]
+                assert isinstance(body, bytes)
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_reading_an_unknown_uri_is_not_found(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://nonsense"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert header["error"]["code"] == "not_found"
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_reading_the_last_render_before_any_render_is_not_found(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/render/last"))
+            header, _body = rpc.split_reply(_recv(conn))
+            assert header["error"]["code"] == "not_found"
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_reading_the_scene_of_a_freshly_connected_session_matches_clay_scene(tmp_path) -> None:
+    """A tab is opened for a session the moment it connects (see
+    ``agent_host._serve``'s own module docstring), so an empty document --
+    not ``not_found`` -- is what a fresh connection's scene resource reads
+    as, the same as calling ``clay_scene`` itself would answer."""
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/scene"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert "error" not in header
+            scene = json.loads(body.decode("utf-8"))
+            assert scene["object_count"] == 0
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+class _FakeView:
+    """A ``ClayView`` stand-in that returns a real tiny PNG without touching
+    GL -- the same shape ``tests/test_agent_clay.py::_FakeView`` uses, kept
+    separate here since this module drives a real ``AgentHost`` from a
+    background thread rather than calling ``agent_clay.call`` directly."""
+
+    def __init__(self, png: bytes) -> None:
+        self.png = png
+
+    def render_png(self, doc, *, size, view=None, angles=None, bounds=None, grid=False, frame=True):
+        del doc, size, view, angles, bounds, grid, frame
+        return self.png
+
+
+def _tiny_png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    im = Image.new("RGB", (4, 4), "white")
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_last_render_after_a_clay_render_call_returns_the_same_png_bytes(
+    tmp_path, monkeypatch
+) -> None:
+    png = _tiny_png()
+    monkeypatch.setattr(agent_clay, "_view_for", lambda ctx: _FakeView(png))
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(
+                rpc.encode_request("call", tool="clay_add_primitive", args={"generator": "box"})
+            )
+            rpc.split_reply(_recv(conn))
+
+            conn.send_bytes(rpc.encode_request("call", tool="clay_render", args={"size": 64}))
+            _call_header, call_body = rpc.split_reply(_recv(conn))
+            call_result = json.loads(call_body.decode("utf-8"))
+            image_block = next(b for b in call_result["content"] if b["type"] == "image")
+            rendered_png = base64.b64decode(image_block["data"])
+
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/render/last"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert "error" not in header
+            assert header["mimeType"] == "image/png"
+            assert body == rendered_png
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_scene_resource_matches_the_clay_scene_tool_after_adding_a_primitive(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(
+                rpc.encode_request("call", tool="clay_add_primitive", args={"generator": "box"})
+            )
+            rpc.split_reply(_recv(conn))
+
+            conn.send_bytes(rpc.encode_request("call", tool="clay_scene", args={}))
+            _call_header, call_body = rpc.split_reply(_recv(conn))
+            tool_result = json.loads(call_body.decode("utf-8"))["structuredContent"]
+
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/scene"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert header["mimeType"] == "application/json"
+            assert json.loads(body.decode("utf-8")) == tool_result
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_generators_and_operations_resources_derive_from_the_live_registries(tmp_path) -> None:
+    from warlock.studio import clay_ops
+    from warlock.studio.clay import primitives as bp
+
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/generators"))
+            _header, body = rpc.split_reply(_recv(conn))
+            generators = json.loads(body.decode("utf-8"))
+            assert set(generators) == set(bp.GENERATORS)
+            for name, (defaults, _fn) in bp.GENERATORS.items():
+                assert set(generators[name]["params"]) == set(defaults)
+
+            conn.send_bytes(rpc.encode_request("read", uri="warlock://clay/operations"))
+            _header, body = rpc.split_reply(_recv(conn))
+            operations = json.loads(body.decode("utf-8"))
+            assert set(operations) == {op.name for op in clay_ops.OPS}
+            for op in clay_ops.OPS:
+                param_names = {p["name"] for p in operations[op.name]["params"]}
+                assert param_names == {p.name for p in op.params}
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_prompts_op_lists_every_prompt_name(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("prompts"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            names = {p["name"] for p in header["prompts"]}
+            assert names == {
+                "model_from_description",
+                "model_from_reference",
+                "repair_mesh",
+                "prepare_for_export",
+            }
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_prompt_missing_required_argument_is_bad_arguments(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(
+                rpc.encode_request("prompt", name="model_from_description", arguments={})
+            )
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert header["error"]["code"] == "bad_arguments"
+            assert header["error"]["missing"] == ["description"]
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_unknown_prompt_name_is_not_found(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("prompt", name="nonsense", arguments={}))
+            header, _body = rpc.split_reply(_recv(conn))
+            assert header["error"]["code"] == "not_found"
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_rendered_prompt_carries_description_and_a_text_message(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(
+                rpc.encode_request(
+                    "prompt",
+                    name="model_from_description",
+                    arguments={"description": "a small red barrel"},
+                )
+            )
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert isinstance(header["description"], str) and header["description"]
+            assert header["messages"][0]["role"] == "user"
+            text = header["messages"][0]["content"]["text"]
+            assert "a small red barrel" in text
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_every_tool_name_a_prompt_mentions_is_a_real_tool(tmp_path) -> None:
+    """Test names are claims: this one scans every prompt's *rendered* text
+    for clay_*/warlock_* tokens and checks each is a real tool, so a rename
+    that forgets to update a prompt's prose fails here rather than shipping
+    a prompt that quietly points an agent at a tool that no longer exists."""
+    import re
+
+    from warlock.studio import agent_clay
+    from warlock.studio import agent_host as ah
+
+    real_tools = {t.name for t in agent_clay.tools()} | {ah.STATUS_TOOL}
+
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("prompts"))
+            listed, _ = rpc.split_reply(_recv(conn))
+            for prompt in listed["prompts"]:
+                arguments = {a["name"]: f"<{a['name']}>" for a in prompt["arguments"]}
+                conn.send_bytes(
+                    rpc.encode_request("prompt", name=prompt["name"], arguments=arguments)
+                )
+                header, _body = rpc.split_reply(_recv(conn))
+                assert "error" not in header, (prompt["name"], header)
+                text = header["messages"][0]["content"]["text"]
+                mentioned = set(re.findall(r"\bclay_\w+|\bwarlock_\w+", text))
+                unknown = mentioned - real_tools
+                assert not unknown, (prompt["name"], unknown)
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)
+
+
+def test_catalogue_op_includes_resources_and_prompts(tmp_path) -> None:
+    host, stop_pumping, pumper = _started_host(tmp_path)
+    try:
+        conn = pipe.connect(tmp_path)
+        try:
+            conn.send_bytes(rpc.encode_request("catalogue"))
+            header, _body = rpc.split_reply(_recv(conn))
+            assert {r["uri"] for r in header["resources"]} >= {
+                "warlock://clay/scene",
+                "warlock://clay/conventions",
+            }
+            assert {p["name"] for p in header["prompts"]} >= {"model_from_description"}
+        finally:
+            conn.close()
+    finally:
+        _stop(host, stop_pumping, pumper)

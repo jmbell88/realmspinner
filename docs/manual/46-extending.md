@@ -431,6 +431,51 @@ than copying it out again, the way `clay_add_mesh`'s own schema is the shared ob
 `clay_add_primitive` already declares, plus the two keys only it answers with. Otherwise leave it
 off, the same as every other tool in this file already does.
 
+### Resources and prompts
+
+Tools are not the only thing the bridge answers over MCP. Five **resources** — documents a client
+can fetch without spending a tool call — and four **prompts** — pre-written starting points a client
+can ask for by name, with arguments filled in — ride the same private RPC v1 pipe, in
+`studio/agent_resources.py` and `studio/agent_prompts.py`.
+
+The five resources:
+
+| URI | Content | Answered where |
+| --- | --- | --- |
+| `warlock://clay/scene` | This session's document, the same JSON `clay_scene` returns | Frame thread |
+| `warlock://clay/render/last` | The most recent picture this session's `clay_render` produced | Frame thread |
+| `warlock://clay/conventions` | `agent_clay.instructions()`'s own prose | Listener thread |
+| `warlock://clay/generators` | Every primitive `clay_add_primitive` can build, and its defaults | Listener thread |
+| `warlock://clay/operations` | Every op `clay_op` can run, its modes and its parameters | Listener thread |
+
+The first two touch this session's document, so they run through the same frame-thread job queue
+every `clay_*` tool call already does — a resource read is not exempt from the one-thread-touches-
+the-document rule just because it looks like a read rather than a call. The last three are pure
+functions of a registry that already exists for a human surface (`primitives.GENERATORS`,
+`clay_ops.OPS`, `agent_clay.instructions()`) and touch no document at all, so they answer on the
+listener thread directly — the same exemption `warlock_status` already has, for the same reason.
+
+The four prompts — `model_from_description`, `model_from_reference`, `repair_mesh`,
+`prepare_for_export` — are pure text templating: a prompt's rendered message is a string built from
+its arguments, naming real tools by their real names. Nothing here touches a document either, so a
+prompt is also answered on the listener thread.
+
+**Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
+generators and operations resources are built by walking `primitives.GENERATORS` and `clay_ops.OPS`
+the same way `agent_clay`'s own prose already does for its instructions text — a thirteenth
+primitive or a new op needs no edit here either. A prompt's own prose names tools by constants at
+the top of `agent_prompts.py` rather than by retyping the string in several places, but the
+regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of every prompt's
+*rendered* text for `clay_\w+`/`warlock_\w+` tokens against the real tool list — a prompt that
+quietly went stale after a rename fails there, not merely a reviewer's eye.
+
+Both are served from the RPC v1 catalogue too (`AgentHost._catalogue_payload`, and therefore the
+home directory's own `mcp.catalogue.json`), the three static resources with their own content embedded inline —
+which is what lets `warlock mcp` still answer `resources/list`/`resources/read` for them, and
+`prompts/list` for every prompt, with the app not even running. `resources/read` for the two dynamic
+resources, and `prompts/get` for any prompt's actual rendering, still need Studio reachable — there
+is no document, and no prompt text at all, in the bridge's own leaf to fall back to.
+
 ## Adding a mode
 
 A mode is a rung on the rail and a workspace behind it, and adding one is a sweep rather than a

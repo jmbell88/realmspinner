@@ -538,6 +538,14 @@ class Session:
     the module docstring's references paragraph for why never on the
     document."""
 
+    last_render_png: bytes | None = field(default=None, repr=False)
+    """The most recent PNG this session's ``clay_render`` produced -- read
+    by ``agent_resources.read_dynamic`` for the ``warlock://clay/render/last``
+    resource, ``None`` until the first render. Holds at most one picture,
+    overwritten by the next render, never a history -- bounded the same way
+    ``references`` is bounded by being session-scoped rather than kept
+    forever."""
+
 
 # The private viewport :func:`_view_for` builds -- module-level rather than
 # per-session because a second concurrent session cannot exist yet (see
@@ -4075,6 +4083,7 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
 
         with Image.open(io.BytesIO(sheet)) as im:
             width, height = im.width, im.height
+        session.last_render_png = sheet
         return ok(
             text(
                 json.dumps(
@@ -4099,6 +4108,7 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             "for fewer or smaller views."
         )
 
+    session.last_render_png = pngs[0]
     header = text(json.dumps({"views": [label for label, _ in parsed], "size": size, "grid": grid}))
     # Deliberately not `_json` -- an image block has no JSON to duplicate,
     # and this header is already checked twice against `protocol.MAX_FRAME`

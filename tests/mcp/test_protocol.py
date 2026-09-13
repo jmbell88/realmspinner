@@ -134,9 +134,18 @@ def _ok_call_tool(name, args):
     return json.dumps(p.ok(p.text(f"ran {name}"))).encode("utf-8")
 
 
-def _dispatch(payload, state, catalogue=None, call_tool=_ok_call_tool):
+def _dispatch(
+    payload, state, catalogue=None, call_tool=_ok_call_tool, read_resource=None, get_prompt=None
+):
     raw = json.dumps(payload).encode("utf-8")
-    reply = p.bridge_dispatch(raw, state, catalogue=catalogue or _catalogue(), call_tool=call_tool)
+    reply = p.bridge_dispatch(
+        raw,
+        state,
+        catalogue=catalogue or _catalogue(),
+        call_tool=call_tool,
+        read_resource=read_resource,
+        get_prompt=get_prompt,
+    )
     if reply is None:
         return None
     assert reply.endswith(b"\n")
@@ -280,7 +289,7 @@ def test_server_discover_shape() -> None:
     reply = _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
     result = reply["result"]
     assert set(p.LEGACY) | set(p.MODERN) <= set(result["supportedVersions"])
-    assert result["capabilities"] == {"tools": {}}
+    assert result["capabilities"] == {"tools": {}, "resources": {}, "prompts": {}}
     assert result["ttlMs"] == 60000
     assert result["cacheScope"] == "public"
     assert result["resultType"] == "complete"
@@ -488,3 +497,248 @@ def test_unknown_tool_call_args_still_get_the_usual_minus_32602s() -> None:
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {}}, state
     )
     assert reply["error"]["code"] == -32602
+
+
+# =============================================================================
+# resources/prompts -- both eras.
+# =============================================================================
+
+
+def _catalogue_with_resources_and_prompts():
+    return _catalogue(
+        resources=[
+            {
+                "uri": "warlock://clay/conventions",
+                "name": "clay-conventions",
+                "mimeType": "text/markdown",
+                "text": "units are metres",
+            },
+            {"uri": "warlock://clay/scene", "name": "clay-scene", "mimeType": "application/json"},
+        ],
+        prompts=[
+            {
+                "name": "model_from_description",
+                "title": "Model from a description",
+                "description": "d",
+                "arguments": [{"name": "description", "description": "d", "required": True}],
+            }
+        ],
+    )
+
+
+def _ok_read_resource(uri):
+    if uri == "warlock://clay/scene":
+        return {"contents": [{"uri": uri, "mimeType": "application/json", "text": "{}"}]}
+    return None
+
+
+def _ok_get_prompt(name, arguments):
+    if name != "model_from_description":
+        return None
+    if "description" not in arguments:
+        return ["description"]
+    return {
+        "description": "d",
+        "messages": [{"role": "user", "content": {"type": "text", "text": "hi"}}],
+    }
+
+
+def test_legacy_resources_list_strips_inline_content() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "resources/list"},
+        state,
+        catalogue=_catalogue_with_resources_and_prompts(),
+    )
+    resources = reply["result"]["resources"]
+    assert {r["uri"] for r in resources} == {"warlock://clay/conventions", "warlock://clay/scene"}
+    for r in resources:
+        assert "text" not in r
+    assert "ttlMs" not in reply["result"]
+
+
+def test_legacy_resources_templates_list_is_empty() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch({"jsonrpc": "2.0", "id": 2, "method": "resources/templates/list"}, state)
+    assert reply["result"]["templates"] == []
+
+
+def test_legacy_resources_read_ok() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "warlock://clay/scene"},
+        },
+        state,
+        read_resource=_ok_read_resource,
+    )
+    assert reply["result"]["contents"][0]["uri"] == "warlock://clay/scene"
+    assert "ttlMs" not in reply["result"]
+
+
+def test_legacy_resources_read_not_found_is_minus_32002_with_uri() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "warlock://nonsense"},
+        },
+        state,
+        read_resource=_ok_read_resource,
+    )
+    assert reply["error"]["code"] == -32002
+    assert reply["error"]["data"] == {"uri": "warlock://nonsense"}
+
+
+def test_legacy_prompts_list() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "prompts/list"},
+        state,
+        catalogue=_catalogue_with_resources_and_prompts(),
+    )
+    assert {pr["name"] for pr in reply["result"]["prompts"]} == {"model_from_description"}
+
+
+def test_legacy_prompts_get_missing_required_argument_is_minus_32602() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "prompts/get",
+            "params": {"name": "model_from_description", "arguments": {}},
+        },
+        state,
+        get_prompt=_ok_get_prompt,
+    )
+    assert reply["error"]["code"] == -32602
+    assert reply["error"]["data"] == {"missing": ["description"]}
+
+
+def test_legacy_prompts_get_unknown_name_is_minus_32002() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "prompts/get", "params": {"name": "nope"}},
+        state,
+        get_prompt=_ok_get_prompt,
+    )
+    assert reply["error"]["code"] == -32002
+
+
+def test_legacy_prompts_get_ok() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "prompts/get",
+            "params": {
+                "name": "model_from_description",
+                "arguments": {"description": "a barrel"},
+            },
+        },
+        state,
+        get_prompt=_ok_get_prompt,
+    )
+    assert reply["result"]["description"] == "d"
+    assert reply["result"]["messages"][0]["content"]["text"] == "hi"
+
+
+def test_modern_resources_list_carries_cache_hints() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    reply = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": _modern_meta()},
+        state,
+        catalogue=_catalogue_with_resources_and_prompts(),
+    )
+    result = reply["result"]
+    assert result["ttlMs"] == 60000
+    assert result["cacheScope"] == "public"
+    assert result["resultType"] == "complete"
+
+
+def test_modern_resources_read_not_found_is_minus_32602() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "warlock://nonsense", **_modern_meta()},
+        },
+        state,
+        read_resource=_ok_read_resource,
+    )
+    assert reply["error"]["code"] == -32602
+    assert reply["error"]["data"] == {"uri": "warlock://nonsense"}
+
+
+def test_modern_prompts_get_missing_required_argument_is_minus_32602() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "prompts/get",
+            "params": {"name": "model_from_description", "arguments": {}, **_modern_meta()},
+        },
+        state,
+        get_prompt=_ok_get_prompt,
+    )
+    assert reply["error"]["code"] == -32602
+
+
+def test_modern_prompts_get_ok_carries_meta() -> None:
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "prompts/get",
+            "params": {
+                "name": "model_from_description",
+                "arguments": {"description": "a barrel"},
+                **_modern_meta(),
+            },
+        },
+        state,
+        get_prompt=_ok_get_prompt,
+    )
+    assert reply["result"]["_meta"]["serverInfo"] == {"name": "warlock-studio", "version": "1.2.3"}
+
+
+def test_no_read_resource_or_get_prompt_configured_is_unknown_method() -> None:
+    """A caller that never wired resources/prompts up at all (neither
+    callback given) gets the ordinary unknown-method refusal, not a crash --
+    this is what every pre-existing `_dispatch(...)` call in this file above
+    was already relying on."""
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "resources/read",
+            "params": {"uri": "warlock://clay/scene"},
+        },
+        state,
+    )
+    assert reply["error"]["code"] == -32601

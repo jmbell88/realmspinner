@@ -25,8 +25,25 @@ as JSON text) and this module never touches its contents.
   nothing else; otherwise it is `{"rpc": 1, "studio_version": ...,
   "catalogue_hash": ..., "call_timeout": ...}`. No body.
 * `catalogue` -- reply header is `{"hash": ..., "tools": [...], "instructions":
-  ..., "server": {"name": ..., "version": ...}}`, in that key order, built by
-  :func:`catalogue_payload`. No body.
+  ..., "server": {"name": ..., "version": ...}, "resources": [...],
+  "prompts": [...]}`, in that key order, built by :func:`catalogue_payload`.
+  `resources` and `prompts` are the same lists :func:`bridge_dispatch`
+  serves for `resources/list`/`prompts/list` -- see that module's own docs.
+  No body.
+* `resources` -- reply header is `{"resources": [...], "templates": []}`,
+  the exact shape `resources/list`/`resources/templates/list` need on the
+  wire. No body.
+* `read` -- request carries `uri`. Reply header is `{"uri": ..., "mimeType":
+  ...}` and the body is the resource's own bytes (UTF-8 text for a text/JSON
+  resource, raw bytes -- e.g. a PNG -- otherwise; the bridge base64-encodes
+  a non-text body into a `blob`, never a `text`), or, when nothing answers to
+  that uri, `{"error": {"code": "not_found"}}` with no body.
+* `prompts` -- reply header is `{"prompts": [...]}`. No body.
+* `prompt` -- request carries `name` and `arguments`. Reply header is
+  `{"description": ..., "messages": [...]}`, or `{"error": {"code":
+  "not_found"}}` for an unknown name, or `{"error": {"code":
+  "bad_arguments", "missing": [...]}}` for a known prompt missing a required
+  argument. No body.
 * `call` -- request carries `tool` and `args`. Reply header is `{"hash": ...}`
   and the body is the raw result JSON, byte-for-byte what `tools/call` would
   have put in its JSON-RPC `result` field on the MCP path -- the same object,
@@ -246,20 +263,39 @@ def catalogue_payload(
     instructions: str | None,
     server_name: str,
     server_version: str,
+    resources: Any = None,
+    prompts: Any = None,
 ) -> dict[str, Any]:
     """The `catalogue` reply header, in deterministic key order: `hash`,
-    `tools`, `instructions`, `server`. The hash covers exactly the tool list
-    (as the JSON dicts `tool_dict` builds) plus `instructions` -- the two
-    things a client actually needs to know changed -- not `server`, which
-    changes every release regardless of whether a single tool moved."""
+    `tools`, `instructions`, `server`, `resources`, `prompts`. The hash
+    covers the tool list (as the JSON dicts `tool_dict` builds), plus
+    `instructions`, `resources` and `prompts` -- everything a client
+    actually needs to know changed -- not `server`, which changes every
+    release regardless of whether a single tool moved.
+
+    *resources* and *prompts* default to an empty list each so every
+    caller written before resources and prompts existed (a `catalogue_payload(tools,
+    instructions=..., server_name=..., server_version=...)` call with no
+    opinion about either) keeps working unchanged."""
     tools_json = [tool_dict(t) for t in tools]
+    resources_json = list(resources or [])
+    prompts_json = list(prompts or [])
     server = {"name": server_name, "version": server_version}
-    digest = canonical_hash({"tools": tools_json, "instructions": instructions})
+    digest = canonical_hash(
+        {
+            "tools": tools_json,
+            "instructions": instructions,
+            "resources": resources_json,
+            "prompts": prompts_json,
+        }
+    )
     return {
         "hash": digest,
         "tools": tools_json,
         "instructions": instructions,
         "server": server,
+        "resources": resources_json,
+        "prompts": prompts_json,
     }
 
 

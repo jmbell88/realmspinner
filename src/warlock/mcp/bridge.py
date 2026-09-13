@@ -40,6 +40,7 @@ at all and the old exit(1) behaviour stands.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import sys
@@ -260,6 +261,107 @@ class _Session:
         self._maybe_refresh_catalogue(new_hash)
         return body
 
+    def _static_resource_from_catalogue(self, uri: str) -> dict[str, Any] | None:
+        """A resource's MCP `contents` shape, built from this session's own
+        catalogue -- only ever has anything for the three static Clay
+        resources, which is the only kind the catalogue snapshot carries
+        inline content for (see `studio/agent_resources.catalogue_resources`).
+        Used as the fallback :meth:`read_resource` reaches for when Studio
+        cannot be dialled at all -- the same "serve what the snapshot can"
+        tolerance :meth:`from_snapshot` already gives `tools/list`."""
+        for entry in self.catalogue.get("resources", []):
+            if entry.get("uri") != uri:
+                continue
+            if "text" in entry:
+                return {
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": entry.get("mimeType", "text/plain"),
+                            "text": entry["text"],
+                        }
+                    ],
+                    "ttlMs": 60000,
+                    "cacheScope": "public",
+                }
+            return None
+        return None
+
+    def read_resource(self, uri: str) -> dict[str, Any] | None:
+        """The `read_resource` callback `protocol.bridge_dispatch` invokes
+        for `resources/read`. `None` means "not found", the same "cannot
+        answer" the caller already refuses `-32002`/`-32602` for.
+
+        Static resources fall back to this session's own catalogue when
+        Studio cannot be reached at all; the two dynamic ones (the scene,
+        the last render) have nothing to fall back to and are simply
+        `None` in that case -- there is no document to describe with no
+        Studio behind it."""
+        if not self._ensure_connected():
+            return self._static_resource_from_catalogue(uri)
+
+        request = rpc.encode_request("read", uri=uri)
+        try:
+            self.conn.send_bytes(request)
+            if not self.conn.poll(self.call_timeout + 5.0):
+                self._disconnect()
+                return self._static_resource_from_catalogue(uri)
+            header, body = rpc.split_reply(self.conn.recv_bytes())
+        except (EOFError, OSError):
+            self._disconnect()
+            return self._static_resource_from_catalogue(uri)
+
+        if "error" in header:
+            return None
+        mime = header.get("mimeType", "application/octet-stream")
+        if mime.startswith("text/") or mime == "application/json":
+            content: dict[str, Any] = {"uri": uri, "mimeType": mime, "text": body.decode("utf-8")}
+        else:
+            content = {
+                "uri": uri,
+                "mimeType": mime,
+                "blob": base64.b64encode(body).decode("ascii"),
+            }
+        private = uri.endswith("/scene") or uri.endswith("/render/last")
+        return {
+            "contents": [content],
+            "ttlMs": 0 if private else 60000,
+            "cacheScope": "private" if private else "public",
+        }
+
+    def get_prompt(self, name: str, arguments: dict[str, Any]) -> Any:
+        """The `get_prompt` callback `protocol.bridge_dispatch` invokes for
+        `prompts/get`. Rendering a prompt is pure text templating on
+        Studio's side (`studio/agent_prompts.py`) with no document
+        involved, but it still lives behind Studio's own RPC v1 pipe rather
+        than in this leaf -- `warlock.mcp` must never import
+        `warlock.studio` (see the module docstring's layering), so the
+        actual prompt text has nowhere to live here.
+
+        Returns `None` for "no such prompt or Studio unreachable" (nothing
+        this leaf can fall back to -- there is no prompt text in a
+        catalogue snapshot to fall back on), a `list[str]` of missing
+        required argument names, or `{"description": ..., "messages":
+        [...]}`."""
+        if not self._ensure_connected():
+            return None
+        request = rpc.encode_request("prompt", name=name, arguments=arguments)
+        try:
+            self.conn.send_bytes(request)
+            if not self.conn.poll(self.call_timeout + 5.0):
+                self._disconnect()
+                return None
+            header, _body = rpc.split_reply(self.conn.recv_bytes())
+        except (EOFError, OSError):
+            self._disconnect()
+            return None
+        if "error" in header:
+            err = header["error"]
+            if err.get("code") == "bad_arguments":
+                return list(err.get("missing", []))
+            return None
+        return {"description": header.get("description"), "messages": header.get("messages", [])}
+
     def _maybe_refresh_catalogue(self, hash_: str) -> None:
         if not hash_ or hash_ == self.catalogue.get("hash"):
             return
@@ -326,7 +428,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stdout.flush()
                 continue
             reply = protocol.bridge_dispatch(
-                line, session.era, catalogue=session.catalogue, call_tool=session.call_tool
+                line,
+                session.era,
+                catalogue=session.catalogue,
+                call_tool=session.call_tool,
+                read_resource=session.read_resource,
+                get_prompt=session.get_prompt,
             )
             if reply is not None:
                 stdout.write(reply)

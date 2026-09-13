@@ -593,3 +593,56 @@ def test_bridge_subprocess_survives_a_call_timeout_backstop_and_reconnects_next_
         if healthy is not None:
             healthy.close()
             healthy.join()
+
+
+def test_legacy_client_lists_and_reads_resources_and_prompts_over_a_real_subprocess(host) -> None:
+    """The whole chain this tranche adds: a real MCP client's stdio, through
+    `warlock mcp`'s RPC v1 client, to a real `AgentHost`'s RPC v1 server, and
+    back -- for `resources/list`, `resources/read` and `prompts/list`/`get`,
+    not just `tools/call` (already proven above)."""
+    _host, home = host
+    proc = _spawn(home)
+    try:
+        _send(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+        _readline(proc)
+
+        _send(proc, {"jsonrpc": "2.0", "id": 2, "method": "resources/list"})
+        reply = _readline(proc)
+        uris = {r["uri"] for r in reply["result"]["resources"]}
+        assert "warlock://clay/conventions" in uris
+        assert "warlock://clay/scene" in uris
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "resources/read",
+                "params": {"uri": "warlock://clay/conventions"},
+            },
+        )
+        reply = _readline(proc)
+        assert "metres" in reply["result"]["contents"][0]["text"]
+
+        _send(proc, {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"})
+        reply = _readline(proc)
+        prompt_names = {p["name"] for p in reply["result"]["prompts"]}
+        assert "model_from_description" in prompt_names
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "prompts/get",
+                "params": {
+                    "name": "model_from_description",
+                    "arguments": {"description": "a small barrel"},
+                },
+            },
+        )
+        reply = _readline(proc)
+        assert "a small barrel" in reply["result"]["messages"][0]["content"]["text"]
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=WAIT)
