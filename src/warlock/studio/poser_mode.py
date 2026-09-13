@@ -46,6 +46,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,12 @@ RENAME_KEY = "poser-rename"
 PREVIEW_KEY_PREFIX = "poser-preview:"
 CLIPS_KEY = "poser-clips"
 CLIPS_SAVE_KEY = "poser-clips-save"
+#: "Import clip...": sampling an externally authored FBX/GLB/glTF onto the
+#: browsed template through ``service.clip_import.analyse`` -- a door, not a
+#: job kind (see that module's own docstring), so one key is all a double
+#: press needs refusing. Its landing merges into the *working copy* only
+#: (:func:`adopt_imported_clips`); nothing reaches disk until Save.
+CLIP_IMPORT_KEY = "poser-clip-import"
 # The asset session's own keys -- distinct from ``pose_panel``'s ``pose-save:``/
 # ``pose-del:`` family on purpose. ``main.py``'s generic task dispatch matches
 # any ``"pose-"`` key against the *shared* viewer (``self.viewer.editor.dirty =
@@ -181,6 +188,13 @@ class PoserState:
     #: state, not a document fact: it is how the user is *looking* at the
     #: clip, the same argument Inker's tiled view makes about itself.
     onion: bool = False
+    #: The per-clip reports from the most recent :func:`adopt_imported_clips`,
+    #: for the pane's "Import report" -- ``cliptransfer.transfer``'s own
+    #: ``report`` dicts, one per imported action, kept verbatim rather than
+    #: re-derived so the pane shows exactly what the sample actually decided.
+    #: Not a document fact either: it describes the *import*, not the working
+    #: copy, and is not cleared by anything but the next import landing.
+    clip_import_reports: list[dict[str, Any]] = field(default_factory=list)
 
     # -- the asset session ----------------------------------------------------
     #
@@ -1897,6 +1911,25 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 return
             adopt_clips(ctx, done.result)
         return
+    if key == CLIP_IMPORT_KEY:
+        if not isinstance(done.result, dict):
+            # The user cancelled the file picker -- ``dialogs.open_file``'s
+            # own contract: None and nothing else. Nothing to say about it.
+            return
+        result = done.result
+        if result.get("template") != state.template:
+            # Left this template before the Blender sample landed --
+            # CLIPS_KEY's own landing makes the identical check for the
+            # identical reason, a few lines above.
+            return
+        adopt_imported_clips(ctx, result)
+        count = len(result.get("clips") or ())
+        file_name = str(result.get("source_name") or "the file")
+        ctx.toast(
+            f"Imported {count} clip(s) from {file_name} — Save clips to keep them",
+            "success",
+        )
+        return
     if key.startswith(ASSET_POSES_KEY_PREFIX):
         job_id = key[len(ASSET_POSES_KEY_PREFIX):]
         state.asset_poses_loading.discard(job_id)
@@ -2452,6 +2485,61 @@ def set_easing(ctx: Any, easing: str) -> None:
     _touch(ctx)
 
 
+def clip_fps(duration_ms: Any) -> float:
+    """Frames per second implied by one rendered frame lasting ``duration_ms``.
+
+    The Timing section's own "≈ N fps" hint, factored out so it is
+    assertable with no imgui frame and so the pane and a test read the same
+    arithmetic -- ``clips.animation_tracks``' own ``step`` is
+    ``ANIMATION_FPS * duration_ms / 1000``, and this is that relationship's
+    inverse, in frames of *this* clip per second rather than scene frames per
+    clip frame. 0.0 for anything that will not divide, rather than raising: a
+    mid-adopt clip (the legacy v2 shape ``rigging.parse_clip_library`` migrates
+    away from before this pane ever sees it) should show no hint at all, not a
+    crash from a label.
+    """
+    try:
+        ms = float(duration_ms)
+    except (TypeError, ValueError):
+        return 0.0
+    return 1000.0 / ms if ms > 0 else 0.0
+
+
+def set_duration(ctx: Any, ms: int) -> None:
+    """Set the selected clip's per-rendered-frame duration, in milliseconds.
+
+    Snapped rather than refused -- ``set_segment``'s own precedent, applied to
+    this field: a typed 83 lands on 80, the nearest multiple of
+    ``rigging.CLIP_DURATION_STEP_MS`` inside ``rigging.MIN_CLIP_DURATION_MS``-
+    ``rigging.MAX_CLIP_DURATION_MS``, rather than an error toast over one
+    keystroke or a value the write door would refuse outright. This is the
+    clip's *only* duration_ms door -- ``clips.animation_tracks``' bake step and
+    this pane's own fps hint (:func:`clip_fps`) both read the value this
+    writes, so a clip's play speed follows it structurally rather than by a
+    second copy either could drift from.
+
+    Marks ``clips_unsaved`` and re-expands the working copy exactly like
+    :func:`set_easing`/:func:`set_segment` do -- through :func:`_touch` -- and
+    for the same reason neither of them pushes an undo step: a clip's timing
+    fields are not the pose gizmo's editor history (``viewer.editor.history``,
+    ``docs/INVARIANTS.md``'s "undo is addressed by uid" is about *that* stack),
+    they are the clip *library*'s working copy, and the library has exactly one
+    undo door -- :func:`revert_clips`, which discards every unsaved field at
+    once, this one included.
+    """
+    state = ensure(ctx)
+    record = state.open_clip()
+    if record is None:
+        return
+    step = rigging.CLIP_DURATION_STEP_MS
+    snapped = int(round(int(ms) / step)) * step
+    snapped = max(rigging.MIN_CLIP_DURATION_MS, min(snapped, rigging.MAX_CLIP_DURATION_MS))
+    if record.get("duration_ms") == snapped:
+        return
+    record["duration_ms"] = snapped
+    _touch(ctx)
+
+
 def set_closed(ctx: Any, closed: bool) -> None:
     """Open or close the loop -- which changes how many segments the clip needs.
 
@@ -2645,6 +2733,20 @@ def revert_clips(ctx: Any) -> None:
         return
 
     def proceed() -> None:
+        # The 2026-09-13 finding: this used to submit under the shared
+        # CLIPS_SAVE_KEY without recording ``clips_save_serial`` the way
+        # :func:`save_clips` does above -- so ``on_task_done``'s own "edited
+        # while this was in flight" guard (``clips_touch_serial !=
+        # clips_save_serial`` while ``clips_unsaved``) compared the touch
+        # serial a Revert was asked at against whatever a previous Save had
+        # last recorded, which is behind it whenever there *are* unsaved
+        # edits -- the exact case Revert exists for. The landing was silently
+        # refused, the shipped clips it had just fetched were thrown away, and
+        # ``clips_unsaved`` stayed True forever after a Revert the user had
+        # just confirmed. Recording the serial here, save_clips's own line,
+        # tells that guard nothing has changed between the ask and the
+        # landing, which is true unless another edit races it in.
+        state.clips_save_serial = state.clips_touch_serial
         if not ctx.submit(CLIPS_SAVE_KEY, svc_clips.revert, ctx.svc, state.template):
             ctx.toast("Still saving the previous clip change.", "info")
 
@@ -2662,6 +2764,201 @@ def revert_clips(ctx: Any) -> None:
         )
     else:
         proceed()
+
+
+# --- importing a clip ---------------------------------------------------------
+#
+# The Troupe programme's other clip-authoring gap: every key so far had to be
+# posed by hand on the armature, and Mixamo/Rigify already ship enormous
+# libraries of exactly this kind of motion. ``service.clip_import.analyse``
+# does the actual sampling (a Blender subprocess) and the pure conversion onto
+# a template's own bones; this door only ever merges what it hands back into
+# the *working copy* -- never disk, the same rule every other mutation in this
+# section already follows -- so an import is undone by :func:`revert_clips`
+# exactly like a hand-authored key would be, and only :func:`save_clips` makes
+# it permanent.
+
+
+def _valid_clip_name(name: str) -> bool:
+    """Whether *name* would survive ``service.clips``' own Save-time check.
+
+    ``rigging.reject_direction_named_clip`` is the same function
+    ``service.clips._check_shape`` calls -- imported rather than restated, so
+    a name this merge accepts and a name Save accepts can never disagree.
+    """
+    try:
+        rigging.reject_direction_named_clip(name)
+    except ValueError:
+        return False
+    return True
+
+
+def _dedupe_clip_name(name: str, taken: set[str]) -> str:
+    """The first ``"<name>_N"`` (N >= 2) that is neither taken nor a name Save
+    would refuse.
+
+    Underscored, unlike :func:`_dedupe_import_pose_name` below -- a clip name
+    is what a character sheet and Troupe's tag parser both read, and this is
+    simply what an imported action's own name most often already looks like
+    (``mixamo.com|Walking`` sampled twice becomes ``Walking``, ``Walking_2``).
+    Also re-checked against :func:`_valid_clip_name` on every candidate, not
+    only the first: a clash landing on ``_2``/``_3`` is vanishingly unlikely to
+    also end in one of Troupe's sixteen facings, but "vanishingly unlikely" is
+    exactly the class of bug ``rigging.parse_clip_library`` exists to catch at
+    Save instead of here, and refusing the whole import at that point would be
+    a much worse afternoon than looping once more here.
+    """
+    candidate = name
+    n = 2
+    while candidate in taken or not _valid_clip_name(candidate):
+        candidate = f"{name}_{n}"
+        n += 1
+    return candidate
+
+
+def _dedupe_import_pose_name(name: str, taken: set[str]) -> str:
+    """The first ``"<name> N"`` (N >= 2) not already in *taken*.
+
+    ``service.clip_import._dedupe_pose_name``'s own scheme, restated rather
+    than imported: that one is private to the door that writes straight to
+    disk under the clip-store lock, and this module's merge never touches disk
+    at all (see the section note above) -- two callers sharing one private
+    helper across a service/pane boundary is exactly the "call the service,
+    never each other's internals" line ``CLAUDE.md`` draws.
+    """
+    if name not in taken:
+        return name
+    n = 2
+    while f"{name} {n}" in taken:
+        n += 1
+    return f"{name} {n}"
+
+
+def import_clip(ctx: Any) -> bool:
+    """Ask for an animation file and sample it onto the browsed template.
+
+    Requires a selected template that already has a clip library open in the
+    editor (``state.clips`` -- empty for a template that ships none, and
+    :func:`adopt_imported_clips` has no library to merge into then) and
+    Blender (``ctx.rigging_available``, the same signal ``request_preview``
+    already gates on) -- checked here rather than left for
+    ``service.clip_import.analyse``'s own ``doctor.blender_check()`` to refuse,
+    so a missing Blender does not cost the user a round trip through the OS
+    file picker before saying so.
+
+    The open-file dialog is asked **on the task thread**, inside ``run`` --
+    ``troupe_mode.export_package``'s and ``library._export_zip``'s
+    arrangement and its reason: a blocking OS picker on the frame thread
+    freezes the window behind it. ``None`` from it means the user cancelled,
+    and :func:`on_task_done`'s ``CLIP_IMPORT_KEY`` branch does nothing with
+    that -- no toast either way, ``dialogs.open_file``'s own contract.
+    -> whether the request was taken.
+    """
+    from ..service import clip_import as svc_clip_import
+
+    state = ensure(ctx)
+    if not state.template or not state.clips.get("clips"):
+        return False
+    if not getattr(ctx, "rigging_available", False):
+        return False
+    if ctx.busy(CLIP_IMPORT_KEY):
+        return False
+    template = state.template
+    svc = ctx.svc
+
+    def run() -> Any:
+        path = dialogs.open_file(
+            "Import a clip",
+            ["Animation files (*.fbx *.glb *.gltf)", "*.fbx *.glb *.gltf"],
+        )
+        if path is None:
+            return None
+        result = dict(svc_clip_import.analyse(svc, template, path))
+        # The pane's toast names the file; ``analyse`` itself never learns the
+        # path came from a file at all.
+        result["source_name"] = path.name
+        return result
+
+    return bool(ctx.submit(CLIP_IMPORT_KEY, run))
+
+
+def adopt_imported_clips(ctx: Any, result: dict[str, Any]) -> None:
+    """Merge an import's clips into the working copy. Nothing touches disk.
+
+    ``service.clip_import.import_into_library``'s own merge (its docstring:
+    name collisions, pose renames, provenance), restated over ``state.clips``
+    instead of a locked read-modify-write to the user's file -- because here
+    the "file" is the editor's working copy, already sitting in memory and
+    already governed by :func:`save_clips`/:func:`revert_clips`. A clip-name
+    clash is never a refusal the way that door's ``Conflict`` is: the working
+    copy always has room for one more entry, so a clash is renamed
+    (:func:`_dedupe_clip_name`) rather than asked about, and a pose-name clash
+    is renamed too (:func:`_dedupe_import_pose_name`) -- an existing
+    working-copy pose is never overwritten, imported or original.
+
+    Selects the first imported clip and marks the working copy unsaved
+    (:func:`_touch`) but does **not** put it on the armature the way
+    :func:`select_clip` does: this runs from :func:`on_task_done`, seconds
+    after the Blender sample actually finishes, with no click behind the
+    landing -- exactly the class of automatic arrival ``adopt_clips`` (its own
+    neighbour) already leaves the live pose alone for, rather than clobbering
+    whatever the user has been posing on the armature in the meantime.
+    """
+    state = ensure(ctx)
+    if not isinstance(result, dict) or result.get("template") != state.template:
+        return
+    entries = result.get("clips") or ()
+    if not entries:
+        return
+    poses = list(state.clips.get("poses") or [])
+    clip_rows = list(state.clips.get("clips") or [])
+    pose_names = {str(p.get("name") or "") for p in poses}
+    clip_names = {str(c.get("name") or "") for c in clip_rows}
+    source_name = str(result.get("source_name") or "")
+    imported_on = datetime.now(UTC).date().isoformat()
+
+    reports: list[dict[str, Any]] = []
+    first_name = ""
+    for entry in entries:
+        clip = dict(entry.get("clip") or {})
+        report = dict(entry.get("report") or {})
+        reports.append(report)
+
+        rename: dict[str, str] = {}
+        for pose_name, pose_body in (entry.get("poses") or {}).items():
+            pose_name = str(pose_name)
+            new_name = _dedupe_import_pose_name(pose_name, pose_names)
+            rename[pose_name] = new_name
+            pose_names.add(new_name)
+            poses.append({"name": new_name, **dict(pose_body)})
+        clip["keys"] = [rename.get(str(k), str(k)) for k in clip.get("keys") or ()]
+        if not clip.get("source"):
+            # Kept if the analysed clip already carried one (an imported
+            # library re-imported, or a test standing in for a richer
+            # source); otherwise this is the only record of where it came
+            # from, which a later Save writes through untouched
+            # (``svc_clips._check_shape`` keeps ``source`` verbatim).
+            clip["source"] = {
+                "file": source_name,
+                "map": str(report.get("map") or ""),
+                "imported": imported_on,
+            }
+        name = _dedupe_clip_name(str(clip.get("name") or ""), clip_names)
+        clip["name"] = name
+        clip_names.add(name)
+        clip_rows.append(clip)
+        if not first_name:
+            first_name = name
+
+    state.clips["poses"] = poses
+    state.clips["clips"] = clip_rows
+    state.clip_import_reports = reports
+    if first_name:
+        state.clip = first_name
+        state.key_index = 0
+        state.frame = -1
+    _touch(ctx)
+
 
 def _journal_slot_for(ctx: Any, viewer: Any, key: str) -> Any:
     """One journallable pose session, or None.

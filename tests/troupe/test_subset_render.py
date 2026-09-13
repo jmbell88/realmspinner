@@ -1,7 +1,10 @@
 """The subset half of a re-render: which cells, and how they get composited.
 
-Pure. No worker, no Blender, no job store -- ``charsheet`` is filesystem-free by
-design and ``sheet.pack``/``compose_cells`` take paths and nothing else.
+Mostly pure -- no worker, no Blender, no job store, ``charsheet`` being
+filesystem-free by design and ``sheet.pack``/``compose_cells`` taking paths and
+nothing else -- except the one section at the end that needs the worker: D5's
+claim that an HD subset re-render pins no palette is about ``_q_troupe``'s own
+branching, not about this module's pure functions.
 """
 
 from __future__ import annotations
@@ -241,3 +244,151 @@ def test_a_replaced_cell_does_not_show_the_old_silhouette_through(tmp_path):
     cell = plan.cells[0]
     patch = merged[cell.y : cell.y + plan.cell_h, cell.x : cell.x + plan.cell_w]
     assert patch[..., 3].max() == 0
+
+
+# -- D5: an HD subset re-render has no palette to pin -------------------------
+#
+# Self-contained -- its own worker fixture, its own render fake -- rather than
+# importing ``test_troupe_chain.py``'s private helpers, ``test_charsheet_cancel.py``'s
+# convention: that module is not owned by this fix and its internals are free
+# to change. Everything above this section stays pure; this is the one case in
+# the file that needs the worker, because "does not pin a palette" is a claim
+# about ``_q_troupe._charsheet``'s own branching, not about ``sheet.py`` alone.
+
+
+@pytest.fixture
+def worker(tmp_path, fake_pipelines):
+    from warlock.config import Config
+    from warlock.db import JobStore
+    from warlock.queue import Worker
+
+    config = Config(
+        data_dir=tmp_path / "assets",
+        db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe",
+        trellis_models_dir=tmp_path / "models",
+    )
+    store = JobStore(config.db_path)
+    w = Worker(config, store)
+    yield w
+    store.close()
+
+
+async def _wait_until(predicate, timeout: float = 20.0) -> None:
+    import asyncio
+
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    pytest.fail("condition not met before timeout")
+
+
+def _gradient_render(monkeypatch):
+    """A Blender fake that paints a colour gradient with soft alpha. A flat
+    fill quantises losslessly and would prove nothing about whether the
+    quantise pass ran; a gradient could not survive it."""
+    from pathlib import Path
+
+    from warlock import rigging
+
+    def fake(spec, **kwargs):
+        frames_dir = Path(spec["frames_dir"])
+        size = spec["frame_size"]
+        ys, xs = np.mgrid[0:size, 0:size]
+        red = (xs * 255 // max(size - 1, 1)).astype(np.uint8)
+        green = (ys * 255 // max(size - 1, 1)).astype(np.uint8)
+        blue = np.full((size, size), 128, dtype=np.uint8)
+        cx = cy = size / 2.0
+        dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2) / (size / 2.0)
+        alpha = np.clip(255 * (1.0 - dist), 0, 255).astype(np.uint8)
+        rgba = np.dstack([red, green, blue, alpha])
+        for cell in spec["cells"]:
+            Image.fromarray(rgba, "RGBA").save(frames_dir / f"{cell['index']:04d}.png")
+        return {
+            "ok": True,
+            "pivot": [0.5, 0.9],
+            "framing": {"extent": 2.24, "margin": spec.get("margin") or 1.12},
+        }
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+
+
+async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch):
+    """A subset re-render's pinned-palette path (``_atlas_entries``) exists to
+    keep the re-rendered runs the same shade as the ones beside them -- a
+    question a full-colour HD atlas never asks. Pre-fix, the row's absent
+    ``colors`` defaulted to 64 and the sheet was quantised anyway; post-fix,
+    the composed atlas keeps the same wide colour range and soft alpha the
+    base did."""
+    import json
+
+    from warlock import rigging
+
+    _gradient_render(monkeypatch)
+    source = worker.store.create("image", "a ranger", {}, stage="model")
+    source_dir = worker.config.job_dir(source)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "model.glb").write_bytes(b"fake-glb")
+    (source_dir / "rig.glb").write_bytes(b"fake-rig")
+    (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
+    worker.store.set_status(source, "done")
+
+    layout = {
+        "version": 2,
+        "movements": [
+            {"key": "idle", "frames": 3, "directions": 1},
+            {"key": "attack", "frames": 2, "directions": 1},
+        ],
+    }
+
+    def _queue(**extra):
+        return worker.store.create(
+            "charsheet",
+            "a ranger",
+            {
+                "source_job": source,
+                "sheet_id": rigging.new_id(),
+                "logical_size": 16,
+                "pixel_art": False,
+                "layout": layout,
+                **extra,
+            },
+        )
+
+    first = _queue()
+    worker.start()
+    try:
+        await _wait_until(
+            lambda: worker.store.get(first)["status"] in ("done", "error"), 60.0
+        )
+        assert worker.store.get(first)["error"] is None
+        base_sheet = worker.store.get(first)["params"]["sheet_id"]
+
+        rerun = _queue(
+            subset=[{"animation": "attack", "direction": "front"}],
+            base_sheet=base_sheet,
+        )
+        await _wait_until(
+            lambda: worker.store.get(rerun)["status"] in ("done", "error"), 60.0
+        )
+    finally:
+        await worker.shutdown()
+
+    assert worker.store.get(rerun)["error"] is None
+    report = worker.store.get(rerun)["params"]["pixel_report"]
+    assert report["style"] == "hd"
+    assert "palette" not in report and "palette_name" not in report
+
+    rerun_sheet = worker.store.get(rerun)["params"]["sheet_id"]
+    png = rigging.sheet_png_path(source_dir, rerun_sheet)
+    with Image.open(png) as opened:
+        opened.load()
+        atlas = np.asarray(opened.convert("RGBA"))
+    pixels = atlas.reshape(-1, 4)
+    opaque = pixels[pixels[:, 3] > 0]
+    colours = {tuple(int(v) for v in rgb) for rgb in opaque[:, :3]}
+    assert len(colours) > 64
+    alpha = pixels[:, 3]
+    assert ((alpha > 0) & (alpha < 255)).any()

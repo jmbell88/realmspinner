@@ -51,8 +51,13 @@ the tutorial sample for chapter 11.
 
 **Constraints a base mesh must satisfy:** GLB/glTF (`blender_worker._import_glb`
 is the only importer on this path); T-pose or A-pose; +Z up, −Y forward; if it
-ships rigged, bone names mapping onto the 19-bone template (Mixamo/Rigify
-naming needs a mapping table); no very short bones (Blender silently deletes a
+ships rigged, its bone names do not need to map onto the 19-bone template —
+`_strip_incoming_rig` discards any skin and skeleton a supplied mesh brings in
+regardless of naming, and the auto-rig replaces it. Mapping tables now exist
+(`src/warlock/clipmaps.py`, `templates/clip_maps/{mixamo,rigify}.json`), built
+for "Import clip" — converting an external *animation* onto an already-rigged
+Warlock skeleton — not for accepting a supplied mesh's own rig, which this
+entry's constraint is about; no very short bones (Blender silently deletes a
 bone below a fraction of the mesh's largest dimension *and takes its children*
 — fingers and toes are the usual casualties); under ~300k faces; male and
 female variants; a licence permitting commercial redistribution of rendered
@@ -126,16 +131,17 @@ suite can re-run.
 **Expected outcome:** the Tiled rows of `docs/COMPAT.md` become claims about
 Tiled rather than about ourselves.
 
-## P8. Author the 22 keyframes
+## P8. Author the 40 keyframes
 
-**Why it is yours:** animation is art. The shipped 22 are provisional. Moving
-authoring from frames to keyframes made a bad clip cheap to fix, not good; a
-bad clip reproduces exactly the "stiff posing" flaw being escaped.
+**Why it is yours:** animation is art. The shipped 22 (now 40 — see below) are
+provisional. Moving authoring from frames to keyframes made a bad clip cheap to
+fix, not good; a bad clip reproduces exactly the "stiff posing" flaw being
+escaped.
 
 **Wider since 2026-09-05, and easier at the same time.** There are now four
 authored clip libraries, not one — `humanoid`, `quadruped`, `bird` and `blob`,
-each carrying all five movements because `charsheet.resolve_layout(None)` asks
-for five and `expand_clips` raises on a missing one. The 22 below are the
+each carrying all five original movements because `charsheet.resolve_layout(None)`
+asks for five and `expand_clips` raises on a missing one. The 22 below are the
 humanoid's and are the ones to start with, but a four-beat lateral-sequence
 walk and a wing beat are their own problems and neither is a humanoid walk with
 different bone names. Easier because the thing that was missing is here: every
@@ -147,6 +153,31 @@ rendered motion now exists for four body plans. Calibrate it as part of P28
 rather than separately; one sitting judging four sheets is where the numbers
 come from.
 
+**2026-09-12: the vocabulary opened, and five more provisional clips landed in
+every one of the four libraries** — `attack_02`, `cast`, `fall`, `hit` and
+`death`, each written with `"provisional": true`
+(`docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`). That is 18
+more keyframes per skeleton (5+4+2+3+4, humanoid's count — the other three
+species match it clip for clip), on top of the original 22, hence the renamed
+heading. They are placeholders in exactly the sense the original 22 are: cheap
+to fix, not yet judged as movement. Brief per clip, to start from:
+
+- **Attack 02** (one-shot): a second attack, mirrored or backhanded rather than
+  a repeat of Attack — anticipation, the hit, recovery back to idle's first
+  pose so the return does not pop.
+- **Cast** (one-shot): gather, hands drawn in, then release forward.
+- **Fall** (cyclic): the airborne loop Jump's crouch-launch hands off to at its
+  apex — no ground contact anywhere in it.
+- **Hit** (one-shot): a flinch — the hurt reaction `spritesynth` calls the same
+  timing by a different name — that returns to idle's first pose without a pop,
+  the same return Attack's recovery makes.
+- **Death** (one-shot): a collapse that ends grounded (negative root z) and
+  holds its last frame rather than returning anywhere.
+
+None of the five is part of this task's judging brief below (that stays the
+original five and the rendered-motion calibration); P28 can judge all ten in
+one sitting if there is time.
+
 **Do:** Poser → **Clips** in the left sidebar. Pick a key, pose the skeleton
 with the normal gizmos, **Update key from pose**. Onion skin ghosts the keys
 either side; **Play** scrubs the real interpolation. **Save clips** writes to
@@ -156,8 +187,15 @@ first whether it is you or an animator.
 
 Two things to know before starting. **Easing does nothing at the current
 segment lengths**: it needs a step of ≥3 frames and every shipped step is 1 or
-2, so `idle`'s `ease` renders identically to `linear` today. And **the arms
-hang slightly forward** on the shipped keys.
+2, so `idle`'s `ease` renders identically to `linear` today. **None of the five
+new clips reaches 3 either** (the longest segment in any of them is 2, the same
+ceiling the original five sit under): `attack_02` and `death` (`ease_in`) and
+`hit` (`ease_out`) already show a barely-there kink at their one 2-frame
+segment (0.25/0.75 against linear's 0.5), the same as Attack's `ease_in` does
+today, while `cast`'s `ease` is exactly 0.5 at both its 2-frame segments and so
+renders identically to `linear`, the same as Idle's `ease` does; `fall` is
+`linear` throughout. And **the arms hang slightly forward** on the shipped
+keys.
 
 **The brief, per clip.** Judge each at 16–32 px through the Troupe preview,
 whose heatmap (`troupe/qa.py`) flags silhouette pops, foot-line jitter, a loop
@@ -251,7 +289,10 @@ exact is `pixelsheet.remask()` stamping the render's own alpha back, and
 `check_restylable` refuses `frame_size × columns > 1024`. Opt-in, measured,
 never default. *A learned pixel refiner*: once cleanup is routine,
 `(render, hand-cleaned)` pairs accumulate for free, perfectly registered, over
-a fixed palette. *More animations*: hurt, death, cast, climb are additive.
+a fixed palette. *More animations*: hurt (`hit`), death, cast, fall and
+attack_02 were built provisional 2026-09-12 as part of the open-clip-vocabulary
+work (`docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`; the art
+pass over them is folded into P8); climb remains additive.
 *Natural-language character description*: only over a working catalog, only
 local weights through `fetch_worker`.
 
@@ -619,6 +660,10 @@ answers, and it may well close as *proven, proven, repair, proven*.
    Zoom 1 is the size a player sees; zoom 4 is where you find out *why*. Troupe's
    heatmap is the reading order, not the verdict — click the flagged squares
    first, then watch the whole thing play.
+4. **(Optional)** The five provisional clips added 2026-09-12 — `attack_02`,
+   `cast`, `fall`, `hit`, `death` — can be judged in the same sitting, at the
+   same locked seed, alongside the original five; P8's brief covers what each
+   is meant to read as.
 
 **What to judge, and it is the same seven questions each time:**
 
@@ -1198,6 +1243,118 @@ rows for Mason, or the first version of a format we still control is fixed
 before anyone has stored scenes against it. If the manifest survives, write
 the engine rows into `docs/COMPAT.md` the way the Tiled rows are written, so
 the next change to the exporter has something to fail against.
+
+## P50. Open a Warlock Godot scaffold in real Godot 4.x
+
+**Why it is yours:** an engine this repository does not have, P47's exact
+argument applied to Troupe's character export instead of Mason's scene one.
+`godotscene.py` is stdlib-only and structurally proven (`tests/_tscn.py`
+parses the `.tscn` it writes and checks every resource reference resolves),
+but every choice in it that Godot itself could plausibly answer differently
+across versions is a named, commented constant precisely because nobody has
+opened the result in the real editor yet -- the loop-name heuristic, the
+`AnimationPlayer` node name the glTF importer creates, the transition
+switch/advance-mode integers, and whether a suffixed animation name survives
+import or gets stripped back off. See
+`docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md` for the naming
+rules this scaffold is built from and `docs/INVARIANTS.md`'s Godot-export
+entry for what is asserted rather than verified.
+
+**Do:** export a rigged humanoid with **Export for Godot…** (from the
+inspector) and import the resulting folder into a Godot 4.3+ project. Then:
+
+1. Confirm on the Godot version actually used that the importer renames
+   `idle-loop` to `idle` and sets it looping, the way master's
+   `_pre_fix_node` does (`editor/import/3d/resource_importer_scene.cpp`) --
+   `godotscene.animation_reference` already predicts that rename and the
+   `.tscn` plays the post-import name (`idle`, not `idle-loop`), so this is a
+   confirmation, not an open question: does the version in hand agree with
+   master, or does an older/newer importer keep the suffix or use a
+   different marker set, in which case `_LOOP_NAME_MARKERS` or
+   `animation_reference`'s simulation is what to change.
+2. Check that `anim_player = NodePath("../Model/AnimationPlayer")` resolves
+   under the instanced GLB, and that the relative `ext_resource` path to the
+   `.glb` loads without a re-import prompt or a broken-reference warning.
+3. Check that the `AnimationTree` actually drives the model's bones, not just
+   that it resolves and plays with no error. Since the 4.2 `AnimationMixer`
+   refactor, an `AnimationTree` resolves its animation track paths from its
+   own `root_node` (default `..`), and in this scaffold the tree is a sibling
+   of `Model`, not a child of it -- so `..` from the tree names the scene
+   root, not the node the `AnimationPlayer` (and the skinned mesh) actually
+   sits under. If the pose does not reach the mesh, the fix is
+   `root_node = NodePath("../Model")` on the `AnimationTree` node in
+   `godotscene.scene_text`, or parenting the tree under `Model` instead of
+   the scene root -- record which one Godot actually wants, and whether
+   `anim_player` alone was ever going to be sufficient on its own.
+4. `travel()` to each state the exported clips populate and confirm it
+   plays: the `locomotion` blend space at positions 0/1/2 (idle/walk/run),
+   `attack`, `attack_02`, `cast`, `jump` transitioning to `fall` at its end,
+   `hit` returning to locomotion, and `death` as a terminal state nothing
+   leaves.
+5. Note whether Godot tolerates or ignores a `load_steps` count that turns
+   out to be wrong -- this module computes it rather than trusting one, so a
+   mismatch would be this module's bug, not the editor's, but the editor's
+   reaction to a wrong count either way is worth knowing.
+6. Reproduce godotengine/godot#108823 against this export specifically: the
+   loop flag is not shown in Godot's own import dialog, and is lost entirely
+   once animations are saved to separate files. Confirm whether that loss
+   reaches this scaffold's `AnimationPlayer` the same way, since the whole
+   point of the `-loop`/`-once` naming is to survive it.
+7. Build an `AnimatedSprite2D` (a `SpriteFrames` resource) from an **Export
+   frames…** folder and its `manifest.json`, and confirm the compass-named
+   subfolders, frame order and `fps`/`loop` fields are enough to wire up
+   without guessing.
+
+**Expected outcome:** a dated `docs/measurements/` document recording what
+real Godot actually does at each of the six points above, and -- where the
+answer is a one-constant fix in `godotscene.py` -- that fix, made and tested
+the same day rather than left for a second sitting.
+
+## P51. Judge imported Mixamo clips on a Warlock humanoid
+
+**Why it is yours:** art, and a licence question only a human can clear.
+"Import clip" (`clipmaps.py`, `cliptransfer.py`, `service.clip_import`) is
+structurally proven -- a synthetic Mixamo-named rig round-trips through it in
+`tests/test_clip_import_blender.py` -- but nothing here has judged what a
+*real* Mixamo download looks like once it is walking on a Warlock skeleton
+at 32px, and two of the pure math module's own tolerances
+(`cliptransfer.LOOP_MATCH_DEG` and `KEY_TOLERANCE_DEG`) were picked with no
+real clip to check them against.
+
+**You supply the files.** Download a walk, a run and a jump from Mixamo as
+FBX **without skin** (Warlock only samples the armature and never reads the
+mesh), plus an in-place variant of at least one of them if Mixamo offers it.
+**Licence note:** Warlock downloads nothing here -- Adobe's Mixamo terms
+govern the motion data you bring in, not this repository's licence, and a
+downloaded or derived file must never be committed to this repository.
+
+**Do:** Poser → pick the `humanoid` template → **Import clip…** → point it at
+one of the downloaded files → **Save clips**. Then, per clip:
+
+1. Render a Troupe sheet at 32px and 64px and watch it play, and bake
+   `animated.glb` and check it in a scratch script.
+2. **Foot sliding.** Does a planted foot stay on one ground line across the
+   contact frames, or does it drift.
+3. **Arm height against the shipped A-pose.** Mixamo's neutral is usually a
+   loose T-pose or A-pose of its own; judge whether the rest-alignment math
+   (`cliptransfer._rest_alignment`) leaves the arms reading naturally or
+   pinned in a way the source clip never intended.
+4. **Knee direction.** A mis-signed facing or a mismatched chain shows up
+   first as a knee bending backward.
+5. **Facing.** Does the character face the camera the same way a shipped
+   clip does, front where front should be.
+6. **Loop seams**, on the walk and run: does the last sampled frame meet the
+   first with no pop, and does auto-loop detection (`loop="auto"`) call it
+   correctly.
+
+**Expected outcome:** a dated `docs/measurements/` document recording, per
+clip, the six judgements above, and explicitly answering two questions the
+code cannot answer of itself: does `LOOP_MATCH_DEG` (3.0 degrees) and
+`KEY_TOLERANCE_DEG` (1.5 degrees) hold against a real download, or does one
+need retuning; and does resampling to at most 32 frames
+(`cliptransfer.MAX_CLIP_FRAMES`) read as stiff at the sizes Troupe actually
+renders. Either finding is a one-constant fix in `cliptransfer.py`, recorded
+here rather than guessed at.
 
 ## P48. Decide whether library mesh rows can be dragged into Mason
 

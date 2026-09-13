@@ -14,6 +14,7 @@ Three claims carry these:
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -165,6 +166,83 @@ def test_a_character_survives_its_source_falling_off_the_library_page(ctx, svc):
     cast = troupe_mode.characters(ctx)
     assert [c["id"] for c in cast] == [job_id]
     assert cast[0]["prompt"], "the title comes off the charsheet row"
+
+
+# -- the sheet form's skeleton -------------------------------------------
+
+#: Two templates whose vocabularies genuinely differ, so a test can tell which
+#: one a set of rows came from by name alone -- the shipped humanoid and
+#: quadruped libraries hold the same ten names today (only their frames,
+#: timing and provisional flags differ), which would not catch a form that
+#: read the wrong one.
+_FAKE_LAYOUT_OPTIONS = {
+    "defaults": {"template": "humanoid"},
+    "clip_vocabulary": {
+        "humanoid": [{"name": "walk", "frames": 8, "default": True}],
+        "quadruped": [{"name": "gallop", "frames": 12, "default": True}],
+    },
+}
+
+
+def _fake_layout_options(ctx):
+    del ctx
+    return dict(_FAKE_LAYOUT_OPTIONS)
+
+
+def test_the_movement_rows_follow_the_rigs_own_skeleton(ctx, svc, monkeypatch):
+    """A job rigged on the second template gets the second template's rows,
+    not the door's default -- the defect: both ``_default_layout`` and
+    ``troupe_settings._layout`` used to read ``clip_vocabulary[defaults
+    .template]`` regardless of which rig the sheet was actually for."""
+    monkeypatch.setattr(troupe_mode, "options", _fake_layout_options)
+    mesh_id = svc.store.create("image", "a wolf", {}, stage="model")
+    svc.store.create(
+        "rig", "a wolf", {"source_job": mesh_id, "template": "quadruped"}, status="done"
+    )
+    troupe_mode.ensure(ctx).job_id = mesh_id
+
+    layout = troupe_mode._default_layout(ctx)
+    assert layout["template"] == "quadruped"
+    assert {m["key"] for m in layout["movements"]} == {"gallop"}
+
+
+def test_rows_fall_back_to_the_default_skeleton_only_without_a_rig(ctx, svc, monkeypatch):
+    """No character bound, and a character bound with no rig recorded yet,
+    both fall back to the door's default -- and nothing else does."""
+    monkeypatch.setattr(troupe_mode, "options", _fake_layout_options)
+
+    # Nothing bound at all: the ordinary "New character" form.
+    layout = troupe_mode._default_layout(ctx)
+    assert layout["template"] == "humanoid"
+    assert {m["key"] for m in layout["movements"]} == {"walk"}
+
+    # A character bound, but its mesh has neither a rig nor a sheet row yet --
+    # the window between a mesh landing and the auto-rig follow-up finishing.
+    mesh_id = svc.store.create("image", "a fresh mesh", {}, stage="model")
+    troupe_mode.ensure(ctx).job_id = mesh_id
+    layout = troupe_mode._default_layout(ctx)
+    assert layout["template"] == "humanoid"
+    assert {m["key"] for m in layout["movements"]} == {"walk"}
+
+
+def test_the_form_rebuilds_its_layout_when_the_bound_rig_changes(ctx, svc, monkeypatch):
+    """``form`` calls ``_default_layout`` again once the bound character's own
+    template no longer matches the one the current rows were built from --
+    the same reset ``select`` already gives the clock, applied to this table."""
+    monkeypatch.setattr(troupe_mode, "options", _fake_layout_options)
+    first = troupe_mode.form(ctx)
+    assert first["layout"]["template"] == "humanoid"
+
+    mesh_id = svc.store.create("image", "a wolf", {}, stage="model")
+    svc.store.create(
+        "rig", "a wolf", {"source_job": mesh_id, "template": "quadruped"}, status="done"
+    )
+    troupe_mode.ensure(ctx).job_id = mesh_id
+
+    second = troupe_mode.form(ctx)
+    assert second is first, "the same form dict, rebuilt in place"
+    assert second["layout"]["template"] == "quadruped"
+    assert {m["key"] for m in second["layout"]["movements"]} == {"gallop"}
 
 
 # -- characters that are still on their way ----------------------------------
@@ -1488,6 +1566,123 @@ def test_a_cancelled_export_picker_is_not_reported_as_an_export(svc):
 
     troupe_mode.on_task_done(ctx, SimpleNamespace(key=key, result=None))
     assert ctx.toasts == []
+
+
+def test_export_frames_asks_for_a_folder_on_the_task_thread(svc, monkeypatch):
+    """``export_package``'s exact arrangement, one door over: the picker is
+    asked inside the submitted ``run``, never before -- calling ``run()`` here
+    rather than pressing a button is what proves "on the task thread", since a
+    picker invoked while ``export_frames`` itself runs would have fired before
+    this line."""
+    from warlock.service import characters as svc_characters
+    from warlock.studio import dialogs
+
+    def _boom(*_a, **_k):
+        raise AssertionError("the picker must not run before the task thread")
+
+    monkeypatch.setattr(dialogs, "select_folder", _boom)
+    ctx = _TakenCtx(svc)
+    job_id, made = _v2_character(svc)
+    troupe_mode.select(ctx, job_id, made[0])
+
+    assert troupe_mode.export_frames(ctx) is True
+    assert len(ctx.submitted) == 1
+    key, run, _args, _kwargs = ctx.submitted[0]
+    assert key == f"troupe-frames:{job_id}:{made[0]}"
+    # In flight: the second press is refused rather than queued behind it.
+    assert troupe_mode.export_frames(ctx) is False
+    assert len(ctx.submitted) == 1
+
+    monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: str(svc.job_dir(job_id)))
+    recorded: list = []
+    monkeypatch.setattr(
+        svc_characters,
+        "export_frames",
+        lambda svc_, job_id_, sheet_id_, dest_dir=None: recorded.append(dest_dir)
+        or Path(dest_dir) / "Stem",
+    )
+    folder = run()
+    assert recorded == [str(svc.job_dir(job_id))]
+    assert folder == Path(svc.job_dir(job_id)) / "Stem"
+
+    troupe_mode.on_task_done(ctx, SimpleNamespace(key=key, result=folder))
+    said = ctx.toasts[-1][0]
+    assert str(folder) in said
+
+
+def test_export_frames_uses_the_configured_folder_without_asking(svc, monkeypatch, tmp_path):
+    """A configured export folder is used outright -- the picker must not run
+    at all when ``ctx.export_dir`` is set. ``service.characters.export_frames``
+    is mocked here: what this test pins is the mode's own choice of
+    destination, not the service's PNG cropping, which
+    ``tests/service/test_character_exports.py`` already owns."""
+    from warlock.service import characters as svc_characters
+    from warlock.studio import dialogs
+
+    def _boom(*_a, **_k):
+        raise AssertionError("the picker must not run when a folder is configured")
+
+    monkeypatch.setattr(dialogs, "select_folder", _boom)
+    recorded: list = []
+    monkeypatch.setattr(
+        svc_characters,
+        "export_frames",
+        lambda svc_, job_id_, sheet_id_, dest_dir=None: recorded.append(dest_dir)
+        or Path(dest_dir) / "Stem",
+    )
+    ctx = _TakenCtx(svc)
+    ctx.export_dir = str(tmp_path / "project")
+    job_id, made = _v2_character(svc)
+    troupe_mode.select(ctx, job_id, made[0])
+
+    assert troupe_mode.export_frames(ctx) is True
+    _key, run, _args, _kwargs = ctx.submitted[0]
+
+    folder = run()
+    assert recorded == [str(tmp_path / "project")]
+    assert folder == tmp_path / "project" / "Stem"
+
+
+def test_a_cancelled_frame_export_writes_nothing(svc, monkeypatch):
+    """``None`` from the picker means the user cancelled. Run all the way
+    through ``run()`` -- unlike the package export's cancel test, which stops
+    at simulating the result -- to pin that a cancelled pick never reaches
+    ``service.characters.export_frames`` at all, and that a toast naming a
+    folder nobody wrote would be the app claiming a write it did not make."""
+    from warlock.service import characters as svc_characters
+    from warlock.studio import dialogs
+
+    monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: None)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("a cancelled pick must never reach the writer")
+
+    monkeypatch.setattr(svc_characters, "export_frames", _boom)
+    ctx = _TakenCtx(svc)
+    job_id, made = _v2_character(svc)
+    troupe_mode.select(ctx, job_id, made[0])
+
+    assert troupe_mode.export_frames(ctx) is True
+    key, run, _args, _kwargs = ctx.submitted[0]
+    assert run() is None
+
+    troupe_mode.on_task_done(ctx, SimpleNamespace(key=key, result=None))
+    assert ctx.toasts == []
+
+
+def test_the_bridge_offers_export_frames_beside_the_package_export():
+    """The pane draws a fourth way out next to "Export package...", wired to
+    ``troupe_mode.export_frames`` and gated the same way -- ready and not
+    busy on the frames key, one call sharing the busy check with the button
+    it sits beside."""
+    from warlock.studio.panes import troupe_bridge
+
+    source = inspect.getsource(troupe_bridge)
+    package_at = source.index('"Export package..."')
+    frames_at = source.index('"Export frames..."')
+    assert package_at < frames_at, "frames export belongs beside, after, the package export"
+    assert "troupe_mode.export_frames(ctx)" in source
+    assert "troupe_mode.frames_key(state.job_id, state.sheet_id)" in source
 
 
 def test_varying_a_character_loads_its_recipe_as_the_users_own_choices(ctx, svc, monkeypatch):

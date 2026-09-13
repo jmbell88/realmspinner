@@ -628,3 +628,129 @@ def test_trellis_log_button_shows_a_spinner_while_busy():
         "the spinner must be gated on the same busy flag as the button, and "
         "drawn before it"
     )
+
+
+# -- "Export for Godot..." -------------------------------------------------
+
+
+class _SubmitCtx:
+    """Just enough of ``Ctx`` for ``_submit_export_godot``: a job to hand the
+    door, an export folder that may or may not be configured, and a task
+    queue that never actually runs anything -- ``troupe_mode``'s
+    ``_SubmitCtx``/``_TakenCtx`` pattern, restated here rather than imported,
+    since ``tests/troupe`` is Troupe's own directory and not a shared fixture
+    module.
+    """
+
+    def __init__(self, svc=None, export_dir=None):
+        self.svc = svc
+        self.export_dir = export_dir
+        self.submitted: list[tuple] = []
+
+    def submit(self, key, fn, *args, **kwargs):
+        self.submitted.append((key, fn, args, kwargs))
+        return True
+
+    def busy(self, key):
+        return any(entry[0] == key for entry in self.submitted)
+
+
+class _BlockCtx2:
+    rigging_available = True
+
+
+def test_export_for_godot_is_offered_only_where_animated_glb_is_reachable():
+    """Reuses ``animated.glb``'s own readiness -- the Animated GLB row's
+    signal, not a second rig-and-clips probe (see ``_godot_export_blocked``'s
+    docstring). A mesh whose rig has authored clips already carries
+    ``animated.glb`` in ``files`` -- ``attach_files`` derived that from
+    ``rig.json`` -- so the same three states the row itself shows apply here:
+    reachable, not yet, or never. Pinned to ``_why_blocked``'s actual
+    sentences, not just their presence, so the reference case cannot pass by
+    accident on the "not finished yet" wording that a mere unfinished mesh
+    gets -- ``_why_blocked``'s whole point is that those two read differently.
+    """
+    ctx = _BlockCtx2()
+    rigged = _job(stage="model", files=["model.glb", "animated.glb"])
+    assert inspector._godot_export_blocked(ctx, rigged) is None
+
+    # ``animated.glb`` is not in ``files.DERIVED``, so a still-running mesh
+    # job is genuinely "not finished yet" -- there is nothing else it could
+    # become without the job landing.
+    queued = _job(stage="model", files=["model.glb"])
+    queued["status"] = "queued"
+    assert inspector._godot_export_blocked(ctx, queued) == "not finished yet"
+
+    # A reference has no rig concept at all, and must not be told it is
+    # merely unfinished -- a finished job with no path to ``animated.glb`` at
+    # all reads as "not available for this asset", never "not finished yet".
+    reference = _job(stage="reference", files=["input.png"])
+    assert inspector._godot_export_blocked(ctx, reference) == "not available for this asset"
+
+
+def test_export_for_godot_asks_for_a_folder_on_the_task_thread_only_when_none_is_configured(
+    monkeypatch,
+):
+    """``troupe_mode.export_package``'s arrangement: the picker is asked
+    inside the submitted ``run``, never before, and only when
+    ``ctx.export_dir`` is unset. Calling ``run()`` here rather than pressing a
+    button is what proves "on the task thread" -- a picker invoked while
+    ``_submit_export_godot`` itself runs would have fired before the test
+    ever reaches this line.
+    """
+    from warlock.service import characters as svc_characters
+    from warlock.studio import dialogs
+
+    recorded: list = []
+
+    def _fake_export_godot(svc, job_id, dest_dir=None):
+        recorded.append(dest_dir)
+        return f"{dest_dir}/Stem"
+
+    monkeypatch.setattr(svc_characters, "export_godot", _fake_export_godot)
+
+    # A folder is configured: the picker must never be asked.
+    def _boom(*_a, **_k):
+        raise AssertionError("the picker must not run when a folder is configured")
+
+    monkeypatch.setattr(dialogs, "select_folder", _boom)
+    ctx = _SubmitCtx(svc=object(), export_dir="D:/exports")
+    assert inspector._submit_export_godot(ctx, "job-configured") is True
+    key, run, _args, _kwargs = ctx.submitted[0]
+    assert key == "export-godot:job-configured"
+    run()
+    assert recorded == ["D:/exports"]
+
+    # No folder configured: the picker runs, and its answer is used.
+    recorded.clear()
+    monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: "D:/picked")
+    open_ctx = _SubmitCtx(svc=object(), export_dir=None)
+    assert inspector._submit_export_godot(open_ctx, "job-open") is True
+    _key2, run2, _args2, _kwargs2 = open_ctx.submitted[0]
+    run2()
+    assert recorded == ["D:/picked"]
+
+
+def test_a_cancelled_folder_pick_reports_no_export(monkeypatch):
+    """``None`` from the picker means the user cancelled, and this must not
+    be told apart from a write it never made."""
+    from warlock.studio import dialogs
+
+    monkeypatch.setattr(dialogs, "select_folder", lambda *_a, **_k: None)
+    ctx = _SubmitCtx(svc=object(), export_dir=None)
+    assert inspector._submit_export_godot(ctx, "job-cancel") is True
+    _key, run, _args, _kwargs = ctx.submitted[0]
+    assert run() is None
+
+
+def test_a_second_click_while_exporting_queues_nothing():
+    """Submitted under its own per-job key, the same shape as
+    ``troupe_mode.export_key``, so a second press while one is in flight is
+    refused rather than raced -- ``_SubmitCtx.busy`` answers True for a key
+    already in ``submitted``, exactly as the real ``TaskRunner`` does while a
+    task is running."""
+    ctx = _SubmitCtx(svc=object(), export_dir="D:/exports")
+    assert inspector._submit_export_godot(ctx, "job-once") is True
+    assert len(ctx.submitted) == 1
+    assert inspector._submit_export_godot(ctx, "job-once") is False
+    assert len(ctx.submitted) == 1

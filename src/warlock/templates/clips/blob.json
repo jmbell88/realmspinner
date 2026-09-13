@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "template": "blob",
   "space": "delta",
   "comment": "Troupe's clip library for the blob skeleton -- the amorphous archetype. Local joint rotations, XYZW. space=delta means each value is a rotation from the bone's own REST orientation, not the pose editor's node-local frame -- see blender_worker.POSE_SPACES. Every value was computed from a world-axis angle and converted through the bone's rest frame (basis = rest^-1 * R * rest). A POSE CARRIES NO SCALE, so squash and stretch are authored as rotation plus root_translation and nothing else: the four equator lobes swing down-and-out while the body sinks (squash) or are drawn up-and-in while it rises (stretch), and the base/core/crown/top column leans into the direction of travel. That is the honest limit of the format -- a blob that genuinely flattened would need a scaled bone, which no clip can carry -- and the lobes are in the template for exactly this. walk is a hop cycle rather than a gait, because a blob has no legs to put down in an order: squash, launch, float, land, with the travel in root_translation (character-height units). attack coils, surges up past the rest crown and throws the front lobe over the target, which is what an engulf reads as at 64 pixels.",
@@ -17,7 +17,8 @@
         2,
         1,
         1
-      ]
+      ],
+      "duration_ms": 150
     },
     {
       "name": "walk",
@@ -34,7 +35,8 @@
         2,
         2,
         2
-      ]
+      ],
+      "duration_ms": 100
     },
     {
       "name": "run",
@@ -51,7 +53,8 @@
         2,
         2,
         2
-      ]
+      ],
+      "duration_ms": 60
     },
     {
       "name": "attack",
@@ -69,7 +72,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "duration_ms": 80
     },
     {
       "name": "jump",
@@ -89,7 +93,95 @@
         1,
         1,
         1
-      ]
+      ],
+      "duration_ms": 100
+    },
+    {
+      "name": "attack_02",
+      "closed": false,
+      "easing": "ease_in",
+      "keys": [
+        "attack_02 coil",
+        "attack_02 surge",
+        "attack_02 engulf",
+        "attack_02 settle",
+        "attack_02 recover"
+      ],
+      "segments": [
+        2,
+        1,
+        1,
+        1
+      ],
+      "duration_ms": 80,
+      "provisional": true
+    },
+    {
+      "name": "cast",
+      "closed": false,
+      "easing": "ease",
+      "keys": [
+        "cast ready",
+        "cast gather",
+        "cast release",
+        "cast recover"
+      ],
+      "segments": [
+        2,
+        2,
+        1
+      ],
+      "duration_ms": 90,
+      "provisional": true
+    },
+    {
+      "name": "fall",
+      "closed": true,
+      "easing": "linear",
+      "keys": [
+        "fall a",
+        "fall b"
+      ],
+      "segments": [
+        2,
+        2
+      ],
+      "duration_ms": 100,
+      "provisional": true
+    },
+    {
+      "name": "hit",
+      "closed": false,
+      "easing": "ease_out",
+      "keys": [
+        "hit rest",
+        "hit recoil",
+        "hit settle"
+      ],
+      "segments": [
+        1,
+        2
+      ],
+      "duration_ms": 90,
+      "provisional": true
+    },
+    {
+      "name": "death",
+      "closed": false,
+      "easing": "ease_in",
+      "keys": [
+        "death sag",
+        "death slump",
+        "death flatten",
+        "death puddle"
+      ],
+      "segments": [
+        1,
+        2,
+        2
+      ],
+      "duration_ms": 120,
+      "provisional": true
     }
   ],
   "poses": [
@@ -1357,6 +1449,1020 @@
         0.0,
         0.0,
         -0.1
+      ]
+    },
+    {
+      "name": "attack_02 coil",
+      "bones": {
+        "lobe_front": [
+          0.1305,
+          0.0,
+          0.0,
+          0.9914
+        ],
+        "lobe_back": [
+          -0.1305,
+          0.0,
+          0.0,
+          0.9914
+        ],
+        "lobe.L": [
+          -0.1304,
+          0.0,
+          -0.0378,
+          0.9907
+        ],
+        "lobe.R": [
+          -0.1304,
+          0.0,
+          0.0378,
+          0.9907
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "crown": [
+          -0.0218,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "top": [
+          -0.0305,
+          0.0,
+          0.0,
+          0.9995
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.06
+      ]
+    },
+    {
+      "name": "attack_02 surge",
+      "bones": {
+        "lobe_front": [
+          -0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ],
+        "lobe_back": [
+          0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ],
+        "lobe.L": [
+          0.1734,
+          0.0,
+          0.0503,
+          0.9836
+        ],
+        "lobe.R": [
+          0.1734,
+          0.0,
+          -0.0503,
+          0.9836
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "crown": [
+          0.0436,
+          0.0,
+          0.0,
+          0.999
+        ],
+        "top": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        0.18
+      ]
+    },
+    {
+      "name": "attack_02 engulf",
+      "bones": {
+        "lobe_front": [
+          -0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ],
+        "lobe_back": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ],
+        "lobe.L": [
+          -0.3196,
+          -0.0499,
+          -0.1798,
+          0.929
+        ],
+        "lobe.R": [
+          -0.3196,
+          0.0499,
+          0.1798,
+          0.929
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.1478,
+          0.0,
+          0.0,
+          0.989
+        ],
+        "crown": [
+          0.1305,
+          0.0,
+          0.0,
+          0.9914
+        ],
+        "top": [
+          0.1132,
+          0.0,
+          0.0,
+          0.9936
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        0.1
+      ]
+    },
+    {
+      "name": "attack_02 settle",
+      "bones": {
+        "lobe_front": [
+          0.0785,
+          0.0,
+          0.0,
+          0.9969
+        ],
+        "lobe_back": [
+          -0.0785,
+          0.0,
+          0.0,
+          0.9969
+        ],
+        "lobe.L": [
+          -0.0784,
+          0.0,
+          -0.0227,
+          0.9967
+        ],
+        "lobe.R": [
+          -0.0784,
+          0.0,
+          0.0227,
+          0.9967
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ],
+        "crown": [
+          0.0436,
+          0.0,
+          0.0,
+          0.999
+        ],
+        "top": [
+          0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.02
+      ]
+    },
+    {
+      "name": "attack_02 recover",
+      "bones": {
+        "lobe_front": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe_back": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe.L": [
+          -0.0335,
+          0.0,
+          -0.0098,
+          0.9994
+        ],
+        "lobe.R": [
+          -0.0335,
+          0.0,
+          0.0098,
+          0.9994
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "crown": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "top": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "name": "cast ready",
+      "bones": {
+        "lobe_front": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe_back": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe.L": [
+          -0.0335,
+          0.0,
+          -0.0098,
+          0.9994
+        ],
+        "lobe.R": [
+          -0.0335,
+          0.0,
+          0.0098,
+          0.9994
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "crown": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "top": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "name": "cast gather",
+      "bones": {
+        "lobe_front": [
+          -0.0785,
+          0.0,
+          0.0,
+          0.9969
+        ],
+        "lobe_back": [
+          0.0785,
+          0.0,
+          0.0,
+          0.9969
+        ],
+        "lobe.L": [
+          0.0784,
+          0.0,
+          0.0227,
+          0.9967
+        ],
+        "lobe.R": [
+          0.0784,
+          0.0,
+          -0.0227,
+          0.9967
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          -0.0262,
+          0.0,
+          0.0,
+          0.9997
+        ],
+        "crown": [
+          -0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "top": [
+          -0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ]
+      }
+    },
+    {
+      "name": "cast release",
+      "bones": {
+        "lobe_front": [
+          -0.1564,
+          0.0,
+          0.0,
+          0.9877
+        ],
+        "lobe_back": [
+          0.1305,
+          0.0,
+          0.0,
+          0.9914
+        ],
+        "lobe.L": [
+          0.1304,
+          0.0,
+          0.0378,
+          0.9907
+        ],
+        "lobe.R": [
+          0.1304,
+          0.0,
+          -0.0378,
+          0.9907
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ],
+        "crown": [
+          0.1392,
+          0.0,
+          0.0,
+          0.9903
+        ],
+        "top": [
+          0.1908,
+          0.0,
+          0.0,
+          0.9816
+        ]
+      }
+    },
+    {
+      "name": "cast recover",
+      "bones": {
+        "lobe_front": [
+          0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "lobe_back": [
+          -0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "lobe.L": [
+          -0.0349,
+          0.0,
+          -0.0101,
+          0.9993
+        ],
+        "lobe.R": [
+          -0.0349,
+          0.0,
+          0.0101,
+          0.9993
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "crown": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "top": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ]
+      }
+    },
+    {
+      "name": "fall a",
+      "bones": {
+        "lobe_front": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ],
+        "lobe_back": [
+          -0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ],
+        "lobe.L": [
+          -0.0697,
+          0.0,
+          -0.0202,
+          0.9974
+        ],
+        "lobe.R": [
+          -0.0697,
+          0.0,
+          0.0202,
+          0.9974
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "crown": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "top": [
+          0.0262,
+          0.0,
+          0.0,
+          0.9997
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        0.22
+      ]
+    },
+    {
+      "name": "fall b",
+      "bones": {
+        "lobe_front": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ],
+        "lobe_back": [
+          -0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ],
+        "lobe.L": [
+          -0.0697,
+          0.0,
+          -0.0202,
+          0.9974
+        ],
+        "lobe.R": [
+          -0.0697,
+          0.0,
+          0.0202,
+          0.9974
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "crown": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "top": [
+          0.0262,
+          0.0,
+          0.0,
+          0.9997
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        0.22
+      ]
+    },
+    {
+      "name": "hit rest",
+      "bones": {
+        "lobe_front": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe_back": [
+          -0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ],
+        "lobe.L": [
+          -0.0335,
+          0.0,
+          -0.0098,
+          0.9994
+        ],
+        "lobe.R": [
+          -0.0335,
+          0.0,
+          0.0098,
+          0.9994
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "crown": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "top": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "name": "hit recoil",
+      "bones": {
+        "lobe_front": [
+          0.1736,
+          0.0,
+          0.0,
+          0.9848
+        ],
+        "lobe_back": [
+          -0.1736,
+          0.0,
+          0.0,
+          0.9848
+        ],
+        "lobe.L": [
+          -0.1734,
+          0.0,
+          -0.0503,
+          0.9836
+        ],
+        "lobe.R": [
+          -0.1734,
+          0.0,
+          0.0503,
+          0.9836
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          -0.0698,
+          0.0,
+          0.0,
+          0.9976
+        ],
+        "crown": [
+          -0.0958,
+          0.0,
+          0.0,
+          0.9954
+        ],
+        "top": [
+          -0.1305,
+          0.0,
+          0.0,
+          0.9914
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.09
+      ]
+    },
+    {
+      "name": "hit settle",
+      "bones": {
+        "lobe_front": [
+          -0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "lobe_back": [
+          0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "lobe.L": [
+          0.0349,
+          0.0,
+          0.0101,
+          0.9993
+        ],
+        "lobe.R": [
+          0.0349,
+          0.0,
+          -0.0101,
+          0.9993
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0087,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "crown": [
+          0.0087,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "top": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        0.02
+      ]
+    },
+    {
+      "name": "death sag",
+      "bones": {
+        "lobe_front": [
+          0.0958,
+          0.0,
+          0.0,
+          0.9954
+        ],
+        "lobe_back": [
+          -0.0958,
+          0.0,
+          0.0,
+          0.9954
+        ],
+        "lobe.L": [
+          -0.0958,
+          0.0,
+          -0.0278,
+          0.995
+        ],
+        "lobe.R": [
+          -0.0958,
+          0.0,
+          0.0278,
+          0.995
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.0349,
+          0.0,
+          0.0,
+          0.9994
+        ],
+        "crown": [
+          0.0262,
+          0.0,
+          0.0,
+          0.9997
+        ],
+        "top": [
+          0.0175,
+          0.0,
+          0.0,
+          0.9998
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.1
+      ]
+    },
+    {
+      "name": "death slump",
+      "bones": {
+        "lobe_front": [
+          0.2419,
+          0.0,
+          0.0,
+          0.9703
+        ],
+        "lobe_back": [
+          -0.2419,
+          0.0,
+          0.0,
+          0.9703
+        ],
+        "lobe.L": [
+          -0.2413,
+          0.0,
+          -0.07,
+          0.9679
+        ],
+        "lobe.R": [
+          -0.2413,
+          0.0,
+          0.07,
+          0.9679
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.1045,
+          0.0,
+          0.0,
+          0.9945
+        ],
+        "crown": [
+          0.0785,
+          0.0,
+          0.0,
+          0.9969
+        ],
+        "top": [
+          0.0523,
+          0.0,
+          0.0,
+          0.9986
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.35
+      ]
+    },
+    {
+      "name": "death flatten",
+      "bones": {
+        "lobe_front": [
+          0.3827,
+          0.0,
+          0.0,
+          0.9239
+        ],
+        "lobe_back": [
+          -0.3827,
+          0.0,
+          0.0,
+          0.9239
+        ],
+        "lobe.L": [
+          -0.3803,
+          0.0,
+          -0.1103,
+          0.9183
+        ],
+        "lobe.R": [
+          -0.3803,
+          0.0,
+          0.1103,
+          0.9183
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.1908,
+          0.0,
+          0.0,
+          0.9816
+        ],
+        "crown": [
+          0.1392,
+          0.0,
+          0.0,
+          0.9903
+        ],
+        "top": [
+          0.0872,
+          0.0,
+          0.0,
+          0.9962
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.65
+      ]
+    },
+    {
+      "name": "death puddle",
+      "bones": {
+        "lobe_front": [
+          0.4848,
+          0.0,
+          0.0,
+          0.8746
+        ],
+        "lobe_back": [
+          -0.4848,
+          0.0,
+          0.0,
+          0.8746
+        ],
+        "lobe.L": [
+          -0.4801,
+          0.0,
+          -0.1392,
+          0.8661
+        ],
+        "lobe.R": [
+          -0.4801,
+          0.0,
+          0.1392,
+          0.8661
+        ],
+        "base": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "core": [
+          0.2756,
+          0.0,
+          0.0,
+          0.9613
+        ],
+        "crown": [
+          0.1908,
+          0.0,
+          0.0,
+          0.9816
+        ],
+        "top": [
+          0.1219,
+          0.0,
+          0.0,
+          0.9925
+        ]
+      },
+      "root_translation": [
+        0.0,
+        0.0,
+        -0.95
       ]
     }
   ]

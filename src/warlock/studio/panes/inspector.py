@@ -1509,6 +1509,99 @@ def downloads(ctx: Any, job: Any) -> None:
         manifest = _manifest(ctx, job_id)
         _matte_note(ctx, manifest)
         _manifest_summary(manifest)
+    if job.get("stage") not in ("reference", "tile", "tilesheet", "music"):
+        # Godot's importer is a mesh concern -- a reference, a tile or a music
+        # row has no rig for it to describe -- so this sits beside the mesh
+        # grid rather than in it, the way ``export_package`` sits beside
+        # Troupe's sheet grid rather than in ``ARTIFACTS``.
+        imgui.spacing()
+        _godot_export(ctx, job)
+
+
+def _godot_export_key(job_id: str) -> str:
+    return f"export-godot:{job_id}"
+
+
+def _godot_export_blocked(ctx: Any, job: Any) -> str | None:
+    """Why "Export for Godot..." is not reachable yet, or ``None`` when it is.
+
+    Restates nothing about the rig: ``animated.glb`` is this asset's own
+    readiness signal for "a rig exists and its skeleton has clips" -- the
+    Downloads row above already gates that button on it -- so this asks
+    ``_derivable``/``_why_blocked`` about that same name instead of a second
+    rig-and-clips probe. The two can then never disagree about the same
+    asset, and neither has to stat the job directory: both read off
+    ``job["files"]``, which ``attach_files`` already put there this frame.
+    """
+    files = set(job.get("files") or [])
+    ready = "animated.glb" in files
+    return _why_blocked(ctx, job, "animated.glb", ready, _derivable(job, files, "animated.glb"))
+
+
+def _submit_export_godot(ctx: Any, job_id: str) -> bool:
+    """Write the Godot scene, on the task thread.
+
+    ``troupe_mode.export_package``'s arrangement, restated here for the same
+    reason ``library._export_zip`` gives it: ``dialogs.select_folder`` blocks,
+    so it is asked inside ``run`` -- never on the frame thread, or the window
+    behind it freezes -- and only when no export folder is configured.
+    ``None`` back from the picker means the user cancelled, which is why this
+    reports whether the *request* was taken rather than whether anything was
+    written.
+
+    ``ctx.busy`` is checked here rather than left to the button's own
+    disabled state: the button greys out the moment a submit lands, but this
+    function is also what a second, near-simultaneous click reaches directly.
+    """
+    from ...service import characters as svc_characters
+
+    key = _godot_export_key(job_id)
+    if ctx.busy(key):
+        return False
+    # Read here rather than inside ``run``: the task thread must not reach
+    # into the frame loop's context for a value the frame already has.
+    configured = getattr(ctx, "export_dir", None) or None
+
+    def run() -> Any:
+        dest = configured
+        if dest is None:
+            from .. import dialogs
+
+            picked = dialogs.select_folder("Export for Godot")
+            if picked is None:
+                return None
+            dest = picked
+        return svc_characters.export_godot(ctx.svc, job_id, dest_dir=dest)
+
+    return bool(ctx.submit(key, run))
+
+
+def _godot_export(ctx: Any, job: Any) -> None:
+    """"Export for Godot..." -- a Godot 4 scene beside a renamed copy of
+    ``animated.glb``.
+
+    Its own button rather than a ``Downloads`` row: a grid button hands over
+    one file the way ``ctx.save_artifact`` already does, and this writes a
+    *pair* -- the GLB and the ``.tscn`` -- into a folder the user chooses,
+    ``export_package``'s shape rather than ``downloads``'s.
+    """
+    job_id = job["id"]
+    blocked = _godot_export_blocked(ctx, job)
+    busy = ctx.busy(_godot_export_key(job_id))
+    if busy:
+        widgets.spinner()
+        imgui.same_line()
+    if widgets.disabled_button(
+        "Export for Godot...",
+        not blocked and not busy,
+        (-1, 0),
+        reason=blocked or "Already exporting.",
+        tooltip=(
+            "Writes a Godot 4 scene beside a copy of the animated GLB whose "
+            "looping clips are named for Godot's importer."
+        ),
+    ):
+        _submit_export_godot(ctx, job_id)
 
 
 def _derivable(job: Any, files: set[str], name: str) -> bool:

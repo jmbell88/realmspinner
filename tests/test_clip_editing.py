@@ -71,6 +71,27 @@ def test_an_unknown_template_is_not_found(svc):
     assert caught.value.field == "template"
 
 
+def test_an_unreadable_user_library_is_not_presented_as_edited_shipped_clips(svc):
+    """Defect, fixed 2026-09-13: a user clip library that exists but fails to
+    parse used to be swallowed the same way the *renderer's* loader swallows
+    one -- log it, skip it, fall back to the shipped clips -- but
+    ``service.clips.library()`` then presented that fallback with
+    ``edited: True``, as if it were the user's own file. A user who saved
+    from this door next would silently overwrite the very file that failed to
+    parse. The honest answer is a refusal naming the read failure, not a
+    quiet substitution."""
+    path = poselib.clip_path(svc.config, TEMPLATE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not json at all", encoding="utf-8")
+    rigging.invalidate_clips()
+
+    with pytest.raises(Invalid) as caught:
+        svc_clips.library(svc, TEMPLATE)
+    assert caught.value.field == "template"
+    # And, in particular, never the shipped clips masquerading as edited.
+    assert "could not be read" in caught.value.message
+
+
 # --- saving ------------------------------------------------------------------
 
 

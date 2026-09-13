@@ -30,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from .. import rigging
-from ..clips import expand_clips
+from ..clips import clip_timing, expand_clips
 from ..pipelines import charsheet, pixelize, spritesynth
 from .errors import Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
@@ -127,6 +127,39 @@ def clip_templates() -> list[dict[str, str]]:
     return [row for row in rigging.catalog() if has_clips(row["key"])]
 
 
+def _clip_vocabulary(template_key: str) -> list[dict[str, Any]]:
+    """*template_key*'s whole clip library, as the options block states it.
+
+    ``troupe_options``' answer to what a layout may name a movement on this
+    skeleton, beyond the closed :data:`charsheet.ANIMATIONS` five --
+    ``clip_timing`` for the numbers every :class:`charsheet.ClipTiming` needs,
+    and the library's own ``provisional`` flag alongside it, because a form
+    offering a provisional clip has to be able to say so. ``default`` marks a
+    name that is also one of the five the legacy layout already carries -- the
+    boundary a pane can use to group "the sheet always had this" from "this
+    rig also offers". See
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    """
+    library = rigging.clip_library(template_key)
+    timing = clip_timing(template_key)
+    legacy_names = {name for name, *_rest in charsheet.ANIMATIONS}
+    out: list[dict[str, Any]] = []
+    for clip in library["clips"]:
+        name = str(clip["name"])
+        clip_time = timing[name]
+        out.append(
+            {
+                "name": name,
+                "frames": clip_time.frames,
+                "loop": clip_time.loop,
+                "duration_ms": clip_time.duration_ms,
+                "provisional": bool(clip.get("provisional", False)),
+                "default": name in legacy_names,
+            }
+        )
+    return out
+
+
 def troupe_options(svc: WarlockService) -> dict[str, Any]:
     """What a Troupe request may ask for. One source for the form."""
     from . import palettes
@@ -153,13 +186,20 @@ def troupe_options(svc: WarlockService) -> dict[str, Any]:
             {
                 "name": name,
                 "frames": frames,
-                "min_frames": charsheet.MOVEMENT_MIN_FRAMES[name],
+                "min_frames": charsheet.movement_min_frames(name),
                 "max_frames": charsheet.MAX_FRAMES,
                 "loop": loop,
                 "duration_ms": ms,
             }
             for name, frames, loop, ms in charsheet.ANIMATIONS
         ],
+        # ``template_key -> its whole clip library``, for every template a
+        # sheet can actually be animated on -- the open vocabulary beyond the
+        # closed five above. See :func:`_clip_vocabulary`.
+        "clip_vocabulary": {
+            row["key"]: _clip_vocabulary(row["key"]) for row in clip_templates()
+        },
+        "fps_choices": list(charsheet.FPS_CHOICES),
         "directions": [name for name, _yaw in charsheet.DIRECTIONS],
         # Read from ``charsheet`` rather than restated, this module's rule: the
         # worker frames the render from that same table, and a second copy here
@@ -183,6 +223,9 @@ def troupe_options(svc: WarlockService) -> dict[str, Any]:
             "camera": charsheet.DEFAULT_CAMERA_PRESET,
             "template": TROUPE_TEMPLATE,
             "layout": charsheet.resolve_layout().as_dict(),
+            # D5 HD mode: on by default, so a form that never touches the
+            # switch mints the same row it always has -- see ``_check_options``.
+            "pixel_art": True,
         },
     }
 
@@ -197,10 +240,59 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
     the three doors below call the shared function directly, because *this* is
     where the Troupe defaults live and a door should not have to restate them
     -- the delegation rule this module's docstring states, applied to itself.
+
+    **D5 HD mode.** ``pixel_art`` (default True) is Troupe's own switch, not
+    ``check_pixel_options``': a request that turns it off wants an unreduced,
+    unpalletted render, so colour count, an authored palette, dithering and an
+    outline pass are all questions this render never asks. Checked on the raw
+    entries *before* ``check_pixel_options`` fills in its own defaults --
+    catching the value the caller actually sent rather than the default
+    ``check_pixel_options`` would otherwise substitute for it -- and refused on
+    the option's own field, the same rule ``check_pixel_options`` already
+    applies to ``outline``/``reduce_mode`` on a path that has neither. The row
+    then carries ``"pixel_art": False`` and drops ``colors``/``palette``/
+    ``dither``/``outline`` outright, so ``_q_troupe`` never sees a value it
+    would apply. ``True`` writes no key at all, so a form that never touches
+    the switch mints the byte-identical row it always has.
+
+    **Only a real bool, or absence, answers.** ``bool("false")`` is ``True``
+    in Python, so ``entries.get("pixel_art")`` used to turn HD mode *on* by
+    way of a string that spells "off" -- every pane sends a real bool here
+    (``troupe_settings.py``'s Style combo resolves to one through
+    ``troupe_mode._style_choice``, never a raw value passed through), so this
+    refusal has no control on any pane to name and is deliberately left
+    unfielded rather than pointed at an address nothing draws.
     """
     from .pixelopts import check_pixel_options
 
-    return check_pixel_options(
+    raw_pixel_art = entries.get("pixel_art")
+    if raw_pixel_art is None:
+        pixel_art = True
+    elif isinstance(raw_pixel_art, bool):
+        pixel_art = raw_pixel_art
+    else:
+        raise Invalid("pixel_art must be true or false")
+
+    if not pixel_art:
+        palette = str(entries.get("palette") or "").strip()
+        if palette:
+            raise Invalid(
+                "pixel_art is off, so there is no palette to choose",
+                field="palette",
+            )
+        if entries.get("dither"):
+            raise Invalid(
+                "pixel_art is off, so there is no dithering to turn on",
+                field="dither",
+            )
+        outline = str(entries.get("outline") or "none")
+        if outline != "none":
+            raise Invalid(
+                "pixel_art is off, so there is no outline mode to set",
+                field="outline",
+            )
+
+    options = check_pixel_options(
         svc,
         entries,
         sizes=TROUPE_LOGICAL_SIZES,
@@ -210,6 +302,35 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
         outline_default=DEFAULT_TROUPE_OUTLINE,
         size_range=TROUPE_CUSTOM_SIZE_RANGE,
     )
+    if not pixel_art:
+        for key in ("colors", "palette", "dither", "outline"):
+            options.pop(key, None)
+        options["pixel_art"] = False
+    return options
+
+
+def _timed_layout(
+    payload: Mapping[str, Any] | None, template: str
+) -> charsheet.LayoutSpec:
+    """``charsheet.resolve_layout``, timed to *template*'s clip library.
+
+    Every movement *template*'s own clip library defines is askable, per
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- passing
+    ``timing`` is what opens that door, in place of the closed
+    :data:`charsheet.ANIMATIONS` five.
+
+    Raises whatever ``resolve_layout`` raises, **unconverted**: each caller
+    turns a ``ValueError``/``TypeError`` into ``Invalid`` on the field its own
+    pane draws, and the ``field="..."`` literal has to sit in the *calling*
+    function's own source for
+    ``test_every_refusal_a_pane_can_provoke_names_something_that_pane_draws``
+    to see it -- a field chosen here and merely handed up would be invisible
+    to that scan, which is exactly the gap this vocabulary's ``fps`` field
+    means to surface: ``panes/troupe_settings.py`` draws no ``fps`` control
+    yet, and the wiring test is how that stays visible instead of silently
+    passing.
+    """
+    return charsheet.resolve_layout(payload, timing=clip_timing(template))
 
 
 def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
@@ -240,9 +361,12 @@ def check_troupe(svc: WarlockService, block: Any) -> dict[str, Any]:
         raise Invalid(f"pose must be one of {list(TROUPE_POSES)}", field="pose")
     options = _check_options(svc, entries)
     try:
-        layout = charsheet.resolve_layout(entries.get("layout"))
+        layout = _timed_layout(entries.get("layout"), TROUPE_TEMPLATE)
     except (TypeError, ValueError) as exc:
-        raise Invalid(str(exc), field="layout") from exc
+        message = str(exc)
+        if message.startswith("fps must be"):
+            raise Invalid(message, field="fps") from exc
+        raise Invalid(message, field="layout") from exc
     # The VRAM the *sheet* half needs is nothing -- EEVEE and CPU -- but the
     # mesh the gate promotes to is an ordinary image job and is admitted by
     # its own door. What is checked here is the reference stage's own base,
@@ -327,6 +451,7 @@ def create_charsheet(
     name: str | None = None,
     layout: Mapping[str, Any] | None = None,
     character: Mapping[str, Any] | None = None,
+    pixel_art: bool | None = None,
 ) -> dict[str, Any]:
     """Queue a configured character sheet for a finished, rigged mesh.
 
@@ -383,11 +508,18 @@ def create_charsheet(
             "reduce_mode": reduce_mode,
             "dither": dither,
             "palette": palette,
+            "pixel_art": pixel_art,
         },
     )
 
     try:
-        resolved_layout = charsheet.resolve_layout(layout)
+        resolved_layout = _timed_layout(layout, template)
+    except (TypeError, ValueError) as exc:
+        message = str(exc)
+        if message.startswith("fps must be"):
+            raise Invalid(message, field="fps") from exc
+        raise Invalid(message, field="layout") from exc
+    try:
         # Expanded and thrown away, exactly as ``create_sheet`` plans and
         # throws away: a clip library that does not fill the frame table, or a
         # size whose atlas is over the texture limit, is refused now instead of
@@ -587,6 +719,7 @@ def send_to_troupe(
     template: str | None = None,
     bones: list[Any] | None = None,
     character: Mapping[str, Any] | None = None,
+    pixel_art: bool | None = None,
 ) -> dict[str, Any]:
     """Take a mesh the user already has into Troupe, rigging it first if needed.
 
@@ -670,6 +803,7 @@ def send_to_troupe(
             name=name,
             layout=layout,
             character=character,
+            pixel_art=pixel_art,
         )
 
     spec = _charsheet_spec(
@@ -686,6 +820,7 @@ def send_to_troupe(
         layout=layout,
         template=template,
         character=character,
+        pixel_art=pixel_art,
         # Read off the source row this function already holds, rather than
         # grown as a parameter of ``send_to_troupe`` itself: the row is the
         # record of what the mesh's front was set to, and a caller-supplied
@@ -750,6 +885,7 @@ def _charsheet_spec(
     template: str | None = None,
     character: Mapping[str, Any] | None = None,
     front_yaw: float | None = None,
+    pixel_art: bool | None = None,
 ) -> dict[str, Any]:
     """Validate a sheet request and freeze it as the params the worker will use.
 
@@ -781,6 +917,7 @@ def _charsheet_spec(
             "reduce_mode": reduce_mode,
             "dither": dither,
             "palette": palette,
+            "pixel_art": pixel_art,
         },
     )
     sheet_template = str(template or TROUPE_TEMPLATE)
@@ -802,7 +939,19 @@ def _charsheet_spec(
             field="template",
         )
     try:
-        resolved_layout = charsheet.resolve_layout(layout)
+        resolved_layout = _timed_layout(layout, sheet_template)
+    except (TypeError, ValueError) as exc:
+        message = str(exc)
+        if message.startswith("fps must be"):
+            raise Invalid(message, field="fps") from exc
+        if message.endswith("is not a clip of this skeleton"):
+            # field="template": the same address ``_charsheet_spec``'s sibling
+            # ``except KeyError`` branch below already uses for the identical
+            # fact reached a different way -- ``panes/troupe_send.py`` draws a
+            # Skeleton control, not a layout table.
+            raise Invalid(message, field="template") from exc
+        raise Invalid(message, field="layout") from exc
+    try:
         records = expand_clips(sheet_template, resolved_layout)
         charsheet.plan(
             records,

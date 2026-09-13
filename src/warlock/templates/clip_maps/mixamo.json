@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "key": "mixamo",
+  "label": "Mixamo",
+  "template": "humanoid",
+  "strip": "^mixamorig\\d*[:_]",
+  "required": ["hips", "spine", "thigh.L", "thigh.R", "shin.L", "shin.R"],
+  "root": "hips",
+  "bones": {
+    "hips": ["Hips"],
+    "spine": ["Spine"],
+    "chest": ["Spine1", "Spine2"],
+    "neck": ["Neck"],
+    "head": ["Head"],
+
+    "shoulder.L": ["LeftShoulder"],
+    "upper_arm.L": ["LeftArm"],
+    "forearm.L": ["LeftForeArm"],
+    "hand.L": ["LeftHand"],
+
+    "shoulder.R": ["RightShoulder"],
+    "upper_arm.R": ["RightArm"],
+    "forearm.R": ["RightForeArm"],
+    "hand.R": ["RightHand"],
+
+    "thigh.L": ["LeftUpLeg"],
+    "shin.L": ["LeftLeg"],
+    "foot.L": ["LeftFoot"],
+
+    "thigh.R": ["RightUpLeg"],
+    "shin.R": ["RightLeg"],
+    "foot.R": ["RightFoot"]
+  }
+}

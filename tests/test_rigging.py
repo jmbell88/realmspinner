@@ -553,14 +553,18 @@ def test_an_oversized_user_clip_library_is_refused_before_being_read(tmp_path):
     """poser-04: parse_clip_library had no per-item count ceiling at all, so a
     library with more poses than service.clips._check_shape's own write-side
     MAX_LIBRARY_KEYS cap would allow parsed in full instead of being refused
-    the way the write door already refuses it."""
+    the way the write door already refuses it. The cap itself rose from 256
+    to 1024 on 2026-09-12 (schema v3, design decision D2) so that clips
+    imported from Mixamo/Rigify have room to sit beside the shipped ones
+    without silently landing on a ceiling sized for the original five --
+    the ``"at most 1024 key poses"`` text below moves if that cap ever does."""
     raw = {
         "poses": [
             {"name": f"p{i}", "bones": {}} for i in range(rigging.MAX_CLIP_LIBRARY_POSES + 1)
         ],
         "clips": [{"name": "idle", "keys": ["p0"], "segments": [1]}],
     }
-    with pytest.raises(ValueError, match="at most 256 key poses"):
+    with pytest.raises(ValueError, match="at most 1024 key poses"):
         rigging.parse_clip_library(raw)
 
     # And the read door built on it: a library this shape sitting on disk --
@@ -616,12 +620,19 @@ def test_every_template_with_a_clip_library_expands_to_the_frame_table(key, fram
     """The whole point of authoring a library: the frame table asks, and the
     library fills it exactly. A clip that expanded to one frame too few would
     reach the renderer as ``check_frame_counts``' ValueError an hour and 256
-    EEVEE frames later, so it is asked here, at every count Troupe offers."""
+    EEVEE frames later, so it is asked here, at every count Troupe offers.
+
+    Every clip the library defines, open-vocabulary and all -- not only the
+    legacy five -- and one direction each: the claim here is about the
+    per-clip frame table, and a library with ten clips at ``directions=8``
+    would trip ``MAX_CELLS`` for a reason this test is not about."""
     from warlock import clips
 
     library = rigging.clip_library(key)
     names = [c["name"] for c in library["clips"]]
-    layout = {"movements": [{"name": name, "frames": frames} for name in names]}
+    layout = {
+        "movements": [{"name": name, "frames": frames, "directions": 1} for name in names]
+    }
     records = clips.expand_clips(key, layout)
     assert set(records) == set(names)
     for name, rows in records.items():

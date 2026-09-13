@@ -409,6 +409,7 @@ def _library() -> dict:
                 "closed": True,
                 "easing": "linear",
                 "space": "delta",
+                "duration_ms": 100,
             }
         ],
     }
@@ -467,6 +468,30 @@ def test_update_key_reason_names_a_build_failure_not_still_loading():
         == "That GLB carries no skeleton."
     )
     assert _new_key_reason(False) == "The skeleton preview is still loading."
+
+
+def test_a_provisional_clip_shows_its_badge(app_ctx, imgui_ctx):
+    """The picker's badge text, pinned as a pure lookup so it is testable with
+    no imgui frame (``_update_key_reason``'s own reason for being a function),
+    then proven not to break the pane it is actually drawn into."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_clips
+    from warlock.studio.panes.poser_clips import _provisional_note
+
+    assert _provisional_note({"provisional": True}) == "provisional"
+    assert _provisional_note({"provisional": False}) == ""
+    assert _provisional_note({}) == ""
+    assert _provisional_note(None) == ""
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    state = poser_mode.ensure(app_ctx)
+    state.clips_dirty_flag = False
+    library = _library()
+    library["clips"][0]["provisional"] = True
+    poser_mode.adopt_clips(app_ctx, library)
+    assert state.open_clip()["provisional"] is True
+    _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
 
 
 def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):

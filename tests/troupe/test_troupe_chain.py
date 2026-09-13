@@ -1014,6 +1014,35 @@ async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch
     assert report["colors"] <= 8
 
 
+async def test_a_twelve_fps_sheet_renders_from_its_stored_row(worker, monkeypatch):
+    """The door-to-worker end of the multiple-of-10 regression.
+
+    ``create_charsheet``/``_charsheet_spec`` write ``resolved_layout.as_dict()``
+    into ``params["layout"]`` -- a v3 snapshot whose movement carries a literal
+    ``duration_ms`` of ``round(1000 / fps)`` (83ms at 12fps, not a multiple of
+    10). ``_q_troupe.py`` then resolves that same stored value with
+    ``charsheet.resolve_layout(params.get("layout"))`` and no ``timing`` at
+    all -- exactly the call that used to refuse every fps but 10, failing the
+    job after admission rather than rendering it.
+    """
+    _fake_render(monkeypatch)
+    layout = charsheet.resolve_layout(
+        {
+            "version": 3,
+            "fps": 12,
+            "movements": [{"key": "idle", "directions": 1}],
+        }
+    ).as_dict()
+    assert layout["movements"][0]["duration_ms"] == 83
+
+    job_id, _source, _source_dir = await _run_charsheet(worker, layout=layout)
+
+    row = worker.store.get(job_id)
+    assert row["error"] is None
+    assert row["status"] == "done"
+    assert row["params"]["layout"]["fps"] == 12
+
+
 async def test_an_unrigged_source_fails_the_sheet_rather_than_rendering_it(
     worker, monkeypatch
 ):
@@ -1802,3 +1831,158 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
     # The re-rendered run still carries a flame -- a subset that composited
     # nothing would pass every assertion above.
     assert _warm(cells_b[3]).any()
+
+
+# -- D5: HD mode ---------------------------------------------------------------
+#
+# ``pixel_art: False`` is Troupe's own switch (``service.troupe._check_options``):
+# the render, the reduce and the effects composite all still run, but the
+# quantise pass -- median cut or designed palette, per-cell outline, alpha
+# snap -- never does. The instrument throughout is a smooth colour gradient
+# with a soft radial alpha falloff: a quantised atlas could not keep either
+# property, so finding both on the published sheet is the whole claim.
+
+
+def _fake_hd_render(monkeypatch):
+    """A Blender fake that paints a colour gradient with soft alpha, rather
+    than this module's flat-fill fake -- a flat fill quantises losslessly and
+    would prove nothing about whether the quantise pass actually ran."""
+    from pathlib import Path
+
+    import numpy as np
+    from PIL import Image
+
+    from warlock import rigging
+
+    calls: list[dict] = []
+
+    def fake(spec, **kwargs):
+        calls.append({"spec": spec, **kwargs})
+        frames_dir = Path(spec["frames_dir"])
+        size = spec["frame_size"]
+        ys, xs = np.mgrid[0:size, 0:size]
+        red = (xs * 255 // max(size - 1, 1)).astype(np.uint8)
+        green = (ys * 255 // max(size - 1, 1)).astype(np.uint8)
+        blue = np.full((size, size), 128, dtype=np.uint8)
+        cx = cy = size / 2.0
+        dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2) / (size / 2.0)
+        alpha = np.clip(255 * (1.0 - dist), 0, 255).astype(np.uint8)
+        rgba = np.dstack([red, green, blue, alpha])
+        for cell in spec["cells"]:
+            Image.fromarray(rgba, "RGBA").save(frames_dir / f"{cell['index']:04d}.png")
+        return {
+            "ok": True,
+            "pivot": [0.5, 0.9],
+            "framing": {"extent": 2.24, "margin": spec.get("margin") or 1.12},
+        }
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+    return calls
+
+
+async def test_an_hd_sheet_is_published_without_palette_mapping(worker, monkeypatch):
+    """The whole point of the switch: no median cut, no designed palette, no
+    alpha snap. A gradient render is the instrument -- quantised, it would
+    collapse to at most the sheet's colour budget and every alpha would snap
+    to 0 or 255; published as HD, neither happens."""
+    import numpy as np
+    from PIL import Image
+
+    from warlock import rigging
+
+    _fake_hd_render(monkeypatch)
+    # ``colors`` rides along to prove it is inert on this path -- an ordinary
+    # row would cut to eight colours, and a leftover unguarded read of it
+    # would do the same here by accident.
+    job_id, _source, source_dir = await _run_charsheet(worker, pixel_art=False, colors=8)
+
+    sheet_id = worker.store.get(job_id)["params"]["sheet_id"]
+    png = rigging.sheet_png_path(source_dir, sheet_id)
+    with Image.open(png) as opened:
+        opened.load()
+        atlas = np.asarray(opened.convert("RGBA"))
+    pixels = atlas.reshape(-1, 4)
+    opaque = pixels[pixels[:, 3] > 0]
+    colours = {tuple(int(v) for v in rgb) for rgb in opaque[:, :3]}
+    assert len(colours) > 64
+    alpha = pixels[:, 3]
+    assert ((alpha > 0) & (alpha < 255)).any()
+
+
+async def test_an_hd_sidecar_says_so_and_a_pixel_art_sidecar_says_nothing(
+    worker, monkeypatch
+):
+    """Additive, and one-directional: an HD sheet's sidecar says
+    ``"pixel_art": False`` so a reader can tell without re-deriving it from the
+    pixels, and a pixel-art sheet stays the byte-identical sidecar it always
+    published -- no key at all, not ``true``."""
+    from warlock import rigging
+
+    _fake_render(monkeypatch)
+    (hd_job, _s1, hd_dir), (px_job, _s2, px_dir) = await _run_character_sheets(
+        worker,
+        [
+            {"pixel_art": False, "character": None},
+            {"character": None},
+        ],
+    )
+    hd_meta = rigging.read_sheet(hd_dir, worker.store.get(hd_job)["params"]["sheet_id"])
+    px_meta = rigging.read_sheet(px_dir, worker.store.get(px_job)["params"]["sheet_id"])
+    assert hd_meta["pixel_art"] is False
+    assert "pixel_art" not in px_meta
+
+
+async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
+    """Ten clips per species landed in the shipped humanoid library --
+    ``hit`` and ``death`` among them, neither in the closed legacy
+    :data:`charsheet.ANIMATIONS` five. This is that vocabulary all the way
+    through a render, not only the door's plan-and-discard check
+    (``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``): the
+    sidecar's ``animation`` block has to tag every run the layout actually
+    named."""
+    from warlock import clips, rigging
+    from warlock.pipelines import charsheet as cs
+
+    _fake_render(monkeypatch)
+    layout = cs.resolve_layout(
+        {
+            "version": 3,
+            "movements": [
+                {"key": "hit", "frames": 2, "directions": 1},
+                {"key": "death", "frames": 2, "directions": 1},
+            ],
+        },
+        timing=clips.clip_timing("humanoid"),
+    ).as_dict()
+
+    job_id, _source, source_dir = await _run_charsheet(worker, layout=layout)
+
+    sheet_id = worker.store.get(job_id)["params"]["sheet_id"]
+    meta = rigging.read_sheet(source_dir, sheet_id)
+    tags = {t["name"] for t in meta["animation"]["tags"]}
+    expected = {
+        f"{animation}_{direction}"
+        for animation, direction, *_rest in cs.spans(cs.resolve_layout(layout))
+    }
+    assert expected == {"hit_front", "death_front"}
+    assert tags == expected
+
+
+async def test_a_256px_sheet_renders_through_the_chain_at_an_exact_stride(worker, monkeypatch):
+    """Render-chain coverage, not proof that 256 is an offerable sheet size:
+    ``_run_charsheet`` queues the worker job directly with
+    ``logical_size=256``, so this passes even against a door that refuses 256
+    outright -- it only exercises ``_charsheet``/``pixel_report`` once a 256px
+    request reaches the worker. The door-level claim that 256 became a
+    legal size lives in
+    ``tests/troupe/test_charsheet.py::test_256_is_a_sheet_size``.
+
+    ``charsheet.SIZES`` now reaches 256, and 512 (``RENDER_SIZE``) divides
+    it exactly -- stride 2, not the NEAREST fallback a size ``RENDER_SIZE``
+    does not divide would take."""
+    _fake_render(monkeypatch)
+    job_id, _source, _source_dir = await _run_charsheet(
+        worker, logical_size=256, colors=8
+    )
+    report = worker.store.get(job_id)["params"]["pixel_report"]
+    assert report["exact_stride"] is True

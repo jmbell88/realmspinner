@@ -313,8 +313,15 @@ class TroupeOps:
                 job_id, phase="pixel", label="Quantising", inner=0.0,
                 inner_next=1.0, nominal=8.0, detail="",
             )
-            palette_name = str(params.get("palette") or "")
-            colors = int(params.get("colors", 64))
+            # **D5 HD mode.** ``pixel_art`` absent or ``True`` is the ordinary
+            # sprite path below; ``False`` is Troupe's HD switch, and
+            # ``service.troupe._check_options`` never writes ``colors``,
+            # ``palette``, ``dither`` or ``outline`` onto that row -- so they
+            # are read only inside the branch that actually consumes them,
+            # rather than defaulted here and ignored, which would let a typo'd
+            # guard silently apply a stray default to a request that asked for
+            # none of this.
+            pixel_art = params.get("pixel_art") is not False
 
             def _quantise() -> tuple[dict[str, Any], dict[int, dict[str, int] | None]]:
                 from PIL import Image
@@ -322,54 +329,75 @@ class TroupeOps:
                 with Image.open(atlas_path) as opened:
                     opened.load()
                     atlas = opened.convert("RGBA")
-                # Designed or median-cut, the colours are then handed to
-                # ``pixelize_atlas`` as one ordinary palette -- so the outline and
-                # orphan passes run identically whichever branch produced them, and
-                # a derived sheet is not a second code path with its own bugs.
-                # ``resolve_palette`` is that branch, and its docstring carries the
-                # reason a palette file does not cost the shared-across-cells
-                # property.
-                designed = queue_mod._palette_entries(self.config, palette_name)
-                if base_png is not None and designed is None:
-                    # **Pinned from the sheet being re-rendered.** With no
-                    # designed palette ``resolve_palette`` median-cuts the atlas
-                    # it is given -- and a subset atlas is a handful of cells, so
-                    # it would derive its own colours and the re-rendered runs
-                    # would come back a different shade from the ones beside
-                    # them. That is precisely the "same shirt, two shades"
-                    # failure the whole-atlas pass exists to prevent, reached by
-                    # a different road. The base atlas is already mapped, so its
-                    # own colour set *is* the answer, exactly.
-                    designed = _atlas_entries(base_png, colors)
-                entries, chosen = pixelsheet.resolve_palette(
-                    atlas, colors=colors, entries=designed or None
-                )
-                out, report = pixelize.pixelize_atlas(
-                    atlas,
-                    columns=layout.columns,
-                    rows=layout.rows,
-                    cell=logical,
-                    palette=entries,
-                    dither=bool(params.get("dither")),
-                    # Still passed, and still a no-op on this path -- the atlas
-                    # arrives already reduced. Kept rather than dropped because
-                    # ``pixelize_atlas`` is shared with the restyle door, where the
-                    # atlas is *not* pre-reduced and the mode is live; the report
-                    # below is corrected instead.
-                    reduce_mode=reduce_mode,
-                    outline_mode=str(params.get("outline", "none")),
-                )
-                # About the reduction that actually happened, which is
-                # ``reduce_frames``' and not ``pixelize_atlas``'. Computed here
-                # rather than trusted from the report: on this path the atlas is
-                # already at the target, so ``pixelize_atlas`` measured a stride of
-                # 1 and answered ``True`` unconditionally -- including at 24, 48 and
-                # 96px, where 512 does not divide and the real reduction fell back
-                # to a NEAREST resize.
-                report["exact_stride"] = charsheet.RENDER_SIZE % logical == 0
-                report["palette"] = chosen
-                report["palette_name"] = palette_name
-                report["palette_size"] = len(entries)
+                if not pixel_art:
+                    # The atlas ``_render_charsheet`` already packed is the one
+                    # this path publishes: reduced to the logical size and
+                    # composited with effects exactly like the pixel-art path,
+                    # but never quantised -- no median cut or designed palette,
+                    # no per-cell outline, no alpha snap. A subset re-render
+                    # pins nothing either: ``_atlas_entries`` exists to keep a
+                    # re-render mapped to the *same* colours as the sheet
+                    # beside it, a question a full-colour, soft-alpha atlas
+                    # never asks.
+                    out = atlas
+                    report: dict[str, Any] = {
+                        "style": "hd",
+                        # Computed exactly as the pixel-art path computes it
+                        # below -- ``pixelize_atlas`` never runs here to report
+                        # its own (on this path, meaningless) stride.
+                        "exact_stride": charsheet.RENDER_SIZE % logical == 0,
+                    }
+                else:
+                    palette_name = str(params.get("palette") or "")
+                    colors = int(params.get("colors", 64))
+                    # Designed or median-cut, the colours are then handed to
+                    # ``pixelize_atlas`` as one ordinary palette -- so the outline and
+                    # orphan passes run identically whichever branch produced them, and
+                    # a derived sheet is not a second code path with its own bugs.
+                    # ``resolve_palette`` is that branch, and its docstring carries the
+                    # reason a palette file does not cost the shared-across-cells
+                    # property.
+                    designed = queue_mod._palette_entries(self.config, palette_name)
+                    if base_png is not None and designed is None:
+                        # **Pinned from the sheet being re-rendered.** With no
+                        # designed palette ``resolve_palette`` median-cuts the atlas
+                        # it is given -- and a subset atlas is a handful of cells, so
+                        # it would derive its own colours and the re-rendered runs
+                        # would come back a different shade from the ones beside
+                        # them. That is precisely the "same shirt, two shades"
+                        # failure the whole-atlas pass exists to prevent, reached by
+                        # a different road. The base atlas is already mapped, so its
+                        # own colour set *is* the answer, exactly.
+                        designed = _atlas_entries(base_png, colors)
+                    entries, chosen = pixelsheet.resolve_palette(
+                        atlas, colors=colors, entries=designed or None
+                    )
+                    out, report = pixelize.pixelize_atlas(
+                        atlas,
+                        columns=layout.columns,
+                        rows=layout.rows,
+                        cell=logical,
+                        palette=entries,
+                        dither=bool(params.get("dither")),
+                        # Still passed, and still a no-op on this path -- the atlas
+                        # arrives already reduced. Kept rather than dropped because
+                        # ``pixelize_atlas`` is shared with the restyle door, where the
+                        # atlas is *not* pre-reduced and the mode is live; the report
+                        # below is corrected instead.
+                        reduce_mode=reduce_mode,
+                        outline_mode=str(params.get("outline", "none")),
+                    )
+                    # About the reduction that actually happened, which is
+                    # ``reduce_frames``' and not ``pixelize_atlas``'. Computed here
+                    # rather than trusted from the report: on this path the atlas is
+                    # already at the target, so ``pixelize_atlas`` measured a stride of
+                    # 1 and answered ``True`` unconditionally -- including at 24, 48 and
+                    # 96px, where 512 does not divide and the real reduction fell back
+                    # to a NEAREST resize.
+                    report["exact_stride"] = charsheet.RENDER_SIZE % logical == 0
+                    report["palette"] = chosen
+                    report["palette_name"] = palette_name
+                    report["palette_size"] = len(entries)
                 # Re-measured off the atlas that is actually published, not the one
                 # that was packed. ``pack`` measures each frame as it composites --
                 # correct there, and stale by the time this pass has finished with
@@ -477,6 +505,15 @@ class TroupeOps:
         # consume ``animation``; Troupe uses this immutable snapshot to drive
         # its per-sheet preview controls.
         meta["troupe"] = troupe_layout.as_dict()
+        if not pixel_art:
+            # **D5 HD mode, additive and one-directional.** Written only on an
+            # HD sheet, ``meta["troupe"]``'s own rule: a pixel-art sidecar
+            # carries no opinion about this and stays the byte-identical
+            # sidecar it always published, while an HD sheet says so plainly
+            # for a reader deciding whether to run its own pixel-art tooling
+            # (a heatmap, an exporter) against an atlas that was never snapped
+            # to a palette.
+            meta["pixel_art"] = False
         # Additive on the ordinary sheet v1 format too -- ``meta["troupe"]``'s
         # neighbour and its rule, sidecar version unchanged: a reader that does
         # not know this key sees the sheet it would have seen anyway.

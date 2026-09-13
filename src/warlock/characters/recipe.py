@@ -24,10 +24,12 @@ a change to one is a change to both plus that test.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from ..pipelines import charsheet
 from .errors import CharacterError
 from .family import Family, get_family
 
@@ -48,8 +50,13 @@ __all__ = [
 #: baked asset does.
 VERSION = 1
 
-#: ``pipelines.charsheet.SIZES``. See the module docstring for why it is copied.
-LOGICAL_SIZES: tuple[int, ...] = (16, 24, 32, 48, 64, 96, 128)
+#: ``pipelines.charsheet.SIZES``, derived rather than restated: the import pin
+#: (``tests/characters/test_characters_imports.py``) already allows this
+#: module to reach ``warlock.pipelines.charsheet`` at module scope, so a second,
+#: hand-typed ladder here would be one edit to ``SIZES`` away from a recipe
+#: offering a size the renderer refuses -- the very drift this module's
+#: docstring warns the *other* three ladders about.
+LOGICAL_SIZES: tuple[int, ...] = charsheet.SIZES
 #: ``service.troupe.TROUPE_COLOR_CHOICES``.
 COLOR_CHOICES: tuple[int, ...] = (8, 16, 32, 64)
 #: ``pipelines.pixelize.OUTLINE_MODES`` / ``REDUCE_MODES``.
@@ -57,6 +64,14 @@ OUTLINE_MODES: tuple[str, ...] = ("none", "inner", "outer")
 REDUCE_MODES: tuple[str, ...] = ("box", "point")
 #: ``pipelines.charsheet.DIRECTION_PRESETS``' keys.
 DIRECTION_CHOICES: tuple[int, ...] = (1, 4, 8, 16)
+
+#: A well-formed clip name -- lowercase letters, digits and underscores, the
+#: same alphabet every shipped and authored clip name already uses. Existence
+#: (is this actually a clip the rig's library defines) is not decided here:
+#: this module may not import ``rigging`` or ``clips``, so that question waits
+#: for ``service.characters._plan``, which has the archetype's library in
+#: hand. See ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+_CLIP_NAME_RE = re.compile(r"[a-z0-9_]+")
 
 #: The most a name may be, matching ``rigging.validate_pose``'s cap so a
 #: character and a pose cannot disagree about what a long name is.
@@ -109,6 +124,15 @@ class Recipe:
     palette: str
     seed: int
     name: str
+    #: D5 HD mode -- off is the pixel-art render every recipe has always
+    #: produced, so this defaults True and ``as_dict`` omits it at that value,
+    #: the same "absence is not a claim" rule ``service.troupe``'s row carries.
+    pixel_art: bool = True
+    #: A layout-wide frame rate, the same :data:`charsheet.FPS_CHOICES` ladder
+    #: Troupe offers. ``None`` means the recipe named none -- every movement
+    #: keeps its clip's own timing -- so this is carried into
+    #: :meth:`layout_payload` only when set, never as a literal "no opinion".
+    fps: int | None = None
 
     @property
     def spec(self) -> Family:
@@ -210,6 +234,17 @@ class Recipe:
         if len(name) > MAX_NAME:
             raise CharacterError(f"a name is at most {MAX_NAME} characters", field="name")
 
+        pixel_art = bool(raw.get("pixel_art", True))
+
+        raw_fps = raw.get("fps")
+        fps: int | None = None
+        if raw_fps is not None:
+            fps = _integer(raw_fps, "fps", "fps")
+            if fps not in charsheet.FPS_CHOICES:
+                raise CharacterError(
+                    f"fps must be one of {list(charsheet.FPS_CHOICES)}", field="fps"
+                )
+
         return cls(
             family=fam.key,
             family_version=version,
@@ -227,6 +262,8 @@ class Recipe:
             palette=str(raw.get("palette") or "").strip(),
             seed=seed,
             name=name,
+            pixel_art=pixel_art,
+            fps=fps,
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -234,6 +271,14 @@ class Recipe:
         out["appearance"] = dict(self.appearance)
         out["animations"] = dict(self.animations)
         out["version"] = VERSION
+        # Absence is not the same claim as the default -- ``service.troupe``'s
+        # row carries the identical rule for the identical reason: a recipe
+        # that never touched either control round-trips to a dict byte-
+        # identical to one written before they existed.
+        if self.pixel_art:
+            out.pop("pixel_art", None)
+        if self.fps is None:
+            out.pop("fps", None)
         return out
 
     def replace(self, **changes: Any) -> Recipe:
@@ -242,14 +287,22 @@ class Recipe:
     # -- what it expands into -----------------------------------------------
 
     def layout_payload(self) -> dict[str, Any]:
-        """The v2 Troupe layout request this recipe means."""
-        return {
-            "version": 2,
+        """The Troupe layout request this recipe means.
+
+        v3 only when ``fps`` is actually set -- a bare v2 request otherwise,
+        so a recipe that never touched the rate is byte-identical to one from
+        before this vocabulary opened.
+        """
+        payload: dict[str, Any] = {
+            "version": 3 if self.fps is not None else 2,
             "movements": [
                 {"key": name, "frames": frames, "directions": self.directions}
                 for name, frames in self.animations.items()
             ],
         }
+        if self.fps is not None:
+            payload["fps"] = self.fps
+        return payload
 
     def layout_dict(self) -> dict[str, Any]:
         """The resolved frame table, as ``charsheet`` states it.
@@ -259,8 +312,6 @@ class Recipe:
         agree on, and a second arithmetic in this module would be a second
         opinion about what cell 137 depicts.
         """
-        from ..pipelines import charsheet
-
         return charsheet.resolve_layout(self.layout_payload()).as_dict()
 
     @property
@@ -269,31 +320,51 @@ class Recipe:
 
 
 def _check_camera(camera: str) -> None:
-    from ..pipelines import charsheet
-
     keys = [key for key, _label, _elev in charsheet.CAMERA_PRESETS]
     if camera not in keys:
         raise CharacterError(f"camera must be one of {keys}", field="camera")
 
 
 def _check_animations(raw: Any) -> dict[str, int]:
-    from ..pipelines import charsheet
+    """Every movement a syntactically legal name, at a legal frame count.
 
+    **Open, not closed.** A recipe may name any clip its archetype's skeleton
+    eventually turns out to define -- not just the five legacy
+    :data:`charsheet.ANIMATIONS` names -- because
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` opens the
+    same vocabulary here that ``resolve_layout``'s ``timing`` argument opens
+    for Troupe. *Existence* is a fact about the rig, not the request: this
+    module may import no more of ``warlock`` than ``pipelines.charsheet``, so
+    it cannot ask a clip library anything, and ``service.characters._plan``
+    is what actually resolves the name once it has the archetype's library in
+    hand -- a KeyError/ValueError there becomes the existing ``Invalid`` path.
+    What this function still owns is the two syntactic traps a bad name can
+    fall into regardless of which rig ends up asked: not a legal identifier at
+    all, or one that reads as ``<clip>_<direction>`` to Inker's tag parser.
+    """
     if raw is None:
         raw = dict(DEFAULT_ANIMATIONS)
     if not isinstance(raw, Mapping) or not raw:
         raise CharacterError("a character sheet needs at least one animation", field="animations")
-    known = {name for name, *_rest in charsheet.ANIMATIONS}
     out: dict[str, int] = {}
     for name, frames in raw.items():
         key = str(name)
-        if key not in known:
+        if not _CLIP_NAME_RE.fullmatch(key):
             raise CharacterError(
-                f"{key!r} is not an animation; try " + ", ".join(sorted(known)),
+                f"{key!r} is not a well-formed clip name; use lowercase "
+                "letters, digits and underscores",
                 field="animations",
             )
+        for direction in charsheet.COMPASS_16:
+            if key.endswith(f"_{direction}"):
+                raise CharacterError(
+                    f'{key!r} ends in "_{direction}"; Troupe reads a name '
+                    f"like that as movement {key[: -len(direction) - 1]!r} "
+                    f"facing {direction!r}",
+                    field="animations",
+                )
         count = _integer(frames, "animations", f"{key} frames")
-        low = charsheet.MOVEMENT_MIN_FRAMES[key]
+        low = charsheet.movement_min_frames(key)
         if not low <= count <= charsheet.MAX_FRAMES:
             raise CharacterError(
                 f"{key} must have {low}-{charsheet.MAX_FRAMES} frames", field="animations"
@@ -316,12 +387,7 @@ def _default_camera() -> tuple[str, float]:
     which is exactly how this file's first draft was caught. A preset whose
     angle is edited in one place and copied in another is a form offering a
     framing nothing renders.
-
-    Function-scoped like every other ``charsheet`` reach in this module, so the
-    package's import pin keeps measuring module-level imports.
     """
-    from ..pipelines import charsheet
-
     key = charsheet.DEFAULT_CAMERA_PRESET
     elevation = next(
         angle for preset, _label, angle in charsheet.CAMERA_PRESETS if preset == key

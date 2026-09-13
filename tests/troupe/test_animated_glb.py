@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips, rigging
+from warlock import clips, glbio, rigging
 from warlock.pipelines import charsheet
 from warlock.pipelines import sheet as sheetlib
-from warlock.service import derive, files
+from warlock.service import NotReady, derive, files
 from warlock.studio import artifacts
 
 #: A rig import plus five keyed actions and a glTF export. Well past the
@@ -117,15 +117,21 @@ def test_animated_glb_carries_the_clips_own_root_translation(tmp_path):
     assert max(abs(f["root_offset"][2]) for f in scaled) > 0.1
 
 
-def test_the_timing_table_has_one_home():
-    """Per-frame duration and the loop flag already exist, once, in
-    ``charsheet.ANIMATIONS``. A second copy would be one edit from disagreeing
-    about how fast a walk cycle is."""
-    table = {name: (loop, ms) for name, _frames, loop, ms in charsheet.ANIMATIONS}
-    for track in clips.animation_tracks("humanoid"):
-        loop, duration_ms = table[track["name"]]
-        assert track["loop"] is bool(loop)
-        assert track["step"] == clips.ANIMATION_FPS * duration_ms / 1000.0
+def test_the_timing_has_one_home_the_clip_library():
+    """Per-frame duration and the loop flag have one home, and it is no longer
+    ``charsheet.ANIMATIONS``: the vocabulary opened past its five names (see
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``), and a
+    track for a clip that table has never heard of -- ``attack_02``, ``cast``,
+    ``fall``, ``hit``, ``death`` -- has nowhere else to get its timing from. A
+    second copy of either field would be one edit from disagreeing about how
+    fast a walk cycle is."""
+    library = rigging.clip_library("humanoid")
+    tracks = {track["name"]: track for track in clips.animation_tracks("humanoid")}
+    assert set(tracks) == {str(clip["name"]) for clip in library["clips"]}
+    for clip in library["clips"]:
+        track = tracks[str(clip["name"])]
+        assert track["loop"] is bool(clip["closed"])
+        assert track["step"] == clips.ANIMATION_FPS * int(clip["duration_ms"]) / 1000.0
 
 
 def test_the_timebase_divides_every_authored_tempo_exactly():
@@ -150,7 +156,10 @@ def test_the_spec_refuses_a_skeleton_with_nothing_authored(tmp_path):
     spec = clips.animate_spec(tmp_path, "humanoid", tmp_path / "out.glb", tmp_path)
     assert spec["op"] == "animate"
     assert spec["rig_glb"] == str(tmp_path / "rig.glb")
-    assert len(spec["clips"]) == len(charsheet.ANIMATIONS)
+    # Not ``len(charsheet.ANIMATIONS)`` (five, and stale the moment the clip
+    # library grows past it) -- the library itself is the count that matters,
+    # since 2026-09-12 opened the vocabulary past those five names.
+    assert len(spec["clips"]) == len(rigging.clip_library("humanoid")["clips"])
 
 
 def test_blender_does_no_interpolation():
@@ -240,11 +249,260 @@ def test_the_bake_is_staged_under_a_name_the_exporter_will_not_rename():
     """Blender's glTF exporter appends ``.glb`` to a path that does not end in
     it, so ``_staged``'s default ``.animated.glb.tmp`` would be written as
     ``.animated.glb.tmp.glb`` and the rename would find nothing --
-    ``rigging.RIG_GLB_TMP``'s rule, met a second time. Existence is the
-    freshness test for this artifact, which is why it is staged at all."""
+    ``rigging.RIG_GLB_TMP``'s rule, met a second time. A child dying part way
+    through a bake is exactly what staging protects against, whatever decides
+    whether to bake at all -- see the digest tests below for that half now
+    that existence alone is no longer the freshness test (D6)."""
     source = inspect.getsource(derive.get_file)
     assert 'tmp_name=".animated.tmp.glb"' in source
     assert "convert_lock(job_id, name)" in source
+
+
+# --- staleness: a clip library that changed after the bake (D6) --------------
+
+
+def _minimal_glb() -> bytes:
+    """The smallest byte string ``glbio.split_glb`` accepts: a header and an
+    empty JSON chunk, no BIN. Stands in for a real Blender export in the
+    tests below, which monkeypatch ``rigging.run_worker`` rather than
+    requiring ``bpy`` -- these tests are about the staleness bookkeeping
+    around the bake, not the bake itself (that is
+    ``test_every_authored_clip_comes_back_as_a_named_glTF_animation`` and its
+    sibling, further down, which do need a real Blender)."""
+    header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
+    return glbio.rebuild_glb(header, {"asset": {"version": "2.0"}}, b"")
+
+
+def _stub_run_worker(monkeypatch, calls: list[int]) -> None:
+    """Replace ``rigging.run_worker`` with one that writes a minimal valid
+    GLB to ``spec["out_glb"]`` instead of shelling out to Blender, and counts
+    how many times it ran -- the number every test below actually asserts."""
+
+    def fake(spec, *, timeout=None, **kwargs):
+        calls.append(1)
+        Path(spec["out_glb"]).write_bytes(_minimal_glb())
+        return {}
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+
+
+def test_an_animated_glb_records_the_library_it_was_baked_from(svc, monkeypatch):
+    """The stamp ``derive.get_file`` writes before the rename, read straight
+    back with ``glbio`` rather than through another bake."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+
+    out = derive.get_file(svc, job_id, "animated.glb")
+
+    assert calls == [1]
+    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    assert stamp["clips_digest"] == clips.library_digest("humanoid")
+
+
+def test_the_loop_set_rides_the_file(svc, monkeypatch):
+    """The clip player on the far side of an export needs to know which
+    animations loop without re-deriving the clip library itself."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+
+    out = derive.get_file(svc, job_id, "animated.glb")
+
+    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    assert stamp["loops"] == list(clips.loop_names("humanoid"))
+
+
+def test_an_animated_glb_with_a_matching_digest_is_served_without_a_bake(svc, monkeypatch):
+    """The whole point of stamping rather than always rebaking: a second
+    request against an unchanged library costs nothing."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1]
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1], "a fresh stamp should not cost a second bake"
+
+
+def test_a_pre_digest_animated_glb_is_rebaked_once(svc, monkeypatch):
+    """Every ``animated.glb`` baked before this stamp existed carries none --
+    existence used to be the whole freshness test (``files.DERIVED_RIG``'s old
+    docstring). It has to be rebaked, and rebaked exactly once: the rebake's
+    own stamp must make the *next* request free, or every download of an old
+    job would pay a Blender subprocess forever."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+    job_dir = svc.job_dir(job_id)
+    (job_dir / "animated.glb").write_bytes(_minimal_glb())  # no stamp at all
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1]
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1], "the rebake's own stamp should make the second request free"
+
+
+def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
+    svc, monkeypatch, tmp_path
+):
+    """The user-facing claim behind D6: a clip edited in Poser after the first
+    bake has to reach the next download, not sit invisible behind a file that
+    already exists and looks done."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1]
+
+    edited_dir = tmp_path / "user-clips"
+    edited_dir.mkdir()
+    (edited_dir / "humanoid.json").write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "poses": [
+                    {"name": "a", "bones": {}},
+                    {"name": "b", "bones": {}},
+                ],
+                "clips": [
+                    {
+                        "name": "idle",
+                        "keys": ["a", "b"],
+                        "segments": [1, 1],
+                        "closed": True,
+                        "duration_ms": 200,
+                    }
+                ],
+            }
+        ),
+        "utf-8",
+    )
+    rigging.set_user_clip_dir(edited_dir)
+    try:
+        assert clips.library_digest("humanoid") != _stamp_digest(
+            svc, job_id
+        ), "the fixture library must actually differ, or this test proves nothing"
+        derive.get_file(svc, job_id, "animated.glb")
+        assert len(calls) == 2, "the edited library should cost exactly one rebake"
+        stamp = glbio.root_extras(
+            (svc.job_dir(job_id) / "animated.glb").read_bytes()
+        )["warlock_animation"]
+        assert stamp["clips_digest"] == clips.library_digest("humanoid")
+    finally:
+        rigging.set_user_clip_dir(None)
+
+
+def _stamp_digest(svc, job_id: str) -> str:
+    """The ``clips_digest`` already stamped on a job's ``animated.glb``."""
+    path = svc.job_dir(job_id) / "animated.glb"
+    return glbio.root_extras(path.read_bytes())["warlock_animation"]["clips_digest"]
+
+
+def test_a_clip_edit_during_a_bake_leaves_the_file_stale(svc, monkeypatch, tmp_path):
+    """Defect, fixed 2026-09-13: ``_bake_animated_glb`` used to read
+    ``clips.library_digest``/``loop_names`` *after* ``run_worker`` returned --
+    seconds, or minutes, into a real bake. A Poser Save landing anywhere in
+    that window got stamped onto the finished file as if it were the library
+    the bake actually used, so the next request saw a matching digest and
+    never rebaked: a stale bake stamped fresh, forever.
+
+    ``run_worker`` is monkeypatched to make the edit itself, mid-call --
+    exactly where the real race would land it -- rather than relying on
+    timing.
+    """
+    job_id = _rigged(svc)
+    edited_dir = tmp_path / "user-clips"
+    edited_dir.mkdir()
+    original_digest = clips.library_digest("humanoid")
+
+    def fake(spec, *, timeout=None, **kwargs):
+        # Stands in for a Poser Save landing while Blender is still running:
+        # the spec was already built off the library as it was a moment ago.
+        (edited_dir / "humanoid.json").write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "poses": [{"name": "a", "bones": {}}, {"name": "b", "bones": {}}],
+                    "clips": [
+                        {
+                            "name": "idle",
+                            "keys": ["a", "b"],
+                            "segments": [1, 1],
+                            "closed": True,
+                            "duration_ms": 200,
+                        }
+                    ],
+                }
+            ),
+            "utf-8",
+        )
+        rigging.set_user_clip_dir(edited_dir)
+        Path(spec["out_glb"]).write_bytes(_minimal_glb())
+        return {}
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+    try:
+        derive.get_file(svc, job_id, "animated.glb")
+        edited_digest = clips.library_digest("humanoid")
+        assert edited_digest != original_digest, "the mid-bake edit must actually change the digest"
+
+        stamp = glbio.root_extras(
+            (svc.job_dir(job_id) / "animated.glb").read_bytes()
+        )["warlock_animation"]
+        # The bake ran against the library as it was *before* the mid-bake
+        # edit, so the stamp must record that digest -- not the edited one
+        # that landed while "Blender" was running.
+        assert stamp["clips_digest"] == original_digest
+        assert stamp["clips_digest"] != edited_digest
+    finally:
+        rigging.set_user_clip_dir(None)
+
+
+def test_a_skeleton_with_no_resolvable_clip_library_is_a_refusal_not_a_traceback(tmp_path):
+    """Defect, fixed 2026-09-13: ``_animation_stale`` called
+    ``clips.library_digest`` outside the door's own ``ValueError`` handling,
+    so a template this build cannot resolve a clip library for (an unknown
+    key -- ``rigging.get_template`` raises ``ValueError`` for one) escaped as
+    a bare traceback instead of the same :class:`~warlock.service.NotReady`
+    refusal ``files.py``'s readiness door already gives for "nothing
+    authored", worded identically so the two do not disagree."""
+    path = tmp_path / "animated.glb"
+    # A stamped file, so this exercises the digest comparison itself rather
+    # than the earlier "no stamp at all" branch, which returns True before
+    # ``clips.library_digest`` is ever reached.
+    stamped = glbio.set_root_extras(
+        _minimal_glb(), "warlock_animation", {"clips_digest": "whatever", "loops": []}
+    )
+    path.write_bytes(stamped)
+    with pytest.raises(NotReady, match="clip library"):
+        derive._animation_stale(path, "no-such-skeleton")
+
+
+def test_a_corrupt_animated_glb_is_rebaked_not_served(svc, monkeypatch, caplog):
+    """The digest check itself can fail -- a truncated or hand-mangled file --
+    and that has to read as stale, not as an unrelated crash that serves
+    garbage (or nothing) to whatever asked for this mesh's animation."""
+    import logging
+
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+    job_dir = svc.job_dir(job_id)
+    (job_dir / "animated.glb").write_bytes(b"not a glb at all")
+
+    with caplog.at_level(logging.WARNING, logger="warlock.service.derive"):
+        out = derive.get_file(svc, job_id, "animated.glb")
+
+    assert calls == [1]
+    assert glbio.root_extras(out.read_bytes())["warlock_animation"]["clips_digest"] == (
+        clips.library_digest("humanoid")
+    )
+    assert any("rebak" in rec.message for rec in caplog.records)
 
 
 # --- the bake itself ---------------------------------------------------------

@@ -77,7 +77,11 @@ MAX_KEYS = 64
 #: the pose library's own cap and is deliberately not reused: that one bounds a
 #: directory the user browses, this one bounds a single JSON file the renderer
 #: parses on every expansion.
-MAX_LIBRARY_KEYS = 256
+#:
+#: Raised from 256 to 1024 alongside ``rigging.MAX_CLIP_LIBRARY_POSES`` when
+#: the schema moved to v3 -- see that constant's own comment for why
+#: ``rigging.MAX_CLIP_LIBRARY_BYTES`` did not need to move with it.
+MAX_LIBRARY_KEYS = 1024
 
 
 def _lock(svc: WarlockService) -> Any:
@@ -113,8 +117,21 @@ def library(svc: WarlockService, template: str) -> dict[str, Any]:
     ``edited`` says whether this is the user's copy or the shipped default,
     because "Revert to the shipped clips" has to be offerable only when there is
     something to revert.
+
+    Raises :class:`Invalid` when the user's own file exists but this build can
+    no longer parse it -- rather than falling back to the shipped library the
+    way ``rigging.clip_library`` (the *renderer's* door, still tolerant by
+    design) does. Presenting the fallback here instead, with ``edited: True``,
+    used to tell the user their edits were intact when they were not, and the
+    next Save would have silently overwritten the file this refusal names.
     """
     key = _template_or_invalid(template)
+    error = rigging.user_clip_error(key)
+    if error is not None:
+        raise Invalid(
+            f"your saved clip library for this skeleton could not be read: {error}",
+            field="template",
+        )
     found = rigging.clip_library(key)
     path = poselib.clip_path(svc.config, key)
     return {
@@ -173,12 +190,28 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
     if not clips:
         raise Invalid("a clip library needs at least one clip", field="clips")
     seen: list[str] = []
+    validated_clips: list[dict[str, Any]] = []
     for clip in clips:
         label = str(clip.get("name") or "").strip()
         if not label:
             raise Invalid("every clip needs a name", field="clips")
         if label in seen:
             raise Conflict(f'two clips are both named "{label}"', field="clips")
+        # Once any clip name can exist (not just the shipped five), a name that
+        # *looks* like ``<clip>_<direction>`` is a trap: Inker's tag parser
+        # would read ``fall_back`` as clip ``fall`` facing ``back``.
+        try:
+            rigging.reject_direction_named_clip(label)
+        except ValueError as exc:
+            # Every save writes v3 (see ``_check_shape``'s own docstring and
+            # the "version" line below), so this refusal is unconditional
+            # here even though ``rigging.parse_clip_library`` only applies it
+            # to v3 *reads* -- a v2 user library keeps whatever name it
+            # already had, but there is no way to save one under this name
+            # any more. The message says so, rather than just restating the
+            # collision: the 2026-09-13 fix found the door refuse with no
+            # path forward stated, leaving "rename it" implicit.
+            raise Invalid(f"{exc}; rename it before saving", field="clips") from exc
         seen.append(label)
         keys = [str(k) for k in (clip.get("keys") or ())]
         segments = [int(n) for n in (clip.get("segments") or ())]
@@ -226,6 +259,46 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
                 f"this build knows {', '.join(EASINGS)}",
                 field="easing",
             )
+        # v3: timing moved into the library so any clip name can carry its own
+        # tempo, where it used to live only in ``pipelines.charsheet.ANIMATIONS``
+        # keyed by the five shipped names. A clip the editor sends is always
+        # required to state it -- ``library()`` always hands one back (read
+        # through ``rigging.parse_clip_library``'s v2-to-v3 migration), so a
+        # payload missing it is not a legacy file, it is a bug in the caller.
+        duration_ms = clip.get("duration_ms")
+        try:
+            if duration_ms is None:
+                raise ValueError(f'"{label}" needs a duration_ms in milliseconds')
+            duration_ms = rigging.validate_clip_duration_ms(duration_ms, label)
+        except ValueError as exc:
+            raise Invalid(str(exc), field="duration_ms") from exc
+        entry: dict[str, Any] = {
+            "name": label,
+            "keys": keys,
+            "segments": segments,
+            "closed": closed,
+            "easing": easing,
+            "duration_ms": duration_ms,
+        }
+        # Both optional and both kept verbatim once validated -- an importer or
+        # an agent's note on a clip it wrote, not something this door invents
+        # or drops. ``rigging.parse_clip_library`` (called on the whole document
+        # right after this function returns) validates them again as the
+        # renderer's own authority; this pass exists so a bad one is refused by
+        # field instead of surfacing as the generic "cannot be saved".
+        if "provisional" in clip:
+            provisional = clip["provisional"]
+            if not isinstance(provisional, bool):
+                raise Invalid(
+                    f'"{label}" provisional must be true or false', field="provisional"
+                )
+            entry["provisional"] = provisional
+        if clip.get("source") is not None:
+            try:
+                entry["source"] = rigging.validate_clip_source(clip["source"], label)
+            except ValueError as exc:
+                raise Invalid(str(exc), field="source") from exc
+        validated_clips.append(entry)
     # The rotation frame is not cosmetic: "node" is parent-relative absolute and
     # "delta" is relative to the bone's own rest, and the two are composed
     # differently by the renderer (``blender_worker.POSE_SPACES``). An unknown
@@ -238,20 +311,16 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
             field="space",
         )
     return {
-        "version": 2,
+        # Always written as 3, regardless of what a v2 read handed the editor:
+        # a saved library states its own timing rather than leaning on the
+        # legacy table, and every clip in ``validated_clips`` already carries
+        # an explicit ``duration_ms`` -- the migrated one if this document's
+        # source was v2, or the author's own if it was already v3.
+        "version": 3,
         "template": str(payload.get("template") or ""),
         "space": space,
         "poses": validated_poses,
-        "clips": [
-            {
-                "name": str(c["name"]).strip(),
-                "keys": [str(k) for k in c["keys"]],
-                "segments": [int(n) for n in c["segments"]],
-                "closed": bool(c.get("closed", False)),
-                "easing": str(c.get("easing") or "linear"),
-            }
-            for c in clips
-        ],
+        "clips": validated_clips,
     }
 
 
@@ -281,6 +350,39 @@ def _check_renders(template: str) -> None:
         ) from exc
     except ValueError as exc:
         raise invalid_from(exc, "These clips cannot fill a character sheet") from exc
+
+
+def _commit_locked(svc: WarlockService, key: str, document: dict[str, Any]) -> None:
+    """Write *document* as ``key``'s user clip library.
+
+    Must be called with :func:`_lock` already held -- pulled out of
+    :func:`save` so a later "read, merge, commit" door (an agent's import
+    landing on top of whatever a human already saved) can take the lock once
+    across its own read-modify-write instead of acquiring it a second time,
+    which is exactly the gap that would let another save land in between.
+    """
+    path = poselib.clip_path(svc.config, key)
+    previous = path.read_bytes() if path.is_file() else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    blob = json.dumps(document, indent=2).encode("utf-8")
+    # ``files._staged_write``'s shape (SVC-01), not a bare ``.tmp``: a fixed
+    # name and no ``finally`` stranded a visible ``<key>.json.tmp`` beside
+    # the real file forever on an ENOSPC or an antivirus lock, and nothing
+    # sweeps this directory.
+    _staged_write(path, blob)
+    rigging.invalidate_clips()
+    try:
+        _check_renders(key)
+    except Exception:
+        # Staged, like the publish above: ``rigging.clip_library`` reads this
+        # same path from the render worker with no lock shared with ours, so
+        # a direct ``write_bytes`` here would hand it a torn file.
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            _staged_write(path, previous)
+        rigging.invalidate_clips()
+        raise
 
 
 def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -314,29 +416,8 @@ def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[st
     except Exception as exc:
         raise invalid_from(exc, "That clip library cannot be saved") from exc
 
-    path = poselib.clip_path(svc.config, key)
     with _lock(svc):
-        previous = path.read_bytes() if path.is_file() else None
-        path.parent.mkdir(parents=True, exist_ok=True)
-        blob = json.dumps(document, indent=2).encode("utf-8")
-        # ``files._staged_write``'s shape (SVC-01), not a bare ``.tmp``: a fixed
-        # name and no ``finally`` stranded a visible ``<key>.json.tmp`` beside
-        # the real file forever on an ENOSPC or an antivirus lock, and nothing
-        # sweeps this directory.
-        _staged_write(path, blob)
-        rigging.invalidate_clips()
-        try:
-            _check_renders(key)
-        except Exception:
-            # Staged, like the publish above: ``rigging.clip_library`` reads this
-            # same path from the render worker with no lock shared with ours, so
-            # a direct ``write_bytes`` here would hand it a torn file.
-            if previous is None:
-                path.unlink(missing_ok=True)
-            else:
-                _staged_write(path, previous)
-            rigging.invalidate_clips()
-            raise
+        _commit_locked(svc, key, document)
     return library(svc, key)
 
 

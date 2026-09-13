@@ -50,15 +50,8 @@ def draw(ctx: Any) -> None:
     _repair(ctx, record)
     _character(ctx, record)
 
-    report = _pixel_report(ctx, state)
-    if report:
-        palette = report.get("palette_name") or report.get("palette") or ""
-        widgets.muted(f"{report.get('colors', '?')} colours ({palette})")
-        if report.get("orphans"):
-            # Worth a line rather than hidden: a large orphan count is the
-            # signal that the reduction found detail the palette could not
-            # hold, which is a reason to try a bigger sprite or a wider palette.
-            widgets.muted(f"{report['orphans']} stray pixels cleaned")
+    for line in _pixel_report_lines(_pixel_report(ctx, state)):
+        widgets.muted(line)
 
     imgui.dummy((0, sp(tokens.SP_2)))
     _rebuild(ctx, state)
@@ -171,6 +164,38 @@ def _character(ctx: Any, record: dict[str, Any]) -> None:
         "next one. Editing the prompt will not undo them.",
     ):
         troupe_mode.vary_in_create(ctx, record)
+
+
+def _pixel_report_lines(report: dict[str, Any]) -> list[str]:
+    """The muted lines a pixel-art report earns, worded for what it measured.
+
+    **HD reports full colour, not a palette.** The worker's HD branch
+    (``_q_troupe``'s D5 switch) never quantises the atlas, so its report is
+    ``{"style": "hd", "exact_stride": bool}`` -- no ``colors``, no
+    ``palette_name``/``palette``, no ``orphans``, because none of those
+    passes ran. Read literally, the pixel-art wording below said "? colours
+    ()" over a report that was never going to carry either number. A pure
+    function of the report rather than drawn inline, so the wording is
+    testable without a window -- ``camera_line``'s own reason.
+    """
+    if not report:
+        return []
+    if report.get("style") == "hd":
+        lines = ["HD -- full colour"]
+        if report.get("exact_stride") is False:
+            # The same fact the pixel-art branch below reports as a stride
+            # that fell back to a NEAREST resize -- worded for a path that
+            # never quantised, so there is no orphan count to blame it on.
+            lines.append("frame size is not an exact stride of the render")
+        return lines
+    palette = report.get("palette_name") or report.get("palette") or ""
+    lines = [f"{report.get('colors', '?')} colours ({palette})"]
+    if report.get("orphans"):
+        # Worth a line rather than hidden: a large orphan count is the signal
+        # that the reduction found detail the palette could not hold, which is
+        # a reason to try a bigger sprite or a wider palette.
+        lines.append(f"{report['orphans']} stray pixels cleaned")
+    return lines
 
 
 def _pixel_report(ctx: Any, state: Any) -> dict[str, Any]:

@@ -89,6 +89,12 @@ old complete file or the new complete file, never a truncated one. That matters 
 which runs on a job that is already finished and whose `model.glb` the viewer may be reading at that
 moment.
 
+`animated.glb` (one of the two GLBs above) is derived from `rig.glb` rather than `model.glb`, and its
+freshness test is not bare existence: the host stamps a hash of the rig's clip library into the file
+itself the moment it is baked, and a later request rebakes it, rather than serving the old one,
+whenever that hash no longer matches — which is what lets a clip edited in Poser, or a clip newly
+added to a shipped library, reach a character's `animated.glb` the next time anyone asks for it.
+
 A retarget deletes every derived artifact, because each of them describes the old mesh. It does not
 delete the rig — it reports that the rig is now stale, and the retarget control warns you before the
 button rather than after. Destroying a rig that took minutes to solve, in order to change a triangle
@@ -147,6 +153,10 @@ imported armature in a collection excluded from the view layer, so nothing rende
 re-exports — but the objects are still in the scene, and a unit icosphere among them is enough to
 treble a computed bounding box and frame every rigged sprite sheet's subject at a third of its size.
 Every import in the worker is followed by a purge of those helpers.
+
+"Import clip" adds a fourth operation, `clip_sample`, that only samples: it imports a Mixamo or
+Rigify file and reads its armature's world-space bone rotations frame by frame, leaving the
+conversion onto a Warlock rig to pure host math afterward.
 
 ## The pose contract
 
@@ -221,3 +231,12 @@ Three details are easy to undo by accident:
 Column zero is the front view. Yaw zero looks along `+Y` in Blender, and every skeleton template
 puts the subject's forward direction at `-Y`. See [The grid](27-sprite-sheets.md#the-grid) and
 [The sidecar](27-sprite-sheets.md#the-sidecar).
+
+Each movement's frame timing comes from the rig's own clip library — how many milliseconds one
+rendered frame holds — unless the request names a global frame rate, which restates every
+movement's timing at that rate instead of the library's own. The size ladder now runs to 256 px,
+where the 8192 px atlas ceiling allows exactly 256 cells (eight columns by thirty-two rows) — the
+five original movements across eight directions, with no room for a sixth movement at that size. An
+HD sheet (`pixel_art: false`) skips the reduction pass altogether rather than reducing to a larger
+palette: no median cut, no dithering, no outline pass, because those are the pixel-art steps this
+render does not take.

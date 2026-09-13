@@ -16,6 +16,8 @@ do it -- and not in ``rigging`` because that module imports nothing from
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -40,11 +42,16 @@ def expand_clips(
     rather than left to the renderer, because a seven-frame walk laid into an
     eight-frame table renders one cell of some other animation and sends the
     user to look at the rig.
+
+    ``layout`` is resolved with this rig's own :func:`clip_timing` as
+    ``resolve_layout``'s ``timing`` -- the open-vocabulary door, precedence
+    *(a)* -- so a movement naming any clip *template_key*'s library defines
+    resolves, not only one of the five legacy names.
     """
     resolved = (
         layout
         if isinstance(layout, charsheet.LayoutSpec)
-        else charsheet.resolve_layout(layout)
+        else charsheet.resolve_layout(layout, timing=clip_timing(template_key))
     )
     library = rigging.clip_library(template_key)
     by_name = {c["name"]: c for c in library["clips"]}
@@ -84,6 +91,52 @@ def expand_clips(
 ANIMATION_FPS = 100
 
 
+def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
+    """``clip name -> charsheet.ClipTiming``, from a rig's own clip library.
+
+    ``resolve_layout``'s ``timing`` door: the service layer builds this once
+    per rig and passes it down, so a layout can name any clip the library
+    defines instead of one of :data:`charsheet.ANIMATIONS`' five. Frame count
+    is not stored on the clip -- it is what the clip's own ``segments`` (plus
+    one more sample for a one-shot, which lands on its last key rather than
+    looping back to its first) expand to.
+    """
+    library = rigging.clip_library(template_key)
+    out: dict[str, charsheet.ClipTiming] = {}
+    for clip in library["clips"]:
+        closed = bool(clip["closed"])
+        frames = sum(int(n) for n in clip["segments"]) + (0 if closed else 1)
+        out[str(clip["name"])] = charsheet.ClipTiming(
+            frames=frames, loop=closed, duration_ms=int(clip["duration_ms"])
+        )
+    return out
+
+
+def loop_names(template_key: str) -> tuple[str, ...]:
+    """The names of a template's closed (looping) clips, library order."""
+    library = rigging.clip_library(template_key)
+    return tuple(str(c["name"]) for c in library["clips"] if c["closed"])
+
+
+def library_digest(template_key: str) -> str:
+    """A hash of everything that decides how a template's clips play.
+
+    Changes whenever a clip's keys, segments, easing, space, ``closed`` or
+    ``duration_ms`` change -- or a pose's rotations do, or ``ANIMATION_FPS``
+    itself does -- and not otherwise. Meant for a later stage to compare
+    against a value it recorded on an ``animated.glb``'s sidecar at bake time,
+    so a stale bake (the library edited since) is detectable without
+    re-baking to find out.
+    """
+    library = rigging.clip_library(template_key)
+    canonical = json.dumps(
+        {"library": library, "animation_fps": ANIMATION_FPS},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     """Every authored clip of a template, resolved to frames. -> track list.
 
@@ -93,16 +146,18 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     exported animation has no grid, so this uses the clip's **own** segment
     lengths -- the animation carries the author's timing rather than Troupe's.
 
-    Timing comes from ``charsheet.ANIMATIONS``, which is where the per-frame
-    duration and the loop flag already live, once. A second copy would be one
-    edit from disagreeing about how fast a walk cycle is.
+    Timing comes from the clip library's own ``closed``/``duration_ms``
+    fields now -- their one home, since the vocabulary opened past
+    ``charsheet.ANIMATIONS``' five names (see
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``). A
+    second copy would be one edit from disagreeing about how fast a walk
+    cycle is.
 
     Blender does no interpolation: it receives resolved frames, which is the
     same host/worker split ``fit_template`` establishes and what keeps the
     interpolation under test with no ``bpy``.
     """
     library = rigging.clip_library(template_key)
-    timing = {name: (loop, ms) for name, _frames, loop, ms in charsheet.ANIMATIONS}
     tracks: list[dict[str, Any]] = []
     for clip in library["clips"]:
         name = str(clip["name"])
@@ -116,11 +171,8 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
             # for its reason: a clip library's key poses carry no ``id``.
             clip_id=name,
         )
-        # A clip nothing in the table names still exports, on its own closed
-        # flag and the table's most common tempo: the library is authored and
-        # the table is Troupe's, and a clip should not silently vanish from an
-        # export because the sheet has no row for it.
-        loop, duration_ms = timing.get(name, (bool(clip["closed"]), 100))
+        loop = bool(clip["closed"])
+        duration_ms = int(clip["duration_ms"])
         tracks.append(
             {
                 "name": name,

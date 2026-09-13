@@ -96,26 +96,34 @@ def get_file(
 
     # The rig with its clips baked on. ``model.fbx``'s branch exactly: a
     # Blender subprocess under the same per-artifact lock, staged and renamed
-    # in because existence *is* the freshness test -- a child that dies part
-    # way through would otherwise leave a truncated GLB that is served for the
-    # life of the job directory.
+    # in because a child that dies part way through would otherwise leave a
+    # truncated GLB that is served for the life of the job directory.
+    #
+    # Unlike every other artifact staged in this function, existence is *not*
+    # the whole freshness test here (design decision D6): the file also
+    # carries a stamp -- ``clips.library_digest``, written into its own root
+    # extras the moment Blender's export lands, before the rename that makes
+    # it servable -- and a mismatch against the template's *current* digest
+    # means someone edited a clip (or Poser shipped a new one) since this copy
+    # was baked. Existence alone would leave every ``animated.glb`` baked
+    # before the stamp existed, or before a since-edited clip, silently
+    # wrong for the life of the job directory -- exactly the staleness a
+    # retarget's ``stale_rig_artifacts`` warns about, but reachable with no
+    # retarget at all.
     if name == "animated.glb" and (job_dir / "rig.glb").exists():
+        template = str((rigging.read_rig(job_dir) or {}).get("template") or "")
         with svc.convert_lock(job_id, name):
-            if not path.exists():
-                from .. import clips
-
-                template = str((rigging.read_rig(job_dir) or {}).get("template") or "")
+            # Re-checked inside the lock, the rule every derivation here
+            # follows: whoever waited here wanted exactly this file, fresh --
+            # not a second Blender re-baking what the first caller just
+            # finished.
+            if not path.exists() or _animation_stale(path, template):
                 try:
                     _staged(
                         job_dir,
                         name,
                         tmp_name=".animated.tmp.glb",
-                        write=lambda tmp: rigging.run_worker(
-                            clips.animate_spec(job_dir, template, tmp, job_dir),
-                            # Import, key and export, like a pose bake: the
-                            # same budget rather than a knob of its own.
-                            timeout=svc.config.pose_timeout,
-                        ),
+                        write=lambda tmp: _bake_animated_glb(svc, job_dir, template, tmp),
                     )
                 except ValueError as exc:
                     # No clips for this skeleton. ``ready`` refuses first, so
@@ -377,6 +385,96 @@ def _staged(job_dir: Path, name: str, write, *, tmp_name: str | None = None) -> 
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
+
+
+def _bake_animated_glb(svc: WarlockService, job_dir: Path, template: str, tmp: Path) -> None:
+    """Run the Blender bake, then stamp the staging file with what baked it.
+
+    The stamp has to land on ``tmp`` -- not on ``animated.glb`` after the
+    rename -- because ``_staged`` publishes by ``os.replace`` the moment
+    ``write`` returns: stamping afterwards would either race a concurrent
+    reader onto an un-stamped file or need a second served-name write, which
+    ``CLAUDE.md``'s rule for this artifact (staged-then-replaced, never
+    in-place) rules out. One stamp, one replace, same as every other
+    derivation here.
+
+    ``clips_digest``/``loops`` are read **before** ``clips.animate_spec`` is
+    even called, not after ``run_worker`` returns (defect, fixed 2026-09-13):
+    ``run_worker`` is a Blender subprocess that can run for seconds to
+    minutes, and a Poser Save landing anywhere in that window used to get
+    stamped onto the file as if it were the library this bake actually used --
+    baked from the *old* clips, marked fresh against the *new* digest, and
+    never rebaked again. Reading both right before building the spec narrows
+    the window to the gap between this read and ``animate_spec``'s own
+    (``clips.py`` is not this module's to edit, so that call still re-reads
+    the library itself) -- no I/O and no ``await`` sit in between, so nothing
+    yields the thread there in practice, but it is a residual window rather
+    than a closed one.
+    """
+    from .. import clips, glbio
+
+    digest = clips.library_digest(template)
+    loops = list(clips.loop_names(template))
+    spec = clips.animate_spec(job_dir, template, tmp, job_dir)
+    rigging.run_worker(
+        spec,
+        # Import, key and export, like a pose bake: the same budget rather
+        # than a knob of its own.
+        timeout=svc.config.pose_timeout,
+    )
+    stamped = glbio.set_root_extras(
+        tmp.read_bytes(),
+        "warlock_animation",
+        {"clips_digest": digest, "loops": loops},
+    )
+    tmp.write_bytes(stamped)
+
+
+def _animation_stale(path: Path, template: str) -> bool:
+    """Whether the ``animated.glb`` already on disk was baked from a clip
+    library the template no longer has -- or is unreadable, which this
+    answers the same way, because a file this function cannot make sense of
+    is no more trustworthy than one it can read and disagrees with.
+
+    Cheap on the common (fresh) path: ``glbio.root_extras`` parses only the
+    JSON chunk, never the BIN chunk that carries the actual mesh and keyframe
+    data, so this costs a JSON parse rather than a re-bake. It still has to
+    read the whole file off disk first -- ``glbio`` takes bytes, not a path --
+    so "cheap" means "no Blender subprocess", not "free"; an animated GLB is a
+    rig plus ten clips' worth of keyframes, not the hundreds of megabytes a
+    textured mesh can reach.
+
+    ``clips.library_digest`` can itself raise ``ValueError`` -- an unknown or
+    otherwise unresolvable template, the same failure
+    ``files._rig_has_clips`` already tolerates at the readiness door -- and
+    that used to escape this function as a bare ``ValueError``: the caller's
+    own ``except ValueError`` only wraps the *bake* a few lines further down,
+    not this staleness check that runs before it (defect, fixed 2026-09-13).
+    Converted here into the same :class:`~warlock.service.errors.NotReady`
+    refusal, worded exactly like ``files.py``'s door for "nothing authored",
+    so the two do not disagree about what this failure means.
+    """
+    from .. import clips, glbio
+
+    try:
+        extras = glbio.root_extras(path.read_bytes())
+    except (OSError, ValueError) as exc:
+        log.warning("%s is unreadable, rebaking: %s", path, exc)
+        return True
+    stamp = extras.get("warlock_animation")
+    if not isinstance(stamp, dict):
+        # Baked before this stamp existed, or by something that never wrote
+        # one -- the "every animated.glb baked before today" case D6 exists
+        # for.
+        return True
+    try:
+        current_digest = clips.library_digest(template)
+    except ValueError as exc:
+        raise NotReady(
+            "An animated GLB is baked from a clip library, and nothing is "
+            "authored for this rig's skeleton."
+        ) from exc
+    return stamp.get("clips_digest") != current_digest
 
 
 def _derive_material(job_dir: Path, name: str, source: Path) -> None:

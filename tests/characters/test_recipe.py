@@ -93,7 +93,7 @@ def test_a_newer_family_version_is_refused_by_name():
         ({"camera": "worm"}, "camera"),
         ({"elevation": 120.0}, "elevation"),
         ({"elevation": float("nan")}, "elevation"),
-        ({"animations": {"backflip": 4}}, "animations"),
+        ({"animations": {"Backflip": 4}}, "animations"),
         ({"animations": {"walk": 0}}, "animations"),
         ({"animations": {}}, "animations"),
         ({"directions": 5}, "directions"),
@@ -186,6 +186,34 @@ def test_the_default_animations_leave_the_legacy_table_alone():
     assert Recipe.from_dict(
         {"family": "ogre", "animations": {"run": 8, "jump": 6}}
     ).cell_count == 112
+
+
+def test_a_recipe_may_ask_for_a_clip_beyond_the_legacy_five():
+    """The vocabulary is open, per
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a recipe
+    may name any syntactically legal clip, not just the five
+    ``charsheet.ANIMATIONS`` rows. Whether the archetype's own rig actually
+    defines it is a question for ``service.characters._plan``, which has the
+    clip library in hand -- this door only checks the name's shape.
+    """
+    made = Recipe.from_dict({"family": "ogre", "animations": {"cast": 6}})
+    assert made.animations == {"cast": 6}
+
+
+def test_a_recipe_clip_named_after_a_direction_is_refused():
+    """``walk_front`` reads to Inker's tag parser as clip ``walk`` facing
+    ``front`` -- the same trap ``rigging.reject_direction_named_clip`` and
+    ``charsheet._reject_direction_named_movement`` both guard against, applied
+    here to the name before it ever reaches either."""
+    with pytest.raises(CharacterError) as excinfo:
+        Recipe.from_dict({"family": "ogre", "animations": {"walk_front": 4}})
+    assert excinfo.value.field == "animations"
+    # Pinned on the sentence, not just the field: a syntactically legal but
+    # unknown name (the pre-existing "closed vocabulary" refusal) rings the
+    # same field with a different sentence, and the open vocabulary means that
+    # refusal no longer fires here at all -- this has to be the direction trap
+    # actually catching it.
+    assert "facing" in str(excinfo.value)
 
 
 # --- the registries ---------------------------------------------------------

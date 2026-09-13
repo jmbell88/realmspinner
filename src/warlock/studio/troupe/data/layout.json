@@ -3,7 +3,7 @@
   "render_size": 512,
   "elevation": 30.0,
   "columns": 8,
-  "sizes": [16, 24, 32, 48, 64, 96, 128],
+  "sizes": [16, 24, 32, 48, 64, 96, 128, 256],
   "directions": [
     {"name": "front", "yaw": 0.0},
     {"name": "front_left", "yaw": 45.0},

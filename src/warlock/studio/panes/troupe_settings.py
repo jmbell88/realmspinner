@@ -63,6 +63,8 @@ def draw(ctx: Any) -> None:
             ),
         )
         _layout(form, form_ui, options)
+        _style(form, form_ui)
+        _frame_rate(form, form_ui, options)
         _size(form, form_ui, options)
         _palette(ctx, form, form_ui, options)
     imgui.dummy((0, sp(tokens.SP_1)))
@@ -142,7 +144,26 @@ def _mesh_label(mesh: dict[str, Any]) -> str:
 
 
 def _layout(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) -> None:
-    """Per-movement frame and direction controls; the total is always derived."""
+    """Per-movement frame and direction controls; the total is always derived.
+
+    Every row comes from ``clip_vocabulary[<the rig's template>]`` -- the
+    rig's whole clip library, open past the closed legacy five -- rather than
+    a second, hand-written list: see
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A row
+    whose clip is ``provisional`` says so, in both the short muted note under
+    its switch and the tooltip beside its name, because a row offered with no
+    such mark reads as an animator's finished pass.
+
+    **The vocabulary is timed to the rig this table was actually built for**,
+    read off ``layout["template"]`` rather than the door's own default: a
+    quadruped, bird or blob bound in Troupe used to have its rows read against
+    the default (usually humanoid) vocabulary regardless of its own clip
+    library, which offers clips the rig lacks and hides ones it has.
+    ``troupe_mode._default_layout`` is what stamps ``template`` on the table
+    in the first place and rebuilds it when the bound rig changes; a layout
+    that predates that stamp (an old session's saved form) falls back to the
+    door's default here exactly as it always answered.
+    """
 
     layout = form["layout"]
     # ``check_troupe`` refuses the composed sheet with ``field="layout"``, and
@@ -152,29 +173,37 @@ def _layout(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) 
     # the refusal. ``widgets.field_error`` is the same helper the single-control
     # case uses, which keeps the wording and the colour identical.
     form_ui.note("layout")
-    limits = {row["name"]: row for row in options.get("animations") or ()}
+    template = str(layout.get("template") or (options.get("defaults") or {}).get("template") or "")
+    vocabulary = {
+        str(row.get("name")): row
+        for row in (options.get("clip_vocabulary") or {}).get(template) or ()
+    }
     presets = [int(n) for n in options.get("direction_presets") or (1, 4, 8, 16)]
     for movement in layout.get("movements") or ():
         key = str(movement.get("key") or "")
         label = key.replace("_", " ").title()
+        clip = vocabulary.get(key) or {}
+        provisional = bool(clip.get("provisional"))
         _changed, movement["enabled"] = form_ui.switch(
-            f"movement_{key}", label, bool(movement.get("enabled", True))
+            f"movement_{key}",
+            label,
+            bool(movement.get("enabled", True)),
+            help_text=(
+                "Placeholder keyframes; an animator's pass is still owed"
+                if provisional
+                else ""
+            ),
+            helper="Provisional" if provisional else "",
         )
         if not movement["enabled"]:
             continue
         _changed, frames = form_ui.number(
             f"frames_{key}",
             f"{label} frames",
-            int(movement.get("frames") or limits.get(key, {}).get("frames") or 1),
-            helper=(
-                f"{limits.get(key, {}).get('min_frames', 1)}-"
-                f"{limits.get(key, {}).get('max_frames', 32)} frames"
-            ),
+            int(movement.get("frames") or clip.get("frames") or 1),
+            helper=f"1-{charsheet.MAX_FRAMES} frames",
         )
-        movement["frames"] = max(
-            int(limits.get(key, {}).get("min_frames") or 1),
-            min(int(frames), int(limits.get(key, {}).get("max_frames") or 32)),
-        )
+        movement["frames"] = max(1, min(int(frames), charsheet.MAX_FRAMES))
         _changed, directions = form_ui.combo(
             f"directions_{key}",
             f"{label} directions",
@@ -182,6 +211,58 @@ def _layout(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) 
             [(str(n), f"{n}-direction") for n in presets],
         )
         movement["directions"] = int(directions)
+
+
+def _style(form: dict[str, Any], form_ui: forms.Form) -> None:
+    """Pixel art or HD -- what render this sheet's cells come out as.
+
+    The two ``pixel_art`` states ``service.troupe._check_options`` already
+    validates (D5), given a name and a control: HD disables rather than hides
+    the four controls a pixel-art render has and an HD one does not, so a
+    control that is off says why rather than simply not being there.
+    """
+    _changed, style = form_ui.combo(
+        "style",
+        "Style",
+        troupe_mode._style_choice(form),
+        [
+            (troupe_mode.STYLE_PIXEL_ART, "Pixel art"),
+            (troupe_mode.STYLE_HD, "HD"),
+        ],
+        help_text=(
+            "Pixel art reduces the render to a logical size, a colour budget "
+            "and an outline pass. HD keeps the render as painted, with no "
+            "colour budget."
+        ),
+    )
+    form["style"] = style
+
+
+def _frame_rate(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) -> None:
+    """A layout-wide rate, or every clip's own recorded speed.
+
+    "Authored" sends no ``fps`` at all, which is what keeps a form that never
+    touches this control byte-identical to one built before it existed. A
+    chosen rate rides the request's ``layout`` block, not a field of its own
+    -- ``charsheet.resolve_layout`` reads it from there, and only on a v3
+    payload, which is why choosing one is what moves ``troupe_mode
+    ._layout_request``'s ``"version"`` from 2 to 3.
+    """
+    choices = [("", "Authored")] + [
+        (str(n), f"{n} fps") for n in options.get("fps_choices") or ()
+    ]
+    current = "" if form.get("fps") in (None, "") else str(form["fps"])
+    _changed, choice = form_ui.combo(
+        "fps",
+        "Frame rate",
+        current,
+        choices,
+        help_text=(
+            "Authored keeps every included movement at its own recorded "
+            "speed. A rate here overrides all of them to play at once."
+        ),
+    )
+    form["fps"] = int(choice) if choice else None
 
 
 def cell_count(form: dict[str, Any]) -> int:
@@ -212,11 +293,14 @@ def _size(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) ->
     )
     form["camera"] = camera
     _logical_size(form, form_ui, options)
+    hd = troupe_mode._style_choice(form) == troupe_mode.STYLE_HD
     _changed, outline = form_ui.combo(
         "outline",
         "Outline",
         form["outline"],
         [(m, m) for m in options.get("outline_modes") or ()],
+        enabled=not hd,
+        reason="Style is HD, so there is no outline pass." if hd else "",
     )
     form["outline"] = outline
     # Beside the size, because it is a statement about the same act: how the
@@ -300,9 +384,17 @@ def _palette(
     named palette is the artist's decision and the budget is the machine's --
     a median cut over the atlas, which is the fallback and says so.
     """
+    hd = troupe_mode._style_choice(form) == troupe_mode.STYLE_HD
     installed = list(options.get("palettes") or ())
     choices = [("", "Derived from the render")] + [(name, name) for name in installed]
-    _changed, palette = form_ui.combo("palette", "Palette", form["palette"], choices)
+    _changed, palette = form_ui.combo(
+        "palette",
+        "Palette",
+        form["palette"],
+        choices,
+        enabled=not hd,
+        reason="Style is HD, so there is no palette to choose." if hd else "",
+    )
     form["palette"] = palette
     if not palette:
         _changed, colors = form_ui.combo(
@@ -310,9 +402,17 @@ def _palette(
             "Colours",
             str(form["colors"]),
             [(str(n), f"{n} colours") for n in options.get("colors") or ()],
+            enabled=not hd,
+            reason="Style is HD, so there is no colour budget." if hd else "",
         )
         form["colors"] = int(colors)
-    _changed, form["dither"] = form_ui.switch("dither", "Dither", bool(form["dither"]))
+    _changed, form["dither"] = form_ui.switch(
+        "dither",
+        "Dither",
+        bool(form["dither"]),
+        enabled=not hd,
+        reason="Style is HD, so there is no dithering to turn on." if hd else "",
+    )
     # **Last, and optional.** A sheet has always been able to carry a name --
     # the door validates it, the worker writes it into the sidecar and the
     # chooser reads it back -- and there was no field, so every sheet a

@@ -53,6 +53,79 @@ hairline divides them, and the rail's (?) button is no longer clipped: every
 help button was placed 4 dp too far right. Home's two columns are padded,
 bordered and rounded.
 
+**A character can hit, die, cast, fall and attack twice, not just the five
+movements it has always had.** One table, `charsheet.ANIMATIONS`, owned both
+the names a character could perform and their timing, so Troupe refused any
+movement outside idle, walk, run, attack and jump, and `animated.glb` baked any
+other clip at a guessed 100 ms a frame. Timing now lives in the clip library
+itself (schema v3: a per-clip `duration_ms`, and a closed clip loops), and a
+sheet may name any clip its rig's skeleton defines. Every shipped skeleton —
+humanoid, quadruped, bird and blob — gains `attack_02`, `cast`, `fall`, `hit`
+and `death`, each marked provisional: placeholder keyframes an animator's pass
+still owes (TODO P8 lists them). Nothing stored changes meaning. A v2 library
+reads with the old table's timing, and a sheet that uses only the original five
+at their original timing still writes a version-2 layout, byte for byte what it
+wrote before — `docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`
+records the migration and why. A user's saved clip library still wins whole, so
+it shows the new clips only after **Revert to shipped clips**.
+
+**Troupe sheets can be HD and played at a chosen frame rate.**
+**Style** switches between pixel art and HD, which keeps full colour and soft
+edges and skips palette reduction entirely. At 256 px — the top of the custom
+8–256 px range Send to Troupe already offers — five movements in eight
+directions exactly fill the 8192 px atlas ceiling, and a sixth is refused on
+the movement table. **Frame rate** is either Authored (each clip's own frame
+time) or one rate for every movement, and a fixed rate rescales each
+movement's default frame count so a walk keeps its real length. A default
+pixel-art sheet's row carries no new key.
+
+**An animated GLB now picks up clip edits instead of staying at whatever it was
+first baked with.** `animated.glb` treated existence as freshness, so a clip
+edited in Poser, or a clip newly shipped for its skeleton, never reached a file
+that already existed. The bake now stamps the clip library's digest into the
+file, captured before Blender starts so a save landing mid-bake cannot mark old
+motion fresh, and a request whose digest differs rebuilds it.
+
+**Export for Godot writes a scene beside the character.** The inspector's
+**Export for Godot...** writes a folder holding a copy of the animated GLB whose
+looping clips are named `-loop`, and a Godot 4 `.tscn` instancing it with an
+AnimationTree: idle, walk and run blended on one axis, attack, attack_02, cast
+and jump into fall, and hit and death reachable from every state. Godot's
+importer both loops a `-loop` clip and renames it back to its plain name, read
+from its own `resource_importer_scene.cpp`, so the state machine plays `idle`,
+not `idle-loop`. The served `animated.glb` is never renamed. No Godot exists on
+this machine; TODO P50 is the sitting that opens one.
+
+**Export frames writes a sprite sheet out as folders an engine can read.**
+Troupe's **Export frames...** writes one PNG per frame under clip and compass
+folders — S is the character facing you, W its left profile, derived from the
+camera arithmetic rather than a docstring that had the orbit direction backwards
+— plus a `manifest.json` of frame size, loops, frame times and rates. The
+folder lands whole or not at all.
+
+**Poser can import a Mixamo or Rigify animation as a clip.** **Import clip**
+reads an FBX or glTF in Blender, which only samples each bone's world rotation;
+the conversion onto a Warlock skeleton is pure host maths, measuring the
+source's facing from its legs rather than assuming it and correcting a T-pose
+rest onto the A-pose. The result joins the working copy, never the file, until
+**Save clips**, and never overwrites an existing pose name. Only humanoid maps
+ship. TODO P51 is the sitting that judges a real Mixamo walk.
+
+**Poser shows each clip's frame time and says which clips are placeholders.**
+**Frame time (ms)** edits a clip's frame length in 10 ms steps beside the rate
+it amounts to, and provisional clips carry a muted badge.
+
+**Revert to shipped clips now works while there are unsaved edits.** Reverting
+submitted under the save task's key without recording the edit it was asked
+against, so the landing's "is this stale?" check saw unsaved edits and silently
+discarded the reverted library — exactly the one situation Revert exists for.
+`test_a_revert_asked_with_unsaved_edits_is_adopted_when_it_lands` pins it.
+
+**A clip library that will not parse is refused, not shown as the shipped
+clips.** A user's library that failed to parse was skipped with a log line, and
+Poser then presented the shipped clips as the user's edited ones, so the next
+Save overwrote the user's file. It is refused on the skeleton now.
+
 **Clay can align, distribute, drop to ground and snap to grid.** Four new
 object-mode rows act on the selection, and each gesture is one undo step. Align
 lines objects up on their world bounds rather than their origins, so boxes of

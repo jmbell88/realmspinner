@@ -40,6 +40,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from collections.abc import Mapping
@@ -58,6 +59,7 @@ from .validation import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..characters.recipe import Recipe
+    from ..pipelines import charsheet
     from .core import WarlockService
 
 log = logging.getLogger(__name__)
@@ -193,23 +195,39 @@ def create_character(
 
     # 1. The pixel block, through the same function every Troupe door uses --
     #    so a colour count refused here is refused in Troupe's words, on
-    #    Troupe's field.
+    #    Troupe's field. ``pixel_art`` rides along, and colour/outline/dither/
+    #    palette are sent only when it is on: ``_check_options`` refuses an
+    #    HD request (D5) that names any of the four outright, the same as
+    #    every other caller of it -- and a recipe's HD switch is D5's own,
+    #    per ``Recipe.pixel_art``.
+    pixel_kwargs: dict[str, Any] = (
+        {
+            "colors": spec.colors,
+            "outline": spec.outline,
+            "dither": spec.dither,
+            "palette": spec.palette or None,
+        }
+        if spec.pixel_art
+        else {}
+    )
     options = svc_troupe._check_options(
         svc,
         {
             "logical_size": spec.logical_size,
-            "colors": spec.colors,
-            "outline": spec.outline,
             "reduce_mode": spec.reduce_mode,
-            "dither": spec.dither,
-            "palette": spec.palette or None,
+            "pixel_art": spec.pixel_art,
+            **pixel_kwargs,
         },
     )
 
-    # 2. The frame plan, expanded and thrown away. ``_charsheet_spec``'s
-    #    argument one link earlier still: a layout the renderer cannot lay out
-    #    must cost the request, and at this point the request has cost nothing.
-    _plan(spec, arch.clip_library, options["logical_size"])
+    # 2. The frame plan, expanded and planned -- and this time kept, not
+    #    thrown away: ``_plan`` returns the ``LayoutSpec`` it resolved against
+    #    the archetype's own clip library timing, and step 6 hands that
+    #    exact object on to ``send_to_troupe`` rather than re-resolving the
+    #    recipe's layout a second time with no timing in hand (which can only
+    #    ever mean one of the closed legacy five -- see ``_plan``'s
+    #    docstring).
+    layout = _plan(spec, arch.clip_library, options["logical_size"])
 
     # 3. And Blender, before the mesh rather than after it. The chain's second
     #    row is a rig; without Blender it can never run, and a character whose
@@ -321,17 +339,20 @@ def create_character(
             svc,
             job_id,
             logical_size=spec.logical_size,
-            colors=spec.colors,
-            outline=spec.outline,
             reduce_mode=spec.reduce_mode,
-            dither=spec.dither,
-            palette=spec.palette or None,
             elevation=spec.elevation,
             name=spec.name,
-            layout=spec.layout_dict(),
+            # ``layout`` is what step 2 already resolved against the
+            # archetype's own clip library timing -- not
+            # ``spec.layout_dict()``, which resolves the recipe's payload
+            # with no timing at all and so can only ever mean one of the
+            # closed legacy five. See ``_plan``'s docstring.
+            layout=layout.as_dict(),
             template=arch.template,
             bones=joints,
             character=block,
+            pixel_art=spec.pixel_art,
+            **pixel_kwargs,
         )
     except Exception:
         # The 2026-09-07 audit (troupe-01) found a failure here left a
@@ -466,6 +487,258 @@ def export_package(
     }
 
 
+#: A clip name used as a frame-folder path component must be plain: lowercase
+#: ASCII, digits and underscores only. Everything a movement or clip can
+#: actually be named already satisfies this in the shipped registries -- the
+#: legacy five, the templates' clip libraries -- but a rig's clip library is
+#: user-authored (Poser), and this is the one door that turns a clip's name
+#: into a folder on the caller's own disk rather than a JSON string, so it
+#: gets its own refusal instead of trusting the name a second time.
+_CLIP_FOLDER_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+def export_frames(
+    svc: WarlockService,
+    job_id: str,
+    sheet_id: str,
+    dest_dir: Any = None,
+) -> Path:
+    """One folder per clip, one subfolder per compass direction, one PNG per frame.
+
+    Where :func:`export_package` hands over the atlas whole, this cuts it up:
+    an engine that wants ``AnimatedSprite2D``-style frame folders rather than
+    an atlas-plus-sidecar pair gets ``<clip>/<COMPASS>/<nnn>.png`` for every
+    cell, named the way
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s compass
+    table names them -- never the raw facing key, which is Troupe's own
+    internal spelling (``front_left``) and not a direction word an importer
+    should have to know.
+
+    The frame table comes from the sidecar's own ``"troupe"`` block -- the
+    immutable snapshot ``_q_troupe`` wrote the moment the sheet was rendered
+    -- rather than from today's registries, for the reason every re-render
+    door already gives: a clip a user has since renamed or retimed must not
+    reshuffle a sheet that was already handed to a player. A sheet with no
+    ``"troupe"`` block (drawn by hand, or rendered before this feature
+    existed) resolves through the closed legacy table instead, via
+    ``charsheet.resolve_layout(None)`` -- the same fallback ``troupe_options``
+    and every default row use.
+    """
+    from PIL import Image
+
+    from .. import rigging
+    from ..pipelines import charsheet
+    from . import export as svc_export
+
+    check_job_id(job_id)
+    job = svc.require_job(job_id)
+    job_dir = svc.job_dir(job_id)
+    if not rigging.is_valid_id(str(sheet_id or "")):
+        raise Invalid("that is not a sheet id", field="sheet_id")
+
+    dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
+    if dest is None:
+        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
+
+    png_path = rigging.sheet_png_path(job_dir, str(sheet_id))
+    record = rigging.read_sheet(job_dir, str(sheet_id))
+    if record is None or not png_path.exists():
+        raise NotFound("that sheet is no longer on disk", field="sheet_id")
+
+    troupe_block = record.get("troupe")
+    layout = (
+        troupe_block
+        if isinstance(troupe_block, Mapping)
+        else charsheet.resolve_layout(None).as_dict()
+    )
+    runs = layout.get("runs") or []
+    movements = {m["key"]: m for m in (layout.get("movements") or [])}
+    layout_fps = layout.get("fps")
+
+    cells = record.get("cells") or []
+    cell_by_index = {int(c["index"]): c for c in cells}
+    frame_size = int(record.get("frame_size") or 0)
+    if not frame_size:
+        # Every 3D character sheet is square by construction (``charsheet.plan``
+        # never sets ``frame_w``/``frame_h``) -- a 0 here means this sidecar is
+        # something else ``sheet.sidecar`` also writes, not a Troupe sheet.
+        raise Invalid(
+            "that sheet is not square, so it cannot export to frame folders",
+            field="sheet_id",
+        )
+
+    stem = _package_stem(job, str(sheet_id))
+    # **Top-level first, then the recipe, then True.** ``_q_troupe`` writes
+    # the worker's own D5 answer at the sidecar's top level (``"pixel_art":
+    # False``, absent when the render was pixel art) -- the recipe's nested
+    # copy is what was *asked for* and can be a species theme's HD default
+    # rather than what this particular sheet actually rendered, so reading it
+    # first mislabelled every HD Troupe sheet's manifest as pixel art.
+    raw_pixel_art = record.get("pixel_art")
+    if raw_pixel_art is None:
+        raw_pixel_art = ((record.get("character") or {}).get("recipe") or {}).get(
+            "pixel_art", True
+        )
+    pixel_art = bool(raw_pixel_art)
+
+    # **Refused, not crashed.** A sheet with no ``"troupe"`` block whose cells
+    # do not happen to match the closed legacy 256-cell table (a hand-drawn
+    # sheet, or one from a format ``sheet.sidecar`` also writes) fell through
+    # to a bare ``KeyError`` inside ``write`` the moment the plan below asked
+    # for a cell index the sidecar never recorded. Checked here, before a
+    # single frame is cropped -- the same "refused before anything renders"
+    # rule every other export door in this module already keeps.
+    needed_indices = {
+        i for run in runs for i in range(int(run["start"]), int(run["end"]) + 1)
+    }
+    if not needed_indices <= set(cell_by_index):
+        raise Invalid(
+            "this sheet's cells don't match a character layout; export it as "
+            "a package instead",
+            field="sheet_id",
+        )
+
+    def write(tmp: Path) -> None:
+        plan: list[tuple[str, str, int, int]] = []
+        seen_folders: set[tuple[str, str]] = set()
+        clip_directions: dict[str, list[str]] = {}
+        for run in runs:
+            clip = str(run["movement"])
+            if not _CLIP_FOLDER_NAME_RE.match(clip):
+                raise Invalid(
+                    f"the clip {clip!r} cannot be used as an export folder name "
+                    "(lowercase letters, digits and underscores only)",
+                    field="sheet_id",
+                )
+            compass = charsheet.compass_name(float(run["yaw"]))
+            key = (clip, compass)
+            if key in seen_folders:
+                raise Invalid(
+                    f"two runs of {clip!r} would both export to {clip}/{compass}",
+                    field="sheet_id",
+                )
+            seen_folders.add(key)
+            clip_directions.setdefault(clip, []).append(compass)
+            plan.append((clip, compass, int(run["start"]), int(run["end"])))
+
+        with Image.open(png_path) as opened:
+            opened.load()
+            atlas = opened.convert("RGBA")
+        try:
+            for clip, compass, start, end in plan:
+                folder = tmp / clip / compass
+                folder.mkdir(parents=True, exist_ok=True)
+                for frame_index, cell_index in enumerate(range(start, end + 1)):
+                    cell = cell_by_index[cell_index]
+                    box = (
+                        cell["x"],
+                        cell["y"],
+                        cell["x"] + cell["w"],
+                        cell["y"] + cell["h"],
+                    )
+                    atlas.crop(box).save(folder / f"{frame_index:03d}.png", "PNG")
+        finally:
+            atlas.close()
+
+        clips_meta: dict[str, Any] = {}
+        for clip, directions in clip_directions.items():
+            movement = movements[clip]
+            duration_ms = int(movement["duration_ms"])
+            fps = float(layout_fps) if layout_fps is not None else 1000.0 / duration_ms
+            clips_meta[clip] = {
+                "loop": bool(movement["loop"]),
+                "frames": int(movement["frames"]),
+                "duration_ms": duration_ms,
+                "fps": fps,
+                "directions": directions,
+            }
+        manifest = {
+            "format": "warlock-frames",
+            "version": 1,
+            "name": stem,
+            "frame_size": frame_size,
+            "pixel_art": pixel_art,
+            "clips": clips_meta,
+        }
+        (tmp / "manifest.json").write_text(
+            json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+
+    return svc_export.staged_tree(dest, stem, write)
+
+
+def export_godot(
+    svc: WarlockService,
+    job_id: str,
+    dest_dir: Any = None,
+) -> Path:
+    """A Godot 4 scene beside a renamed copy of the served ``animated.glb``.
+
+    The served file is never touched -- only read -- because it is what every
+    other export and every re-render of it derives from, and Godot's own loop
+    heuristic (``godotscene``'s docstring) reads a ``"-loop"`` suffix as
+    licence to loop an animation, which is a rename this app's own copy must
+    never carry. ``godotscene.rename_animations`` runs on a copy of the bytes
+    instead, and only the copy lands in the export folder.
+
+    Refuses in ``animated.glb``'s own words for an unrigged mesh or a
+    skeleton with no clips authored: :func:`derive.get_file` is called
+    directly rather than re-implemented, so a fresh rig-without-clips
+    sentence and this door's sentence can never drift apart.
+    """
+    from .. import glbio, godotscene
+    from . import derive as svc_derive
+    from . import export as svc_export
+
+    check_job_id(job_id)
+    job = svc.require_job(job_id)
+
+    dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
+    if dest is None:
+        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
+
+    # animated.glb's own door -- its refusal for an unrigged mesh (NotReady,
+    # "This asset has not been rigged yet.") or an unauthored skeleton reaches
+    # the caller exactly as that door states it, because this calls it rather
+    # than restating ``files.ready``/``unready_reason``.
+    animated_path = svc_derive.get_file(svc, job_id, "animated.glb")
+    data = animated_path.read_bytes()
+
+    extras = glbio.root_extras(data)
+    stamp = extras.get("warlock_animation") if isinstance(extras, Mapping) else None
+    loops = set(stamp.get("loops") or []) if isinstance(stamp, Mapping) else set()
+    names = glbio.animation_names(data)
+
+    stem = _package_stem(job, job_id)
+    try:
+        # **Inside the try, not before it.** ``godot_clip_name`` raises
+        # ``ValueError`` for a clip name Godot's ``&"..."`` StringName syntax
+        # cannot hold (a quote, a backslash, a newline) -- building this
+        # mapping ahead of the ``try`` let that escape as a bare
+        # ``ValueError`` instead of the refusal below.
+        mapping = {
+            name: godotscene.godot_clip_name(name, name in loops)
+            for name in names
+            if godotscene.godot_clip_name(name, name in loops) != name
+        }
+        renamed = glbio.rename_animations(data, mapping)
+        scene = godotscene.scene_text(
+            root_name=stem,
+            glb_file=f"{stem}.glb",
+            clips=[(name, name in loops) for name in names],
+        )
+    except ValueError as exc:
+        raise invalid_from(
+            exc, "That character cannot be exported to Godot", field="job_id"
+        ) from exc
+
+    def write(tmp: Path) -> None:
+        (tmp / f"{stem}.glb").write_bytes(renamed)
+        (tmp / f"{stem}.tscn").write_text(scene, encoding="utf-8")
+
+    return svc_export.staged_tree(dest, stem, write)
+
+
 # --- the pieces the doors above share ----------------------------------------
 
 
@@ -519,21 +792,44 @@ def _recipe(raw: Mapping[str, Any]) -> Recipe:
         raise invalid_from(exc, "That character cannot be made", field=exc.field) from exc
 
 
-def _plan(spec: Recipe, clip_library: str, frame_size: int) -> None:
-    """Expand the clips and plan the frames, then throw both away.
+def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutSpec:
+    """Expand the clips and plan the frames -- the render is thrown away, the
+    resolved layout is not.
 
-    ``create_charsheet`` does exactly this and says why: a clip library that
-    does not fill the frame table, or a size whose atlas is over the texture
-    limit, is refused now instead of failing a job that has already rendered.
-    The library is the **archetype's**, never a constant -- a wolf is animated
-    from the quadruped clips, and pinning humanoid here would fill a quadruped
-    frame table from a library whose skeleton it does not have.
+    ``create_charsheet`` does exactly this planning step and says why: a clip
+    library that does not fill the frame table, or a size whose atlas is over
+    the texture limit, is refused now instead of failing a job that has
+    already rendered. The library is the **archetype's**, never a constant --
+    a wolf is animated from the quadruped clips, and pinning humanoid here
+    would fill a quadruped frame table from a library whose skeleton it does
+    not have.
+
+    **The returned ``LayoutSpec`` is what ``create_character`` sends on to
+    ``send_to_troupe``, not ``spec.layout_dict()``.** ``Recipe.layout_dict``
+    resolves the recipe's v2/v3 *payload* with no ``timing`` at all, so it can
+    only ever mean one of the closed :data:`charsheet.ANIMATIONS` five -- a
+    recipe naming ``hit`` or any other clip the archetype's own library
+    defines resolved here, against *this* ``timing``, and nowhere else, and
+    then failed a second, untimed resolution downstream with a bare
+    ``'hit' is not a Troupe movement`` after the mesh row was already
+    committed. Reusing this call's own answer is what keeps there being only
+    one resolution of the recipe's layout in the whole door.
+
+    ``timing`` is passed the same way ``troupe._timed_layout`` passes it, so
+    a recipe may name any clip *clip_library* actually defines -- not just the
+    closed :data:`charsheet.ANIMATIONS` five -- per
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A clip the
+    library has never heard of surfaces as ``resolve_layout``'s own
+    ``ValueError`` now rather than ``expand_clips``' ``KeyError``, and falls
+    into the same ``field="layout"`` branch below either way -- the existing
+    ``Invalid`` path, unchanged.
     """
-    from ..clips import expand_clips
+    from ..clips import clip_timing, expand_clips
     from ..pipelines import charsheet
 
     try:
-        layout = charsheet.resolve_layout(spec.layout_payload())
+        timing = clip_timing(clip_library)
+        layout = charsheet.resolve_layout(spec.layout_payload(), timing=timing)
         records = expand_clips(clip_library, layout)
         charsheet.plan(
             records,
@@ -543,13 +839,16 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> None:
             layout=layout,
         )
     except KeyError as exc:
-        raise Invalid(f"the {clip_library} clip library is missing {exc}") from exc
+        raise Invalid(
+            f"the {clip_library} clip library is missing {exc}", field="animations"
+        ) from exc
     except ValueError as exc:
         # field="layout", the 2026-09-11 audit's finding troupe-01: the same
         # plan-and-throw-away shape ``troupe.check_troupe``/``create_charsheet``
         # carry, with the same fieldless branch -- see the comment in
         # ``troupe.check_troupe``.
         raise invalid_from(exc, "That character cannot be laid out", field="layout") from exc
+    return layout
 
 
 def _moved_joints(

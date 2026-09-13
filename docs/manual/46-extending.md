@@ -159,6 +159,50 @@ reflection `mirror_pose` applies assumes that plane.
 
 See [Templates](25-rigging-and-posing.md#templates).
 
+## Adding a clip mapping table
+
+"Import clip" brings an externally authored animation (a Mixamo download, a Rigify metarig export)
+onto a Warlock skeleton, and a **clip mapping table** is what tells it which external bone plays
+which template bone. A table is a JSON file in `src/warlock/templates/clip_maps/`, one per external
+rig family — `mixamo.json` and `rigify.json` ship today, both targeting the `humanoid` template
+only; nothing maps onto `quadruped`, `bird` or `blob` yet, so importing onto one of those is not
+offered.
+
+A table declares:
+
+- **`version`** — must be `1`.
+- **`key`** — must equal the filename stem, the same rule a skeleton template's `key` follows against
+  its own file, and for the same reason: an error message or a control id interpolates this string,
+  and a mismatch would point at the wrong table.
+- **`label`** — the name a picker shows.
+- **`template`** — which skeleton template this table targets; must be a real one.
+- **`strip`** — a regex stripped once off the front of every source bone name before matching (e.g.
+  Mixamo's `^mixamorig\d*[:_]` prefix). May be empty.
+- **`required`** — the source bones that must all be present for this table to be offered at all.
+- **`root`** — which template bone is the skeleton's root; must be one of the bones this table maps.
+- **`bones`** — a map from *template* bone name to an **ordered chain** of *external* bone names,
+  first-to-last down the external rig's own hierarchy, not a single name. A chain is how one
+  external rig's extra joint collapses onto one Warlock bone — Rigify's two-segment spine bones both
+  becoming Warlock's single `chest`, for instance — and the order matters: later math reads a
+  resolved chain's orientation off its *last* bone and its facing direction from its *first* bone's
+  head to its *last* bone's tail.
+
+Validated on load exactly the way a skeleton template is (`clipmaps.parse_clip_map`, `rigging.
+_load_templates`'s rule): every `bones` key must be a bone of the named template, every chain a
+non-empty list of non-empty names, no source bone claimed by two chains, every `required` bone
+mapped, `root` mapped, and `strip` a pattern that compiles. A malformed table costs itself, never
+the feature — `clipmaps.load_clip_maps` logs and skips it, the same tolerance `_load_templates` and
+`_load_clip_library` already extend to a bad skeleton or a bad clip library.
+
+**A chain counts only when every one of its source bones is present on the skeleton being imported
+— never partially.** A table with a `required` bone missing altogether does not qualify for that
+skeleton at all; among tables that do qualify, one whose *optional* chain is missing a bone leaves
+that one template bone at the shipped template's rest pose rather than posing it off an incomplete
+chain, because half a chain has neither a trustworthy orientation nor a trustworthy direction to
+read. This is reported back (`left_at_rest`), never silently — the whole point of a mapping table is
+getting someone else's animation to look right on a Warlock rig, and posing a bone wrong from a
+guess is worse than leaving it still.
+
 ## The derived-params rule
 
 A job's parameters mix two kinds of thing: what you asked for, and what the app worked out. The

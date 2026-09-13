@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -103,29 +104,25 @@ def test_an_unknown_easing_is_refused():
 # --- the shipped clip library ------------------------------------------------
 
 
-def test_the_humanoid_library_carries_the_twenty_two_keyframes():
+def test_the_legacy_five_clips_are_present_with_their_original_frames_loop_and_timing():
+    """The vocabulary is open now (``attack_02``, ``cast``, ``fall``, ``hit``,
+    ``death`` and whatever else an author adds), but the five original clips
+    must still mean exactly what they meant before -- this holds whether or
+    not the new ones have landed alongside them in the shipped library."""
     library = rigging.clip_library("humanoid")
-    assert len(library["poses"]) == 22
-    assert [c["name"] for c in library["clips"]] == [a[0] for a in cs.ANIMATIONS]
-
-
-def test_every_shipped_clip_expands_to_exactly_its_frame_count():
-    """The load-bearing one: a clip that expands to seven frames would lay a
-    frame of some other animation into the walk's eighth cell."""
-    library = rigging.clip_library("humanoid")
-    wanted = {name: frames for name, frames, _l, _ms in cs.ANIMATIONS}
-    for clip in library["clips"]:
-        keys = rigging.clip_keys("humanoid", clip["name"])
+    by_name = {c["name"]: c for c in library["clips"]}
+    legacy_keys: set[str] = set()
+    for name, frames, loop, duration_ms in cs.ANIMATIONS:
+        clip = by_name[name]
+        assert clip["closed"] == loop, name
+        assert clip["duration_ms"] == duration_ms, name
+        keys = rigging.clip_keys("humanoid", name)
         out = sheetlib.interpolate_clip(
             keys, clip["segments"], closed=clip["closed"], easing=clip["easing"]
         )
-        assert len(out) == wanted[clip["name"]], clip["name"]
-
-
-def test_the_cyclic_clips_are_the_looping_ones_and_the_one_shots_are_not():
-    library = rigging.clip_library("humanoid")
-    closed = {c["name"]: c["closed"] for c in library["clips"]}
-    assert closed == {name: loop for name, _f, loop, _ms in cs.ANIMATIONS}
+        assert len(out) == frames, name
+        legacy_keys.update(clip["keys"])
+    assert len(legacy_keys) == 22
 
 
 def test_the_walk_and_run_carry_a_vertical_bob():
@@ -297,6 +294,234 @@ def test_v2_warns_above_legacy_size_but_refuses_only_above_the_512_cap():
                 ],
             }
         )
+
+
+# --- the open clip vocabulary (v3) -------------------------------------------
+
+
+#: ``cs.resolve_layout().as_dict()``, captured verbatim at 67a54124 -- before
+#: the open vocabulary existed -- so a build from before this change and a
+#: build from after it agree byte-for-byte on the one layout every default
+#: Troupe sheet has ever carried.
+_FROZEN_V2_LAYOUT = json.loads(
+    '{"version": 2, "columns": 8, "movements": [{"key": "idle", "label": "Idle", '
+    '"frames": 4, "loop": true, "duration_ms": 150, "directions": [{"key": "front", '
+    '"label": "Front", "yaw": 0.0}, {"key": "front_left", "label": "Front Left", '
+    '"yaw": 45.0}, {"key": "left", "label": "Left", "yaw": 90.0}, {"key": "back_left", '
+    '"label": "Back Left", "yaw": 135.0}, {"key": "back", "label": "Back", "yaw": 180.0}, '
+    '{"key": "back_right", "label": "Back Right", "yaw": 225.0}, {"key": "right", '
+    '"label": "Right", "yaw": 270.0}, {"key": "front_right", "label": "Front Right", '
+    '"yaw": 315.0}]}, {"key": "walk", "label": "Walk", "frames": 8, "loop": true, '
+    '"duration_ms": 100, "directions": [{"key": "front", "label": "Front", "yaw": 0.0}, '
+    '{"key": "front_left", "label": "Front Left", "yaw": 45.0}, {"key": "left", '
+    '"label": "Left", "yaw": 90.0}, {"key": "back_left", "label": "Back Left", '
+    '"yaw": 135.0}, {"key": "back", "label": "Back", "yaw": 180.0}, {"key": "back_right", '
+    '"label": "Back Right", "yaw": 225.0}, {"key": "right", "label": "Right", '
+    '"yaw": 270.0}, {"key": "front_right", "label": "Front Right", "yaw": 315.0}]}, '
+    '{"key": "run", "label": "Run", "frames": 8, "loop": true, "duration_ms": 60, '
+    '"directions": [{"key": "front", "label": "Front", "yaw": 0.0}, {"key": "front_left", '
+    '"label": "Front Left", "yaw": 45.0}, {"key": "left", "label": "Left", "yaw": 90.0}, '
+    '{"key": "back_left", "label": "Back Left", "yaw": 135.0}, {"key": "back", '
+    '"label": "Back", "yaw": 180.0}, {"key": "back_right", "label": "Back Right", '
+    '"yaw": 225.0}, {"key": "right", "label": "Right", "yaw": 270.0}, '
+    '{"key": "front_right", "label": "Front Right", "yaw": 315.0}]}, {"key": "attack", '
+    '"label": "Attack", "frames": 6, "loop": false, "duration_ms": 80, "directions": '
+    '[{"key": "front", "label": "Front", "yaw": 0.0}, {"key": "front_left", '
+    '"label": "Front Left", "yaw": 45.0}, {"key": "left", "label": "Left", "yaw": 90.0}, '
+    '{"key": "back_left", "label": "Back Left", "yaw": 135.0}, {"key": "back", '
+    '"label": "Back", "yaw": 180.0}, {"key": "back_right", "label": "Back Right", '
+    '"yaw": 225.0}, {"key": "right", "label": "Right", "yaw": 270.0}, '
+    '{"key": "front_right", "label": "Front Right", "yaw": 315.0}]}, {"key": "jump", '
+    '"label": "Jump", "frames": 6, "loop": false, "duration_ms": 100, "directions": '
+    '[{"key": "front", "label": "Front", "yaw": 0.0}, {"key": "front_left", '
+    '"label": "Front Left", "yaw": 45.0}, {"key": "left", "label": "Left", "yaw": 90.0}, '
+    '{"key": "back_left", "label": "Back Left", "yaw": 135.0}, {"key": "back", '
+    '"label": "Back", "yaw": 180.0}, {"key": "back_right", "label": "Back Right", '
+    '"yaw": 225.0}, {"key": "right", "label": "Right", "yaw": 270.0}, '
+    '{"key": "front_right", "label": "Front Right", "yaw": 315.0}]}], "runs": '
+    '[{"movement": "idle", "direction": "front", "yaw": 0.0, "start": 0, "end": 3}, '
+    '{"movement": "idle", "direction": "front_left", "yaw": 45.0, "start": 4, "end": 7}, '
+    '{"movement": "idle", "direction": "left", "yaw": 90.0, "start": 8, "end": 11}, '
+    '{"movement": "idle", "direction": "back_left", "yaw": 135.0, "start": 12, "end": 15}, '
+    '{"movement": "idle", "direction": "back", "yaw": 180.0, "start": 16, "end": 19}, '
+    '{"movement": "idle", "direction": "back_right", "yaw": 225.0, "start": 20, "end": 23}, '
+    '{"movement": "idle", "direction": "right", "yaw": 270.0, "start": 24, "end": 27}, '
+    '{"movement": "idle", "direction": "front_right", "yaw": 315.0, "start": 28, "end": 31}, '
+    '{"movement": "walk", "direction": "front", "yaw": 0.0, "start": 32, "end": 39}, '
+    '{"movement": "walk", "direction": "front_left", "yaw": 45.0, "start": 40, "end": 47}, '
+    '{"movement": "walk", "direction": "left", "yaw": 90.0, "start": 48, "end": 55}, '
+    '{"movement": "walk", "direction": "back_left", "yaw": 135.0, "start": 56, "end": 63}, '
+    '{"movement": "walk", "direction": "back", "yaw": 180.0, "start": 64, "end": 71}, '
+    '{"movement": "walk", "direction": "back_right", "yaw": 225.0, "start": 72, "end": 79}, '
+    '{"movement": "walk", "direction": "right", "yaw": 270.0, "start": 80, "end": 87}, '
+    '{"movement": "walk", "direction": "front_right", "yaw": 315.0, "start": 88, "end": 95}, '
+    '{"movement": "run", "direction": "front", "yaw": 0.0, "start": 96, "end": 103}, '
+    '{"movement": "run", "direction": "front_left", "yaw": 45.0, "start": 104, "end": 111}, '
+    '{"movement": "run", "direction": "left", "yaw": 90.0, "start": 112, "end": 119}, '
+    '{"movement": "run", "direction": "back_left", "yaw": 135.0, "start": 120, "end": 127}, '
+    '{"movement": "run", "direction": "back", "yaw": 180.0, "start": 128, "end": 135}, '
+    '{"movement": "run", "direction": "back_right", "yaw": 225.0, "start": 136, "end": 143}, '
+    '{"movement": "run", "direction": "right", "yaw": 270.0, "start": 144, "end": 151}, '
+    '{"movement": "run", "direction": "front_right", "yaw": 315.0, "start": 152, "end": 159}, '
+    '{"movement": "attack", "direction": "front", "yaw": 0.0, "start": 160, "end": 165}, '
+    '{"movement": "attack", "direction": "front_left", "yaw": 45.0, "start": 166, "end": 171}, '
+    '{"movement": "attack", "direction": "left", "yaw": 90.0, "start": 172, "end": 177}, '
+    '{"movement": "attack", "direction": "back_left", "yaw": 135.0, "start": 178, "end": 183}, '
+    '{"movement": "attack", "direction": "back", "yaw": 180.0, "start": 184, "end": 189}, '
+    '{"movement": "attack", "direction": "back_right", "yaw": 225.0, "start": 190, "end": 195}, '
+    '{"movement": "attack", "direction": "right", "yaw": 270.0, "start": 196, "end": 201}, '
+    '{"movement": "attack", "direction": "front_right", "yaw": 315.0, "start": 202, "end": 207}, '
+    '{"movement": "jump", "direction": "front", "yaw": 0.0, "start": 208, "end": 213}, '
+    '{"movement": "jump", "direction": "front_left", "yaw": 45.0, "start": 214, "end": 219}, '
+    '{"movement": "jump", "direction": "left", "yaw": 90.0, "start": 220, "end": 225}, '
+    '{"movement": "jump", "direction": "back_left", "yaw": 135.0, "start": 226, "end": 231}, '
+    '{"movement": "jump", "direction": "back", "yaw": 180.0, "start": 232, "end": 237}, '
+    '{"movement": "jump", "direction": "back_right", "yaw": 225.0, "start": 238, "end": 243}, '
+    '{"movement": "jump", "direction": "right", "yaw": 270.0, "start": 244, "end": 249}, '
+    '{"movement": "jump", "direction": "front_right", "yaw": 315.0, "start": 250, "end": 255}], '
+    '"cell_count": 256}'
+)
+
+
+def test_a_version_2_snapshot_resolves_exactly_as_it_always_did():
+    """A build from before the open vocabulary and a build from after it must
+    write the identical wire form for the one layout every default Troupe
+    sheet has ever carried."""
+    assert cs.resolve_layout().as_dict() == _FROZEN_V2_LAYOUT
+
+
+def test_a_legacy_only_layout_still_writes_version_2():
+    layout = cs.resolve_layout(
+        {
+            "version": 3,
+            "movements": [
+                {"key": "idle", "loop": True, "duration_ms": 150, "directions": 1},
+                {"key": "walk", "loop": True, "duration_ms": 100, "directions": 1},
+            ],
+        }
+    )
+    assert layout.as_dict()["version"] == 2
+
+
+def test_a_version_3_snapshot_carries_its_own_timing_without_a_library():
+    layout = cs.resolve_layout(
+        {
+            "version": 3,
+            "movements": [
+                {
+                    "key": "wave",
+                    "loop": False,
+                    "duration_ms": 90,
+                    "frames": 5,
+                    "directions": 1,
+                }
+            ],
+        }
+    )
+    movement = layout.movements[0]
+    assert (movement.loop, movement.duration_ms, movement.frames) == (False, 90, 5)
+    as_dict = layout.as_dict()
+    assert as_dict["version"] == 3
+    assert cs.resolve_layout(as_dict) == layout
+
+
+def test_a_layout_may_name_any_clip_the_skeleton_defines():
+    timing = {"wave": cs.ClipTiming(frames=5, loop=False, duration_ms=90)}
+    layout = cs.resolve_layout(
+        {"version": 3, "movements": [{"key": "wave", "directions": 1}]},
+        timing=timing,
+    )
+    movement = layout.movements[0]
+    assert (movement.name, movement.frames, movement.loop, movement.duration_ms) == (
+        "wave", 5, False, 90,
+    )
+
+
+def test_a_name_outside_the_skeletons_timing_is_refused_by_name():
+    timing = {"wave": cs.ClipTiming(frames=5, loop=False, duration_ms=90)}
+    with pytest.raises(ValueError, match="not a clip of this skeleton"):
+        cs.resolve_layout(
+            {"version": 3, "movements": [{"key": "cartwheel", "directions": 1}]},
+            timing=timing,
+        )
+
+
+def test_a_global_fps_sets_every_frame_time():
+    layout = cs.resolve_layout(
+        {
+            "version": 3,
+            "fps": 12,
+            "movements": [
+                {"key": "idle", "frames": 4, "directions": 1},
+                {"key": "walk", "frames": 8, "directions": 1},
+            ],
+        }
+    )
+    assert layout.fps == 12
+    assert {m.duration_ms for m in layout.movements} == {round(1000 / 12)}
+
+
+def test_a_global_fps_derives_default_frames_from_the_clip_length():
+    layout = cs.resolve_layout(
+        {"version": 3, "fps": 24, "movements": [{"key": "walk", "directions": 1}]}
+    )
+    movement = layout.movements[0]
+    # walk is 8 frames at 100ms = 800ms of motion; at 24fps that keeps its
+    # real length: round(8 * 100 * 24 / 1000) = 19 frames.
+    assert movement.frames == 19
+    assert movement.duration_ms == round(1000 / 24)
+
+
+def test_a_stored_fps_snapshot_resolves_again_for_every_frame_rate():
+    """The multiple-of-10 rule is for AUTHORED durations, not fps-derived ones.
+
+    Every ``FPS_CHOICES`` value but 10 gives ``round(1000 / fps)`` a duration
+    that is not a multiple of 10 (167, 125, 83, 67, 42, 33ms for 6/8/12/15/24/
+    30 fps), and a stored sheet's ``params["layout"]`` -- ``as_dict()``'s v3
+    output -- is exactly a snapshot re-resolved with no ``timing`` in hand,
+    the way the worker (``_q_troupe.py``), a subset re-render
+    (``service.troupe.rerender_charsheet``) and ``export_frames`` all resolve
+    it. Before this fix, only ``fps=10`` round-tripped; every other rate's
+    stored snapshot refused with "duration_ms must be a multiple of 10" on a
+    row that had already rendered once.
+    """
+    for fps in cs.FPS_CHOICES:
+        first = cs.resolve_layout(
+            {
+                "version": 3,
+                "fps": fps,
+                "movements": [{"key": "idle", "directions": 1}],
+            }
+        )
+        second = cs.resolve_layout(first.as_dict())
+        assert second == first
+        assert cs.frame_table(second) == cs.frame_table(first)
+
+
+def test_an_fps_off_the_ladder_is_refused():
+    with pytest.raises(ValueError, match="fps must be one of"):
+        cs.resolve_layout(
+            {"version": 3, "fps": 20, "movements": [{"key": "idle", "directions": 1}]}
+        )
+
+
+def test_the_animation_block_states_the_fps_only_when_one_was_chosen():
+    assert "fps" not in cs.animation_block()
+    layout = cs.resolve_layout(
+        {"version": 3, "fps": 15, "movements": [{"key": "idle", "directions": 1}]}
+    )
+    assert cs.animation_block(layout)["fps"] == 15
+
+
+def test_a_movement_named_after_a_direction_is_refused():
+    with pytest.raises(ValueError, match="ends in"):
+        cs.resolve_layout(
+            {"version": 2, "movements": [{"key": "walk_front", "frames": 4}]}
+        )
+
+
+def test_256_is_a_sheet_size():
+    assert 256 in cs.SIZES
 
 
 # --- the sidecar's animation block -------------------------------------------
