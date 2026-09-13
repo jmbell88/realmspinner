@@ -37,7 +37,9 @@ __all__ = [
     "DIRECTIONS",
     "LAYOUT_VERSION",
     "MAX_CELLS",
+    "MAX_FRAME_SIZE",
     "MAX_FRAMES",
+    "MIN_FRAME_SIZE",
     "MOVEMENT_MIN_FRAMES",
     "WARN_CELLS",
     "SIZES",
@@ -81,6 +83,15 @@ DIRECTIONS: tuple[tuple[str, float], ...] = (
 COLUMNS = 8
 SIZES = (16, 24, 32, 48, 64, 96, 128)
 RENDER_SIZE = 512
+
+#: **Task G, 2026-09-12: the custom sprite size's actual range.** ``SIZES`` is
+#: the ladder of presets a form offers and stays the ladder the tests pin
+#: (``tests/troupe/test_troupe_geometry_agreement.py`` ties
+#: ``studio.troupe.spec`` to it); these two are the wider question ``plan``
+#: itself answers, matching ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- see
+#: that constant's comment for why 8 and 256 are the floor and ceiling.
+MIN_FRAME_SIZE = 8
+MAX_FRAME_SIZE = 256
 
 #: ``(key, label, elevation)`` -- the camera angles a character sheet may be
 #: framed from, as a literal table for the same reason ``ANIMATIONS`` is one.
@@ -452,8 +463,19 @@ def plan(
         raise ValueError(f"lighting must be one of {list(sheet.LIGHTING)}")
     if not -89.0 <= elevation <= 89.0:
         raise ValueError("elevation must be between -89 and 89 degrees")
-    if frame_size not in SIZES and frame_size not in sheet.FRAME_SIZES:
-        raise ValueError(f"frame_size must be one of {list(SIZES)}")
+    # Task G: any whole number in [MIN_FRAME_SIZE, MAX_FRAME_SIZE] is a size
+    # this function lays out correctly -- SIZES/FRAME_SIZES are presets, not
+    # the limit -- so a caller offering a custom size (service.troupe) is
+    # answered rather than refused for being off two ladders it was never on.
+    if (
+        frame_size not in SIZES
+        and frame_size not in sheet.FRAME_SIZES
+        and not MIN_FRAME_SIZE <= frame_size <= MAX_FRAME_SIZE
+    ):
+        raise ValueError(
+            f"frame_size must be between {MIN_FRAME_SIZE} and {MAX_FRAME_SIZE}, "
+            f"or one of {list(SIZES)}"
+        )
     resolved = layout if isinstance(layout, LayoutSpec) else resolve_layout(layout)
     check_frame_counts(records, resolved)
 

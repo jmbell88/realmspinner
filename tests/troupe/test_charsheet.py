@@ -210,6 +210,24 @@ def test_an_atlas_over_the_texture_limit_is_refused_before_anything_renders():
         cs.plan(_records(), frame_size=512)
 
 
+def test_a_custom_frame_size_off_both_ladders_still_builds():
+    """Task G: 40px names neither ``SIZES`` (Troupe's presets) nor
+    ``sheet.FRAME_SIZES`` (the plain-sheet ladder), but it is a whole number
+    inside ``MIN_FRAME_SIZE``..``MAX_FRAME_SIZE`` and the renderer lays it out
+    exactly as it would any preset -- refusing it was the ladder mistaking
+    itself for the actual limit."""
+    assert 40 not in cs.SIZES
+    layout = cs.plan(_records(), frame_size=40)
+    assert (layout.width, layout.height) == (8 * 40, 32 * 40)
+    assert len(layout.cells) == 256
+
+
+@pytest.mark.parametrize("frame_size", [7, 257])
+def test_a_frame_size_outside_the_custom_range_is_still_refused(frame_size):
+    with pytest.raises(ValueError, match="frame_size must be"):
+        cs.plan(_records(), frame_size=frame_size)
+
+
 def test_v2_layout_gives_each_movement_its_own_direction_count_and_frames():
     layout = cs.resolve_layout(
         {

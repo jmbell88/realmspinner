@@ -267,7 +267,11 @@ def test_a_batch_of_characters_is_refused(svc):
     "block,field",
     [
         ({"variant": "robot"}, "variant"),
-        ({"logical_size": 37}, "logical_size"),
+        # Task G: 37 is now a legal custom size (inside TROUPE_CUSTOM_SIZE_RANGE),
+        # so the off-ladder refusal is proved with values outside the range
+        # instead -- above 256 and below 8.
+        ({"logical_size": 300}, "logical_size"),
+        ({"logical_size": 4}, "logical_size"),
         ({"colors": 7}, "colors"),
         ({"outline": "glow"}, "outline"),
         ({"reduce_mode": "lanczos"}, "reduce_mode"),
@@ -516,6 +520,16 @@ def test_the_direct_door_queues_a_sheet_for_a_rigged_mesh(svc):
     assert row["kind"] == "charsheet"
     assert row["params"]["logical_size"] == 64
     assert row["params"]["source_job"] == job_id
+
+
+def test_the_direct_door_accepts_a_custom_sprite_size(svc):
+    """Task G: 40px is off ``charsheet.SIZES`` but inside
+    ``troupe.TROUPE_CUSTOM_SIZE_RANGE`` (8-256), so the door builds it rather
+    than refusing a size the renderer would have laid out correctly anyway."""
+    job_id = _rigged_mesh(svc)
+    made = svc_troupe.create_charsheet(svc, job_id, logical_size=40)
+    row = svc.store.get(made["id"])
+    assert row["params"]["logical_size"] == 40
 
 
 def test_the_direct_door_snapshots_a_configurable_layout(svc):

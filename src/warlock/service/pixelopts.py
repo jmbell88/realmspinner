@@ -44,9 +44,21 @@ _UNSET: tuple[Any, ...] = (None, "")
 
 
 def _on_the_ladder(
-    entries: Mapping[str, Any], key: str, default: int, ladder: Sequence[int]
+    entries: Mapping[str, Any],
+    key: str,
+    default: int,
+    ladder: Sequence[int],
+    *,
+    value_range: tuple[int, int] | None = None,
 ) -> int:
-    """One whole-number field, defaulted when absent and refused when wrong."""
+    """One whole-number field, defaulted when absent and refused when wrong.
+
+    ``value_range``, when given, is a second way to pass: a whole number
+    inside the inclusive range is accepted even off the ladder, which is
+    Troupe's custom sprite size (task G) -- a size the ladder does not name
+    but the renderer builds anyway. Without it the ladder is the only door,
+    unchanged from before this parameter existed.
+    """
     raw = entries.get(key)
     if raw in _UNSET:
         raw = default
@@ -54,9 +66,17 @@ def _on_the_ladder(
         value = int(raw)
     except (TypeError, ValueError):
         raise Invalid(f"{key} must be a whole number", field=key) from None
-    if value not in tuple(ladder):
-        raise Invalid(f"{key} must be one of {list(ladder)}", field=key)
-    return value
+    if value in tuple(ladder):
+        return value
+    if value_range is not None:
+        lo, hi = value_range
+        if lo <= value <= hi:
+            return value
+        raise Invalid(
+            f"{key} must be between {lo} and {hi}px, or one of {list(ladder)}",
+            field=key,
+        )
+    raise Invalid(f"{key} must be one of {list(ladder)}", field=key)
 
 
 def check_pixel_options(
@@ -71,6 +91,7 @@ def check_pixel_options(
     allow_outline: bool = True,
     allow_reduce_mode: bool = True,
     outline_refusal: str = "",
+    size_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Validate one request's pixelisation block and return it normalised.
 
@@ -78,6 +99,14 @@ def check_pixel_options(
     they differ per path (a Troupe sheet is laid out at ``charsheet.SIZES``, a
     tile sheet is not) and there is no defensible common set, so they are
     passed rather than picked here.
+
+    ``size_range``, when given, widens the size question from "is it on the
+    ladder" to "is it on the ladder, or a whole number in this range" -- so a
+    caller who wants an exact pixel size the ladder does not name (Troupe's
+    custom sprite size) is not stuck between the presets on offer. Every path
+    that leaves it ``None`` keeps the strict ladder it always had: tile sheets
+    and characters have no renderer that accepts an off-ladder size, so
+    accepting one there would be a form offering a size the pipeline refuses.
 
     ``allow_outline`` and ``allow_reduce_mode`` gate the two options a path may
     not *have*, and what False does depends on whether the caller **asked**:
@@ -109,7 +138,9 @@ def check_pixel_options(
     """
     from . import palettes
 
-    logical = _on_the_ladder(entries, "logical_size", size_default, sizes)
+    logical = _on_the_ladder(
+        entries, "logical_size", size_default, sizes, value_range=size_range
+    )
     count = _on_the_ladder(entries, "colors", colors_default, colors)
 
     out: dict[str, Any] = {"logical_size": logical, "colors": count}

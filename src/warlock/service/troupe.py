@@ -51,6 +51,18 @@ TROUPE_POSES: tuple[str, ...] = spritesynth.REFERENCE_POSES
 #: what ``charsheet.plan`` validates against.
 TROUPE_LOGICAL_SIZES: tuple[int, ...] = charsheet.SIZES
 
+#: **Task G, 2026-09-12.** Below the ladder's floor, 8px, a cell holds too few
+#: pixels for the outline and reduce passes to leave anything a player could
+#: read as a character -- the same floor ``charsheet.MIN_FRAME_SIZE`` plans
+#: against. Above 256px, a sheet is heading toward the atlas ceiling fast (32
+#: columns * 256px is already 8192, ``sheet.MAX_ATLAS_PX``) and a size that big
+#: has no reason to come from a hand-typed box rather than a fresh render at a
+#: bigger ``RENDER_SIZE``. Between them, any whole number is a size
+#: ``charsheet.plan``/``_q_troupe`` already build correctly -- the ladder is a
+#: set of *presets*, not the renderer's actual limit -- so a size off the
+#: ladder is not a mistake, only a choice with no button for it until now.
+TROUPE_CUSTOM_SIZE_RANGE: tuple[int, int] = (8, 256)
+
 #: Palette budgets, when no designed palette is named. The same ladder the
 #: sprite path offers, and for the same reason: these are the counts a median
 #: cut produces a usable sprite palette at.
@@ -129,6 +141,10 @@ def troupe_options(svc: WarlockService) -> dict[str, Any]:
         "clip_templates": clip_templates(),
         "poses": list(TROUPE_POSES),
         "logical_sizes": list(TROUPE_LOGICAL_SIZES),
+        # A pair, not a ladder: the "Custom..." size box clamps to this range
+        # rather than offering a third list, since every whole number in it is
+        # equally valid and there is no preset worth naming among them.
+        "logical_size_range": list(TROUPE_CUSTOM_SIZE_RANGE),
         "colors": list(TROUPE_COLOR_CHOICES),
         "outline_modes": list(TROUPE_OUTLINE_MODES),
         "reduce_modes": list(TROUPE_REDUCE_MODES),
@@ -192,6 +208,7 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
         colors=TROUPE_COLOR_CHOICES,
         colors_default=DEFAULT_TROUPE_COLORS,
         outline_default=DEFAULT_TROUPE_OUTLINE,
+        size_range=TROUPE_CUSTOM_SIZE_RANGE,
     )
 
 

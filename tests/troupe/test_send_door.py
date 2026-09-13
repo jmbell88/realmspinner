@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock import rigging
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid
 from warlock.studio import asset_exits, troupe_mode
@@ -112,6 +113,38 @@ def test_a_size_chosen_at_the_door_reaches_the_job_row(ctx, svc):
     made = run()
     row = svc.store.get(made["id"])
     assert row["params"]["logical_size"] == 64
+
+
+def test_a_custom_size_chosen_at_the_door_reaches_the_job_row(ctx, svc):
+    """Task G: ``state.custom_size`` is the "Custom..." box rather than the
+    ladder combo, but ``_send`` writes ``logical_size`` the same way either
+    way -- an int, straight into the form the service validates."""
+    job = _mesh(svc, rigged=True)
+    troupe_send.ask(ctx, job)
+    state = ctx.state.troupe_send
+    state.custom_size = True
+    state.logical_size = 40
+    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+    (_key, run), = ctx.submitted
+    made = run()
+    row = svc.store.get(made["id"])
+    assert row["params"]["logical_size"] == 40
+
+
+def test_asking_again_opens_on_custom_for_an_off_ladder_size(ctx, svc):
+    """A size the ladder does not hold (set by a previous custom send) has to
+    reopen on the Custom box, not silently snap onto whatever preset the combo
+    would otherwise show for an unrecognised value."""
+    job = _mesh(svc, rigged=True)
+    troupe_send.ask(ctx, job)
+    state = ctx.state.troupe_send
+    state.custom_size = True
+    state.logical_size = 40
+    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+
+    troupe_send.ask(ctx, job)
+    assert ctx.state.troupe_send.logical_size == 40
+    assert ctx.state.troupe_send.custom_size is True
 
 
 def test_the_door_remembers_the_size_the_last_send_chose(ctx, svc):
@@ -227,6 +260,56 @@ def test_a_rigged_mesh_is_not_asked_which_skeleton_to_use(ctx, svc):
     source = inspect.getsource(troupe_send._skeleton)
     assert "if state.rigged:" in source
     assert "return" in source
+
+
+def test_a_custom_skeleton_warns_how_many_bones_its_clips_will_skip(ctx, svc):
+    """P4 (2026-09-13): a rig edited away from its template may no longer
+    carry every bone the template's clip library animates -- the send dialog
+    says so, by name, rather than a walk cycle discovered thinner after the
+    render."""
+    template = rigging.get_template("humanoid")
+    library = rigging.clip_library("humanoid")
+    animated: set[str] = set()
+    for pose in library["poses"].values():
+        animated.update(pose["bones"])
+    dropped = next(iter(animated))
+    bones = [dict(b) for b in template.bones if b["name"] != dropped]
+    root = next(b["name"] for b in bones if b["parent"] is None)
+
+    job_id = svc.store.create("image", "a hooded ranger", {}, stage="model")
+    job_dir = svc.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "model.glb").write_bytes(b"fake-glb")
+    (job_dir / "rig.glb").write_bytes(b"fake-rig")
+    (job_dir / "rig.json").write_text(
+        json.dumps(
+            {
+                "template": "humanoid",
+                "skeleton": "custom",
+                "bones": bones,
+                "root": root,
+                "mirror_pairs": [],
+            }
+        ),
+        "utf-8",
+    )
+    svc.store.set_status(job_id, "done")
+    job = {"id": job_id, "prompt": "a hooded ranger", "files": ["model.glb", "rig.glb"]}
+
+    troupe_send.ask(ctx, job)
+    state = ctx.state.troupe_send
+    assert state.custom_skeleton is True
+    assert state.custom_skeleton_missing == 1
+
+    source = inspect.getsource(troupe_send._skeleton)
+    assert "custom_skeleton_missing" in source
+
+
+def test_a_template_skeleton_is_not_flagged_custom(ctx, svc):
+    troupe_send.ask(ctx, _mesh(svc, rigged=True))
+    state = ctx.state.troupe_send
+    assert state.custom_skeleton is False
+    assert state.custom_skeleton_missing == 0
 
 
 def test_colours_is_hidden_when_a_palette_is_named(ctx, svc):

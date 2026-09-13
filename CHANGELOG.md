@@ -20,6 +20,39 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Poser can edit a rigged mesh's skeleton.** On an opened asset, Edit skeleton
+enters a draft mode. You can move pivots, add a child bone or split one, delete
+a pivot (its children move up to its parent) or a whole limb, rename bones, and
+attach preset limbs (arm, leg, tail, wing, antenna), optionally mirrored.
+Mirror edits moves a paired bone's partner too. Every change is one undo step,
+and the draft survives a crash. Apply queues the ordinary rig job, which
+rebuilds and reweights the mesh in Blender. `rig.json` records
+`skeleton: "custom"` and keeps `template` naming the base it came from. The
+cap is 64 bones, the viewer's joint limit. A new rig deletes pose bakes and
+`animated.glb` made against the old one, which a joint adjustment used to leave
+behind. Template clips skip bones a custom skeleton lacks, and Send to Troupe
+says how many.
+
+**Clay's grid is 100 m by default, with 1 m cells, and you can set its size.**
+Overlays has a Size field (1–1000 m), and the setting is remembered along with
+the grid toggle. F no longer shrinks the grid to the selection, and the camera's
+far plane now reaches the grid's edge. Overlays also has a new God light: a
+light straight down from 100 m overhead onto a ground plane under the grid (no
+shadows). Position and scale fields carry X/Y/Z labels above each box, and
+rotation, still a quaternion, carries X/Y/Z/W.
+
+**Send to Troupe takes a custom sprite size.** Besides the 16–128 ladder, the
+size can be any whole number from 8 to 256 px, in the send dialog and in
+Troupe's own form. Sizes that don't divide 512 are resized with
+nearest-neighbour, and both places say so.
+
+**Settings and Home are tidier.** Settings → Health puts its actions first,
+renamed Detail Log, Health Checks and Troubleshooting, and lists checks as a
+Status / Check / Detail table. Settings' section rail and body are padded, a
+hairline divides them, and the rail's (?) button is no longer clipped: every
+help button was placed 4 dp too far right. Home's two columns are padded,
+bordered and rounded.
+
 **Clay can align, distribute, drop to ground and snap to grid.** Four new
 object-mode rows act on the selection, and each gesture is one undo step. Align
 lines objects up on their world bounds rather than their origins, so boxes of

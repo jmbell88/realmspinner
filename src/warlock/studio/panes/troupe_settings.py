@@ -211,13 +211,7 @@ def _size(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) ->
         helper=_camera_helper(presets, str(form.get("camera") or "")),
     )
     form["camera"] = camera
-    _changed, size = form_ui.combo(
-        "logical_size",
-        "Sprite size",
-        str(form["logical_size"]),
-        [(str(s), f"{s} px") for s in options.get("logical_sizes") or ()],
-    )
-    form["logical_size"] = int(size)
+    _logical_size(form, form_ui, options)
     _changed, outline = form_ui.combo(
         "outline",
         "Outline",
@@ -237,6 +231,50 @@ def _size(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) ->
         [(m, m) for m in options.get("reduce_modes") or ()],
     )
     form["reduce_mode"] = reduce_mode
+
+
+#: The combo's sentinel for "type your own number" -- ``troupe_send._CUSTOM``'s
+#: value, kept identical though the two files do not share the constant,
+#: because neither reads the other's combo state and there is nothing to keep
+#: in sync by importing it.
+_CUSTOM = "custom"
+
+
+def _logical_size(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) -> None:
+    """The sprite size row: the ladder, plus a custom box (task G).
+
+    ``form["logical_size_custom"]`` is UI-only state -- ``troupe_mode.start``
+    builds the submitted ``troupe`` block field by field and never reads it --
+    kept on the form rather than as a local so it survives the pane closing
+    and reopening the way every other field here does.
+    """
+    sizes = options.get("logical_sizes") or ()
+    current = int(form["logical_size"])
+    if "logical_size_custom" not in form:
+        form["logical_size_custom"] = current not in sizes
+    choices = [(str(s), f"{s} px") for s in sizes]
+    choices.append((_CUSTOM, "Custom..."))
+    combo_value = _CUSTOM if form["logical_size_custom"] else str(current)
+    _changed, picked = form_ui.combo("logical_size", "Sprite size", combo_value, choices)
+    if picked == _CUSTOM:
+        form["logical_size_custom"] = True
+    else:
+        form["logical_size_custom"] = False
+        form["logical_size"] = int(picked)
+    if form["logical_size_custom"]:
+        lo, hi = options.get("logical_size_range") or (8, 256)
+        # Same field name as the combo above, so a refusal naming
+        # ``logical_size`` (``check_troupe``'s field) rings whichever of the
+        # two controls is actually on screen -- the two are never drawn on
+        # the same frame, so there is no id collision to worry about.
+        _changed, value = form_ui.number(
+            "logical_size", "Custom size (px)", int(form["logical_size"])
+        )
+        form["logical_size"] = max(int(lo), min(int(hi), int(value)))
+        if form["logical_size"] and charsheet.RENDER_SIZE % form["logical_size"] != 0:
+            widgets.muted_wrapped(
+                "Sizes that don't divide 512 are resized with nearest-neighbour."
+            )
 
 
 def _camera_helper(presets: dict[str, Any], key: str) -> str:

@@ -172,3 +172,48 @@ def test_troupe_still_answers_exactly_what_it_answered_before(svc):
         troupe._check_options(svc, {"logical_size": 7})
     assert excinfo.value.field == "logical_size"
     assert str(list(troupe.TROUPE_LOGICAL_SIZES)) in excinfo.value.message
+
+
+# Task G, 2026-09-12: a custom sprite size inside a caller-given range.
+
+
+def test_without_size_range_an_off_ladder_size_is_still_refused(svc):
+    """No behaviour change for a caller that never asks for the range --
+    tile sheets and characters keep the strict ladder they always had."""
+    with pytest.raises(Invalid) as excinfo:
+        _check(svc, {"logical_size": 37})
+    assert excinfo.value.field == "logical_size"
+    assert "must be one of" in excinfo.value.message
+
+
+def test_size_range_accepts_a_whole_number_off_the_ladder(svc):
+    assert _check(svc, {"logical_size": 37}, size_range=(8, 256))["logical_size"] == 37
+
+
+def test_size_range_still_refuses_outside_the_range(svc):
+    with pytest.raises(Invalid) as excinfo:
+        _check(svc, {"logical_size": 300}, size_range=(8, 256))
+    assert excinfo.value.field == "logical_size"
+    assert "8 and 256" in excinfo.value.message
+    # And the ladder is still named, so a form reading the message can still
+    # offer the presets beside the range.
+    assert str(list(SIZES)) in excinfo.value.message
+
+
+def test_troupe_accepts_a_custom_size_inside_its_range(svc):
+    """``service/troupe`` publishes ``TROUPE_CUSTOM_SIZE_RANGE`` and wires it
+    through ``_check_options``, so a size the ladder does not name (task G's
+    40px) is answered rather than refused."""
+    assert troupe._check_options(svc, {"logical_size": 40})["logical_size"] == 40
+
+
+def test_troupe_still_refuses_below_the_custom_floor(svc):
+    with pytest.raises(Invalid) as excinfo:
+        troupe._check_options(svc, {"logical_size": 7})
+    assert excinfo.value.field == "logical_size"
+
+
+def test_troupe_options_publishes_the_custom_size_range(svc):
+    assert troupe.troupe_options(svc)["logical_size_range"] == list(
+        troupe.TROUPE_CUSTOM_SIZE_RANGE
+    )

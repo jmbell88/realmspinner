@@ -22,11 +22,14 @@ defaults for one request.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
 from imgui_bundle import imgui
 
+from ... import rigging
+from ...pipelines import charsheet
 from .. import controls, tokens, troupe_mode, widgets
 from ..tokens import sp
 
@@ -57,7 +60,20 @@ class TroupeSend:
     #: This mesh's own recorded front, read once at :func:`ask` -- a fact
     #: about the job, not a question this dialog asks. See ``_front_helper``.
     front_yaw: float = 0.0
+    #: P4 (2026-09-13): whether the rig's own skeleton was edited away from its
+    #: template (``rig.json["skeleton"] == "custom"``), and how many bones the
+    #: template's clip library animates that this rig no longer has
+    #: (``rigging.clip_coverage``). Read once here, not per frame -- a rig read
+    #: is a file, and ``_skeleton`` draws every frame the dialog is open.
+    custom_skeleton: bool = False
+    custom_skeleton_missing: int = 0
     logical_size: int = 32
+    #: Whether the size box is the "Custom..." input rather than the ladder
+    #: combo. Its own field rather than inferred solely from ``logical_size``
+    #: being off the ladder, so a user who *chose* Custom and then typed a
+    #: value that happens to sit on a preset (say, 32) is not silently bounced
+    #: back to the combo underneath them.
+    custom_size: bool = False
     camera: str = ""
     outline: str = ""
     colors: int = 64
@@ -77,13 +93,41 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
     if not job_id:
         return False
     form = troupe_mode.form(ctx)
+    options = troupe_mode.options(ctx)
+    logical_size = int(form.get("logical_size") or 32)
+    rigged = "rig.glb" in ((job or {}).get("files") or [])
+    custom_skeleton = False
+    custom_missing = 0
+    if rigged:
+        # P4 (2026-09-13): a rig whose skeleton was edited away from its
+        # template may no longer have every bone the template's clip library
+        # animates -- Troupe warns, once, at the door, rather than a silently
+        # thinner walk cycle discovered after the render. Read tolerantly:
+        # an unreadable rig here is not this dialog's refusal to raise, only a
+        # missed warning -- the send itself re-reads the rig and is the real
+        # gate.
+        from ...service import rig as svc_rig
+
+        with contextlib.suppress(Exception):
+            rig = svc_rig.get_rig(ctx.svc, job_id)
+            if rig.get("skeleton") == "custom":
+                custom_skeleton = True
+                custom_missing = len(
+                    rigging.clip_coverage(rig, str(rig.get("template") or ""))
+                )
     ctx.state.troupe_send = TroupeSend(
         job_id=job_id,
         label=str((job or {}).get("prompt") or (job or {}).get("name") or "")[:48],
-        rigged="rig.glb" in ((job or {}).get("files") or []),
+        rigged=rigged,
+        custom_skeleton=custom_skeleton,
+        custom_skeleton_missing=custom_missing,
         front_yaw=float(((job or {}).get("params") or {}).get("front_yaw") or 0.0),
         template=str(form.get("template") or ""),
-        logical_size=int(form.get("logical_size") or 32),
+        logical_size=logical_size,
+        # Off-ladder means the field is already a custom answer -- the form
+        # opens on the Custom box rather than silently snapping it to a
+        # preset it does not hold.
+        custom_size=logical_size not in (options.get("logical_sizes") or ()),
         camera=str(form.get("camera") or ""),
         outline=str(form.get("outline") or ""),
         colors=int(form.get("colors") or 64),
@@ -154,13 +198,7 @@ def _body(ctx: Any, state: TroupeSend) -> None:
         if state.label:
             widgets.muted(state.label)
         _skeleton(state, options)
-        state.logical_size = int(
-            widgets.labeled_combo(
-                "Sprite size",
-                str(state.logical_size),
-                [(str(s), f"{s} px") for s in options.get("logical_sizes") or ()],
-            )
-        )
+        _size(state, options)
         presets = options.get("camera_presets") or {}
         state.camera = widgets.labeled_combo(
             "Camera",
@@ -202,6 +240,12 @@ def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
     """
     if state.rigged:
         widgets.muted("This mesh is already rigged; its own skeleton is used.")
+        if state.custom_skeleton and state.custom_skeleton_missing:
+            n = state.custom_skeleton_missing
+            widgets.muted_wrapped(
+                f"Custom skeleton: clips skip {n} bone{'s' if n != 1 else ''} "
+                "this rig does not have."
+            )
         return
     choices = [
         (str(row.get("key")), str(row.get("label") or row.get("key")))
@@ -221,6 +265,38 @@ def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
             "are offered."
         ),
     )
+
+
+#: The combo's sentinel for "type your own number" -- distinct from every
+#: ladder entry, which are all digit strings, so it can never collide with a
+#: size the ladder actually offers.
+_CUSTOM = "custom"
+
+
+def _size(state: TroupeSend, options: dict[str, Any]) -> None:
+    """Sprite size: the ladder, or a hand-typed value in ``logical_size_range``.
+
+    ``troupe_settings._size``'s pane-side twin, kept in step because the two
+    are the same question asked from two doors -- a size chosen here has to
+    read back the same way in Troupe's own settings form.
+    """
+    choices = [(str(s), f"{s} px") for s in options.get("logical_sizes") or ()]
+    choices.append((_CUSTOM, "Custom..."))
+    combo_value = _CUSTOM if state.custom_size else str(state.logical_size)
+    picked = widgets.labeled_combo("Sprite size", combo_value, choices)
+    if picked == _CUSTOM:
+        state.custom_size = True
+    else:
+        state.custom_size = False
+        state.logical_size = int(picked)
+    if state.custom_size:
+        lo, hi = options.get("logical_size_range") or (8, 256)
+        _changed, value = controls.input_int("##troupe-send-size", int(state.logical_size))
+        state.logical_size = max(int(lo), min(int(hi), int(value)))
+        if state.logical_size and charsheet.RENDER_SIZE % state.logical_size != 0:
+            widgets.muted_wrapped(
+                "Sizes that don't divide 512 are resized with nearest-neighbour."
+            )
 
 
 def _front_helper(front_yaw: float) -> str:
