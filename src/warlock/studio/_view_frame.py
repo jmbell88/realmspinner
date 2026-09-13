@@ -54,16 +54,27 @@ RMB_MENU_SLOP = 4.0
 class Composite:
     """The renderer's view of many cached objects at once.
 
-    Not a ``GpuModel``: it owns nothing and releases nothing, and the two
-    methods here are the entire surface ``Renderer._draw_model`` uses. Skinning
-    is not part of it -- Clay has no skins, which is also why ``glbwrite``
-    refuses one.
+    Not a ``GpuModel``: it owns nothing and releases nothing, and ``draws``
+    plus ``palette`` are the entire surface ``Renderer._draw_model`` uses.
+    Skinning is not part of it -- Clay has no skins, which is also why
+    ``glbwrite`` refuses one.
+
+    ``uids`` is a second list, the same length as ``draws`` and walked in
+    lockstep with it (index *i* of one names the object that produced index
+    *i* of the other) -- Clay's own addition, for ``Renderer.draw_ids``,
+    which has to know which object each primitive belongs to and has no
+    other way to ask: unlike a ``GpuModel``'s ``Node``, nothing on ``draws``'
+    own tuples carries an object identity, only a world matrix. ``None`` for
+    a caller with no use for it (mason's own ``Composite(draws)``, which
+    draws no id pass), so the one extra list Clay wants is not a second
+    parameter every other builder has to thread through for nothing.
     """
 
-    __slots__ = ("draws",)
+    __slots__ = ("draws", "uids")
 
-    def __init__(self, draws: list[Any]) -> None:
+    def __init__(self, draws: list[Any], uids: list[int] | None = None) -> None:
         self.draws = draws
+        self.uids = uids
 
     def palette(self, node: Any) -> None:
         return None

@@ -154,15 +154,41 @@ see that module's own docstring for the derivation itself."""
 
 def test_the_uid_bearing_argument_names_are_exactly_uid_and_uids() -> None:
     """The derivation gate the whole remap rule rests on. Walks every
-    argument schema :func:`agent_clay.tools` publishes today (26 tools, at
+    argument schema :func:`agent_clay.tools` publishes today (28 tools, at
     the time this was written) rather than trusting a hand-written pair, so
-    a twenty-seventh tool naming a uid some other way fails loudly here --
+    the next tool naming a uid some other way fails loudly here --
     :data:`UID_KEYS` would have already grown to include it, which is what
     forces a decision about :func:`agent_transcript.remap` and
     :func:`agent_transcript.produced_uids` instead of letting a stale
     mapping silently replay the wrong object.
     """
     assert {"uid", "uids"} == UID_KEYS
+
+
+def test_every_program_step_kinds_uid_bearing_keys_are_within_uid_and_uids() -> None:
+    """The gate above is blind to ``clay_program``'s own grammar: its wire
+    schema declares ``steps`` items as bare ``{"type": "object"}`` -- and
+    ``clay_batch``'s own ``calls[].arguments`` is the identical shape -- so
+    :func:`agent_transcript.uid_keys`'s recursive walk of ``properties``
+    never reaches whatever keys a compiled *step* actually carries a
+    reference under; a step kind that started naming one a third way could
+    grow silently with nothing above ever noticing.
+
+    ``agent_program.UID_BEARING_KEYS`` is the compiler's own map of step
+    kind -> which of that kind's keys (a subset of its own entry in
+    ``agent_program.STEP_KINDS``) carry a reference rather than a plain
+    value. Walking it directly closes the blind spot: every key it names is
+    asserted to already be a member of ``UID_KEYS`` -- today just ``uid``
+    and ``uids``, the same two names the wire-schema gate above already
+    pins -- so the compiler and the transcript tooling cannot quietly
+    disagree about what counts as a reference.
+    """
+    from warlock.studio import agent_program as ap
+
+    assert set(ap.UID_BEARING_KEYS) <= set(ap.STEP_KINDS)
+    for kind, keys in ap.UID_BEARING_KEYS.items():
+        assert keys <= ap.STEP_KINDS[kind], kind
+        assert keys <= UID_KEYS, (kind, sorted(keys - UID_KEYS))
 
 
 # --- the replay itself --------------------------------------------------------

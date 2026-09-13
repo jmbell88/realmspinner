@@ -148,11 +148,38 @@ own comment), and the two families that push nothing (references, the
 selection tools) are exactly as untouched by a rollback as by an ordinary
 ``clay_undo``.
 
+**``clay_program`` compiles a small declarative program to a list of tool
+calls (:mod:`.agent_program`) and folds the whole run into one undo step,
+the same shape ``clay_batch`` already gives a run built by hand.** Where
+``clay_batch`` takes calls an agent already assembled, one at a time,
+``clay_program`` takes a program -- ``variables``, a nested ``steps`` list
+with ``repeat``/``array``/``mirror``/``group``/``let``/``if`` sugar over
+expressions, and its own ``id``/``$ref`` namespace reusing ``clay_batch``'s
+own convention -- and :func:`agent_program.compile_program` expands it,
+*before* any of it runs, into the identical ``(tool_name, arguments)`` shape
+``_fold_run`` already knows how to run for ``clay_batch``. It is always
+atomic, unlike ``clay_batch``'s opt-in ``rollback_on_error``: a program that
+stops partway rolls the whole attempt back rather than keeping a prefix,
+because a compiled program is one request an agent reasons about as a
+whole, not a sequence it is watching call by call. ``dry_run`` runs the
+compiled program for real -- the only way to answer "would this refuse
+partway through" honestly -- and then always undoes it with
+``redoable=False`` before returning, the same reversal ``rollback_on_error``
+uses, so a dry run costs exactly what the run it previews would have cost
+and leaves nothing behind. A compiled ``("live", kind, arguments, path)``
+placeholder -- a relative move, a runtime assertion, none of them
+answerable without the live document a batch alone cannot see -- is refused
+the moment its turn comes, which folds and rolls back precisely like any
+other mid-run refusal; :data:`PROGRAM_DEADLINE_S` bounds the whole run the
+same way, so an agent-visible refusal always beats a frame stalled past
+what one MCP round trip should cost.
+
 **The undo enumeration, in full.** Together with ``clay_undo``/``clay_redo``
 (which move the history head rather than pushing one of their own),
-``clay_batch`` is one of two exceptions that fold or move a step -- what
-makes "one tool call is one undo step" true rather than approximately true.
-Two families push none at all instead: references (``clay_reference_add``
+``clay_batch`` and ``clay_program`` are three exceptions that fold or move a
+step -- what makes "one tool call is one undo step" true rather than
+approximately true. Two families push none at all instead: references
+(``clay_reference_add``
 and friends), because nothing in the document changes when a picture is
 merely held on the session, and the selection tools (``clay_element_mode``,
 ``clay_select_elements``, ``clay_select_by``, ``clay_select``), because
@@ -256,20 +283,20 @@ that leaf staying ignorant of Clay is a decision this file does not get to
 revisit. A test that checks real behaviour is worth more than a validator
 that checks only some of it.
 
-Four tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh`` and
-``clay_diagnose`` -- go one step further and declare an ``outputSchema``
-describing that structured shape; the rest deliberately do not, because a
-schema for a uid and a count is authorship with no reader. ``clay_add_mesh``
-composes its schema from :func:`_object_row_output_schema` rather than
-repeating it -- the same row ``clay_add_primitive`` declares, plus the two
-keys only this tool answers with -- because a hand-copied second row schema
-is exactly the drift the derivation paragraphs above rule out for a query
-enum or a generator list, and a row's own shape is no different. None of the
-four declares ``required``: a refusal shares this same result envelope
-(``protocol.fail``'s own ``structuredContent`` is whatever ``field`` it was
-given, nothing more), so a ``required`` list on the success shape would make
-every refusal of these tools non-conforming for a client validating strictly
-against its schema.
+Five tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh``,
+``clay_diagnose`` and ``clay_analyze`` -- go one step further and declare an
+``outputSchema`` describing that structured shape; the rest deliberately do
+not, because a schema for a uid and a count is authorship with no reader.
+``clay_add_mesh`` composes its schema from :func:`_object_row_output_schema`
+rather than repeating it -- the same row ``clay_add_primitive`` declares,
+plus the two keys only this tool answers with -- because a hand-copied
+second row schema is exactly the drift the derivation paragraphs above rule
+out for a query enum or a generator list, and a row's own shape is no
+different. None of the five declares ``required``: a refusal shares this
+same result envelope (``protocol.fail``'s own ``structuredContent`` is
+whatever ``field`` it was given, nothing more), so a ``required`` list on
+the success shape would make every refusal of these tools non-conforming
+for a client validating strictly against its schema.
 
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
@@ -324,6 +351,7 @@ import functools
 import json
 import logging
 import math
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -333,7 +361,8 @@ import numpy as np
 from ..service import files as svc_files
 from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
-from . import clay_mode, clay_ops
+from . import agent_program, clay_mode, clay_ops
+from .clay import analyze as clay_analyze
 from .clay import diagnose as clay_diagnose
 from .clay import document as bd
 from .clay import elements as el
@@ -391,6 +420,12 @@ list, and the test below is what catches one of them going stale.
 BATCH_EXCLUDED = frozenset(
     {
         "clay_batch",  # nesting buys nothing and bounds nothing
+        # A program already folds its own run into one step the identical
+        # way; nesting one inside a batch entry buys nothing either, and
+        # agent_program.compile_program never emits a name in this set (see
+        # test_the_compiler_never_emits_a_batch_excluded_tool), so the two
+        # surfaces cannot disagree about what is nestable.
+        "clay_program",
         # An image block is a result a client must see as one; a batch can
         # only hand back JSON text, so neither of these has a shape a batch
         # result could carry.
@@ -405,6 +440,18 @@ BATCH_EXCLUDED = frozenset(
 )
 """Tools ``clay_batch`` refuses to run -- see :func:`_h_batch`'s docstring
 for the derivation, and the comments above for why each one is excluded."""
+
+PROGRAM_DEADLINE_S = 4.0
+"""The wall-clock budget one ``clay_program`` call gets, measured from the
+moment its compiled calls start running and checked between them (never
+mid-call, so one already-running call is never cut off) -- past it, the run
+rolls back and refuses rather than keep going into a second, third frame.
+``clay_program`` is deliberately not chunked across frames the way ``pump``'s
+own queued-job budget chunks ordinary calls (see ``docs/INVARIANTS.md``'s
+agent paragraph): a program's whole point is that it is one MCP round trip,
+and a caller that needs more than this buys should split the program into
+several smaller ``clay_program`` calls rather than have this tool silently
+spread one across an unbounded number of frames."""
 
 MAX_REFERENCES = 8
 """How many pictures one session may hold at once. A session's references
@@ -426,6 +473,19 @@ render's base64-encoded payload will fit in one reply frame. The JSON
 envelope around the image blocks costs bytes of its own; without this an
 encode that is over by a few hundred bytes would reach ``send_bytes`` and
 fail there, past the point a refusal could explain itself."""
+
+RENDER_SHADINGS = (
+    "unlit", "lit", "wireframe", "wire_overlay", "xray", "object_id",
+)
+"""``clay_render``'s ``shading`` enum, one place rather than two: this tuple
+is what the schema's own ``enum`` is built from below, so a seventh value
+added here reaches the wire with no second edit. ``unlit`` is first because
+it is the default -- ``args.get("shading", RENDER_SHADINGS[0])`` in
+:func:`_h_render` reads that position rather than a duplicated literal, so
+the two cannot name a different default by accident. The first five map onto
+``ClayView.render_png``'s own ``shading`` (see ``clay_view._SHADING_DRAW_KWARGS``
+for that table); ``object_id`` is answered by ``ClayView.render_ids``
+instead, a different draw with a different return shape."""
 
 ELEMENT_PAGE_MAX = 4096
 """The most element indices one ``clay_elements`` call may hand back for one
@@ -937,6 +997,29 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
     return out, None
 
 
+def _validate_range(
+    value: Any, field: str, lo: float, hi: float
+) -> tuple[float | None, dict | None]:
+    """One finite number in ``lo..hi``, or a refusal naming *field*.
+
+    :func:`_validate_unit` fixed at 0..1 for a colour component; this is the
+    same check with the bound as an argument, for ``clay_analyze``'s three
+    tolerances, each declared with its own ``minimum``/``maximum`` in the
+    schema and none of them 0..1.
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None, fail(
+            f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
+        )
+    if not math.isfinite(out) or not (lo <= out <= hi):
+        return None, fail(
+            f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
+        )
+    return out, None
+
+
 def _validate_number_or_vec(
     value: Any, field: str
 ) -> tuple[float | list[float] | list[list[float]] | None, dict | None]:
@@ -1243,10 +1326,11 @@ def instructions() -> str:
         "object, and every other tool that names an object takes one. "
         "Names are for humans and may be renamed (clay_rename); a uid never "
         "changes.\n\n"
-        "One tool call is one undo step, with two exceptions that fold or "
-        "move steps -- clay_batch folds its whole run into one, and "
-        "clay_undo/clay_redo move the history head rather than pushing one "
-        "of their own -- and two families that push none at all: adding a "
+        "One tool call is one undo step, with three exceptions that fold or "
+        "move steps -- clay_batch and clay_program each fold their whole "
+        "run into one, and clay_undo/clay_redo move the history head "
+        "rather than pushing one of their own -- and two families that "
+        "push none at all: adding a "
         "reference (clay_reference_add) touches nothing in the document, and "
         "the selection tools (clay_element_mode, clay_select_elements, "
         "clay_select_by, clay_select) change the document without pushing a "
@@ -1282,6 +1366,15 @@ def instructions() -> str:
         "and its survivor is whichever object comes first in the "
         "document's own order, never first in the uids list handed to "
         "it.\n\n"
+        "clay_diagnose and clay_analyze both read without selecting anything "
+        "you did not ask them to: diagnose finds what is wrong with a mesh "
+        "(a hole, a non-manifold edge) and can select the offending elements; "
+        "analyze measures facts about one or more objects that are not "
+        "defects -- exact bounds, area, volume, ground contact, symmetry, and "
+        "for a pair, distance, contact and overlap -- and never selects "
+        "anything. Reach for analyze to check placement (is this resting on "
+        "the ground, do these two touch or overlap, by how much) and "
+        "diagnose to check mesh health before a boolean.\n\n"
         "Materials are linear RGB, 0..1. clay_scene's 'materials' lists the "
         "palette already in use -- reuse an index from it rather than "
         "appending a near-duplicate.\n\n"
@@ -1302,6 +1395,23 @@ def instructions() -> str:
         "stack, so a tab this same batch minted, an element mode or "
         "selection change, or a reference added along the way all survive "
         "it untouched.\n\n"
+        "clay_program compiles a declarative program -- variables, "
+        "expressions, repeat/array/mirror/group/let/if -- to the same kind "
+        "of call list and runs it the same way, always atomic: unlike "
+        "clay_batch's opt-in rollback_on_error, any failure rolls the "
+        "whole attempt back. Prefer clay_program over clay_batch once a "
+        "build has real structure -- a repeated part, a computed "
+        "placement, a name reused across several steps -- rather than "
+        "assembling and resolving that structure call by call; reach for "
+        "clay_batch instead when the calls are already known and few, or "
+        "when a partial, kept prefix is useful on a refusal. clay_program "
+        "cannot be a clay_batch entry, and dry_run lets a program be "
+        "previewed -- built for real and then undone -- before it is run "
+        "for keeps. Its move/turn/scale_by steps read the live document to "
+        "compose a relative delta, and assert checks a condition against it "
+        "(lo/hi/size/center/count/exists/touches/grounded/floating/volume) "
+        "-- a false or unevaluable assert rolls the whole program back, the "
+        "same as any other failed step.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
         "second timeout is handled one of two ways, and the reply says "
         "which. If Warlock had not started the call yet, it is dropped and "
@@ -1808,24 +1918,45 @@ def tools() -> list[Any]:
             name="clay_render",
             title="Render the document",
             description=(
-                "One or more flat-shaded, white-background square renders "
-                "of the document -- no gizmos -- from the standard "
-                "three-quarter framing, a named axis view, or a free "
-                "yaw/pitch pair. 'view' and 'views' are exclusive; giving "
-                "both is refused. 'grid' draws the ground plane at y=0, the "
-                "one scale cue available with no viewport to walk around in: "
-                "16 cells across a span rounded up to a power of ten "
-                "containing 2.5x the framed footprint, so one cell reads as "
-                "span/16 metres. 'focus' points the camera at the union of "
-                "the named objects' boxes -- everything else is still "
-                "drawn, since the renderer has no per-object alpha. Refused, "
-                "before any GPU work, when the requested views would exceed "
-                f"the {RENDER_PIXEL_BUDGET:,}-pixel render budget or would "
-                "not fit in one reply frame once encoded -- ask for fewer or "
-                "smaller views instead. Pass 'compare' (a stored reference's "
-                "name) to render exactly one view beside it or blended over "
-                "it instead of the normal multi-view result -- see "
-                "clay_reference_add."
+                "One or more white-background square renders of the "
+                "document -- no gizmos -- from the standard three-quarter "
+                "framing, a named axis view, or a free yaw/pitch pair. "
+                "'view' and 'views' are exclusive; giving both is refused. "
+                "'shading' picks how the surface is drawn: 'unlit' "
+                "(default) is the material's own colour with no lighting -- "
+                "not 'flat-shaded' in the lit-and-shaded sense that phrase "
+                "usually means, just the albedo, which is what makes two "
+                "renders comparable regardless of where the light sits. "
+                "'lit' adds the same lighting the viewport itself uses. "
+                "'wireframe' draws edges only, 'wire_overlay' draws the "
+                "shaded surface with edges over it, and 'xray' draws the "
+                "surface translucent. 'object_id' draws every visible "
+                "object as a flat, unique colour instead -- see 'ids' below "
+                "-- and refuses combined with 'grid'. 'grid' draws the "
+                "ground plane at y=0, the one scale cue available with no "
+                "viewport to walk around in: 16 cells across a span rounded "
+                "up to a power of ten containing 2.5x the framed footprint, "
+                "so one cell reads as span/16 metres. 'focus' points the "
+                "camera at the union of the named objects' boxes -- "
+                "everything else is still drawn, since the renderer has no "
+                "per-object alpha. Refused, before any GPU work, when the "
+                f"requested views would exceed the {RENDER_PIXEL_BUDGET:,}"
+                "-pixel render budget or would not fit in one reply frame "
+                "once encoded -- ask for fewer or smaller views instead. "
+                "Pass 'compare' (a stored reference's name) to render "
+                "exactly one view beside it or blended over it instead of "
+                "the normal multi-view result -- see clay_reference_add; "
+                "'object_id' cannot be combined with 'compare'. A compare "
+                "reply's header also carries 'silhouette': shape IoU and "
+                "bounding-box aspect between the reference and the render, "
+                "or null with a 'reason' (no subject, a flood-fill leak, or "
+                "a mask covering almost the whole frame) -- never a "
+                "refusal, the picture returns either way. An 'object_id' "
+                "render's text reply carries 'ids': one row per visible "
+                "object, [uid, '#rrggbb' colour, pixel count], the same "
+                "colour for a uid in every view of one call -- a pixel "
+                "count of 0 means that object is hidden from that view, not "
+                "that it does not exist."
             ),
             schema={
                 "type": "object",
@@ -1854,6 +1985,7 @@ def tools() -> list[Any]:
                             ]
                         },
                     },
+                    "shading": {"type": "string", "enum": list(RENDER_SHADINGS)},
                     "grid": {"type": "boolean"},
                     "focus": {"type": "array", "items": {"type": "integer"}},
                     "compare": {"type": "string"},
@@ -1897,6 +2029,64 @@ def tools() -> list[Any]:
                 "additionalProperties": False,
             },
             output_schema=_clay_diagnose_output_schema(),
+        ),
+        protocol.Tool(
+            name="clay_analyze",
+            title="Measure bounds, mass and contact -- never selects",
+            description=(
+                "Facts, not defects: exact world-space bounds, area, volume "
+                "(null unless closed), connected components, ground contact "
+                "and symmetry for one or more objects, plus pairwise "
+                "distance/contact/overlap and -- for a whole-document call, "
+                "no uids given -- which objects are floating (touching "
+                "nothing that reaches the ground). Use clay_diagnose to find "
+                "what is wrong with a mesh and select it; use this to learn "
+                "how big something is, whether it is touching the ground or "
+                "another object, or how deep two objects overlap. Bounds "
+                "here are the object's own exact extent under its current "
+                "rotation, which is tighter than clay_scene's 'bbox' -- that "
+                "one transforms the local bounding box's own corners, "
+                "conservative for anything that is not itself box-shaped. "
+                "Refused past 64 objects or 200,000 triangles combined; "
+                "past 500,000 candidate triangle pairs for one object pair, "
+                "that pair's distance is a cheaper vertex estimate marked "
+                "exact:false instead."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 1,
+                        "description": "Only these objects, and pairs among "
+                        "them -- no floating check. Omitted means every "
+                        "visible object, with floating computed.",
+                    },
+                    "contact_tol": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Metres apart still counted as touching. Default 0.001.",
+                    },
+                    "near": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 10.0,
+                        "description": "Metres of margin a pair's boxes must "
+                        "overlap by to be looked at closely at all. Default 0.05.",
+                    },
+                    "symmetry_tol": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Mirror-partner tolerance, as a "
+                        "fraction of the object's own bounds diagonal. Default 0.002.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            output_schema=_clay_analyze_output_schema(),
         ),
         protocol.Tool(
             name="clay_export",
@@ -1984,7 +2174,7 @@ def tools() -> list[Any]:
                 "successful prefix. If this session owns no document yet, "
                 "the first call must be one of "
                 f"{', '.join(MINTS_A_DOCUMENT)}. "
-                "clay_batch, clay_render, clay_export, "
+                "clay_batch, clay_program, clay_render, clay_export, "
                 "clay_undo, clay_redo and clay_reference_get cannot be "
                 "batched -- see their own tools for why. Anywhere inside a "
                 "later entry's arguments, {\"$ref\": \"<name>\"} resolves to "
@@ -2025,6 +2215,96 @@ def tools() -> list[Any]:
                     "rollback_on_error": {"type": "boolean"},
                 },
                 "required": ["calls"],
+                "additionalProperties": False,
+            },
+        ),
+        protocol.Tool(
+            name="clay_program",
+            title="Compile and run a build program",
+            description=(
+                "Compile a small declarative program to a list of tool "
+                "calls and run it as one atomic undo step, labelled 'Agent "
+                "program' -- like clay_batch but built from a program "
+                "rather than assembled call by call, and always atomic: "
+                "any failure rolls the whole attempt back rather than "
+                "keeping a prefix. 'variables' seeds named numbers; "
+                "'steps' is a list, each entry exactly one kind: add "
+                "(generator/params/translation/rotation/scale/id/material, "
+                "like clay_add_primitive), figure (key/translation/yaw/"
+                "scale/id, like clay_add_figure), mesh (positions/faces/uv/"
+                "translation/rotation/scale/id/material, like "
+                "clay_add_mesh), transform (uid/translation/rotation/"
+                "scale), params (uid or uids, plus params), material "
+                "(uids/color/name/metallic/roughness), delete (uids), op "
+                "(name/params/uids -- an object-mode clay_op row only), "
+                "boolean (kind/uids), select (uids), repeat (ranges/steps, "
+                "expanding every named range's cartesian product), array "
+                "(id/count/var/add, sugar for a numbered row), mirror "
+                "(axis/add, places the original and a reflected copy -- "
+                "placement only, never the mesh itself), group (id/"
+                "members, names a set for a later uids field), let (vars, "
+                "binds more variables for the rest of this steps list), if "
+                "(cond/then/else), move (uid/by -- by added to the "
+                "target's current translation), turn (uid/by -- degrees "
+                "composed in world space onto the current rotation), "
+                "scale_by (uid/factor -- a number or [x,y,z] multiplied "
+                "onto the current scale) and assert (condition, optionally "
+                "uid -- a false or unevaluable condition refuses the whole "
+                "program). move/turn/scale_by read the live document, so "
+                "their uid may also name a group (one call per member, "
+                "still one undo step). assert's condition is the numeric "
+                "expression language below plus facts, each taking bare "
+                "ids/groups (never $name or a string): lo/hi/size/center"
+                "(id, axis 0|1|2) read a world-space box; count(group); "
+                "exists(name); touches(id, id); grounded(id); floating(id) "
+                "(whole-document); volume(id) (0 unless closed). A numeric field (translation, a "
+                "params value, a range bound, ...) takes a plain number or "
+                "an expression string: + - * / % and ^ for power, "
+                "comparisons and and/or/not, parentheses, degree trig "
+                "(sin/cos/tan/asin/acos/atan2), sqrt/abs/min/max/floor/"
+                "ceil/clamp/lerp/round, the constant pi, and $name for a "
+                "variable -- never Python, nothing is eval'd. An id field "
+                "takes a plain string or one templated with {name} (e.g. "
+                "\"leg_{i}\" inside a repeat over i) -- never $name, which "
+                "is for numeric fields only. A reference to an object this "
+                "program placed is its id (a bare string, or {\"id\": "
+                "...}/{\"$ref\": ...}, the same convention clay_batch "
+                "uses); a reference to one already in the document is its "
+                "uid (an integer, or {\"uid\": ...}); a uids field also "
+                "takes a group name or a list mixing any of those. "
+                "Limits: up to "
+                f"{agent_program.PROGRAM_MAX_STEPS} steps in one list "
+                "(every nested repeat/if body counts its own, up to "
+                f"{agent_program.PROGRAM_MAX_NESTING} lists deep), "
+                f"{agent_program.PROGRAM_MAX_CALLS} expanded tool calls "
+                f"total, {agent_program.PROGRAM_MAX_REPEAT} iterations per "
+                f"repeat/array, {agent_program.PROGRAM_MAX_BOOLEANS} "
+                "boolean steps, and "
+                f"{agent_program.PROGRAM_MAX_VARIABLES} variables in scope "
+                "at once. dry_run runs the program for real and then "
+                "undoes it before returning, reporting what would have "
+                "been built (uids omitted) with no lasting change; with no "
+                "document open yet, a dry run only compiles and never "
+                "starts one. clay_program cannot itself be a clay_batch "
+                "entry. A program expensive enough to near these limits -- "
+                "many repeat iterations, several booleans -- is exactly "
+                "what a client that has declared the MCP Tasks extension "
+                "should let run as a task rather than wait on "
+                "synchronously."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "variables": {"type": "object"},
+                    "steps": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": agent_program.PROGRAM_MAX_STEPS,
+                        "items": {"type": "object"},
+                    },
+                    "dry_run": {"type": "boolean"},
+                },
+                "required": ["steps"],
                 "additionalProperties": False,
             },
         ),
@@ -2130,15 +2410,15 @@ def _params_value_schema() -> dict:
 
 # --- output schemas -----------------------------------------------------------
 #
-# Only three tools below declare an ``outputSchema`` at all -- ``clay_scene``,
-# ``clay_add_primitive`` and ``clay_diagnose``. Every other tool's result is
-# small and self-explanatory (a uid, a count, a list of names); writing a
-# schema for each would be schema authoring with no reader, so this file
-# deliberately does not. These three are the ones whose shape is worth
-# writing down once rather than making a client work it back out of a
-# sample reply.
+# Five tools below declare an ``outputSchema`` at all -- ``clay_scene``,
+# ``clay_add_primitive``, ``clay_add_mesh``, ``clay_diagnose`` and
+# ``clay_analyze``. Every other tool's result is small and self-explanatory
+# (a uid, a count, a list of names); writing a schema for each would be
+# schema authoring with no reader, so this file deliberately does not.
+# These five are the ones whose shape is worth writing down once rather
+# than making a client work it back out of a sample reply.
 #
-# None of the three declares ``required``, and none sets
+# None of the five declares ``required``, and none sets
 # ``additionalProperties: false``. That is not an oversight -- a refusal
 # from any of these tools answers through the *same* result envelope
 # (``protocol.fail``), and a refusal's own ``structuredContent`` is whatever
@@ -2347,6 +2627,91 @@ def _clay_diagnose_output_schema() -> dict:
                     "mode": {"type": "string"},
                     "stamp": {"type": "integer"},
                     "selected": _sel_counts_schema(),
+                },
+            },
+        },
+    }
+
+
+def _clay_analyze_output_schema() -> dict:
+    """``clay_analyze``'s declared ``outputSchema`` -- built from what
+    :func:`_h_analyze` actually returns. ``bounds`` admits ``null`` for an
+    object with no vertices, exactly as ``clay_scene``'s own ``bbox`` does,
+    and for the same reason: :func:`~.analyze.analyze` cannot measure a box
+    around nothing."""
+    vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+    ground_schema = {
+        "type": "object",
+        "properties": {
+            "min_y": {"type": "number"},
+            "contact": {"type": "boolean"},
+            "penetration": {"type": "number"},
+        },
+    }
+    overlap_schema = {
+        "type": "object",
+        "properties": {
+            "volume": {"type": "number"},
+            "depth": {"type": "number"},
+        },
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "objects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "uid": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "bounds": {
+                            "anyOf": [
+                                {"type": "null"},
+                                {"type": "object", "properties": {"min": vec3, "max": vec3}},
+                            ]
+                        },
+                        "area": {"type": "number"},
+                        "volume": {"anyOf": [{"type": "null"}, {"type": "number"}]},
+                        "closed": {"type": "boolean"},
+                        "components": {"type": "integer"},
+                        "ground": {"anyOf": [{"type": "null"}, ground_schema]},
+                        "symmetry": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                    },
+                },
+            },
+            "pairs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "uids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "distance": {"anyOf": [{"type": "null"}, {"type": "number"}]},
+                        "intersects": {"type": "boolean"},
+                        "contact": {"type": "boolean"},
+                        "overlap": {"anyOf": [{"type": "null"}, overlap_schema]},
+                        "exact": {"type": "boolean"},
+                    },
+                },
+            },
+            "floating": {"type": "array", "items": {"type": "integer"}},
+            "truncated": {"type": "boolean"},
+            "tolerances": {
+                "type": "object",
+                "properties": {
+                    "contact_tol": {"type": "number"},
+                    "near": {"type": "number"},
+                    "symmetry_tol": {"type": "number"},
                 },
             },
         },
@@ -4003,6 +4368,19 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     if not isinstance(grid, bool):
         return fail("grid must be a boolean.", field="grid")
 
+    shading = args.get("shading", RENDER_SHADINGS[0])
+    if shading not in RENDER_SHADINGS:
+        return fail(
+            f"shading must be one of {', '.join(RENDER_SHADINGS)}.", field="shading"
+        )
+    if shading == "object_id" and grid:
+        # The id pass (``ClayView.render_ids``) never draws a grid at all --
+        # a grid line would be false colour with no uid behind it, corrupting
+        # the very pixel counts this shading exists to produce. Refused here,
+        # named at the field a caller can actually drop, rather than the grid
+        # silently doing nothing or the id map silently going wrong.
+        return fail("grid cannot be combined with shading 'object_id'.", field="grid")
+
     focus = args.get("focus")
     bounds = None
     if focus is not None:
@@ -4022,6 +4400,15 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
     compare_mode = args.get("compare_mode", "beside")
     alpha = args.get("alpha", 0.5)
     if compare is not None:
+        if shading == "object_id":
+            # A compare reply is a picture-vs-picture comparison
+            # (agent_refs.beside/overlay) with no room in its header for the
+            # uid/colour/pixel table object_id exists to answer with, and a
+            # reference was captured as an ordinary render in the first
+            # place -- comparing it against flat id colours is not a
+            # coherent question. Refused rather than silently dropping the
+            # 'ids' table a caller would otherwise expect.
+            return fail("shading 'object_id' cannot be combined with compare.", field="shading")
         reference = session.references.get(compare)
         if reference is None:
             return fail(f"no reference named {compare!r}.", field="compare")
@@ -4045,7 +4432,12 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             # the comparison is framed the way the picture being matched was.
             label = reference.view if reference.view in valid_views else "three_quarter"
             parsed = [(label, {"view": label})]
-        size = min(size, 1024)
+        # Refused, not clamped -- the same rule ``size`` above already
+        # follows: this used to silently answer a smaller picture than the
+        # one asked for, with nothing telling a caller the ceiling it named
+        # was never the one actually enforced.
+        if size > 1024:
+            return fail("size must be 1024 or less when comparing to a reference.", field="size")
     else:
         total_pixels = len(parsed) * size * size
         if total_pixels > RENDER_PIXEL_BUDGET:
@@ -4061,14 +4453,48 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
         log.exception("agent render of a Clay document failed")
         return fail("That document could not be rendered; see the log.")
 
+    ids_by_uid: dict[int, tuple[str, int]] = {}
     try:
-        pngs = [
-            view_obj.render_png(doc, size=size, grid=grid, bounds=bounds, **kwargs)
-            for _label, kwargs in parsed
-        ]
+        if shading == "object_id":
+            pngs = []
+            for _label, kwargs in parsed:
+                png, rows = view_obj.render_ids(doc, size=size, bounds=bounds, **kwargs)
+                pngs.append(png)
+                # Summed across views rather than kept apart: the header has
+                # one row per uid, not one per view, and "share one map"
+                # (this tool's own description) is a promise about the
+                # colour, not about collapsing a multi-view answer down to
+                # whichever view happened to see the most of an object.
+                for uid, hexcolor, px in rows:
+                    _prev_hex, prev_px = ids_by_uid.get(uid, (hexcolor, 0))
+                    ids_by_uid[uid] = (hexcolor, prev_px + px)
+        else:
+            pngs = [
+                view_obj.render_png(
+                    doc, size=size, grid=grid, bounds=bounds, shading=shading, **kwargs
+                )
+                for _label, kwargs in parsed
+            ]
     except Exception:
         log.exception("agent render of a Clay document failed")
         return fail("That document could not be rendered; see the log.")
+
+    # base64 costs 4 bytes for every 3 of input, rounded up: the frame budget
+    # is checked against what actually crosses the wire, not the raw PNG
+    # size. Applied identically to the compare path below and to the
+    # ordinary multi-view path further down -- it used to run only on the
+    # latter, so a beside/overlay sheet built from two large enough
+    # references could reach `send_bytes` and fail there, past the point a
+    # refusal could explain itself, exactly the failure mode this check
+    # exists to head off.
+    def _over_frame_budget(payload_pngs: list[bytes]) -> dict | None:
+        b64_total = sum(((len(png) + 2) // 3) * 4 for png in payload_pngs)
+        if b64_total > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
+            return fail(
+                "This render is too large to send back in one reply frame; "
+                "ask for fewer or smaller views."
+            )
+        return None
 
     if compare is not None:
         from . import agent_refs
@@ -4077,12 +4503,39 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
             sheet = agent_refs.beside(reference.png, pngs[0], compare, "render", size=size)
         else:
             sheet = agent_refs.overlay(reference.png, pngs[0], alpha, size=size)
+
+        over_budget = _over_frame_budget([sheet])
+        if over_budget is not None:
+            return over_budget
+
         import io
 
         from PIL import Image
 
         with Image.open(io.BytesIO(sheet)) as im:
             width, height = im.width, im.height
+
+        # A second, private render: pngs[0] carries whatever shading the
+        # caller asked for (lighting, wireframe...), and the IoU below wants
+        # the flat, guaranteed-non-white object-id picture instead --
+        # 'object_id' shading draws exactly that through render_ids, but is
+        # refused combined with 'compare' above, so this takes that picture
+        # for itself rather than the caller's. Never a refusal: the sheet
+        # above is already worth returning whatever this finds, so any
+        # failure here (including a moderngl one) reads as a null 'reason'
+        # rather than losing the picture.
+        try:
+            from ..bench import metrics as bench_metrics
+
+            ids_png, _ids_rows = view_obj.render_ids(
+                doc, size=size, bounds=bounds, **parsed[0][1]
+            )
+            render_mask = bench_metrics.render_ids_mask(ids_png)
+            silhouette = bench_metrics.compare_silhouette(reference.png, render_mask)
+        except Exception:
+            log.exception("agent render silhouette compare failed")
+            silhouette = {"iou": None, "reason": "silhouette could not be measured; see the log."}
+
         session.last_render_png = sheet
         return ok(
             text(
@@ -4093,23 +4546,26 @@ def _h_render(ctx: Any, session: Session, args: dict) -> dict:
                         "mode": compare_mode,
                         "width": width,
                         "height": height,
+                        "silhouette": silhouette,
                     }
                 )
             ),
             image_png(sheet),
         )
 
-    # base64 costs 4 bytes for every 3 of input, rounded up: the frame budget
-    # is checked against what actually crosses the wire, not the raw PNG size.
-    b64_total = sum(((len(png) + 2) // 3) * 4 for png in pngs)
-    if b64_total > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
-        return fail(
-            "This render is too large to send back in one reply frame; ask "
-            "for fewer or smaller views."
-        )
+    over_budget = _over_frame_budget(pngs)
+    if over_budget is not None:
+        return over_budget
 
     session.last_render_png = pngs[0]
-    header = text(json.dumps({"views": [label for label, _ in parsed], "size": size, "grid": grid}))
+    header_obj: dict[str, Any] = {
+        "views": [label for label, _ in parsed], "size": size, "grid": grid,
+    }
+    if shading == "object_id":
+        header_obj["ids"] = [
+            [uid, hexcolor, px] for uid, (hexcolor, px) in sorted(ids_by_uid.items())
+        ]
+    header = text(json.dumps(header_obj))
     # Deliberately not `_json` -- an image block has no JSON to duplicate,
     # and this header is already checked twice against `protocol.MAX_FRAME`
     # above (`RENDER_PIXEL_BUDGET`, `RENDER_FRAME_RESERVE`) before it leaves,
@@ -4213,6 +4669,106 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
             ]
     if selected is not None:
         payload["selected"] = selected
+    return _json(payload)
+
+
+def _h_analyze(ctx: Any, session: Session, args: dict) -> dict:
+    """Bounds, mass properties, ground contact, symmetry and pairwise
+    distance/contact/overlap -- read-only, and selects nothing.
+
+    ``uids`` given restricts both which objects are reported on and which
+    pairs are computed among them, and switches ``floating`` off entirely --
+    see :func:`~.analyze.analyze`'s own docstring for why a scoped call
+    cannot answer that question. Omitted, every visible object takes part
+    and ``floating`` is always present in the reply, even when empty.
+    """
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    uids_arg = args.get("uids")
+    if uids_arg is None:
+        targets = [obj for obj in doc.objects if obj.visible]
+        pairs_among = None
+    else:
+        uids, failure = _resolve_uids(doc, uids_arg, field="uids")
+        if failure:
+            return failure
+        if not uids:
+            return fail("uids must name at least one object.", field="uids")
+        by_uid = {obj.uid: obj for obj in doc.objects}
+        targets = [by_uid[uid] for uid in uids]
+        pairs_among = uids
+
+    contact_tol, failure = _validate_range(
+        args.get("contact_tol", 0.001), "contact_tol", 0.0, 1.0
+    )
+    if failure:
+        return failure
+    near, failure = _validate_range(args.get("near", 0.05), "near", 0.0, 10.0)
+    if failure:
+        return failure
+    symmetry_tol, failure = _validate_range(
+        args.get("symmetry_tol", 0.002), "symmetry_tol", 0.0, 1.0
+    )
+    if failure:
+        return failure
+
+    result = clay_analyze.analyze(
+        targets,
+        pairs_among=pairs_among,
+        contact_tol=contact_tol,
+        near=near,
+        symmetry_tol=symmetry_tol,
+    )
+
+    objects_out = [
+        {
+            "uid": row.uid,
+            "name": row.name,
+            "bounds": None
+            if row.bounds is None
+            else {"min": _round(row.bounds[0]), "max": _round(row.bounds[1])},
+            "area": _round(row.area),
+            "volume": None if row.volume is None else _round(row.volume),
+            "closed": row.closed,
+            "components": row.components,
+            "ground": None
+            if row.ground is None
+            else {
+                "min_y": _round(row.ground.min_y),
+                "contact": row.ground.contact,
+                "penetration": _round(row.ground.penetration),
+            },
+            "symmetry": _round(list(row.symmetry)),
+        }
+        for row in result.objects
+    ]
+
+    pairs_out = [
+        {
+            "uids": list(pair.uids),
+            "distance": None if pair.distance is None else _round(pair.distance),
+            "intersects": pair.intersects,
+            "contact": pair.contact,
+            "overlap": None
+            if pair.overlap is None
+            else {"volume": _round(pair.overlap.volume), "depth": _round(pair.overlap.depth)},
+            "exact": pair.exact,
+        }
+        for pair in result.pairs
+    ]
+
+    payload: dict[str, Any] = {
+        "objects": objects_out,
+        "pairs": pairs_out,
+        "tolerances": {"contact_tol": contact_tol, "near": near, "symmetry_tol": symmetry_tol},
+    }
+    if result.floating is not None:
+        payload["floating"] = list(result.floating)
+    if result.truncated:
+        payload["truncated"] = True
     return _json(payload)
 
 
@@ -4437,10 +4993,118 @@ def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | No
     return value, None
 
 
+def _resolve_and_call(
+    ctx: Any, session: Session, doc: Any, name: str, arguments: dict
+) -> dict:
+    """Resolve every ``{"$ref": "<name>"}`` in *arguments* against *doc* --
+    see :func:`_resolve_batch_ref` -- and run *name* through :func:`call`.
+    The single-entry step :func:`_fold_run` takes for a plain ``(name,
+    arguments)`` entry, factored out so a caller that has to interpose
+    something of its own around the call (``clay_program``'s deadline check)
+    still reaches the identical ``$ref`` handling rather than a second copy
+    of it."""
+    resolved: dict[str, Any] = {}
+    for key, value in (arguments or {}).items():
+        resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
+        if ref_failure:
+            return ref_failure
+    return call(ctx, session, name, resolved)
+
+
+def _run_entry(ctx: Any, session: Session, doc: Any, entry: Any) -> dict:
+    """One :func:`_fold_run` entry: a plain ``(name, arguments)`` pair, run
+    through :func:`_resolve_and_call`, or a live thunk -- anything callable,
+    taking ``(doc, session)`` and returning a tool result already built --
+    invoked directly. The thunk shape is what lets a caller other than
+    ``clay_batch`` (``clay_program``'s own live-kind placeholders, and its
+    deadline check ahead of an ordinary call) plug into the identical fold
+    with nothing in :func:`_fold_run` itself needing to know about either."""
+    if callable(entry):
+        return entry(doc, session)
+    name, arguments = entry
+    return _resolve_and_call(ctx, session, doc, name, arguments)
+
+
+def _fold_run(
+    ctx: Any,
+    session: Session,
+    doc: Any,
+    entries: list[Any],
+    *,
+    rollback: bool,
+    label: str,
+) -> tuple[list[dict], int | None, bool, bool]:
+    """Run *entries* -- see :func:`_run_entry` for the two shapes one may
+    take -- under one ``history.mark()``/``collapse_since`` fold, stopping at
+    the first refusal and keeping the successful prefix. Shared by
+    ``clay_batch`` and ``clay_program``, which differ only in what they hand
+    it: a batch's entries are the calls an agent already assembled, one at a
+    time; a program's are :func:`agent_program.compile_program`'s own
+    expanded call list, wrapped in a deadline-checking thunk apiece.
+
+    -> ``(results, stopped_at, rolled_back, changed)``: *results* is one
+    tool result per entry actually run (stopping at the first refusal, so
+    shorter than *entries* on a stop); *stopped_at* is that entry's index, or
+    ``None`` if every entry succeeded; *rolled_back* is whether *rollback*
+    fired; *changed* is ``doc.history.head != mark`` after everything above,
+    true whether the run completed, stopped with a successful prefix kept,
+    or (once a rollback has run) landed back at ``mark`` by construction --
+    the same single expression answers all three rather than a rollback
+    branch hand-setting it.
+
+    ``rollback``: when true and the run stops at a refusal, the folded step
+    is undone with ``history.undo(doc, redoable=False)`` before this
+    returns -- not left for a later ``clay_undo``, and not redoable, because
+    the whole point of asking for this is that the partial work should never
+    have existed. ``redoable=True`` (the default ``undo()`` a human's Ctrl+Z
+    takes) would leave the abandoned attempt on the redo stack, where a
+    later ``clay_redo`` could bring back exactly the work the caller asked
+    to erase -- the cancelled-lift shape ``UndoStack.undo``'s own docstring
+    describes that keyword for. Only the document's own undo stack is
+    unwound: a tab this same run minted still exists, because minting one
+    pushes no undo step to begin with, and neither does an element-mode or
+    selection change, or a reference add, along the way -- both of those
+    families survive this exactly as they survive an ordinary ``clay_undo``.
+    Gated on ``doc.history.head != mark`` first, never merely on ``stopped_at
+    is not None``: a run that stopped at its very first entry, before that
+    entry ever mutated anything, has nothing to undo, and calling
+    ``history.undo`` there would unwind whatever step was already on top
+    before this run started -- the caller's *previous* action, not this
+    one's.
+
+    ``label``: the step this run just pushed is renamed to *label* -- but
+    only when it actually pushed one, and skipped entirely once rolled back
+    (undoing the folded step already put ``doc.history.head`` back at
+    ``mark``, so there is no step left on top to rename) -- see
+    :func:`_label_top`.
+    """
+    mark = doc.history.mark()
+    results: list[dict] = []
+    stopped_at: int | None = None
+    for i, entry in enumerate(entries):
+        result = _run_entry(ctx, session, doc, entry)
+        results.append(result)
+        if result.get("isError"):
+            stopped_at = i
+            break
+    doc.history.collapse_since(mark)
+
+    rolled_back = False
+    if rollback and stopped_at is not None and doc.history.head != mark:
+        doc.history.undo(doc, redoable=False)
+        rolled_back = True
+
+    if not rolled_back:
+        _label_top(doc, mark, label)
+
+    changed = doc.history.head != mark
+    return results, stopped_at, rolled_back, changed
+
+
 def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
-    """Run several tools as one undo step. See the module docstring's own
-    paragraph on the fold and :data:`BATCH_EXCLUDED` for what this refuses to
-    run and why.
+    """Run several tools as one undo step, through :func:`_fold_run`. See the
+    module docstring's own paragraph on the fold and :data:`BATCH_EXCLUDED`
+    for what this refuses to run and why.
 
     The whole list's shape is validated before anything runs, so a malformed
     batch runs nothing. If the session owns no tab yet, this refuses unless
@@ -4537,75 +5201,20 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
 
-    mark = doc.history.mark()
-    results: list[dict] = []
-    stopped_at: int | None = None
-    for i, entry in enumerate(calls):
-        arguments = entry.get("arguments") or {}
-        # Resolved fresh against *doc* on every entry, not once up front --
-        # see this function's own docstring's ``$ref`` paragraph for why an
-        # unresolvable name refuses here rather than before the loop starts.
-        resolved: dict[str, Any] = {}
-        ref_failure: dict | None = None
-        for key, value in arguments.items():
-            resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
-            if ref_failure:
-                break
-        result = ref_failure if ref_failure else call(ctx, session, entry["name"], resolved)
-        results.append(result)
-        if result.get("isError"):
-            stopped_at = i
-            break
-    doc.history.collapse_since(mark)
-
-    rolled_back = False
-    # Keyed off ``doc.history.head != mark``, never off ``collapse_since``'s
-    # own return value: that return is a folding decision -- ``False`` for a
-    # run that pushed exactly one step, because wrapping a lone edit in a
-    # ``CompoundEdit`` would read as "compound" in the history panel where
-    # the edit already reads as what it did -- not a "did anything happen"
-    # signal. A single pushed step is still the right thing to undo, and
-    # ``head != mark`` answers "did the document move" the same way whether
-    # collapsing found one step or several to fold.
-    if rollback_on_error and stopped_at is not None and doc.history.head != mark:
-        # ``redoable=False``: this batch's whole point is that the agent
-        # wants the partial work to never have existed. ``redoable=True``
-        # (the default ``undo()`` a human's Ctrl+Z takes) would leave the
-        # abandoned attempt sitting on the redo stack, where a later
-        # ``clay_redo`` would bring back exactly the work this call was
-        # asked to erase -- the same cancelled-lift shape ``UndoStack.undo``'s
-        # own docstring describes: the buffer needs putting back, but the
-        # user asked for the lift to not have happened, so redoable=True
-        # would let Ctrl+Y replay it. Only the document's own undo stack is
-        # unwound here -- a tab this batch minted still exists (that mint
-        # pushed no undo step to begin with, so it sits before ``mark`` and
-        # is untouched), and neither does an element-mode/selection change
-        # or a reference add along the way, because neither ever pushed a
-        # step either.
-        doc.history.undo(doc, redoable=False)
-        rolled_back = True
-
-    # Skipped once rolled back: undoing the folded step already put
-    # ``doc.history.head`` back at ``mark``, so there is no step left on top
-    # to (mis)label -- ``_label_top`` would no-op on its own guard here too,
-    # but this says so rather than relying on that guard to be read.
-    if not rolled_back:
-        _label_top(doc, mark, "Agent batch")
+    # ``$ref`` resolution, the ``history.head != mark`` fold key,
+    # ``redoable=False`` and the top-step label are all in :func:`_fold_run`
+    # now -- entries here are plain ``(name, arguments)`` pairs, exactly the
+    # shape it already knows how to run.
+    entries = [(entry["name"], entry.get("arguments") or {}) for entry in calls]
+    results, stopped_at, rolled_back, changed = _fold_run(
+        ctx, session, doc, entries, rollback=rollback_on_error, label="Agent batch",
+    )
 
     # "completed" is diagnostic and unaffected by rollback: how many calls
     # succeeded before the refusal fired stays true regardless of whether
     # that work was then reversed, so "completed: 2, rolled_back: true" is
     # not a contradiction -- one reports what ran, the other what remains.
     completed = len(results) - (1 if stopped_at is not None else 0)
-    # Truthfully computed, not hard-coded: ``mark`` is the head serial before
-    # the loop above ran anything, so a head that has moved past it means at
-    # least one sub-call genuinely pushed a step -- exactly what "did the
-    # document move" asks, whether the batch ran to completion, stopped at
-    # its first refusal with a successful prefix already folded in, or (once
-    # a rollback above has run) landed back at ``mark`` by construction. The
-    # same expression answers all three rather than a rollback branch hand-
-    # setting ``changed`` to ``False``.
-    changed = doc.history.head != mark
     payload = {
         "completed": completed,
         "stopped_at": stopped_at,
@@ -4641,6 +5250,360 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
     # free the way every other tool's is -- it is passed explicitly above,
     # which is also why this is the one JSON-answering tool that would have
     # been left without a structured twin had this call not been written out.
+    result["isError"] = stopped_at is not None
+    return result
+
+
+def _step_locator(compiled_call: tuple[Any, ...]) -> dict[str, Any]:
+    """Where one :class:`agent_program.Compiled` call came from, and what it
+    is -- the ``{"step", "call"}`` shape :func:`_h_program` reports in
+    ``stopped_at`` and ``failure``. ``step`` is the compiler's own path
+    (``"steps[2].add"``, ...), the same string a compile refusal's message
+    already carries; ``call`` is the tool name, or ``"live:<kind>"`` for one
+    of :data:`agent_program.LIVE_KINDS`, which has no tool name of its own."""
+    if compiled_call[0] == "live":
+        return {"step": compiled_call[-1], "call": f"live:{compiled_call[1]}"}
+    return {"step": compiled_call[-1], "call": compiled_call[0]}
+
+
+def _describe_compiled_call(compiled_call: tuple[Any, ...]) -> dict[str, Any]:
+    """One compiled call, as ``dry_run``'s own ``calls`` preview reports it --
+    what would run, without running it."""
+    if compiled_call[0] == "live":
+        _, kind, arguments, _path = compiled_call
+        return {"live": kind, "arguments": arguments}
+    name, arguments, _path = compiled_call
+    return {"name": name, "arguments": arguments}
+
+
+@dataclass
+class _ConditionAccess:
+    """The ``access`` adapter :func:`agent_program.evaluate_condition` calls
+    into -- the one seam that hands a *live* fact something to measure,
+    built fresh per ``assert`` step rather than once per program, since the
+    document it wraps must be exactly the one the step is running against
+    right now (not the one at program-compile time, which for a live step
+    reached mid-program has already been mutated by every step before it).
+
+    Every method here either resolves a name against *doc* the same way
+    :func:`_resolve_batch_ref` already does for a real tool call's own
+    ``$ref``, or reads a fact off :mod:`.clay.analyze`/``clay_geom_ops`` the
+    same way ``clay_scene`` and ``clay_diagnose`` already do -- nothing here
+    is a new way to look at the document, only a new door into the old one.
+    """
+
+    doc: Any
+    groups: dict[str, tuple[str, ...]]
+
+    def resolve(self, name: str) -> int:
+        matches = [obj.uid for obj in self.doc.objects if obj.name == name]
+        if not matches:
+            raise agent_program.ConditionError(f"no object named {name!r}.")
+        if len(matches) > 1:
+            raise agent_program.ConditionError(
+                f"{len(matches)} objects are named {name!r}; this program's "
+                "own ids are no longer unique in the document."
+            )
+        return matches[0]
+
+    def resolve_group(self, name: str) -> list[int]:
+        return [self.resolve(member) for member in self.groups.get(name, ())]
+
+    def exists(self, name: str) -> bool:
+        return any(obj.name == name for obj in self.doc.objects)
+
+    def bounds(self, uid: int) -> tuple[Any, Any]:
+        obj = self._by_uid(uid)
+        box = clay_geom_ops.world_box(obj)
+        if box is None:
+            raise agent_program.ConditionError(f"{obj.name!r} has no geometry to measure.")
+        return box
+
+    def touches(self, uid_a: int, uid_b: int) -> bool:
+        obj_a, obj_b = self._by_uid(uid_a), self._by_uid(uid_b)
+        analysis = self._analyze([obj_a, obj_b], pairs_among=[uid_a, uid_b])
+        return bool(analysis.pairs) and analysis.pairs[0].contact
+
+    def grounded(self, uid: int) -> bool:
+        obj = self._by_uid(uid)
+        analysis = self._analyze([obj], pairs_among=[uid])
+        row = analysis.objects[0]
+        return bool(row.ground and row.ground.contact)
+
+    def floating(self, uid: int) -> bool:
+        # The one fact that genuinely needs the whole document, not just the
+        # object(s) named in the condition -- see clay_analyze.analyze's own
+        # docstring on why ``pairs_among=None`` is what turns "floating" on
+        # at all.
+        analysis = self._analyze(list(self.doc.objects), pairs_among=None)
+        return uid in (analysis.floating or ())
+
+    def volume(self, uid: int) -> float:
+        obj = self._by_uid(uid)
+        analysis = self._analyze([obj], pairs_among=[uid])
+        vol = analysis.objects[0].volume
+        return float(vol) if vol is not None else 0.0
+
+    def _by_uid(self, uid: int) -> Any:
+        try:
+            return self.doc.by_uid(uid)
+        except KeyError:
+            raise agent_program.ConditionError(f"no object with uid {uid}.") from None
+
+    def _analyze(self, objects: list[Any], *, pairs_among: list[int] | None) -> Any:
+        try:
+            return clay_analyze.analyze(objects, pairs_among=pairs_among)
+        except OpError as error:
+            raise agent_program.ConditionError(str(error)) from None
+
+
+def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, arguments: dict) -> dict:
+    """Run one compiled ``move``/``turn``/``scale_by`` entry: resolve its
+    already-validated target, read that object's *current* transform,
+    compose this step's own delta onto it, and issue the resulting absolute
+    values through the real ``clay_transform`` tool -- never ``doc.
+    set_transform`` directly, so this step gets exactly the same argument
+    validation, history behaviour and refusal shape any other caller of that
+    tool already gets."""
+    uid, failure = _resolve_batch_ref(doc, arguments["uid"], "uid")
+    if failure:
+        return failure
+    try:
+        obj = doc.by_uid(int(uid))
+    except (KeyError, TypeError, ValueError):
+        return fail(f"no object with uid {uid!r}.", field="uid", recovery="read_scene")
+
+    if kind == "move":
+        delta = arguments["by"]
+        translation = [float(obj.translation[i]) + delta[i] for i in range(3)]
+        return call(ctx, session, "clay_transform", {"uid": uid, "translation": translation})
+
+    if kind == "turn":
+        # Composed in world space, the same frame ``by`` already implies for
+        # move (a plain vector add, not one rotated into the object's own
+        # axes first) and factor already implies for scale_by (a plain
+        # multiply) -- so all three read the same way to an agent: "add this
+        # delta to what is already there," never "in this object's own,
+        # possibly already-turned, frame." ``quat_mul(a, b)`` applies ``b``
+        # first, so the delta quaternion goes on the *left* to apply after
+        # the object's current orientation.
+        delta_deg = arguments["by"]
+        new_quat = m3.quat_mul(_quat_from_euler_xyz(delta_deg), obj.rotation)
+        rotation = list(_euler_xyz_from_quat(new_quat))
+        return call(ctx, session, "clay_transform", {"uid": uid, "rotation": rotation})
+
+    # scale_by
+    factor = arguments["factor"]
+    if isinstance(factor, list):
+        scale = [float(obj.scale[i]) * factor[i] for i in range(3)]
+    else:
+        scale = [float(obj.scale[i]) * factor for i in range(3)]
+    return call(ctx, session, "clay_transform", {"uid": uid, "scale": scale})
+
+
+def _run_live_assert(doc: Any, arguments: dict, groups: dict[str, tuple[str, ...]]) -> dict:
+    """Run one compiled ``assert`` entry: evaluate its condition against
+    *doc*, right now, through :func:`agent_program.evaluate_condition`. A
+    false result and an unevaluable one (:class:`agent_program.
+    ConditionError` -- an id that stopped resolving, a division by zero, a
+    non-finite result) both refuse the same way, because either means this
+    program's own assumption did not hold; the message tells the two apart."""
+    access = _ConditionAccess(doc=doc, groups=groups)
+    try:
+        value = agent_program.evaluate_condition(arguments["ast"], arguments["scope"], access)
+    except agent_program.ConditionError as error:
+        return fail(
+            f"assert {arguments['condition']!r} could not be evaluated: {error}",
+            field="condition",
+        )
+    if not math.isfinite(value):
+        return fail(
+            f"assert {arguments['condition']!r} evaluated to a non-finite value.",
+            field="condition",
+        )
+    if value != 0.0:
+        return _json({"assert": arguments["condition"], "result": True})
+    return fail(f"assert failed: {arguments['condition']}.", field="condition")
+
+
+def _run_live_step(
+    ctx: Any, session: Session, doc: Any, kind: str, arguments: dict,
+    groups: dict[str, tuple[str, ...]],
+) -> dict:
+    if kind == "assert":
+        return _run_live_assert(doc, arguments, groups)
+    if kind in ("move", "turn", "scale_by"):
+        return _run_live_transform(ctx, session, doc, kind, arguments)
+    return fail(f"the {kind!r} step kind cannot run yet.", field="steps")  # pragma: no cover
+
+
+def _h_program(ctx: Any, session: Session, args: dict) -> dict:
+    """Compile a declarative program (:mod:`.agent_program`) and run it as
+    one atomic undo step, through the same :func:`_fold_run` ``clay_batch``
+    runs on. See the module docstring's own paragraph on the fold for the
+    contract in full; this docstring covers only what is specific to this
+    handler.
+
+    Always atomic, unlike ``clay_batch``'s opt-in ``rollback_on_error``: a
+    program that stops at a refusal always rolls the whole attempt back
+    (``_fold_run(..., rollback=True, ...)``), because a compiled program is
+    one request an agent reasons about as a whole rather than a sequence it
+    watches call by call and might want a kept prefix from.
+
+    ``dry_run``: with no document open yet, this only compiles -- reported as
+    ``validated: "compile"`` -- and never mints a tab, because there would be
+    nothing to run the program against without minting one first, and a dry
+    run's whole point is to cost nothing lasting. With a document already
+    open (or once one exists), a dry run behaves exactly like a real run and
+    then, on success, undoes it the same ``redoable=False`` way a rollback
+    does -- so a dry run costs what the run it previews would have cost and
+    leaves nothing behind; ``doc.dirty`` is a comparison against
+    ``saved_head`` (``document.py``), not a latch, so undoing back to the
+    same head restores it exactly as it stood before this call. ``objects``
+    is read off the document immediately after the run, before that undo, so
+    a dry run still reports what *would* exist -- with ``uid`` omitted,
+    since by the time a caller reads the reply those uids are gone.
+
+    Object mode is required at the start: every compiled step is object-mode
+    (:func:`agent_program._Compiler._compile_op` already refuses to compile
+    an element-mode op), so a document left in vertex/edge/face mode could
+    only ever have every compiled call refuse in turn -- refusing once,
+    up front, is the honest version of that rather than a confusing
+    per-step echo of it.
+
+    A compiled ``("live", kind, arguments, path)`` placeholder -- one of
+    :data:`agent_program.LIVE_KINDS`, each needing the live document a batch
+    alone cannot see -- runs through :func:`_run_live_step` at its own turn
+    in the fold: ``move``/``turn``/``scale_by`` read the target's current
+    transform and issue their own ``clay_transform`` call, and ``assert``
+    evaluates its condition through :func:`agent_program.evaluate_condition`
+    against a fresh :class:`_ConditionAccess`. A refusal there (a failed
+    ``clay_transform``, a false or unevaluable assert) folds into the run
+    exactly like any other, so it rolls the whole attempt back the same way
+    a real tool's refusal would.
+    """
+    dry_run = args.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return fail("dry_run must be a boolean.", field="dry_run")
+
+    state = clay_mode.ensure(ctx)
+    existing_tab = state.get(session.tab_uid) if session.tab_uid else None
+    live_names = (
+        frozenset(o.name for o in existing_tab.doc.objects) if existing_tab is not None
+        else frozenset()
+    )
+
+    try:
+        compiled = agent_program.compile_program(args, live_names=live_names)
+    except agent_program.ProgramError as error:
+        return fail(str(error), field=error.field)
+
+    if dry_run and existing_tab is None:
+        payload = {
+            "dry_run": True,
+            "validated": "compile",
+            "expanded": compiled.expanded,
+            "completed": 0,
+            "stopped_at": None,
+            "changed": False,
+            "rolled_back": False,
+            "objects": [],
+            "groups": {name: list(members) for name, members in compiled.groups.items()},
+            "calls": [_describe_compiled_call(c) for c in compiled.calls],
+        }
+        return _json(payload)
+
+    tab, failure = _tab(ctx, session, create=True)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    if doc.element_mode != "object":
+        return fail(
+            "clay_program requires object mode -- every compiled step is "
+            "object-mode. Call clay_element_mode with mode='object' first.",
+            recovery="switch_mode",
+        )
+
+    # Captured before anything runs, so a rollback below can put it back:
+    # ``doc.select`` pushes no undo step (selection is not undoable by
+    # design), so ``history.undo`` alone would leave whatever a compiled
+    # ``add`` step's own selecting-on-placement left behind -- the newly
+    # created object's own uid, already gone -- rather than what was
+    # selected before this call ever touched the document.
+    prior_selection = set(doc.selection)
+
+    deadline = time.monotonic() + PROGRAM_DEADLINE_S
+
+    def _make_entry(index: int, compiled_call: tuple[Any, ...]) -> Any:
+        def _run(doc: Any, session: Session) -> dict:
+            # Checked between calls, never mid-call -- a call already running
+            # is never cut off, and the very first call always gets to run
+            # regardless of how close the budget already is, so a run that
+            # does nothing at all can never be blamed on this.
+            if index > 0 and time.monotonic() > deadline:
+                return fail(
+                    f"clay_program exceeded its {PROGRAM_DEADLINE_S:g}s "
+                    "deadline before this step ran; split the program into "
+                    "smaller clay_program calls.",
+                )
+            if compiled_call[0] == "live":
+                kind, arguments = compiled_call[1], compiled_call[2]
+                return _run_live_step(ctx, session, doc, kind, arguments, compiled.groups)
+            name, arguments, _path = compiled_call
+            return _resolve_and_call(ctx, session, doc, name, arguments)
+
+        return _run
+
+    entries = [_make_entry(i, c) for i, c in enumerate(compiled.calls)]
+    results, stopped_at, rolled_back, changed = _fold_run(
+        ctx, session, doc, entries, rollback=True, label="Agent program",
+    )
+
+    # Read off *doc* right now, before any dry-run undo below -- a program
+    # id that was deleted or consumed by a boolean along the way genuinely
+    # has no object to report, exactly as the document itself would say.
+    by_name = {obj.name: obj for obj in doc.objects}
+    objects_out: list[dict[str, Any]] = []
+    for pid, wire_name in compiled.objects.items():
+        obj = by_name.get(wire_name)
+        if obj is not None:
+            objects_out.append({"id": pid, "name": wire_name, "uid": obj.uid})
+
+    if dry_run and not rolled_back and changed:
+        doc.history.undo(doc, redoable=False)
+        rolled_back = True
+        changed = False
+
+    # A rollback (a run that failed, or a dry run undoing its own success)
+    # leaves the document exactly as it stood before this call in every way
+    # ``history.undo`` reaches -- except the selection, which never pushed a
+    # step for it to reach; restored by hand here for the identical reason.
+    if rolled_back:
+        doc.select(prior_selection)
+
+    if dry_run:
+        objects_out = [{"id": r["id"], "name": r["name"]} for r in objects_out]
+
+    completed = len(results) - (1 if stopped_at is not None else 0)
+    payload = {
+        "dry_run": dry_run,
+        "validated": "execute",
+        "expanded": compiled.expanded,
+        "completed": completed,
+        "stopped_at": None if stopped_at is None else _step_locator(compiled.calls[stopped_at]),
+        "changed": changed,
+        "rolled_back": rolled_back,
+        "objects": objects_out,
+        "groups": {name: list(members) for name, members in compiled.groups.items()},
+    }
+    if dry_run:
+        payload["calls"] = [_describe_compiled_call(c) for c in compiled.calls]
+    if stopped_at is not None:
+        payload["failure"] = results[stopped_at]
+
+    encoded = json.dumps(payload)
+    result = ok(text(encoded), structured=json.loads(encoded))
     result["isError"] = stopped_at is not None
     return result
 
@@ -4823,12 +5786,14 @@ _HANDLERS = {
     "clay_op": _h_op,
     "clay_render": _h_render,
     "clay_diagnose": _h_diagnose,
+    "clay_analyze": _h_analyze,
     "clay_export": _h_export,
     "clay_undo": _h_undo,
     "clay_redo": _h_redo,
     "clay_delete": _h_delete,
     "clay_rename": _h_rename,
     "clay_batch": _h_batch,
+    "clay_program": _h_program,
     "clay_reference_add": _h_reference_add,
     "clay_reference_list": _h_reference_list,
     "clay_reference_get": _h_reference_get,

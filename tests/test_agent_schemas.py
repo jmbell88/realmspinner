@@ -1,7 +1,7 @@
 """What Clay's agent tool schemas declare, and whether the handler behind
 each one actually enforces it.
 
-Every one of the 26 tools :func:`agent_clay.tools` publishes carries a real
+Every one of the 28 tools :func:`agent_clay.tools` publishes carries a real
 JSON Schema -- ``type``, ``enum``, ``minimum``/``maximum``, ``minItems``/
 ``maxItems``, ``required``, ``additionalProperties``, ``anyOf``,
 ``exclusiveMinimum``. **Nothing validates any of it at the door.**
@@ -35,7 +35,7 @@ here with nobody having to remember to extend a list for it.
 ``additionalProperties``, ``properties``, ``items``, ``required``,
 ``minItems``, ``enum``, ``maxItems``, ``minimum``, ``maximum``, ``anyOf`` and
 ``exclusiveMinimum`` reproduces an independently measured count exactly:
-165/32/29/40/21/25/16/19/14/10/3/1 respectively (375 total) -- see
+177/34/31/42/22/27/17/20/17/13/3/1 respectively (404 total) -- see
 ``test_the_discovery_walk_finds_every_measured_constraint_marker`` below,
 which pins that reproduction so this file's own claim about how much ground
 it covers is checked rather than asserted. Two of those twelve keywords,
@@ -44,22 +44,22 @@ to route recursion into a nested object's fields or an array's element
 shape, so this file's *discovery-and-exercise* walk (:func:`_walk_tool_schema`)
 counts them as structural rather than as constraints with a violation of
 their own -- and a third marker joins them for the identical reason: three
-of the 32 ``additionalProperties`` occurrences are not ``false`` but a
+of the 34 ``additionalProperties`` occurrences are not ``false`` but a
 *schema* (``clay_add_primitive``/``clay_set_params``/``clay_op``'s own
 ``params``, an open-ended object whose keys are never named in
 ``properties``), so those three route recursion into that open-ended shape
 rather than being violated themselves either -- see
 :data:`_OPEN_ENDED_PARAMS_TOOLS`. A fourth kind of marker is excluded for a
-different reason: each of the 26 tools' own root ``"type": "object"`` is
+different reason: each of the 28 tools' own root ``"type": "object"`` is
 never a case, because ``agent_clay.call`` only ever reaches a handler with
 ``arguments`` already a dict -- there is nothing there for a schema's own
 root type to promise that is not already true by construction. What
-survives after subtracting those (29 ``properties`` + 40 ``items`` + 3
-schema-valued ``additionalProperties`` + 26 root ``type``) is 277 violable
-markers; ``required``'s remaining 21 occurrences are *lists*, each naming
-one or more keys -- 28 individual keys between them, one violation apiece
+survives after subtracting those (31 ``properties`` + 42 ``items`` + 3
+schema-valued ``additionalProperties`` + 28 root ``type``) is 300 violable
+markers; ``required``'s remaining 22 occurrences are *lists*, each naming
+one or more keys -- 29 individual keys between them, one violation apiece
 rather than one per list -- which nets the walk's own exercise total to
-**284** concrete violation attempts (277 - 21 + 28), pinned by
+**307** concrete violation attempts (300 - 22 + 29), pinned by
 ``test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases``
 so a schema edit that silently drops a case from the walk is caught here
 rather than only by a shrinking "exercised" count nobody happens to notice.
@@ -963,6 +963,16 @@ def _b_batch(
     return ctx, session, args
 
 
+def _b_program(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    args = {"steps": [{"add": {"generator": "box"}}]}
+    return ctx, session, args
+
+
 def _tiny_ref_png_b64() -> str:
     import base64
     import io
@@ -1042,6 +1052,15 @@ def _b_reference_remove(
     return _b_reference_get(monkeypatch)
 
 
+def _b_analyze(
+    monkeypatch: Any = None, svc: Any = None
+) -> tuple[Any, agent_clay.Session, Args]:
+    del monkeypatch, svc
+    ctx, session, uid1, uid2 = _new_world()
+    args = {"uids": [uid1, uid2], "contact_tol": 0.001, "near": 0.05, "symmetry_tol": 0.002}
+    return ctx, session, args
+
+
 _BASELINES: dict[str, BaselineFactory] = {
     "clay_scene": _b_scene,
     "clay_add_primitive": _b_add_primitive,
@@ -1059,12 +1078,14 @@ _BASELINES: dict[str, BaselineFactory] = {
     "clay_op": _b_op,
     "clay_render": _b_render,
     "clay_diagnose": _b_diagnose,
+    "clay_analyze": _b_analyze,
     "clay_export": _b_export,
     "clay_undo": _b_undo,
     "clay_redo": _b_redo,
     "clay_delete": _b_delete,
     "clay_rename": _b_rename,
     "clay_batch": _b_batch,
+    "clay_program": _b_program,
     "clay_reference_add": _b_reference_add,
     "clay_reference_list": _b_reference_list,
     "clay_reference_get": _b_reference_get,
@@ -1173,16 +1194,16 @@ def test_the_discovery_walk_finds_every_measured_constraint_marker() -> None:
         walk(tool.schema, counts)
 
     assert dict(counts) == {
-        "type": 165,
-        "additionalProperties": 32,
-        "properties": 29,
-        "items": 40,
-        "required": 21,
-        "minItems": 25,
-        "enum": 16,
-        "maxItems": 19,
-        "minimum": 14,
-        "maximum": 10,
+        "type": 177,
+        "additionalProperties": 34,
+        "properties": 31,
+        "items": 42,
+        "required": 22,
+        "minItems": 27,
+        "enum": 17,
+        "maxItems": 20,
+        "minimum": 17,
+        "maximum": 13,
         "anyOf": 3,
         "exclusiveMinimum": 1,
     }
@@ -1206,16 +1227,23 @@ _ALL_CASES = _all_cases()
 
 
 def test_the_exercise_walk_attempts_exactly_the_documented_number_of_cases() -> None:
-    """284 -- see the module docstring's own derivation: 375 measured markers,
-    minus 72 structural ones that only route recursion (29 ``properties`` +
-    40 ``items`` + 3 schema-valued ``additionalProperties``), minus 26 root
-    ``type: object`` markers that are true by construction, minus 21
-    ``required`` *lists* replaced by the 28 individual keys they actually
-    name. Pinned so a schema edit that silently drops a case from the walk
-    is caught here rather than only by a shrinking "exercised" count nobody
-    happens to notice.
+    """307 -- see the module docstring's own derivation: 404 measured markers,
+    minus 76 structural ones that only route recursion (31 ``properties`` +
+    42 ``items`` + 3 schema-valued ``additionalProperties``), minus 28 root
+    ``type: object`` markers that are true by construction, minus 22
+    ``required`` *lists* replaced by the 29 individual keys they actually
+    name. ``clay_program`` (2026-09-13, deliberately shallow: ``variables``,
+    ``steps`` and ``dry_run``, ``additionalProperties: false``, one
+    ``required`` key) is the +8 over the previous 299: five ``type`` markers
+    (the root object, ``variables``, ``steps``, ``steps.items`` and
+    ``dry_run``), ``steps``' own ``minItems``/``maxItems``, and the root
+    ``additionalProperties`` -- the root ``type`` and the ``required`` list
+    are both excluded the same way every other tool's already are, so they
+    net to nothing here. Pinned so a schema edit that silently drops a case
+    from the walk is caught here rather than only by a shrinking "exercised"
+    count nobody happens to notice.
     """
-    assert len(_ALL_CASES) == 284
+    assert len(_ALL_CASES) == 307
 
 
 # --- the exercise itself: for each declared constraint, prove a refusal -------

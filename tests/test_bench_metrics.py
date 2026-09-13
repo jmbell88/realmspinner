@@ -139,6 +139,27 @@ def test_silhouette_iou_needs_no_weights_at_all(tmp_path):
     assert metrics.silhouette_iou(_reference(tmp_path), _render(tmp_path)) is not None
 
 
+def test_silhouette_iou_agrees_with_its_own_mask_based_functions(tmp_path):
+    """``silhouette_iou`` is now a path-reading wrapper over
+    ``silhouette_iou_masks`` -- the same crop/square/resize/IoU arithmetic
+    ``clay_render``'s ``compare`` header runs on a live render's mask rather
+    than a file on disk. This is the parity that proves the delegation:
+    reading the same two images' masks by hand and calling the mask-based
+    function has to land on the exact number the path-based one reports, or
+    the two have quietly drifted into two implementations of one metric."""
+    ref_path = _reference(tmp_path, box=(64, 64, 191, 191))
+    render_path = _render(tmp_path, box=(32, 32, 95, 95))
+
+    with Image.open(ref_path) as ref_im, Image.open(render_path) as render_im:
+        ref_mask = imageprep.reference_mask(ref_im)
+        render_mask = imageprep.render_mask(render_im)
+
+    from_masks = metrics.silhouette_iou_masks(ref_mask, render_mask)
+    from_paths = metrics.silhouette_iou(ref_path, render_path)
+    assert from_masks is not None
+    assert from_paths == from_masks
+
+
 def test_score_view_skips_a_metric_whose_weights_are_absent(tmp_path, monkeypatch):
     monkeypatch.setattr(metrics, "dino_available", lambda config=None: False)
     assert set(metrics.score_view(_reference(tmp_path), _render(tmp_path))) == {

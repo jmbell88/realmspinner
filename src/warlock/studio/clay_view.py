@@ -59,6 +59,7 @@ narrowing site, in ``_view_drag``) still holds of it.
 
 from __future__ import annotations
 
+import colorsys
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -108,6 +109,72 @@ GIZMO_FOR_TOOL = {"move": "translate", "rotate": "rotate", "scale": "scale"}
 #: and the shading, and little enough that an edge on the far side is pickable
 #: through it -- which is the whole point of the mode.
 XRAY_ALPHA = 0.33
+
+
+#: ``ClayView.render_png``'s ``shading`` -> the ``Renderer.draw`` keywords it
+#: maps onto. One table rather than a chain of ``if shading == ...:`` because
+#: every one of these is a static combination of the interactive viewport's
+#: own independent toggles (``flat``/``wireframe``/``wire_overlay``/``xray``,
+#: see ``__init__`` above) -- an agent gets six named pictures, the viewport
+#: keeps its four orthogonal switches, and this is the one place that maps
+#: one onto the other. ``"unlit"`` is first and is the default: it is
+#: byte-identical to what ``render_png`` always drew before ``shading``
+#: existed (``flat=True`` and nothing else set), which is what
+#: ``test_render_png_defaults_are_the_picture_the_trellis_path_already_got``
+#: pins -- ``main.py``'s Trellis caller never passes ``shading`` at all, so
+#: it is the one path this table must never move. ``"object_id"`` is
+#: deliberately absent: it draws through ``Renderer.draw_ids``, a different
+#: pass with a different return shape, not a ``Renderer.draw`` keyword
+#: combination -- see ``ClayView.render_ids``.
+_SHADING_DRAW_KWARGS: dict[str, dict[str, Any]] = {
+    "unlit": {"flat": True, "wireframe": False, "wire_overlay": False, "alpha": 1.0},
+    "lit": {"flat": False, "wireframe": False, "wire_overlay": False, "alpha": 1.0},
+    "wireframe": {"flat": True, "wireframe": True, "wire_overlay": False, "alpha": 1.0},
+    "wire_overlay": {"flat": True, "wireframe": False, "wire_overlay": True, "alpha": 1.0},
+    "xray": {"flat": True, "wireframe": False, "wire_overlay": False, "alpha": XRAY_ALPHA},
+}
+
+
+#: The golden-ratio conjugate, for ``_id_color``'s hue stepping.
+_GOLDEN_RATIO_CONJUGATE = 0.6180339887498949
+
+
+def _id_color(uid: int) -> tuple[int, int, int]:
+    """A deterministic, well-separated 8-bit RGB triple for one uid.
+
+    Golden-ratio hue stepping is the standard answer to "N distinct colours,
+    N unknown in advance": stepping the hue by the golden ratio's conjugate
+    each time spreads points evenly around the circle with no clustering,
+    however many are drawn. Keyed on the uid itself, not a position in some
+    ordering, so an object's colour is stable across calls and independent of
+    which other objects happen to be visible in any one of them -- which is
+    what lets a multi-view ``clay_render`` call share one map across views
+    rather than reassigning colours per view.
+
+    Saturation and value are both held comfortably below 1.0 (0.85, 0.95) so
+    the brightest channel a colour can ever produce is ``round(0.95 * 255) ==
+    242`` -- never 255. ``Renderer.draw_ids`` clears to white, so "never
+    white" is what keeps the clear colour unambiguous background rather than
+    a collision with whatever uid the golden-ratio sequence happened to land
+    on.
+    """
+    hue = (uid * _GOLDEN_RATIO_CONJUGATE) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.95)
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+
+def _hex_color(color: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*color)
+
+
+def _count_color(pixels: np.ndarray, color: tuple[int, int, int]) -> int:
+    """How many pixels of an ``(h, w, 3)`` uint8 image match *color* exactly.
+
+    Exact match, not a tolerance: ``Renderer.draw_ids`` draws with blending
+    and MSAA both off precisely so this comparison never has to guess at a
+    near-miss."""
+    match = np.all(pixels == np.array(color, dtype=np.uint8), axis=-1)
+    return int(np.count_nonzero(match))
 
 
 @dataclass(frozen=True)
@@ -394,6 +461,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         frame, which is what ``world`` already is for a glTF node.
         """
         draws = []
+        uids = []
         for obj in doc.objects:
             entry = self._cache.get(obj.uid)
             if entry is None:
@@ -402,7 +470,8 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             for node, primitive in entry.gpu.draws:
                 node.world = world
                 draws.append((node, primitive))
-        return Composite(draws) if draws else None
+                uids.append(obj.uid)
+        return Composite(draws, uids) if draws else None
 
     def _gizmo_draws(self, doc: Any, height: int) -> list[Any]:
         gizmo = self.active_gizmo(doc)
@@ -493,6 +562,43 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
     def screenshot(self) -> Any:
         return capture.image(self.viewport)
 
+    def _frame_camera(
+        self,
+        doc: Any,
+        *,
+        frame: bool,
+        angles: tuple[float, float] | None,
+        bounds: tuple[Any, Any] | None,
+        view: str | None,
+    ) -> tuple[dict[str, Any], Any, Any]:
+        """The camera snapshot/frame/rotate steps ``render_png`` and
+        ``render_ids`` share. -> ``(saved, lo, hi)``: ``saved`` is what the
+        ``finally`` in each restores, ``lo``/``hi`` are the framed bounds (or
+        ``None``) for a caller that also wants to fit the grid to them.
+
+        Factored out rather than duplicated because it is exactly the
+        coupling ``render_png``'s own docstring warns about: ``frame``,
+        ``look_angles`` and ``look_along`` between them write the near/far
+        planes, the orbit limits, the target, the spherical triple and their
+        damping-goal shadows, and a second call site restating which fields
+        move together is one edit away from the two drifting.
+        """
+        saved = {
+            key: (value.copy() if hasattr(value, "copy") else value)
+            for key, value in vars(self.camera).items()
+        }
+        lo = hi = None
+        if frame:
+            lo, hi = bounds if bounds is not None else self.world_bounds(doc)
+            if lo is not None:
+                self.camera.frame(lo, hi)
+                self.camera.set_target((np.asarray(lo) + np.asarray(hi)) * 0.5)
+        if angles is not None:
+            self.camera.look_angles(*angles)
+        elif view and view != "three_quarter":
+            self.camera.look_along(view)
+        return saved, lo, hi
+
     def render_png(
         self,
         doc: Any,
@@ -504,8 +610,9 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         bounds: tuple[Any, Any] | None = None,
         grid: bool = False,
         god_light: bool = False,
+        shading: str = "unlit",
     ) -> bytes:
-        """One offscreen square draw of *doc*, flat on white, as PNG bytes.
+        """One offscreen square draw of *doc*, on white, as PNG bytes.
 
         Lifted from ``main.py:_render_clay_reference`` (build-to-trellis) and
         generalised for a second caller with a different question: trellis
@@ -519,12 +626,23 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         render target rather than the viewport's live one, because the live
         target is sized to whatever pane is on screen this frame and a second
         caller mid-frame (an agent call queued between two draws) would either
-        race the resize or hand back a picture at the wrong resolution. Flat
-        shading and a white background always; no gizmos and no overlays
-        always, for the reason ``_render_clay_reference`` already stated:
-        trellis and an agent are both being shown a *subject*. The grid is the
-        one of those four that a caller can now ask for -- see ``grid`` below
-        for why that is not a contradiction of the same sentence.
+        race the resize or hand back a picture at the wrong resolution. A
+        white background always; no gizmos and no overlays always, for the
+        reason ``_render_clay_reference`` already stated: trellis and an
+        agent are both being shown a *subject*. The grid is the one exception
+        a caller can now ask for -- see ``grid`` below for why that is not a
+        contradiction of the same sentence.
+
+        ``shading`` picks which of ``Renderer.draw``'s own combination of
+        ``flat``/``wireframe``/``wire_overlay``/``alpha`` this draw uses --
+        see ``_SHADING_DRAW_KWARGS`` for the table and why ``"unlit"`` (the
+        default) is the one entry that must never move: it is byte-identical
+        to what this method always drew before ``shading`` existed, which is
+        what keeps ``_render_clay_reference`` -- and every stored-corpus
+        comparison keyed on its input -- looking at the same picture it
+        always has. ``"object_id"`` is not a legal value here at all; it
+        draws through :meth:`render_ids` instead, a different pass with a
+        different return shape.
 
         **Taking a picture may not move the camera the user is looking
         through, and `frame` is why both of those are true at once.** This
@@ -612,38 +730,18 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         """
         self.sync(doc)
         saved_grid = (self.renderer.grid.span, self.renderer.grid.divisions)
-        # Shallow-copied, with arrays copied: ``target`` and ``_goal_target``
-        # are numpy vectors that ``frame``/``look_angles`` rebind, but a caller
-        # that wrote through one in place would otherwise see the restore
-        # alias it.
-        saved = {
-            key: (value.copy() if hasattr(value, "copy") else value)
-            for key, value in vars(self.camera).items()
-        }
-        lo = hi = None
-        if frame:
-            lo, hi = bounds if bounds is not None else self.world_bounds(doc)
-            if lo is not None:
-                self.camera.frame(lo, hi)
-                # ``frame`` aims at half the box's *height* above the origin,
-                # which centres a **grounded** subject -- the asset viewer's
-                # models sit with their feet on y=0, and that is what it was
-                # written for. A Clay document has no such promise: every
-                # generator in ``primitives`` is centred on the origin, so a
-                # freshly placed cylinder spans -h/2..+h/2 and the camera ends
-                # up looking a full half-height over its top. Re-aiming at the
-                # measured centre of the box is what makes an agent's render a
-                # picture of the thing rather than of the air above it, and it
-                # is done here rather than in ``camera.frame`` because the
-                # grounded assumption is right for that method's other callers.
-                self.camera.set_target((np.asarray(lo) + np.asarray(hi)) * 0.5)
-        if angles is not None:
-            # ``view`` is not even inspected in this branch: ``agent_clay``
-            # refuses a call that supplies both, so there is no case here
-            # where the two could disagree about which one wins.
-            self.camera.look_angles(*angles)
-        elif view and view != "three_quarter":
-            self.camera.look_along(view)
+        # ``frame`` aims at half the box's *height* above the origin, which
+        # centres a **grounded** subject -- the asset viewer's models sit
+        # with their feet on y=0, and that is what it was written for. A
+        # Clay document has no such promise: every generator in
+        # ``primitives`` is centred on the origin, so a freshly placed
+        # cylinder spans -h/2..+h/2 and the camera ends up looking a full
+        # half-height over its top. ``_frame_camera`` re-aims at the box's
+        # own centre, which is what makes an agent's render a picture of the
+        # thing rather than of the air above it.
+        saved, lo, hi = self._frame_camera(
+            doc, frame=frame, angles=angles, bounds=bounds, view=view
+        )
         target = glctx.Viewport(self.ctx, (size, size))
         try:
             if grid and lo is not None:
@@ -653,11 +751,11 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
                 target,
                 self.camera,
                 self._composite(doc),
-                flat=True,
                 show_grid=grid,
                 background=(1.0, 1.0, 1.0, 1.0),
                 overlays=[],
                 ground=god_light,
+                **_SHADING_DRAW_KWARGS[shading],
             )
             return capture.png_bytes(target)
         finally:
@@ -665,6 +763,61 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
             vars(self.camera).update(saved)
             self.renderer.grid.set_span(saved_grid[0], divisions=saved_grid[1])
             self.renderer.light_override = None
+
+    def render_ids(
+        self,
+        doc: Any,
+        *,
+        size: int = 1024,
+        view: str | None = None,
+        frame: bool = True,
+        angles: tuple[float, float] | None = None,
+        bounds: tuple[Any, Any] | None = None,
+    ) -> tuple[bytes, list[tuple[int, str, int]]]:
+        """The object-id picture ``shading="object_id"`` answers with: every
+        visible object flat-coloured by :func:`_id_color`, no lighting, no
+        grid, no gizmos, as PNG bytes plus a per-uid pixel count.
+
+        Deliberately **not** ``render_png(shading="object_id")`` even though
+        every framing argument is shared: the return shape is different -- a
+        picture *and* a table, not a picture alone -- and folding a second
+        element onto ``render_png``'s return would have meant every other
+        caller of it (the Trellis path chief among them) gaining an optional
+        tuple member it never uses. Same reasoning as the ``screenshot``/
+        ``draw`` split already in this class.
+
+        No ``grid`` parameter at all: ``agent_clay`` refuses the combination
+        before this is ever reached (grid lines drawn through ``draw_ids``
+        would be false colour with no uid behind them, corrupting the very
+        pixel counts this method exists to produce), so there is no legal
+        value for this method to accept and nothing to thread through.
+
+        The colour table is built from ``doc.objects`` filtered on
+        ``visible`` -- exactly what :meth:`_composite`'s own cache lookup
+        draws, since ``sync`` never uploads a hidden object (see
+        ``_view_cache.CacheOps.sync``) -- so every uid this method reports on
+        is one the picture could actually have coloured, and a uid entirely
+        occluded in this particular view still gets its row, at ``px=0``:
+        "hidden from this view", not "does not exist".
+        """
+        self.sync(doc)
+        saved, _lo, _hi = self._frame_camera(
+            doc, frame=frame, angles=angles, bounds=bounds, view=view
+        )
+        target = glctx.Viewport(self.ctx, (size, size), samples=1)
+        try:
+            colors = {obj.uid: _id_color(obj.uid) for obj in doc.objects if obj.visible}
+            self.renderer.draw_ids(target, self.camera, self._composite(doc), id_colors=colors)
+            png = capture.png_bytes(target)
+            pixels = target.read_rgba()[..., :3]
+            rows = [
+                (uid, _hex_color(color), _count_color(pixels, color))
+                for uid, color in sorted(colors.items())
+            ]
+            return png, rows
+        finally:
+            target.release()
+            vars(self.camera).update(saved)
 
     def release(self) -> None:
         self.clear()

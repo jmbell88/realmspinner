@@ -459,8 +459,11 @@ class _FakeView:
     def __init__(self, png: bytes) -> None:
         self.png = png
 
-    def render_png(self, doc, *, size, view=None, angles=None, bounds=None, grid=False, frame=True):
-        del doc, size, view, angles, bounds, grid, frame
+    def render_png(
+        self, doc, *, size, view=None, angles=None, bounds=None, grid=False, frame=True,
+        shading="unlit",
+    ):
+        del doc, size, view, angles, bounds, grid, frame, shading
         return self.png
 
 

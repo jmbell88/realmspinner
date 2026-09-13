@@ -506,9 +506,12 @@ A refusal now also *reports* that nothing moved. Every one built through `agent_
 sites, so a new tool that follows the rule above gets the answer right by doing nothing at all — a
 refusal that never reaches a mutation is `changed: false` for free, and there is nothing to write.
 Only a tool that can genuinely refuse *after* changing something has to think about it, and today
-exactly one can: `clay_batch`, whose own payload computes `changed` from whether the fold it just
+two can: `clay_batch`, whose own payload computes `changed` from whether the fold it just
 closed actually moved the undo history's head, because a batch that stops at its third call has
-already kept the first two. Writing this down is what found the one place that did not follow the
+already kept the first two, and `clay_program`, for the identical reason over a compiled program's
+own call list — except a program is always atomic, so its own rollback already puts `changed` back
+to `false` before the reply is built, rather than leaving a kept prefix the way `clay_batch` can.
+Writing this down is what found the one place that did not follow the
 rule — `clay_boolean` used to set the object selection before checking there were two visible
 objects to work with, so a refused boolean quietly replaced whatever you had selected. The order
 is fixed rather than the flag being made to admit it, which is the point of asking a tool to state
@@ -521,10 +524,12 @@ handed was well-formed and was true when it was read, so the answer is to go and
 rather than to correct it.
 
 A new tool is also two decisions, both of which the test suite makes you take. Name it in
-`BATCH_EXCLUDED` if it belongs there — the only two reasons anything is on that list are that its
-result is a picture a client has to see as an image, which is not a shape a batch's own result can
-carry, or that it is deliberately one-shot, an action nothing should ever want folded silently into
-somebody else's block-out. And `tests/test_agent_clay.py` gates the other list: every handler has to
+`BATCH_EXCLUDED` if it belongs there. Three reasons put something on that list. Its result may be a
+picture a client has to see as an image, which is not a shape a batch's own result can carry. It
+may be deliberately one-shot, an action nothing should ever want folded silently into somebody
+else's block-out. Or it may move or fold the history itself, as `clay_undo`, `clay_redo`,
+`clay_batch` and `clay_program` do, which inside another fold would leave no coherent head to
+roll back to. And `tests/test_agent_clay.py` gates the other list: every handler has to
 appear in either the tools that need a tab already open or the tools a session can run without one,
 and a handler that answers to neither fails the suite instead of quietly falling through — you cannot
 add a tool without deciding which kind it is. Two families push no undo step at all: the reference
@@ -552,8 +557,8 @@ one exception is a tool whose reply carries a picture — `clay_render` and `cla
 both bypass `_json` and build their result directly, because an image block has no JSON to
 duplicate, so a new tool answering with an image should follow their lead rather than call `_json`
 at all. Declaring an `outputSchema` for it is a separate, deliberate choice, not something that comes
-along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh` and
-`clay_diagnose` have one, because writing a schema for a result as small as a uid or a count is
+along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh`,
+`clay_diagnose` and `clay_analyze` have one, because writing a schema for a result as small as a uid or a count is
 authorship with no reader. Reach for one only when a client would actually be validating or
 generating against the shape — and when the shape is one already written down, compose it rather
 than copying it out again, the way `clay_add_mesh`'s own schema is the shared object-row schema

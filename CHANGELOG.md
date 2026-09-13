@@ -188,6 +188,82 @@ clips.** A user's library that failed to parse was skipped with a log line, and
 Poser then presented the shipped clips as the user's edited ones, so the next
 Save overwrote the user's file. It is refused on the skeleton now.
 
+**`clay_program` runs relative steps and checks its own work.** `move`, `turn`
+and `scale_by` read an object's transform as it stands at that point in the
+program, then set the composed value through `clay_transform`. They also work
+on a group, and the program stays one undo step. `assert` evaluates a condition
+at run time over facts about the scene:
+- `lo`, `hi`, `size` and `center` of an object on an axis, from the same box
+  `clay_scene` reports;
+- `count` for a group and `exists` for a name;
+- `touches`, `grounded`, `floating` and `volume`, from `clay_analyze`'s pure
+  analysis.
+
+A false assert rolls the whole program back and names its step path. An
+unknown fact or id is refused at compile time. Ids appear in a condition as
+bare names, and only as a fact's argument, so the no-eval guarantee holds.
+
+**An agent can build a whole assembly in one call with `clay_program`.** A
+program's steps compile to tool calls that run on the frame thread as a single
+undo step labelled "Agent program". A program is all or nothing: if any call
+refuses, everything rolls back, no step is pushed, the prior selection comes
+back, and the result names where it stopped and nests the failing tool's reply.
+A dry run executes and then undoes itself, so the scene and its dirty flag are
+unchanged. With no document open, a dry run only compiles and never opens a
+tab. A program must start in object mode and has a four-second deadline,
+checked between calls, that rolls back and says to split it. A maximal program
+is recorded as an accepted one-shot stall. `clay_batch`'s run loop is now
+shared with it, and `clay_program` can't appear inside a batch. A new
+transcript test walks the program grammar's uid-bearing keys, so object
+schemas the gate couldn't see into are covered. The catalogue grew to about
+52,500 characters, and the Clay-assistant manifest hash still refuses.
+
+**Clay programs have a compiler, though no tool publishes it yet.**
+`studio/agent_program.py` turns a program into a validated list of tool calls.
+A program is variables plus steps: add, figure, mesh, transform, params,
+material, delete, op, boolean, repeat, array, mirror, group, let and if. Its
+numeric fields take expressions in a small parsed language with degree trig
+and a dozen functions. It never uses `eval`, so an `__import__` string is
+refused as a bad token. Each refusal names its exact path, for example
+`steps[3].repeat.steps[1].add.translation[0]`. Limits cap steps, calls, repeat
+size, nesting, booleans, variables and expression size. A boolean's survivor
+stays addressable when every input is the program's own. A test checks every
+emitted call against the real tools' schemas.
+
+**A `clay_render` compare now scores the silhouette against the reference.**
+The header gains `silhouette`: `iou`, both masks' aspect ratios and their
+error, and whether the reference mask came from alpha or a flood fill. The
+render mask is a private object-id pass at the compare size. Some cases have
+nothing meaningful to measure: a flood fill that leaks, a mask covering more
+than 98 % of the frame, or an empty subject. Those give `iou: null` with a
+reason, and the picture still comes back. The mask maths moved out of
+`bench.metrics.silhouette_iou` into mask-level functions it now delegates to.
+A parity test holds the two paths together. Nothing runs inference.
+
+**`clay_render` takes a `shading`: `unlit` (the default, unchanged), `lit`,
+`wireframe`, `wire_overlay`, `xray` or `object_id`.** `lit` shows form that the
+unlit albedo picture flattens. `object_id` paints each object one flat colour
+and adds an `ids` table to the header, `[uid, "#rrggbb", pixels]`, where a zero
+pixel count means that view can't see the object. Several views share one map
+and sum their pixel counts. `object_id` is refused with `grid` or `compare`.
+Two fixes came with it. A `compare` over 1,024 px is now refused rather than
+silently clamped, as the tool's own description always promised. A compare
+sheet now also goes through the reply-frame size check, which it used to skip.
+The Trellis send-to-3D render is untouched.
+
+**An agent can measure a Clay scene with `clay_analyze`.** For each object it
+reports exact world bounds, area, volume (for closed meshes), connected
+components, how the object meets the ground, and per-axis mirror symmetry. For
+each nearby pair it reports distance, whether they intersect or touch, and how
+much closed meshes overlap. A whole-document call also lists what is floating.
+The bounds are exact, so under rotation they are tighter than `clay_scene`'s
+conservative box. It is read-only and batchable, and unlike `clay_diagnose` it
+reports facts rather than defects and never selects anything. Caps (64
+objects, 200,000 triangles, 16 overlap booleans) refuse or truncate, and a
+maximal call joins `clay_boolean` among the accepted stalls. A six-object
+kitbash measured about 10 ms. The tool catalogue changes again, so the
+Clay-assistant dataset's manifest hash still refuses.
+
 **Clay can align, distribute, drop to ground and snap to grid.** Four new
 object-mode rows act on the selection, and each gesture is one undo step. Align
 lines objects up on their world bounds rather than their origins, so boxes of

@@ -33,6 +33,16 @@ from . import imageprep
 # not depend on either image's original resolution.
 IOU_SIZE = 256
 
+# Above this share of the frame, a mask is not a subject silhouette any more
+# -- it is (near enough) the whole picture, which compare_silhouette exists to
+# refuse a reading on rather than report as a shape. Independent of
+# pipelines.reference._LEAK_FLOOR, which catches the opposite failure -- a
+# flood fill that ate the subject down to nothing -- this catches a flood
+# fill (or a render) that never left the frame at all: a busy, noisy
+# background with no alpha reads as "everything is subject", and an IoU
+# against that is not a silhouette comparison.
+MASK_COVERAGE_CEILING = 0.98
+
 # The difference hash: an 8x9 grayscale downscale, compared left-to-right, so
 # 8*8 = 64 bits. HASH_FLOOR is the *measured* agreement between unrelated
 # images, which is chance and not zero -- see docs/measurements/. Every
@@ -64,6 +74,69 @@ def unload() -> None:
     _model_cache.clear()
 
 
+def normalised_mask(mask: Any):
+    """``mask`` cropped to its own bounding box, padded to a square (*not*
+    stretched -- stretching would normalise the aspect ratio away, and a tall
+    sword would then score 1.0 against a wide shield, which is exactly the
+    confusion :func:`silhouette_iou_masks` exists to catch) and resized to
+    ``IOU_SIZE``.
+
+    ``None`` when ``mask`` has no ``True`` pixel at all -- an empty subject,
+    which every caller here reads as "not measured" rather than an all-zero
+    picture.
+    """
+    import numpy as np
+    from PIL import Image
+
+    ys, xs = np.nonzero(mask)
+    if not len(xs):
+        return None
+    cropped = mask[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
+    side = max(cropped.shape)
+    square = np.zeros((side, side), dtype=np.uint8)
+    top = (side - cropped.shape[0]) // 2
+    left = (side - cropped.shape[1]) // 2
+    square[top : top + cropped.shape[0], left : left + cropped.shape[1]] = cropped
+    resized = Image.fromarray(square * 255).resize((IOU_SIZE, IOU_SIZE), Image.NEAREST)
+    return np.asarray(resized) > 127
+
+
+def silhouette_iou_masks(a: Any, b: Any) -> float | None:
+    """Intersection over union of two boolean subject masks, each normalised
+    (cropped to its own box, squared, resized) independently first.
+
+    None when either mask is empty, or -- reachable only in principle, since
+    a non-empty mask survives :func:`normalised_mask` with at least one
+    ``True`` pixel -- the two normalised masks still share no pixel at all.
+    """
+    import numpy as np
+
+    na, nb = normalised_mask(a), normalised_mask(b)
+    if na is None or nb is None:
+        return None
+    union = np.logical_or(na, nb).sum()
+    if not union:
+        return None
+    return float(np.logical_and(na, nb).sum()) / float(union)
+
+
+def mask_aspect(mask: Any) -> float | None:
+    """Width/height of ``mask``'s own bounding box, unnormalised -- the ratio
+    :func:`normalised_mask`'s square pad throws away.
+
+    None when ``mask`` has no ``True`` pixel at all, the same empty-subject
+    reading :func:`normalised_mask` gives.
+    """
+    import numpy as np
+
+    ys, xs = np.nonzero(mask)
+    if not len(xs):
+        return None
+    height = float(ys.max() - ys.min() + 1)
+    width = float(xs.max() - xs.min() + 1)
+    return width / height
+
+
 def silhouette_iou(
     reference_path: Path, render_path: Path, *, auto_mask: bool = False
 ) -> float | None:
@@ -82,43 +155,30 @@ def silhouette_iou(
     because the scoring path's render is a transparent PNG by construction and
     a silent fallback there would hide a broken render; ``compare`` turns it on
     because both of its sides are arbitrary and usually opaque.
+
+    A thin path-reading wrapper over :func:`silhouette_iou_masks` -- the mask
+    extraction is the only part that differs per caller (a path here, a live
+    render pass for ``clay_render``'s ``compare`` header in
+    ``studio.agent_clay``), and the crop/square/resize/IoU arithmetic is one
+    definition either way.
     """
-    import numpy as np
     from PIL import Image
 
     def mask_of(path: Path, is_render: bool):
         with Image.open(path) as im:
             im.load()
             if not is_render:
+                return imageprep.reference_mask(im)
+            mask = imageprep.render_mask(im)
+            if mask is None and auto_mask:
                 mask = imageprep.reference_mask(im)
-            else:
-                mask = imageprep.render_mask(im)
-                if mask is None and auto_mask:
-                    mask = imageprep.reference_mask(im)
-        if mask is None:
-            return None
-        ys, xs = np.nonzero(mask)
-        cropped = mask[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
-        # Padded to a square, *not* stretched to one. Stretching would
-        # normalise the aspect ratio away, and a tall sword would then score
-        # 1.0 against a wide shield -- which is exactly the confusion this
-        # metric exists to catch.
-        side = max(cropped.shape)
-        square = np.zeros((side, side), dtype=np.uint8)
-        top = (side - cropped.shape[0]) // 2
-        left = (side - cropped.shape[1]) // 2
-        square[top : top + cropped.shape[0], left : left + cropped.shape[1]] = cropped
-        resized = Image.fromarray(square * 255).resize((IOU_SIZE, IOU_SIZE), Image.NEAREST)
-        return np.asarray(resized) > 127
+            return mask
 
     a = mask_of(reference_path, False)
     b = mask_of(render_path, True)
     if a is None or b is None:
         return None
-    union = np.logical_or(a, b).sum()
-    if not union:
-        return None
-    return float(np.logical_and(a, b).sum()) / float(union)
+    return silhouette_iou_masks(a, b)
 
 
 def perceptual_hash(image_path: Path) -> int | None:
@@ -519,3 +579,100 @@ def compare(a_path: Path, b_path: Path, config: Any = None) -> dict[str, float |
     if dino_available(config):
         out["dino_cosine"] = reference_cosine(a_path, b_path, config)
     return out
+
+
+def render_ids_mask(png: bytes) -> Any:
+    """The subject mask of a ``ClayView.render_ids`` picture: any pixel that
+    is not the pass's own white ground.
+
+    An exact match against ``(255, 255, 255)``, not a tolerance -- there is
+    no antialiasing to guard against here, since ``Renderer.draw_ids`` runs
+    with blending and MSAA both off, and ``_id_color`` keeps every object's
+    flat colour's brightest channel at 242, never 255, precisely so "white"
+    is unambiguous background rather than a near-miss an object could win.
+    """
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(io.BytesIO(png)) as im:
+        arr = np.asarray(im.convert("RGB"))
+    return np.any(arr != 255, axis=-1)
+
+
+def compare_silhouette(reference_png: bytes, render_mask: Any) -> dict[str, Any]:
+    """The ``silhouette`` block of ``clay_render``'s ``compare`` header:
+    shape IoU and aspect between a stored reference and a live render, or a
+    null reading with a reason.
+
+    ``reference_png`` is the stored reference's own bytes; ``render_mask`` is
+    the render's silhouette, already computed the way ``studio.agent_clay``
+    gets one -- :func:`render_ids_mask` over a ``ClayView.render_ids`` pass
+    at the compare size and view. The reference's own mask comes from
+    ``pipelines.reference.subject_mask`` -- alpha when the reference has one,
+    otherwise the same corner flood fill ``measure`` runs on a submitted
+    reference -- so an agent's silhouette reading and a person's composition
+    refusal agree about what "the subject" means in the same picture.
+
+    Never raises and never signals a refusal: the comparison picture beside
+    this header is worth returning whatever this says, so every failure --
+    an empty subject on either side, a flood-fill leak, or a mask covering
+    almost the whole frame (a busy background with no alpha reads as
+    "everything is subject", which is not a silhouette to measure) -- comes
+    back as ``{"iou": None, "reason": ...}`` rather than an exception
+    ``studio.agent_clay`` would otherwise have to catch on this module's
+    behalf.
+    """
+    import io
+
+    from PIL import Image
+
+    from ..pipelines import reference as reference_pipeline
+
+    def null(reason: str) -> dict[str, Any]:
+        return {"iou": None, "reason": reason}
+
+    with Image.open(io.BytesIO(reference_png)) as im:
+        im.load()
+        alpha_source = reference_pipeline.has_alpha(im)
+        ref_mask = reference_pipeline.subject_mask(im)
+
+    if not ref_mask.any():
+        return null("the reference has no subject.")
+    if not render_mask.any():
+        return null("the render has no subject.")
+    # A leak is the opposite failure from the coverage ceiling below: the
+    # fill escaped through the subject's rim and ate it, leaving a mask that
+    # is sparse rather than empty -- too little of it survives the
+    # ``not ref_mask.any()`` check above to be a real reading, but not
+    # literally nothing either. Checked before coverage since the two can
+    # never both fire on the same mask.
+    if reference_pipeline._leaked(ref_mask, alpha_source):
+        return null(
+            "the reference's background could not be separated from its "
+            "subject; not measured."
+        )
+    if (
+        float(ref_mask.mean()) > MASK_COVERAGE_CEILING
+        or float(render_mask.mean()) > MASK_COVERAGE_CEILING
+    ):
+        return null(
+            "a silhouette covers almost the whole frame; not a shape to compare."
+        )
+
+    iou = silhouette_iou_masks(ref_mask, render_mask)
+    if iou is None:
+        return null("the two silhouettes share no pixels once cropped.")
+
+    ref_aspect = mask_aspect(ref_mask)
+    render_aspect = mask_aspect(render_mask)
+    return {
+        "iou": round(iou, 4),
+        "aspect": {
+            "reference": round(ref_aspect, 4),
+            "render": round(render_aspect, 4),
+        },
+        "aspect_error": round(abs(ref_aspect - render_aspect), 4),
+        "reference_mask": "alpha" if alpha_source else "flood_fill",
+    }

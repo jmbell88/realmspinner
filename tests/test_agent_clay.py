@@ -43,8 +43,9 @@ image_png(...))``) both build their result directly rather than through
 structurally rather than as a name or a count, and pinned exhaustively --
 walking every entry in ``_HANDLERS`` rather than a hand-kept subset -- by
 ``test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture``.
-Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
--- also declare an ``outputSchema`` describing that shape, and none declares
+Five tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh``,
+``clay_diagnose`` and ``clay_analyze`` -- also declare an ``outputSchema``
+describing that shape, and none declares
 ``required`` or ``additionalProperties: false``, because a refusal shares
 the same result envelope and its ``structuredContent`` is whatever
 ``fail()``'s ``**extra`` was given -- ``field`` where one is knowable, always
@@ -205,9 +206,13 @@ class _FakeView:
     a moderngl context to actually read pixels back from.
     """
 
-    def __init__(self, png: bytes | None = None) -> None:
+    def __init__(self, png: bytes | None = None, id_rows: list[tuple] | None = None) -> None:
         self.png = png or _tiny_png()
         self.calls: list[dict[str, Any]] = []
+        self.id_calls: list[dict[str, Any]] = []
+        # A per-uid (hex, px) row an object_id test can shape; empty by
+        # default, since most callers of this fake never touch render_ids.
+        self.id_rows = id_rows if id_rows is not None else []
 
     def render_png(
         self,
@@ -219,16 +224,36 @@ class _FakeView:
         bounds: Any = None,
         grid: bool = False,
         frame: bool = True,
+        shading: str = "unlit",
     ) -> bytes:
         del doc, frame
         self.calls.append(
-            {"size": size, "view": view, "angles": angles, "bounds": bounds, "grid": grid}
+            {
+                "size": size, "view": view, "angles": angles, "bounds": bounds,
+                "grid": grid, "shading": shading,
+            }
         )
         return self.png
 
+    def render_ids(
+        self,
+        doc: Any,
+        *,
+        size: int,
+        view: str | None = None,
+        angles: Any = None,
+        bounds: Any = None,
+        frame: bool = True,
+    ) -> tuple[bytes, list[tuple]]:
+        del doc, frame
+        self.id_calls.append({"size": size, "view": view, "angles": angles, "bounds": bounds})
+        return self.png, self.id_rows
 
-def _install_fake_view(monkeypatch: pytest.MonkeyPatch, png: bytes | None = None) -> _FakeView:
-    fake = _FakeView(png)
+
+def _install_fake_view(
+    monkeypatch: pytest.MonkeyPatch, png: bytes | None = None, id_rows: list[tuple] | None = None
+) -> _FakeView:
+    fake = _FakeView(png, id_rows)
     monkeypatch.setattr(agent_clay, "_view_for", lambda ctx: fake)
     return fake
 
@@ -608,6 +633,7 @@ _NEEDS_A_TAB = [
     ("clay_op", {}),
     ("clay_render", {}),
     ("clay_diagnose", {}),
+    ("clay_analyze", {}),
     ("clay_export", {}),
     ("clay_undo", {}),
     ("clay_redo", {}),
@@ -649,11 +675,25 @@ _MINTS_A_TAB = [
     ("clay_add_mesh", _TETRA_MESH_ARGS),
 ]
 
+# clay_program mints a document the identical way (a non-dry-run call with
+# no session tab yet calls ``_tab(..., create=True)`` unconditionally, the
+# same as the three above) but is deliberately *not* one of
+# ``agent_clay.MINTS_A_DOCUMENT`` -- it can never be a clay_batch entry at
+# all (``BATCH_EXCLUDED``), so it has no business in the sentence that names
+# what a batch may open with. Kept as its own list rather than folded into
+# ``_MINTS_A_TAB`` so ``test_clay_batchs_published_description_names_every_
+# tool_that_can_start_one``'s own ``MINTS_A_DOCUMENT == {n for n, _ in
+# _MINTS_A_TAB}`` pin stays exactly what it already proves, with nothing
+# here for it to accidentally start disagreeing with.
+_ALSO_MINTS_A_TAB = [
+    ("clay_program", {"steps": [{"add": {"generator": "box"}}]}),
+]
+
 
 def test_every_tool_is_covered_by_the_dead_tab_and_session_only_lists() -> None:
     assert {n for n, _ in _NEEDS_A_TAB} | set(_SESSION_ONLY) | {
         n for n, _ in _MINTS_A_TAB
-    } == set(agent_clay._HANDLERS)
+    } | {n for n, _ in _ALSO_MINTS_A_TAB} == set(agent_clay._HANDLERS)
 
 
 def test_clay_batchs_published_description_names_every_tool_that_can_start_one() -> None:
@@ -727,10 +767,15 @@ def test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_p
     _add_inline_reference(ctx, session, "ref1")  # so clay_reference_get can succeed too
     _install_fake_view(monkeypatch)  # so clay_render can succeed too, image and all
 
-    covered = {n for n, _ in _NEEDS_A_TAB} | {n for n, _ in _MINTS_A_TAB} | set(_SESSION_ONLY)
+    covered = (
+        {n for n, _ in _NEEDS_A_TAB}
+        | {n for n, _ in _MINTS_A_TAB}
+        | {n for n, _ in _ALSO_MINTS_A_TAB}
+        | set(_SESSION_ONLY)
+    )
     assert covered == set(agent_clay._HANDLERS)
 
-    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB) + list(_ALSO_MINTS_A_TAB)
     calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
 
     successes = 0
@@ -753,8 +798,8 @@ def test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_p
     # refusals. Both image-carrying tools reach a real success here:
     # clay_render because of the fake view installed above, and
     # clay_reference_get because "ref1" already exists by the time this walk
-    # reaches it. Measured at 15 successes (2 of them image-carrying) out of
-    # 25 calls on this tree; the bound below leaves headroom rather than
+    # reaches it. Measured at 17 successes (2 of them image-carrying) out of
+    # 28 calls on this tree; the bound below leaves headroom rather than
     # pinning that exact count, since a handler gaining one more required
     # argument tomorrow should not make this test start failing for an
     # unrelated reason.
@@ -2514,6 +2559,473 @@ def test_a_ref_in_an_ordinary_non_batched_call_is_not_resolved() -> None:
     assert list(tab.doc.by_uid(hub_uid).translation) == pytest.approx([0.0, 0.0, 0.0])
 
 
+# --- clay_program --------------------------------------------------------------
+
+
+def test_clay_program_builds_a_four_leg_table_in_one_undo_step() -> None:
+    """A slab plus a ``repeat`` over four legs, each named from the loop
+    variable -- the shape a hand-built ``clay_batch`` run of the identical
+    five calls already proves, compiled from a program instead."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    program = {
+        "steps": [
+            {
+                "add": {
+                    "generator": "box",
+                    "params": {"size": [1.0, 0.1, 1.0]},
+                    "translation": [0, 1, 0],
+                    "id": "top",
+                }
+            },
+            {
+                "repeat": {
+                    "ranges": {"i": [0, 1, 2, 3]},
+                    "steps": [
+                        {
+                            "add": {
+                                "generator": "box",
+                                "params": {"size": [0.1, 1, 0.1]},
+                                "translation": [
+                                    "0.4*cos($i*90)", 0.5, "0.4*sin($i*90)",
+                                ],
+                                "id": "leg_{i}",
+                            }
+                        }
+                    ],
+                }
+            },
+        ]
+    }
+    result = agent_clay.call(ctx, session, "clay_program", program)
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["dry_run"] is False
+    assert payload["validated"] == "execute"
+    assert payload["stopped_at"] is None
+    assert payload["completed"] == 5
+    assert payload["changed"] is True
+    assert payload["rolled_back"] is False
+    assert {row["name"] for row in payload["objects"]} == {
+        "top", "leg_0", "leg_1", "leg_2", "leg_3",
+    }
+    assert all("uid" in row for row in payload["objects"])
+
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert {o.name for o in tab.doc.objects} == {"top", "leg_0", "leg_1", "leg_2", "leg_3"}
+    assert len(tab.doc.history) == 1
+    assert tab.doc.history.top.label == "Agent program"
+    assert tab.doc.undo()
+    assert len(tab.doc.objects) == 0
+
+
+def test_a_failing_call_mid_program_rolls_back_pushes_no_step_and_restores_selection() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    a_uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    agent_clay.call(ctx, session, "clay_select", {"uids": [a_uid]})
+    assert tab.doc.selection == {a_uid}
+    history_before = len(tab.doc.history)
+
+    program = {
+        "steps": [
+            {"add": {"generator": "box", "id": "c"}},
+            # No object in this document ever gets this uid -- refuses at
+            # _resolve_uid the same way an ordinary clay_transform would.
+            {"transform": {"uid": 999999, "translation": [1.0, 0.0, 0.0]}},
+        ]
+    }
+    result = agent_clay.call(ctx, session, "clay_program", program)
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["rolled_back"] is True
+    assert payload["changed"] is False
+    assert payload["completed"] == 1
+    assert payload["stopped_at"] == {"step": "steps[1].transform", "call": "clay_transform"}
+    assert payload["failure"]["isError"] is True
+    assert "999999" in payload["failure"]["content"][0]["text"]
+    assert payload["objects"] == []
+
+    # No step pushed -- the folded step this run would have pushed is fully
+    # undone, not merely left off the history for some other reason.
+    assert len(tab.doc.history) == history_before
+    # The object this program itself placed is gone; the one that predates
+    # it survives, and the selection is exactly what it was before this call.
+    assert {o.uid for o in tab.doc.objects} == {a_uid}
+    assert tab.doc.selection == {a_uid}
+
+
+def test_a_dry_run_leaves_the_scene_and_dirty_flag_unchanged_and_returns_calls_with_no_uids() -> (
+    None
+):
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    history_before = len(tab.doc.history)
+    dirty_before = tab.doc.dirty
+    objects_before = {o.name for o in tab.doc.objects}
+
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {"steps": [{"add": {"generator": "cylinder", "id": "c"}}], "dry_run": True},
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["dry_run"] is True
+    assert payload["validated"] == "execute"
+    assert payload["rolled_back"] is True
+    assert payload["changed"] is False
+    assert payload["objects"] == [{"id": "c", "name": "c"}]  # no uid
+    assert payload["calls"] == [
+        {"name": "clay_add_primitive", "arguments": {"generator": "cylinder", "name": "c"}}
+    ]
+
+    assert len(tab.doc.history) == history_before
+    assert tab.doc.dirty == dirty_before
+    assert {o.name for o in tab.doc.objects} == objects_before
+
+
+def test_a_dry_run_with_no_document_compiles_only_and_mints_no_tab() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {"steps": [{"add": {"generator": "box"}}], "dry_run": True},
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["validated"] == "compile"
+    assert payload["objects"] == []
+    assert payload["calls"] == [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box"}}
+    ]
+    assert session.tab_uid == ""
+
+
+def test_a_compile_refusal_carries_field_and_path() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {"steps": [{"add": {"generator": "not-a-generator"}}]},
+    )
+    assert result["isError"] is True
+    structured = result["structuredContent"]
+    assert structured["field"] == "steps"
+    assert "steps[0].add" in result["content"][0]["text"]
+    assert "unknown generator" in result["content"][0]["text"]
+
+
+def test_clay_program_is_refused_in_element_mode() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    agent_clay.call(ctx, session, "clay_element_mode", {"mode": "face"})
+
+    result = agent_clay.call(
+        ctx, session, "clay_program", {"steps": [{"add": {"generator": "box"}}]}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["recovery"] == "switch_mode"
+
+
+def test_clay_programs_deadline_rolls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deadline so tight that only the (always-unconditional) first call
+    beats it -- the second is refused before it ever runs, and the whole
+    attempt rolls back exactly as any other mid-program refusal would."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    monkeypatch.setattr(agent_clay, "PROGRAM_DEADLINE_S", 0.0)
+
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {"steps": [{"add": {"generator": "box", "id": "a"}}, {"add": {"generator": "cylinder"}}]},
+    )
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["rolled_back"] is True
+    assert "deadline" in payload["failure"]["content"][0]["text"]
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.objects) == 0
+
+
+def test_clay_program_is_batch_excluded() -> None:
+    assert "clay_program" in agent_clay.BATCH_EXCLUDED
+    program_args = {"steps": [{"add": {"generator": "box"}}]}
+    result = agent_clay.call(
+        _Ctx(), agent_clay.Session(), "clay_batch",
+        {"calls": [{"name": "clay_program", "arguments": program_args}]},
+    )
+    assert result["isError"] is True
+    assert "not a batchable tool" in result["content"][0]["text"]
+
+
+def test_the_compiler_never_emits_a_batch_excluded_tool() -> None:
+    """The reason ``clay_program`` folds into ``BATCH_EXCLUDED`` rather than
+    being nested is moot if the compiler could still emit one of the other
+    excluded names -- it cannot: every kind it compiles maps to a fixed,
+    small set of tools, none of them in that set."""
+    from warlock.studio import agent_program as ap
+
+    compiled = ap.compile_program(
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"add": {"generator": "box", "id": "b"}},
+                {"transform": {"uid": "a", "translation": [1, 0, 0]}},
+                {"params": {"uid": "a", "params": {"size": [2, 2, 2]}}},
+                {"material": {"uids": "a", "color": [1, 0, 0]}},
+                {"boolean": {"kind": "union", "uids": ["a", "b"]}},
+                {"select": {"uids": "a"}},
+                {"delete": {"uids": "a"}},
+            ]
+        }
+    )
+    for call in compiled.calls:
+        if call[0] != "live":
+            assert call[0] not in agent_clay.BATCH_EXCLUDED, call[0]
+
+
+def test_a_relative_move_composes_with_an_earlier_absolute_transform() -> None:
+    """move's ``by`` adds to whatever the object already holds -- an
+    absolute clay_transform-shaped step earlier in the same program included
+    -- rather than starting over from the origin."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"transform": {"uid": "a", "translation": [1.0, 0.0, 0.0]}},
+                {"move": {"uid": "a", "by": [0.0, 1.0, 0.0]}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    assert payload["stopped_at"] is None
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = next(o for o in tab.doc.objects if o.name == "a")
+    assert list(obj.translation) == pytest.approx([1.0, 1.0, 0.0])
+    assert tab.doc.history.top.label == "Agent program"
+
+
+def test_turn_composes_rotations_and_scale_by_multiplies() -> None:
+    """A single-axis composition well clear of the +-180 degree ambiguity a
+    3-angle Euler readout can otherwise pick a different-looking (but
+    equivalent) representation for -- 30 then 20 more is unambiguously 50."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"transform": {"uid": "a", "rotation": [0.0, 30.0, 0.0], "scale": [2.0, 2.0, 2.0]}},
+                {"turn": {"uid": "a", "by": [0.0, 20.0, 0.0]}},
+                {"scale_by": {"uid": "a", "factor": 1.5}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = next(o for o in tab.doc.objects if o.name == "a")
+    rx, ry, rz = agent_clay._euler_xyz_from_quat(obj.rotation)
+    assert (rx, ry, rz) == pytest.approx((0.0, 50.0, 0.0), abs=1e-4)
+    assert list(obj.scale) == pytest.approx([3.0, 3.0, 3.0])
+
+
+def test_a_group_move_moves_every_member_as_one_undo_step() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    history_before = _history_len(ctx, session) if session.tab_uid else 0
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "g1"}},
+                {"add": {"generator": "box", "id": "g2", "translation": [2.0, 0.0, 0.0]}},
+                {"group": {"id": "pair", "members": ["g1", "g2"]}},
+                {"move": {"uid": "pair", "by": [0.0, 3.0, 0.0]}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    g1 = next(o for o in tab.doc.objects if o.name == "g1")
+    g2 = next(o for o in tab.doc.objects if o.name == "g2")
+    assert list(g1.translation) == pytest.approx([0.0, 3.0, 0.0])
+    assert list(g2.translation) == pytest.approx([2.0, 3.0, 0.0])
+    # Four compiled calls (2 adds + 1 move per member) still fold into the
+    # one undo step every clay_program run promises.
+    assert _history_len(ctx, session) == history_before + 1
+
+
+def test_an_assert_failure_rolls_back_pushes_no_step_and_names_the_step_path() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"assert": {"condition": "size(a, 1) > 100"}},
+            ]
+        },
+    )
+    assert result["isError"] is True
+    payload = _payload(result)
+    assert payload["rolled_back"] is True
+    assert payload["changed"] is False
+    assert payload["stopped_at"] == {"step": "steps[1].assert", "call": "live:assert"}
+    assert "size(a, 1) > 100" in payload["failure"]["content"][0]["text"]
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert len(tab.doc.objects) == 0
+
+
+def test_a_passing_assert_over_touches_and_grounded_lets_the_program_commit() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"add": {"generator": "box", "id": "b", "translation": [1.0, 0.5, 0.0]}},
+                {"assert": {"condition": "grounded(a) and touches(a, b)"}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert {o.name for o in tab.doc.objects} == {"a", "b"}
+
+
+def test_a_dry_run_with_live_steps_still_leaves_the_scene_unchanged() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    history_before = len(tab.doc.history)
+    objects_before = {o.name for o in tab.doc.objects}
+
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "c", "translation": [0.0, 0.5, 0.0]}},
+                {"move": {"uid": "c", "by": [1.0, 0.0, 0.0]}},
+                {"assert": {"condition": "grounded(c)"}},
+            ],
+            "dry_run": True,
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is True
+    assert payload["changed"] is False
+    assert len(tab.doc.history) == history_before
+    assert {o.name for o in tab.doc.objects} == objects_before
+
+
+def test_an_unknown_fact_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
+    from warlock.studio import agent_program as ap
+
+    err = None
+    try:
+        ap.compile_program(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"assert": {"condition": "frobnicate(a)"}},
+                ]
+            }
+        )
+    except ap.ProgramError as exc:
+        err = exc
+    assert err is not None
+    assert err.field == "steps"
+    assert err.path == "steps[1].assert"
+    assert "frobnicate" in err.reason
+
+
+def test_facts_read_lo_hi_size_center_count_and_exists_off_known_boxes() -> None:
+    """A 1x1x1 box sat with its bottom on the ground at [0, 0.5, 0] has a
+    known box (y from 0 to 1) -- and a group of two such boxes, and a name
+    nothing was ever given, exercise count/exists the same way."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"add": {"generator": "box", "id": "b", "translation": [5.0, 0.5, 0.0]}},
+                {"group": {"id": "pair", "members": ["a", "b"]}},
+                {"assert": {
+                    "condition": (
+                        "lo(a, 1) > -0.01 and lo(a, 1) < 0.01 "
+                        "and hi(a, 1) > 0.99 and hi(a, 1) < 1.01 "
+                        "and size(a, 1) > 0.99 and size(a, 1) < 1.01 "
+                        "and center(a, 1) > 0.49 and center(a, 1) < 0.51 "
+                        "and count(pair) == 2 "
+                        "and exists(a) and not exists(nope)"
+                    )
+                }},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+
+
+def test_an_unknown_id_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
+    from warlock.studio import agent_program as ap
+
+    err = None
+    try:
+        ap.compile_program(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"assert": {"condition": "touches(a, ghost)"}},
+                ]
+            }
+        )
+    except ap.ProgramError as exc:
+        err = exc
+    assert err is not None
+    assert err.path == "steps[1].assert"
+    assert "unknown id 'ghost'" in err.reason
+
+
+def test_a_session_whose_document_was_closed_can_start_another_via_clay_program() -> None:
+    """The same recovery ``_MINTS_A_TAB``'s own parametrized test proves for
+    the three creator tools, reached separately here because clay_program is
+    deliberately not one of ``agent_clay.MINTS_A_DOCUMENT`` -- see
+    ``_ALSO_MINTS_A_TAB``'s own comment."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    closed = session.tab_uid
+    state = clay_mode.ensure(ctx)
+    assert state.close(closed)
+
+    result = agent_clay.call(
+        ctx, session, "clay_program", {"steps": [{"add": {"generator": "box"}}]}
+    )
+    assert result["isError"] is False, result
+    assert session.tab_uid and session.tab_uid != closed
+    assert state.get(session.tab_uid) is not None
+
+
 def _clay_op_description() -> str:
     tool = next(t for t in agent_clay.tools() if t.name == "clay_op")
     return tool.description
@@ -2703,6 +3215,130 @@ def test_clay_render_folds_a_single_view_into_the_views_list(
     assert result["content"][1]["type"] == "image"
 
 
+# --- shading -------------------------------------------------------------
+
+
+def test_clay_render_shading_defaults_to_unlit_and_threads_through_to_render_png(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    fake = _install_fake_view(monkeypatch)
+
+    default = agent_clay.call(ctx, session, "clay_render", {})
+    assert default["isError"] is False, default
+    assert fake.calls[0]["shading"] == "unlit"
+
+    explicit = agent_clay.call(ctx, session, "clay_render", {"shading": "wireframe"})
+    assert explicit["isError"] is False, explicit
+    assert fake.calls[1]["shading"] == "wireframe"
+
+
+def test_clay_render_refuses_grid_combined_with_object_id_shading() -> None:
+    """The id pass never draws a grid -- a grid line has no uid behind it,
+    which would corrupt the very pixel counts 'ids' exists to report. Refused
+    before any GL work, exactly like every other named-field render refusal
+    above."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "grid": True}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "grid"
+
+
+def test_clay_render_refuses_object_id_combined_with_compare() -> None:
+    """A compare reply is a picture-vs-picture comparison with no room for
+    the uid/colour/pixel table object_id answers with, and a stored
+    reference was captured as an ordinary picture -- comparing it against
+    flat id colours is not a coherent question."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "compare": "ref1"}
+    )
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "shading"
+
+
+def test_clay_render_object_id_shares_one_colour_map_and_sums_pixels_across_views(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'share one map' means the same uid gets the same colour in every
+    requested view, and this file has no GPU to actually draw one -- so the
+    fake's own per-call rows stand in for two views seeing the same object,
+    and this checks ``_h_render`` merges them into one row summed across
+    views rather than keeping (or overwriting) one view's count."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session)
+    fake = _install_fake_view(monkeypatch, id_rows=[(uid, "#112233", 40)])
+
+    result = agent_clay.call(
+        ctx, session, "clay_render", {"shading": "object_id", "views": ["front", "back"]}
+    )
+    assert result["isError"] is False, result
+    assert len(fake.id_calls) == 2
+    header = _payload(result)
+    ids = {row[0]: row for row in header["ids"]}
+    assert ids[uid] == [uid, "#112233", 80]
+
+
+# --- regressions: the compare path's clamp and skipped frame-size check ------
+
+
+def test_clay_render_compare_refuses_a_size_over_1024_instead_of_clamping_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for the silent ``size = min(size, 1024)`` clamp: before the
+    fix this call answered ``isError: False`` with a 1024-square picture
+    nobody asked for instead of refusing the 1500 actually given -- the same
+    'Refused, not clamped' rule the plain ``size`` check already states for
+    itself just upstream, not followed here until now. Fails against the
+    unfixed handler, which reports success with the clamped size silently
+    substituted."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1", "size": 1500})
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "size"
+
+
+def test_clay_render_compare_is_refused_when_the_sheet_would_not_fit_one_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the compare branch used to ``return`` its sheet before the
+    reply-frame size check further down ever ran, so a beside/overlay sheet
+    over ``protocol.MAX_FRAME`` reached the caller with ``isError: False``
+    instead of being refused the way the ordinary multi-view path already
+    was. ``MAX_FRAME`` is monkeypatched absurdly small so the tiny fake PNG
+    this file uses is still over budget, rather than needing a real
+    multi-megapixel sheet to prove the same point. Fails against the
+    unfixed handler, which never reaches the check on this path at all."""
+    from warlock.mcp import rpc
+
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+    monkeypatch.setattr(rpc, "MAX_FRAME", 10)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is True
+
+
 # ==============================================================================
 # B8 -- references on the session
 # ==============================================================================
@@ -2847,6 +3483,174 @@ def test_clay_render_compare_refuses_more_than_one_view() -> None:
     )
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "views"
+
+
+# --- compare's silhouette header ---------------------------------------------
+
+
+def _shape_png(size: int, rect: tuple[int, int, int, int], *, alpha: bool = False) -> bytes:
+    """A ``size`` x ``size`` picture with ``rect`` (x0, y0, x1, y1) filled in
+    and the rest of the canvas white (or, ``alpha=True``, transparent) --
+    a hand-built stand-in for both a ``render_ids`` picture (never white
+    where an object is) and an alpha-carrying reference, so a test can put an
+    exact, known footprint on either side of the comparison."""
+    x0, y0, x1, y1 = rect
+    if alpha:
+        arr = np.zeros((size, size, 4), dtype=np.uint8)
+        arr[y0:y1, x0:x1] = (10, 20, 30, 255)
+        mode = "RGBA"
+    else:
+        arr = np.full((size, size, 3), 255, dtype=np.uint8)
+        arr[y0:y1, x0:x1] = (10, 20, 30)
+        mode = "RGB"
+    buf = io.BytesIO()
+    Image.fromarray(arr, mode).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _busy_reference_png(size: int = 300) -> bytes:
+    """An RGB (no alpha) reference with no clean background to flood-fill:
+    a uniform patch in each corner (so the fill seeds and spreads there,
+    exactly as ``pipelines.reference.subject_mask``'s own corner sampling
+    expects) surrounded by salt-and-pepper noise the tight fill tolerance
+    cannot cross -- so the 'background' the fill finds is a sliver and the
+    'subject' it leaves behind covers the whole frame, over
+    ``bench.metrics.MASK_COVERAGE_CEILING``. Seeded, so the noise pattern is
+    fixed rather than a source of a flaky test."""
+    rng = np.random.default_rng(0)
+    arr = rng.integers(0, 2, size=(size, size, 3), dtype=np.uint8) * 255
+    p = 16
+    corner = np.array([200, 200, 200], dtype=np.uint8)
+    arr[:p, :p] = corner
+    arr[:p, -p:] = corner
+    arr[-p:, :p] = corner
+    arr[-p:, -p:] = corner
+    buf = io.BytesIO()
+    Image.fromarray(arr, "RGB").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _add_reference_png(
+    ctx: _Ctx, session: agent_clay.Session, name: str, png: bytes, view: str = "other"
+) -> dict:
+    b64 = base64.b64encode(png).decode("ascii")
+    result = agent_clay.call(
+        ctx, session, "clay_reference_add", {"name": name, "png_base64": b64, "view": view}
+    )
+    assert result["isError"] is False, result
+    return result
+
+
+def test_clay_render_compare_silhouette_scores_identical_footprints_near_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference whose alpha matches the render's own footprint exactly --
+    taken, in the real app, from a ``render_ids`` pass of the same scene at
+    the same size -- is the case the metric exists to score highest."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    rect = (32, 32, 96, 96)
+    render_png = _shape_png(128, rect)
+    _add_reference_png(ctx, session, "ref1", _shape_png(128, rect, alpha=True))
+    _install_fake_view(monkeypatch, png=render_png)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    silhouette = payload["silhouette"]
+    assert silhouette["iou"] >= 0.99, silhouette
+    assert silhouette["reference_mask"] == "alpha"
+    assert silhouette["aspect_error"] == 0.0
+    assert result["content"][1]["type"] == "image"  # the picture, regardless
+
+
+def test_clay_render_compare_silhouette_is_null_with_a_reason_for_a_busy_background(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reference with no alpha and no clean corner-to-fill background is
+    not a silhouette to score -- null with a reason (a leak or near-total
+    coverage), and the comparison picture still comes back regardless."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _busy_reference_png())
+    _install_fake_view(monkeypatch, png=_shape_png(64, (16, 16, 48, 48)))
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    silhouette = payload["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_silhouette_is_null_when_the_reference_has_no_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An all-white reference (no alpha, nothing for the flood fill to find
+    but background) refuses no call -- the picture still returns, with a
+    null silhouette naming why."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _tiny_png())
+    _install_fake_view(monkeypatch, png=_shape_png(64, (16, 16, 48, 48)))
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette == {"iou": None, "reason": silhouette["reason"]}
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_silhouette_is_null_when_the_render_has_no_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The render side of the same rule: the fake's default picture is a
+    blank white square, so ``render_ids_mask`` finds nothing even though the
+    reference has a real, alpha-clean subject."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_reference_png(ctx, session, "ref1", _shape_png(64, (16, 16, 48, 48), alpha=True))
+    _install_fake_view(monkeypatch)  # default fake.png is a blank white square
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
+
+
+def test_clay_render_compare_returns_the_picture_even_if_silhouette_measurement_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'Never a refusal' stated as a test: whatever goes wrong measuring the
+    silhouette, the comparison picture an agent asked for is not held
+    hostage to it."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    _add_inline_reference(ctx, session, "ref1")
+    _install_fake_view(monkeypatch)
+
+    from warlock.bench import metrics as bench_metrics
+
+    def _boom(*_a: Any, **_k: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bench_metrics, "compare_silhouette", _boom)
+
+    result = agent_clay.call(ctx, session, "clay_render", {"compare": "ref1"})
+    assert result["isError"] is False, result
+    silhouette = _payload(result)["silhouette"]
+    assert silhouette["iou"] is None
+    assert silhouette["reason"]
+    assert result["content"][1]["type"] == "image"
 
 
 # ==============================================================================
@@ -3059,6 +3863,75 @@ def test_clay_diagnose_can_select_the_finding_it_reports() -> None:
     assert result["isError"] is False, result
     assert tab.doc.element_mode == "vertex"
     assert tab.doc.element_sel_of(uid).verts.tolist() == [original_vert_count]
+
+
+def test_clay_analyze_reports_bounds_area_volume_and_ground_for_a_box() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    row = next(o for o in payload["objects"] if o["uid"] == uid)
+    assert row["closed"] is True
+    assert row["volume"] == pytest.approx(1.0, abs=1e-4)
+    assert row["area"] == pytest.approx(6.0, abs=1e-4)
+    assert row["bounds"] is not None
+    assert "floating" in payload  # a whole-document call: no uids were given
+    assert payload["tolerances"] == {"contact_tol": 0.001, "near": 0.05, "symmetry_tol": 0.002}
+
+
+def test_clay_analyze_with_uids_skips_floating_and_reports_only_those_objects() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session)
+    add2 = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "box", "translation": [5.0, 5.0, 0.0]}
+    )
+    uid2 = _payload(add2)["uid"]
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {"uids": [uid1]})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert {o["uid"] for o in payload["objects"]} == {uid1}
+    assert "floating" not in payload
+    del uid2
+
+
+def test_clay_analyze_pushes_no_undo_step() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    before = _history_len(ctx, session)
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {})
+    assert result["isError"] is False, result
+    assert _history_len(ctx, session) == before
+
+
+def test_clay_analyze_is_batchable() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": [{"name": "clay_analyze", "arguments": {}}]}
+    )
+    assert result["isError"] is False, result
+    batch_payload = _payload(result)
+    assert batch_payload["completed"] == 1
+    assert "objects" in _payload(batch_payload["results"][0])
+
+
+def test_clay_analyze_refuses_an_out_of_range_tolerance() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {"near": 100.0})
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "near"
 
 
 def test_an_element_selection_reports_a_stamp_that_changes_when_an_op_replaces_the_mesh() -> None:
@@ -3365,7 +4238,7 @@ def test_a_render_does_not_duplicate_its_header_into_structured_content(
     assert "_json(" not in source
 
 
-def test_the_four_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
+def test_the_five_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
     """The test that catches a schema drifting from ``_scene_row`` (or from
     ``_h_scene``/``_h_diagnose``'s own payload): every key a real call's
     ``structuredContent`` actually carries must appear in that tool's own
@@ -3419,11 +4292,23 @@ def test_the_four_declared_output_schemas_describe_what_those_tools_actually_ret
     assert set(diag_structured) <= set(diag_schema["properties"])
     assert "objects" in diag_schema["properties"]
 
+    analyze_schema = getattr(tools["clay_analyze"], "output_schema", None)
+    assert analyze_schema is not None
+    analyze_result = agent_clay.call(ctx, session, "clay_analyze", {})
+    analyze_structured = analyze_result.get("structuredContent") or {}
+    assert analyze_structured, "clay_analyze answered with no structuredContent at all"
+    # A subset, like clay_diagnose's: ``truncated`` only appears when true,
+    # and ``floating`` only for a whole-document call (this one -- no uids
+    # were given).
+    assert set(analyze_structured) <= set(analyze_schema["properties"])
+    assert "objects" in analyze_schema["properties"]
+    assert "pairs" in analyze_schema["properties"]
+
 
 def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
     None
 ):
-    """None of the four declared schemas names a ``required`` list or sets
+    """None of the five declared schemas names a ``required`` list or sets
     ``additionalProperties: false`` -- proven alongside the reason itself: a
     refusal from one of these same tools really does put ``field`` in
     ``structuredContent`` -- and, since ``changed`` was added, nothing else
@@ -3432,7 +4317,13 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
     point: it is what would catch an accidental extra key landing in this
     envelope, ``changed`` among them if its default ever drifted."""
     tools = {t.name: t for t in agent_clay.tools()}
-    for name in ("clay_scene", "clay_add_primitive", "clay_add_mesh", "clay_diagnose"):
+    for name in (
+        "clay_scene",
+        "clay_add_primitive",
+        "clay_add_mesh",
+        "clay_diagnose",
+        "clay_analyze",
+    ):
         schema = getattr(tools[name], "output_schema", None)
         assert schema is not None
         assert "required" not in schema
@@ -3499,9 +4390,10 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     them succeed rather than refuse against a tab that already holds an
     object (``clay_scene``, ``clay_elements``,
     ``clay_diagnose``, ``clay_export`` with a real ``svc``, ``clay_undo``/
-    ``clay_redo``, ``clay_batch``, all three ``_MINTS_A_TAB`` creators, and
-    every ``_SESSION_ONLY`` tool but ``clay_reference_get`` naming a reference this
-    session was never given). Those successes are skipped rather than
+    ``clay_redo``, ``clay_batch``, ``clay_program``, all three ``_MINTS_A_TAB``
+    creators, and every ``_SESSION_ONLY`` tool but ``clay_reference_get``
+    naming a reference this session was never given). Those successes are
+    skipped rather than
     asserted on either way, the same as that other exhaustive walk -- but the
     number of refusals this walk actually exercised is asserted with a hard
     floor, so a future regression that turned every refusal green could not
@@ -3513,10 +4405,15 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     doc = tab.doc
 
-    covered = {n for n, _ in _NEEDS_A_TAB} | {n for n, _ in _MINTS_A_TAB} | set(_SESSION_ONLY)
+    covered = (
+        {n for n, _ in _NEEDS_A_TAB}
+        | {n for n, _ in _MINTS_A_TAB}
+        | {n for n, _ in _ALSO_MINTS_A_TAB}
+        | set(_SESSION_ONLY)
+    )
     assert covered == set(agent_clay._HANDLERS)
 
-    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB) + list(_ALSO_MINTS_A_TAB)
     calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
 
     refusals = 0
@@ -3535,7 +4432,7 @@ def test_every_refusal_says_whether_the_document_moved(svc) -> None:
 
     # A floor, not a target -- see the docstring above for which of these
     # calls succeed rather than refuse against an already-open tab. Measured
-    # at 12 refusals out of 25 calls on this tree.
+    # at 13 refusals out of 28 calls on this tree.
     assert refusals >= 10
 
 
@@ -3557,7 +4454,7 @@ def test_every_recovery_a_refusal_names_is_in_the_vocabulary(svc) -> None:
     session = agent_clay.Session()
     _new_agent_tab(ctx, session, "box")
 
-    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB) + list(_ALSO_MINTS_A_TAB)
     calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
 
     seen: set[str] = set()
@@ -3591,7 +4488,7 @@ def test_every_refusal_that_names_a_field_also_names_how_to_fix_it(svc) -> None:
     session = agent_clay.Session()
     _new_agent_tab(ctx, session, "box")
 
-    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB)
+    calls = list(_NEEDS_A_TAB) + list(_MINTS_A_TAB) + list(_ALSO_MINTS_A_TAB)
     calls += [(name, _SESSION_ONLY_ARGS[name]) for name in _SESSION_ONLY]
 
     named_a_field = 0
@@ -3703,18 +4600,53 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     ``warlock_status`` out would undercount what a connecting agent is
     actually billed for by one whole tool; the honest number includes it.
 
-    Measured on 2026-09-11: catalogue JSON 36,682 chars + instructions 5,712
-    chars = 42,394 chars total (26 Clay tools plus ``warlock_status``, at
-    ``rpc.tool_dict`` encoding). Ceiling here is 48,000 -- about 13%
-    of headroom above that measurement, more than any single existing tool's
-    schema (the largest, ``clay_add_primitive``, is 3,927 chars) so one
-    ordinary new tool does not trip it, but nowhere near the ~84,800 chars a
-    doubling would reach, so a doubling reliably does.
+    Measured on 2026-09-13, after ``clay_render`` grew a ``shading`` enum
+    (six values, plus the description explaining what each one draws and the
+    new ``object_id``/``compare``/``grid`` refusals): catalogue JSON 41,861
+    chars + instructions 6,499 chars = 48,360 chars total (still 27 Clay
+    tools plus ``warlock_status`` -- ``shading`` is a property on an
+    existing tool, not a 28th one -- at ``rpc.tool_dict`` encoding).
+    ``clay_render`` itself is now 2,883 chars, the previous measurement's
+    entire 636-char headroom plus more, so the ceiling below is raised to
+    48,500 -- just past this measurement, the same "minimal, and say why"
+    rule the previous raise (47,364 of 48,000) already followed. The next
+    tool that grows the catalogue at all will need to raise it again.
+
+    A second growth the same day: ``clay_render``'s description gained one
+    more sentence naming the compare header's new ``silhouette`` block (shape
+    IoU, aspect, a null reading's ``reason``) -- catalogue JSON 42,136 chars +
+    instructions 6,499 chars = 48,635 chars total, over the 48,500 raised
+    above by 135. ``clay_render`` itself is now 3,158 chars. No schema
+    changed (``silhouette`` is a reply field, not an argument), so this is the
+    description alone; the ceiling is raised to 48,700, again just past the
+    measurement.
+
+    A 28th tool the same class of growth as tranche 4's six new generators:
+    ``clay_program`` (2026-09-13) is a new registry-independent tool -- its
+    own schema and grammar-card description are 3,065 chars on their own --
+    and ``instructions()`` gained a paragraph on when to reach for it over
+    ``clay_batch`` plus the "two exceptions" -> "three exceptions" edit,
+    growing from 6,499 to 7,279 chars. Catalogue JSON 45,217 chars +
+    instructions 7,279 chars = 52,496 chars total, well over the 48,700
+    ceiling above -- a whole new tool, not an unnoticed drift, so the ceiling
+    moves with it rather than being defended against it. Raised to 52,600,
+    again just past the measurement.
+
+    The same day, ``clay_program``'s four ``LIVE_KINDS`` (move/turn/
+    scale_by/assert) went from compiling to a refused placeholder to
+    actually running: its grammar-card description grew a paragraph naming
+    those four steps and the ``FACTS`` an assert condition may call
+    (lo/hi/size/center/count/exists/touches/grounded/floating/volume), and
+    ``instructions()`` gained one sentence in its own clay_program
+    paragraph. Catalogue JSON 45,961 chars + instructions 7,565 chars =
+    53,526 chars total, over the 52,600 ceiling above by 926 -- again a
+    whole grammar growing, not drift. Raised to 53,600, just past this
+    measurement.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 48_000
+    CEILING = 53_600
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

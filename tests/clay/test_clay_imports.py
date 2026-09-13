@@ -70,6 +70,11 @@ OUTWARD_IMPORTS = {
     # and ``document.py`` already do -- one quaternion convention, not a
     # second one invented for this file.
     ("presets.py", "warlock.studio.viewer"),
+    # analyze.py composes each object's world transform the same way
+    # ops.py/document.py/presets.py already do, via viewer.math3d.compose --
+    # not a second quaternion convention for a module that otherwise never
+    # touches the viewport.
+    ("analyze.py", "warlock.studio.viewer"),
 }
 
 #: Which modules of the viewer, since the entry above is recorded at package
@@ -86,7 +91,12 @@ BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 #: reason wearing different clothes: it is reached for by exactly one function
 #: in ``ops_boolean``, it drags a CSG kernel behind it, and this package is
 #: imported to answer questions about what an extrude does to a UV.
-LAZY_ONLY = {"PIL", "trimesh", "manifold3d"}
+#: ``scipy`` joins the other two on the same rule, for ``analyze.py``:
+#: ``cKDTree`` and ``csgraph.connected_components`` are reached for by a
+#: handful of functions in one module, and a top-level import would put a
+#: whole second numerics stack behind every other Clay module that imports
+#: this package for an unrelated question.
+LAZY_ONLY = {"PIL", "trimesh", "manifold3d", "scipy"}
 
 
 def _outward(path: Path) -> set[str]:

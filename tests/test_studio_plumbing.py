@@ -1119,14 +1119,24 @@ def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():
     reference. Plus the delegation, because "no grid by default" would be
     vacuously true of a ``_render_clay_reference`` that had quietly stopped
     calling ``render_png`` at all.
+
+    ``"flat=True" in source`` was the literal assertion here before
+    ``shading`` existed; ``render_png`` now spreads
+    ``_SHADING_DRAW_KWARGS[shading]`` instead of hardcoding any single draw
+    keyword, so the equivalent claim -- the *default* draw is still the flat,
+    unlit one trellis has always gotten -- is now two checks: the parameter
+    default is ``"unlit"``, and ``"unlit"``'s own row in that table is
+    ``flat: True``.
     """
+    from warlock.studio import clay_view
     from warlock.studio.clay_view import ClayView
 
     assert inspect.signature(ClayView.render_png).parameters["grid"].default is False
+    assert inspect.signature(ClayView.render_png).parameters["shading"].default == "unlit"
+    assert clay_view._SHADING_DRAW_KWARGS["unlit"]["flat"] is True
     source = inspect.getsource(ClayView.render_png)
     assert "show_grid=grid" in source
     assert "overlays=[]" in source
-    assert "flat=True" in source
     assert "render_png" in inspect.getsource(main.App._render_clay_reference)
 
 
