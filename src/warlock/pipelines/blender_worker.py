@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -1337,6 +1338,191 @@ def op_armature(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "template": template.key, "bones": len(bones)}
 
 
+def _clip_sample_matches(
+    name: str, strips: Sequence[re.Pattern[str]], candidates: set[str]
+) -> bool:
+    """Whether ``name`` names a bone a shipped clip map's chain claims.
+
+    ``rigging.clip_sample_spec`` hands over every map's strip pattern and
+    chain names, not just the one that will eventually match -- so this only
+    has to recognise a *naming family*, never resolve one. ``clipmaps.match``
+    does the actual scoring, host-side, later, against what this op reports.
+    """
+    if name in candidates:
+        return True
+    return any(pattern.sub("", name, count=1) in candidates for pattern in strips)
+
+
+def _clip_sample_rest_frame(arm: Any, bone: Any) -> dict[str, Any]:
+    """One bone's rest transform in world space. -> {parent, rest_rotation, head, tail}.
+
+    ``matrix_local`` is armature space, not world -- the same distinction
+    ``_rest_local_rotation`` exists for -- so it is carried through
+    ``arm.matrix_world`` here exactly as :func:`_world_bounds` carries a
+    mesh's own. ``.to_3x3().normalized()`` is what keeps a non-uniform import
+    scale (a Mixamo FBX's centimeter unit conversion, on top of whatever the
+    source object's own scale is) from leaking a shear into the quaternion.
+    """
+    m = arm.matrix_world @ bone.matrix_local
+    quat = m.to_3x3().normalized().to_quaternion()
+    head = m.translation
+    tail = arm.matrix_world @ bone.tail_local
+    return {
+        "parent": bone.parent.name if bone.parent is not None else None,
+        "rest_rotation": [quat.x, quat.y, quat.z, quat.w],
+        "head": [head.x, head.y, head.z],
+        "tail": [tail.x, tail.y, tail.z],
+    }
+
+
+def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
+    """Sample an external animation's world bone transforms for "Import clip".
+
+    **Never called "retarget"** -- see ``clipmaps``'s module docstring for why
+    that word is reserved for triangle-budget re-optimisation in this
+    codebase. This op is Blender SAMPLES: it reads a Mixamo/Rigify file's
+    bone-space poses into plain numbers and reports the Warlock template's own
+    rest frames alongside them, built the same way :func:`op_armature` builds
+    its preview. The math that converts one onto the other is a later, pure
+    step (``cliptransfer.py``) that never touches bpy.
+
+    Every anticipated failure -- an ASCII FBX, a file with no bone naming any
+    shipped clip map recognises, a mirrored armature -- is returned as
+    ``{"ok": False, "error": ...}`` rather than raised: these are properties
+    of the file a user handed in, not bugs in this worker, and the host reads
+    the *result*, not a subprocess exit code, to tell them apart from a crash.
+    """
+    source = Path(spec["source"])
+    candidates: set[str] = set(spec.get("candidates") or ())
+    try:
+        strips = [re.compile(p) for p in (spec.get("strip") or ())]
+    except re.error as exc:
+        return {"ok": False, "error": f"a clip map's strip pattern does not compile: {exc}"}
+    max_frames = int(spec.get("max_frames") or 900)
+
+    progress(0.05, "Loading animation")
+    _reset_scene(bpy)
+    ext = source.suffix.lower()
+    try:
+        if ext == ".fbx":
+            bpy.ops.import_scene.fbx(
+                filepath=str(source), use_anim=True, automatic_bone_orientation=False
+            )
+        elif ext in (".glb", ".gltf"):
+            bpy.ops.import_scene.gltf(filepath=str(source), bone_heuristic="BLENDER")
+            _purge_import_helpers(bpy)
+        else:
+            return {"ok": False, "error": f"{source.name} is not an FBX or glTF file"}
+    except RuntimeError as exc:
+        reason = str(exc).strip() or exc
+        return {"ok": False, "error": f"{source.name} could not be imported: {reason}"}
+
+    armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    best, best_count = None, 0
+    for arm in armatures:
+        count = sum(1 for b in arm.data.bones if _clip_sample_matches(b.name, strips, candidates))
+        if count > best_count:
+            best, best_count = arm, count
+    if best is None or best_count == 0:
+        return {
+            "ok": False,
+            "error": f"{source.name} has no skeleton naming any known clip map recognises",
+        }
+    if best.matrix_world.determinant() < 0:
+        return {
+            "ok": False,
+            "error": f"{source.name}'s armature ({best.name}) is mirrored and cannot be sampled",
+        }
+
+    progress(0.20, "Reading source bones")
+    armature_name = best.name
+    all_bone_names = [b.name for b in best.data.bones]
+    matched_names = [n for n in all_bone_names if _clip_sample_matches(n, strips, candidates)]
+    source_bones = {
+        name: _clip_sample_rest_frame(best, best.data.bones[name]) for name in matched_names
+    }
+
+    if best.animation_data is None:
+        best.animation_data_create()
+    scene = bpy.context.scene
+    fps = scene.render.fps / scene.render.fps_base
+    actions = list(bpy.data.actions)
+    sampled_actions: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for index, action in enumerate(actions):
+        progress(0.30 + 0.60 * (index / max(len(actions), 1)), f"Sampling {action.name}")
+        for track in best.animation_data.nla_tracks:
+            track.mute = True
+        best.animation_data.action = action
+        # Blender 4.4+'s layered actions need a bound slot as well as an
+        # assigned action, or ``frame_set`` evaluates the armature at rest --
+        # guarded with hasattr because older Blenders have neither attribute.
+        if hasattr(best.animation_data, "action_slot") and getattr(action, "slots", None):
+            best.animation_data.action_slot = action.slots[0]
+        start_f, end_f = action.frame_range
+        frame_start, frame_end = int(round(start_f)), int(round(end_f))
+        frame_count = frame_end - frame_start + 1
+        if frame_count > max_frames:
+            skipped.append(
+                f"{action.name}: {frame_count} frames exceeds the {max_frames}-frame limit"
+            )
+            continue
+        frames: list[dict[str, Any]] = []
+        for f in range(frame_start, frame_end + 1):
+            scene.frame_set(f)
+            bones: dict[str, Any] = {}
+            for name in matched_names:
+                pbone = best.pose.bones.get(name)
+                if pbone is None:
+                    continue
+                m = best.matrix_world @ pbone.matrix
+                quat = m.to_3x3().normalized().to_quaternion()
+                head = m.translation
+                bones[name] = {
+                    "rotation": [quat.x, quat.y, quat.z, quat.w],
+                    "head": [head.x, head.y, head.z],
+                }
+            frames.append({"frame": f, "bones": bones})
+        sampled_actions.append(
+            {
+                "name": action.name,
+                "fps": fps,
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frames": frames,
+            }
+        )
+    best.animation_data.action = None
+
+    progress(0.92, "Building target rest frames")
+    template = rigging.get_template(spec["template"])
+    _reset_scene(bpy)  # the source armature is gone from here on -- see op_armature
+    target_bones_fitted = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    target_arm = _build_armature(bpy, target_bones_fitted)
+    target_bones: dict[str, Any] = {}
+    for b in target_arm.data.bones:
+        quat = b.matrix_local.to_quaternion()
+        target_bones[b.name] = {
+            "parent": b.parent.name if b.parent is not None else None,
+            "rest_rotation": [quat.x, quat.y, quat.z, quat.w],
+            "head": [b.head_local.x, b.head_local.y, b.head_local.z],
+            "tail": [b.tail_local.x, b.tail_local.y, b.tail_local.z],
+        }
+
+    progress(1.0, "Clip sampled")
+    result: dict[str, Any] = {
+        "ok": True,
+        "armature": armature_name,
+        "source_bones": source_bones,
+        "all_bone_names": all_bone_names,
+        "actions": sampled_actions,
+        "target": {"template": template.key, "bones": target_bones},
+    }
+    if skipped:
+        result["skipped"] = skipped
+    return result
+
+
 def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     """Render one PNG per sheet cell into ``frames_dir``.
 
@@ -2229,6 +2415,7 @@ OPS = {
     "pose": op_pose,
     "animate": op_animate,
     "armature": op_armature,
+    "clip_sample": op_clip_sample,
     "sheet": op_sheet,
     "fbx": op_fbx,
     "views": op_views,

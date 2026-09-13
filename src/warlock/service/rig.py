@@ -82,6 +82,26 @@ def create_rig(svc: WarlockService, job_id: str, *, template: str | None = None)
     return {"id": new_id, "source_job": job_id, "template": params["template"]}
 
 
+def rig_in_flight(svc: WarlockService, job_id: str) -> str | None:
+    """The id of a queued or running rig job for *job_id*'s mesh, or None.
+
+    ``send_to_troupe``'s guard against minting a second rig -- and so a second
+    ``troupe_sheet`` reservation -- for the same mesh while the first is still
+    in flight (the 2026-09-13 audit's own finding: it did not check before
+    this existed). ``store.active_jobs()`` is already oldest-first, so the
+    first match is the request the user is already waiting on, never a later
+    duplicate.
+    """
+    check_job_id(job_id)
+    for row in svc.store.active_jobs():
+        if row.get("kind") != "rig":
+            continue
+        params = row.get("params") or {}
+        if str(params.get("source_job") or "") == job_id:
+            return str(row["id"])
+    return None
+
+
 def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Re-rig a mesh with joints the user moved.
 

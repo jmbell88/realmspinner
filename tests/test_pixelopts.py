@@ -217,3 +217,91 @@ def test_troupe_options_publishes_the_custom_size_range(svc):
     assert troupe.troupe_options(svc)["logical_size_range"] == list(
         troupe.TROUPE_CUSTOM_SIZE_RANGE
     )
+
+
+# --- D5 HD mode ---------------------------------------------------------------
+#
+# ``pixel_art`` (default True) is Troupe's own switch, layered on top of
+# ``check_pixel_options`` rather than inside it: an HD request wants no colour
+# count, palette, dither or outline at all, and the row it mints has to say so
+# by *absence* rather than by carrying a value nothing downstream reads.
+
+
+def test_a_pixel_art_request_writes_no_pixel_art_key(svc):
+    """True is silence: a form that never touches the switch mints the same
+    row it always has, with no ``pixel_art`` key to disagree about."""
+    assert "pixel_art" not in troupe._check_options(svc, {})
+    assert "pixel_art" not in troupe._check_options(svc, {"pixel_art": True})
+
+
+def test_an_hd_request_drops_the_palette_options_from_the_row(svc):
+    """``pixel_art: False`` and nothing else -- the row carries the switch and
+    none of the four settings a render with no reduction pass never reads."""
+    row = troupe._check_options(svc, {"pixel_art": False})
+    assert row["pixel_art"] is False
+    for key in ("colors", "palette", "dither", "outline"):
+        assert key not in row
+    # The size ladder still applies -- an HD sheet is still laid out at a
+    # chosen cell size, it is just never reduced into one.
+    assert row["logical_size"] == troupe.DEFAULT_TROUPE_LOGICAL_SIZE
+
+
+def test_an_hd_request_naming_a_palette_is_refused_on_the_palette_field(svc, tmp_path):
+    """A *real*, loadable palette -- so the refusal is provably about HD mode
+    and not about the name failing to resolve at all, which would refuse it
+    even before this switch existed."""
+    directory = tmp_path / "palettes"
+    directory.mkdir(exist_ok=True)
+    svc.config.palette_dir = directory
+    (directory / "duo.hex").write_text("#1a1c2c\n#f4f4f4\n")
+    assert _check(svc, {"palette": "duo"})["palette"] == "duo"
+
+    with pytest.raises(Invalid) as excinfo:
+        troupe._check_options(svc, {"pixel_art": False, "palette": "duo"})
+    assert excinfo.value.field == "palette"
+
+
+def test_an_hd_request_turning_on_dither_is_refused_on_the_dither_field(svc):
+    with pytest.raises(Invalid) as excinfo:
+        troupe._check_options(svc, {"pixel_art": False, "dither": True})
+    assert excinfo.value.field == "dither"
+
+
+def test_an_hd_request_naming_an_outline_is_refused_on_the_outline_field(svc):
+    with pytest.raises(Invalid) as excinfo:
+        troupe._check_options(svc, {"pixel_art": False, "outline": "outer"})
+    assert excinfo.value.field == "outline"
+    # "none" is not an ask -- it is the word this door already spells "off",
+    # and refusing it would refuse a request for exactly what HD mode does.
+    assert troupe._check_options(svc, {"pixel_art": False, "outline": "none"})[
+        "pixel_art"
+    ] is False
+
+
+def test_a_non_boolean_pixel_art_is_refused(svc):
+    """``bool("false")`` is ``True`` in Python, so a string here used to turn
+    HD mode *on* by way of a value that spells "off". Every pane sends a real
+    bool -- ``troupe_settings.py``'s Style combo resolves to one through
+    ``troupe_mode._style_choice``, never a raw value passed through -- so this
+    refusal has no control on any pane to address and is deliberately left
+    unfielded rather than pointed at an address nothing draws."""
+    with pytest.raises(Invalid) as excinfo:
+        troupe._check_options(svc, {"pixel_art": "false"})
+    assert excinfo.value.field is None
+    with pytest.raises(Invalid):
+        troupe._check_options(svc, {"pixel_art": 1})
+    with pytest.raises(Invalid):
+        troupe._check_options(svc, {"pixel_art": 0})
+    # And a real bool, either way, still just works.
+    assert troupe._check_options(svc, {"pixel_art": True}) == troupe._check_options(
+        svc, {}
+    )
+
+
+def test_an_hd_request_accepts_a_custom_size_inside_its_range(svc):
+    """Task G and D5 compose: HD mode strips the palette options but leaves
+    the size question exactly as ``_check_options`` already answers it, custom
+    sizes included."""
+    row = troupe._check_options(svc, {"pixel_art": False, "logical_size": 40})
+    assert row["logical_size"] == 40
+    assert row["pixel_art"] is False

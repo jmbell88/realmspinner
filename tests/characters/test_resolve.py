@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from warlock import rigging
 from warlock.characters import family as family_mod
 from warlock.characters.family import Family
 from warlock.characters.resolve import (
@@ -222,6 +223,18 @@ def test_actions_come_back_in_the_frame_tables_order():
     assert resolve("attack idle walk").actions == ("idle", "walk", "attack")
 
 
+def test_a_prompt_can_ask_for_hit_and_death():
+    """The open vocabulary beyond the closed legacy five: every shipped
+    archetype now carries a hit reaction and a death, and a prompt naming
+    both has to reach them rather than reporting two words this program
+    apparently does not understand."""
+    got = resolve("an ogre that can get hit and dies")
+    assert got.family == "ogre"
+    assert set(got.actions) >= {"hit", "death"}
+    assert "hit" not in got.unrecognised
+    assert "dies" not in got.unrecognised
+
+
 # --- the vocabulary agrees with the pipeline and the registry -------------------
 
 
@@ -239,14 +252,41 @@ def test_every_camera_preset_can_be_asked_for_in_words():
 
 
 @pytest.mark.parametrize("key", sorted(ACTION_WORDS))
-def test_every_action_key_the_vocabulary_emits_is_a_real_animation(key):
-    assert key in {name for name, *_rest in charsheet.ANIMATIONS}
+def test_every_action_key_the_vocabulary_emits_is_a_real_animation_or_a_shipped_clip(key):
+    """The closed legacy five (``charsheet.ANIMATIONS``), or one of the five
+    shipped clips beyond it every archetype's library carries -- see
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. Never a
+    third thing: a word the resolver can produce as an "action" has to name
+    something some template can actually play.
+    """
+    legacy = {name for name, *_rest in charsheet.ANIMATIONS}
+    shipped = set(rigging.shipped_clip_names("humanoid"))
+    assert key in legacy | shipped
 
 
 def test_the_action_order_is_the_frame_tables_order():
+    """The legacy prefix still is -- unchanged by the open vocabulary."""
     from warlock.characters.resolve import _ACTION_ORDER
 
-    assert tuple(name for name, *_rest in charsheet.ANIMATIONS) == _ACTION_ORDER
+    legacy = tuple(name for name, *_rest in charsheet.ANIMATIONS)
+    assert _ACTION_ORDER[: len(legacy)] == legacy
+
+
+def test_the_action_orders_tail_is_the_shipped_clip_order():
+    """The five names beyond the closed legacy table are in the order the
+    shipped clip libraries carry them in -- not an order this module invented
+    -- so two prompts naming the same new movements in different orders still
+    plan the same sheet.
+    """
+    from warlock.characters.resolve import _ACTION_ORDER
+
+    legacy = tuple(name for name, *_rest in charsheet.ANIMATIONS)
+    tail = _ACTION_ORDER[len(legacy) :]
+    shipped_tail = tuple(
+        name for name in rigging.shipped_clip_names("humanoid") if name not in legacy
+    )
+    assert tail == shipped_tail
+    assert set(_ACTION_ORDER) == set(ACTION_WORDS)
 
 
 @pytest.mark.parametrize("alias", sorted(VOCAB["families"]))

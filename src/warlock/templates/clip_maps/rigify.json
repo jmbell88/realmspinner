@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "key": "rigify",
+  "label": "Rigify",
+  "template": "humanoid",
+  "strip": "",
+  "required": ["hips", "spine", "thigh.L", "thigh.R", "shin.L", "shin.R"],
+  "root": "hips",
+  "bones": {
+    "hips": ["DEF-spine"],
+    "spine": ["DEF-spine.001"],
+    "chest": ["DEF-spine.002", "DEF-spine.003"],
+    "neck": ["DEF-spine.004", "DEF-spine.005"],
+    "head": ["DEF-spine.006"],
+
+    "shoulder.L": ["DEF-shoulder.L"],
+    "upper_arm.L": ["DEF-upper_arm.L", "DEF-upper_arm.L.001"],
+    "forearm.L": ["DEF-forearm.L", "DEF-forearm.L.001"],
+    "hand.L": ["DEF-hand.L"],
+
+    "shoulder.R": ["DEF-shoulder.R"],
+    "upper_arm.R": ["DEF-upper_arm.R", "DEF-upper_arm.R.001"],
+    "forearm.R": ["DEF-forearm.R", "DEF-forearm.R.001"],
+    "hand.R": ["DEF-hand.R"],
+
+    "thigh.L": ["DEF-thigh.L", "DEF-thigh.L.001"],
+    "shin.L": ["DEF-shin.L", "DEF-shin.L.001"],
+    "foot.L": ["DEF-foot.L"],
+
+    "thigh.R": ["DEF-thigh.R", "DEF-thigh.R.001"],
+    "shin.R": ["DEF-shin.R", "DEF-shin.R.001"],
+    "foot.R": ["DEF-foot.R"]
+  }
+}

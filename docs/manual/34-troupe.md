@@ -1,8 +1,8 @@
 # Troupe
 
 Troupe is the character-sprite mode: a prompt goes in, a 3D character comes back, and what you get
-out is a 256-cell sprite sheet — five animations in eight directions — that plays in the middle of
-the window while you watch it.
+out is a sprite sheet — the rig's clips in eight directions, 256 cells at the shipped default — that
+plays in the middle of the window while you watch it.
 
 It exists because the two things this app was already good at do not, on their own, make a
 character sheet. A sprite synthesised from one drawing has to *imagine* the other three sides, and
@@ -41,7 +41,8 @@ this one.
 
 ## What a character sheet contains
 
-Five animations, in eight directions, at a fixed frame count each:
+The movement table lists every clip the rig's skeleton actually defines, not a fixed five. On each
+of the four shipped skeletons (`humanoid`, `quadruped`, `bird`, `blob`) that is ten:
 
 | Animation | Frames | Loops | Frame time |
 | --- | --- | --- | --- |
@@ -50,12 +51,22 @@ Five animations, in eight directions, at a fixed frame count each:
 | run | 8 | yes | 60 ms |
 | attack | 6 | no | 80 ms |
 | jump | 6 | no | 100 ms |
+| attack_02 | 6 | no | 80 ms |
+| cast | 6 | no | 90 ms |
+| fall | 4 | yes | 100 ms |
+| hit | 4 | no | 90 ms |
+| death | 6 | no | 120 ms |
 
-That is the default: 32 frames per direction and 256 cells in total, laid out eight to a row in the
-order `animation → direction → frame`. The directions are the eight compass points of a turn,
-starting at `front` and going clockwise in 45° steps.
+The first five are switched on by default; the last five — attack_02, cast, fall, hit and death —
+are present on the table but switched off, each carrying a **Provisional** note: placeholder
+keyframes an animator's pass has not reached yet, not a fault in your request. Switching one on
+folds it into the sheet exactly like any other movement.
 
-That layout is configurable, and the form is where you change it. Each animation can be switched off
+That is the default: 32 frames per direction and 256 cells in total for the first five, laid out
+eight to a row in the order `animation → direction → frame`. The directions are the eight compass
+points of a turn, starting at `front` and going clockwise in 45° steps.
+
+That layout is configurable, and the form is where you change it. Each movement can be switched off
 or given a different frame count, and each can be rendered in 1, 4, 8 or 16 directions. A sheet
 warns above 256 cells and refuses above 512.
 
@@ -117,6 +128,10 @@ library. Rigging is a real cost: minutes of CPU before a single cell is rendered
 dialog says so. You get two rows in the queue — the rig, then the sheet — and either can be
 cancelled on its own; cancelling the rig simply means no sheet.
 
+Sending the same unrigged mesh to Troupe a second time while its first rig is still running is
+refused rather than queuing a second rig behind it — one rig for a mesh at a time, so wait for the
+first (or cancel it) before asking again.
+
 A mesh **already** rigged is animated on the skeleton it already carries, so the dialog does not ask
 — and one rigged on a skeleton that has no clips is refused immediately, before anything is queued:
 a walk cycle means nothing to a skeleton nobody wrote one for. Four of the eight templates ship with
@@ -135,17 +150,22 @@ step it is on. Nothing on this route ever waits for you.
 | Reference pose | A-pose or T-pose. A-pose matches the rig template and is the default; T-pose separates the limbs further. Both draw the same figure — only the arms move. |
 | Camera | One of four **presets**, and the helper under the picker states the chosen one's elevation in degrees. **3/4 top-down** (35°) is the default and the angle most 2D games with depth are drawn at; **Isometric** (30°) matches what tilesets call isometric; **Side** (0°) is straight on; **Top-down** (60°) is as far over as a humanoid still reads — a true overhead figure is a pair of shoulders and a hat brim. The degrees are in the helper rather than left to the name because the number is the thing that transfers: if you are matching these sprites to a Plotter map you already know what elevation that map is drawn at, and "isometric" does not answer that while 30° does. The same four presets are on Create's Character column, and a sheet records which one it was rendered at in its sidecar. This setting is the elevation only — which direction of the model counts as its **front** is a property of the mesh rather than of the sheet, set by orbiting it in [Poser](26-poser.md#choosing-the-front) or the 3D viewport. There is nothing to state here for a character you are about to generate, since its mesh does not exist yet; the **Send to Troupe…** dialog, which always has a real mesh in hand, states that mesh's front under this same picker. |
 | Skeleton | Which rig an **unrigged** mesh is built on, and therefore which clip library its sheet is animated from. Only on the **Send to Troupe…** dialog, and only for a mesh that is not rigged yet: a rigged one is animated on the skeleton its own rig records. Only the four templates with clips are offered. |
-| Sprite size | How many pixels tall one cell is. 16, 24, 32, 48, 64, 96 or 128, or **Custom…** for any whole number from 8 to 256. A custom size that does not divide 512 (the render's own resolution) is still built — it is resized down with nearest-neighbour instead of the usual box reduction, which is a slightly blockier result. |
-| Outline | `outer` grows the silhouette by a dark pixel, `inner` recolours the sprite's own edge, `none` leaves it alone. |
-| Palette | A palette file if you have installed one, or a palette derived from the render by median cut. |
-| Colours | The budget for a derived palette. Ignored when a palette file is named. |
-| Dither | Ordered dithering when colours are mapped. Off by default; at sprite sizes it is usually noise. |
+| **Style** | **Pixel art** or **HD**. Pixel art reduces the render to a logical size, a colour budget and an outline pass — the sheet described everywhere else in this chapter. **HD** keeps the render as painted, full colour and soft edges, with no colour budget at all — and it disables **Outline**, **Palette**, **Colours** and **Dither** below rather than hiding them, so each says why it is off instead of simply not being there. |
+| **Frame rate** | **Authored** — each movement plays at its own clip's recorded frame time — or a fixed rate applied to every movement at once. Choosing a rate also rescales each movement's own default frame count at that rate, so a walk keeps its real length rather than playing faster or slower than it was authored. Authored is the default, and a form that never touches this control sends no rate at all. |
+| Sprite size | How many pixels tall one cell is. 16, 24, 32, 48, 64, 96 or 128, or **Custom…** for any whole number from 8 to 256. A custom size that does not divide 512 (the render's own resolution) is still built — it is resized down with nearest-neighbour instead of the usual box reduction, which is a slightly blockier result. At 256, the 8192-pixel atlas ceiling allows exactly 256 cells — the five default movements across eight directions, with nothing to spare — so switching on a sixth movement at that size is refused on the movement table above rather than silently dropping one. |
+| Outline | `outer` grows the silhouette by a dark pixel, `inner` recolours the sprite's own edge, `none` leaves it alone. Not offered when **Style** is HD. |
+| Palette | A palette file if you have installed one, or a palette derived from the render by median cut. Not offered when **Style** is HD. |
+| Colours | The budget for a derived palette. Ignored when a palette file is named, and not offered when **Style** is HD. |
+| Dither | Ordered dithering when colours are mapped. Off by default; at sprite sizes it is usually noise. Not offered when **Style** is HD. |
 
 Every one of these is checked when you press the button, not when the sheet is finally rendered —
-so an unreadable palette costs you the click rather than an hour.
+so an unreadable palette costs you the click rather than an hour. A refusal that names the whole
+movement table (a sheet over the cell ceiling, a movement the rig has no clip for) highlights the
+table itself rather than one row; a refusal on **Frame rate** highlights that control the way any
+other single field does.
 
-Sizes divide evenly out of the 512-pixel render at 16, 32, 64 and 128; the other three go through a
-documented resize instead. Neither is wrong, but the exact ones are crisper.
+Sizes divide evenly out of the 512-pixel render at 16, 32, 64, 128 and 256; the other three go
+through a documented resize instead. Neither is wrong, but the exact ones are crisper.
 
 ## Watching it
 
@@ -196,7 +216,8 @@ because a preview that stops needs a control to start it again.
 
 The top of the right column says what you are looking at: the grid, the cell size, how many tagged
 runs the sidecar carries, and what the pixel-art pass measured — how many colours came out, which
-palette they came from, and how many stray pixels were cleaned up.
+palette they came from, and how many stray pixels were cleaned up. An **HD** sheet ran no reduction
+at all, so this reads **HD -- full colour** instead of a colour count.
 
 A large stray-pixel count is worth noticing. It means the reduction found detail the palette could
 not hold, and the usual answer is a bigger sprite or a wider palette rather than a different
@@ -272,8 +293,8 @@ the answer: give the movement more frames in the form.
 
 ## Taking it somewhere
 
-Both ways out are bridges the app already had, because a character sheet is an ordinary sheet with
-an animation block on it.
+Four ways out, and the first two are bridges the app already had, because a character sheet is an
+ordinary sheet with an animation block on it.
 
 **Open in Inker** opens the sheet sliced on its own grid, one tag per animation and direction, in
 the [Inker timeline](29-inker-animation.md). It opens *unlinked*: the first `Ctrl+S`
@@ -282,11 +303,20 @@ is a Save As, so cleaning up frames cannot overwrite the render they came from.
 **Add to Packwright** contributes one sprite per cell to an open atlas, alongside everything else
 being packed.
 
-**Export package...** is the third way out and the only one that produces *files*. It copies the PNG
-and its JSON sidecar together into a folder you choose — or straight into your configured export
-folder, if you have one — and it copies them as a pair on purpose: the PNG is the atlas and the JSON
-is what says which cell is `walk` facing south-east, so a folder holding one without the other holds
-an asset nothing can interpret. Either both land or neither does.
+The last two are the ones that produce *files*, and both write into a folder you choose — or
+straight into your configured export folder, if you have one.
+
+**Export package...** copies the PNG and its JSON sidecar together, as a pair on purpose: the PNG is
+the atlas and the JSON is what says which cell is `walk` facing south-east, so a folder holding one
+without the other holds an asset nothing can interpret. Either both land or neither does.
+
+**Export frames...** cuts the same atlas into one PNG per frame instead, for an engine that wants
+`AnimatedSprite2D`-style frame folders rather than an atlas-plus-sidecar pair: one folder per
+movement, one subfolder per compass direction inside it, and `000.png`, `001.png` and so on inside
+that — beside a `manifest.json` naming the format, the frame size, whether the sheet is pixel art or
+HD, and each clip's own loop, frame count, frame time, fps and directions. A re-export replaces the
+destination folder whole rather than merging into it — the same all-or-nothing swap **Export
+package...** makes, generalised to however many files a frame export writes.
 
 The sheet and its sidecar are on disk beside the mesh either way, in that job's directory, and the
 [library](37-library-and-jobs.md)'s export list is where the files themselves are.
@@ -309,3 +339,8 @@ the sheet will come back in whatever few greys the render produced.
 from the skeleton's rest pose, which is the only frame that survives the rig being fitted to a
 different mesh — a clip authored against one skeleton's node-local orientations means something else
 entirely against another's.
+
+**"That sheet would be …px; the limit is 8192px."** The movement table's own refusal, shown above the
+table rather than on one switch. At 256 px sprite size the five default movements across eight
+directions already fill the 8192 px atlas exactly, so switching on a sixth movement — or any of the
+five Provisional ones — at that size goes over it. Turn one off, or drop **Sprite size**.

@@ -261,8 +261,16 @@ The section is absent entirely for a skeleton with no presets, rather than drawn
 
 Below the presets is **Clips** — the keyframe editor for the animations a Troupe character sheet
 plays. A *clip* is an ordered list of key poses plus how many frames each step between them holds,
-and the humanoid skeleton ships five: idle, walk, run, attack and jump. Until this editor existed
-they could only be changed by hand-editing a file inside the app's own installation.
+and every skeleton ships ten: the original idle, walk, run, attack and jump, plus five added later
+— attack_02 (a second attack), cast, fall, hit and death — built the same way and marked
+`provisional` in the library file, meaning they are an early pass still awaiting an art review
+rather than something wrong with your own edits. Until this editor existed clips could only be
+changed by hand-editing a file inside the app's own installation.
+
+Beside the clip picker, a clip marked provisional carries a muted **provisional** badge — hover it
+for "Placeholder keyframes; an animator's pass is still owed", the same words the movement table in
+Troupe uses for the same fact. It is a note about the clip, not a fault: nothing about editing or
+saving it differs from any other clip.
 
 **The armature is the editor.** Picking a key in the list loads it onto the skeleton in the middle
 of the screen, and you pose it with exactly the controls on the right that you would use for a
@@ -273,6 +281,12 @@ another key and lose it.
 
 Everything the clip adds on top of that is *timing*:
 
+- **Frame time (ms)** — how many milliseconds one *rendered* frame of this clip holds, in steps of
+  10 from 10 to 1000, with an "≈ N fps" hint beside it so the number reads as a speed rather than a
+  raw duration. This is the clip's own tempo, stored in the library file rather than in a fixed
+  table baked into the build — it is what a Troupe sheet plays the clip at unless the sheet itself
+  sets a fixed **Frame rate** overriding every movement at once, and it is what `animated.glb`
+  bakes the clip's keyframes against.
 - **Frames after this key** — how many frames the step out of the selected key holds. Each row in
   the list shows its own, so reordering a key visibly carries its timing with it.
 - **Loops** — whether the last key steps back round to the first. A looping clip needs one more
@@ -299,10 +313,53 @@ completely alone. That matters twice: an update cannot overwrite your work, and 
 clips** is simply "delete my copy", so reverting also gets you any improvements a later version
 ships.
 
+Your saved copy is the *whole* library, not a set of changes layered on top of the shipped one — so
+if you saved your own clips before this update added the five new ones, your copy still holds only
+the original five. It does not gain attack_02, cast, fall, hit or death just because the build now
+ships them; **Revert to shipped clips** is what gets you the full set of ten, provisional new ones
+included, in exchange for whatever you had changed.
+
 A save is refused, by name, if the result is something a character sheet could not be built from —
 a clip whose segments do not add up to the frames the sheet's layout expects, a key that no longer
 exists, two clips with one name. A refused save leaves your previous clips exactly where they were,
 because the alternative is discovering the problem the next time you render a character.
+
+### Importing a clip
+
+**Import clip…**, above the clip picker, brings in an animation someone else authored — a Mixamo
+download, a Rigify metarig export — instead of keying one by hand. It needs Blender and a clip
+library to import into, and says so when either is missing: "Importing an animation needs Blender,
+which is not installed" or "This skeleton has no clip library to import into". While a skeleton edit
+is open, the button stays visible but disables the same way, with "Apply or cancel the skeleton edit
+first." beneath it, and the Import report stays hidden until the edit is applied or cancelled — every
+other control in this section is hidden for the same reason: they all read or write the pose a
+skeleton draft holds at rest throughout the edit. Only the humanoid
+skeleton has a shipped mapping table today; nothing stops you pressing the button on quadruped,
+bird or blob, but there is nowhere for the sampled bones to land, and the import is refused once you
+have picked a file rather than before.
+
+Pick an `.fbx`, `.glb` or `.gltf` file with Mixamo or Rigify bone naming. Every animation the file
+carries becomes a clip in your *working copy* — not on disk yet. A clip name already in use gets a
+`_2` (or `_3`, and so on) appended rather than overwriting the existing one, and the same is true of every key pose
+the import needs: an existing pose, imported or original, is never replaced, only added beside. The
+first imported clip is selected so you can look it over immediately, and the working copy is marked
+unsaved exactly as a hand-keyed edit would be — **Save clips** is still the only thing that writes
+anything, so an import you do not like costs nothing but **Revert to shipped clips** or leaving the
+screen.
+
+Under the button, the **Import report** says what the conversion actually decided, per clip: which
+mapping table matched, how many bones were left at the template's rest pose because the source
+skeleton did not name them, which source bones were ignored (fingers and other joints no template
+bone corresponds to), whether the result loops and how large the seam residual was, how many frames
+and keys it reduced to, and which root-motion mode was used — **in place** (drift removed, the bob
+kept) unless you asked for something else. Every import is resampled to at most 32 frames regardless
+of the source's own length. The saved clip remembers which file and which mapping table produced
+it, so a later look at the library can still say where a clip came from.
+
+**Licensing.** Warlock downloads nothing for this — you supply the file. The animation data itself
+is governed by wherever you got it: Mixamo's motion library is Adobe's, under Adobe's own terms, and
+those terms are what to check before using or redistributing anything you import here, not this
+project's licence.
 
 ## When a pose file goes wrong
 

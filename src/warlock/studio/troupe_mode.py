@@ -527,11 +527,6 @@ def send_to_troupe(ctx: Any, job: Any, form: dict[str, Any] | None = None) -> bo
             ctx.svc,
             job_id,
             logical_size=request.get("logical_size"),
-            colors=request.get("colors"),
-            outline=request.get("outline"),
-            reduce_mode=request.get("reduce_mode"),
-            dither=bool(request.get("dither")),
-            palette=request.get("palette") or None,
             # ``elevation`` now has a control -- the Camera combo, which offers
             # preset *names* and is translated to the number here. ``lighting``
             # is still in the state this one used to be in: validated by the
@@ -547,6 +542,7 @@ def send_to_troupe(ctx: Any, job: Any, form: dict[str, Any] | None = None) -> bo
             # that rather than this. Empty means the service's own default, so
             # a caller that passes no form mints the row it always did.
             template=request.get("template") or None,
+            **_pixel_style_request(request),
         )
 
     return bool(ctx.submit(f"troupe-send:{job_id}", run))
@@ -1099,24 +1095,84 @@ def _adopt_atlas(ctx: Any, done: Any) -> None:
 
 # --- the two doors ----------------------------------------------------------
 
+#: The two Style choices a Troupe request may carry. On the form as a string
+#: rather than the door's own bare boolean (``pixel_art``), because a combo
+#: needs a value for its *other* state too, and "not pixel art" is not a name
+#: anybody would read on a control.
+STYLE_PIXEL_ART = "pixel_art"
+STYLE_HD = "hd"
+
+
+def _style_choice(form: Mapping[str, Any]) -> str:
+    """Which of the two Style choices a form holds, tolerant of an old one."""
+    return str(form.get("style") or STYLE_PIXEL_ART)
+
+
+def _pixel_style_request(form: Mapping[str, Any]) -> dict[str, Any]:
+    """The pixel-art fields a request should carry, gated on Style.
+
+    **Pixel art sends today's request, unchanged.** No ``pixel_art`` key at
+    all, so a form that never touches the switch -- every form built before it
+    existed -- mints the byte-identical row it always did.
+
+    **HD sends ``pixel_art: False`` and none of the four fields a pixel-art
+    render has.** Not just omitted from this dict: the door refuses a request
+    that turns ``pixel_art`` off but still names a non-empty palette, a true
+    ``dither`` or an outline mode other than ``none`` (``service.troupe
+    ._check_options``), so a form that still holds yesterday's outline or
+    palette from before the switch was flipped would be refused rather than
+    silently ignored. ``reduce_mode`` rides along on both branches: it is
+    never one of the four the door strips (``_check_options`` pops
+    ``colors``/``palette``/``dither``/``outline`` on an HD request and leaves
+    it alone), because it is a statement about how the 512px render becomes a
+    sprite of the chosen size at all, which an HD sheet still does.
+    """
+    if _style_choice(form) == STYLE_HD:
+        return {"pixel_art": False, "reduce_mode": form.get("reduce_mode")}
+    return {
+        "colors": form.get("colors"),
+        "outline": form.get("outline"),
+        "reduce_mode": form.get("reduce_mode"),
+        "dither": bool(form.get("dither")),
+        "palette": form.get("palette") or "",
+    }
+
 
 def _layout_request(form: dict[str, Any]) -> dict[str, Any]:
-    """Strip presentation-only flags from the editable Troupe form."""
+    """Strip presentation-only flags from the editable Troupe form.
+
+    **Version 3 only when the layout actually uses what v3 offers** -- a
+    top-level ``fps``, or a movement outside the closed legacy five -- and
+    version 2 otherwise, byte-identical to what this function produced before
+    the open vocabulary existed. See
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a v2
+    payload never has its ``fps`` read at all (``resolve_layout`` only looks
+    for one on a v3+ payload), so a form that set a rate and stayed on
+    ``"version": 2`` would have the rate silently ignored rather than applied.
+    """
+    from ..pipelines import charsheet
 
     source = form.get("layout") or {}
-    return {
-        "version": 2,
+    movements = [
+        {
+            "key": row.get("key"),
+            "frames": row.get("frames"),
+            "directions": row.get("directions"),
+        }
+        for row in source.get("movements") or ()
+        if row.get("enabled", True)
+    ]
+    legacy_names = {name for name, *_rest in charsheet.ANIMATIONS}
+    non_legacy = any(str(m.get("key")) not in legacy_names for m in movements)
+    fps = form.get("fps")
+    request: dict[str, Any] = {
+        "version": 3 if (fps is not None or non_legacy) else 2,
         "columns": int(source.get("columns") or 8),
-        "movements": [
-            {
-                "key": row.get("key"),
-                "frames": row.get("frames"),
-                "directions": row.get("directions"),
-            }
-            for row in source.get("movements") or ()
-            if row.get("enabled", True)
-        ],
+        "movements": movements,
     }
+    if fps is not None:
+        request["fps"] = int(fps)
+    return request
 
 
 def camera_elevation(form: Mapping[str, Any]) -> float | None:
@@ -1241,9 +1297,27 @@ def form(ctx: Any) -> dict[str, Any]:
             "palette": "",
             "name": "",
             "layout": _default_layout(ctx),
+            # Which of the two Style choices this request renders as, and the
+            # layout-wide rate it plays at -- see ``_pixel_style_request`` and
+            # ``_layout_request``. Derived from ``defaults`` rather than a
+            # literal, the ``camera`` argument's own rule, though ``pixel_art``
+            # has had one answer (True) since D5.
+            "style": (
+                STYLE_PIXEL_ART if defaults.get("pixel_art", True) else STYLE_HD
+            ),
+            "fps": None,
         }
     elif "layout" not in state.form:
         # Session-state migration for a form created by a pre-v2 build.
+        state.form["layout"] = _default_layout(ctx)
+    elif state.form["layout"].get("template") != _bound_template(ctx):
+        # The character bound to Troupe changed rig -- or the form's layout
+        # predates the skeleton it was built for being recorded at all
+        # (``.get("template")`` reading ``None`` on an old session's dict).
+        # ``select``'s own rule, applied to this table instead of the clock:
+        # rows built for one skeleton describe nothing on another, so a
+        # changed rig rebuilds the default rows rather than leaving stale
+        # ones -- clips the new rig lacks, ticked, and clips it has, missing.
         state.form["layout"] = _default_layout(ctx)
     if "template" not in state.form:
         # Session-state migration, ``camera``'s: a form the user left open
@@ -1256,21 +1330,114 @@ def form(ctx: Any) -> dict[str, Any]:
         # because the two migrations are independent -- a form can be missing
         # this one and not the other.
         state.form["camera"] = str(defaults.get("camera") or "")
+    if "style" not in state.form:
+        # Session-state migration, the same shape: a form the user left open
+        # across the build that added Style has no key for it.
+        state.form["style"] = (
+            STYLE_PIXEL_ART if defaults.get("pixel_art", True) else STYLE_HD
+        )
+    if "fps" not in state.form:
+        state.form["fps"] = None
     return state.form
 
 
+#: Where :func:`_bound_rig_template` caches its answer: ``(job_id, template,
+#: refresh-at)``. On ``state.preview`` rather than ``TroupeState``, the same
+#: home :data:`OPTIONS_SLOT` and :data:`RERENDER_SLOT` use for a fact that is
+#: neither a selection nor a clock.
+_RIG_TEMPLATE_SLOT = "troupe_rig_template"
+
+
+def _bound_rig_template(ctx: Any, job_id: str) -> str:
+    """The skeleton *job_id* is actually rigged on, or ``""`` if none is
+    recorded yet.
+
+    **Read off the job store, never off** ``rig.json``. ``service.rig
+    .create_rig`` and ``service.troupe.create_charsheet`` both snapshot the
+    mesh's real template onto the row they mint (``params["template"]``), so
+    the fact this needs already lives in SQL -- the same rows
+    :func:`characters` and :func:`in_progress` already walk over this store --
+    and reading it here is exactly the disk read
+    ``can_send_to_troupe``'s docstring refuses to pay on the frame thread. The
+    newest of either kind wins, so a re-rig after a sheet was built is what
+    answers, not the sheet's now-stale one.
+
+    Throttled like every other cast-adjacent store walk in this module: a scan
+    of up to :data:`SCAN_LIMIT` rows has no business running every frame the
+    settings pane draws, so the answer is cached against *job_id* for
+    :data:`CAST_REFRESH_LIVE`.
+    """
+    if not job_id:
+        return ""
+    now = time.monotonic()
+    cached = ctx.state.preview.get(_RIG_TEMPLATE_SLOT)
+    if cached is not None and cached[0] == job_id and now < cached[2]:
+        return cached[1]
+    template, newest = "", ""
+    for kind in ("rig", "charsheet"):
+        for row in ctx.svc.store.list(limit=SCAN_LIMIT, kind=kind):
+            if row.get("deleted_at") or row.get("status") != "done":
+                continue
+            params = row.get("params") or {}
+            if str(params.get("source_job") or "") != job_id:
+                continue
+            found = str(params.get("template") or "")
+            if not found:
+                continue
+            created = str(row.get("created_at") or "")
+            if created >= newest:
+                newest, template = created, found
+    ctx.state.preview[_RIG_TEMPLATE_SLOT] = (job_id, template, now + CAST_REFRESH_LIVE)
+    return template
+
+
+def _bound_template(ctx: Any) -> str:
+    """The skeleton the sheet form's movement rows should be built from.
+
+    The character currently bound to Troupe -- :func:`ensure`'s ``job_id`` --
+    when its rig is already known, and the door's own default otherwise. A
+    fresh "New character" form with nothing bound yet has no rig to defer to,
+    which is the *only* case the default is for; see
+    :func:`_bound_rig_template` for where a bound one comes from.
+    """
+    default = str((options(ctx).get("defaults") or {}).get("template") or "")
+    return _bound_rig_template(ctx, ensure(ctx).job_id) or default
+
+
 def _default_layout(ctx: Any) -> dict[str, Any]:
+    """The layout a fresh New Character form opens with.
+
+    Built from ``clip_vocabulary`` -- the rig's *whole* clip library -- rather
+    than the closed legacy five, so a movement the vocabulary opened is a row
+    on the form from the first frame rather than a table nothing ever adds a
+    row to. Only the clips the vocabulary itself marks ``default`` (the same
+    five, by construction) start ticked, which is what keeps a fresh form's
+    request byte-identical to the one it built before this vocabulary opened.
+
+    **Timed to the bound character's own skeleton** (:func:`_bound_template`),
+    not always the door's default -- a quadruped, bird or blob bound here used
+    to get the humanoid vocabulary's names, frames and provisional flags
+    regardless of what its own clip library actually holds, which offers
+    clips the rig lacks and hides ones it has. The resolved template travels
+    on the layout itself (``"template"``) so ``troupe_settings._layout`` reads
+    the one this table was actually built from rather than asking the door's
+    default a second time.
+    """
+    opts = options(ctx)
+    template = _bound_template(ctx)
+    vocabulary = (opts.get("clip_vocabulary") or {}).get(template) or ()
     return {
         "version": 2,
         "columns": 8,
+        "template": template,
         "movements": [
             {
                 "key": row.get("name"),
-                "enabled": True,
+                "enabled": bool(row.get("default", False)),
                 "frames": int(row.get("frames") or 1),
                 "directions": 8,
             }
-            for row in options(ctx).get("animations") or ()
+            for row in vocabulary
         ],
     }
 
@@ -1303,11 +1470,6 @@ def start_character(ctx: Any, form: dict[str, Any]) -> bool:
             "variant": form.get("variant"),
             "pose": form.get("pose"),
             "logical_size": form.get("logical_size"),
-            "colors": form.get("colors"),
-            "outline": form.get("outline"),
-            "reduce_mode": form.get("reduce_mode"),
-            "dither": bool(form.get("dither")),
-            "palette": form.get("palette") or "",
             # Both: the key is what the user chose and what a later screen can
             # show back to them, and the elevation is what ``check_troupe``
             # validates and what every renderer downstream actually frames
@@ -1316,6 +1478,7 @@ def start_character(ctx: Any, form: dict[str, Any]) -> bool:
             "camera": form.get("camera"),
             "elevation": camera_elevation(form),
             "layout": _layout_request(form),
+            **_pixel_style_request(form),
         },
     )
 
@@ -1339,11 +1502,6 @@ def build_sheet(ctx: Any, job_id: str, form: dict[str, Any]) -> bool:
         ctx.svc,
         job_id,
         logical_size=form.get("logical_size"),
-        colors=form.get("colors"),
-        outline=form.get("outline"),
-        reduce_mode=form.get("reduce_mode"),
-        dither=bool(form.get("dither")),
-        palette=form.get("palette") or "",
         # The same translation ``send_to_troupe`` does, through the same
         # helper: a second sheet built from this door has to be framable from
         # the camera the form is showing, or the two doors disagree about what
@@ -1351,6 +1509,7 @@ def build_sheet(ctx: Any, job_id: str, form: dict[str, Any]) -> bool:
         elevation=camera_elevation(form),
         layout=_layout_request(form),
         name=str(form.get("name") or ""),
+        **_pixel_style_request(form),
     )
 
 
@@ -1467,6 +1626,49 @@ def export_package(ctx: Any) -> bool:
                 return None
             dest = picked
         return svc_characters.export_package(ctx.svc, job_id, sheet_id, dest_dir=dest)
+
+    return bool(ctx.submit(key, run))
+
+
+def frames_key(job_id: str, sheet_id: str) -> str:
+    return f"troupe-frames:{job_id}:{sheet_id}"
+
+
+def export_frames(ctx: Any) -> bool:
+    """Cut the selected sheet's atlas into one PNG per frame, folder per clip
+    and compass direction, beside a ``manifest.json`` of the frame rates.
+
+    ``export_package``'s exact arrangement, one door over: the folder picker
+    is asked **on the task thread**, inside ``run``, only when no export
+    folder is configured, and ``None`` from it means the user cancelled --
+    which is why this returns whether the *request* was taken rather than
+    whether anything was written. ``service.characters.export_frames`` is
+    what actually writes, through ``export.staged_tree``, so a half-written
+    tree is never the one a viewer sees.
+    """
+    from ..service import characters as svc_characters
+
+    state = ensure(ctx)
+    if not (state.job_id and state.sheet_id):
+        return False
+    key = frames_key(state.job_id, state.sheet_id)
+    if ctx.busy(key):
+        return False
+    job_id, sheet_id = state.job_id, state.sheet_id
+    # Read here rather than in ``run``: the task thread must not reach into the
+    # frame loop's context for a value the frame already has.
+    configured = getattr(ctx, "export_dir", None) or None
+
+    def run() -> Any:
+        dest = configured
+        if dest is None:
+            from . import dialogs
+
+            picked = dialogs.select_folder("Export the character sheet's frames")
+            if picked is None:
+                return None
+            dest = picked
+        return svc_characters.export_frames(ctx.svc, job_id, sheet_id, dest_dir=dest)
 
     return bool(ctx.submit(key, run))
 
@@ -1628,6 +1830,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 f"Exported {png} and {sidecar} to {written.get('dir') or ''}.",
                 "success",
             )
+        return
+    if str(done.key).startswith("troupe-frames:"):
+        # ``None`` is the cancelled picker, ``export_package``'s reading of it:
+        # no news, because a toast naming a folder nobody wrote would be the
+        # app claiming a write it did not make.
+        folder = getattr(done, "result", None)
+        if folder:
+            ctx.toast(f"Frames exported to {folder}.", "success")
         return
     # Every one of these queues or finishes a row the cast is built from, so
     # the throttled copy is dropped rather than waited out: the interval is

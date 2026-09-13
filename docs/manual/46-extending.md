@@ -159,6 +159,50 @@ reflection `mirror_pose` applies assumes that plane.
 
 See [Templates](25-rigging-and-posing.md#templates).
 
+## Adding a clip mapping table
+
+"Import clip" brings an externally authored animation (a Mixamo download, a Rigify metarig export)
+onto a Warlock skeleton, and a **clip mapping table** is what tells it which external bone plays
+which template bone. A table is a JSON file in `src/warlock/templates/clip_maps/`, one per external
+rig family — `mixamo.json` and `rigify.json` ship today, both targeting the `humanoid` template
+only; nothing maps onto `quadruped`, `bird` or `blob` yet, so importing onto one of those is not
+offered.
+
+A table declares:
+
+- **`version`** — must be `1`.
+- **`key`** — must equal the filename stem, the same rule a skeleton template's `key` follows against
+  its own file, and for the same reason: an error message or a control id interpolates this string,
+  and a mismatch would point at the wrong table.
+- **`label`** — the name a picker shows.
+- **`template`** — which skeleton template this table targets; must be a real one.
+- **`strip`** — a regex stripped once off the front of every source bone name before matching (e.g.
+  Mixamo's `^mixamorig\d*[:_]` prefix). May be empty.
+- **`required`** — the source bones that must all be present for this table to be offered at all.
+- **`root`** — which template bone is the skeleton's root; must be one of the bones this table maps.
+- **`bones`** — a map from *template* bone name to an **ordered chain** of *external* bone names,
+  first-to-last down the external rig's own hierarchy, not a single name. A chain is how one
+  external rig's extra joint collapses onto one Warlock bone — Rigify's two-segment spine bones both
+  becoming Warlock's single `chest`, for instance — and the order matters: later math reads a
+  resolved chain's orientation off its *last* bone and its facing direction from its *first* bone's
+  head to its *last* bone's tail.
+
+Validated on load exactly the way a skeleton template is (`clipmaps.parse_clip_map`, `rigging.
+_load_templates`'s rule): every `bones` key must be a bone of the named template, every chain a
+non-empty list of non-empty names, no source bone claimed by two chains, every `required` bone
+mapped, `root` mapped, and `strip` a pattern that compiles. A malformed table costs itself, never
+the feature — `clipmaps.load_clip_maps` logs and skips it, the same tolerance `_load_templates` and
+`_load_clip_library` already extend to a bad skeleton or a bad clip library.
+
+**A chain counts only when every one of its source bones is present on the skeleton being imported
+— never partially.** A table with a `required` bone missing altogether does not qualify for that
+skeleton at all; among tables that do qualify, one whose *optional* chain is missing a bone leaves
+that one template bone at the shipped template's rest pose rather than posing it off an incomplete
+chain, because half a chain has neither a trustworthy orientation nor a trustworthy direction to
+read. This is reported back (`left_at_rest`), never silently — the whole point of a mapping table is
+getting someone else's animation to look right on a Warlock rig, and posing a bone wrong from a
+guess is worse than leaving it still.
+
 ## The derived-params rule
 
 A job's parameters mix two kinds of thing: what you asked for, and what the app worked out. The
@@ -209,7 +253,8 @@ reach without a display.
 ## Driving Warlock from an AI agent
 
 Warlock speaks the Model Context Protocol, so an agent that already runs on your machine — Claude
-Code, Codex, anything with an MCP client — can build in Clay for you. It is off until you switch it
+Code, Codex, anything with an MCP client — can build in Clay for you, and can also take a character
+from a species name to a rigged, animated sprite sheet on its own. It is off until you switch it
 on, in Settings under Advanced. If you installed Warlock rather than running it from a checkout,
 point the agent at the launcher the installer staged:
 `claude mcp add warlock -- "%LOCALAPPDATA%\Programs\Warlock Studio\bin\warlock-mcp.cmd"`. From a
@@ -235,14 +280,28 @@ with `server/discover` instead — and translates every call into Studio's own p
 pipe, so Studio itself only ever has to answer that one, versioned RPC rather than every MCP
 revision a client might bring.
 
-**An agent gets a Clay tab of its own, and can reach no other.** It opens one when it connects, and
-every tool it has addresses that tab by name. A document you already have open is not merely
-unlikely to be touched; there is no request the agent can make that names it. What the agent does
+**What an agent may touch is a two-part rule, not one.** In Clay it is unchanged: it gets a tab of
+its own when it connects, and every tool it has addresses that tab by name. A document you already
+have open is not merely unlikely to be touched; there is no request the agent can make that names
+it. What the agent does
 goes onto that document's ordinary undo stack, one step per action, so taking over means switching
 to its tab and pressing Ctrl+Z as often as you want to. It also arrives already knowing Warlock's
 units and conventions — metres, which way is up, that a generator stands on the ground rather than
 straddling it — rather than working them out by trial, which is why its first attempt at something
 now usually stands on the ground instead of floating above it or growing up out of the floor.
+
+Against the character pipeline the rule is a different shape, because a Library row is not a
+document with a tab to pin. An agent may read any row by its job id — one already there, or one it
+just made — but it can only ever add: a new mesh, a new rig, a new sprite sheet, each minted through
+the same door a pane uses, plus a copy dropped into the export folder you configured. It can never
+re-rig a mesh that already has a rig, adjust a rig's joints, save or revert a clip library, delete
+anything, rerun a job, or change the direction a preview faces, and it can never reach into a
+document or panel you already have open. It cannot cancel a job it did not start itself, even one
+sitting in the queue. There is no path anywhere in this surface — every argument it takes is an id
+you already hold or a name from a fixed list — and nothing it builds is unusual: what it leaves
+behind is an ordinary Library row with no history of having come from an agent, so the way you take
+one back is the way you take back anything else in Library, by deleting it. There is no undo for
+this half of the surface, because there is nothing here an undo stack was ever tracking.
 
 The tools are the ones you would reach for yourself, but most of them now do in one call what used
 to take several. Placing a primitive or a figure sets its size, its position, its rotation, its
@@ -321,6 +380,57 @@ behaviour described above (a call that outran a wait is recognised, not repeated
 are two ways of asking the same underlying question — "what became of that call?" — and a client
 using tasks simply asks it its own way.
 
+### Characters, rigs and sprite sheets
+
+The same agent can also drive the character pipeline: describe a species, get a mesh, a rig and an
+animated sprite sheet without touching a pane. Start with `character_options` to see what is on
+offer — the species Warlock knows, the rig templates, the movement vocabulary, the cameras, sizes
+and export formats — then call `character_create` with a prompt or an explicit species and a list
+of movements. A prompt of "swamp knight" with movements idle, walk, attack, hit and death at eight
+directions resolves to the knight — Warlock's only armoured humanoid — but the knight has no swamp
+look; it offers natural or blackened instead, so the swamp theme is quietly dropped and the reply
+says so, rather than either guessing or refusing the whole request over one word.
+
+`character_create` hands back a mesh job id and a `rig_job_id`, both still running (the mesh's own
+id reports the same `follow_up_sheet_job` once it exists too, so either id can be polled). Poll
+`character_job` on the `rig_job_id` until its `follow_up_sheet_job` field names a job — that is the
+sprite sheet Warlock queues automatically once the rig finishes — then poll `character_job` again,
+this time on that sheet job's id, until it reports done. If the rig itself ends in error, no
+follow-up sheet ever appears; read `follow_up_failure` (or the rig job's own error) off that same
+`character_job` reply and stop, rather than poll forever for a sheet that will not come.
+`character_sheet_preview` returns a picture of the
+sheet, cropped to one movement and one facing if you ask for them, so the agent can look at what it
+made the same way it can in Clay. `character_export` writes the finished thing to your configured
+export folder: `animated_glb` for a single skinned mesh with every clip inside it, `godot_scene` for
+that same mesh alongside a scene file Godot can open directly, `frame_folders` for plain image
+sequences, one folder per movement and compass direction, `sheet_package` for the sheet and its
+sidecar together. An agent's own export is named from the character's name plus its own job id (and
+a sheet id too, for a sheet-shaped format), never the plain name a pane's export uses — the same
+character built twice would otherwise export to the same folder, and an agent re-exporting its own
+copy could silently overwrite a human's. Re-exporting the same job (and sheet) a second time from
+the agent replaces only that earlier agent export, never anything a pane wrote.
+
+**Movements are the set.** There is no registry of named animation sets like "sword and shield" —
+asking for one just means listing the movements it implies, because a set with no different motion
+behind its name would be a label and nothing else. `character_create` and `character_sheet_create`
+both take a plain list of movement names instead.
+
+**What gets refused, and why.** `character_create` refuses before a row exists if Warlock cannot
+reach Blender at all, because a mesh with nowhere to be rigged is not worth minting. Naming a
+species with no matching look drops that look rather than failing the whole prompt. A theme you
+named explicitly, rather than one a prompt implied, is refused by name if the species does not
+offer it. `character_rig` refuses a mesh that is already rigged — an agent adds rigs, it never
+replaces one — and refuses again while a rig for that mesh is already running, rather than queuing
+a second one behind it. Every export needs an export folder configured first (Settings, same place
+the switch for this whole bridge lives); with none set, the refusal names that setting rather than
+writing anywhere of its own choosing. And an agent may cancel only the jobs it started on its own
+connection — a job a human began, or an earlier session minted, is not reachable by
+`character_cancel` at all.
+
+As with Clay, nothing here is a path: every argument this surface takes is an id you already hold —
+a job id, a sheet id — or a name from a fixed list, never a filename or a folder you type out
+yourself.
+
 ### Adding a tool
 
 `studio/agent_clay.py` is the surface and `studio/agent_host.py` is the plumbing. The important
@@ -335,7 +445,16 @@ So adding a *shape* or an *operation* is not an edit to the agent surface. Only 
 verb — something Clay's own registry has no entry for — is, and it goes in beside the others as a
 function that takes the context, the session and the arguments, and returns content.
 
-Three rules bind anything you add. It runs on the frame thread, drained under a time budget, because
+A character tool is the same idea on a different thread. `studio/agent_character.py` is that
+surface's own file, its handlers take the service layer and the session — never the context — and
+they run on the character pipeline's own worker pool rather than the frame thread, because a
+service door can block for real work (a Blender probe, a bake) in a way nothing on the frame thread
+is allowed to. Everything below about validating before mutating, refusing rather than raising, and
+an argument's name being checked against its own schema applies to both surfaces alike; only the
+thread a handler runs on, and what it is handed to run against, differs.
+
+Three rules bind anything you add to Clay's own surface. It runs on the frame thread, drained under
+a time budget, because
 that is the only thread that may touch a document or the graphics context — the listener never
 touches either, and an operation that takes a long time will drop frames rather than corrupt
 anything. It must not raise: a refusal is a result an agent can read, and where Warlock knows
@@ -443,12 +562,12 @@ off, the same as every other tool in this file already does.
 
 ### Resources and prompts
 
-Tools are not the only thing the bridge answers over MCP. Five **resources** — documents a client
-can fetch without spending a tool call — and four **prompts** — pre-written starting points a client
+Tools are not the only thing the bridge answers over MCP. Eight **resources** — documents a client
+can fetch without spending a tool call — and five **prompts** — pre-written starting points a client
 can ask for by name, with arguments filled in — ride the same private RPC v1 pipe, in
-`studio/agent_resources.py` and `studio/agent_prompts.py`.
+`studio/agent_resources.py`, `studio/agent_character_resources.py` and `studio/agent_prompts.py`.
 
-The five resources:
+The five Clay resources:
 
 | URI | Content | Answered where |
 | --- | --- | --- |
@@ -465,10 +584,32 @@ functions of a registry that already exists for a human surface (`primitives.GEN
 `clay_ops.OPS`, `agent_clay.instructions()`) and touch no document at all, so they answer on the
 listener thread directly — the same exemption `warlock_status` already has, for the same reason.
 
-The four prompts — `model_from_description`, `model_from_reference`, `repair_mesh`,
-`prepare_for_export` — are pure text templating: a prompt's rendered message is a string built from
-its arguments, naming real tools by their real names. Nothing here touches a document either, so a
-prompt is also answered on the listener thread.
+The character pipeline adds three more:
+
+| URI | Content | Answered where |
+| --- | --- | --- |
+| `warlock://character/vocabulary` | Movements, directions, cameras, sizes, formats and species — the same registries `character_options` reads | Listener thread |
+| `warlock://character/sheet/{job id}/{sheet id}/sidecar.json` | That sheet's own layout sidecar | Character service lane |
+| `warlock://character/sheet/{job id}/{sheet id}/atlas.png` | That sheet's rendered atlas | Character service lane |
+
+The vocabulary resource is process-stable in the same way `character_*` tool schemas are — built
+from registries that do not change while Warlock is running, never from a user's own edited clip
+library — so it answers on the listener thread exactly like Clay's three static resources. The two
+sheet resources name a real job by id, and reading one needs the service doors a `character_job`
+call already uses, so they run on the character pipeline's own worker pool rather than the frame
+thread or the listener; a URI naming a job id or a sheet id that does not exist reads back not
+found rather than an error. An atlas too large to fit this bridge's own frame budget reads back
+neither the image nor a not-found — it answers with a small JSON body instead, naming the atlas's
+real size and pointing at `character_sheet_preview`, which has no such ceiling because it crops and
+resizes before answering rather than handing over the whole file.
+
+The five prompts — `model_from_description`, `model_from_reference`, `repair_mesh`,
+`prepare_for_export`, `character_sheets_from_description` — are pure text templating: a prompt's
+rendered message is a string built from its arguments, naming real tools by their real names.
+Nothing here touches a document either, so a prompt is also answered on the listener thread.
+`character_sheets_from_description` takes a description and, optionally, a comma-separated list of
+movements, and walks the same swamp-knight-shaped path described above: options, then create, then
+polling the rig job and its follow-up sheet job, then a preview, then the three export formats.
 
 **Derived, not hand-listed, the same rule the tool catalogue follows.** `agent_resources`'s
 generators and operations resources are built by walking `primitives.GENERATORS` and `clay_ops.OPS`
@@ -480,9 +621,10 @@ regression that actually matters is `tests/mcp/test_rpc_studio.py`'s scan of eve
 quietly went stale after a rename fails there, not merely a reviewer's eye.
 
 Both are served from the RPC v1 catalogue too (`AgentHost._catalogue_payload`, and therefore the
-home directory's own `mcp.catalogue.json`), the three static resources with their own content embedded inline —
+home directory's own `mcp.catalogue.json`), the four static resources (three Clay, one character)
+with their own content embedded inline —
 which is what lets `warlock mcp` still answer `resources/list`/`resources/read` for them, and
-`prompts/list` for every prompt, with the app not even running. `resources/read` for the two dynamic
+`prompts/list` for every prompt, with the app not even running. `resources/read` for the four dynamic
 resources, and `prompts/get` for any prompt's actual rendering, still need Studio reachable — there
 is no document, and no prompt text at all, in the bridge's own leaf to fall back to.
 

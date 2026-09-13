@@ -78,6 +78,13 @@ class TroupeSend:
     outline: str = ""
     colors: int = 64
     palette: str = ""
+    #: Pixel art or HD -- ``troupe_mode.STYLE_PIXEL_ART``/``STYLE_HD``. HD
+    #: disables Outline and Colours below, the same reason ``troupe_settings
+    #: ._style`` disables them rather than hiding them.
+    style: str = troupe_mode.STYLE_PIXEL_ART
+    #: A layout-wide rate, or ``None`` for "Authored". See ``troupe_mode
+    #: ._layout_request``: set, it moves the request's layout to version 3.
+    fps: int | None = None
     # ``imgui.open_popup`` must be called exactly once per question, and the
     # overlay redraws every frame: ``dialogs.Confirm._open``'s idiom.
     _open: bool = False
@@ -132,6 +139,8 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         outline=str(form.get("outline") or ""),
         colors=int(form.get("colors") or 64),
         palette=str(form.get("palette") or ""),
+        style=troupe_mode._style_choice(form),
+        fps=form.get("fps"),
     )
     return True
 
@@ -197,8 +206,13 @@ def _body(ctx: Any, state: TroupeSend) -> None:
     with widgets.modal_body("troupe-send-body"):
         if state.label:
             widgets.muted(state.label)
-        _skeleton(state, options)
+        _skeleton(ctx, state, options)
         _size(state, options)
+        # ``check_troupe``/``_charsheet_spec``'s ``field="layout"`` -- an atlas
+        # over the texture limit at this size, most reachably -- has no table
+        # here the way ``troupe_settings._layout`` rings one; the size combo
+        # just above is the nearest control a reader would blame.
+        widgets.field_error(ctx.state, "layout")
         presets = options.get("camera_presets") or {}
         state.camera = widgets.labeled_combo(
             "Camera",
@@ -209,10 +223,15 @@ def _body(ctx: Any, state: TroupeSend) -> None:
         if helper:
             widgets.muted(helper)
         widgets.muted(_front_helper(state.front_yaw))
+        _frame_rate(ctx, state, options)
+        _style(state)
+        hd = state.style == troupe_mode.STYLE_HD
         state.outline = widgets.labeled_combo(
             "Outline",
             state.outline,
             [(m, m) for m in options.get("outline_modes") or ()],
+            enabled=not hd,
+            reason="Style is HD, so there is no outline pass." if hd else "",
         )
         # Shown only when no palette is named, mirroring ``troupe_settings``:
         # the budget is what a *derived* palette gets, so offering it beside a
@@ -225,13 +244,15 @@ def _body(ctx: Any, state: TroupeSend) -> None:
                     "Colours",
                     str(state.colors),
                     [(str(n), f"{n} colours") for n in options.get("colors") or ()],
+                    enabled=not hd,
+                    reason="Style is HD, so there is no colour budget." if hd else "",
                 )
             )
     imgui.dummy((0, sp(6)))
     _actions(ctx, state, form)
 
 
-def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
+def _skeleton(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
     """Which rig an unrigged mesh is built on, when there is a choice.
 
     A rigged mesh is not asked: the skeleton is already on disk and the service
@@ -255,6 +276,7 @@ def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
         return
     if state.template not in {key for key, _label in choices}:
         state.template = choices[0][0]
+    before = state.template
     state.template = widgets.labeled_combo(
         "Skeleton",
         state.template,
@@ -265,6 +287,52 @@ def _skeleton(state: TroupeSend, options: dict[str, Any]) -> None:
             "are offered."
         ),
     )
+    # ``stage_rig.skeleton_field``'s idiom, bare rather than through
+    # ``forms.Form``: ``_charsheet_spec`` refuses an unrigged send's skeleton
+    # by name (``field="template"``), on a missing or partial clip library.
+    if state.template != before:
+        ctx.state.clear_field_error("template")
+    widgets.field_error(ctx.state, "template")
+
+
+def _style(state: TroupeSend) -> None:
+    """Pixel art or HD -- ``troupe_settings._style``'s control, mirrored."""
+    state.style = widgets.labeled_combo(
+        "Style",
+        state.style,
+        [
+            (troupe_mode.STYLE_PIXEL_ART, "Pixel art"),
+            (troupe_mode.STYLE_HD, "HD"),
+        ],
+        help_text=(
+            "Pixel art reduces the render to a logical size, a colour budget "
+            "and an outline pass. HD keeps the render as painted, with no "
+            "colour budget."
+        ),
+    )
+
+
+def _frame_rate(ctx: Any, state: TroupeSend, options: dict[str, Any]) -> None:
+    """A layout-wide rate, or every clip's own recorded speed. ``troupe
+    _settings._frame_rate``'s control, mirrored."""
+    choices = [("", "Authored")] + [
+        (str(n), f"{n} fps") for n in options.get("fps_choices") or ()
+    ]
+    current = "" if state.fps in (None, "") else str(state.fps)
+    before = current
+    choice = widgets.labeled_combo(
+        "Frame rate",
+        current,
+        choices,
+        help_text=(
+            "Authored keeps every included movement at its own recorded "
+            "speed. A rate here overrides all of them to play at once."
+        ),
+    )
+    state.fps = int(choice) if choice else None
+    if choice != before:
+        ctx.state.clear_field_error("fps")
+    widgets.field_error(ctx.state, "fps")
 
 
 #: The combo's sentinel for "type your own number" -- distinct from every
@@ -355,6 +423,8 @@ def _send(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
         form["colors"] = int(state.colors)
     if not state.rigged and state.template:
         form["template"] = state.template
+    form["style"] = state.style
+    form["fps"] = state.fps
     job_id = state.job_id
     close(ctx)
     troupe_mode.send_to_troupe(ctx, {"id": job_id}, form)

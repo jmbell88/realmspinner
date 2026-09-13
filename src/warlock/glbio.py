@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import struct
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 GLB_MAGIC = 0x46546C67  # 'glTF'
 CHUNK_JSON = 0x4E4F534A  # 'JSON'
@@ -90,3 +92,103 @@ def read_glb(path: Path | bytes) -> tuple[dict, bytes]:
             return gltf, body
         offset += 8 + chunk_len
     return gltf, b""
+
+
+# --- root extras ---------------------------------------------------------
+
+# Both helpers below exist for the character pipeline's export step: it copies
+# the served ``animated.glb`` -- never rewrites it in place -- and stamps or
+# renames things onto that copy, so ``rest`` (the BIN chunk, the mesh and
+# animation-sampler data) must come out byte-identical or a re-export would
+# silently redo the vertex/keyframe compression each time.
+
+
+def root_extras(data: bytes) -> dict:
+    """-> the glTF root's ``extras`` object, or ``{}`` if it carries none."""
+    _header, gltf, _rest = split_glb(data)
+    return gltf.get("extras", {})
+
+
+def set_root_extras(data: bytes, key: str, value: Any) -> bytes:
+    """Set ``gltf["extras"][key] = value`` on the root JSON and re-emit the GLB.
+
+    The host stamps a clip-library digest here so a stale bake -- an
+    ``animated.glb`` exported before its source animations last changed -- can
+    be detected without re-parsing every keyframe. ``extras`` is created if
+    absent; any other key already in it is preserved, and the BIN chunk is
+    carried through ``rest`` untouched (see ``rebuild_glb``).
+    """
+    if not isinstance(key, str) or not key:
+        raise ValueError("root extras key must be a non-empty string")
+    try:
+        json.dumps(value)
+    except TypeError as exc:
+        raise ValueError(f"root extras value for {key!r} is not JSON-serialisable") from exc
+    header, gltf, rest = split_glb(data)
+    new_gltf = dict(gltf)
+    extras = dict(new_gltf.get("extras", {}))
+    extras[key] = value
+    new_gltf["extras"] = extras
+    return rebuild_glb(header, new_gltf, rest)
+
+
+# --- animations ------------------------------------------------------------
+
+
+def animation_names(data: bytes) -> list[str]:
+    """-> each animation's ``name``, in file order; ``""`` for an unnamed one."""
+    _header, gltf, _rest = split_glb(data)
+    return [anim.get("name", "") for anim in gltf.get("animations", [])]
+
+
+def rename_animations(data: bytes, mapping: Mapping[str, str]) -> bytes:
+    """Rename ``animations[i].name`` per ``mapping`` and re-emit the GLB.
+
+    Godot reads the ``-loop`` suffix on a clip's name as "loop this
+    animation", so a later export step renames looping clips on a *copy* of
+    the served ``animated.glb`` rather than on the file this app keeps
+    editing. Renaming is by current name because that is what an export step
+    has in hand (the clip list, not its indices), and an animation missing
+    from ``mapping`` is untouched -- both its name and its samplers.
+
+    Refused rather than silently applied: a ``mapping`` key naming an
+    animation this file does not have (a stale clip list), a target name that
+    collides with another animation's name after the rename (mapped or not),
+    and an empty target name (glTF allows an unnamed animation but not by
+    renaming one into it, since ``""`` participates in the collision check
+    like any other name).
+    """
+    header, gltf, rest = split_glb(data)
+    animations = gltf.get("animations", [])
+    current_names = [anim.get("name", "") for anim in animations]
+    current_set = set(current_names)
+    for old_name in mapping:
+        if old_name not in current_set:
+            raise ValueError(f"no animation named {old_name!r} in this file")
+
+    new_names = list(current_names)
+    for i, name in enumerate(current_names):
+        if name in mapping:
+            new_name = mapping[name]
+            if not new_name:
+                raise ValueError("a renamed animation's name must not be empty")
+            new_names[i] = new_name
+
+    seen: set[str] = set()
+    for name in new_names:
+        if name in seen:
+            raise ValueError(f"renaming would leave two animations named {name!r}")
+        seen.add(name)
+
+    new_animations = []
+    for anim, new_name in zip(animations, new_names, strict=True):
+        if anim.get("name", "") == new_name:
+            new_animations.append(anim)
+        else:
+            renamed = dict(anim)
+            renamed["name"] = new_name
+            new_animations.append(renamed)
+
+    new_gltf = dict(gltf)
+    new_gltf["animations"] = new_animations
+    return rebuild_glb(header, new_gltf, rest)

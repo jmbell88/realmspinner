@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import secrets
 import shutil
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,18 @@ from .core import WarlockService
 from .errors import Invalid, NotFound
 from .files import MEDIA
 from .validation import ARTIFACT_HEALTH, check_job_id
+
+log = logging.getLogger(__name__)
+
+#: DOS device names Windows treats as special regardless of extension --
+#: ``CON``, and just as much ``con.txt``, both open the console device rather
+#: than creating a file. Checked against the part of ``name`` before its
+#: first dot, case-insensitively, which is how Windows itself resolves them.
+_RESERVED_WINDOWS_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
 
 
 def export_names(names_wanted: list[str] | None) -> list[str]:
@@ -330,3 +344,267 @@ def staged_copy_all(pairs: list[tuple[Path, Path]]) -> None:
         for _source, _dest, tmp in tmps:
             with contextlib.suppress(OSError):
                 tmp.unlink()
+
+
+def _safe_export_name(name: str, *, field: str = "name") -> str:
+    """Refuse anything that is not a single, plain path component.
+
+    ``staged_tree`` joins ``name`` onto ``dest_root`` with nothing else in
+    between, so this is the only thing standing between a caller-supplied
+    string and ``../../whatever`` or an absolute path replacing a directory
+    outside the export tree entirely. Separators (either slash -- a POSIX-
+    looking path is still a path on Windows' own APIs), ``.``/``..``, empty or
+    all-whitespace, and the DOS device names are all refused; nothing is
+    rewritten the way ``characters._package_stem`` rewrites a free-text job
+    name into *something* safe, because there is no free text here to salvage
+    -- a caller that cannot supply a plain name has a bug, not a job name
+    with punctuation in it.
+    """
+    stripped = name.strip()
+    if not stripped or stripped in (".", ".."):
+        raise Invalid(f"{name!r} is not a valid export name", field=field)
+    if any(sep in name for sep in ("/", "\\")) or os.path.splitdrive(name)[0]:
+        raise Invalid(f"{name!r} is not a valid export name", field=field)
+    if stripped.split(".", 1)[0].upper() in _RESERVED_WINDOWS_NAMES:
+        raise Invalid(f"{name!r} is not a valid export name", field=field)
+    return stripped
+
+
+def staged_tree(dest_root: Path, name: str, write: Callable[[Path], None]) -> Path:
+    """Build a whole directory tree off to the side, then swap it in whole.
+
+    For an export that is a *folder* rather than a single served file --
+    a character's frame tree plus manifest, or a renamed GLB beside a
+    Godot ``.tscn`` -- ``staged_copy_all``'s two-rename trick generalises to
+    "however many files ``write`` puts under here, together". ``write`` is
+    called with a fresh, empty directory and is free to create however many
+    files and subdirectories it likes inside it; nothing it does is visible
+    at ``dest_root / name`` until it returns successfully.
+
+    If ``write`` raises, the temp directory it was building into is removed
+    and the exception propagates -- ``dest_root / name`` is left exactly as
+    it was, whether that is absent or a previous export.
+
+    On success the swap is **two renames, not one**: the existing
+    ``dest_root / name`` (if any) is renamed out of the way to a sibling
+    ``.old`` directory, then the finished temp directory is renamed onto the
+    now-vacant name. Windows' ``os.replace`` will not rename a directory onto
+    one that already exists, only onto a name that is absent -- unlike a
+    file, where the same call replaces atomically -- so unlike every staged
+    write onto a *served* name elsewhere in this module, there is a real
+    (if short) window in which ``name`` does not exist at all. That is
+    acceptable here and nowhere else in this file: this is an export folder
+    a person drops into a game project on their own schedule, not a name the
+    running app reads back moments later, so nothing is watching for it to
+    flicker. If the second rename fails, the old directory is restored to
+    its name before re-raising, so a failed re-export never leaves the
+    previous one half-gone. The old directory's removal, once the swap has
+    landed, is best-effort: a locked file inside it (an editor with a texture
+    open, a virus scanner mid-scan) is logged rather than raised, because the
+    export itself already succeeded and the leftover ``.old`` directory does
+    not lie about that.
+
+    Two more failure paths are handled the same careful way (defect, fixed
+    2026-09-13): if the move-aside itself fails -- a file inside the previous
+    export locked by another program -- ``dest`` is untouched and the
+    already-finished ``tmp_dir`` is removed before the exception propagates,
+    rather than left behind under a hidden ``.<stem>.<hex>.tmp`` name forever.
+    And if the swap *and* the restore both fail, the restore's own
+    ``OSError`` is logged and chained rather than raised in place of the
+    swap's -- the swap failure is what actually explains what went wrong, and
+    the old code let the restore's exception mask it.
+    """
+    safe_name = _safe_export_name(name)
+    dest = dest_root / safe_name
+    tmp_dir = dest_root / f".{safe_name}.{secrets.token_hex(4)}.tmp"
+    tmp_dir.mkdir(parents=True)
+    try:
+        write(tmp_dir)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+    old_dir = dest_root / f".{safe_name}.{secrets.token_hex(4)}.old" if dest.exists() else None
+    try:
+        if old_dir is not None:
+            os.replace(dest, old_dir)
+        os.replace(tmp_dir, dest)
+    except OSError as exc:
+        if old_dir is not None and old_dir.exists() and not dest.exists():
+            try:
+                os.replace(old_dir, dest)
+                old_dir = None
+            except OSError as restore_exc:
+                log.error(
+                    "restoring the previous export at %s after a failed "
+                    "re-export of %r also failed: %s",
+                    dest, safe_name, restore_exc, exc_info=True,
+                )
+                raise exc from restore_exc
+        raise
+    finally:
+        # Best-effort, on every path out of the block above: a temp directory
+        # that never made it to ``dest`` -- the move-aside failed, or the
+        # swap did and the restore just above put the original back -- must
+        # never be left sitting in the export folder under a hidden name
+        # nothing ever sweeps. A no-op on the success path, where the rename
+        # already moved this path to ``dest``.
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if old_dir is not None:
+        try:
+            shutil.rmtree(old_dir)
+        except OSError:
+            log.warning("could not remove the previous export at %s", old_dir, exc_info=True)
+    return dest
+
+
+# --- the character-export menu ------------------------------------------------
+#
+# One registry for every "Export..." control a character's card can offer,
+# so a pane never hand-lists the four ways out and a fifth is one row added
+# here rather than a fourth `if key == ...` somewhere in `studio/`.
+#
+# ``service.characters`` is not imported at this module's top level on
+# purpose: it is the *other* half of this pair (it already reaches back into
+# here for ``staged_copy_all``/``staged_tree``), and a module-level import in
+# both directions is an import cycle waiting for whichever module Python
+# finishes initialising second. Every door below imports it -- and
+# ``service.derive``, this file's other new dependency -- lazily, inside the
+# small wrapper that needs it, the same way ``characters.py`` itself reaches
+# for ``export`` only inside its own functions.
+
+
+@dataclass(frozen=True)
+class CharacterExport:
+    """One row of the character-export menu.
+
+    ``door`` is called uniformly as ``door(svc, job_id, sheet_id, stem)`` --
+    ``sheet_id`` is ``None`` for the two rows that export the mesh alone, and
+    ``stem`` is ``None`` for an ordinary (human) export, which names its own
+    folder/file after the job the way it always has -- so
+    :func:`run_character_export` never has to know one door's signature from
+    another's.
+    """
+
+    key: str
+    label: str
+    needs_sheet: bool
+    door: Callable[[WarlockService, str, str | None, str | None], Any]
+
+
+def _export_animated_glb(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
+    """Bake or refresh ``animated.glb``, then copy it out.
+
+    Two existing doors back to back rather than a new copy routine when no
+    ``stem`` is given: ``derive.get_file`` is what bakes the file and keeps
+    it fresh against an edited clip library (see its own module docstring,
+    design decision D6), and ``export_to_folder`` is already the staged,
+    degraded-aware copy this module offers every other artifact -- restating
+    either would be a second place either could drift from its original.
+
+    **With an explicit ``stem``** -- an agent's own call, through
+    ``characters.agent_export_stem`` -- the copy is named ``<stem>.glb``
+    through :func:`staged_copy` (a temp file beside the destination, then
+    ``os.replace``) rather than ``export_to_folder``'s job-named arcname:
+    the same scope rule ``export_frames``/``export_godot``/``export_package``
+    already keep, closing the one format that used to let two agent-built
+    characters sharing a display name replace each other's animated GLB.
+    Without ``stem`` this is byte-for-byte today's behaviour.
+    """
+    from . import derive as svc_derive
+
+    check_job_id(job_id)
+    animated_path = svc_derive.get_file(svc, job_id, "animated.glb")
+    if not stem:
+        return export_to_folder(svc, [job_id], ["animated.glb"])
+
+    safe_stem = _safe_export_name(stem)
+    dest_dir = svc.config.export_dir
+    if dest_dir is None:
+        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_stem}.glb"
+    staged_copy(animated_path, dest)
+    return {
+        "copied": 1,
+        "dir": str(dest_dir),
+        "degraded": degraded_ids(svc, [job_id]),
+    }
+
+
+def _export_sheet_package(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
+    from . import characters as svc_characters
+
+    return svc_characters.export_package(svc, job_id, str(sheet_id or ""), stem=stem)
+
+
+def _export_godot_scene(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
+    from . import characters as svc_characters
+
+    return svc_characters.export_godot(svc, job_id, stem=stem)
+
+
+def _export_frame_folders(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
+    from . import characters as svc_characters
+
+    return svc_characters.export_frames(svc, job_id, str(sheet_id or ""), stem=stem)
+
+
+#: Every character export a card may offer, in menu order. Additive: a fifth
+#: export is a fifth row here (plus its own door and test), never a change to
+#: the four already shipped.
+CHARACTER_EXPORTS: dict[str, CharacterExport] = {
+    "animated_glb": CharacterExport(
+        "animated_glb", "Animated GLB", False, _export_animated_glb
+    ),
+    "sheet_package": CharacterExport(
+        "sheet_package", "Sprite sheet + JSON", True, _export_sheet_package
+    ),
+    "godot_scene": CharacterExport(
+        "godot_scene", "Godot scene", False, _export_godot_scene
+    ),
+    "frame_folders": CharacterExport(
+        "frame_folders", "Frame folders", True, _export_frame_folders
+    ),
+}
+
+
+def run_character_export(
+    svc: WarlockService,
+    key: str,
+    job_id: str,
+    sheet_id: str | None = None,
+    *,
+    stem: str | None = None,
+) -> Any:
+    """The one door every character-export control calls.
+
+    Refused before any door runs: an unknown *key* on ``field="format"`` --
+    the control that offered it -- and a missing *sheet_id* on
+    ``field="sheet_id"`` for a row :data:`CHARACTER_EXPORTS` marks
+    ``needs_sheet``, so a caller that forgot to pick a sheet is told which
+    control is at fault rather than reaching ``export_package``'s or
+    ``export_frames``' own id check with an empty string.
+
+    ``stem`` passes straight through to whichever door *key* names --
+    ``characters.agent_export_stem`` is what an agent calls to build one, so
+    its own export can only ever replace its own earlier export of the same
+    asset (and never a human's). Every door honours it, ``animated_glb``
+    included.
+    """
+    row = CHARACTER_EXPORTS.get(key)
+    if row is None:
+        raise Invalid(f"{key!r} is not a character export format", field="format")
+    if row.needs_sheet and not sheet_id:
+        raise Invalid("choose a sheet to export", field="sheet_id")
+    return row.door(svc, job_id, sheet_id, stem)

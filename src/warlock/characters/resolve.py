@@ -128,8 +128,15 @@ THEME_WORDS: dict[str, tuple[str, ...]] = {
     "sand": ("sand", "sandy", "desert", "dune", "dusty", "sunbleached"),
 }
 
-#: ``movement key -> spellings``. The keys are ``charsheet.ANIMATIONS`` names,
-#: pinned by ``test_every_action_key_is_a_real_animation``.
+#: ``movement key -> spellings``. The first five keys are
+#: ``charsheet.ANIMATIONS`` names, kept first and in that table's order so a
+#: prompt naming only legacy movements still lays out the closed five-row
+#: frame table exactly as it always has; the rest are shipped-clip names no
+#: ``charsheet.ANIMATIONS`` row carries (see
+#: ``test_every_action_key_the_vocabulary_emits_is_a_real_animation_or_a_shipped_clip``),
+#: added 2026-09-13 alongside the four archetypes' tenth-clip libraries so a
+#: prompt can ask for a hit reaction or a death without the word being thrown
+#: away as unrecognised.
 ACTION_WORDS: dict[str, tuple[str, ...]] = {
     "idle": ("idle", "standing", "stand", "idling", "breathing", "rest"),
     "walk": ("walk", "walking", "walk cycle", "walkcycle", "stroll"),
@@ -139,6 +146,13 @@ ACTION_WORDS: dict[str, tuple[str, ...]] = {
         "slash", "slashing", "melee", "punch",
     ),
     "jump": ("jump", "jumping", "leap", "leaping", "hop"),
+    "hit": ("hit", "hurt", "flinch", "flinching", "hit reaction", "get hit", "getting hit"),
+    "death": ("death", "die", "dies", "dying", "dead"),
+    "cast": ("cast", "casting", "spell", "spellcast", "casting a spell", "cast spell"),
+    "fall": ("fall", "falling", "knockdown", "knocked down"),
+    "attack_02": (
+        "attack 2", "attack two", "second attack", "combo attack", "alt attack",
+    ),
 }
 
 #: Words about the *deliverable* rather than the character. Consumed with a span
@@ -415,10 +429,17 @@ MAX_OFFER = 3
 #: collision between a camera and a noise phrase goes to the camera.
 _PRIORITY: tuple[str, ...] = ("family", "camera", "theme", "action", "creature", "noise")
 
-#: ``charsheet.ANIMATIONS`` order, so two prompts that name the same movements
-#: in different orders produce the same sheet.
-#: ``test_the_action_order_is_the_frame_tables_order`` pins it.
-_ACTION_ORDER: tuple[str, ...] = ("idle", "walk", "run", "attack", "jump")
+#: So two prompts that name the same movements in different orders produce the
+#: same sheet. The first five are ``charsheet.ANIMATIONS``' own order, kept
+#: first and unchanged (``test_the_action_order_is_the_frame_tables_order``
+#: pins that prefix); the rest are the shipped clip libraries' own order for
+#: the five names beyond that closed table (every shipped template agrees on
+#: it -- ``test_the_action_orders_tail_is_the_shipped_clip_order`` pins it
+#: against ``rigging.shipped_clip_names``).
+_ACTION_ORDER: tuple[str, ...] = (
+    "idle", "walk", "run", "attack", "jump",
+    "attack_02", "cast", "fall", "hit", "death",
+)
 
 _IRREGULAR: dict[str, str] = {
     "wolves": "wolf", "elves": "elf", "dwarves": "dwarf", "thieves": "thief",

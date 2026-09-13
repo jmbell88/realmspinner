@@ -115,11 +115,29 @@ one more small synchronous write costs it nothing new, and it is where
 smuggle any of them across the job queue to reach them. A write that fails
 is logged and otherwise ignored -- an agent session must not die because a
 transcript path happened to be unwritable.
+
+**A second lane exists alongside the frame queue for tools that need
+neither a ``Document`` nor GL: the *service* lane.** The character tool
+surface (``agent_character``) drives ``service/`` doors -- subprocesses,
+sqlite, disk -- exactly the things the three-thread model already keeps off
+the frame thread for every other heavy job in this app (``CLAUDE.md``'s
+"Three threads" paragraph), so a character call has no more business
+running through ``pump`` than a Blender bake does. It runs instead on its
+own small ``TaskRunner`` pool (:data:`SERVICE_WORKERS` workers,
+:meth:`_submit_service`), through the exact same ``_Job``/``_Op`` machinery
+the frame lane already uses for dedup, replay, ``warlock_status`` and
+task-mode polling -- :meth:`_execute` is the one function either lane
+actually calls ``job.run()`` through, so neither can drift from the other's
+claim/run/finish sequence. :meth:`_call` and :meth:`_call_task` choose a
+lane per call, by name, against ``agent_character.HANDLERS``; everything
+downstream of that choice (dedup, timeout refusals, task status, transcript
+recording) is shared code that does not know or care which lane answered.
 """
 
 from __future__ import annotations
 
 import contextlib
+import itertools
 import json
 import logging
 import os
@@ -130,7 +148,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import agent_clay, agent_prompts, agent_resources, agent_transcript
+from . import (
+    agent_character,
+    agent_character_resources,
+    agent_clay,
+    agent_prompts,
+    agent_resources,
+    agent_transcript,
+)
+from . import tasks as tasks_mod
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +181,16 @@ CALL_TIMEOUT = 30.0
 #: Bounded, on purpose -- see :meth:`AgentHost.stop`'s docstring for why an
 #: unbounded join is the one thing this must never do.
 STOP_JOIN_TIMEOUT = 2.0
+
+#: Workers on the *service* lane's own ``TaskRunner`` -- the character tool
+#: surface's counterpart to the frame-thread queue :meth:`AgentHost.pump`
+#: drains. Small on purpose: character calls are I/O- and subprocess-bound
+#: (Blender, gltfpack) rather than CPU-bound, and a handful of workers is
+#: enough that one slow export cannot starve every other character call on
+#: the same connection the way a single frame-thread queue would, without
+#: opening the door wide enough that an agent can flood the machine with
+#: concurrent Blender bakes.
+SERVICE_WORKERS = 2
 
 #: The settings key this host is switched on and off by. Matches the
 #: contract (``"agent_server"`` in ``ctx.settings``, bool, default False).
@@ -384,6 +420,11 @@ class _Calls:
         # structure just to track FIFO order.
         self._ops: dict[str, _Op] = {}
         self._minted = 0
+        # The character tool surface's own per-connection state (minted job
+        # ids, the toast callback) -- one per connection, the same lifetime
+        # as this store, for the same reason: a reconnecting agent starts
+        # over with nothing minted, exactly as it gets a fresh Clay session.
+        self.character = agent_character.Session()
 
     def mint(self, tool: str, args: dict, *, task_mode: bool = False) -> _Op:
         """A fresh operation id and its intent fingerprint, remembered as
@@ -586,6 +627,26 @@ class AgentHost:
         # threads can ever contend for it, and a per-job lock would be an
         # allocation on every call to protect a window nothing else shares.
         self._job_lock = threading.Lock()
+        # The service lane: character tool calls run here, on their own
+        # small pool, never on the frame thread and never drained by
+        # :meth:`pump` -- see :meth:`_submit_service`. ``None`` until
+        # :meth:`start`, and set back to ``None`` by :meth:`stop`, the same
+        # lifetime ``self._queue`` already has for the frame lane.
+        self._service: tasks_mod.TaskRunner | None = None
+        # Every service-lane ``_Job`` currently registered, keyed by
+        # ``id(job)`` because ``_Job`` is an unhashable dataclass (it carries
+        # a mutable ``result``/``error``). Read and written only under
+        # ``_job_lock``, the same lock ``_Job.state`` itself is guarded by --
+        # this dict and the frame queue are the two places :meth:`_fail_pending`
+        # has to wake a waiter from when the agent server switches off.
+        self._service_jobs: dict[int, _Job] = {}
+        # Mints this connection-spanning host's own service-lane task keys
+        # (``agent-service-1``, ``agent-service-2``, ...) -- a plain counter,
+        # not per connection, because ``TaskRunner.submit`` keys only need to
+        # be unique while a job is in flight, and a single monotonically
+        # increasing sequence for the host's whole life is simpler than
+        # resetting one per connection for no behavioural difference.
+        self._service_seq = itertools.count(1)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -651,6 +712,10 @@ class AgentHost:
         self._stopped.clear()
         self._connected = False
         self._queue = queue.Queue()
+        # A fresh pool every start(): the previous one (if any) was already
+        # shut down by the matching stop(), and a ``ThreadPoolExecutor`` has
+        # no restart of its own.
+        self._service = tasks_mod.TaskRunner(workers=SERVICE_WORKERS)
         self._thread = threading.Thread(
             target=self._listen,
             name="warlock-agent-host",
@@ -676,10 +741,21 @@ class AgentHost:
         The thread is a daemon precisely so a stuck one cannot hold the
         process open; this still bounds the wait so ``teardown`` itself
         returns promptly rather than hanging on the same platform quirk.
+
+        ``_stopped`` is set and ``self._service`` is swapped to ``None``
+        together, under ``_job_lock``, before anything else -- including
+        ``_fail_pending``, whose own snapshot of ``_service_jobs`` must never
+        run before this swap has happened, or a job :meth:`_submit_service`
+        registers in the gap would be invisible to both: not caught by this
+        stale snapshot, and never reachable by a later one either, since
+        none is coming. See :meth:`_submit_service`'s own docstring for the
+        race this closes.
         """
         if self._thread is None:
             return
-        self._stopped.set()
+        with self._job_lock:
+            self._stopped.set()
+            runner, self._service = self._service, None
         if self._server is not None:
             self._server.close()
         conn = self._active_conn
@@ -690,6 +766,34 @@ class AgentHost:
             with contextlib.suppress(OSError):
                 conn.close()
         self._fail_pending()
+        # ``wait=False`` and NEVER a ``timeout`` -- passing one takes the
+        # ``TaskRunner.shutdown`` branch that calls
+        # ``winjob.terminate_tracked()`` on whatever is still running past
+        # the grace period, which kills every tracked child process in the
+        # whole app (a Blender bake, a fetch download, a matting worker),
+        # not just this host's own service-lane workers. ``_fail_pending``
+        # just above already woke every waiter that can be woken; a call
+        # already inside ``agent_character.call`` keeps running to
+        # completion on its own thread, unowned by this host from here on,
+        # exactly as a Clay call already inside ``run()`` is not dropped
+        # either (see this module's own docstring on that).
+        if runner is not None:
+            runner.shutdown(wait=False)
+            # ``cancel_futures=True`` (see ``tasks.py``'s own ``shutdown``)
+            # cancels any future the pool had not yet started running --
+            # including one :meth:`_submit_service` handed it after
+            # ``_fail_pending``'s own snapshot above but before this swap
+            # took effect (impossible now that both are one atomic step,
+            # per :meth:`_submit_service`'s docstring, but this sweep is the
+            # cheap second line of defence rather than a proof leaned on
+            # alone). A cancelled future never calls ``_run_service_job``,
+            # so nothing would otherwise pop the job from
+            # ``_service_jobs`` or set its ``event`` -- the caller would
+            # wait out the full ``CALL_TIMEOUT`` and the tombstone would
+            # still be sitting in the registry the next time ``start()``
+            # runs. This also guarantees the plain claim ``start()`` makes:
+            # it begins with an empty registry.
+            self._drop_queued_service_jobs()
         self._thread.join(timeout=STOP_JOIN_TIMEOUT)
         self._thread = None
         self._server = None
@@ -712,13 +816,57 @@ class AgentHost:
         from ..mcp import rpc
 
         q = self._queue
-        if q is None:
-            return
-        while True:
-            try:
-                job = q.get_nowait()
-            except queue.Empty:
-                return
+        if q is not None:
+            while True:
+                try:
+                    job = q.get_nowait()
+                except queue.Empty:
+                    break
+                with self._job_lock:
+                    if job.state != QUEUED:
+                        continue
+                    job.state = DROPPED
+                    job.result = rpc.fail("Warlock's agent server was switched off.")
+                job.event.set()
+
+        # The service lane's own registry has no queue object to drain --
+        # see :meth:`_drop_queued_service_jobs`, the same sweep :meth:`stop`
+        # runs a second time after ``TaskRunner.shutdown(wait=False)`` for
+        # the job that sweep's own docstring names.
+        self._drop_queued_service_jobs()
+
+    def _drop_queued_service_jobs(self) -> None:
+        """Wake and drop every service-lane job still ``QUEUED`` in
+        ``self._service_jobs`` -- the same ``DROPPED`` state and
+        switched-off refusal :meth:`_fail_pending` stamps onto a frame-lane
+        tombstone above.
+
+        Called twice from :meth:`stop`, and must tolerate finding nothing
+        both times: once from :meth:`_fail_pending`, for whatever had
+        already registered by the time the agent server was switched off,
+        and once more right after ``TaskRunner.shutdown(wait=False)``
+        returns, because that shutdown can itself orphan a job -- see
+        :meth:`stop`'s own comment on the race this closes -- whose
+        ``_run_service_job`` (and the registry pop inside it) then never
+        runs at all. A job sits in ``self._service_jobs`` from the moment
+        :meth:`_submit_service` registers it until :meth:`_run_service_job`
+        pops it, whether or not the underlying ``TaskRunner`` ever actually
+        got to run it.
+
+        Snapshotted and cleared under the lock rather than iterated live:
+        nothing after this point still needs to find these jobs by looking
+        the registry up (a waiter already holds its own ``_Job`` reference
+        directly), so leaving stale, already-``DROPPED`` entries behind
+        across a stop()/start() cycle would only be a slow leak for no one
+        to read -- and clearing here is also what makes good on ``start()``'s
+        own claim to begin with an empty registry.
+        """
+        from ..mcp import rpc
+
+        with self._job_lock:
+            service_jobs = list(self._service_jobs.values())
+            self._service_jobs.clear()
+        for job in service_jobs:
             with self._job_lock:
                 if job.state != QUEUED:
                     continue
@@ -764,6 +912,11 @@ class AgentHost:
 
         session = agent_clay.Session()
         calls = _Calls()
+        # ``agent_character.call`` runs on the service lane, never the frame
+        # thread, so it cannot reach ``ctx.toast`` directly (see this
+        # module's own reasoning for why :meth:`_toast` exists at all); this
+        # gives it the exact same queued path Clay's own toasts already take.
+        calls.character.toast = self._toast
         self._active_conn = conn
         self._connected = True
         self._toast("An agent connected.")
@@ -874,7 +1027,13 @@ class AgentHost:
             return self._cancel_task(calls, operation_id)
         if op == "resources":
             return rpc.encode_reply(
-                {"resources": agent_resources.list_resources(), "templates": []}
+                {
+                    "resources": [
+                        *agent_resources.list_resources(),
+                        *agent_character_resources.list_resources(),
+                    ],
+                    "templates": [],
+                }
             )
         if op == "read":
             uri = message.get("uri")
@@ -894,23 +1053,46 @@ class AgentHost:
         return rpc.encode_reply(rpc.unknown_op_header())
 
     def _read_resource(self, session: agent_clay.Session, uri: str) -> bytes:
-        """The ``read`` RPC v1 op. A static resource (conventions,
-        generators, operations) is answered right here, on the listener
-        thread -- :func:`agent_resources.read_static` touches no document
-        and no GL, the same reasoning :data:`STATUS_TOOL` already gets. A
-        dynamic one (the scene, the last render) has to run on the frame
-        thread, through the same job queue as an ordinary tool call, and is
-        given the same :data:`CALL_TIMEOUT` a call gets -- a read that
-        cannot be serviced within it is reported as `not_found` rather than
-        replayed or retried, since a resource read carries no dedup story of
-        its own (see :meth:`_call`'s for why a tool call needs one and a
-        read does not: nothing here mutates the document, so running it
-        again costs nothing a retry would not already cost)."""
+        """The ``read`` RPC v1 op. A static resource (Clay's conventions,
+        generators and operations, or the character surface's vocabulary)
+        is answered right here, on the listener thread -- neither
+        :func:`agent_resources.read_static` nor
+        :func:`agent_character_resources.read_static` touches a document or
+        GL, the same reasoning :data:`STATUS_TOOL` already gets. A dynamic
+        one is run on whichever lane owns its kind of work: a character
+        resource (a charsheet's sidecar or atlas -- ``agent_character_
+        resources.owns_uri``) goes through the service lane
+        (:meth:`_run_on_service_job`), the same lane every other character
+        door uses; a Clay one (the scene, the last render) goes through the
+        frame queue, exactly as an ordinary Clay tool call does, and is
+        given the same :data:`CALL_TIMEOUT` a call gets. Either way, a read
+        that cannot be serviced within it is reported as `not_found` rather
+        than replayed or retried, since a resource read carries no dedup
+        story of its own (see :meth:`_call`'s for why a tool call needs one
+        and a read does not: nothing here mutates the document, so running
+        it again costs nothing a retry would not already cost)."""
         from ..mcp import rpc
 
         static = agent_resources.read_static(uri)
+        if static is None:
+            static = agent_character_resources.read_static(uri)
         if static is not None:
             mime, body = static
+            return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
+        if agent_character_resources.owns_uri(uri):
+            # A character resource (a charsheet's sidecar or atlas) is a pure
+            # read through ``service/`` doors -- sqlite and disk, never a
+            # Document or GL -- so it runs on the service lane, the same
+            # lane every other character door uses, rather than the frame
+            # queue a Clay dynamic resource needs.
+            _job, result, error, state = self._run_on_service_job(
+                lambda: agent_character_resources.read_dynamic(
+                    getattr(self.ctx, "svc", None), uri
+                )
+            )
+            if error is not None or state == DROPPED or result is None:
+                return rpc.encode_reply({"error": {"code": "not_found"}})
+            mime, body = result
             return rpc.encode_reply({"uri": uri, "mimeType": mime}, body)
         if uri not in agent_resources.DYNAMIC_URIS:
             return rpc.encode_reply({"error": {"code": "not_found"}})
@@ -942,17 +1124,24 @@ class AgentHost:
     def _rpc_tools(self) -> list[Any]:
         """The exact tool list this host publishes -- see :meth:`_serve`
         for where it is served."""
-        return [*agent_clay.tools(), *_transport_tools()]
+        return [*agent_clay.tools(), *agent_character.tools(), *_transport_tools()]
 
     def _catalogue_payload(self) -> dict[str, Any]:
         from ..mcp import rpc
 
         return rpc.catalogue_payload(
             self._rpc_tools(),
-            instructions=agent_clay.instructions(),
+            # Clay's own conventions first, then the character surface's --
+            # a fixed order (never re-sorted or interleaved) so a client
+            # that has already read Clay's half once can skip straight to
+            # the second paragraph on a later fetch.
+            instructions=agent_clay.instructions() + "\n\n" + agent_character.instructions(),
             server_name=rpc.SERVER_NAME,
             server_version=self._version,
-            resources=agent_resources.catalogue_resources(),
+            resources=[
+                *agent_resources.catalogue_resources(),
+                *agent_character_resources.catalogue_resources(),
+            ],
             prompts=agent_prompts.list_prompts(),
         )
 
@@ -1031,9 +1220,21 @@ class AgentHost:
                 return replay
 
         op = calls.mint(name, arguments)
-        job, result, error, state = self._run_on_frame_job(
-            lambda: agent_clay.call(self.ctx, session, name, arguments)
-        )
+        if name in agent_character.HANDLERS:
+            # The character tool surface's own doors (subprocesses, sqlite,
+            # disk) never touch a Document, GL or imgui, so they run on the
+            # service lane instead of the frame thread -- see
+            # :meth:`_run_on_service_job`'s own docstring for why that lane
+            # exists at all rather than sharing the frame queue.
+            job, result, error, state = self._run_on_service_job(
+                lambda: agent_character.call(
+                    getattr(self.ctx, "svc", None), calls.character, name, arguments
+                )
+            )
+        else:
+            job, result, error, state = self._run_on_frame_job(
+                lambda: agent_clay.call(self.ctx, session, name, arguments)
+            )
         if error is not None:
             # ``agent_clay.call`` promises never to raise; this is the same
             # backstop the RPC v1 ``call`` op keeps around its own call site,
@@ -1348,7 +1549,16 @@ class AgentHost:
         ``warlock_status`` to solve in task mode."""
         op = calls.mint(name, arguments, task_mode=True)
         op.args = arguments
-        job = self._queue_job_nowait(lambda: agent_clay.call(self.ctx, session, name, arguments))
+        if name in agent_character.HANDLERS:
+            job = self._queue_service_job_nowait(
+                lambda: agent_character.call(
+                    getattr(self.ctx, "svc", None), calls.character, name, arguments
+                )
+            )
+        else:
+            job = self._queue_job_nowait(
+                lambda: agent_clay.call(self.ctx, session, name, arguments)
+            )
         if job is None:
             op.state, op.delivered, op.job = DROPPED, True, None
             return {"operation_id": op.operation_id, "status": TASK_STATUS[DROPPED]}
@@ -1444,12 +1654,172 @@ class AgentHost:
             return
         q.put(_Job(lambda: self.ctx.toast(text)))
 
+    # -- shared by both lanes ---------------------------------------------------
+
+    def _execute(self, job: _Job) -> bool:
+        """Claim *job* (``QUEUED -> RUNNING``) and run it to completion, or --
+        if whichever thread was waiting on it already gave up -- wake its
+        tombstone and touch nothing else. The one place either lane actually
+        calls ``job.run()``: :meth:`pump` (the frame lane) and
+        :meth:`_run_service_job` (the service lane) both hold the exact same
+        ``_Job`` shape and race the exact same waiter-gives-up
+        compare-and-set (see the module docstring's own account of that
+        race), so one function owns the claim/run/finish sequence rather
+        than two copies of it drifting apart the way a hand-kept registry
+        already has once in this codebase (see ``agent_clay.tools``'s own
+        docstring on derived registries).
+
+        Returns whether *job* actually ran (``True``) or was a tombstone
+        (``False``) -- :meth:`pump` uses this to decide whether its one-job
+        floor was spent.
+        """
+        with self._job_lock:
+            if job.state != QUEUED:
+                # A tombstone: whoever was waiting gave up first. Not work,
+                # so the caller must not count it as the one-job floor, and
+                # nothing else about it needs touching.
+                job.event.set()
+                return False
+            job.state = RUNNING
+        try:
+            job.result = job.run()
+        except Exception as exc:  # noqa: BLE001 -- one bad job must not stop
+            # the drain (frame or service) or take its thread down with it;
+            # whoever is waiting on ``job.event`` reads ``job.error`` and
+            # turns it into a refusal (``_call``) or simply ignores it
+            # (``_toast``, the tab-open at connect).
+            job.error = exc
+            log.exception("agent host: a queued call raised")
+            with self._job_lock:
+                job.state = RAISED
+        else:
+            with self._job_lock:
+                job.state = DONE
+        finally:
+            job.event.set()
+        return True
+
+    # -- the service lane ---------------------------------------------------
+
+    def _submit_service(self, job: _Job) -> bool:
+        """Hand *job* to the service lane's own ``TaskRunner`` -- the frame
+        queue's counterpart for character tool calls, which must never touch
+        ``self._queue`` or run on the frame thread: a character call goes
+        through ``service/`` doors (subprocesses, sqlite, disk), none of
+        which need a ``Document``, GL or imgui, and none of which may block
+        the one thread that owns all three.
+
+        Runs on the **listener thread**. The "is the lane still open" check
+        and the registration into ``self._service_jobs`` (keyed by
+        ``id(job)`` -- ``_Job`` is an unhashable dataclass) happen inside one
+        ``_job_lock`` hold, not two -- :meth:`stop` sets ``_stopped`` and
+        swaps ``self._service`` to ``None`` under that same lock, *before*
+        it calls ``_fail_pending`` (2026-09-13: a call that read the flag,
+        found it clear, and only then queued for a poll cycle before
+        registering could slip a job past a ``stop()`` already underway;
+        ``_fail_pending``'s own snapshot -- taken after the swap -- would
+        never see it, and the ``TaskRunner.shutdown(wait=False)`` that
+        follows cancels a not-yet-started future outright, so the callable
+        that would have popped the registry and set ``job.event`` never
+        runs at all -- the caller waits out the full ``CALL_TIMEOUT`` for
+        nothing and the tombstone survives into the next ``start()``). With
+        both checks made atomic against the same swap, a call to this method
+        either fully wins the race (registers before the swap, so
+        ``_fail_pending`` is guaranteed to find and drop it) or fully loses
+        it (sees the flag or the cleared runner, and never registers at
+        all) -- there is no window between the two any more. Returns
+        whether *job* was actually accepted -- the same ``False``
+        :meth:`_run_on_frame_job` reports for a switched-off frame lane, for
+        the same reason.
+        """
+        with self._job_lock:
+            runner = self._service
+            if runner is None or self._stopped.is_set():
+                return False
+            self._service_jobs[id(job)] = job
+        # Reaps whatever the pool already finished since the last submit --
+        # the exact same bookkeeping :meth:`pump` does for a running host,
+        # kept here too so a burst of task-mode calls between two frames
+        # does not pile up finished entries in the runner's own dict. Safe
+        # outside the lock above: it only touches the runner's own
+        # bookkeeping, never ``_service_jobs`` or ``_stopped``.
+        runner.poll()
+        key = f"agent-service-{next(self._service_seq)}"
+        try:
+            accepted = runner.submit(key, self._run_service_job, job)
+        except RuntimeError:
+            # The pool is already shutting down underneath this call --
+            # indistinguishable, from here, from "was never running".
+            accepted = False
+        if not accepted:
+            with self._job_lock:
+                self._service_jobs.pop(id(job), None)
+            return False
+        return True
+
+    def _run_service_job(self, job: _Job) -> None:
+        """The service lane's own thread-pool body: run *job* through the
+        shared claim/run/finish sequence (:meth:`_execute`), then drop it
+        from ``self._service_jobs`` no matter what happened. The registry
+        exists only so a job can still be found (and dropped) while it might
+        be ``QUEUED``; once ``_execute`` has claimed it -- or found it
+        already a tombstone -- there is nothing left for the registry to do
+        with it.
+        """
+        try:
+            self._execute(job)
+        finally:
+            with self._job_lock:
+                self._service_jobs.pop(id(job), None)
+
+    def _run_on_service_job(
+        self, run: Any, timeout: float = CALL_TIMEOUT
+    ) -> tuple[_Job | None, Any, Any, str]:
+        """As :meth:`_run_on_frame_job`, but for the service lane: *run*
+        goes to :meth:`_submit_service` (a small ``TaskRunner`` pool)
+        instead of ``self._queue``, so it is never drained by :meth:`pump`
+        and never blocks the frame thread. Same contract in every other
+        respect, including the switched-off early-out and the
+        waiter-gives-up compare-and-set against ``_job_lock`` -- a slow
+        character export can no more be run twice by an impatient retry
+        than a slow Clay call can (see :meth:`_call`'s own routing for how
+        this and :meth:`_run_on_frame_job` are chosen between).
+        """
+        from ..mcp import rpc
+
+        if self._service is None or self._stopped.is_set():
+            return None, rpc.fail("Warlock's agent server was switched off."), None, DROPPED
+        job = _Job(run)
+        if not self._submit_service(job):
+            return None, rpc.fail("Warlock's agent server was switched off."), None, DROPPED
+        if job.event.wait(timeout):
+            with self._job_lock:
+                return job, job.result, job.error, job.state
+        with self._job_lock:
+            if job.state == QUEUED:
+                job.state = DROPPED
+            return job, job.result, job.error, job.state
+
+    def _queue_service_job_nowait(self, run: Any) -> _Job | None:
+        """As :meth:`_queue_job_nowait`, but for the service lane: mints a
+        ``_Job``, hands it to :meth:`_submit_service`, and returns at once --
+        never blocks. ``None`` if the service lane refused it (the agent
+        server is off), the same early-out the frame lane's own
+        :meth:`_queue_job_nowait` gives."""
+        job = _Job(run)
+        if not self._submit_service(job):
+            return None
+        return job
+
     # -- the frame thread ------------------------------------------------------
 
     def pump(self, budget: float = 0.008) -> None:
         """Drain queued work under a wall-clock budget. **Frame thread only**
         -- this is what actually calls ``agent_clay.call`` (and, at connect,
         ``agent_clay._tab``), the one place a document or GL may be touched.
+        Character tool calls never reach this method at all: they run on
+        the service lane (:meth:`_submit_service`), reaped below only to
+        keep that pool's own bookkeeping from growing unbounded.
 
         At least one job always runs, budget or not: a frame that is
         permanently over budget for other reasons must not starve an agent's
@@ -1457,19 +1827,29 @@ class AgentHost:
         whatever the op it runs already costs, not this number.
 
         A job the listener already dropped is skipped, not run: ``get_nowait``
-        takes it off the queue but not out of the listener's reach, so this
-        claims each job (``QUEUED -> RUNNING``) under ``_job_lock`` before
-        touching it, and a job that is no longer ``QUEUED`` is a tombstone --
-        the listener abandoned it first. A tombstone is woken and skipped
-        without spending the one-job floor above, so it cannot starve the
-        next real job behind it. One consequence follows from this:
-        ``self._queue.qsize()`` is no longer a count of live work, because a
-        dropped job stays on the queue as a tombstone until a ``pump`` call
-        pops it.
+        takes it off the queue but not out of the listener's reach, so
+        :meth:`_execute` claims each job (``QUEUED -> RUNNING``) under
+        ``_job_lock`` before touching it, and a job that is no longer
+        ``QUEUED`` is a tombstone -- the listener abandoned it first. A
+        tombstone is woken and skipped without spending the one-job floor
+        above, so it cannot starve the next real job behind it. One
+        consequence follows from this: ``self._queue.qsize()`` is no longer a
+        count of live work, because a dropped job stays on the queue as a
+        tombstone until a ``pump`` call pops it.
         """
         q = self._queue
         if q is None:
             return
+        service = self._service
+        if service is not None:
+            # The only thing that actually removes a finished key from the
+            # runner's own bookkeeping (``TaskRunner.poll``'s own docstring)
+            # -- ``_execute`` (via ``_run_service_job``) already recorded
+            # each job's own outcome on the job itself, so the returned
+            # ``Done`` list has nothing this method still needs; not reaping
+            # it here would otherwise leak one entry in the runner's pending
+            # dict per service call, forever.
+            service.poll()
         deadline = time.monotonic() + budget
         ran_one = False
         while not ran_one or time.monotonic() < deadline:
@@ -1477,29 +1857,6 @@ class AgentHost:
                 job = q.get_nowait()
             except queue.Empty:
                 return
-            with self._job_lock:
-                if job.state != QUEUED:
-                    # A tombstone: the listener gave up waiting and dropped
-                    # it. Not work, so it does not spend the one-job floor,
-                    # and the drain keeps going.
-                    job.event.set()
-                    continue
-                job.state = RUNNING
-            ran_one = True
-            try:
-                job.result = job.run()
-            except Exception as exc:  # noqa: BLE001 -- one bad job must not
-                # stop the drain or take the frame down with it; whoever is
-                # waiting on ``job.event`` reads ``job.error`` and turns it
-                # into a refusal (``_call``) or simply ignores it (``_toast``,
-                # the tab-open at connect).
-                job.error = exc
-                log.exception("agent host: a queued call raised")
-                with self._job_lock:
-                    job.state = RAISED
-            else:
-                with self._job_lock:
-                    job.state = DONE
-            finally:
-                job.event.set()
+            if self._execute(job):
+                ran_one = True
 

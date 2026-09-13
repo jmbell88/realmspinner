@@ -1,17 +1,24 @@
-"""What Poser's four pure modules are allowed to reach for, pinned exactly.
+"""What Poser's six pure modules are allowed to reach for, pinned exactly.
 
 The ``tests/inker/test_sheetout.py`` pin, fifth instance -- with one structural
 departure the others do not need. Clay, Inker, Plotter and Packwright each own a
 *package*, so their pins glob a directory. Poser owns no package: its pure half
-is two modules at the root of ``warlock`` (``poselib``, ``rigging``) and two
-inside the viewer (``pose``, ``bonelines``), and the rest of it is panes. So the
-four are named, and a tripwire below fails if one of them ever moves.
+is four modules at the root of ``warlock`` (``poselib``, ``rigging``,
+``clipmaps``, ``cliptransfer``) and two inside the viewer (``pose``,
+``bonelines``), and the rest of it is panes. So the six are named, and a
+tripwire below fails if one of them ever moves.
 
 They are pinned for the same reason the packages are, plus one of their own:
 ``rigging`` is the host half of a Blender subprocess and ``poselib`` is what a
-service module reads a stored pose through. Both claim in their own docstrings
-to be usable with no studio at all, and the two subprocess checks at the bottom
-make that claim executable instead of merely stated.
+service module reads a stored pose through. ``clipmaps`` is "Import clip"'s
+bone-name tables -- the mapping side of converting an external animation
+(Mixamo, Rigify) onto a Warlock template rig -- and it exists specifically so
+that conversion is decidable with no Blender, the same argument ``rigging``
+already makes. ``cliptransfer`` restates its own bounds rather than reaching
+for ``warlock.pipelines.sheet``, for the same reason. All four claim in
+their own docstrings to be usable with no studio at all, and the two
+subprocess checks at the bottom make that claim executable instead of
+merely stated.
 """
 
 from __future__ import annotations
@@ -29,6 +36,8 @@ ROOT = Path(warlock.__file__).parent
 MODULES = {
     "poselib.py": "warlock",
     "rigging.py": "warlock",
+    "clipmaps.py": "warlock",
+    "cliptransfer.py": "warlock",
     "studio/viewer/pose.py": "warlock.studio.viewer",
     "studio/viewer/bonelines.py": "warlock.studio.viewer",
 }
@@ -51,7 +60,25 @@ OUTWARD_IMPORTS = {
     # function because ``poselib`` imports this module back at its own top --
     # both sides have finished their own module-level init by the time either
     # calls the other, so nothing here actually cycles.
-    "rigging.py": {"warlock.winjob", "warlock.poselib"},
+    # ``clipmaps`` joined it 2026-09-13: ``clip_sample_spec`` reads
+    # ``clipmaps.load_clip_maps()`` for "Import clip"'s candidate bone names
+    # and strip patterns. Function-level for the same reason ``poselib`` is --
+    # ``clipmaps`` imports this module back at its own top, and both sides
+    # have finished their own module-level init by the time either calls the
+    # other, so nothing here actually cycles.
+    "rigging.py": {"warlock.winjob", "warlock.poselib", "warlock.clipmaps"},
+    # The bone-name tables: which template a map targets, and validating a
+    # map's bones against that template's own registry.
+    "clipmaps.py": {"warlock.rigging"},
+    # The pure host math for "Import clip": which bone maps where
+    # (``clipmaps``) and the target template's own rest pose, duration
+    # bounds and clip-name rules (``rigging``). Deliberately not
+    # ``warlock.pipelines.sheet`` -- ``test_none_of_them_imports_the_queue_or_the_pipelines``
+    # refuses that from every module pinned here, so ``sheet.slerp``,
+    # ``sheet.MAX_CLIP_FRAMES`` and ``poselib.MAX_ROOT_TRANSLATION`` are
+    # restated in ``cliptransfer.py`` instead, each pinned back to its
+    # source of truth by a test in ``tests/test_cliptransfer.py``.
+    "cliptransfer.py": {"warlock.rigging", "warlock.clipmaps"},
     # The editor: rotations and mirroring from the storage half, matrices and
     # the node graph from the viewer's own.
     "studio/viewer/pose.py": {
@@ -79,12 +106,12 @@ BANNED_ROOTS = {"imgui", "imgui_bundle", "pygame", "OpenGL", "glfw"}
 
 #: moderngl is banned everywhere except ``bonelines``, which *is* the GPU half:
 #: it builds the line buffers, and a draw list is not expressible without the
-#: context type. The other three are asserted headlessly and may never gain it.
+#: context type. The other four are asserted headlessly and may never gain it.
 MODERNGL_ALLOWED = {"studio/viewer/bonelines.py"}
 
 # No LAZY_ONLY section here, deliberately: the package pins have one because
-# their modules encode PNGs, and none of these four touches Pillow at all. A
-# lazy-import test over four modules that never import it would pass forever
+# their modules encode PNGs, and none of these five touches Pillow at all. A
+# lazy-import test over five modules that never import it would pass forever
 # without measuring anything.
 
 
@@ -126,7 +153,7 @@ def _run(stubs: tuple[str, ...], imports: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
 
 
-def test_the_four_modules_are_all_still_there():
+def test_the_pinned_modules_are_all_still_there():
     """A named-module pin goes vacuous by a rename rather than by a bad glob."""
     for rel in MODULES:
         assert (ROOT / rel).is_file(), f"{rel} moved; the pin below now measures nothing"
@@ -174,11 +201,15 @@ def test_the_only_warlock_imports_are_the_ones_written_down():
 
 def test_the_storage_half_imports_with_no_studio_at_all():
     """``poselib``'s docstring says a stored pose is decidable without the app;
-    ``rigging``'s host half is imported by a service module that never draws.
-    Both claims, executed."""
+    ``rigging``'s host half is imported by a service module that never draws;
+    ``clipmaps``' whole point is that a bone-name mapping is decidable the
+    same way, with no Blender either; ``cliptransfer`` restates its own
+    bounds from ``rigging`` and ``clipmaps`` rather than importing
+    ``warlock.pipelines.sheet`` for them, for the same reason. All four
+    claims, executed."""
     proc = _run(
         ("imgui", "imgui_bundle", "moderngl", "pygame", "warlock.studio"),
-        "warlock.poselib, warlock.rigging",
+        "warlock.poselib, warlock.rigging, warlock.clipmaps, warlock.cliptransfer",
     )
     assert proc.returncode == 0, proc.stderr
 

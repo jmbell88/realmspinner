@@ -30,9 +30,24 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ... import rigging
 from .. import controls, forms, icons, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
+
+
+def _provisional_note(record: dict[str, Any] | None) -> str:
+    """The picker's badge text for *record*, or "" when none is owed.
+
+    A pure lookup so the picker's badge is testable without an imgui frame,
+    ``_update_key_reason``'s own reason for existing. The five clips shipped
+    with ``provisional: true`` (attack_02, cast, fall, hit, death) are
+    keyframed but not yet an animator's pass -- see
+    ``docs/manual/26-poser.md`` -- and the picker is where an author decides
+    which clip to open next, so the badge belongs beside the name rather than
+    after the fact.
+    """
+    return "provisional" if record and record.get("provisional") else ""
 
 
 def _key_pending(viewer: Any, frame: int) -> bool:
@@ -95,12 +110,108 @@ def _new_key_reason(posing: bool, *, error: str = "", asset_error: str = "") -> 
     return _not_posing_reason(error, asset_error)
 
 
+def _import_clip_reason(
+    rigging_available: bool, has_library: bool, busy: bool, skeleton_editing: bool = False
+) -> str:
+    """Why "Import clip..." is disabled right now, or "" if it is not.
+
+    Checked in this order for the same reason ``_update_key_reason`` picks its
+    own: whichever fact actually explains the greyed button, named first.
+    ``skeleton_editing`` goes first of all (P6, 2026-09-13): master hides the
+    whole Clips section during a skeleton edit because every control in it
+    reads or writes the armature's *pose*, which a skeleton draft holds at
+    rest throughout, and this button is the one control this branch still
+    draws through that state (see ``draw``'s comment) -- so while it is true,
+    it is the only reason that matters, ahead of Blender or a busy import.
+    Blender missing means nothing here can even sample the file; no library
+    means :func:`poser_mode.adopt_imported_clips` would have nothing to merge
+    into (``state.clips`` is empty for a template that ships none); busy means
+    a previous import is still out sampling one.
+    """
+    if skeleton_editing:
+        return "Apply or cancel the skeleton edit first."
+    if not rigging_available:
+        return "Importing an animation needs Blender, which is not installed."
+    if not has_library:
+        return "This skeleton has no clip library to import into."
+    if busy:
+        return "Still importing."
+    return ""
+
+
+def _import_button(ctx: Any, state: Any) -> None:
+    busy = ctx.busy(poser_mode.CLIP_IMPORT_KEY)
+    has_library = bool(state.clips.get("clips"))
+    reason = _import_clip_reason(
+        bool(ctx.rigging_available), has_library, busy, bool(state.skeleton_editing)
+    )
+    if widgets.disabled_button(
+        "Import clip...",
+        not reason,
+        (-1, 0),
+        reason=reason,
+        tooltip=(
+            "Bring in an animation from an FBX or GLB file (Mixamo or Rigify "
+            "naming) as a new clip."
+        ),
+    ):
+        poser_mode.import_clip(ctx)
+    if not state.skeleton_editing:
+        # The report is an account of a *finished* import; master hides this
+        # whole section during a skeleton edit (``draw``, below) and a report
+        # left visible above that early return would be the one piece of it
+        # still on screen while nothing else is.
+        _import_report(ctx, state)
+
+
+def _import_report(ctx: Any, state: Any) -> None:
+    """A per-clip account of the most recent import, collapsed by default.
+
+    Drawn from ``state.clip_import_reports`` -- ``cliptransfer.transfer``'s
+    own ``report`` dicts, kept verbatim -- rather than anything re-derived, so
+    what an author reads here is exactly what the sample actually decided.
+    """
+    del ctx
+    reports = state.clip_import_reports
+    if not reports:
+        return
+    if not controls.collapsing_header("Import report##poser-clip-import-report"):
+        return
+    for report in reports:
+        loop = report.get("loop") or {}
+        ignored = list(report.get("ignored") or ())
+        left_at_rest = list(report.get("left_at_rest") or ())
+        widgets.muted(f"map: {report.get('map') or 'unknown'}")
+        widgets.muted(f"{len(left_at_rest)} bone(s) left at rest")
+        if ignored:
+            shown = ", ".join(ignored[:3])
+            more = f" and {len(ignored) - 3} more" if len(ignored) > 3 else ""
+            widgets.muted(f"{len(ignored)} source bone(s) ignored: {shown}{more}")
+        else:
+            widgets.muted("0 source bone(s) ignored")
+        closed = "loops" if loop.get("closed") else "does not loop"
+        residual = loop.get("residual_deg")
+        residual_text = f", {residual:.1f} deg residual" if residual is not None else ""
+        widgets.muted(f"{closed}{residual_text}")
+        widgets.muted(
+            f"{report.get('frames') or 0} frames, {report.get('keys') or 0} keys, "
+            f"root motion: {report.get('root_motion') or 'none'}"
+        )
+        imgui.dummy((0, sp(tokens.SP_1)))
+
+
 def draw(ctx: Any) -> None:
     state = poser_mode.ensure(ctx)
     # A section, not a collapsing header: every other workspace's column pane
     # opens with one, and Poser alone could fold its pane shut (2026-09-05).
     widgets.section("Clips")
     manual_render.help_button(ctx, "poser-clips")
+    # Drawn before every bail-out below, and that is deliberate: three of this
+    # button's four disabled reasons (a skeleton edit in progress, no Blender,
+    # no clip library for this skeleton) are exactly the states those
+    # bail-outs short-circuit on, so a button that only existed past them
+    # could never say why it was missing.
+    _import_button(ctx, state)
     if not ctx.rigging_available:
         widgets.muted("Editing clips needs Blender, which is not installed.")
         return
@@ -153,6 +264,14 @@ def _picker(ctx: Any, state: Any) -> None:
     )
     if picked != state.clip:
         poser_mode.select_clip(ctx, picked)
+    note = _provisional_note(state.open_clip())
+    if note:
+        # The muted-label idiom the rest of the app uses for a fact beside a
+        # name rather than a sentence of its own (``widgets.muted``).
+        imgui.same_line()
+        widgets.muted(note)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Placeholder keyframes; an animator's pass is still owed")
     if state.clips.get("edited"):
         widgets.muted_wrapped("edited - this skeleton is using your clips, not the shipped ones")
 
@@ -300,6 +419,19 @@ def _timing(ctx: Any, state: Any) -> None:
     from ...service import clips as svc_clips
 
     widgets.section("Timing")
+    widgets.field_label("Frame time (ms)")
+    changed, duration_ms = controls.input_int(
+        "##Frame time (ms)",
+        int(record.get("duration_ms") or rigging.CLIP_DURATION_STEP_MS),
+        rigging.CLIP_DURATION_STEP_MS,
+        rigging.CLIP_DURATION_STEP_MS,
+        tooltip="How long each rendered frame lasts in sprite sheets and in the animated GLB.",
+    )
+    if changed:
+        poser_mode.set_duration(ctx, duration_ms)
+    imgui.same_line()
+    widgets.muted(f"≈ {poser_mode.clip_fps(record.get('duration_ms')):.1f} fps")
+
     segments = list(record.get("segments") or ())
     index = min(state.key_index, len(segments) - 1) if segments else -1
     if index >= 0:

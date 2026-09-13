@@ -98,7 +98,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from warlock.mcp import pipe, rpc
-from warlock.studio import agent_clay, agent_host, agent_transcript
+from warlock.studio import agent_character, agent_clay, agent_host, agent_transcript
+from warlock.studio import tasks as tasks_mod
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
 #: in this file -- comfortably under pytest's 120 s default and comfortably
@@ -385,13 +386,18 @@ def test_a_real_round_trip_answers_hello_catalogue_and_call(
 # --- catalogue carries agent_clay's instructions ------------------------------
 
 
-def test_the_catalogue_reply_carries_agent_clay_supplied_instructions(
+def test_the_catalogue_reply_carries_clay_then_character_instructions(
     tmp_path, monkeypatch
 ) -> None:
-    """``_catalogue_payload`` passes ``agent_clay.instructions()`` through --
-    proven over a real pipe, the way the round trip above proves everything
-    else ``_serve`` promises, rather than by reading the source."""
-    monkeypatch.setattr(agent_clay, "instructions", lambda: "known string", raising=False)
+    """``_catalogue_payload`` passes ``agent_clay.instructions()`` and
+    ``agent_character.instructions()`` through, concatenated in that order
+    with a blank line between them -- proven over a real pipe, the way the
+    round trip above proves everything else ``_serve`` promises, rather than
+    by reading the source."""
+    monkeypatch.setattr(agent_clay, "instructions", lambda: "clay says hello", raising=False)
+    monkeypatch.setattr(
+        agent_character, "instructions", lambda: "character says hello", raising=False
+    )
 
     host = agent_host.AgentHost(_Ctx(), tmp_path)
     host.start()
@@ -410,7 +416,7 @@ def test_the_catalogue_reply_carries_agent_clay_supplied_instructions(
             conn.send_bytes(rpc.encode_request("catalogue"))
             header, body = rpc.split_reply(_recv(conn))
             assert body == b""
-            assert header["instructions"] == "known string"
+            assert header["instructions"] == "clay says hello\n\ncharacter says hello"
         finally:
             conn.close()
     finally:
@@ -633,6 +639,40 @@ def _pump_loop(host: agent_host.AgentHost, stop: threading.Event) -> None:
     while not stop.is_set():
         host.pump(budget=0.01)
         time.sleep(0.005)
+
+
+# The genuine, unpatched ``_run_on_service_job`` -- the service lane's own
+# counterpart to ``_real_run_on_frame_job`` above, same caching reason.
+_real_run_on_service_job_cache: list = []
+
+
+def _real_run_on_service_job():
+    if not _real_run_on_service_job_cache:
+        _real_run_on_service_job_cache.append(agent_host.AgentHost._run_on_service_job)
+    return _real_run_on_service_job_cache[0]
+
+
+def _shorten_service_call_timeout(monkeypatch, host: agent_host.AgentHost, timeout: float) -> None:
+    """As :func:`_shorten_call_timeout`, but for the service lane's own
+    ``_run_on_service_job`` -- used by the character-call tests below that
+    need a job to be genuinely still running when a waiter gives up on it."""
+    real = _real_run_on_service_job()
+
+    def _short(self, run, timeout_arg=agent_host.CALL_TIMEOUT):  # noqa: ARG001
+        return real(self, run, timeout=timeout)
+
+    monkeypatch.setattr(agent_host.AgentHost, "_run_on_service_job", _short)
+
+
+def _bare_host_with_service() -> agent_host.AgentHost:
+    """As :func:`_bare_host`, plus a real service-lane ``TaskRunner`` -- for
+    tests that exercise ``_call``/``_call_task`` against a character tool
+    without a real pipe or a real ``start()``. Callers are responsible for
+    ``host._service.shutdown(wait=True)`` once done, the same teardown a
+    started host's own ``stop()`` performs."""
+    host = _bare_host()
+    host._service = tasks_mod.TaskRunner(workers=agent_host.SERVICE_WORKERS)
+    return host
 
 
 def test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_of_running_again(
@@ -1614,3 +1654,750 @@ def test_a_dropped_task_is_never_recorded(tmp_path, monkeypatch) -> None:
     host._task_status(calls, header["operation_id"])
 
     assert not transcript.exists()
+
+
+# --- the service lane: character tool calls never touch the frame thread ----
+# --- or pump(), and share the same job/dedup/stop machinery Clay already ----
+# --- proved above -------------------------------------------------------
+
+
+def test_a_character_call_runs_on_a_service_thread_never_the_frame_thread(monkeypatch) -> None:
+    """Routing in ``_call``: a tool named in ``agent_character.HANDLERS``
+    runs on the service lane's own ``TaskRunner`` pool, never inline on
+    whatever thread called ``_call`` and never on a thread that also drains
+    ``self._queue`` -- proven by comparing thread identities, the same way
+    this file's very first test proves ``pump`` runs a job on the thread
+    that calls it."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    seen: dict[str, int] = {}
+
+    def fake_call(svc, char_session, name, arguments):  # noqa: ARG001
+        seen["thread"] = threading.get_ident()
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": fake_call})
+    monkeypatch.setattr(agent_character, "call", fake_call)
+
+    try:
+        result = host._call(session, calls, "character_probe", {})
+    finally:
+        host._service.shutdown(wait=True)
+
+    assert result["isError"] is False
+    assert seen["thread"] != threading.get_ident()  # not the caller's own thread
+    assert host._queue.qsize() == 0  # and it never touched the frame queue either
+
+
+def test_a_character_call_completes_while_pump_is_never_called(monkeypatch) -> None:
+    """A character call needs no frame-thread drain at all: ``_call`` blocks
+    the caller until the service lane answers, and ``self._queue`` (the
+    frame lane ``pump`` drains) is never touched."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": None})
+    monkeypatch.setattr(
+        agent_character,
+        "call",
+        lambda svc, char_session, name, arguments: {  # noqa: ARG005
+            "content": [{"type": "text", "text": "ok"}],
+            "isError": False,
+        },
+    )
+
+    try:
+        result = host._call(session, calls, "character_probe", {})
+    finally:
+        host._service.shutdown(wait=True)
+
+    assert result["content"][0]["text"] == "ok"
+    assert host._queue.qsize() == 0  # pump() was never needed to answer this
+
+
+def test_a_blocked_character_call_never_holds_pump(monkeypatch) -> None:
+    """A character call stuck mid-run must not be able to hold up the frame
+    lane -- an ordinary Clay-style frame job queued behind it still runs,
+    and ``pump`` still returns promptly, because the two lanes share no
+    lock across ``run()`` and no queue."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_call(svc, char_session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": slow_call})
+    monkeypatch.setattr(agent_character, "call", slow_call)
+
+    outcome: dict[str, object] = {}
+
+    def runner() -> None:
+        outcome["result"] = host._call(session, calls, "character_probe", {})
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    try:
+        assert started.wait(WAIT), "the character call never started"
+
+        ran: list[str] = []
+        host._queue.put(agent_host._Job(lambda: ran.append("frame-job")))
+        frame_start = time.monotonic()
+        host.pump(budget=0.01)
+        frame_elapsed = time.monotonic() - frame_start
+
+        assert ran == ["frame-job"]
+        assert frame_elapsed < 1.0, "pump() waited on the stuck service call"
+    finally:
+        release.set()
+        thread.join(timeout=WAIT)
+        host._service.shutdown(wait=True)
+
+    assert outcome["result"]["isError"] is False
+
+
+def test_warlock_status_reports_a_running_character_call(monkeypatch) -> None:
+    """``warlock_status`` (answered by ``_status``, never queued) reports a
+    character call's own progress exactly as it already does for a Clay
+    call -- both are the same ``_Job``/``_Op`` shapes, whichever lane ran
+    them."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_call(svc, char_session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": slow_call})
+    monkeypatch.setattr(agent_character, "call", slow_call)
+    _shorten_service_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    outcome: dict[str, object] = {}
+
+    def runner() -> None:
+        outcome["result"] = host._call(session, calls, "character_probe", {})
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    try:
+        assert started.wait(WAIT), "the character call never started"
+        thread.join(timeout=WAIT)
+        assert not thread.is_alive(), "the shortened wait never returned"
+
+        status = host._status(calls, {"operation_id": "op-1"})
+        assert status["isError"] is False
+        assert status["structuredContent"]["state"] == agent_host.RUNNING
+    finally:
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+        host._service.shutdown(wait=True)
+
+
+def test_a_character_call_in_task_mode_completes_and_is_fetched_by_status(monkeypatch) -> None:
+    """The ``call`` op's ``wait: false`` path (``_call_task``) and the
+    ``status`` op (``_task_status``) both route a character tool through
+    the service lane exactly as they already route Clay tools through the
+    frame lane -- proven by a full task-mode round trip."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_export": None})
+    monkeypatch.setattr(
+        agent_character,
+        "call",
+        lambda svc, char_session, name, arguments: {  # noqa: ARG005
+            "content": [{"type": "text", "text": "exported"}],
+            "isError": False,
+        },
+    )
+
+    try:
+        header = host._call_task(session, calls, "character_export", {})
+        assert header["status"] == "working"
+
+        deadline = time.monotonic() + WAIT
+        status_word = "working"
+        body = b""
+        while time.monotonic() < deadline:
+            reply = host._task_status(calls, header["operation_id"])
+            status_header, body = rpc.split_reply(reply)
+            status_word = status_header["status"]
+            if status_word != "working":
+                break
+            time.sleep(0.005)
+    finally:
+        host._service.shutdown(wait=True)
+
+    assert status_word == "completed"
+    result = json.loads(body.decode("utf-8"))
+    assert result["isError"] is False
+    assert result["content"][0]["text"] == "exported"
+
+
+def test_a_timed_out_character_export_is_replayed_not_run_again(monkeypatch) -> None:
+    """As ``test_a_retry_of_a_call_that_ran_but_never_answered_replays_instead_
+    of_running_again`` above, but for a character tool on the service lane --
+    proving the dedup/replay store (``_Calls``, ``_replay``) is genuinely
+    shared between lanes, not a frame-lane-only guarantee the service lane
+    quietly lacks."""
+    host = _bare_host_with_service()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    _shorten_service_call_timeout(monkeypatch, host, timeout=RUNNING_WAIT)
+
+    call_count = {"n": 0}
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(svc, char_session, name, arguments):  # noqa: ARG001
+        call_count["n"] += 1
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [{"type": "text", "text": "exported"}], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_export": fake_call})
+    monkeypatch.setattr(agent_character, "call", fake_call)
+
+    try:
+        outcome: dict[str, object] = {}
+
+        def first_call() -> None:
+            outcome["first"] = host._call(session, calls, "character_export", {})
+
+        first_thread = threading.Thread(target=first_call, daemon=True)
+        first_thread.start()
+        assert started.wait(WAIT), "the job never started running"
+        first_thread.join(timeout=WAIT)
+        assert not first_thread.is_alive(), "the shortened wait never returned"
+        first_text = outcome["first"]["content"][0]["text"]
+        assert "already started" in first_text.lower()
+        assert "op-1" in first_text
+
+        release.set()
+        op = calls.get("op-1")
+        deadline = time.monotonic() + WAIT
+        while (
+            op.status(host._job_lock) not in (agent_host.DONE, agent_host.RAISED)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
+
+        second = host._call(session, calls, "character_export", {})
+    finally:
+        host._service.shutdown(wait=True)
+
+    assert call_count["n"] == 1  # agent_character.call never ran a second time
+    assert second["content"][0]["text"] == "exported"
+
+
+def test_switching_off_fails_a_queued_service_lane_call(tmp_path, monkeypatch) -> None:
+    """As ``test_stop_unblocks_a_pending_call_rather_than_waiting_out_call_
+    timeout`` above, but for the service lane: a job still sitting behind
+    ``SERVICE_WORKERS`` busy workers is never claimed by ``_execute`` at
+    all, yet ``stop()`` still wakes its waiter with a ``DROPPED`` refusal
+    rather than leaving it to time out against the full ``CALL_TIMEOUT``."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    release = threading.Event()
+
+    def occupy() -> None:
+        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+
+    occupants = [
+        threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
+    ]
+    for t in occupants:
+        t.start()
+    deadline = time.monotonic() + WAIT
+    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
+
+    outcome: dict[str, object] = {}
+
+    def waiter() -> None:
+        outcome["result"] = host._run_on_service_job(lambda: None, timeout=agent_host.CALL_TIMEOUT)
+
+    thread = threading.Thread(target=waiter, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + WAIT
+    while (
+        len(host._service_jobs) < agent_host.SERVICE_WORKERS + 1
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.005)
+    assert len(host._service_jobs) == agent_host.SERVICE_WORKERS + 1, "the third job never queued"
+
+    try:
+        started = time.monotonic()
+        host.stop()
+        elapsed = time.monotonic() - started
+
+        thread.join(timeout=WAIT)
+        assert not thread.is_alive()
+        assert elapsed < agent_host.CALL_TIMEOUT / 2
+        _job, result, error, state = outcome["result"]
+        assert state == agent_host.DROPPED
+        assert result is not None and result["isError"] is True
+    finally:
+        release.set()
+        for t in occupants:
+            t.join(timeout=WAIT)
+
+
+def test_a_call_submitted_while_stopping_is_answered_not_orphaned(tmp_path, monkeypatch) -> None:
+    """Regression for the 2026-09-13 race: ``_submit_service`` used to read
+    ``self._service``/``self._stopped`` and only *then* register the job in
+    ``self._service_jobs``, as two separate, unguarded steps -- so a call
+    that read the flag clear just before ``stop()`` set it could still
+    register *after* ``_fail_pending``'s own snapshot of that registry had
+    already run and missed it. ``stop()``'s very next step,
+    ``TaskRunner.shutdown(wait=False)``, cancels any future the pool has not
+    yet started (``cancel_futures=True``, see ``tasks.py``), so a job
+    accepted into the pool in that gap never has its callable invoked at
+    all: ``job.event`` is never set, the caller waits out the full
+    ``CALL_TIMEOUT`` for an answer that never comes (here, nothing at all --
+    not even the switched-off refusal, since the thing that would have
+    stamped one onto ``job.result`` is exactly what never ran), and the
+    registry entry survives into the next ``start()``.
+
+    The fix makes the check and the registration one atomic step under
+    ``_job_lock`` -- the same lock ``stop()`` now sets ``_stopped`` and swaps
+    ``self._service`` to ``None`` under, before it ever calls
+    ``_fail_pending`` -- so a job can no longer register after that snapshot
+    has already run and missed it.
+
+    Forced deterministically, since hoping two unsynchronised threads
+    happen to interleave badly is not a regression test: the service lane's
+    pool is saturated first (so a further job genuinely sits ``QUEUED``
+    behind busy workers rather than starting at once -- the exact
+    precondition ``cancel_futures=True`` needs), then two seams both the old
+    and new code share -- ``TaskRunner.poll`` (called once between the
+    check and the actual hand-off to the pool) and ``TaskRunner.submit``
+    (the hand-off itself) -- are wrapped to pause the racing call right
+    there, while ``AgentHost._fail_pending`` is wrapped to pause ``stop()``
+    right after its own sweep and before ``TaskRunner.shutdown(wait=False)``
+    runs. That lands the racing call's registration and hand-off to the
+    pool inside the one gap the old code left open between
+    ``_fail_pending``'s snapshot and the shutdown that follows it -- and
+    against the fix, the same wrapping instead lands the registration
+    *before* ``_fail_pending`` even runs (registration and the stopped
+    check are one step now), so it is caught there instead, before the
+    racing call ever reaches ``TaskRunner.submit`` at all."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    release = threading.Event()
+
+    def occupy() -> None:
+        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+
+    occupants = [
+        threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
+    ]
+    for t in occupants:
+        t.start()
+    deadline = time.monotonic() + WAIT
+    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
+
+    at_poll = threading.Event()
+    let_poll_return = threading.Event()
+    real_poll = tasks_mod.TaskRunner.poll
+
+    def paced_poll(self):
+        at_poll.set()
+        assert let_poll_return.wait(WAIT), "stop() never reached _fail_pending"
+        return real_poll(self)
+
+    submit_done = threading.Event()
+    real_submit = tasks_mod.TaskRunner.submit
+
+    def paced_submit(self, key, fn, *a, **kw):
+        try:
+            return real_submit(self, key, fn, *a, **kw)
+        finally:
+            submit_done.set()
+
+    monkeypatch.setattr(tasks_mod.TaskRunner, "poll", paced_poll)
+    monkeypatch.setattr(tasks_mod.TaskRunner, "submit", paced_submit)
+
+    fail_pending_done = threading.Event()
+    let_shutdown_proceed = threading.Event()
+    real_fail_pending = agent_host.AgentHost._fail_pending
+
+    def paced_fail_pending(self):
+        real_fail_pending(self)
+        fail_pending_done.set()
+        assert let_shutdown_proceed.wait(WAIT), "the racing call never finished submitting"
+
+    monkeypatch.setattr(agent_host.AgentHost, "_fail_pending", paced_fail_pending)
+
+    outcome: dict[str, object] = {}
+
+    def racing_call() -> None:
+        outcome["result"] = host._run_on_service_job(lambda: None, timeout=RUNNING_WAIT)
+
+    racer = threading.Thread(target=racing_call, daemon=True)
+    racer.start()
+    try:
+        assert at_poll.wait(WAIT), "the racing call never reached the pool"
+
+        stopper = threading.Thread(target=host.stop, daemon=True)
+        stopper.start()
+        try:
+            assert fail_pending_done.wait(WAIT), "stop() never reached _fail_pending"
+
+            let_poll_return.set()
+            assert submit_done.wait(WAIT), "the racing call's hand-off to the pool never ran"
+
+            let_shutdown_proceed.set()
+        finally:
+            stopper.join(timeout=WAIT)
+        assert not stopper.is_alive(), "stop() never returned"
+    finally:
+        racer.join(timeout=WAIT)
+        release.set()
+        for t in occupants:
+            t.join(timeout=WAIT)
+    assert not racer.is_alive(), "the racing call never returned"
+
+    result = outcome["result"]
+    assert result is not None, "the racing call returned nothing to unpack"
+    _job, call_result, error, state = result
+    assert state == agent_host.DROPPED
+    assert error is None
+    assert call_result is not None, "the caller was never answered at all"
+    assert call_result["isError"] is True
+    assert host._service_jobs == {}, "a job survived stop() into the next start()"
+
+
+def test_a_call_racing_stop_is_either_refused_or_caught_by_the_first_sweep(
+    tmp_path, monkeypatch
+) -> None:
+    """Tightens the test above, which proves only the *outcome* of the
+    2026-09-13 race (the caller is told "switched off" and the registry
+    ends up empty), never the fix it names. Reverting the fix alone --
+    :meth:`AgentHost._submit_service` back to checking
+    ``self._stopped``/``self._service`` unguarded and only registering the
+    job in ``self._service_jobs`` afterwards, once ``TaskRunner.poll`` and
+    ``TaskRunner.submit`` have already returned -- still passes the test
+    above, because :meth:`AgentHost.stop`'s *second*
+    ``_drop_queued_service_jobs()`` sweep (run right after
+    ``TaskRunner.shutdown(wait=False)``, kept as a second line of defence
+    even with the fix in place) answers the caller anyway.
+
+    This test names which sweep is allowed to catch the race. With the fix,
+    the lane-open check and the registration happen as one step under
+    ``_job_lock``, before :meth:`_submit_service` ever calls
+    ``TaskRunner.poll`` -- so by the time this test's paced ``poll`` has the
+    racing call paused (the same seam the test above uses), the job is
+    already sitting in ``self._service_jobs``, and
+    :meth:`AgentHost._fail_pending`'s own (first) sweep -- run while the
+    racing call is still paused there -- is guaranteed to already see it.
+    Revert the fix and registration cannot happen until *after* ``poll``
+    returns, which this test's pause points force to be strictly after the
+    first sweep has already run and returned (the racing call is only
+    released from ``poll`` once ``_fail_pending`` is confirmed done) -- so
+    the first sweep's snapshot can never contain it, whatever the second,
+    post-shutdown sweep goes on to do with it later.
+
+    Same deterministic interleaving as the test above (the pool saturated
+    first, then ``TaskRunner.poll``, ``TaskRunner.submit`` and
+    ``AgentHost._fail_pending`` each paced at the same three seams), plus one
+    more seam: ``AgentHost._drop_queued_service_jobs`` is wrapped to record a
+    snapshot of ``self._service_jobs`` on each of the two calls ``stop()``
+    makes to it, so the assertion below can name the first one specifically
+    rather than only the end state both tests already share."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    release = threading.Event()
+
+    def occupy() -> None:
+        host._run_on_service_job(lambda: release.wait(WAIT), timeout=agent_host.CALL_TIMEOUT)
+
+    occupants = [
+        threading.Thread(target=occupy, daemon=True) for _ in range(agent_host.SERVICE_WORKERS)
+    ]
+    for t in occupants:
+        t.start()
+    deadline = time.monotonic() + WAIT
+    while len(host._service_jobs) < agent_host.SERVICE_WORKERS and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(host._service_jobs) == agent_host.SERVICE_WORKERS, "the pool never saturated"
+
+    at_poll = threading.Event()
+    let_poll_return = threading.Event()
+    real_poll = tasks_mod.TaskRunner.poll
+
+    def paced_poll(self):
+        at_poll.set()
+        assert let_poll_return.wait(WAIT), "stop() never reached _fail_pending"
+        return real_poll(self)
+
+    submit_done = threading.Event()
+    real_submit = tasks_mod.TaskRunner.submit
+
+    def paced_submit(self, key, fn, *a, **kw):
+        try:
+            return real_submit(self, key, fn, *a, **kw)
+        finally:
+            submit_done.set()
+
+    monkeypatch.setattr(tasks_mod.TaskRunner, "poll", paced_poll)
+    monkeypatch.setattr(tasks_mod.TaskRunner, "submit", paced_submit)
+
+    fail_pending_done = threading.Event()
+    let_shutdown_proceed = threading.Event()
+    real_fail_pending = agent_host.AgentHost._fail_pending
+
+    def paced_fail_pending(self):
+        real_fail_pending(self)
+        fail_pending_done.set()
+        assert let_shutdown_proceed.wait(WAIT), "the racing call never finished submitting"
+
+    monkeypatch.setattr(agent_host.AgentHost, "_fail_pending", paced_fail_pending)
+
+    # The one seam the test above does not need: a snapshot of
+    # ``self._service_jobs`` taken on each of the two calls ``stop()`` makes
+    # to ``_drop_queued_service_jobs`` -- so the assertion below can tell
+    # "found by the first sweep" apart from "found by the second" (or never
+    # found at all), rather than only checking the registry is empty by the
+    # very end, which either sweep satisfies equally.
+    drop_snapshots: list[set[int]] = []
+    real_drop_queued_service_jobs = agent_host.AgentHost._drop_queued_service_jobs
+
+    def recording_drop(self) -> None:
+        with self._job_lock:
+            drop_snapshots.append(set(self._service_jobs))
+        real_drop_queued_service_jobs(self)
+
+    monkeypatch.setattr(agent_host.AgentHost, "_drop_queued_service_jobs", recording_drop)
+
+    outcome: dict[str, object] = {}
+
+    def racing_call() -> None:
+        outcome["result"] = host._run_on_service_job(lambda: None, timeout=RUNNING_WAIT)
+
+    racer = threading.Thread(target=racing_call, daemon=True)
+    racer.start()
+    try:
+        assert at_poll.wait(WAIT), "the racing call never reached the pool"
+
+        stopper = threading.Thread(target=host.stop, daemon=True)
+        stopper.start()
+        try:
+            assert fail_pending_done.wait(WAIT), "stop() never reached _fail_pending"
+
+            let_poll_return.set()
+            assert submit_done.wait(WAIT), "the racing call's hand-off to the pool never ran"
+
+            let_shutdown_proceed.set()
+        finally:
+            stopper.join(timeout=WAIT)
+        assert not stopper.is_alive(), "stop() never returned"
+    finally:
+        racer.join(timeout=WAIT)
+        release.set()
+        for t in occupants:
+            t.join(timeout=WAIT)
+    assert not racer.is_alive(), "the racing call never returned"
+
+    result = outcome["result"]
+    assert result is not None, "the racing call returned nothing to unpack"
+    job, call_result, error, state = result
+    assert job is not None, "the racing call was refused before it ever minted a job"
+    assert state == agent_host.DROPPED
+    assert error is None
+    assert call_result is not None, "the caller was never answered at all"
+    assert call_result["isError"] is True
+    assert host._service_jobs == {}, "a job survived stop() into the next start()"
+
+    assert len(drop_snapshots) == 2, (
+        "stop() must sweep _drop_queued_service_jobs exactly twice -- once "
+        "inside _fail_pending, once more after TaskRunner.shutdown(wait=False)"
+    )
+    assert id(job) in drop_snapshots[0], (
+        "the racing job was absent from _fail_pending's own (first) sweep -- "
+        "it was only caught later, by the post-shutdown safeguard, or not at "
+        "all. The fix requires the lane-open check and the registration into "
+        "_service_jobs to be one atomic step under _job_lock, completed "
+        "before _submit_service ever calls TaskRunner.poll, so the very "
+        "first sweep -- run while this test's paced poll still has the "
+        "racing call paused there -- is guaranteed to already see it."
+    )
+
+
+def test_stop_never_terminates_tracked_child_processes(tmp_path, monkeypatch) -> None:
+    """The critical constraint this tranche rests on: ``stop()`` must call
+    ``TaskRunner.shutdown(wait=False)`` and never pass ``timeout`` --
+    ``tasks.py``'s own ``shutdown`` docstring names the ``timeout`` branch as
+    the one that calls ``winjob.terminate_tracked()`` on whatever is still
+    running, which kills every tracked child process in the whole app (a
+    Blender bake, a fetch download, a matting worker), not just this host's
+    own service-lane workers. Proven by monkeypatching
+    ``winjob.terminate_tracked`` itself and checking it is never reached
+    while a character call is still stuck mid-run when ``stop()`` runs."""
+    from warlock import winjob
+
+    terminate_calls: list[str] = []
+    monkeypatch.setattr(
+        winjob, "terminate_tracked", lambda *a, **kw: terminate_calls.append("called") or []
+    )
+
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    release = threading.Event()
+
+    def stuck(svc, char_session, name, arguments):  # noqa: ARG001
+        release.wait(WAIT)
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_character, "HANDLERS", {"character_probe": stuck})
+    monkeypatch.setattr(agent_character, "call", stuck)
+
+    session = agent_clay.Session()
+    calls = agent_host._Calls()
+    thread = threading.Thread(
+        target=lambda: host._call(session, calls, "character_probe", {}), daemon=True
+    )
+    thread.start()
+    try:
+        deadline = time.monotonic() + WAIT
+        while not host._service_jobs and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert host._service_jobs, "the service job never registered"
+
+        host.stop()
+    finally:
+        release.set()
+        thread.join(timeout=WAIT)
+
+    assert terminate_calls == [], "stop() must never reach winjob.terminate_tracked"
+
+
+def test_pump_and_the_service_lane_skip_the_same_tombstone() -> None:
+    """``_execute`` is the one function both lanes claim a job through --
+    proven by dropping a job by hand for each lane and driving it through
+    each lane's own *real* entry point: ``pump()`` itself for the frame
+    queue, and ``_run_service_job`` (not ``_execute`` directly) for the
+    service lane, the way :meth:`AgentHost._submit_service` actually hands
+    work to the pool. Both report a tombstone the same way (``event`` set,
+    nothing run) rather than two copies of the claim/run/finish sequence
+    quietly drifting apart."""
+    host = _bare_host_with_service()
+    try:
+        frame_ran: list[str] = []
+        frame_job = agent_host._Job(lambda: frame_ran.append("frame"))
+        frame_job.state = agent_host.DROPPED
+        host._queue.put(frame_job)
+
+        service_ran: list[str] = []
+        service_job = agent_host._Job(lambda: service_ran.append("service"))
+        service_job.state = agent_host.DROPPED
+        host._service_jobs[id(service_job)] = service_job
+
+        host.pump(budget=1.0)
+        host._run_service_job(service_job)
+
+        assert frame_ran == []
+        assert service_ran == []
+        assert frame_job.event.is_set()
+        assert service_job.event.is_set()
+        # ``_run_service_job``'s own ``finally`` pops the registry entry no
+        # matter what ``_execute`` found -- a tombstone must not linger.
+        assert id(service_job) not in host._service_jobs
+    finally:
+        host._service.shutdown(wait=True)
+
+
+def test_a_character_call_toasts_the_human_on_the_frame_thread(tmp_path, monkeypatch) -> None:
+    """A character call runs on the service lane and must never touch
+    ``ctx.toast`` directly from there -- proven through the real ``_serve``
+    wiring (``calls.character.toast = self._toast``, set on connect) rather
+    than by wiring ``calls.character.toast`` up by hand in the test: a real
+    pipe connection is made, a real ``call`` RPC op is answered by the
+    service lane while ``pump()`` is deliberately not running, and only
+    once ``pump()`` is driven from this thread does the toast land."""
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    host.start()
+    stop_pumping = threading.Event()
+
+    def pump_loop() -> None:
+        while not stop_pumping.is_set():
+            host.pump(budget=0.01)
+            time.sleep(0.005)
+
+    pumper = threading.Thread(target=pump_loop, daemon=True)
+    pumper.start()
+    conn = pipe.connect(tmp_path)
+    try:
+        # Settle the connection (the tab-open job needs pump() running)
+        # before turning the pump loop off -- a ``hello`` round trip only
+        # replies once ``_serve`` has moved past that blocking open and is
+        # reading requests.
+        conn.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="test"))
+        _recv(conn)
+        # Pump is now off for good: the toast this test cares about must
+        # not land until this test drives pump() itself, below.
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+        def minting_call(svc, char_session, name, arguments):  # noqa: ARG001
+            char_session.toast("a character was minted")
+            return {"content": [], "isError": False}
+
+        monkeypatch.setattr(agent_character, "HANDLERS", {"character_create": minting_call})
+        monkeypatch.setattr(agent_character, "call", minting_call)
+
+        conn.send_bytes(rpc.encode_request("call", tool="character_create", args={}))
+        _header, body = rpc.split_reply(_recv(conn))
+        result = json.loads(body.decode("utf-8"))
+        assert result["isError"] is False
+
+        # The service lane answered the call already (no pump needed for
+        # that), but the toast it raised only reaches ``ctx`` through the
+        # frame queue -- and pump() has not run since before the call.
+        assert host.ctx.toasts == [("An agent connected.", "info")]
+        host.pump(budget=1.0)
+        assert host.ctx.toasts == [
+            ("An agent connected.", "info"),
+            ("a character was minted", "info"),
+        ]
+    finally:
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+        conn.close()
+        host.stop()
+
+
+def test_every_name_the_host_publishes_is_unique() -> None:
+    """``_rpc_tools`` concatenates Clay's tools, the character surface's
+    (the real ``agent_character.tools()``, not a stand-in -- a collision or
+    a vanished character surface must be able to fail this), and this
+    module's own transport tools -- no two entries may share a name, or a
+    client's tool list would silently shadow one of them."""
+    host = _bare_host()
+    names = [tool.name for tool in host._rpc_tools()]
+    assert len(names) == len(set(names)), names
+    # A guard on the guard: if ``agent_character.tools()`` ever returned
+    # nothing (the surface removed, or every tool renamed out from under
+    # this scan), the uniqueness check above would still pass vacuously.
+    assert any(name.startswith("character_") for name in names), names

@@ -36,13 +36,26 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
   for an update).
 - **The MCP agent bridge.** `src/warlock/mcp/` listens on a named pipe
   (Unix socket elsewhere) and accepts JSON-RPC from another process running as
-  the same user on the same machine, so an agent can drive Clay. It is **off
+  the same user on the same machine, so an agent can drive Clay and, since the
+  character pipeline landed, a second, narrower surface. It is **off
   until switched on in Settings**, it is inbound only — no model, no inference,
-  no socket, `HF_HUB_OFFLINE` untouched — and an agent gets its own Clay tab and
-  can address no other. It is still an untrusted-input parser like any file
-  format above: its framing (`src/warlock/mcp/protocol.py`) and its pipe
-  (`pipe.py`) are in scope, and so is anything reachable through the derived
-  tool surface that escapes that one tab.
+  no socket, `HF_HUB_OFFLINE` untouched. Scope is two-part: an agent gets its
+  own Clay tab and can address no other; against the character pipeline it may
+  read any Library row by job id, but write is additive only — new mesh, rig
+  or charsheet rows minted through the same service doors a pane uses, derived
+  artifacts, and copies into the configured export folder — never a rewrite of
+  an existing row, never a path (every argument is an id or an enum), and it
+  may cancel only the jobs it started on its own connection. Every file an
+  agent exports is named from `characters.agent_export_stem` (the asset's own
+  export name plus its job id, and a sheet id too where the format needs one)
+  rather than the plain display name a pane's export uses, so an agent's
+  export of a copy can only ever overwrite an earlier export *it* made of the
+  same asset, never a human's export of a same-named one. It is still an
+  untrusted-input parser like any file format above: its framing
+  (`src/warlock/mcp/protocol.py`) and its pipe (`pipe.py`) are in scope, and so
+  is anything reachable through either derived tool surface that escapes its
+  own bound — Clay's one tab, or the character pipeline's read-any/write-
+  additive-only rule.
 - **Subprocess handling.** Heavy or privileged work is never done inline in the
   main process: reconstruction (`trellis-server.exe`), the Blender worker,
   the matting worker, the music and stem-separation workers, LoRA training,

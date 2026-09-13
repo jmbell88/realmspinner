@@ -61,6 +61,25 @@ travelling as an animation track — for a still pose that is what you want, and
 of exporter problem where a posed model arrives at rest with the pose demoted to an animation nobody
 plays.
 
+**Export for Godot...**, on a rigged asset with clips authored for it, writes a folder named after
+the character, holding a `.glb` and a `.tscn` sharing that same name — into your export folder, or
+one you pick. The GLB is a copy of the animated model with its looping clips renamed for Godot 4's
+importer (a `walk` clip becomes `walk-loop`); the scene instances it and wires an `AnimationTree`
+state machine over its clips — idle, walk and run blended
+by `parameters/locomotion/blend_position` at 0, 1 and 2, attack and attack_02 and cast as their own
+states, jump transitioning to fall at its end, hit and death reachable from every state and death
+terminal. Call `travel("attack_02")` (or any other state's name) from your own script to play it. In
+the imported scene the clips appear under their plain names — `idle`, `walk`, and so on, not
+`idle-loop` — because Godot's own importer renames a `-loop`-suffixed animation back to its bare name
+the moment it reads the loop flag off it, and the `.tscn` this export writes already plays those
+post-import names rather than the ones baked into the GLB.
+
+Be honest about what this has not been checked against: nobody has opened an export in a real Godot
+editor yet. The loop-naming behaviour above is read out of Godot's own importer source rather than
+observed, and Godot's own import dialog does not show the loop flag at all — it disappears entirely
+if you save the imported animations to separate files (godotengine/godot#108823) — so treat a fresh
+export as unverified in your specific Godot version until you have opened it once.
+
 ## 2D and sprite sheets
 
 A sheet is a PNG plus a JSON sidecar, and the sidecar is deliberately engine-neutral: cell
@@ -68,6 +87,15 @@ rectangles, tags, durations and pivots, in plain JSON, for you to read with what
 
 Packwright's sidecar is TexturePacker's format instead, which a great many 2D toolchains already
 understand.
+
+A Troupe character sheet has a third way out: **Export frames...** writes a folder named after the
+character, one subfolder per movement inside it, one subfolder per compass direction inside that
+(`N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, `NW`; `S` is the character facing you, `W` its left profile),
+and `000.png`, `001.png` and so on inside that — plus a
+`manifest.json` (format `warlock-frames`, version 1) stating the frame size, whether the sheet is
+pixel art or HD, and each clip's own `loop`, `frames`, `duration_ms`, `fps` and `directions`. It is
+for an engine that wants `AnimatedSprite2D`-style frame folders rather than one atlas plus one
+sidecar, and a re-export replaces the folder whole.
 
 ## Tiled and Aseprite: read this before relying on it
 

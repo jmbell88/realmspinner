@@ -36,6 +36,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...characters import family as family_mod
 from ...characters import recipe as recipe_mod
 from ...characters import resolve as resolve_mod
 from ...service import characters as svc_characters
@@ -198,6 +199,21 @@ def reset_to_prompt(form: dict[str, Any]) -> None:
     sync_from_prompt(form)
 
 
+def _theme_offered_by(family_key: str, theme_key: str) -> bool:
+    """Whether species *family_key* paints the look *theme_key* -- straight
+    off the registry, not :func:`theme_options`: that one needs
+    ``character_options``' door-built ``opts``, and :func:`_fill` runs from a
+    bare form with no ``ctx`` on hand to build one from.
+    """
+    if not family_key or not theme_key:
+        return False
+    try:
+        fam = family_mod.get_family(family_key)
+    except family_mod.CharacterError:
+        return False
+    return any(t.key == theme_key for t in fam.themes)
+
+
 def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     """Write the resolved brief into the fields the user has not claimed.
 
@@ -205,6 +221,27 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     whatever the last prompt left in it. "a wolf" after "an attacking fire ogre"
     has to produce a wolf with the default actions and no fire, or the form
     accumulates a character out of two briefs the user never wrote together.
+
+    **Except a theme the resolved species does not paint.** "a swamp knight"
+    resolves ``family="knight"`` and ``theme="swamp"`` -- "swamp" is a real
+    theme word, just not one the Knight declares -- and copying it verbatim
+    used to fill the form with a combination ``Recipe.from_dict`` refuses by
+    construction the moment Generate is pressed (settings_character-01, the
+    2026-09-13 audit), with nothing on screen pointing at the species control
+    that is actually the fix: the prompt bar showed Knight, no ring anywhere,
+    and the refusal landed on ``field="theme"`` for a control this pane may
+    not even be drawing (``theme_options`` hides the combo for a
+    single-look species). Reset to :data:`THEME_UNSET`, the same as a prompt
+    naming no look at all -- the first cut of this fix left the field exactly
+    as it was on the theory that "said nothing about a look" and "named a look
+    this species cannot paint" need telling apart, but that just moved the
+    accumulation bug one prompt later (settings_character-02, the same audit
+    day): "a fire ogre" then "a swamp knight" left ``character_theme="fire"``,
+    which ``recipe_kwargs`` sends straight to the door and the Knight refuses
+    it too, on a theme the second prompt never even named. There is nowhere
+    else to park "swamp" that is not this field, so :data:`THEME_UNSET` is the
+    only honest value it can hold; ``resolution.theme`` itself still says
+    "swamp" for anything that wants to read the brief rather than the form.
     """
     from ..state import default_form_2d
 
@@ -215,7 +252,6 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
         # Never a substitution: ``resolution.family`` is None for a creature
         # this program does not make, and "" is what that means here.
         "character_family": resolution.family or "",
-        "character_theme": resolution.theme or THEME_UNSET,
         "character_camera": resolution.camera_preset or "",
         "character_actions": (
             ",".join(actions) if actions else str(defaults["character_actions"])
@@ -228,6 +264,15 @@ def _fill(form: dict[str, Any], resolution: resolve_mod.Resolution) -> None:
     resolved_family = (
         previous_family if "character_family" in overrides else values["character_family"]
     )
+    if resolution.theme is None:
+        values["character_theme"] = THEME_UNSET
+    elif _theme_offered_by(resolved_family, resolution.theme):
+        values["character_theme"] = resolution.theme
+    else:
+        # The prompt named a look this species does not paint. Not left as it
+        # was: that let a *previous* prompt's theme survive a species change
+        # it was never resolved against -- see the docstring above.
+        values["character_theme"] = THEME_UNSET
     for key, value in values.items():
         if key not in overrides:
             form[key] = value

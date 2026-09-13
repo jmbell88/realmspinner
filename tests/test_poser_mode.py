@@ -1723,6 +1723,7 @@ def _clip_library() -> dict:
                 "closed": True,
                 "easing": "linear",
                 "space": "delta",
+                "duration_ms": 100,
             }
         ],
     }
@@ -1813,6 +1814,100 @@ def test_closing_or_opening_a_clip_resizes_its_timing():
     assert state.open_clip()["segments"] == [2, 2]
     poser_mode.set_closed(ctx, True)
     assert state.open_clip()["segments"] == [2, 2, 2]
+
+
+# --- the frame-time control (schema v3's duration_ms) ------------------------
+
+
+def test_frame_time_snaps_to_the_library_step():
+    """Snapped rather than refused -- ``set_segment``'s own precedent: a typed
+    83 lands on 80, not an error toast over one keystroke."""
+    ctx, state = _clip_ctx()
+    poser_mode.set_duration(ctx, 83)
+    assert state.open_clip()["duration_ms"] == 80
+    poser_mode.set_duration(ctx, 3)
+    assert state.open_clip()["duration_ms"] == rigging.MIN_CLIP_DURATION_MS
+    poser_mode.set_duration(ctx, 5000)
+    assert state.open_clip()["duration_ms"] == rigging.MAX_CLIP_DURATION_MS
+
+
+def test_the_frame_time_control_writes_duration_ms_and_a_save_round_trips(monkeypatch):
+    from warlock.service import clips as svc_clips
+
+    ctx, state = _clip_ctx()
+    poser_mode.set_duration(ctx, 250)
+    assert state.open_clip()["duration_ms"] == 250
+    assert state.clips_unsaved is True
+
+    def fake_save(svc, template, payload):
+        return {**payload, "template": template, "edited": True}
+
+    monkeypatch.setattr(svc_clips, "save", fake_save)
+    poser_mode.save_clips(ctx)
+    sent = ctx.results[poser_mode.CLIPS_SAVE_KEY]
+    saved = next(c for c in sent["clips"] if c["name"] == "walk")
+    assert saved["duration_ms"] == 250
+
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=poser_mode.CLIPS_SAVE_KEY, result=sent))
+    assert state.clips_unsaved is False
+    assert state.open_clip()["duration_ms"] == 250
+
+
+def test_a_frame_time_edit_is_discarded_when_the_library_is_re_adopted():
+    """This used to be named as an undo test, and Poser's clip editor has none
+    -- ``revert_clips``'s own docstring says so plainly ("this mode has no
+    undo"), the same fact that keeps ``set_easing``/``set_segment`` from
+    pushing a step of their own. What this actually proves is narrower and
+    still true: re-adopting a library (what a landed revert, or a landed
+    CLIPS_KEY refresh, both do) discards whatever the working copy held,
+    which is not the same claim as "the edit can be undone" -- there is no
+    door here that takes you from the re-adopted state back to the edit."""
+    ctx, state = _clip_ctx()
+    original = state.open_clip()["duration_ms"]
+    poser_mode.set_duration(ctx, original + 50)
+    assert state.open_clip()["duration_ms"] == original + 50
+    assert state.clips_unsaved is True
+
+    poser_mode.adopt_clips(ctx, _clip_library())
+    assert state.open_clip()["duration_ms"] == original
+    assert state.clips_unsaved is False
+
+
+def test_play_speed_follows_the_clips_frame_time():
+    """The Timing section's own "fps" hint, and the arithmetic
+    ``clips.animation_tracks``' bake ``step`` inverts."""
+    assert poser_mode.clip_fps(80) == pytest.approx(12.5)
+    assert poser_mode.clip_fps(100) == pytest.approx(10.0)
+    assert poser_mode.clip_fps(0) == 0.0
+    assert poser_mode.clip_fps(None) == 0.0
+
+    ctx, state = _clip_ctx()
+    poser_mode.set_duration(ctx, 200)
+    assert poser_mode.clip_fps(state.open_clip()["duration_ms"]) == pytest.approx(5.0)
+
+
+def test_saving_keeps_the_provisional_flag(monkeypatch):
+    """``provisional``/``source`` ride in the working copy untouched, so a
+    save of a shipped provisional clip (attack_02, cast, fall, hit, death)
+    cannot silently drop the flag an animator's pass still owes."""
+    from warlock.service import clips as svc_clips
+
+    ctx, state = _clip_ctx()
+    record = state.open_clip()
+    record["provisional"] = True
+    record["source"] = {"imported": True}
+    poser_mode.set_duration(ctx, 90)
+
+    def fake_save(svc, template, payload):
+        return {**payload, "template": template, "edited": True}
+
+    monkeypatch.setattr(svc_clips, "save", fake_save)
+    poser_mode.save_clips(ctx)
+    sent = ctx.results[poser_mode.CLIPS_SAVE_KEY]
+    saved = next(c for c in sent["clips"] if c["name"] == "walk")
+    assert saved["provisional"] is True
+    assert saved["source"] == {"imported": True}
+    assert saved["duration_ms"] == 90
 
 
 def test_moving_a_key_carries_its_own_segment():
@@ -1920,6 +2015,40 @@ def test_a_landing_for_another_template_is_ignored():
     assert state.clips["template"] == "humanoid"
 
 
+def test_a_revert_asked_with_unsaved_edits_is_adopted_when_it_lands(monkeypatch):
+    """The pre-existing defect: ``on_task_done``'s shared CLIPS_KEY/
+    CLIPS_SAVE_KEY branch refuses to adopt a landed result whenever
+    ``state.clips_unsaved`` and ``clips_touch_serial != clips_save_serial`` --
+    a guard written for :func:`poser_mode.save_clips`, which records the
+    serial before submitting so its own answer is never mistaken for a stale
+    one. :func:`poser_mode.revert_clips` submits under the identical
+    ``CLIPS_SAVE_KEY`` but never recorded that serial, so a Revert asked while
+    there *were* unsaved edits -- the one case Revert exists for -- landed
+    with the touch serial still ahead of whatever a previous save (or the
+    default 0) had left in ``clips_save_serial``, was silently refused, and
+    left ``clips_unsaved`` stuck True forever after a Revert the user had
+    just confirmed. ``set_easing`` (rather than the newer ``set_duration``)
+    is what dirties the working copy here, so this reaches ``revert_clips``
+    and ``on_task_done`` exactly as they existed when the defect was live."""
+    from warlock.service import clips as svc_clips
+
+    ctx, state = _clip_ctx()
+    poser_mode.set_easing(ctx, "ease_in")
+    assert state.clips_unsaved is True
+
+    monkeypatch.setattr(svc_clips, "revert", lambda svc, template: _clip_library())
+
+    poser_mode.revert_clips(ctx)
+    assert len(ctx.confirms.asked) == 1, "revert asks before discarding unsaved edits"
+    ctx.confirms.asked[0].on_confirm()
+
+    sent = ctx.results[poser_mode.CLIPS_SAVE_KEY]
+    poser_mode.on_task_done(ctx, SimpleNamespace(key=poser_mode.CLIPS_SAVE_KEY, result=sent))
+
+    assert state.clips_unsaved is False
+    assert state.open_clip()["easing"] == _clip_library()["clips"][0]["easing"]
+
+
 def test_onion_ghosts_are_the_neighbouring_keys_not_the_neighbouring_frames():
     """A keyframe is judged against the keys it steps *between*; the frames
     either side of the playhead are what the scrubber is for."""
@@ -1977,6 +2106,236 @@ def test_turning_onion_skin_off_clears_the_viewer():
     assert ctx.poser_viewer.onion
     poser_mode.set_onion(ctx, False)
     assert ctx.poser_viewer.onion == []
+
+
+# --- importing a clip ---------------------------------------------------------
+#
+# ``service.clip_import.analyse`` (a Blender subprocess plus a pure convert) is
+# faked wholesale here: every one of these tests is about what
+# ``poser_mode.import_clip``/``adopt_imported_clips`` do with its answer, never
+# about the sampling itself, which ``tests/test_clip_import_service.py`` and
+# ``tests/test_clip_import_blender.py`` already own.
+
+
+def _import_result(
+    template: str = "humanoid",
+    name: str = "run",
+    *,
+    poses: dict[str, Any] | None = None,
+    keys: list[str] | None = None,
+    report_extra: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One ``service.clip_import.analyse``-shaped answer, one action.
+
+    Shaped exactly like ``cliptransfer.transfer``'s own return -- ``{"clip",
+    "poses", "report"}`` -- because that is what a fake ``analyse`` hands back
+    verbatim, one entry per source action.
+    """
+    poses = poses if poses is not None else {
+        f"{name} k00": {"bones": {"hips": [0.0, 0.0, 0.0, 1.0]}},
+        f"{name} k01": {"bones": {"hips": [0.0, 0.3894183, 0.0, 0.9210610]}},
+    }
+    keys = keys if keys is not None else list(poses.keys())
+    report = {
+        "map": "mixamo",
+        "left_at_rest": [],
+        "ignored": [],
+        "loop": {"closed": False, "residual_deg": 0.0},
+        "frames": 24,
+        "keys": len(keys),
+        "root_motion": "in_place",
+    }
+    if report_extra:
+        report.update(report_extra)
+    clip: dict[str, Any] = {
+        "name": name,
+        "keys": keys,
+        "segments": [1] * max(len(keys) - 1, 1),
+        "closed": False,
+        "easing": "linear",
+        "duration_ms": 100,
+    }
+    if source is not None:
+        clip["source"] = source
+    return {"template": template, "clips": [{"clip": clip, "poses": poses, "report": report}]}
+
+
+def test_import_clip_asks_for_a_file_on_the_task_thread(tmp_path, monkeypatch):
+    """``troupe_mode.export_package``'s arrangement: a blocking OS picker on
+    the frame thread freezes the window behind it, so it has to be asked from
+    inside the submitted task, not before ``ctx.submit`` is even called."""
+    from warlock.service import clip_import as svc_clip_import
+    from warlock.studio import dialogs
+
+    ctx = _ThreadedCtx(tmp_path)
+    state = poser_mode.ensure(ctx)
+    state.clips = {"template": "humanoid", "clips": [{"name": "walk"}], "poses": []}
+
+    threads: dict[str, str] = {}
+    picked = tmp_path / "mixamo_run.fbx"
+
+    def fake_open_file(title, filters):
+        assert title == "Import a clip"
+        assert any("fbx" in p.lower() for p in filters)
+        threads["dialog"] = threading.current_thread().name
+        return picked
+
+    def fake_analyse(svc, template, path):
+        threads["analyse"] = threading.current_thread().name
+        assert Path(path) == picked
+        return {"template": template, "clips": []}
+
+    monkeypatch.setattr(dialogs, "open_file", fake_open_file)
+    monkeypatch.setattr(svc_clip_import, "analyse", fake_analyse)
+
+    assert poser_mode.import_clip(ctx) is True
+    assert ctx.submitted == [poser_mode.CLIP_IMPORT_KEY]
+    assert threads["dialog"] == WORKER
+    assert threads["analyse"] == WORKER
+    assert ctx.results[poser_mode.CLIP_IMPORT_KEY]["source_name"] == "mixamo_run.fbx"
+
+
+def test_a_cancelled_import_changes_nothing(monkeypatch):
+    from warlock.studio import dialogs
+
+    ctx, state = _clip_ctx()
+    before = json.loads(json.dumps(state.clips))
+    monkeypatch.setattr(dialogs, "open_file", lambda *a, **k: None)
+
+    assert poser_mode.import_clip(ctx) is True
+    assert ctx.results[poser_mode.CLIP_IMPORT_KEY] is None
+
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=poser_mode.CLIP_IMPORT_KEY, result=None)
+    )
+    assert state.clips == before
+    assert state.clips_unsaved is False
+    assert ctx.toasts == []
+
+
+def test_an_imported_clip_joins_the_working_copy_unsaved_and_selected():
+    ctx, state = _clip_ctx()
+    result = _import_result(name="run")
+    result["source_name"] = "mixamo_run.fbx"
+
+    poser_mode.on_task_done(
+        ctx, SimpleNamespace(key=poser_mode.CLIP_IMPORT_KEY, result=result)
+    )
+
+    assert state.clips_unsaved is True
+    assert state.clip == "run"
+    names = [c["name"] for c in state.clips["clips"]]
+    assert names == ["walk", "run"]
+    assert state.key_pose("run k00") is not None
+    assert any(
+        "Imported 1 clip(s) from mixamo_run.fbx" in msg for msg, _kind in ctx.toasts
+    )
+
+
+def test_an_imported_clip_name_clash_is_renamed_not_overwritten():
+    ctx, state = _clip_ctx()
+    original_keys = list(state.open_clip()["keys"])
+    result = _import_result(name="walk")  # clashes with the shipped "walk"
+    result["source_name"] = "mixamo_walk.fbx"
+
+    poser_mode.adopt_imported_clips(ctx, result)
+
+    names = [c["name"] for c in state.clips["clips"]]
+    assert names.count("walk") == 1, "the existing clip must not be replaced"
+    assert "walk_2" in names
+    original = next(c for c in state.clips["clips"] if c["name"] == "walk")
+    assert original["keys"] == original_keys, "the original clip's own keys are untouched"
+    assert state.clip == "walk_2", "the newly imported clip is the one selected"
+
+
+def test_imported_pose_names_never_overwrite_working_copy_poses():
+    ctx, state = _clip_ctx()
+    original_a = dict(state.key_pose("A")["bones"])
+    result = _import_result(
+        name="run",
+        poses={"A": {"bones": {"spine": [0.0, 0.3894183, 0.0, 0.9210610]}}},
+        keys=["A"],
+    )
+    result["source_name"] = "mixamo_run.fbx"
+
+    poser_mode.adopt_imported_clips(ctx, result)
+
+    assert state.key_pose("A")["bones"] == original_a, "the working copy's own pose is untouched"
+    assert state.key_pose("A 2") is not None, "the imported pose is renamed instead"
+    assert state.key_pose("A 2")["bones"] == {"spine": [0.0, 0.3894183, 0.0, 0.9210610]}
+    imported = next(c for c in state.clips["clips"] if c["name"] == "run")
+    assert imported["keys"] == ["A 2"], "the clip's own key list follows the rename"
+
+
+def test_import_clip_is_disabled_without_blender_with_a_reason():
+    from warlock.studio.panes.poser_clips import _import_clip_reason
+
+    assert (
+        _import_clip_reason(False, True, False)
+        == "Importing an animation needs Blender, which is not installed."
+    )
+    assert (
+        _import_clip_reason(True, False, False)
+        == "This skeleton has no clip library to import into."
+    )
+    assert _import_clip_reason(True, True, True) == "Still importing."
+    assert _import_clip_reason(True, True, False) == ""
+
+
+def test_import_clip_is_disabled_with_a_reason_while_a_skeleton_edit_is_open():
+    """P6 (2026-09-13): master hides the whole Clips section while a skeleton
+    edit is open because every control in it reads or writes the armature's
+    pose; this branch keeps "Import clip..." drawn through that state instead
+    (``poser_clips.draw``'s comment), so it must say why it is greyed rather
+    than pretend Blender or the library is the reason. Checked first: even
+    with Blender missing and no library at all, this is still the one true
+    reason while a skeleton edit is open."""
+    from warlock.studio.panes.poser_clips import _import_clip_reason
+
+    assert (
+        _import_clip_reason(True, True, False, True)
+        == "Apply or cancel the skeleton edit first."
+    )
+    assert (
+        _import_clip_reason(False, False, True, True)
+        == "Apply or cancel the skeleton edit first."
+    )
+    assert _import_clip_reason(True, True, False, False) == ""
+
+
+def test_import_clip_submits_nothing_while_a_skeleton_edit_is_open():
+    """The button is disabled, but a disabled button only stops a mouse -- a
+    keyboard shortcut or an agent's own call still has to go through
+    ``poser_mode.import_clip`` itself, so the refusal has to live here too,
+    not only in the pane's reason string."""
+    ctx, state = _clip_ctx()
+    state.skeleton_editing = True
+
+    assert poser_mode.import_clip(ctx) is False
+    assert ctx.submitted == []
+
+
+def test_saving_after_an_import_keeps_where_the_clip_came_from(monkeypatch):
+    """``source`` rides in the working copy untouched, the same
+    ``test_saving_keeps_the_provisional_flag`` argument -- so a later Save
+    keeps the file it came from, the map that was used, and the date."""
+    from warlock.service import clips as svc_clips
+
+    ctx, state = _clip_ctx()
+    result = _import_result(name="run")
+    result["source_name"] = "mixamo_run.fbx"
+    poser_mode.adopt_imported_clips(ctx, result)
+
+    def fake_save(svc, template, payload):
+        return {**payload, "template": template, "edited": True}
+
+    monkeypatch.setattr(svc_clips, "save", fake_save)
+    poser_mode.save_clips(ctx)
+    sent = ctx.results[poser_mode.CLIPS_SAVE_KEY]
+    saved = next(c for c in sent["clips"] if c["name"] == "run")
+    assert saved["source"]["file"] == "mixamo_run.fbx"
+    assert saved["source"]["map"] == "mixamo"
 
 
 # --- rotation space ---------------------------------------------------------

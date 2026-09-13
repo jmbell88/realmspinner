@@ -422,7 +422,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 | Collision | `collision.glb` | A simplified collision shape. |
 | Textures | `textures.zip` | The texture images on their own. |
 | Rigged GLB | `rig.glb` | Present once the mesh has been rigged. |
-| Animated GLB | `animated.glb` | The rig with every authored clip baked on as a named glTF animation — idle, walk, run, attack, jump. Needs Blender and a rig on one of the four skeletons that ship with clips. |
+| Animated GLB | `animated.glb` | The rig with every authored clip baked on as a named glTF animation — ten per skeleton (idle, walk, run, attack, jump, plus five newer, provisional ones). Needs Blender and a rig on one of the four skeletons that ship with clips. Rebuilt automatically, the next time it's requested, after a clip is edited. |
 | Reference image | `input.png` | The picture the mesh was reconstructed from. |
 
 Only `model.glb` and `source.glb` come out of the job itself. Everything else is produced the first

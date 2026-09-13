@@ -8,11 +8,13 @@ thread directly, the same way :mod:`agent_resources`'s static resources are
 answered, and for the same reason.
 
 **Every tool a prompt's rendered text names is checked against the real
-tool list**, not assumed to still exist: ``tests/test_agent_prompts.py``
-scans every prompt's rendered text for ``clay_\\w+``/``warlock_\\w+`` tokens
-and asserts each one is a real tool name from ``agent_clay.tools()`` plus
+tool list**, not assumed to still exist: ``tests/mcp/test_rpc_studio.py``
+scans every prompt's rendered text for ``clay_\\w+``/``warlock_\\w+``/
+``character_\\w+`` tokens and asserts each one is a real tool name from
+``agent_clay.tools()`` plus ``agent_character.tools()`` plus
 ``agent_host.STATUS_TOOL``. The constants below (``_ADD_PRIMITIVE`` and the
-rest) exist so a rename of the underlying tool is a one-line fix here
+rest, plus the ``_CHARACTER_*`` ones the one character-pipeline prompt
+uses) exist so a rename of the underlying tool is a one-line fix here
 instead of a search-and-replace across every prompt's prose, but the
 regression that actually matters is the scan, not the constants -- a prompt
 that hand-typed a stale name would still be caught."""
@@ -43,6 +45,14 @@ _OP = "clay_op"
 _ELEMENT_MODE = "clay_element_mode"
 _SELECT_BY = "clay_select_by"
 _REFERENCE_ADD = "clay_reference_add"
+
+# The character pipeline's own tools, named here for the identical reason
+# the Clay constants above are -- see the module docstring.
+_CHARACTER_OPTIONS = "character_options"
+_CHARACTER_CREATE = "character_create"
+_CHARACTER_JOB = "character_job"
+_CHARACTER_SHEET_PREVIEW = "character_sheet_preview"
+_CHARACTER_EXPORT = "character_export"
 
 
 def _model_from_description(args: dict[str, Any]) -> str:
@@ -91,6 +101,35 @@ def _prepare_for_export(args: dict[str, Any]) -> str:
         f"and fix what it finds (see the repair_mesh prompt for the loop), confirm the "
         f"scale and grounding with {_SCENE} and {_RENDER}, then call {_EXPORT}. If "
         f"{_EXPORT} refuses, its message names what to fix -- do not retry blind."
+    )
+
+
+def _character_sheets_from_description(args: dict[str, Any]) -> str:
+    description = args["description"]
+    movements = args.get("movements")
+    movements_clause = (
+        f"movements: [{movements}]"
+        if movements
+        else "movements omitted, so the resolved species' own default set is used"
+    )
+    return (
+        f"Build a character sheet matching this description: {description}\n\n"
+        f"Call {_CHARACTER_OPTIONS} first to see the live vocabulary this "
+        f"build ships, then {_CHARACTER_CREATE} with prompt={description!r}, "
+        f"{movements_clause}, and directions: 8. It queues both the mesh "
+        f"and its rig in one call and returns mesh_job_id and rig_job_id.\n\n"
+        f"Poll {_CHARACTER_JOB} on the returned rig_job_id (the mesh's own "
+        f"job id reports the same thing too) until its follow_up_sheet_job "
+        f"names a job, then poll {_CHARACTER_JOB} on that job until it is "
+        f"done. If the rig itself ends in error, follow_up_sheet_job never "
+        f"appears -- read follow_up_failure (or the rig job's own error) "
+        f"off that same {_CHARACTER_JOB} reply and stop, rather than poll "
+        f"forever for a sheet that will not come. Look at the finished "
+        f"sheet with {_CHARACTER_SHEET_PREVIEW}, then hand it off with "
+        f"{_CHARACTER_EXPORT} in each of animated_glb, godot_scene and "
+        f"frame_folders. A movement named as part of a 'set' means nothing "
+        f"beyond appearing in that movements list -- there is no other "
+        f"bookkeeping to it."
     )
 
 
@@ -169,6 +208,26 @@ _PROMPTS: dict[str, _Prompt] = {
                 }
             ],
             _prepare_for_export,
+        ),
+        _Prompt(
+            "character_sheets_from_description",
+            "Character sheet from a description",
+            "Build a character and export it as a sprite sheet from a plain-text "
+            "description.",
+            [
+                {
+                    "name": "description",
+                    "description": "What to build, in plain language.",
+                    "required": True,
+                },
+                {
+                    "name": "movements",
+                    "description": "A comma-separated list of movements to render. "
+                    "Omit to use the resolved species' own default set.",
+                    "required": False,
+                },
+            ],
+            _character_sheets_from_description,
         ),
     )
 }

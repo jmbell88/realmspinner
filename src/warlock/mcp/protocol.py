@@ -440,7 +440,17 @@ def _resource_prompt_method(
     if method == "resources/templates/list":
         if not has_id:
             return None
-        result = {"templates": []}
+        # Found 2026-09-13 in the character-pipeline brief: this used to answer
+        # `{"templates": []}`, a key the MCP spec never uses -- every era from
+        # 2024-11-05 through 2026-07-28 names this result's array
+        # `resourceTemplates` (`{"resourceTemplates": [...], "nextCursor"?:
+        # ...}`), the same key `resources/list` uses for `resources`. A client
+        # reading the spec's own key got nothing back. Warlock has no
+        # resource templates to report (Studio's private RPC v1 `resources`
+        # op carries its own `templates` list, an unrelated wire -- see
+        # `rpc.py` -- that this method has never consulted), so the array
+        # stays empty; only its key changes.
+        result = {"resourceTemplates": []}
         if modern:
             result.update(
                 ttlMs=60000, cacheScope="public", resultType="complete", _meta=server_info_meta

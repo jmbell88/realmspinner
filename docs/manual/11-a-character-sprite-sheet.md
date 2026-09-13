@@ -54,16 +54,20 @@ A Character sheet defaults to three movements across eight directions:
 | Walk | 8 | yes | 100 ms |
 | Attack | 6 | no | 80 ms |
 
-Eighteen frames in eight directions is 144 cells, at 64 pixels and 32 colours. Switch on the other
-two — **Run** and **Jump** — and you have the full five, 32 frames per direction and 256 cells,
-which is what Troupe's own form defaults to.
+Eighteen frames in eight directions is 144 cells, at 64 pixels and 32 colours. Each of the three can
+be switched off on its own. This screen offers only these three — the ones every species needs to
+read as alive — but the door behind it accepts any clip a character's skeleton actually defines, and
+on the four shipped body plans that is ten now, not three: idle, walk, run, attack, jump, plus five
+newer ones (attack_02, cast, fall, hit, death) still marked provisional. For the wider set, or for
+choosing **Style** (Pixel art or HD) and **Frame rate**, build the sheet from Troupe's own form once
+the character exists — [Troupe → The options](34-troupe.md#the-options) covers both.
 
 Eight directions clockwise from front in 45° steps. Each movement can be turned off or given a
 different frame count, and the direction count can be 1, 4, 8 or 16. A sheet warns above 256 cells
 and refuses above 512.
 
-Pixel sizes are 16, 24, 32, 48, 64, 96 and 128. Only 16, 32, 64 and 128 divide the render size
-evenly; the other three go through a documented resize.
+Pixel sizes are 16, 24, 32, 48, 64, 96, 128 and 256. Only 16, 32, 64, 128 and 256 divide the render
+size evenly; the other three go through a documented resize.
 
 One implementation detail with a visible consequence: each rendered frame is reduced to its final
 pixel size *before* the cells are packed, not after. A 256-cell sheet packed at render resolution

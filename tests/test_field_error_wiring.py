@@ -246,7 +246,11 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
         "theme": {"theme": "not-a-look"},
         "camera": {"camera": "nowhere"},
         "elevation": {"elevation": 200.0},
-        "animations": {"animations": {"flying": 4}},
+        # "flying" used to be this row's refusal, but the 2026-09-12 clip
+        # vocabulary opening (docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md)
+        # made any name legal, so it stopped being a refusal at all --
+        # "walk_front" now provokes the direction-suffix refusal instead.
+        "animations": {"animations": {"walk_front": 4}},
         "directions": {"directions": 3},
         "logical_size": {"logical_size": 17},
         "colors": {"colors": 7},

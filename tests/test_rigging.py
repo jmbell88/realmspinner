@@ -553,14 +553,18 @@ def test_an_oversized_user_clip_library_is_refused_before_being_read(tmp_path):
     """poser-04: parse_clip_library had no per-item count ceiling at all, so a
     library with more poses than service.clips._check_shape's own write-side
     MAX_LIBRARY_KEYS cap would allow parsed in full instead of being refused
-    the way the write door already refuses it."""
+    the way the write door already refuses it. The cap itself rose from 256
+    to 1024 on 2026-09-12 (schema v3, design decision D2) so that clips
+    imported from Mixamo/Rigify have room to sit beside the shipped ones
+    without silently landing on a ceiling sized for the original five --
+    the ``"at most 1024 key poses"`` text below moves if that cap ever does."""
     raw = {
         "poses": [
             {"name": f"p{i}", "bones": {}} for i in range(rigging.MAX_CLIP_LIBRARY_POSES + 1)
         ],
         "clips": [{"name": "idle", "keys": ["p0"], "segments": [1]}],
     }
-    with pytest.raises(ValueError, match="at most 256 key poses"):
+    with pytest.raises(ValueError, match="at most 1024 key poses"):
         rigging.parse_clip_library(raw)
 
     # And the read door built on it: a library this shape sitting on disk --
@@ -586,6 +590,62 @@ def test_a_clips_key_list_over_the_cap_is_refused():
     }
     with pytest.raises(ValueError, match="at most 64 keys"):
         rigging.parse_clip_library(raw)
+
+
+def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
+    """``shipped_clip_library`` used to check ``_clips is None`` and then
+    read the module global a *second* time (``library = _clips.get(...)``)
+    to actually fetch the library. Between those two reads is exactly the
+    window Poser's save door's ``invalidate_clips()`` can land in, on another
+    thread, once the cache is already warm -- and when it does, the second
+    read finds ``None`` and raises ``AttributeError: 'NoneType' object has
+    no attribute 'get'`` instead of simply serving the library this call had
+    already found present.
+
+    A real second thread would only land in that window *sometimes*, so this
+    forces it deterministically with ``sys.settrace``: fire
+    ``invalidate_clips()`` from a line-event callback right before the
+    function's own read of the cache executes, the same interruption point a
+    genuinely concurrent ``invalidate_clips()`` call would have to hit.
+    """
+    import inspect
+    import sys as sys_mod
+
+    # Warm the cache first -- the crash only reaches the vulnerable line when
+    # the None-check is skipped because the library is already loaded.
+    monkeypatch.setattr(rigging, "_clips", None)
+    rigging.shipped_clip_library("humanoid")
+    assert rigging._clips is not None
+
+    source_lines, start_line = inspect.getsourcelines(rigging.shipped_clip_library)
+    target_line = next(
+        start_line + offset
+        for offset, line in enumerate(source_lines)
+        if "library = " in line and ".get(template_key)" in line
+    )
+
+    fired = False
+
+    def tracer(frame, event, arg):
+        nonlocal fired
+        if (
+            not fired
+            and event == "line"
+            and frame.f_code is rigging.shipped_clip_library.__code__
+            and frame.f_lineno == target_line
+        ):
+            fired = True
+            rigging.invalidate_clips()
+        return tracer
+
+    sys_mod.settrace(tracer)
+    try:
+        result = rigging.shipped_clip_library("humanoid")
+    finally:
+        sys_mod.settrace(None)
+
+    assert fired, "the interruption point was never reached; the test no longer matches the source"
+    assert result["clips"]
 
 
 # --- the authored clip libraries --------------------------------------------
@@ -616,12 +676,19 @@ def test_every_template_with_a_clip_library_expands_to_the_frame_table(key, fram
     """The whole point of authoring a library: the frame table asks, and the
     library fills it exactly. A clip that expanded to one frame too few would
     reach the renderer as ``check_frame_counts``' ValueError an hour and 256
-    EEVEE frames later, so it is asked here, at every count Troupe offers."""
+    EEVEE frames later, so it is asked here, at every count Troupe offers.
+
+    Every clip the library defines, open-vocabulary and all -- not only the
+    legacy five -- and one direction each: the claim here is about the
+    per-clip frame table, and a library with ten clips at ``directions=8``
+    would trip ``MAX_CELLS`` for a reason this test is not about."""
     from warlock import clips
 
     library = rigging.clip_library(key)
     names = [c["name"] for c in library["clips"]]
-    layout = {"movements": [{"name": name, "frames": frames} for name in names]}
+    layout = {
+        "movements": [{"name": name, "frames": frames, "directions": 1} for name in names]
+    }
     records = clips.expand_clips(key, layout)
     assert set(records) == set(names)
     for name, rows in records.items():

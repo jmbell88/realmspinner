@@ -141,7 +141,7 @@ SEARCH_INDEX: tuple[SearchRow, ...] = (
     SearchRow(
         "advanced",
         "Allow AI agents to drive the Studio",
-        "Let a Model Context Protocol client build in Clay for you.",
+        "Let a Model Context Protocol client build in Clay and make characters for you.",
     ),
     SearchRow(
         "advanced", "Effective configuration", "Every setting this process actually runs on.",
@@ -651,7 +651,7 @@ def _layouts(ctx: Any) -> None:
 
 
 def _agents(ctx: Any) -> None:
-    """Whether a program on this machine may drive Clay through Warlock.
+    """Whether a program on this machine may build in Clay and make characters for you.
 
     Off on a fresh install, matching `docs/manual/42-app-settings.md`'s own
     claim: nothing listens until this switches on. Toggling it takes effect
@@ -672,9 +672,10 @@ def _agents(ctx: Any) -> None:
             help_text=(
                 "Lets a program that speaks the Model Context Protocol -- "
                 "Claude Code, Codex, anything with an MCP client already "
-                "running on this machine -- build in Clay for you. Warlock "
-                "still runs no language model of its own and reaches no "
-                "endpoint; an agent that is already running connects to it, "
+                "running on this machine -- build in Clay and make characters "
+                "for you. Warlock still runs no language model of its own "
+                "and reaches no endpoint; an agent that is already running "
+                "connects to it, "
                 "never the other way round."
             ),
             helper="Takes effect at once -- no restart.",

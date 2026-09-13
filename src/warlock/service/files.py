@@ -810,11 +810,20 @@ DERIVED_IMAGE = ("input.webp", "input.jpg")
 #: for has nothing to animate, which is ``create_charsheet``'s refusal in
 #: another door.
 #:
-#: **No staleness rule**: existence is the freshness test, which is why
-#: ``derive`` stages the export and renames it in. A Blender that dies part way
-#: through would otherwise leave a truncated file that is served for the life
-#: of the job directory -- ``model.fbx``'s incident, on the one other artifact
-#: a subprocess writes.
+#: **Digest staleness, not bare existence** (design decision D6): existence
+#: alone could never reach a clip edited in Poser after the bake, or a clip
+#: newly shipped for a template that already has an ``animated.glb`` -- the
+#: file would sit there correct-looking and permanently behind. So ``derive``
+#: stamps the clip library's own ``clips.library_digest`` into the file's root
+#: extras the moment the export lands, and a request compares that stamp
+#: against the template's *current* digest, rebaking on a mismatch (or on a
+#: file too mangled to carry one) rather than trusting that presence means
+#: current. ``derive`` still stages the export and renames it in regardless --
+#: a Blender that dies part way through would otherwise leave a truncated file
+#: that is served for the life of the job directory, ``model.fbx``'s incident,
+#: on the one other artifact a subprocess writes -- so the digest answers
+#: "is this the right file" and the stage-then-replace still answers "is it a
+#: whole one".
 DERIVED_RIG = ("animated.glb",)
 
 #: The stem artifacts, as the names ``MEDIA`` and ``LISTED`` know them.

@@ -166,6 +166,45 @@ def test_a_character_mints_a_built_done_model_row_and_one_rig_row(svc, blender, 
     assert len(svc.store.list(limit=50)) == 2
 
 
+def test_a_character_recipe_asking_for_hit_and_death_creates_its_sheet_row(svc, blender):
+    """A recipe may name any clip its archetype's own library defines, per
+    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- not
+    only the closed legacy five (``idle``/``walk``/``run``/``attack``/``jump``)
+    ``charsheet.ANIMATIONS`` used to enumerate. Naming ``hit``/``death`` --
+    real clips the humanoid archetype's library defines -- gets a sheet row
+    whose layout names them; at HEAD, ``Recipe``'s closed vocabulary check
+    refused either name before a character could even be built.
+    """
+    made = svc_characters.create_character(
+        svc, _recipe("human", animations={"hit": 4, "death": 6})
+    )
+    assert made["kind"] == "character"
+    row = svc.store.get(made["id"])
+    assert row["status"] == "done"
+    rig = svc.store.get(made["rig"])
+    spec = rig["params"]["troupe_sheet"]
+    assert {m["key"] for m in spec["layout"]["movements"]} == {"hit", "death"}
+
+
+def test_an_hd_recipe_sends_an_hd_sheet(svc, blender):
+    """``Recipe.pixel_art`` (D5 HD mode) used to be dropped on the floor
+    between the recipe and ``send_to_troupe``: colours, outline and dither
+    rode along regardless of the switch, and an HD request refuses any of
+    them outright (``service.troupe._check_options``: "pixel_art is off, so
+    there is no outline mode to set"). The recipe's own ``outline`` default
+    is "outer", not "none", so an HD recipe that touched nothing else used to
+    fail the very call ``create_character`` made to build it.
+    """
+    made = svc_characters.create_character(svc, _recipe("human", pixel_art=False))
+    spec = svc.store.get(made["rig"])["params"]["troupe_sheet"]
+    assert spec["pixel_art"] is False
+    for key in ("colors", "palette", "dither", "outline"):
+        assert key not in spec
+    # The size ladder still applies -- an HD sheet is still laid out at a
+    # chosen cell size, it is just never reduced into one.
+    assert spec["logical_size"] == 32
+
+
 def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blender):
     """A family states its skeleton exactly; measuring would guess it again.
 

@@ -136,6 +136,64 @@ def test_a_field_the_new_brief_says_nothing_about_goes_back_to_its_default():
     assert form["character_actions"] == AppState().form_2d["character_actions"]
 
 
+def test_the_create_pane_does_not_copy_a_look_the_species_lacks():
+    """settings_character-01 (the 2026-09-13 audit): ``_fill`` copied
+    ``resolution.theme`` verbatim even when the resolved species does not
+    paint it. "a swamp knight" filled ``character_family="knight"`` and
+    ``character_theme="swamp"`` -- a combination ``Recipe.from_dict`` refuses
+    by construction the instant Generate is pressed -- with nothing on screen
+    pointing at the species control that is actually the fix.
+
+    "swamp" is a real theme word -- just not one the Knight declares -- so the
+    honest outcome is :data:`THEME_UNSET`, the species' own look, exactly as
+    if the prompt had named no look at all.
+    """
+    fam = families()["knight"]
+    assert "swamp" not in {t.key for t in fam.themes}
+
+    form = _form("a swamp knight")
+    settings_character.sync_from_prompt(form)
+    assert form["character_family"] == "knight"
+    assert (
+        form["character_theme"] == settings_character.THEME_UNSET
+    ), "a look the species lacks must not land here"
+
+
+def test_a_look_from_the_previous_prompt_does_not_survive_a_species_that_lacks_it(ctx):
+    """settings_character-02 (the 2026-09-13 audit): leaving
+    ``character_theme`` untouched for a look the resolved species does not
+    paint just moved the accumulation bug one prompt later. "a fire ogre"
+    resolves a real look (the ogre's brief-default theme, per
+    ``characters/family.py``); "a swamp knight" then names a *different*
+    species and a look that species does not paint either -- and used to leave
+    "fire" sitting in the field, which ``recipe_kwargs`` sent straight to the
+    door for a theme the second prompt never even named.
+    """
+    ogre_themes = {t.key for t in families()["ogre"].themes}
+    assert "fire" in ogre_themes, "the fire-ogre case needs the ogre to offer fire"
+    knight_themes = {t.key for t in families()["knight"].themes}
+    assert "fire" not in knight_themes and "swamp" not in knight_themes
+
+    form = _form("a fire ogre")
+    settings_character.sync_from_prompt(form)
+    assert (form["character_family"], form["character_theme"]) == ("ogre", "fire")
+
+    form["prompt"] = "a swamp knight"
+    settings_character.sync_from_prompt(form)
+    assert form["character_family"] == "knight"
+    assert form["character_theme"] == settings_character.THEME_UNSET, (
+        "the ogre's theme rode onto the knight"
+    )
+
+    opts = settings_character.options(ctx)
+    kwargs = settings_character.recipe_kwargs(form, opts)
+    assert "theme" not in kwargs
+    # Built through the real door: proves the knight accepts this recipe with
+    # no theme refusal, not just that this pane stopped sending one.
+    recipe = Recipe.from_dict(kwargs)
+    assert recipe.family == "knight"
+
+
 def test_a_species_change_via_the_prompt_drops_a_touched_appearance_slider():
     """troupe-02 (2026-09-07 audit): only the manual combo in ``_family()``
     cleared a touched appearance slider on a species change -- a species named

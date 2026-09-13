@@ -59,7 +59,10 @@ def test_at_128px_the_atlas_is_the_one_the_plan_measured(spec):
 
 def test_only_the_power_of_two_rungs_divide_the_render_exactly(spec):
     assert spec.render_size == 512
-    assert spec.exact_sizes() == (16, 32, 64, 128)
+    # 256 divides 512 exactly too -- it is not a rung that stopped being one,
+    # ``charsheet.SIZES`` legitimately grew it (see
+    # ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``).
+    assert spec.exact_sizes() == (16, 32, 64, 128, 256)
 
 
 def test_every_cell_is_placed_once_and_the_grid_is_dense(spec):
