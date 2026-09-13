@@ -646,3 +646,80 @@ def test_legacy_client_lists_and_reads_resources_and_prompts_over_a_real_subproc
     finally:
         proc.stdin.close()
         proc.wait(timeout=WAIT)
+
+
+def _modern_meta_with_tasks() -> dict:
+    return {
+        "_meta": {
+            protocol.MODERN_META_KEY: protocol.MODERN[0],
+            "io.modelcontextprotocol/clientCapabilities": {
+                "extensions": {protocol.TASKS_EXTENSION: {}}
+            },
+        }
+    }
+
+
+def test_a_modern_client_polls_a_task_augmented_call_to_completion(host) -> None:
+    """The whole chain, task mode: a real MCP client declares
+    `io.modelcontextprotocol/tasks`, gets a `CreateTaskResult` back for a
+    `tools/call` instead of blocking, and polls `tasks/get` (through the
+    real subprocess, through RPC v1's `status` op, against a real
+    `AgentHost`) until the task Studio actually ran reaches `completed`."""
+    _host, home = host
+    proc = _spawn(home)
+    try:
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": _modern_meta_with_tasks(),
+            },
+        )
+        reply = _readline(proc)
+        assert reply["result"]["capabilities"]["extensions"] == {protocol.TASKS_EXTENSION: {}}
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "clay_add_primitive",
+                    "arguments": {"generator": "box"},
+                    **_modern_meta_with_tasks(),
+                },
+            },
+        )
+        reply = _readline(proc)
+        result = reply["result"]
+        assert result["resultType"] == "task"
+        task_id = result["task"]["taskId"]
+        assert result["task"]["status"] in ("working", "completed")
+
+        deadline = time.monotonic() + WAIT
+        status = result["task"]["status"]
+        payload = None
+        while status not in ("completed", "failed", "cancelled") and time.monotonic() < deadline:
+            _send(
+                proc,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tasks/get",
+                    "params": {"taskId": task_id, **_modern_meta_with_tasks()},
+                },
+            )
+            reply = _readline(proc)
+            payload = reply["result"]
+            status = payload["status"]
+            if status not in ("completed", "failed", "cancelled"):
+                time.sleep(0.01)
+
+        assert status == "completed", payload
+        assert payload["result"]["isError"] is False
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=WAIT)

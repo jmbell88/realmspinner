@@ -179,6 +179,19 @@ DONE = "done"
 RAISED = "raised"
 DROPPED = "dropped"
 
+TASK_STATUS = {
+    QUEUED: "working",
+    RUNNING: "working",
+    DONE: "completed",
+    RAISED: "failed",
+    DROPPED: "cancelled",
+}
+"""The MCP Tasks extension's own five words for a ``_Job``'s five states --
+see ``rpc.py``'s ``call``/`status`` op docs. There is no sixth mapping for
+``input_required``: no Warlock tool ever asks for input mid-run (RPC v1's
+``status`` op has nothing to answer a ``tasks/update`` with, and refuses it
+outright -- see ``bridge.py``)."""
+
 MAX_REMEMBERED_CALLS = 16
 """How many operations one connection's dedup store (:class:`_Calls`) holds
 onto at once, oldest evicted first. What is actually retained is small: an
@@ -307,6 +320,36 @@ class _Op:
     state: str = QUEUED  # the last observed state; authoritative once ``job`` is None
     result: Any = None  # the reply worth replaying; None once delivered, or never kept
     delivered: bool = False
+    task_mode: bool = False
+    """Minted by ``call`` with ``wait: false`` (:meth:`AgentHost._call_task`),
+    never by the ordinary blocking path. A task-mode op is excluded from
+    :meth:`_Calls.pending`'s fingerprint dedup (see that method's own
+    docstring for why) and is what :meth:`_Calls.mint`'s eviction has to
+    protect -- see :data:`MAX_REMEMBERED_CALLS`."""
+    args: dict | None = None
+    """Task mode only: the call's own arguments, kept only until this
+    operation's first terminal ``status`` fetch records it to the transcript
+    (:func:`_record_completed_call`) -- the blocking path never needs this
+    (its arguments are still in the caller's own local scope when it
+    records), but a task-mode operation's producing call and its recording
+    call are two different RPC requests, arbitrarily far apart in time, so
+    something has to carry the arguments across that gap. Dropped (set back
+    to ``None``) the moment they are used, for the same reason ``job`` and
+    ``result`` are let go once delivered -- see this class's own docstring."""
+    fetched: bool = False
+    """Task mode only: whether this operation's terminal result (``result``,
+    which for a task-mode op is the raw reply *bytes*, never a dict -- see
+    :meth:`AgentHost._task_status`) has been handed to a ``status`` RPC op
+    at least once. The retention rule (:meth:`_Calls.mint`'s eviction) is:
+    a *working* task (queued/running) is never evicted, and a *completed or
+    failed* task's result is kept until it has been fetched at least once,
+    then it is evictable like any other operation. One fetch, not a ttl or a
+    fetch count, because the one payload this matters for in practice is a
+    ``clay_render``'s base64 image (the same worry :func:`_carries_an_image`
+    already names for the replay path) -- a client that has already read a
+    render once has no reason to ask again, and a client that never asks at
+    all still cannot pin memory forever once :data:`MAX_REMEMBERED_CALLS`
+    other operations have been minted behind it."""
 
     def status(self, lock: threading.Lock) -> str:
         """This operation's state now. While ``job`` is held the frame thread
@@ -342,17 +385,50 @@ class _Calls:
         self._ops: dict[str, _Op] = {}
         self._minted = 0
 
-    def mint(self, tool: str, args: dict) -> _Op:
+    def mint(self, tool: str, args: dict, *, task_mode: bool = False) -> _Op:
         """A fresh operation id and its intent fingerprint, remembered as
-        undelivered. Evicts the oldest when the store is already at
-        ``MAX_REMEMBERED_CALLS``."""
+        undelivered. Evicts one existing operation when the store is already
+        at ``MAX_REMEMBERED_CALLS`` -- the oldest *evictable* one, not simply
+        the oldest: a task-mode operation that is still working (queued or
+        running), or one that finished but has never been fetched (see
+        ``_Op.fetched``), must survive eviction pressure, or a client polling
+        a slow task could lose the only handle to it while it is still
+        running. If every operation happens to be protected (all fifteen
+        others are working tasks), the oldest is evicted anyway -- the
+        memory bound is the harder constraint than any one operation's
+        survival, and this is the same trade a hard ``MAX_FRAME`` already
+        makes elsewhere in this module.
+
+        Read without ``AgentHost._job_lock``: the state this consults is a
+        snapshot, exactly as tolerant as every other unlocked read in this
+        module (e.g. ``queue_depth``) -- a task that finishes in the instant
+        between this check and the eviction is, at worst, evicted one mint
+        early, which only costs a client a `not_found` on its next `status`
+        poll rather than corrupting anything."""
         if len(self._ops) >= MAX_REMEMBERED_CALLS:
-            oldest = next(iter(self._ops))
-            del self._ops[oldest]
+            victim = None
+            for oid, op in self._ops.items():
+                if op.task_mode:
+                    job = op.job
+                    state = job.state if job is not None else op.state
+                    if state in (QUEUED, RUNNING):
+                        continue  # still working -- protected
+                    if not op.fetched:
+                        continue  # finished, but never fetched -- protected
+                victim = oid
+                break
+            if victim is None:
+                victim = next(iter(self._ops))
+            del self._ops[victim]
         # Incremented before use, so the first minted id is op-1, not op-0.
         self._minted += 1
         operation_id = f"op-{self._minted}"
-        op = _Op(operation_id=operation_id, fingerprint=_fingerprint(tool, args), tool=tool)
+        op = _Op(
+            operation_id=operation_id,
+            fingerprint=_fingerprint(tool, args),
+            tool=tool,
+            task_mode=task_mode,
+        )
         self._ops[operation_id] = op
         return op
 
@@ -360,9 +436,19 @@ class _Calls:
         """The newest remembered operation with the same intent whose result
         never reached the peer, or ``None``. Newest first, because an agent
         retrying means the most recent attempt, not some earlier one that
-        has since been superseded."""
+        has since been superseded.
+
+        A task-mode operation is never matched here -- see the judgement
+        call in this module's own notes: a task-mode call is polled
+        explicitly by operation id (``status``), so there is no ambiguous
+        "did my retry already run?" moment for dedup to resolve, and folding
+        a fresh ``wait: false`` call into a matching *blocking* one's memory
+        (or vice versa) would answer one calling convention with the other's
+        bookkeeping."""
         fingerprint = _fingerprint(tool, args)
         for op in reversed(self._ops.values()):
+            if op.task_mode:
+                continue
             if op.fingerprint == fingerprint and not op.delivered:
                 return op
         return None
@@ -744,8 +830,20 @@ class AgentHost:
         if op == "call":
             name = message.get("tool")
             arguments = message.get("args")
-            if not isinstance(name, str) or not name or not isinstance(arguments, dict):
+            wait = message.get("wait", True)
+            if (
+                not isinstance(name, str)
+                or not name
+                or not isinstance(arguments, dict)
+                or not isinstance(wait, bool)
+            ):
                 return rpc.encode_reply(rpc.bad_request_header())
+            if not wait:
+                # Task mode: never touches the dedup/replay machinery below,
+                # and never waits on the frame thread at all -- see
+                # `_call_task`'s own docstring. No body, per `rpc.py`'s docs
+                # for `call`'s `wait: false` reply.
+                return rpc.encode_reply(self._call_task(session, calls, name, arguments))
             result = self._call(session, calls, name, arguments)
             body = json.dumps(result, separators=(",", ":")).encode("utf-8")
             # The catalogue hash, not a hash of this call's own result: the
@@ -764,6 +862,16 @@ class AgentHost:
             if self._served_catalogue_hash is None:
                 self._served_catalogue_hash = self._catalogue_hash()
             return rpc.encode_reply({"hash": self._served_catalogue_hash}, body)
+        if op == "status":
+            operation_id = message.get("operation_id")
+            if not isinstance(operation_id, str) or not operation_id:
+                return rpc.encode_reply(rpc.bad_request_header())
+            return self._task_status(calls, operation_id)
+        if op == "cancel":
+            operation_id = message.get("operation_id")
+            if not isinstance(operation_id, str) or not operation_id:
+                return rpc.encode_reply(rpc.bad_request_header())
+            return self._cancel_task(calls, operation_id)
         if op == "resources":
             return rpc.encode_reply(
                 {"resources": agent_resources.list_resources(), "templates": []}
@@ -1206,6 +1314,125 @@ class AgentHost:
             if job.state == QUEUED:
                 job.state = DROPPED
             return job, job.result, job.error, job.state
+
+    def _queue_job_nowait(self, run: Any) -> _Job | None:
+        """Queue *run* for :meth:`pump` and return immediately -- never
+        blocks, unlike :meth:`_run_on_frame_job`. This is the whole reason a
+        task-mode call (``call`` with ``wait: false``) is exempt from
+        ``CALL_TIMEOUT``: there is no wait here for a timeout to cut short.
+        ``None`` if the agent server is switched off, the same early-out
+        :meth:`_run_on_frame_job` gives for the same reason."""
+        q = self._queue
+        if q is None or self._stopped.is_set():
+            return None
+        job = _Job(run)
+        q.put(job)
+        return job
+
+    def _call_task(
+        self, session: agent_clay.Session, calls: _Calls, name: str, arguments: dict
+    ) -> dict[str, Any]:
+        """Task mode: the ``call`` RPC v1 op's ``wait: false`` path. Mints an
+        operation, queues the job without waiting for it at all, and returns
+        the header ``call`` itself would put on the wire when told not to
+        wait -- ``{"operation_id": ..., "status": ...}``. Never deduped
+        against a pending blocking call (:meth:`_Calls.pending` skips
+        task-mode operations) and never replayed: a task-mode caller already
+        has the one durable handle it needs (``operation_id``) and asks
+        ``status`` about it directly, so there is nothing for a second
+        identical ``wait: false`` call to stand in for.
+
+        ``STATUS_TOOL`` is not special-cased here the way :meth:`_call`
+        special-cases it -- a client driving tasks asks the RPC v1 ``status``
+        op, not this tool, so there is no busy-frame-thread problem for
+        ``warlock_status`` to solve in task mode."""
+        op = calls.mint(name, arguments, task_mode=True)
+        op.args = arguments
+        job = self._queue_job_nowait(lambda: agent_clay.call(self.ctx, session, name, arguments))
+        if job is None:
+            op.state, op.delivered, op.job = DROPPED, True, None
+            return {"operation_id": op.operation_id, "status": TASK_STATUS[DROPPED]}
+        op.job = job
+        return {"operation_id": op.operation_id, "status": TASK_STATUS[QUEUED]}
+
+    def _task_status(self, calls: _Calls, operation_id: str) -> bytes:
+        """The ``status`` RPC v1 op. Reads (and, on a terminal state seen for
+        the first time, retires) one task-mode operation's ``_Job``.
+
+        The first poll to observe a terminal state (``DONE``/``RAISED``) is
+        also this operation's *one* recording point for
+        ``WARLOCK_AGENT_TRANSCRIPT`` (see :func:`_record_completed_call`) --
+        deliberately here, on the first terminal observation, rather than at
+        mint time or at every later fetch: recording at mint time would log
+        a call before it produced anything, and recording on every fetch
+        would log a completed task's one real answer as many transcript
+        lines as a client happened to poll it. Once this method has pulled
+        the job's outcome off it and set ``op.job = None``, every later call
+        for the same id reads the cached bytes on ``op.result`` instead and
+        cannot record a second time -- there is no path back into the branch
+        that calls :func:`_record_completed_call`. A ``DROPPED`` (cancelled)
+        operation is never recorded, matching :meth:`_call`'s own rule that a
+        job which never ran is not tier-two data."""
+        from ..mcp import rpc
+
+        op = calls.get(operation_id)
+        if op is None:
+            return rpc.encode_reply({"error": {"code": "not_found"}})
+
+        with self._job_lock:
+            job = op.job
+            state = job.state if job is not None else op.state
+
+        status = TASK_STATUS[state]
+        if status not in ("completed", "failed"):
+            return rpc.encode_reply({"operation_id": operation_id, "status": status})
+
+        if job is not None:
+            with self._job_lock:
+                result, error, final_state = job.result, job.error, job.state
+                op.job = None
+                op.state = final_state
+            if error is not None:
+                body = json.dumps(
+                    rpc.fail(f"{type(error).__name__}: {error}"), separators=(",", ":")
+                ).encode("utf-8")
+            elif final_state == DONE and result is not None:
+                _record_completed_call(op.tool, op.args or {}, result)
+                body = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            else:
+                body = json.dumps(rpc.fail("the call raised with no result.")).encode("utf-8")
+            op.args = None
+            op.result = body
+            status = TASK_STATUS[final_state]
+        else:
+            body = op.result if isinstance(op.result, bytes) else b"{}"
+        op.fetched = True
+        return rpc.encode_reply({"operation_id": operation_id, "status": status}, body)
+
+    def _cancel_task(self, calls: _Calls, operation_id: str) -> bytes:
+        """The ``cancel`` RPC v1 op: ``queued -> dropped``, compare-and-set,
+        under the same lock :meth:`pump` claims a job with. A job already
+        ``running`` cannot be stopped -- cancellation is cooperative, per the
+        MCP Tasks extension's own ``tasks/cancel`` -- so this reports
+        whatever status the job is actually in, not the status the caller
+        asked for."""
+        from ..mcp import rpc
+
+        op = calls.get(operation_id)
+        if op is None:
+            return rpc.encode_reply({"error": {"code": "not_found"}})
+
+        job = op.job
+        if job is None:
+            return rpc.encode_reply({"operation_id": operation_id, "status": TASK_STATUS[op.state]})
+        with self._job_lock:
+            if job.state == QUEUED:
+                job.state = DROPPED
+                job.event.set()
+            state = job.state
+        if state == DROPPED:
+            op.state, op.job, op.delivered = DROPPED, None, True
+        return rpc.encode_reply({"operation_id": operation_id, "status": TASK_STATUS[state]})
 
     def _toast(self, text: str) -> None:
         """Queue a toast for :meth:`pump` to raise. ``ctx.toast`` reaches

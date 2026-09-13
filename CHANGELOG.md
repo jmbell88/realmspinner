@@ -20,6 +20,24 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**A 2026-07-28 client that declares the MCP Tasks extension gets a task
+handle instead of holding a thirty-second wait.** A client declaring
+`io.modelcontextprotocol/tasks` has its `tools/call` answered at once with a
+task. It polls `tasks/get` for `working`, `completed`, `failed` or
+`cancelled`, and a slow boolean or export no longer hits `CALL_TIMEOUT`,
+because a task-mode call is exempt from it. Where work runs is unchanged: the
+frame thread, synchronously. `tasks/cancel` can only stop a call that has not
+started. `tasks/update` is refused, since no tool asks for input mid-run, and
+`tasks/list` is refused rather than answered with an empty list while tasks
+exist. A client that does not declare the extension, and every
+`initialize`-era client, keeps the ordinary synchronous result; the 2025-11-25
+draft's experimental tasks are deliberately not implemented. Other rules: a
+working task is never evicted from the remembered-call store, a finished
+result is held until first fetched, task calls do not take part in retry
+deduplication, and the transcript records a task once. The result nesting
+follows the extension's prose, which gives no worked JSON example, so it is
+the part most likely to need adjusting against a real client.
+
 **An agent can read Clay's scene, last render and registries as MCP
 resources, and start from four prompts.** Resources:
 `warlock://clay/scene`, `warlock://clay/render/last`,

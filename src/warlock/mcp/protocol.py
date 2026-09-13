@@ -121,6 +121,74 @@ MODERN_META_KEY = "io.modelcontextprotocol/protocolVersion"
 `"protocolVersion"` (no namespace) is also accepted, for a client that has
 not adopted the namespaced key yet."""
 
+TASKS_EXTENSION = "io.modelcontextprotocol/tasks"
+"""The MCP Tasks extension's own namespaced key, per the ext-tasks spec
+(https://github.com/modelcontextprotocol/ext-tasks, protocol revision
+`2026-07-28`). A modern-era client declares support for it in
+`params._meta["io.modelcontextprotocol/clientCapabilities"]["extensions"]`
+on *every* request (the spec's per-request capability model, not a one-time
+negotiation); the bridge advertises the same key in `server/discover`'s
+`capabilities.extensions`.
+
+**Only the modern (`2026-07-28`), no-`initialize` era gets tasks -- legacy
+clients never see this capability, and their `_meta` shape does not carry a
+per-request `clientCapabilities` object to declare it in anyway.** This
+module also does **not** implement the legacy family's own, older,
+experimental "tasks" mechanism from `2025-11-25`'s draft core spec
+(`tasks/create`, `tasks/result`) -- that draft never shipped as a stable
+extension, superseded by this one, and a legacy client asking for it gets
+the ordinary `-32601 unknown method` any other unsupported legacy method
+gets, not a task.
+
+**Server-directed, but this bridge's policy is the simplest honest one:**
+the spec leaves it up to the server whether any given request becomes a
+task; this bridge turns *every* `tools/call` from a client that declared the
+extension into a task (`call` with `wait: false` on the RPC v1 side) rather
+than picking case by case which tools are "long-running" -- Studio already
+tracks a call's real state (`_Job`'s five states) regardless of how it was
+asked for, so there is no cost to always minting a durable handle, and no
+hand-kept "which tools are slow" list to fall out of date."""
+
+TASK_TTL_MS = 300000
+"""How long a minted task id is promised meaningful for, in the
+`CreateTaskResult`/`tasks/get` reply's `ttlMs` -- five minutes, matched to
+this bridge's own `tools/list` cache hint (`ttlMs=60000` times five) rather
+than to anything Studio actually enforces: `_Calls`' own bound is
+`MAX_REMEMBERED_CALLS`, not a clock, so a task id can in practice go stale
+sooner (evicted under pressure -- though never while still working, see
+`studio/agent_host.py::_Calls.mint`) or later (nothing else is competing for
+the slot) than this hint promises. It is a hint, not a guarantee, exactly as
+the spec's own `ttlMs` is documented to be."""
+
+TASK_POLL_INTERVAL_MS = 500
+"""The `pollIntervalMs` hint handed back with every task -- a compromise
+between a client hammering `tasks/get` (every RPC v1 `status` op is a full
+round trip to Studio's pipe) and noticing completion quickly; unmeasured,
+picked as "a few times a frame budget's worth of app-perceived latency," not
+tuned against a real slow tool yet."""
+
+
+def _client_declares_tasks(params: Any) -> bool:
+    """Whether *params* (one request's own `params`, modern era) declares
+    the MCP Tasks extension in `_meta`'s per-request `clientCapabilities`.
+    Per the spec, this is asked on *every* request, not negotiated once --
+    but `BridgeEra` (below) latches the first `True` it sees for the
+    connection's life, the same "decided once, by the first request" rule
+    this module already gives the era itself, since Studio's own RPC v1 has
+    no per-call capability concept for the bridge to thread through."""
+    if not isinstance(params, dict):
+        return False
+    meta = params.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    caps = meta.get("io.modelcontextprotocol/clientCapabilities")
+    if not isinstance(caps, dict):
+        return False
+    extensions = caps.get("extensions")
+    if not isinstance(extensions, dict):
+        return False
+    return TASKS_EXTENSION in extensions
+
 
 def _meta_version(params: Any) -> Any:
     """The modern-era protocol version named in *params*'s `_meta`, or
@@ -151,6 +219,12 @@ class BridgeEra:
     def __init__(self) -> None:
         self.era: str | None = None
         self.legacy_version: str | None = None
+        self.tasks: bool = False
+        """Latched `True` the first time a modern-era request on this
+        connection declares :data:`TASKS_EXTENSION` -- see
+        :func:`_client_declares_tasks`. Always `False` for a legacy
+        connection: see that constant's own docstring for why legacy never
+        gets tasks at all."""
 
 
 def _error_bytes(msg_id: Any, code: int, message: str, data: Any = None) -> bytes:
@@ -198,12 +272,21 @@ def splice_tool_result(msg_id: Any, body: bytes, *, meta: dict[str, Any] | None 
 
 
 def discover_result(
-    *, instructions: str | None, server_name: str, server_version: str
+    *,
+    instructions: str | None,
+    server_name: str,
+    server_version: str,
+    tasks: bool = False,
 ) -> dict[str, Any]:
     """The `server/discover` result object, modern era. `capabilities`
     advertises `resources` and `prompts` alongside `tools` -- both empty
     objects, the same "this exists, nothing further to negotiate" shape
-    `tools` already used."""
+    `tools` already used. *tasks* adds `capabilities.extensions` naming
+    :data:`TASKS_EXTENSION` -- only when the request this answers already
+    declared it (see :func:`_client_declares_tasks`), per the extension's
+    own rule that a server must never offer a task to a client that never
+    asked for one; a client that never declares it sees no `extensions` key
+    at all, not an empty one."""
     result: dict[str, Any] = {
         "supportedVersions": list(LEGACY) + list(MODERN),
         "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
@@ -212,9 +295,62 @@ def discover_result(
         "resultType": "complete",
         "_meta": {"serverInfo": {"name": server_name, "version": server_version}},
     }
+    if tasks:
+        result["capabilities"]["extensions"] = {TASKS_EXTENSION: {}}
     if instructions:
         result["instructions"] = instructions
     return result
+
+
+def _create_task_result_bytes(
+    msg_id: Any, operation_id: str, status: str, *, server_info_meta: dict[str, Any]
+) -> bytes:
+    """A `CreateTaskResult` (`resultType: "task"`), replacing the ordinary
+    spliced `tools/call` reply when this connection declared
+    :data:`TASKS_EXTENSION` -- see that constant's own docstring for why
+    every `tools/call` on such a connection becomes one. The exact nesting
+    of `taskId`/`status`/`ttlMs`/`pollIntervalMs` inside a `task` object
+    (rather than flattened onto the result) is this module's own reading of
+    the ext-tasks overview page's prose -- the overview names the fields but
+    shows no worked JSON example of this particular result, unlike
+    `server/discover`'s and `tools/call`'s own, which this module matches
+    byte-for-byte."""
+    task = {
+        "taskId": operation_id,
+        "status": status,
+        "ttlMs": TASK_TTL_MS,
+        "pollIntervalMs": TASK_POLL_INTERVAL_MS,
+    }
+    result = {"resultType": "task", "task": task, "_meta": server_info_meta}
+    return _result_bytes(msg_id, result)
+
+
+def _tasks_get_bytes(msg_id: Any, task_id: str, status: str, body: bytes | None) -> bytes:
+    """One `tasks/get` reply, built the same never-`json.loads` way
+    `splice_tool_result` builds a `tools/call` reply: *body* (already
+    serialised elsewhere -- Studio's RPC v1 `status` op reply, spliced
+    verbatim, see `rpc.py`'s docs for that op) becomes the `result` field
+    when *status* is `"completed"`, or the `error` field when it is
+    `"failed"` -- the ext-tasks overview's own two names for a terminal
+    task's payload. No worked JSON example of this shape was available
+    either (see :func:`_create_task_result_bytes`'s note); `error` here
+    holds whatever `fail()` shape Studio already produced for a raised call
+    rather than a strict JSON-RPC `{code, message}` error object, which is
+    the honest approximation for a codebase where "a tool failing is not a
+    JSON-RPC error" is a load-bearing rule (see this module's own opening
+    docstring) -- there is no JSON-RPC error object to hand back for what a
+    tool-level exception was never treated as."""
+    task_json = json.dumps({"taskId": task_id, "status": status}, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    if body is None:
+        result = task_json
+    else:
+        head = task_json[:-1]  # drop the trailing '}'
+        key = b'"result":' if status == "completed" else b'"error":'
+        result = head + b"," + key + body + b"}"
+    id_json = json.dumps(msg_id).encode("utf-8")
+    return b'{"jsonrpc":"2.0","id":' + id_json + b',"result":' + result + b"}"
 
 
 def _legacy_initialize(
@@ -400,6 +536,9 @@ def _dispatch_one(
     call_tool: Callable[[str, dict[str, Any]], bytes],
     read_resource: Callable[[str], dict[str, Any] | None] | None = None,
     get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
+    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str]] | None = None,
+    get_task: Callable[[str], tuple[str, bytes | None] | None] | None = None,
+    cancel_task: Callable[[str], str | None] | None = None,
 ) -> bytes | None:
     """One JSON-RPC request or notification, either era. `None` means "this
     was a notification -- say nothing", the same convention `dispatch`
@@ -440,8 +579,13 @@ def _dispatch_one(
     if method == "server/discover":
         if state.era is None:
             state.era = "modern"
+        if state.era == "modern" and _client_declares_tasks(params):
+            state.tasks = True
         result = discover_result(
-            instructions=instructions, server_name=server_name, server_version=server_version
+            instructions=instructions,
+            server_name=server_name,
+            server_version=server_version,
+            tasks=state.era == "modern" and state.tasks,
         )
         return _result_bytes(msg_id, result) if has_id else None
 
@@ -493,7 +637,68 @@ def _dispatch_one(
         )
     if not has_id:
         return None
+    if _client_declares_tasks(params):
+        state.tasks = True
     server_info_meta = {"serverInfo": {"name": server_name, "version": server_version}}
+    if method == "tools/call" and state.tasks and call_tool_task is not None:
+        # Absent the extension (or this bridge session with nothing to
+        # reach Studio's task-mode `call` with), every `tools/call` falls
+        # through to the ordinary synchronous path below -- the core
+        # fallback the MCP spec itself calls for when an extension was
+        # never declared.
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            return _error_bytes(msg_id, -32602, "tools/call needs a string 'name'")
+        arguments = params.get("arguments", {}) or {}
+        if not isinstance(arguments, dict):
+            return _error_bytes(msg_id, -32602, "'arguments' must be an object")
+        operation_id, status = call_tool_task(name, arguments)
+        return _create_task_result_bytes(
+            msg_id, operation_id, status, server_info_meta=server_info_meta
+        )
+    if method == "tasks/get":
+        task_id = params.get("taskId")
+        if not isinstance(task_id, str) or not task_id:
+            return _error_bytes(msg_id, -32602, "tasks/get needs a string 'taskId'")
+        if get_task is None:
+            return _error_bytes(msg_id, -32601, f"unknown method: {method}")
+        found = get_task(task_id)
+        if found is None:
+            return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
+        status, body = found
+        return _tasks_get_bytes(msg_id, task_id, status, body)
+    if method == "tasks/cancel":
+        task_id = params.get("taskId")
+        if not isinstance(task_id, str) or not task_id:
+            return _error_bytes(msg_id, -32602, "tasks/cancel needs a string 'taskId'")
+        if cancel_task is None:
+            return _error_bytes(msg_id, -32601, f"unknown method: {method}")
+        status = cancel_task(task_id)
+        if status is None:
+            return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
+        return _result_bytes(msg_id, {"taskId": task_id, "status": status})
+    if method == "tasks/list":
+        # Studio's own `_Calls` store (per Studio connection, not per bridge
+        # MCP connection) is where task state actually lives; this bridge
+        # keeps no task registry of its own to list from. A client that
+        # wants to know about a task it already minted uses `tasks/get`,
+        # which this bridge answers for real. An empty list would be a lie
+        # while tasks exist, so the method is refused as unknown rather than
+        # inventing a registry duplicating Studio's.
+        return _error_bytes(msg_id, -32601, "tasks/list is not supported; use tasks/get")
+    if method == "tasks/update":
+        # No Warlock tool ever asks for input mid-run (see `TASKS_EXTENSION`
+        # and `agent_host.TASK_STATUS`'s own docs -- `input_required` is
+        # never produced), so there is never an outstanding
+        # `inputRequests` entry for this to answer. Refused outright rather
+        # than acknowledged as a no-op: acknowledging would tell a client
+        # its input was accepted when nothing was ever waiting for it.
+        return _error_bytes(
+            msg_id,
+            -32602,
+            "no tool accepts input mid-run; there is nothing to update",
+            data={"taskId": params.get("taskId")},
+        )
     if method == "tools/list":
         result = {
             "tools": catalogue.get("tools", []),
@@ -556,6 +761,9 @@ def bridge_dispatch(
     call_tool: Callable[[str, dict[str, Any]], bytes],
     read_resource: Callable[[str], dict[str, Any] | None] | None = None,
     get_prompt: Callable[[str, dict[str, Any]], Any] | None = None,
+    call_tool_task: Callable[[str, dict[str, Any]], tuple[str, str]] | None = None,
+    get_task: Callable[[str], tuple[str, bytes | None] | None] | None = None,
+    cancel_task: Callable[[str], str | None] | None = None,
 ) -> bytes | None:
     """One line of stdin, from an MCP client, answered as one line of
     stdout (or `None` for "nothing to send": an all-notification batch, or a
@@ -593,6 +801,9 @@ def bridge_dispatch(
                 call_tool=call_tool,
                 read_resource=read_resource,
                 get_prompt=get_prompt,
+                call_tool_task=call_tool_task,
+                get_task=get_task,
+                cancel_task=cancel_task,
             )
             for item in parsed
         ]
@@ -611,5 +822,8 @@ def bridge_dispatch(
         call_tool=call_tool,
         read_resource=read_resource,
         get_prompt=get_prompt,
+        call_tool_task=call_tool_task,
+        get_task=get_task,
+        cancel_task=cancel_task,
     )
     return None if reply is None else reply + b"\n"

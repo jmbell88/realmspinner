@@ -135,7 +135,15 @@ def _ok_call_tool(name, args):
 
 
 def _dispatch(
-    payload, state, catalogue=None, call_tool=_ok_call_tool, read_resource=None, get_prompt=None
+    payload,
+    state,
+    catalogue=None,
+    call_tool=_ok_call_tool,
+    read_resource=None,
+    get_prompt=None,
+    call_tool_task=None,
+    get_task=None,
+    cancel_task=None,
 ):
     raw = json.dumps(payload).encode("utf-8")
     reply = p.bridge_dispatch(
@@ -145,11 +153,241 @@ def _dispatch(
         call_tool=call_tool,
         read_resource=read_resource,
         get_prompt=get_prompt,
+        call_tool_task=call_tool_task,
+        get_task=get_task,
+        cancel_task=cancel_task,
     )
     if reply is None:
         return None
     assert reply.endswith(b"\n")
     return json.loads(reply)
+
+
+def _modern_meta_with_tasks(version=None):
+    return {
+        "_meta": {
+            p.MODERN_META_KEY: version or p.MODERN[0],
+            "io.modelcontextprotocol/clientCapabilities": {
+                "extensions": {p.TASKS_EXTENSION: {}}
+            },
+        }
+    }
+
+
+# --- MCP Tasks extension ----------------------------------------------------------
+
+
+def test_tasks_extension_negotiated_only_when_client_declares_it() -> None:
+    state = p.BridgeEra()
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": _modern_meta_with_tasks(),
+        },
+        state,
+    )
+    assert reply["result"]["capabilities"]["extensions"] == {p.TASKS_EXTENSION: {}}
+    assert state.tasks is True
+
+
+def test_tasks_extension_absent_when_not_declared() -> None:
+    state = p.BridgeEra()
+    reply = _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    assert "extensions" not in reply["result"]["capabilities"]
+    assert state.tasks is False
+
+
+def test_legacy_client_never_sees_the_tasks_capability() -> None:
+    state = p.BridgeEra()
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": p.LEGACY[0],
+                "capabilities": {"extensions": {p.TASKS_EXTENSION: {}}},
+            },
+        },
+        state,
+    )
+    assert "extensions" not in reply["result"]["capabilities"]
+    assert state.tasks is False
+
+
+def test_absent_extension_task_augmented_call_served_synchronously() -> None:
+    """No `call_tool_task` wired up (the core fallback) -- and even with one
+    wired up, a client that never declared the extension gets the ordinary
+    spliced result, never a `CreateTaskResult`."""
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    called = []
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "clay_scene", "arguments": {}, **_modern_meta()},
+        },
+        state,
+        call_tool_task=lambda name, args: called.append((name, args)) or ("op-1", "working"),
+    )
+    assert not called
+    assert reply["result"]["resultType"] == "complete"
+    assert reply["result"]["content"] == [{"type": "text", "text": "ran clay_scene"}]
+
+
+def test_task_augmented_call_returns_create_task_result() -> None:
+    state = p.BridgeEra()
+    discover_params = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": _modern_meta_with_tasks(),
+    }
+    _dispatch(discover_params, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "clay_scene", "arguments": {}, **_modern_meta_with_tasks()},
+        },
+        state,
+        call_tool_task=lambda name, args: ("op-1", "working"),
+    )
+    result = reply["result"]
+    assert result["resultType"] == "task"
+    assert result["task"]["taskId"] == "op-1"
+    assert result["task"]["status"] == "working"
+    assert result["task"]["ttlMs"] == p.TASK_TTL_MS
+    assert result["task"]["pollIntervalMs"] == p.TASK_POLL_INTERVAL_MS
+
+
+def test_tasks_get_completed_splices_result_body_byte_identical() -> None:
+    state = p.BridgeEra()
+    discover_params = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": _modern_meta_with_tasks(),
+    }
+    _dispatch(discover_params, state)
+    body = json.dumps(p.ok(p.text("ran clay_scene")), separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tasks/get",
+            "params": {"taskId": "op-1", **_modern_meta_with_tasks()},
+        }
+    ).encode("utf-8")
+    reply_bytes = p.bridge_dispatch(
+        raw,
+        state,
+        catalogue=_catalogue(),
+        call_tool=_ok_call_tool,
+        get_task=lambda tid: ("completed", body),
+    )
+    # Never re-serialized: `body` must appear verbatim, byte for byte, inside
+    # the reply -- not merely produce an equal-after-reparsing object.
+    assert body in reply_bytes
+    reply = json.loads(reply_bytes)
+    result = reply["result"]
+    assert result["taskId"] == "op-1"
+    assert result["status"] == "completed"
+    assert result["result"] == json.loads(body)
+
+
+def test_tasks_get_working_has_no_result_field() -> None:
+    state = p.BridgeEra()
+    discover_params = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": _modern_meta_with_tasks(),
+    }
+    _dispatch(discover_params, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tasks/get",
+            "params": {"taskId": "op-1", **_modern_meta_with_tasks()},
+        },
+        state,
+        get_task=lambda task_id: ("working", None),
+    )
+    assert reply["result"] == {"taskId": "op-1", "status": "working"}
+
+
+def test_tasks_cancel_ok() -> None:
+    state = p.BridgeEra()
+    discover_params = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": _modern_meta_with_tasks(),
+    }
+    _dispatch(discover_params, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tasks/cancel",
+            "params": {"taskId": "op-1", **_modern_meta_with_tasks()},
+        },
+        state,
+        cancel_task=lambda task_id: "cancelled",
+    )
+    assert reply["result"] == {"taskId": "op-1", "status": "cancelled"}
+
+
+def test_tasks_update_is_refused() -> None:
+    """No Warlock tool ever needs mid-run input, so `tasks/update` always
+    refuses -- there is never an outstanding input request to answer."""
+    state = p.BridgeEra()
+    discover_params = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": _modern_meta_with_tasks(),
+    }
+    _dispatch(discover_params, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tasks/update",
+            "params": {"taskId": "op-1", "inputResponses": {}, **_modern_meta_with_tasks()},
+        },
+        state,
+    )
+    assert "error" in reply
+    assert reply["error"]["code"] == -32602
+
+
+def test_tasks_list_is_refused_rather_than_answered_empty_while_tasks_exist() -> None:
+    """The bridge keeps no task registry; an empty list would claim no tasks
+    exist when Studio may be running several."""
+    state = p.BridgeEra()
+    _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": _modern_meta_with_tasks(),
+        },
+        state,
+    )
+    reply = _dispatch(
+        {"jsonrpc": "2.0", "id": 2, "method": "tasks/list", "params": _modern_meta_with_tasks()},
+        state,
+    )
+    assert "result" not in reply
+    assert reply["error"]["code"] == -32601
 
 
 # --- legacy era ----------------------------------------------------------------

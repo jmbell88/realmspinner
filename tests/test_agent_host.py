@@ -1355,3 +1355,262 @@ def test_a_transcript_that_cannot_be_written_does_not_break_the_call(
     assert returned is result
 
 
+
+
+# =============================================================================
+# Task mode: `call` with `wait: false`, RPC v1 `status`/`cancel` --
+# the MCP Tasks extension's own vocabulary, mapped onto `_Job`'s five states.
+# =============================================================================
+
+
+def test_task_status_maps_each_job_state() -> None:
+    assert agent_host.TASK_STATUS[agent_host.QUEUED] == "working"
+    assert agent_host.TASK_STATUS[agent_host.RUNNING] == "working"
+    assert agent_host.TASK_STATUS[agent_host.DONE] == "completed"
+    assert agent_host.TASK_STATUS[agent_host.RAISED] == "failed"
+    assert agent_host.TASK_STATUS[agent_host.DROPPED] == "cancelled"
+
+
+def test_call_task_mints_an_operation_and_returns_immediately_without_a_result() -> None:
+    """The listener thread must never block for a task-mode call -- proven
+    here by never running pump() at all and still getting a header back
+    with no body, status "working"."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    header = host._call_task(session, calls, "clay_scene", {})
+
+    assert header["status"] == "working"
+    op = calls.get(header["operation_id"])
+    assert op is not None
+    assert op.task_mode is True
+    assert host._queue.qsize() == 1  # queued, not run
+
+
+def test_task_mode_call_is_exempt_from_call_timeout(monkeypatch) -> None:
+    """Patch CALL_TIMEOUT tiny, wait well past it with nothing pumping,
+    then pump late -- a task-mode call must still complete, because
+    _call_task never waited on it in the first place."""
+    monkeypatch.setattr(agent_host, "CALL_TIMEOUT", 0.01)
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        return {"content": [{"type": "text", "text": "late but fine"}], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    time.sleep(0.2)  # well past the shrunken CALL_TIMEOUT; nothing is pumping
+
+    host.pump(budget=1.0)  # only now does the job actually run
+
+    body_reply = host._task_status(calls, header["operation_id"])
+    status_header, body = rpc.split_reply(body_reply)
+    assert status_header["status"] == "completed"
+    assert json.loads(body)["content"][0]["text"] == "late but fine"
+
+
+def test_task_status_reports_completed_and_splices_the_result_body(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    payload = {"content": [{"type": "text", "text": "the answer"}], "isError": False}
+    monkeypatch.setattr(agent_clay, "call", lambda ctx, session, name, arguments: payload)
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    host.pump(budget=1.0)
+
+    reply = host._task_status(calls, header["operation_id"])
+    status_header, body = rpc.split_reply(reply)
+    assert status_header["status"] == "completed"
+    assert json.loads(body) == payload
+
+
+def test_task_status_reports_working_before_pump_runs_it() -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    header = host._call_task(session, calls, "clay_scene", {})
+
+    reply = host._task_status(calls, header["operation_id"])
+    status_header, body = rpc.split_reply(reply)
+    assert status_header["status"] == "working"
+    assert body == b""
+
+
+def test_task_status_reports_failed_for_a_job_that_raised(monkeypatch) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    def boom(ctx, session, name, arguments):  # noqa: ARG001
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(agent_clay, "call", boom)
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    host.pump(budget=1.0)
+
+    reply = host._task_status(calls, header["operation_id"])
+    status_header, body = rpc.split_reply(reply)
+    assert status_header["status"] == "failed"
+    assert b"kaboom" in body
+
+
+def test_task_status_unknown_operation_id_is_not_found() -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    reply = host._task_status(calls, "op-does-not-exist")
+    header, _body = rpc.split_reply(reply)
+    assert header["error"]["code"] == "not_found"
+
+
+def test_cancel_a_queued_task_drops_it_before_it_runs() -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    header = host._call_task(session, calls, "clay_scene", {})
+
+    reply = host._cancel_task(calls, header["operation_id"])
+    status_header, _body = rpc.split_reply(reply)
+    assert status_header["status"] == "cancelled"
+
+    host.pump(budget=1.0)  # the tombstone is drained, never runs the tool
+    status_reply = host._task_status(calls, header["operation_id"])
+    status_header, _body = rpc.split_reply(status_reply)
+    assert status_header["status"] == "cancelled"
+
+
+def test_cancel_a_running_task_is_not_honored(monkeypatch) -> None:
+    """A started job cannot be cancelled -- the compare-and-set only ever
+    succeeds queued -> dropped. Cancellation is cooperative, per the MCP
+    Tasks extension's own semantics."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_call(ctx, session, name, arguments):  # noqa: ARG001
+        started.set()
+        assert release.wait(WAIT), "release never came"
+        return {"content": [], "isError": False}
+
+    monkeypatch.setattr(agent_clay, "call", fake_call)
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    stop_pumping = threading.Event()
+    pumper = threading.Thread(target=_pump_loop, args=(host, stop_pumping), daemon=True)
+    pumper.start()
+    try:
+        assert started.wait(WAIT), "the job never started running"
+        reply = host._cancel_task(calls, header["operation_id"])
+        status_header, _body = rpc.split_reply(reply)
+        assert status_header["status"] == "working"  # still running, not cancelled
+    finally:
+        release.set()
+        stop_pumping.set()
+        pumper.join(timeout=WAIT)
+
+
+def test_a_working_task_survives_max_remembered_calls_eviction_pressure() -> None:
+    """A task-mode operation still queued or running must never be evicted
+    by _Calls.mint's bound, even under sustained pressure -- unlike an
+    ordinary (non-task) operation, which this store has always been willing
+    to evict regardless of state."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    # Never pumped: this job stays QUEUED (working) for the whole test.
+    working = host._call_task(session, calls, "clay_scene", {"tag": "protect-me"})
+    protected_id = working["operation_id"]
+
+    for i in range(agent_host.MAX_REMEMBERED_CALLS + 8):
+        calls.mint("clay_scene", {"i": i})
+
+    assert calls.get(protected_id) is not None
+    assert len(calls.recent(agent_host.MAX_REMEMBERED_CALLS + 8)) == agent_host.MAX_REMEMBERED_CALLS
+
+
+def test_a_completed_tasks_result_is_retained_until_first_fetch_then_evictable(
+    monkeypatch,
+) -> None:
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    monkeypatch.setattr(
+        agent_clay, "call", lambda ctx, session, name, arguments: {"content": [], "isError": False}
+    )
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    host.pump(budget=1.0)
+    op = calls.get(header["operation_id"])
+    assert op.fetched is False
+
+    # Not yet fetched: protected from eviction even though it is terminal.
+    for i in range(agent_host.MAX_REMEMBERED_CALLS + 4):
+        calls.mint("clay_scene", {"i": i})
+    assert calls.get(header["operation_id"]) is not None
+
+    host._task_status(calls, header["operation_id"])
+    op = calls.get(header["operation_id"])
+    assert op.fetched is True
+
+    # Fetched once: now an ordinary evictable operation.
+    for i in range(agent_host.MAX_REMEMBERED_CALLS + 4):
+        calls.mint("clay_scene", {"j": i})
+    assert calls.get(header["operation_id"]) is None
+
+
+def test_task_mode_call_does_not_participate_in_fingerprint_dedup(monkeypatch) -> None:
+    """A task-mode operation is never matched by _Calls.pending -- two
+    identical wait:false calls each get their own operation id, and a
+    matching blocking call does not treat a pending task as its own retry
+    either."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    first = host._call_task(session, calls, "clay_scene", {"a": 1})
+    second = host._call_task(session, calls, "clay_scene", {"a": 1})
+    assert first["operation_id"] != second["operation_id"]
+    assert calls.pending("clay_scene", {"a": 1}) is None
+
+
+def test_a_task_mode_call_is_recorded_in_the_transcript_exactly_once(tmp_path, monkeypatch) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    monkeypatch.setenv(agent_host.TRANSCRIPT_ENV, str(transcript))
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+    monkeypatch.setattr(
+        agent_clay, "call", lambda ctx, session, name, arguments: {"content": [], "isError": False}
+    )
+
+    header = host._call_task(session, calls, "clay_scene", {"a": 1})
+    host.pump(budget=1.0)
+
+    host._task_status(calls, header["operation_id"])
+    host._task_status(calls, header["operation_id"])  # a second fetch: no second recording
+
+    lines = transcript.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+
+
+def test_a_dropped_task_is_never_recorded(tmp_path, monkeypatch) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    monkeypatch.setenv(agent_host.TRANSCRIPT_ENV, str(transcript))
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    header = host._call_task(session, calls, "clay_scene", {})
+    host._cancel_task(calls, header["operation_id"])
+    host.pump(budget=1.0)
+    host._task_status(calls, header["operation_id"])
+
+    assert not transcript.exists()

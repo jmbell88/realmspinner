@@ -54,6 +54,32 @@ as JSON text) and this module never touches its contents.
   this field on every single call (two different tool results hash
   differently) and make the bridge believe the catalogue moved after every
   ordinary call.
+* `call` -- as above, and now also accepts an optional `wait` field (default
+  `true`). `wait: false` is task mode: Studio mints an operation id, queues
+  the job, and replies **immediately**, before the job has necessarily run,
+  with header `{"operation_id": ..., "status": "working"}` and no body. The
+  listener thread never blocks for a task-mode call, so it is exempt from
+  `CALL_TIMEOUT` -- see `studio/agent_host.py::AgentHost._call_task`. `status`
+  in this header (and in the `status`/`cancel` replies below) is always one
+  of the MCP Tasks extension's own words -- `working`, `completed`, `failed`,
+  `cancelled` -- mapped from a `_Job`'s five states: `queued`/`running` ->
+  `working`, `done` -> `completed`, `raised` -> `failed`, `dropped` ->
+  `cancelled`. `input_required` (the fifth MCP Tasks status) is never
+  produced: no Warlock tool asks for input mid-run.
+* `status` -- request carries `operation_id` (an id `call` with `wait: false`
+  minted). Reply header is `{"operation_id": ..., "status": ...}`, or
+  `{"error": {"code": "not_found"}}` for an id this connection's `_Calls`
+  store does not (or no longer) hold. When `status` is `completed` or
+  `failed`, the body is the raw tool result bytes -- spliced by the bridge
+  into a `tasks/get` reply, exactly as `call`'s own body is spliced into
+  `tools/call`, and never `json.loads`-ed here either.
+* `cancel` -- request carries `operation_id`. A compare-and-set:
+  `queued -> dropped` succeeds and the reply reports `cancelled`; a job that
+  has already started (`running`) cannot be stopped, so cancellation is
+  cooperative and the reply reports whatever `status` the job is actually in
+  now (usually still `working`) -- the same "acknowledge the intent, do not
+  promise it happened" contract the MCP Tasks extension's own `tasks/cancel`
+  describes. No body, either way.
 * Anything else -- `{"error": {"code": "unknown_op"}}`.
 * A request this module cannot decode at all (oversize, not JSON, not an
   object) -- `{"error": {"code": "bad_request"}}`.

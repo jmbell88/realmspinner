@@ -261,6 +261,84 @@ class _Session:
         self._maybe_refresh_catalogue(new_hash)
         return body
 
+    def call_tool_task(self, name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+        """The `call_tool_task` callback `protocol.bridge_dispatch` invokes
+        for a `tools/call` on a connection that declared
+        :data:`protocol.TASKS_EXTENSION` -- the task-mode counterpart to
+        :meth:`call_tool`. Sends RPC v1's `call` with `wait: false` and
+        returns straight back with `(operation_id, status)`: this is a
+        short, ordinary RPC (mint-and-queue, never a wait on Studio's frame
+        thread), so it gets the **same** `call_timeout + 5s` backstop as any
+        other quick RPC v1 round trip -- unlike a `status` poll for a task
+        already running, there is nothing here that could legitimately run
+        long, since Studio's own `_call_task` never blocks either.
+
+        On any of the three ways this can fail to reach Studio for real
+        (nothing listening, a timed-out poll, a lost connection), there is
+        no operation id to hand back -- the caller could not have started
+        anything -- so this reports a synthetic `"cancelled"` task rather
+        than raising: the caller (`protocol._dispatch_one`) still owes the
+        MCP client a `CreateTaskResult`, and `"cancelled"` is the one status
+        in the vocabulary that honestly means "nothing is going to happen
+        here."""
+        if not self._ensure_connected():
+            return "unavailable", "cancelled"
+        request = rpc.encode_request("call", tool=name, args=arguments, wait=False)
+        try:
+            self.conn.send_bytes(request)
+            if not self.conn.poll(self.call_timeout + 5.0):
+                self._disconnect()
+                return "unavailable", "cancelled"
+            header, _body = rpc.split_reply(self.conn.recv_bytes())
+        except (EOFError, OSError):
+            self._disconnect()
+            return "unavailable", "cancelled"
+        if "error" in header:
+            return "unavailable", "cancelled"
+        return header.get("operation_id", "unavailable"), header.get("status", "cancelled")
+
+    def get_task(self, task_id: str) -> tuple[str, bytes | None] | None:
+        """The `get_task` callback for `tasks/get` -- RPC v1's `status` op.
+        `None` for "no such task" (Studio unreachable, or an id it does not
+        recognise); otherwise `(status, body)` where *body* is the raw
+        result bytes Studio already spliced (never `json.loads`-ed here,
+        the same discipline :meth:`call_tool` already keeps), present only
+        for a terminal status."""
+        if not self._ensure_connected():
+            return None
+        request = rpc.encode_request("status", operation_id=task_id)
+        try:
+            self.conn.send_bytes(request)
+            if not self.conn.poll(self.call_timeout + 5.0):
+                self._disconnect()
+                return None
+            header, body = rpc.split_reply(self.conn.recv_bytes())
+        except (EOFError, OSError):
+            self._disconnect()
+            return None
+        if "error" in header:
+            return None
+        return header.get("status", "working"), (body or None)
+
+    def cancel_task(self, task_id: str) -> str | None:
+        """The `cancel_task` callback for `tasks/cancel` -- RPC v1's
+        `cancel` op. `None` for "no such task"."""
+        if not self._ensure_connected():
+            return None
+        request = rpc.encode_request("cancel", operation_id=task_id)
+        try:
+            self.conn.send_bytes(request)
+            if not self.conn.poll(self.call_timeout + 5.0):
+                self._disconnect()
+                return None
+            header, _body = rpc.split_reply(self.conn.recv_bytes())
+        except (EOFError, OSError):
+            self._disconnect()
+            return None
+        if "error" in header:
+            return None
+        return header.get("status")
+
     def _static_resource_from_catalogue(self, uri: str) -> dict[str, Any] | None:
         """A resource's MCP `contents` shape, built from this session's own
         catalogue -- only ever has anything for the three static Clay
@@ -434,6 +512,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 call_tool=session.call_tool,
                 read_resource=session.read_resource,
                 get_prompt=session.get_prompt,
+                call_tool_task=session.call_tool_task,
+                get_task=session.get_task,
+                cancel_task=session.cancel_task,
             )
             if reply is not None:
                 stdout.write(reply)

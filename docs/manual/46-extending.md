@@ -311,6 +311,16 @@ Exporting does what pressing the button does: it saves the model, writes a GLB, 
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Rigging,
 posing, sprite sheets and every mesh export work on it exactly as they work on anything else.
 
+**A client that supports MCP Tasks never has to wait on a slow call either.** If your agent's client
+declares the `io.modelcontextprotocol/tasks` extension, every tool call it makes comes back
+immediately as a task handle instead of an answer, and it polls for that answer at its own pace
+rather than holding the connection open. A client that never declares the extension sees no
+difference at all — it gets the ordinary answer, in the ordinary place, exactly as above. There is
+nothing to configure on Warlock's side beyond what your client already negotiates; the retry-safe
+behaviour described above (a call that outran a wait is recognised, not repeated) and task polling
+are two ways of asking the same underlying question — "what became of that call?" — and a client
+using tasks simply asks it its own way.
+
 ### Adding a tool
 
 `studio/agent_clay.py` is the surface and `studio/agent_host.py` is the plumbing. The important
