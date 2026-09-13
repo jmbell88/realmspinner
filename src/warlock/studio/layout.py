@@ -574,6 +574,19 @@ def _pane_fill(role: PaneRole) -> int:
     return theme.BG
 
 
+def divider(edge: PaneEdge) -> None:
+    """A hairline on ``edge`` of the child just ended. Public face of
+    :func:`_divider`, for a caller outside this module that draws its own
+    child rather than going through :func:`pane` -- Settings' category rail
+    is the first (its body draws into ``##content`` rather than through
+    ``pane``, per that function's own docstring, so it never gets one for
+    free). Call it immediately after the matching ``end_child()``: like
+    ``pane``'s own call, it reads the *last item*'s rect, which is the child
+    that just closed.
+    """
+    _divider(edge)
+
+
 def _divider(edge: PaneEdge) -> None:
     if edge is PaneEdge.NONE:
         return

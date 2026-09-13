@@ -385,7 +385,7 @@ rail's footer: amber when a warning fired, red for a fatal one or a dead GPU wor
 deliberately excluded — on a fresh install they are most of the list, and counting them said "28
 issue(s)" about an app with nothing wrong with it. The badge is
 not there at all when everything passed — a permanent "OK" badge is noise. Click it for the full
-list, a **Copy details** button and a shortcut to the log file. When nothing is failing, the same
+list, in Settings → Health, and a **Detail Log** button beside it. When nothing is failing, the same
 list is reachable from the command palette (Ctrl+K, "Issues").
 
 One non-fatal check gets a red banner anyway: the trellis port. The app is perfectly usable without

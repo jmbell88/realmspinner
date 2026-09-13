@@ -1073,6 +1073,36 @@ def test_the_landing_screen_builds_empty_and_with_something_to_resume(app_ctx, i
     _frame(imgui_ctx, lambda: landing.draw(app_ctx))
 
 
+def test_the_landing_columns_are_bordered_and_rounded_surfaces(app_ctx, imgui_ctx, monkeypatch):
+    """Task F: ``landing/quick`` and ``landing/resume`` were borderless,
+    unpadded children -- a scroller's content sat flush against its own
+    neighbour's, with nothing marking where one column ended and the next
+    began. ``_surface`` gives both a hairline border and ``RADIUS_L`` rounding,
+    the same registers ``widgets.card`` uses for a tile."""
+    from imgui_bundle import imgui
+
+    from warlock.studio import tokens
+    from warlock.studio.panes import landing
+
+    seen: dict[str, tuple[int, float]] = {}
+    real = imgui.begin_child
+
+    def spy(child_id, *args, **kwargs):
+        if child_id in ("landing/quick", "landing/resume"):
+            flags = args[1] if len(args) > 1 else kwargs.get("child_flags", 0)
+            seen[child_id] = (flags, imgui.get_style().child_rounding)
+        return real(child_id, *args, **kwargs)
+
+    monkeypatch.setattr(imgui, "begin_child", spy)
+    _frame(imgui_ctx, lambda: landing.draw(app_ctx))
+    for child_id in ("landing/quick", "landing/resume"):
+        assert child_id in seen, seen
+        flags, rounding = seen[child_id]
+        assert flags & imgui.ChildFlags_.borders.value, (child_id, flags)
+        assert flags & imgui.ChildFlags_.always_use_window_padding.value, (child_id, flags)
+        assert rounding == pytest.approx(tokens.sp(tokens.RADIUS_L)), (child_id, rounding)
+
+
 def test_the_landing_screen_builds_with_unsaved_work_to_offer(app_ctx, imgui_ctx):
     """The third state, and the one no seeded run reaches: a crash copy waiting.
 
@@ -1494,6 +1524,97 @@ def test_the_settings_pane_help_button_stays_inside_the_pane(app_ctx, imgui_ctx,
     _frame(imgui_ctx, build)
     assert "help_y" in seen, "the pane drew no help button at all"
     assert seen["help_y"] > seen["bar_y"], seen
+
+
+def test_the_settings_rail_help_button_stays_inside_the_rail(app_ctx, imgui_ctx, monkeypatch):
+    """T-2026-09-12: ``icon_button`` is ``get_frame_height()`` square, not the
+    ``sp(26)`` ``help_button`` used to reserve for it -- a settings rail
+    184dp wide overflowed by the difference, clipping the glyph's right edge
+    against the divider between the rail and the body.
+    """
+    from imgui_bundle import imgui
+
+    from warlock.studio import widgets
+    from warlock.studio.panes import app_settings
+
+    seen: dict[str, float] = {}
+    real = widgets.icon_button
+
+    def spy(*args, **kwargs):
+        clicked = real(*args, **kwargs)
+        # Captured from *inside* the spy, while the current window is still
+        # the rail child the button was just drawn into.
+        seen["button_right"] = imgui.get_item_rect_max().x
+        seen["rail_right"] = imgui.get_window_pos().x + imgui.get_window_size().x
+        return clicked
+
+    monkeypatch.setattr(widgets, "icon_button", spy)
+    _frame(imgui_ctx, lambda: app_settings.draw(app_ctx))
+    assert "button_right" in seen, "the rail drew no help button at all"
+    assert seen["button_right"] <= seen["rail_right"] + 0.5, seen
+
+
+def test_the_settings_rail_and_body_get_their_own_window_padding(app_ctx, imgui_ctx, monkeypatch):
+    """Task E: both children were unpadded borderless rects, drawn flush
+    against each other and against the pane's own edge -- ``always_use_window_
+    padding`` is what gives a *borderless* child any padding at all (the same
+    fix ``app-settings`` and ``landing/body`` already carry, per their own
+    comments)."""
+    from imgui_bundle import imgui
+
+    from warlock.studio.panes import app_settings
+
+    seen: dict[str, int] = {}
+    real = imgui.begin_child
+
+    def spy(child_id, *args, **kwargs):
+        if child_id in ("app-settings-categories", "app-settings-body"):
+            flags = args[1] if len(args) > 1 else kwargs.get("child_flags", 0)
+            seen[child_id] = flags
+        return real(child_id, *args, **kwargs)
+
+    monkeypatch.setattr(imgui, "begin_child", spy)
+    _frame(imgui_ctx, lambda: app_settings.draw(app_ctx))
+    want = imgui.ChildFlags_.always_use_window_padding.value
+    assert seen.get("app-settings-categories", 0) & want, seen
+    assert seen.get("app-settings-body", 0) & want, seen
+
+
+def test_the_health_pane_draws_its_actions_before_the_checks_table(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """Task D: the three actions -- Detail Log, Health Checks, Troubleshooting
+    -- act on the whole page, not on any one row, and used to sit *under* the
+    list: a reader who only wanted to copy the report scrolled past thirty
+    green checks to reach the button that does it."""
+    from imgui_bundle import imgui
+
+    from warlock.doctor import Check
+    from warlock.studio import controls
+    from warlock.studio.panes import app_settings
+
+    app_ctx.runtime.checks = [Check("trellis-server.exe", True, "found", fatal=False)]
+
+    order: list[str] = []
+    real_button = controls.button
+    real_begin_table = imgui.begin_table
+
+    def spy_button(label, *args, **kwargs):
+        if label == "Detail Log":
+            order.append("button")
+        return real_button(label, *args, **kwargs)
+
+    def spy_table(table_id, *args, **kwargs):
+        if table_id == "##health-checks":
+            order.append("table")
+            columns = args[0] if args else kwargs.get("column")
+            assert columns == 3, columns
+        return real_begin_table(table_id, *args, **kwargs)
+
+    monkeypatch.setattr(controls, "button", spy_button)
+    monkeypatch.setattr(imgui, "begin_table", spy_table)
+    _frame(imgui_ctx, lambda: app_settings._health(app_ctx))
+    assert order == ["button", "table"], order
 
 
 def test_the_settings_pane_draws_one_category_at_a_time(app_ctx, imgui_ctx, monkeypatch):

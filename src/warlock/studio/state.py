@@ -1441,7 +1441,7 @@ class AppState:
 
     @property
     def error_text(self) -> str:
-        """Every outstanding failure as one block -- what Copy details copies."""
+        """Every outstanding failure as one block -- what Detail Log copies."""
         return "\n".join(self.errors)
 
     # -- field-level refusals ----------------------------------------------

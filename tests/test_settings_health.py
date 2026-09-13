@@ -133,7 +133,7 @@ def test_all_passing_says_so_plainly():
     assert app_settings.health_summary(rows) == "Everything checks out."
 
 
-# --- Copy details -----------------------------------------------------------
+# --- Detail Log --------------------------------------------------------------
 
 
 def test_the_report_marks_the_failures_for_pasting():

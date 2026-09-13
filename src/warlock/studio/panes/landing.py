@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -517,6 +518,41 @@ def news_should_show(release: Any, seen: str) -> bool:
     return seen != release.version
 
 
+@contextmanager
+def _surface(surface_id: str, size: tuple[float, float]):
+    """A bordered, padded, rounded scroller. -> whether it is visible, exactly
+    as a bare ``imgui.begin_child`` would.
+
+    Not ``widgets.card``: a card's hover lift and ``no_scrollbar`` flag are
+    built for a fixed-size tile, and both of Home's two columns are scrollers
+    with their own content -- a lift that fires on hovering the scrollbar and
+    a scrollbar the flag would then hide are two bugs a card would add here
+    for a shape it was never drawing.
+
+    ``end_child`` runs in the ``finally`` regardless of what ``begin_child``
+    returned, matching every other pair in this module (imgui-bundle's own
+    contract): a hidden child still has to be closed.
+    """
+    pad = sp(tokens.SP_3)
+    imgui.push_style_var(imgui.StyleVar_.child_rounding.value, sp(tokens.RADIUS_L))
+    imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
+    imgui.push_style_var(imgui.StyleVar_.child_border_size.value, 1.0)
+    # The theme already paints ``Col_.border`` as ``EDGE`` (``theme.apply``),
+    # so this could ride that default -- pushed explicitly anyway, because a
+    # surface that only *happens* to be the right colour today is one a later
+    # theme change silently detunes, and a border is the one thing here with
+    # no other line of code asserting what colour it is.
+    imgui.push_style_color(imgui.Col_.border.value, imgui.ImVec4(*theme.rgba(theme.EDGE)))
+    flags = imgui.ChildFlags_.borders.value | imgui.ChildFlags_.always_use_window_padding.value
+    visible = imgui.begin_child(surface_id, size, flags)
+    try:
+        yield visible
+    finally:
+        imgui.end_child()
+        imgui.pop_style_color()
+        imgui.pop_style_var(3)
+
+
 def draw(ctx: Any) -> None:
     pump(ctx)
     _header(ctx)
@@ -538,21 +574,29 @@ def draw(ctx: Any) -> None:
         gap = imgui.get_style().item_spacing.x
         left_w = min(sp(390), max(avail * 0.34, sp(260)))
         left_w = min(left_w, max(avail - sp(300) - gap, avail * 0.48))
-        if imgui.begin_child("landing/quick", (left_w, 0)):
-            with widgets.section_blocks():
-                _recovery(ctx)
-                _tour_offer(ctx)
-                _news(ctx)
-                _start(ctx)
-                _status(ctx, status)
-                widgets.end_section()
-                _news_footer(ctx)
-        imgui.end_child()
+        # ``left_w`` sizes the *outer* rect of the column, which is what
+        # ``same_line`` and the sibling's own width still measure against --
+        # ``_surface``'s padding is the child's own window padding, spent on
+        # the inside of that rect, exactly as ``landing/body``'s already was.
+        # Nothing downstream reads a raw pixel count off the padded content:
+        # ``_news``, ``_card_margin`` and ``_resume``'s column count all ask
+        # ``get_content_region_avail()`` from inside the child they lay out,
+        # so each already sees the narrower, padded area on its own.
+        with _surface("landing/quick", (left_w, 0)) as visible:
+            if visible:
+                with widgets.section_blocks():
+                    _recovery(ctx)
+                    _tour_offer(ctx)
+                    _news(ctx)
+                    _start(ctx)
+                    _status(ctx, status)
+                    widgets.end_section()
+                    _news_footer(ctx)
         imgui.same_line()
-        if imgui.begin_child("landing/resume", (0, 0)):
-            with widgets.section_blocks():
-                _resume(ctx)
-        imgui.end_child()
+        with _surface("landing/resume", (0, 0)) as visible:
+            if visible:
+                with widgets.section_blocks():
+                    _resume(ctx)
     imgui.end_child()
 
 

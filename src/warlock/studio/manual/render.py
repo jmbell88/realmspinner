@@ -68,7 +68,13 @@ def help_button(ctx: Any, pane: str) -> None:
     target = HELP_TARGETS.get(pane)
     if target is None:
         return
-    offset = imgui.get_cursor_pos_x() + imgui.get_content_region_avail().x - sp(26)
+    # ``icon_button`` is ``get_frame_height()`` square (~30dp at scale 1), not
+    # the ``sp(26)`` this used to reserve -- a settings rail 184dp wide and
+    # right-padded by the child's own window padding overflowed by the
+    # difference, clipping the glyph's right edge against the divider.
+    offset = (
+        imgui.get_cursor_pos_x() + imgui.get_content_region_avail().x - imgui.get_frame_height()
+    )
     imgui.same_line(max(offset, 0.0))
     if widgets.icon_button(f"{icons.INFO}##help-{pane}", "Open the manual section"):
         open_at(ctx, target)
@@ -104,14 +110,25 @@ def open_at(ctx: Any, target: tuple[str, str | None]) -> None:
     ctx.state.manual.open_at(*target)
 
 
-def troubleshooting_button(ctx: Any, label: str = "Troubleshooting") -> bool:
-    """A small button onto the Troubleshooting chapter. -> whether it was
+def troubleshooting_button(
+    ctx: Any,
+    label: str = "Troubleshooting",
+    *,
+    role: controls.ButtonRole | str = controls.ButtonRole.GHOST,
+) -> bool:
+    """A ghost button onto the Troubleshooting chapter. -> whether it was
     pressed, so a caller that wants to close a popup first can.
+
+    ``controls.button`` and not ``small_button``: Settings -> Health draws
+    this beside two other ghost buttons of its own, and a caller's row read
+    as three actions only once all three shared a height and a role -- one of
+    them coming from this module rather than ``controls`` had let it drift to
+    a shorter, compact-padded shape nobody had asked for.
 
     No chapter number here, deliberately: one written out of habit outlived
     two renumberings (it said 12, then 18). ``TROUBLESHOOTING`` is the target;
     a number in a docstring is a copy of it that no test reads."""
-    if not controls.small_button(label):
+    if not controls.button(label, role=role):
         return False
     open_at(ctx, TROUBLESHOOTING)
     return True

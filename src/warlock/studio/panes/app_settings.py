@@ -83,11 +83,6 @@ CATEGORIES = [
     ("advanced", f"{icons.SETTINGS} Advanced"),
 ]
 
-#: The all-or-nothing fallback labelling, per ``segmented_control``'s rule: the
-#: glyph alone, with the full label restored as a tooltip. Derived from
-#: ``CATEGORIES`` so a renamed category cannot leave a stale abbreviation.
-CATEGORIES_COMPACT = [(key, label.split(" ", 1)[0]) for key, label in CATEGORIES]
-
 #: Where the chosen category lives. ``state.preview`` and not ``settings``,
 #: deliberately: which tab of a settings pane you last had open is not a
 #: preference, it is where you were -- and a user who opens Settings to change
@@ -196,15 +191,31 @@ def search_rows(query: str) -> list[SearchRow]:
 
 
 def draw(ctx: Any) -> None:
+    from .. import layout as layout_mod
+
     # always_use_window_padding, because a *borderless* child gets zero window
     # padding by default -- so this pane's content sat flush against the host
     # window's left edge while every bordered sidebar got the theme's gutter.
     if imgui.begin_child("app-settings", (0, 0), imgui.ChildFlags_.always_use_window_padding.value):
         category = _category_rail(ctx)
+        # ``layout.divider`` and not ``layout.pane``'s own edge: the rail and
+        # body are two hand-drawn children (this pane's docstring says why),
+        # so nothing else here calls into the ``pane`` machinery that would
+        # otherwise draw one for free. Comes straight after the rail's own
+        # ``end_child`` -- like ``pane``'s call, it reads the rect of the
+        # child that just closed.
+        layout_mod.divider(layout_mod.PaneEdge.RIGHT)
         imgui.same_line()
         measure = MODELS_CONTENT_W if category == "models" else CONTENT_W
         width = min(sp(measure), imgui.get_content_region_avail().x)
-        if imgui.begin_child("app-settings-body", (width, 0)):
+        pad = sp(layout_mod.PANE_PADDING)
+        # Pushed for the same reason the outer ``app-settings`` child carries
+        # ``always_use_window_padding``: a *borderless* child zeroes its own
+        # window padding, and this body drew flush against the divider it now
+        # sits beside.
+        imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
+        body_flags = imgui.ChildFlags_.always_use_window_padding.value
+        if imgui.begin_child("app-settings-body", (width, 0), body_flags):
             # Settings draws into ``##content`` rather than through
             # ``layout.pane``, so it asks for its own section blocks. Named here
             # rather than made automatic: a scope splits *this child's* draw
@@ -220,6 +231,7 @@ def draw(ctx: Any) -> None:
                 # and nothing persisted keys on imgui id paths.
                 _category_body(ctx, category)
         imgui.end_child()
+        imgui.pop_style_var()
     imgui.end_child()
 
 
@@ -237,9 +249,19 @@ def _category_rail(ctx: Any) -> str:
     current = str(ctx.state.preview.get(CATEGORY_SLOT) or CATEGORIES[0][0])
     if current not in dict(CATEGORIES):
         current = CATEGORIES[0][0]
-    if imgui.begin_child("app-settings-categories", (sp(CATEGORY_W), 0)):
-        widgets.pane_header("Settings")
+    pad = sp(tokens.SP_3)
+    imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
+    rail_flags = imgui.ChildFlags_.always_use_window_padding.value
+    if imgui.begin_child("app-settings-categories", (sp(CATEGORY_W), 0), rail_flags):
+        # ``pane_header`` is not used here: it ends in its own spacer dummy,
+        # and ``help_button``'s ``same_line`` returns to *that* -- a
+        # zero-width item a few pixels below the heading -- rather than to the
+        # heading's own line, so the (?) landed on a row of its own instead of
+        # beside "Settings". Drawn without its spacer so the button's ``same_line`` still
+        # targets the text.
+        widgets.pane_title("Settings", gap=False)
         manual_render.help_button(ctx, "app-settings")
+        imgui.dummy((0, sp(tokens.SP_2)))
         imgui.set_next_item_width(-1)
         query = str(ctx.state.preview.get(SEARCH_SLOT) or "")
         _changed, query = controls.input_text_with_hint(
@@ -254,6 +276,7 @@ def _category_rail(ctx: Any) -> str:
                     current = key
                     ctx.state.preview[CATEGORY_SLOT] = key
     imgui.end_child()
+    imgui.pop_style_var()
     return current
 
 
@@ -303,29 +326,6 @@ def _centre(width: float) -> float:
         return avail
     imgui.set_cursor_pos_x(imgui.get_cursor_pos_x() + (avail - width) * 0.5)
     return width
-
-
-def _categories(ctx: Any, width: float) -> str:
-    """The category switch, and the chosen key."""
-    current = str(ctx.state.preview.get(CATEGORY_SLOT) or CATEGORIES[0][0])
-    if current not in dict(CATEGORIES):
-        current = CATEGORIES[0][0]
-    chosen = widgets.segmented_control(
-        "settings-cat",
-        CATEGORIES,
-        current,
-        compact=CATEGORIES_COMPACT,
-        max_width=width,
-    )
-    if chosen != current:
-        ctx.state.preview[CATEGORY_SLOT] = chosen
-    # On the switch's line, not the title's. ``help_button`` is a right-aligned
-    # ``same_line``, and ``pane_title`` ends in a spacer -- so calling it after
-    # the title put the (?) alone on an otherwise empty row, floating between
-    # the heading and the categories with nothing to belong to.
-    manual_render.help_button(ctx, "app-settings")
-    imgui.dummy((0, sp(tokens.SP_2)))
-    return chosen
 
 
 def _category_body(ctx: Any, category: str) -> None:
@@ -881,7 +881,7 @@ def health_summary(rows: list[HealthRow]) -> str:
 
 
 def health_report(rows: list[HealthRow]) -> str:
-    """What *Copy details* puts on the clipboard: the list, as pasteable text."""
+    """What *Detail Log* puts on the clipboard: the list, as pasteable text."""
 
     def word(row: HealthRow) -> str:
         if row.ok:
@@ -907,30 +907,63 @@ def _health(ctx: Any) -> None:
     because it is the same question as the Models table beside it, and because
     a modal that has to be closed before the Settings it names can be changed
     was the popup's own worst habit.
+
+    The actions -- *Detail Log*, *Health Checks*, *Troubleshooting* -- sit
+    above the list rather than under it: they act on the page, not on any one
+    row, and a reader who already knows what they came for should not have to
+    scroll past thirty green rows to reach the button that copies them all.
     """
     rows = health_rows(getattr(ctx.runtime, "checks", []) or [])
+    _health_actions(ctx, rows)
     widgets.section("Checks")
     widgets.muted(health_summary(rows))
-    for row in rows:
-        widgets.text_colored(row.colour, row.glyph)
-        imgui.same_line()
-        # ``muted`` and not ``selectable_row``: a check row is read-only. Its
-        # actions are the buttons under the list, nothing selects a row and
-        # nothing opens one, so a selectable would draw a hover highlight for
-        # a click that does nothing. Bare ``imgui.text`` was the third register
-        # in a pane that now has one.
-        widgets.muted(row.name)
-        # The detail under the name rather than chained onto it. The popup
-        # these rows come from was 480 px of its own and still ran a glyph, a
-        # name, a dash and a sentence across one line; in a settings column
-        # beside a category rail there is no room for the fourth, and
-        # ``same_line`` past the content edge clips rather than wraps.
-        if row.detail:
-            imgui.indent()
-            widgets.muted_wrapped(row.detail)
-            imgui.unindent()
+    _health_table(rows)
     _dismissed(ctx)
-    _health_actions(ctx, rows)
+
+
+#: Status is a glyph alone, Check is a name, Detail is the sentence a name on
+#: its own cannot hold. Two are fixed because a glyph and a short name do not
+#: need what is left over; Detail takes the rest for the reason
+#: ``_COLUMNS``'s own Description does.
+_HEALTH_COLUMNS = (("Status", 32.0), ("Check", 220.0), ("Detail", 0.0))
+
+
+def _health_table(rows: list[HealthRow]) -> None:
+    """The checks, as a table -- ``_table``'s own pattern, not a new one.
+
+    Replaces a hand-chained glyph/``same_line``/name/indent/wrap: that shape
+    put the detail sentence at the mercy of wherever the name happened to
+    end, so two checks with names of different lengths wrapped their detail
+    at two different indents on the same screen. A column has one edge for
+    every row in it.
+    """
+    flags = (
+        imgui.TableFlags_.row_bg.value
+        | imgui.TableFlags_.borders_inner_h.value
+        | imgui.TableFlags_.sizing_stretch_prop.value
+    )
+    if not imgui.begin_table("##health-checks", len(_HEALTH_COLUMNS), flags):
+        return
+    try:
+        for name, width in _HEALTH_COLUMNS:
+            if width:
+                imgui.table_setup_column(
+                    name, imgui.TableColumnFlags_.width_fixed.value, sp(width)
+                )
+            else:
+                imgui.table_setup_column(name, imgui.TableColumnFlags_.width_stretch.value)
+        imgui.table_headers_row()
+        for row in rows:
+            imgui.table_next_row()
+            imgui.table_next_column()
+            widgets.text_colored(row.colour, row.glyph)
+            imgui.table_next_column()
+            widgets.muted(row.name)
+            imgui.table_next_column()
+            if row.detail:
+                widgets.muted_wrapped(row.detail)
+    finally:
+        imgui.end_table()
 
 
 def _dismissed(ctx: Any) -> None:
@@ -952,31 +985,36 @@ def _dismissed(ctx: Any) -> None:
 
 
 def _health_actions(ctx: Any, rows: list[HealthRow]) -> None:
-    """The three things a reader of a failing row wants next.
+    """The three things a reader of a failing row wants next, drawn first.
+
+    Above the Checks list rather than under it (moved with the table, so
+    both land in the same change): these act on the whole page, and a reader
+    who already knows what they came for -- copy the report, re-run, or read
+    the remedy -- should not scroll past a green wall of checks to reach them.
 
     Laid out through ``same_line_or_wrap`` rather than a bare ``same_line``:
     four buttons is more than a settings column holds beside a category rail,
     and the popup these came from was a window of its own. The helper asks the
     layout whether the next one fits and starts a row when it does not, which
     is the one exemption the overflow walk allows.
+
+    All four are the same ghost ``controls.button`` -- including
+    Troubleshooting, which used to be ``manual_render``'s own ``small_button``
+    and so sat a size and a register apart from its row-mates.
     """
-    # These act on the whole page rather than on the "Dismissed" block that may
-    # precede them, and inventing a heading to say so would be labelling a
-    # thing to fix a rectangle -- so the block ends and they belong to nothing.
-    widgets.end_section()
-    if controls.button("Copy details", role=controls.ButtonRole.GHOST):
+    if controls.button("Detail Log", role=controls.ButtonRole.GHOST):
         imgui.set_clipboard_text(health_report(rows))
     # Re-ask rather than wait out the poll (N111). The static half is only
     # recomputed on ``force``, which is what makes this worth having at all:
     # having just installed the weights a row names, nothing short of a restart
     # would otherwise change its mind.
     widgets.same_line_or_wrap(sp(160))
-    if controls.button("Run checks again", role=controls.ButtonRole.GHOST):
+    if controls.button("Health Checks", role=controls.ButtonRole.GHOST):
         from ...service import system as svc_system
 
         ctx.submit("health", svc_system.current_checks, ctx.svc, force=True)
-    # Chapter 12. The rows name the failure and its remedy; what they cannot
-    # hold is what to do when the remedy does not take.
+    # The rows name the failure and its remedy; what they cannot hold is what
+    # to do when the remedy does not take.
     widgets.same_line_or_wrap(sp(160))
     manual_render.troubleshooting_button(ctx)
     from .. import component_gallery

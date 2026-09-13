@@ -290,21 +290,23 @@ each one deletes and why prune removes from disk rather than trashing.
 
 ## Health
 
-Every check `warlock doctor` runs, as a list: a tick or a cross, the check's name, and the one line
-of detail saying what it found. Green is passing, amber is a warning, red is fatal. The line above
-the list counts the failures, which is the same number Home's health row shows — clicking that row
-opens this page.
+Three buttons sit at the top of the page, above the list: they act on the whole page rather than on
+any one check, so they come first rather than making you scroll past every check to reach them.
+**Detail Log** puts the whole list on the clipboard in the form `FAIL name: detail`, which is what to
+paste into a bug report. **Health Checks** re-runs every probe including the slow ones the startup
+path defers — worth pressing after installing something a row complained about, because the static
+checks are otherwise only recomputed at launch. **Troubleshooting** opens
+[Troubleshooting](43-troubleshooting.md), which is where a check that keeps failing after its remedy
+is covered.
+
+Below them, the summary line and every check `warlock doctor` runs, as a table: a coloured glyph, the
+check's name, and the one line of detail saying what it found. Green is passing, amber is a warning,
+red is fatal. The line above the table counts the failures, which is the same number Home's health
+row shows — clicking that row opens this page.
 
 This is the only place in the app that names a *non-fatal* failure. A fatal one also raises the
 error banner across the top of the window, but a style LoRA whose file has been moved, or Blender
 missing so rigging is unavailable, is otherwise a count and a tooltip.
-
-**Copy details** puts the whole list on the clipboard in the form `FAIL name: detail`, which is what
-to paste into a bug report. **Run checks again** re-runs every probe including the slow ones the
-startup path defers — worth pressing after installing something a row complained about, because the
-static checks are otherwise only recomputed at launch. **Troubleshooting** opens
-[chapter 12](43-troubleshooting.md), which is where a check that keeps failing after its remedy is
-covered.
 
 **Dismissed** appears only when you have dismissed something from the error banner. The banner's
 Dismiss moves a message here rather than deleting it: a worker that died is reported through the

@@ -308,7 +308,7 @@ def section(label: str) -> None:
         imgui.text(label)
 
 
-def pane_title(label: str) -> None:
+def pane_title(label: str, *, gap: bool = True) -> None:
     """What a whole pane is, at heading size (UX.md Phase 2).
 
     A rung above :func:`section`, which names a group *inside* a pane -- and
@@ -322,7 +322,11 @@ def pane_title(label: str) -> None:
     """
     with fonts.heading(imgui):
         imgui.text(label)
-    imgui.dummy((0, sp(tokens.SP_2)))
+    # ``gap=False`` is for a title that something must sit beside: a trailing
+    # spacer is the last item, so a following ``same_line`` would land on it
+    # rather than on the title's own line (Settings' rail and its (?) button).
+    if gap:
+        imgui.dummy((0, sp(tokens.SP_2)))
 
 
 def pane_header(

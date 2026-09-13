@@ -14,26 +14,29 @@ things that write a banner message writes it exactly once — the startup check 
 worker checks — so clearing the list would leave a one-line count as the only surviving evidence.
 The text moves into the Issues popup under a **Dismissed** heading instead.
 
-## The issue count and Issues
+## The issue count and Health
 
 The status bar along the foot of the window says **N issue(s)** in amber whenever a check has
 failed or an error has been recorded, and says nothing at all when everything passed — there is no
 green state to read, because a healthy install has nothing to report. Hovering it offers to open
 the health details.
 
-Clicking it opens Issues, which holds four things:
+Clicking it opens Settings → Health, which holds:
 
-- **Every check**, passing and failing, with its detail and its remedy.
-- **Effective configuration** — every setting this process is running on, with the ones that came
-  from an environment variable named and highlighted first. An install whose behaviour disagrees
-  with the manual almost always disagrees because something in its environment says so, and this is
-  the fastest way to see it. `warlock doctor` prints the same block.
+- **Detail Log**, **Health Checks** and **Troubleshooting**, at the top of the page rather than
+  under the list — they act on the whole page, not on any one check.
+- **Every check**, passing and failing, with its detail and its remedy, as a table.
 - **Dismissed**, when a banner has been dismissed this session.
-- **Copy details**, **Run checks again**, **Open the log** and **Troubleshooting**.
 
-**Run checks again** is worth knowing about. Most of the checks are only computed once, at startup —
-they cannot change without the disk changing — so having just installed something the popup says is
-missing, nothing short of a restart would otherwise change its mind. This button re-runs everything.
+**Effective configuration** — every setting this process is running on, with the ones that came from
+an environment variable named and highlighted first — lives under Settings → Advanced instead, a
+category of its own rather than one of Health's four things: an install whose behaviour disagrees
+with the manual almost always disagrees because something in its environment says so, and this is
+the fastest way to see it. `warlock doctor` prints the same block.
+
+**Health Checks** is worth knowing about. Most of the checks are only computed once, at startup —
+they cannot change without the disk changing — so having just installed something a row complained
+about, nothing short of a restart would otherwise change its mind. This button re-runs everything.
 
 A first run that has downloaded nothing yet is better served by the **Issues / Set up models**
 row on the [Home screen](21-home.md), which opens the model list and its Download buttons rather
@@ -143,7 +146,7 @@ mid-session worker death was invisible outside the log file.
 pretending there might be.
 
 **Then find out why.** `warlock.log` has the run's logging, including the VRAM instrumentation, and
-`crash.log` has native tracebacks. The Issues popup's **Open the log** button opens the first
+`crash.log` has native tracebacks. The crash toast's own **Open the log** button opens the first
 of those directly.
 
 ## A port is already in use at startup

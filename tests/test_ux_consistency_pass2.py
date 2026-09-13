@@ -459,8 +459,11 @@ def test_every_column_pane_opens_with_a_section():
 
 def test_the_track_is_the_settings_switch_and_a_form_choice_is_a_pill_group():
     sources = _pane_sources()
+    # Its one pane caller was ``app_settings._categories``, a compact rail that
+    # nothing drew any more; that dead function was deleted on 2026-09-13, so
+    # the claim that survives is that no *form* choice reaches for the track.
     users = [name for name, text in sources.items() if "segmented_control(" in text]
-    assert users == ["app_settings.py"], users
+    assert users == [], users
     assert "controls.segmented_choice(" in sources["inker_bridge.py"]
 
 
