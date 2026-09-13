@@ -124,3 +124,29 @@ def test_a_running_worker_refuses_even_with_no_active_row(svc):
 
 def test_an_empty_library_is_not_an_error(svc):
     assert svc_jobs.clean_jobs(svc) == {"deleted": 0, "orphans": 0}
+
+
+def test_trash_size_excludes_jobs_empty_trash_will_keep(svc):
+    """shell-02, the 2026-09-13 audit: ``trash_size`` counted every trashed
+    job and its bytes, but ``empty_trash`` keeps a job named by
+    ``retained_job_ids`` (an accepted mesh or a labelled reference). The
+    figure a user confirms the destructive "Empty trash" dialog against was
+    therefore always an overstatement once anything had been graded or
+    labelled -- and nothing afterwards said what emptying actually freed.
+    """
+    labelled = _finished(svc, image=True)
+    svc_verdicts.record_verdict(svc, labelled, verdict="reject", stage="reference")
+    svc_jobs.trash_job(svc, labelled)
+    ordinary = _finished(svc)
+    svc_jobs.trash_job(svc, ordinary)
+
+    size = svc_jobs.trash_size(svc)
+    outcome = svc_jobs.empty_trash(svc)
+
+    # Both jobs are in the trash, but only the ordinary one will actually be
+    # reclaimed -- the figure shown before the confirm must match that, not
+    # the raw count of trashed rows.
+    assert size["count"] == 1
+    assert outcome == {"deleted": 1, "kept": 1}
+    assert svc.store.get(labelled) is not None
+    assert svc.store.get(ordinary) is None

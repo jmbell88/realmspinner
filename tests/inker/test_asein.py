@@ -349,6 +349,24 @@ def test_a_compressed_cel_reads_the_same_as_a_raw_one():
     assert np.array_equal(raw.stack[0].pixels, packed.stack[0].pixels)
 
 
+def test_an_animated_aseprite_with_many_real_cels_has_a_pixel_budget(monkeypatch):
+    """The 2026-09-13 audit (inker-05): ``_build_cels`` decoded every
+    non-linked cel of every frame eagerly, and ``pixelguard.check`` only ever
+    bounded one canvas -- frames x canvas had no ceiling at all. Lowered here
+    (its own docstring's rule: a test lowers the module constant rather than
+    building the multi-hundred-megabyte file that would trip the real one) so
+    ten small real frames -- not linked, which cost nothing extra -- trip it
+    without an expensive fixture."""
+    from warlock.studio import pixelguard
+
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 4 * 4 * 5)
+    frames = [_frame([_layer("Art"), _cel(0, _rgba(4, 4, (1, 2, 3, 255)), 4, 4)])]
+    frames += [_frame([_cel(0, _rgba(4, 4, (1, 2, 3, 255)), 4, 4)]) for _ in range(9)]
+    data = _file(_header(len(frames), 4, 4), frames)
+    with pytest.raises(ValueError, match="pixels"):
+        asein.document_from_aseprite(data)
+
+
 def test_a_cel_is_placed_at_its_own_offset_on_a_canvas_sized_plane():
     data = _file(
         _header(1, 4, 4),

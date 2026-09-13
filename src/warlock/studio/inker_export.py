@@ -484,7 +484,9 @@ def export_tag(ctx: Any, tab: InkerDoc | None, kind: str, index: int) -> None:
     )
 
 
-def export_per_tag(ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet") -> None:
+def export_per_tag(
+    ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet", *, repeat: bool = False
+) -> None:
     """One file per tag, in one export.
 
     Each output is exactly what :func:`export_tag` writes for that tag on its
@@ -492,6 +494,10 @@ def export_per_tag(ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet") -
     tags in the sidecar -- so a batch and a one-at-a-time sweep produce the same
     files. That is the whole reason the span logic is shared rather than
     repeated here.
+
+    ``repeat`` forwards to :func:`_begin_export` so Ctrl+Shift+X (inker-03,
+    the 2026-09-13 audit) can re-run a per-tag export against the recorded
+    destination with no dialog, same as a plain export already did.
     """
     from .inker import sheetout
 
@@ -518,16 +524,21 @@ def export_per_tag(ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet") -
             )
             for tag in anim.tags
         ],
+        repeat=repeat,
     )
 
 
-def export_per_layer(ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet") -> None:
+def export_per_layer(
+    ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet", *, repeat: bool = False
+) -> None:
     """One file per top-level layer row, in one export.
 
     ``sheetout.layer_splits`` decides what a "layer" is here -- a track, or a
     whole group as the one row the panel shows -- and each leg composites only
     its own tracks. The frames are the same frames; what differs is how much of
     the stack goes into each of them.
+
+    ``repeat`` -- see :func:`export_per_tag`.
     """
     from .inker import sheetout
 
@@ -546,7 +557,17 @@ def export_per_layer(ctx: Any, tab: InkerDoc | None = None, kind: str = "sheet")
             _Leg(uids=[], label=name, track_uids=uids, split_kind="layer")
             for name, uids in splits
         ],
+        repeat=repeat,
     )
+
+
+def _recorded_kind(kind: str, split_kind: str) -> str:
+    """What a completed export writes into ``tab.export_kind``.
+
+    ``"sheet"`` for a plain export, ``"sheet:tag"``/``"sheet:layer"`` for a
+    split one -- see :data:`SPLIT_REPEATABLE`, and finding inker-03 above.
+    """
+    return f"{kind}:{split_kind}" if split_kind else kind
 
 
 #: Which function repeats which recorded export. A table rather than a chain
@@ -558,6 +579,20 @@ REPEATABLE: dict[str, str] = {
     "gif": "export_gif",
     "pngs": "export_pngs",
     "slices": "export_slices",
+}
+
+#: Which function repeats a *split* export, keyed by the split half of
+#: ``export_kind`` -- "tag" or "layer" -- the way :func:`_submit_export` now
+#: records it (``"sheet:tag"``, ``"gif:layer"``, ...). Kept apart from
+#: ``REPEATABLE`` because these two take a ``kind=`` argument the plain
+#: exports don't. The 2026-09-13 audit, finding inker-03: before this,
+#: ``export_kind`` only ever recorded the base kind, so Ctrl+Shift+X after a
+#: per-tag or per-layer export could not tell it from a plain one and ran
+#: ``export_sheet``/``export_gif``/``export_pngs`` instead, silently merging
+#: what the original export had split.
+SPLIT_REPEATABLE: dict[str, str] = {
+    "tag": "export_per_tag",
+    "layer": "export_per_layer",
 }
 
 
@@ -577,6 +612,19 @@ def repeat_export(ctx: Any, tab: InkerDoc | None = None) -> bool:
     if tab is None:
         return False
     kind = getattr(tab, "export_kind", "")
+    base, sep, split = kind.partition(":")
+    if sep and split in SPLIT_REPEATABLE and base in REPEATABLE:
+        # A per-tag/per-layer export: the recorded kind is "<base>:<split>",
+        # so the base half is the ``kind=`` argument the split runner still
+        # needs and the split half picks which of the two runners it is.
+        if tab.export_dest is None:
+            state.say(
+                "Nothing to repeat yet -- export once and this runs the same "
+                "one again."
+            )
+            return False
+        globals()[SPLIT_REPEATABLE[split]](ctx, tab, base, repeat=True)
+        return True
     verb = REPEATABLE.get(kind)
     if not verb or tab.export_dest is None:
         state.say(
@@ -1139,7 +1187,7 @@ def _submit_export(ctx: Any, export: _Export) -> None:
             "exported": first,
             "dest": dest,
             "options": dict(export_options),
-            "export_kind": export.kind,
+            "export_kind": _recorded_kind(export.kind, split_kind),
         }
 
     # The document's own table when it has one, so an indexed clip exports the
@@ -1202,7 +1250,7 @@ def _submit_export(ctx: Any, export: _Export) -> None:
             "exported": first,
             "dest": dest,
             "options": dict(export_options),
-            "export_kind": export.kind,
+            "export_kind": _recorded_kind(export.kind, split_kind),
         }
 
     def run_pngs() -> dict[str, Any] | None:
@@ -1268,7 +1316,7 @@ def _submit_export(ctx: Any, export: _Export) -> None:
             "exported": first,
             "dest": dest,
             "options": dict(export_options),
-            "export_kind": export.kind,
+            "export_kind": _recorded_kind(export.kind, split_kind),
         }
 
     runners = {"sheet": run_sheet, "gif": run_gif, "pngs": run_pngs}

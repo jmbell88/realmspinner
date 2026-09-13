@@ -183,6 +183,14 @@ class IndexedOps:
         which is what the user did.
         """
         wanted = None if not colours else [tuple(c) for c in colours]
+        # The 2026-09-13 audit (inker-04): a palette-constrained document's
+        # colour table had no ceiling on the write side at all, unlike true
+        # indexed mode (``index_plane.set_indices``'s own check against
+        # ``MAX_COLOURS``). A large imported ``.gpl`` reached ``convert_to_palette``
+        # with thousands of entries and froze the frame thread for seconds
+        # dithering every plane against all of them (see ``convert_to_palette``).
+        if wanted is not None and len(wanted) > ixp.MAX_COLOURS:
+            raise ValueError(f"a palette holds at most {ixp.MAX_COLOURS} colours")
         if wanted == self.palette:
             return False
         if self.is_indexed:
@@ -285,6 +293,11 @@ class IndexedOps:
             raise ValueError("a conversion needs at least one colour")
         self._refuse_tilemap_convert("snapped onto a palette")
         wanted = [tuple(c) for c in colours]
+        # The 2026-09-13 audit (inker-04): the same missing ceiling as
+        # ``set_palette``, on the door most reachable with a huge table -- a
+        # ``.gpl`` import handed straight to a "convert to this table" call.
+        if len(wanted) > ixp.MAX_COLOURS:
+            raise ValueError(f"a palette holds at most {ixp.MAX_COLOURS} colours")
         if self.is_indexed:
             # The indexed document's version of this operation is
             # ``convert_to_indexed``: re-resolving the planes onto the new table

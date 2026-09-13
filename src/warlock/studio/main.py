@@ -599,6 +599,39 @@ def _leave_sirens_if_needed(ctx: Any, old: str) -> None:
     sirens_play.stop(ctx)
 
 
+def _leave_mode_if_needed(ctx: Any, old: str) -> None:
+    """``state.set_mode_leave`` accepts one callback, so this is the single
+    dispatcher installed in :meth:`App.setup_context` -- it replaces the
+    Sirens-only hook with one that also closes out Muse and Plotter.
+
+    shell-04 in the 2026-09-13 audit: leaving Muse kept an auditioned take
+    sounding on the shared mixer (nothing but Sirens' leave was wired up, so
+    the same fix that made ``sirens_keys.release_all`` reachable never
+    reached Muse), and leaving Plotter mid-drag left the stroke, object or
+    tile-metadata edit session open -- its write already in the document with
+    no undo step recorded for it, so Ctrl+Z after a mode switch undid the
+    *previous* action instead. All three ``end_*`` methods are idempotent
+    (see their own docstrings), so calling one that has nothing open is a
+    no-op rather than a wrong pop.
+    """
+    from .panes import inspector
+
+    inspector.flush_unsent_on_mode_change(ctx)
+    _leave_sirens_if_needed(ctx, old)
+    if old == "muse":
+        from . import muse_mode
+
+        muse_mode.stop(ctx)
+    elif old == "plotter":
+        from . import plotter_state
+
+        tab = plotter_state.active(ctx)
+        if tab is not None:
+            tab.doc.end_stroke()
+            tab.doc.end_object_edit()
+            tab.doc.end_tile_meta_edit()
+
+
 class StartupRefused(Exception):
     """A named startup failure, with the sentence the user should read.
 
@@ -999,7 +1032,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # rather than stacking. The check itself is a module-level function
         # (below) rather than folded into this lambda, so it is reachable
         # from a test with a fake ctx and no App to boot.
-        set_mode_leave(lambda old: _leave_sirens_if_needed(self.app_ctx, old))
+        set_mode_leave(lambda old: _leave_mode_if_needed(self.app_ctx, old))
         self.app_ctx.load_presets = self.load_presets
         self.app_ctx.refresh_rig_data = self._refresh_rig_side_data
         self.eta = Eta()
@@ -1898,6 +1931,19 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             return
         if key == "library-verify":
             self._report_library_check(done.result)
+            return
+        if key == "trash-size":
+            # Adopts ``library.measure_trash``'s reading on the frame thread
+            # it was answered for -- shell-05 in the 2026-09-13 audit found
+            # the task itself writing this slot, the same T3 hazard
+            # ``jobs_cache.adopt_storage`` exists to avoid. ``done.tag`` is
+            # the trash's job-id tuple at submit time, so an answer for a
+            # trash that has since moved on (a restore, another empty) is
+            # dropped instead of shown against the wrong list.
+            if isinstance(done.result, dict):
+                from .panes import library
+
+                ctx.state.preview[library.TRASH_SIZE_SLOT] = (done.tag, done.result)
             return
         if key == "library-backup":
             out = done.result if isinstance(done.result, dict) else {}
@@ -3769,6 +3815,22 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # rather than warning about a quit it would then let through.
         if any(k.startswith("pack:") for k in busy):
             lines.append("A dependency pack is downloading and will be stopped.")
+        # shell-03 (2026-09-13 audit): "-export:" caught the per-mode
+        # in-editor exports (muse-05 above) but not a *library* export --
+        # Packwright, Mason and Plotter each queue theirs as
+        # "<mode>-library:<name>", which matches neither "-export:" nor any
+        # prefix above. Quitting mid-write left an asset whose sidecar never
+        # landed, unopenable in its editor afterwards. Matched the same way
+        # as "-export:": anywhere in the key, so a future mode that follows
+        # the convention is covered without a hand-list here.
+        if any("-library:" in k for k in busy):
+            lines.append("An export to the library is still being written.")
+        # shell-03 (2026-09-13 audit): an update-installer download has no
+        # resume marker, so a quit mid-download loses the whole thing, same
+        # as a model download above -- but it was never checked here because
+        # it does not start with "download:".
+        if app_ctx_mod.UPDATE_DOWNLOAD_KEY in busy:
+            lines.append("An update download is in progress and will be stopped.")
         # shell-14 (2026-09-11 audit): the same shape as the three lines
         # above, missing until now. ``review-launch`` fires twenty to forty
         # job creations at once and ``review-delete``/``cleanup``/``remove``

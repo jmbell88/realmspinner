@@ -44,7 +44,12 @@ class FakeCtx:
         self.submits.append(key)
         if not self.accept:
             return False
-        fn(*args, **kwargs)
+        tag = kwargs.pop("tag", None)  # TaskRunner's own keyword, not the task's
+        answer = fn(*args, **kwargs)
+        # Stand in for ``main._on_task_done`` adopting the reading on the frame
+        # thread, which is where shell-05 (2026-09-13 audit) moved the write.
+        if key == library.TRASH_SIZE_KEY:
+            self.state.preview[library.TRASH_SIZE_SLOT] = (tag, answer)
         return True
 
 

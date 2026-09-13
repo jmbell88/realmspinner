@@ -335,8 +335,16 @@ def derive_popup(ctx: Any) -> None:
     if note:
         widgets.muted_wrapped(note)
 
+    # **2026-09-13 audit, muse-01.** The repaint/loop bounds are the *take's*
+    # own duration (``derive_music_job`` reads ``parent_duration`` off the
+    # file), not the extend path's 240s sampler ceiling -- a take over four
+    # minutes could not have anything past 240s repainted, and the slider
+    # refused typed input past it too. Read off the same job row the card
+    # shows its length from, so a repaint whose window looks reachable here
+    # is one the door actually accepts.
+    parent_duration = _parent_duration(ctx, state.derive_job)
     for name in muse_mode.DERIVE_CONTROLS[task]:
-        _derive_field(ctx, derive, name, task)
+        _derive_field(ctx, derive, name, task, parent_duration)
 
     widgets.divider()
     _, derive["count"] = widgets.labeled_slider_int(
@@ -357,7 +365,29 @@ def derive_popup(ctx: Any) -> None:
     imgui.end_popup()
 
 
-def _derive_field(ctx: Any, derive: dict[str, Any], name: str, task: str) -> None:
+def _parent_duration(ctx: Any, job_id: str) -> float:
+    """The take being derived from's own length, in seconds.
+
+    Off ``plan_for(ctx)`` rather than a fresh query, the same reasoning as
+    that function's own: the cache is already the answer every other Muse
+    pane uses for this job's length (``_card`` reads the identical keys for
+    its "60s" line). Falls back to :func:`_max_extend` if the row cannot be
+    found or never recorded a duration, so a stale ``derive_job`` still draws
+    a slider with *some* sane bound rather than raising or opening to 0..0.
+    """
+    for job in plan_for(ctx):
+        if str(job.get("id")) == job_id:
+            params = job.get("params") or {}
+            duration = params.get("actual_duration") or params.get("duration")
+            if duration:
+                return float(duration)
+            break
+    return _max_extend()
+
+
+def _derive_field(
+    ctx: Any, derive: dict[str, Any], name: str, task: str, parent_duration: float
+) -> None:
     """One control, from :data:`DERIVE_FIELDS` or the edit task's two fields."""
     if name in ("edit_prompt", "edit_lyrics"):
         # Empty means "keep this take's", which is why the hint says so rather
@@ -379,7 +409,15 @@ def _derive_field(ctx: Any, derive: dict[str, Any], name: str, task: str) -> Non
 
     title, low, high, help_text = DERIVE_FIELDS[name]
     if high is None:
-        high = _max_extend()
+        # ``extend_left``/``extend_right`` are the one pair that really is
+        # bounded by the sampler's own 240s pad (see ``_max_extend``); a
+        # repaint or loop is bounded by the *take's* length instead (muse-01).
+        if name in ("extend_left", "extend_right"):
+            high = _max_extend()
+        elif task == "loop":
+            high = parent_duration / 2.0
+        else:
+            high = parent_duration
     if task == "loop" and name == "repaint_end":
         # The loop task asks for a *span* -- how much of the joint to rewrite --
         # and the door reads it as a window it then centres on the roll. One

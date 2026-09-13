@@ -138,9 +138,11 @@ Nesting is limited to 64 levels deep, which no hand-built scene reaches.
 
 The right column's second panel: everything about the one selected node.
 
-**Identity** is its name and three toggles — **Visible**, **Locked** and **Static**. Locked keeps a
-node from being picked in the viewport, which is what you want for a floor you keep clicking by
-accident. Static is a hint for the engine you export to, not something the app acts on.
+**Identity** is its name and three toggles — **Visible**, **Locked** and **Static**. A lock stops
+a drag in the viewport, not a click — it is reported by the resolver and never enforced by the
+document, so a locked node still selects normally and an undo can always put back what was there
+before the lock was set. Static is a hint for the engine you export to, not something the app acts
+on.
 
 **Transform** is the node's own position, rotation and scale, typed rather than dragged, with its
 world transform shown read-only underneath. The two differ whenever the node is inside a group, and

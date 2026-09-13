@@ -2130,15 +2130,17 @@ def _params_value_schema() -> dict:
 
 # --- output schemas -----------------------------------------------------------
 #
-# Only three tools below declare an ``outputSchema`` at all -- ``clay_scene``,
-# ``clay_add_primitive`` and ``clay_diagnose``. Every other tool's result is
-# small and self-explanatory (a uid, a count, a list of names); writing a
-# schema for each would be schema authoring with no reader, so this file
-# deliberately does not. These three are the ones whose shape is worth
-# writing down once rather than making a client work it back out of a
-# sample reply.
+# Only four tools below declare an ``outputSchema`` at all -- ``clay_scene``,
+# ``clay_add_primitive``, ``clay_add_mesh`` and ``clay_diagnose``. (Said as
+# "three" here until the 2026-09-13 audit's docs-05: ``clay_add_mesh`` picked
+# up its own schema alongside ``clay_add_primitive``'s and this count was
+# never revisited.) Every other tool's result is small and self-explanatory
+# (a uid, a count, a list of names); writing a schema for each would be
+# schema authoring with no reader, so this file deliberately does not. These
+# four are the ones whose shape is worth writing down once rather than making
+# a client work it back out of a sample reply.
 #
-# None of the three declares ``required``, and none sets
+# None of the four declares ``required``, and none sets
 # ``additionalProperties: false``. That is not an oversight -- a refusal
 # from any of these tools answers through the *same* result envelope
 # (``protocol.fail``), and a refusal's own ``structuredContent`` is whatever
@@ -3102,7 +3104,11 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     mark = doc.history.mark()
     obj = bd.Obj(uid=bd.new_uid(), name=obj_name, mesh=mesh, generator=None, params={})
     doc.add_object(obj)
-    doc.select([obj.uid])
+    # Object mode only (the 2026-09-13 audit's clay-03) -- see
+    # ``ClayDoc.add_objects``'s own comment for why selecting unconditionally
+    # leaves the Properties panel naming one object while editing another.
+    if doc.element_mode == "object":
+        doc.select([obj.uid])
     if translation is not None or rotation_deg is not None or scale is not None:
         doc.set_transform(
             obj.uid,

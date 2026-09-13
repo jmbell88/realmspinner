@@ -17,8 +17,9 @@ mean something.
 
 That is the whole discipline: unlock while hunting, lock while comparing.
 
-The segmented 1 / 2 / 4 / 8 row beside the seed field has no caption of its own — each value
-carries its own tooltip — and asks for several candidates at once from different seeds. Generating four and picking
+The segmented 1 / 2 / 4 / 8 **Count** control in the command bar has no caption of its own — each
+value carries its own tooltip — and asks for several candidates at once from different seeds.
+Generating four and picking
 one is usually a better use of the same time than generating one and rerolling it four times,
 because you see the spread rather than a sequence.
 

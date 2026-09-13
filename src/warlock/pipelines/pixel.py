@@ -692,11 +692,22 @@ def report(
     if palette:
         entries = {tuple(int(c) for c in e) for e in palette}
         if total:
-            member = sum(
-                1 for row in np.unique(pixels.reshape(-1, 3), axis=0).tolist()
+            # inker-08 (2026-09-13 audit): this used to divide distinct
+            # on-palette colours by distinct colours, so one stray pixel in a
+            # sea of on-palette ones counted the same as an image half off
+            # palette -- "N% on palette" then described the palette, not the
+            # picture. Weighted by pixel count instead: each unique colour's
+            # membership is multiplied by how many pixels actually carry it,
+            # so the figure answers what a viewer of the image would ask.
+            unique_rows, counts = np.unique(
+                pixels.reshape(-1, 3), axis=0, return_counts=True
+            )
+            member_pixels = sum(
+                int(count)
+                for row, count in zip(unique_rows.tolist(), counts.tolist(), strict=True)
                 if tuple(row) in entries
             )
-            out["palette_fraction"] = float(member) / max(1, colors)
+            out["palette_fraction"] = float(member_pixels) / total
         else:
             out["palette_fraction"] = 1.0
     _, orphans = clean_orphans(image)

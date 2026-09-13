@@ -51,30 +51,46 @@ class PickOps:
         ``tri_face`` earn its place: it maps the triangle the ray hit back to
         the n-gon the user thinks they clicked.
         """
-        from .clay.adjacency import cached_positions_f8, cached_triangulation
-
         origin, direction = self._ray(local)
         best: Hit | None = None
         for obj in doc.objects:
             if not obj.visible:
                 continue
-            tris, tri_face = cached_triangulation(obj.mesh)
-            positions = cached_positions_f8(obj.mesh)
-            hit = picking.ray_object(
-                origin,
-                direction,
-                self._world(obj),
-                positions,
-                tris,
-                # Positions and tree both come from the same frozen mesh, so
-                # they cannot disagree about the geometry -- which is the whole
-                # precondition the narrowed sweep rests on.
-                bvh=picking.cached_bvh(obj.mesh, positions, tris),
-            )
-            if hit is not None and (best is None or hit[0] < best.t):
-                face = int(tri_face[hit[1]]) if len(tri_face) else -1
-                best = Hit(uid=obj.uid, t=float(hit[0]), face=face)
+            hit = self._pick_face_on(obj, origin, direction)
+            if hit is not None and (best is None or hit.t < best.t):
+                best = hit
         return best
+
+    def _pick_face_on(self: ClayView, obj: Any, origin: Any, direction: Any) -> Hit | None:
+        """One object's own nearest face hit, ignoring every other object.
+
+        Split out of :meth:`pick_face` for face-mode picking under X-ray (the
+        2026-09-13 audit's clay-02): that ray loop already stops at whichever
+        object's surface is nearest the eye, so a face behind it never had a
+        ray cast against it at all, X-ray or not. Vertex and edge mode do not
+        have this hole -- they already rank a *per-object* candidate by depth
+        in :meth:`pick_element` and simply skip the depth filter under X-ray --
+        so face mode needs the same per-object candidate this returns.
+        """
+        from .clay.adjacency import cached_positions_f8, cached_triangulation
+
+        tris, tri_face = cached_triangulation(obj.mesh)
+        positions = cached_positions_f8(obj.mesh)
+        hit = picking.ray_object(
+            origin,
+            direction,
+            self._world(obj),
+            positions,
+            tris,
+            # Positions and tree both come from the same frozen mesh, so
+            # they cannot disagree about the geometry -- which is the whole
+            # precondition the narrowed sweep rests on.
+            bvh=picking.cached_bvh(obj.mesh, positions, tris),
+        )
+        if hit is None:
+            return None
+        face = int(tri_face[hit[1]]) if len(tri_face) else -1
+        return Hit(uid=obj.uid, t=float(hit[0]), face=face)
 
     def pick(self: ClayView, doc: Any, local: tuple[float, float]) -> int | None:
         """Which object a click lands on. -> its uid, or None.
@@ -154,12 +170,21 @@ class PickOps:
         mode = doc.element_mode
         if mode == "object":
             return None
+        xray = getattr(self, "xray", False)
         if hit is None:
             hit = self.pick_face(doc, local)
         # X-ray is see-through for the pick as well as the draw: with no
         # surface depth the nearest element wins wherever it sits, which is
         # what ``clay_state.xray`` and the Clay chapter say it does.
-        depth = None if hit is None or getattr(self, "xray", False) else hit.t
+        depth = None if hit is None or xray else hit.t
+        origin, direction = (None, None)
+        if mode == "face" and xray:
+            # Under X-ray, ``hit`` is only the *frontmost* object's ray hit --
+            # ``pick_face`` stops there, so a face behind it was never even
+            # tested. Recast per object below (the 2026-09-13 audit's clay-02)
+            # instead of reusing ``hit``, the way vertex and edge already
+            # rank a per-object candidate rather than trusting one shared hit.
+            origin, direction = self._ray(local)
 
         best: tuple[float, int, int] | None = None
         for obj in doc.objects:
@@ -172,6 +197,9 @@ class PickOps:
                 index = bp.nearest_edge(
                     screen, adjacency(obj.mesh).edge_verts, local, surface_depth=depth
                 )
+            elif xray:
+                face_hit = self._pick_face_on(obj, origin, direction)
+                index = None if face_hit is None or face_hit.face < 0 else face_hit.face
             else:
                 index = hit.face if hit is not None and hit.uid == obj.uid else None
                 index = None if index is not None and index < 0 else index
@@ -187,8 +215,14 @@ class PickOps:
                 # which edge was nearer the camera.
                 a, b = adjacency(obj.mesh).edge_verts[index]
                 key = 0.5 * (float(screen.depth[a]) + float(screen.depth[b]))
+            elif xray:
+                # Multiple objects can each have a face candidate under
+                # X-ray now (clay-02) -- rank by the ray's own hit distance,
+                # the same "nearer wins" rule vertex/edge use their depth for.
+                key = float(face_hit.t)
             else:
-                # A face hit names one object already; nothing to rank.
+                # No X-ray: ``hit`` already names the one nearest object, so
+                # only it ever reaches here with a face index.
                 key = 0.0
             if best is None or key < best[0]:
                 best = (key, obj.uid, int(index))

@@ -389,7 +389,16 @@ class ClayDoc:
         if label:
             edit.label = label
         self.history.push(edit)
-        self.select([obj.uid for obj in added])
+        # Object mode only (the 2026-09-13 audit's clay-03): ``select`` names
+        # only the *object* selection, but in an element mode the invariant
+        # (see ``set_element_mode``'s own docstring) is that ``selection`` is
+        # the set of objects with something selected inside ``element_sel`` --
+        # calling it unconditionally left ``selection`` naming the new object
+        # while ``element_sel`` still named whatever was being edited, so the
+        # Properties panel's summary line and its identity/transform/material
+        # rows disagreed about which object they were for.
+        if self.element_mode == "object":
+            self.select([obj.uid for obj in added])
         self.touch()
         return added
 

@@ -161,6 +161,32 @@ def test_a_body_with_no_arms_is_refused_rather_than_guessed():
         jointfit.measure(legs)
 
 
+def test_measure_refuses_or_corrects_when_the_mesh_floor_is_not_at_zero():
+    """The 2026-09-13 audit, finding poser-03: every band in ``measure`` used
+    to be cut at an absolute-Z fraction of height, silently assuming the
+    mesh's floor sits at world Z=0. A floor a few centimetres off that --
+    unremarkable for a base mesh that has not been through grounding yet --
+    shifted the hip band, the leg bands and the pelvis by a Z offset the code
+    never accounted for, with no error; the reproduction (``poser-rig-02.py``)
+    found a 0.05 m floor offset put the whole thigh chain 0.05 m off with no
+    raise. Bands are now cut relative to ``pts[:, 2].min()``, so lifting the
+    whole cloud must move every measured joint by exactly the same offset."""
+    offset = 0.05
+    grounded = _body(0.2)
+    lifted = grounded.copy()
+    lifted[:, 2] += offset
+
+    grounded_bones = jointfit.measure(grounded)
+    lifted_bones = jointfit.measure(lifted)
+
+    shift = np.array([0.0, 0.0, offset])
+    for name in jointfit.BONES:
+        head0, tail0 = (np.asarray(p, float) for p in grounded_bones[name])
+        head1, tail1 = (np.asarray(p, float) for p in lifted_bones[name])
+        assert head1 == pytest.approx(head0 + shift, abs=1e-6), name
+        assert tail1 == pytest.approx(tail0 + shift, abs=1e-6), name
+
+
 def test_the_toe_is_measured_off_the_leg_not_the_whole_body():
     """A nose, a chest or a held prop reaches further forward than any foot.
 

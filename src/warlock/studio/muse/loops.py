@@ -412,7 +412,15 @@ def crossfade(pcm: np.ndarray, start: int, end: int, fade: int) -> np.ndarray:
     if end < data.shape[0]:
         room = data.shape[0] - end
         candidates.append((_wrap_step(data[end - 1], data[end]), "head", min(fade, room)))
-    usable = [c for c in candidates if c[2] > 0 and c[0] < plain]
+    # **2026-09-13 audit, muse-02.** A one-sample room makes
+    # ``np.linspace(0, pi/2, 1)`` yield a single angle of 0, whose sin/cos are
+    # 0/1 -- so the blend is 100% one side and 0% the other, a no-op on the
+    # "tail" side (the original sample is kept, weight 1, and the lead-out
+    # never enters). The cost model still believed that side would land on
+    # the costed join, so it kept the click while reporting the seam fixed.
+    # Two samples is the least that lets ``sin``/``cos`` differ from their
+    # endpoints, so under that is excluded rather than "fixed" for free.
+    usable = [c for c in candidates if c[2] >= 2 and c[0] < plain]
     if not usable:
         return body.astype(dtype)
     _, side, fade = min(usable, key=lambda c: c[0])

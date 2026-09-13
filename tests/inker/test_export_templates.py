@@ -388,6 +388,53 @@ def test_a_slice_export_records_what_it_wrote_so_it_can_be_repeated(
     assert (tmp_path / "hitbox.png").exists()
 
 
+def test_repeating_a_per_tag_export_reproduces_the_split_not_a_merged_sheet(
+    monkeypatch, tmp_path
+):
+    """The 2026-09-13 audit, finding inker-03: ``tab.export_kind`` only ever
+    recorded ``sheet``/``gif``/``pngs`` -- never that the export had been split
+    per tag or per layer -- so Ctrl+Shift+X after "Export sheet per tag" ran
+    the plain ``export_sheet`` through ``REPEATABLE`` and silently wrote one
+    merged sheet where the original wrote one file per tag. Before the fix the
+    repeat wrote only ``walk.png``."""
+    ctx, state, tab = _open(_tagged(4))
+    calls = _saved(monkeypatch, tmp_path / "walk.png")
+
+    inker_mode.export_per_tag(ctx, tab, "sheet")
+    _done(ctx, tab, _finish(ctx, state))
+    assert sorted(p.name for p in tmp_path.glob("*.png")) == [
+        "walk_intro.png",
+        "walk_walk.png",
+    ]
+    for p in tmp_path.glob("*.png"):
+        p.unlink()
+
+    assert inker_mode.repeat_export(ctx, tab) is True
+    _done(ctx, tab, _finish(ctx, state))
+
+    assert len(calls) == 1, "the repeat opened no dialog"
+    assert sorted(p.name for p in tmp_path.glob("*.png")) == [
+        "walk_intro.png",
+        "walk_walk.png",
+    ]
+
+
+def test_repeating_a_per_layer_export_reproduces_the_split_too(monkeypatch, tmp_path):
+    """Same finding as above (inker-03), the layer-split leg of it."""
+    ctx, state, tab = _open()
+    _saved(monkeypatch, tmp_path / "walk.png")
+
+    inker_mode.export_per_layer(ctx, tab, "sheet")
+    _done(ctx, tab, _finish(ctx, state))
+    assert sorted(p.name for p in tmp_path.glob("*.png")) == ["walk_Background.png"]
+    (tmp_path / "walk_Background.png").unlink()
+
+    assert inker_mode.repeat_export(ctx, tab) is True
+    _done(ctx, tab, _finish(ctx, state))
+
+    assert sorted(p.name for p in tmp_path.glob("*.png")) == ["walk_Background.png"]
+
+
 def test_repeating_with_nothing_to_repeat_says_so():
     ctx, state, tab = _open()
     assert inker_mode.repeat_export(ctx, tab) is False

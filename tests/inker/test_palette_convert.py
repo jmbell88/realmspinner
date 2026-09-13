@@ -272,3 +272,29 @@ def test_a_grouped_conversion_keeps_more_of_a_ramp_than_nearest():
     palette = [(0, 0, 0, 255), (255, 255, 255, 255)]
     assert len(_used(dither.convert(band, palette, "nearest"))) == 1
     assert len(_used(dither.convert(band, palette, "grouped"))) == 2
+
+
+def test_convert_to_palette_refuses_a_table_past_the_colour_ceiling():
+    """The 2026-09-13 audit (inker-04): a palette-constrained document's
+    colour table had no ceiling on the write side at all, unlike true indexed
+    mode. A large imported ``.gpl`` handed straight to ``convert_to_palette``
+    ran ``dither.convert(..., "grouped")`` against the whole table on the
+    frame thread with nothing to stop it -- 12.6s for one 512x512 layer
+    against a 2,000-entry palette, measured on the unfixed code."""
+    from warlock.studio.inker import index_plane as ixp
+
+    doc = _ramp_doc()
+    huge = [(i % 256, (i // 256) % 256, 0, 255) for i in range(ixp.MAX_COLOURS + 1)]
+    with pytest.raises(ValueError, match="at most"):
+        doc.convert_to_palette(huge)
+
+
+def test_set_palette_refuses_a_table_past_the_colour_ceiling():
+    """The same missing ceiling on ``set_palette``, the ``method="nearest"``
+    door onto the same op."""
+    from warlock.studio.inker import index_plane as ixp
+
+    doc = _ramp_doc()
+    huge = [(i % 256, (i // 256) % 256, 0, 255) for i in range(ixp.MAX_COLOURS + 1)]
+    with pytest.raises(ValueError, match="at most"):
+        doc.set_palette(huge)

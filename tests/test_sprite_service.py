@@ -98,6 +98,22 @@ def test_the_defaults_are_offered_choices():
 # --- refusals ---------------------------------------------------------------
 
 
+def test_create_sprite_synthesis_refuses_at_submit_when_the_text2image_pack_is_missing(
+    svc, weights, monkeypatch
+):
+    """The 2026-09-13 audit, finding service-01: this door checked weights and
+    never the pack, so a host with weights present but ``text2image`` removed
+    by an upgrade queued the job and died in the worker on the SDXL import
+    instead of refusing here, the way ``create_job``'s ``text`` door already
+    does (see ``tests/test_validation.py``)."""
+    from warlock import packs as packs_mod
+
+    monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
+    job_id = _reference(svc)
+    with pytest.raises(Invalid, match="pack"):
+        svc_sprites.create_sprite_synthesis(svc, job_id)
+
+
 def test_an_unfinished_reference_is_refused(svc, weights):
     job_id = _reference(svc, done=False)
     with pytest.raises(Invalid, match="That reference"):

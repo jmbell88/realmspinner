@@ -315,10 +315,22 @@ def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[st
         raise invalid_from(exc, "That clip library cannot be saved") from exc
 
     path = poselib.clip_path(svc.config, key)
+    blob = json.dumps(document, indent=2).encode("utf-8")
+    # The 2026-09-13 audit, finding poser-02: _check_shape bounds keys and
+    # segments but not bones per pose or the serialized whole, so a save could
+    # exceed rigging.MAX_CLIP_LIBRARY_BYTES -- the exact cap _load_clip_library
+    # enforces on read -- and be silently skipped forever after, the file
+    # reverting to the shipped clips with no error pointing at why. Checked
+    # against the same constant, at the door, before a byte reaches disk.
+    if len(blob) > rigging.MAX_CLIP_LIBRARY_BYTES:
+        raise Conflict(
+            f"this clip library is {len(blob)} bytes, over the "
+            f"{rigging.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
+            field="poses",
+        )
     with _lock(svc):
         previous = path.read_bytes() if path.is_file() else None
         path.parent.mkdir(parents=True, exist_ok=True)
-        blob = json.dumps(document, indent=2).encode("utf-8")
         # ``files._staged_write``'s shape (SVC-01), not a bare ``.tmp``: a fixed
         # name and no ``finally`` stranded a visible ``<key>.json.tmp`` beside
         # the real file forever on an ENOSPC or an antivirus lock, and nothing

@@ -67,6 +67,7 @@ from .validation import (
     MAX_JOB_NAME,
     MAX_UPLOAD_BYTES,
     check_base_model_weights,
+    check_pack,
     check_prompt,
     check_seed,
     check_vram,
@@ -393,6 +394,11 @@ def _check_weights(
     from .. import fetch
     from .downloads import needed_keys
 
+    # The 2026-09-13 audit, finding service-01: this door checked weights and
+    # never the pack, so a host with weights present but ``text2image``
+    # removed by an upgrade queued the job and died in the worker on the SDXL
+    # import instead of refusing here.
+    check_pack(svc, "tile_sheet", {}, field="sheet_type")
     # A style lock loads the same encoder a reference does -- the first
     # material *is* the reference for the rest -- so it needs the same rows.
     wanted = rows_needed(mode, with_reference or style_lock)

@@ -61,8 +61,9 @@ plays, because it goes through the same flatten the playback and the onion skin 
 source**. If no atlas is open, one is started for you.
 
 **From Troupe** is the door a rendered character sheet uses: **Add to Packwright** on the sheet's
-own export bar contributes one sprite per cell to whatever atlas is open, alongside everything else
-being packed. See [Troupe](34-troupe.md).
+own export bar parks the sheet as a pending tile-set import, opening the same tile-size popup a
+manual import shows with the cell size already filled in from the render. Nothing is added to the
+atlas until you confirm **Import** there. See [Troupe](34-troupe.md).
 
 Each source keeps a stable identity derived from where it came from, not from what it is called. So
 renaming a sprite changes what the sidecar calls it and nothing else: two layers legitimately called

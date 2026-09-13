@@ -11,7 +11,9 @@ cannot see that the row was grey.
 from __future__ import annotations
 
 from types import MethodType, SimpleNamespace
+from typing import Any
 
+import numpy as np
 import pytest
 
 from warlock.studio import inker, inker_ops, inker_sheet, inker_state
@@ -20,8 +22,8 @@ from warlock.studio import state as state_mod
 SIZE = (32, 32)
 
 
-def _session():
-    doc = inker.Document.blank(*SIZE)
+def _session(doc: Any = None):
+    doc = inker.Document.blank(*SIZE) if doc is None else doc
     tab = inker_state.InkerDoc(doc=doc, uid="t1", title="Untitled")
     state = inker_state.InkerState()
     state.add(tab)
@@ -468,6 +470,31 @@ def test_selecting_used_colours_is_one_undo_step():
     assert doc.select_slots(used)
     assert len(doc.history._done) - depth == 1
     assert int((doc.mask.mask > 0).sum()) == 64, "every drawn pixel"
+
+
+def test_inker_ops_run_turns_a_tile_alignment_refusal_into_a_toast_not_a_crash():
+    """The 2026-09-13 audit, finding inker-01: ``inker_ops.run`` is the one
+    dispatcher every menu row, shortcut and gesture funnels through, and it had
+    no exception boundary around ``op.run`` -- so a document method that
+    refuses by *raising* (``Document.flip`` on a tilemap layer whose tile size
+    does not divide the canvas, per ``_doc_tiles._whole_tiles_or_refuse``)
+    escaped all the way out of the keyboard route (``main.py``'s ``_shortcut``
+    carries no ``try`` either) and tore the session down. Before the fix this
+    call raised ``ValueError`` straight through ``run``.
+    """
+    from warlock.studio.inker.tiles import strip
+
+    doc = inker.Document.blank(100, 16)
+    tile = np.zeros((16, 16, 4), dtype=np.uint8)
+    tile[..., 3] = 255
+    stack = np.stack([np.zeros((16, 16, 4), dtype=np.uint8), tile], axis=0)
+    slot = doc.add_tileset(strip(stack))
+    doc.add_tilemap_layer(slot.uid)
+    ctx, state, tab = _session(doc)
+
+    assert inker_ops.run(ctx, inker_ops.get("flip_h")) is False
+    assert state.tip is not None
+    assert "tile-aligned canvas" in state.tip.text
 
 
 def test_selecting_slots_with_nothing_to_select_refuses():

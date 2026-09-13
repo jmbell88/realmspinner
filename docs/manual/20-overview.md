@@ -214,8 +214,9 @@ One line along the foot of the window, also in every mode. Left to right: the wo
 then the open document and whether it has unsaved changes — plus the current tool and zoom in any
 workspace that has them (Inker, Plotter and Packwright zoom; Inker and Plotter have tools) — then
 the queue when anything is running or waiting, then an amber **N issue(s)** when a startup
-check has failed. Clicking that last one opens the Issues list; it is **Issues** in the command
-palette too, which is how you reach it when nothing is failing and there is no count to click.
+check has failed. That figure is a report rather than a control — for the list behind it, go to
+**Settings → Health**, which is also where you look when nothing is failing and there is no
+count on the bar at all.
 There is no green "all well" state, because a healthy install has nothing to report.
 
 When the window is too narrow to hold all of it, items drop from the *right* end, so the answer to

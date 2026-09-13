@@ -20,6 +20,25 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**The 2026-09-13 audit's first fixes.** A refused Inker op from the keyboard
+(Shift+H on a tile layer that does not divide the canvas) now toasts instead of
+ending the session. Repeat Last Export keeps a per-tag or per-layer split.
+Regenerate in Flourish rewrites its tags. A palette past 256 colours is
+refused rather than freezing Convert, and an animated `.aseprite` has a decoded
+pixel budget. Quitting now warns during a library export or an update
+download. Leaving Muse stops its audition, leaving Plotter mid-drag closes the
+edit, and an unsent inspector rename survives a mode switch. Empty trash's
+figure excludes the jobs it will keep. Placing a Clay primitive in an element
+mode no longer steals the Properties selection, X-ray reaches faces behind a
+surface, and Merge Objects has a size ceiling. Poser clears a stale Re-rig
+picker when you open another asset, refuses a clip library too large to read
+back, and measures joints from the mesh's own floor. Muse's Repaint and loop
+sliders reach the whole take, and a one-sample crossfade is no longer
+counted as a fix. Sprite, tile-sheet, pixel-sheet and LoRA jobs check the
+image-generation pack at submit. "% on palette" weighs pixels, not colours.
+Seventeen manual passages that described the wrong label, count or step are
+corrected.
+
 **Poser can edit a rigged mesh's skeleton.** On an opened asset, Edit skeleton
 enters a draft mode. You can move pivots, add a child bone or split one, delete
 a pivot (its children move up to its parent) or a whole limb, rename bones, and

@@ -418,3 +418,38 @@ def test_save_refuses_changing_the_rotation_space(svc):
         svc_clips.save(svc, TEMPLATE, payload)
     assert excinfo.value.field == "space"
     assert not poselib.clip_path(svc.config, TEMPLATE).is_file()
+
+
+def test_save_refuses_a_clip_library_the_read_door_could_never_load_back(svc):
+    """The 2026-09-13 audit, finding poser-02: ``_check_shape`` bounds keys and
+    segments but not bones per pose or the serialized whole, so a save could
+    write a file bigger than ``rigging.MAX_CLIP_LIBRARY_BYTES`` -- the exact
+    cap ``_load_clip_library`` enforces on read. Without this check, such a
+    save lands on disk, is silently skipped by every later read, and the
+    template reverts to the shipped clips with no error saying why.
+
+    One pose with enough bones to push the serialized library past the
+    4 MiB read cap; the reproduction (``poser-poses-01.py``) used 160,000
+    bones for a 16 MB file, this uses fewer but still comfortably over it.
+    """
+    view = _shipped(svc)
+    huge_bones = {f"bone{i}": [1.0, 0.0, 0.0, 0.0] for i in range(50_000)}
+    payload = {
+        "space": view["space"],
+        "poses": [{"name": "big", "bones": huge_bones}],
+        "clips": [
+            {
+                "name": "clip1",
+                "keys": ["big", "big"],
+                "segments": [1],
+                "closed": False,
+                "easing": "linear",
+            }
+        ],
+    }
+    with pytest.raises(Conflict) as excinfo:
+        svc_clips.save(svc, TEMPLATE, payload)
+    assert excinfo.value.field == "poses"
+    assert not poselib.clip_path(svc.config, TEMPLATE).is_file(), (
+        "a refused save must not land on disk, even staged"
+    )

@@ -491,6 +491,20 @@ _KIND_MODE: dict[str, str] = {
     # the same pack a missing music model is, even though it is reached from
     # a *finished* take rather than from Muse's generate door.
     "separate": "muse",
+    # The 2026-09-13 audit (service-01): these four doors run SDXL directly --
+    # a sprite sheet, a guided tile sheet, a pixel-sheet restyle and a LoRA
+    # training run all load ``torch``/``diffusers`` themselves, the same import
+    # a missing ``text2image`` pack breaks for a plain ``text`` job. None of
+    # them is reached through Create's own submit path, but the pack they are
+    # short is Create's, so that is the mode named here -- the alternative was
+    # a second kind -> pack table next to ``packs.PACKS[*].modes``, which is
+    # exactly the drift this function exists to avoid. Before this, a host
+    # with weights present but the pack removed queued each of the four and
+    # died in the worker on the import instead of refusing at the door.
+    "sprite_synthesis": "create",
+    "tile_sheet": "create",
+    "pixel_sheet": "create",
+    "lora_train": "create",
 }
 
 

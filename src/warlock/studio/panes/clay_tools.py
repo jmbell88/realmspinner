@@ -358,7 +358,11 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
         params=dict(defaults),
     )
     doc.add_object(obj)
-    doc.select([obj.uid])
+    # Object mode only (the 2026-09-13 audit's clay-03) -- see
+    # ``ClayDoc.add_objects``'s own comment for why selecting unconditionally
+    # leaves the Properties panel naming one object while editing another.
+    if doc.element_mode == "object":
+        doc.select([obj.uid])
     del ctx
     return obj
 

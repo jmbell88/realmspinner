@@ -77,8 +77,9 @@ than guessed:
 | **Rigging** | Whether Blender is importable, which is the Python 3.13 question from above. |
 
 Under them it lists what generation still needs, what it costs, and whether the volume has room.
-Then two buttons. **Not now** closes the panel and leaves you to it; the panel is done either way,
-and everything it offers is always reachable again from Settings.
+Then three buttons. **Not now** closes the panel and leaves you to it; the panel is done either
+way, and everything it offers is always reachable again from Settings. **Show me around first**
+starts the guided tour instead of touching downloads at all.
 
 The other button depends on what is missing, and **the order is deliberate**. If a dependency pack
 is absent it reads **Install the Image generation pack** and takes you to Settings → Packs;

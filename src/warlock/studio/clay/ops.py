@@ -491,6 +491,19 @@ def duplicate(obj: Obj, uid: int, *, taken: Iterable[str] = ()) -> Obj:
     )
 
 
+#: What :func:`join` may weld in one call, in loop corners. Every sibling
+#: combine op refuses before its kernel runs from a size it can predict --
+#: :data:`ops_boolean.MAX_BOOLEAN_TRIANGLES`, :data:`ops_subdiv.MAX_SUBDIVIDED_FACES`
+#: -- and ``join`` had no such refusal (the 2026-09-13 audit's clay-04):
+#: ``clay-mesh-01.py`` reproduced 4.4 s at 14.4M corners with nothing to stop
+#: it going further, synchronously on the frame thread with no way to bail out
+#: partway through a concatenation. Set to the same order of magnitude as
+#: ``MAX_BOOLEAN_TRIANGLES``: a join is a concatenation and a weld, cheaper per
+#: corner than a boolean's arrangement, but with no cap it is still an
+#: unbounded frame-thread allocation.
+MAX_JOINED_CORNERS = 2_000_000
+
+
 def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
     """Several objects' geometry as one mesh, in the **first** one's frame.
 
@@ -541,6 +554,13 @@ def join(objs: Sequence[Obj], *, eps: float = 1e-4) -> bm.Mesh:
 
     if len(objs) < 2:
         raise OpError("Select at least two objects to merge.")
+    total_corners = sum(len(o.mesh.loops) for o in objs)
+    if total_corners > MAX_JOINED_CORNERS:
+        raise OpError(
+            f"This merge would need {total_corners:,} corners, past the "
+            f"{MAX_JOINED_CORNERS:,} Clay can weld on the frame thread. "
+            "Select fewer objects, or simplify them first."
+        )
     meshes = [objs[0].mesh] + [bm.transformed(o.mesh, _into(objs[0], o)) for o in objs[1:]]
 
     offsets = np.cumsum([0] + [len(m.positions) for m in meshes[:-1]])

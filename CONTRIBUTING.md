@@ -14,7 +14,7 @@ uv run ruff check .
 and breaks about ten test files at collection. `rig` needs a Python 3.13 environment or it silently
 installs nothing.
 
-The suite is ~2 min for 16k+ tests, parallel by default -- a range rather than an
+The suite is ~2 min for 20k+ tests, parallel by default -- a range rather than an
 exact count, because the 2026-09-06 audit's finding docs-11 found the count already
 13% stale (a hand-kept exact number drifts the way the rest of this section warns
 about). Three lanes are excluded from the default run and each is opt-in:

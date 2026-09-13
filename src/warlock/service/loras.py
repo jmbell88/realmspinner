@@ -24,7 +24,7 @@ from .. import generation, models
 from ..pipelines import lora_train
 from .core import WarlockService
 from .errors import Invalid, TooLarge
-from .validation import MAX_IMAGE_PIXELS, check_base_model_weights, check_vram
+from .validation import MAX_IMAGE_PIXELS, check_base_model_weights, check_pack, check_vram
 
 log = logging.getLogger(__name__)
 
@@ -350,6 +350,11 @@ def train_lora(
             f"a style is trained on an undistilled SDXL checkpoint; pick one of {usable}",
             field="base_model",
         )
+    # The 2026-09-13 audit, finding service-01: this door checked weights and
+    # never the pack, so a host with weights present but ``text2image``
+    # removed by an upgrade queued the job and died in the worker on the SDXL
+    # import instead of refusing here.
+    check_pack(svc, "lora_train", {}, field="base_model")
     check_base_model_weights(svc, spec)
 
     params: dict[str, Any] = {

@@ -289,6 +289,36 @@ def test_an_already_seamless_loop_is_left_exactly_alone():
     assert _wrap(body) == (0.0, 0.0)
 
 
+def test_a_one_sample_available_room_still_wraps_cleanly_or_declines_rather_than_silently_doing_nothing():  # noqa: E501
+    """The 2026-09-13 audit, finding muse-02.
+
+    ``np.linspace(0, pi/2, 1)`` is a single angle of 0, whose sin/cos are 0
+    and 1 -- so a "tail" fade with only one sample of room blends in 100%
+    the original sample and 0% the lead-out, a no-op. The cost model still
+    believed that side would land the wrap on the join it costed, so it
+    picked the cheapest-*looking* side (the one-sample tail) over a genuinely
+    usable twenty-sample head candidate that would have worked.
+
+    Fails against the unfixed code: it picks the one-sample tail (cost
+    0.001) over the real head candidate (cost 0.1, twenty samples of room),
+    applies no actual blend, and the wrap seam (5.0) lands far above the
+    take's own biggest interior step (~0.26) -- the click the fade exists to
+    remove is still there. Fixed, the one-sample candidate is excluded and
+    the real head fade is used instead, landing the seam under the interior
+    step.
+    """
+    n = 120
+    pcm = np.zeros(n, dtype=np.float32)
+    pcm[0] = 0.001  # lead-out: a hair from pcm[1], so "tail" costs ~0
+    pcm[80:100] = np.linspace(0.0, 5.0, 20, dtype=np.float32)  # body's own ramp
+    pcm[100:120] = 5.1  # lead-in: close to pcm[99], so "head" costs ~0.1
+    start, end = 1, 100
+
+    body = loops.crossfade(pcm, start, end, 2048)
+    seam, interior = _wrap(body)
+    assert seam <= interior
+
+
 def test_a_region_with_no_material_on_either_side_declines_rather_than_inventing_one():
     """Both fades need material from outside the region; with none available
     there is nothing to measure a better join against, so the body is returned
