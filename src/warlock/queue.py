@@ -1652,8 +1652,29 @@ class Worker(
             # job wants.
             # The unmeasurable case reads the registry: a flat SDXL_GIB is
             # 3 GiB short of the offloaded klein entry's declared peak.
-            mem = vram_gib()
-            headroom += mem[1] if mem is not None else _resident_t2i_gib(self._t2i_key)
+            #
+            # service-02, the 2026-09-13 audit: ``vram_gib()`` returns
+            # ``None`` only until *something* in this process imports a
+            # CUDA-visible torch -- and ``pose2d`` does exactly that, on the
+            # CPU, during a rig. After that ``vram_gib()`` returns a
+            # near-zero tuple for the rest of the process's life, not
+            # ``None``, so the branch below used to credit the resident pipe
+            # with ~0 GiB instead of falling back to the registry estimate.
+            # That number is only ever meaningful for the *in-process* pipe
+            # (``WARLOCK_T2I_IN_PROCESS=1``), whose checkpoint really does
+            # live in this process's CUDA allocations; the default
+            # out-of-process pipe's checkpoint lives in the ``t2i_client``
+            # child and ``vram_gib()`` can never see it, measured or not. A
+            # later image job was then refused for "close other GPU
+            # applications" against VRAM this process was never holding --
+            # the MDL-06 phantom-VRAM class this credit exists to prevent.
+            if self.config.t2i_in_process:
+                mem = vram_gib()
+                headroom += (
+                    mem[1] if mem is not None else _resident_t2i_gib(self._t2i_key)
+                )
+            else:
+                headroom += _resident_t2i_gib(self._t2i_key)
         # No parallel branch for ``self._music_client``, even though
         # ``vram.estimate_parts``'s music branch documents a checkpoint term
         # to credit back: ``_release_music`` (``_q_music.py``) unloads

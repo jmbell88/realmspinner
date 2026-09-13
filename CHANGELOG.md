@@ -39,6 +39,28 @@ image-generation pack at submit. "% on palette" weighs pixels, not colours.
 Seventeen manual passages that described the wrong label, count or step are
 corrected.
 
+**The rest of the 2026-09-13 audit.** Mason's light, camera and terrain fields
+undo as one step rather than one per keystroke, and a scene of deeply nested
+prefabs is refused everywhere it is walked, not only on open. Plotter picks a
+spawn point where its marker is drawn at any zoom, and refuses a malformed
+text, layer, background or Wang colour when the file is read instead of
+failing at export. Inker's Merge down and palette Remove say why they refused
+instead of doing nothing. Sirens no longer re-encodes the whole song for a
+preview it is about to refuse, and a song file naming one instrument twice is
+refused rather than playing the wrong one. A Clay lathe, sweep or tube has a
+length cap, a Packwright document has a total pixel budget, and the model
+viewer charges skin-weight copies and refuses a texture that runs past its
+buffer. After a rig job an image job is no longer refused for VRAM it has; a
+failed TRELLIS restart is not recorded as applied; cancelling a sprite sheet
+stops before the render. A malformed request document refuses instead of
+crashing, a bare-string reference is no longer split into characters, a
+zero-byte background-removal weight falls back to automatic, and a directory
+left where a weight file belongs no longer counts as installed. Muse names the Music pack when it is
+missing instead of reporting a child process that exited. Keep both on a
+stale export plan refuses cleanly, Health no longer reports a lock it does not
+hold, Numpad Enter advances the tour, and a running tile sheet shows greyed
+Plotter and Packwright buttons rather than none.
+
 **Poser can edit a rigged mesh's skeleton.** On an opened asset, Edit skeleton
 enters a draft mode. You can move pivots, add a child bone or split one, delete
 a pivot (its children move up to its parent) or a whole limb, rename bones, and

@@ -342,6 +342,47 @@ def test_max_items_refuses_with_a_real_sentence_rather_than_truncating():
         scene.resolve(d, max_items=2)
 
 
+def test_resolved_for_refuses_a_document_that_resolves_past_max_placed(monkeypatch):
+    """mason-03, the 2026-09-13 audit: ``resolve`` refused past
+    ``MAX_PLACED`` but ``resolved_for`` -- the Properties panel's and the
+    gizmo's door -- had no ceiling of its own, so a document whose nested
+    prefabs blow the count up (152 authored nodes resolving to 127,550
+    items) walked the whole thing regardless of which single uid was asked
+    for. Fixed by moving the count into ``walk`` itself, so every caller of
+    the traversal inherits it."""
+    d = doc.MasonDoc()
+    template = nd.GroupNode(uid=nd.new_uid())
+    for _ in range(3):
+        template.children.append(nd.MeshNode(uid=nd.new_uid(), ref=_box_ref()))
+    d.prefabs["Prop"] = template
+    instance = nd.PrefabNode(uid=nd.new_uid(), template="Prop")
+    d.add_node(instance)
+    other = nd.MeshNode(uid=nd.new_uid(), ref=_box_ref())
+    d.add_node(other)
+
+    # ``resolved_for`` finds ``other`` (the last node) only by walking past
+    # the three template-expanded meshes first -- exactly the walk
+    # ``resolve`` alone used to refuse and this one did not.
+    monkeypatch.setattr(scene, "MAX_PLACED", 2)
+    with pytest.raises(ValueError, match="more than 2"):
+        scene.resolved_for(d, other.uid)
+
+
+def test_walk_itself_refuses_past_max_items_so_every_caller_inherits_it():
+    """The ceiling now lives in ``walk``, not only in ``resolve``'s own
+    counting ``visit`` -- pinned directly against the shared traversal
+    rather than one of its consumers, so a future caller of ``walk`` cannot
+    reintroduce mason-03 by skipping ``resolve``."""
+    d = doc.MasonDoc()
+    for _ in range(3):
+        d.add_node(nd.MeshNode(uid=nd.new_uid(), ref=_box_ref()))
+
+    seen = []
+    with pytest.raises(ValueError, match="more than 2"):
+        scene.walk(d, lambda node, *a: seen.append(node), max_items=2)
+    assert len(seen) == 2, "refuses on the item past the ceiling, not before it"
+
+
 def test_the_soft_warning_threshold_sits_below_the_hard_refusal_and_both_are_positive():
     """Pins the *relationship* rather than either number: a constant asserted
     against a literal would just restate itself and pass right through the

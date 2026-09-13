@@ -890,6 +890,59 @@ async def test_cancelling_a_sheet_never_deletes_the_source_mesh(worker, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_cancelling_a_sheet_stops_before_the_render_it_has_not_started(
+    worker, monkeypatch
+):
+    """The 2026-09-13 audit (docs-18): unlike ``_rig`` (one check, at the end)
+    and ``_deform_qa`` (two checks, docs-10 having added the second), ``_sheet``
+    contained no ``self._cancel.event.is_set()`` check anywhere in its body --
+    only the ``commit()`` at the very end. A cancel arriving while poses were
+    still being read from disk, before the Blender render had even started,
+    used to pay for the whole render anyway.
+
+    Blocks in the pose-read loop (before ``_render_sheet_atlas``/``run_worker``
+    is ever reached), cancels there, and releases: the render must never run.
+    """
+    import threading
+
+    import warlock.rigging as rigging_mod
+
+    hold = threading.Event()
+    registered = threading.Event()
+    real_read_pose = rigging_mod.read_pose
+
+    def blocking_read_pose(source_dir, pose_id):
+        registered.set()
+        hold.wait(timeout=10)
+        return real_read_pose(source_dir, pose_id)
+
+    monkeypatch.setattr(rigging, "read_pose", blocking_read_pose)
+    calls = _fake_render(monkeypatch)
+    source = _source_job(worker, rigged=True)
+    source_dir = worker.config.job_dir(source)
+    pose = rigging.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
+    sheet_id = rigging.new_id()
+    job_id = worker.store.create(
+        "sheet", None,
+        {"source_job": source, "sheet_id": sheet_id, "poses": [pose["id"]], "frame_size": 64},
+    )
+
+    worker.start()
+    try:
+        await _wait_until(registered.is_set)
+        await worker.request_cancel(job_id)
+        hold.set()
+        await _wait_until(lambda: worker.store.get(job_id)["status"] == "cancelled")
+    finally:
+        hold.set()
+        await worker.shutdown()
+
+    assert not calls, "the render must not run once a cancel landed before it started"
+    assert not rigging.sheet_png_path(source_dir, sheet_id).exists()
+    assert not rigging.sheet_path(source_dir, sheet_id).exists()
+
+
+@pytest.mark.asyncio
 async def test_a_sheet_of_a_vanished_pose_fails_the_job_not_the_worker(worker, monkeypatch):
     _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)

@@ -1322,8 +1322,10 @@ def start_troupe(ctx: Any) -> None:
     troupe_mode.ensure(ctx)
 
 
-#: The eight things this app can start from nothing, in the order the menu
-#: offers them. "New 3D model" and "New Model" used to sit side by side and the second
+#: The things this app can start from nothing, in the order the menu offers
+#: them. Not counted by number in prose: the 2026-09-13 audit's shell-15
+#: found this comment stuck at "eight" after Troupe's addition made it nine.
+#: "New 3D model" and "New Model" used to sit side by side and the second
 #: one meant *Clay* -- two buttons whose labels differ by a word neither of them
 #: defines, one of which generates a mesh from a prompt and the other opens a
 #: modelling workspace (UX-23). Named for what they do instead: the mode is the

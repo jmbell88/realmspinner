@@ -327,6 +327,23 @@ def test_a_cell_naming_no_instrument_in_a_renumbered_file_is_blanked():
     assert back.patterns[0].cells[0, 0, D.INSTRUMENT] == -1
 
 
+def test_a_manifest_with_a_duplicate_instrument_uid_is_refused_not_silently_misattributed():
+    """The 2026-09-13 audit, finding sirens-03. A manifest listing one uid for
+    two instruments used to be renumbered through a last-writer-wins ``dict``
+    (``{uid: index for ...}``), so cells naming the first instrument played
+    the second -- or went silent, if the first uid's slot was blank -- with no
+    error anywhere. ``_samples_from`` already refuses a duplicate sample *key*
+    by name; this is the same refusal for an instrument's uid."""
+    doc = _song()
+
+    def edit(manifest):
+        manifest["instruments"].append(dict(manifest["instruments"][0]))
+
+    raw = _repack(doc, edit)
+    with pytest.raises(ValueError, match="instrument.*twice"):
+        wsng.read_wsng(raw)
+
+
 def test_the_reserved_uid_high_water_mark_ignores_the_instruments(monkeypatch):
     """Their ids never came out of the global counter, so reserving above one
     would walk that counter toward its own ceiling for nothing -- which is the

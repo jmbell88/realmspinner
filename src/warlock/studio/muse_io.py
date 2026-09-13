@@ -60,7 +60,7 @@ def read_track(path: Any) -> dict[str, Any]:
     in-memory buffer handed to the mixer, and nothing exported depends on it.
     That is precisely why this function lives out here rather than in
     ``studio/muse/``, which bans scipy because what *it* computes ends up in a
-    file. ``WARLOCK 5/5`` now writes 44 100 Hz, so the resample is the
+    file. ``WARLOCK 5/6`` now writes 44 100 Hz, so the resample is the
     already-written path for an older take rather than the normal one.
 
     The envelope is computed here, on the thread that already holds the samples,

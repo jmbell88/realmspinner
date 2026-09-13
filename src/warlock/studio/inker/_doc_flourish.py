@@ -66,6 +66,19 @@ class FlourishState:
     #: layer names. Immutable arrays by convention: an edit replaces the
     #: entry, never writes into it, so a snapshot can share them.
     assets: dict[str, np.ndarray] = field(default_factory=dict)
+    #: ``flourish_conflicts``'s memo: ``(signature, result)`` or ``None``.
+    #: The 2026-09-13 audit, finding inker-07: the Flourish inspector calls
+    #: ``flourish_conflicts`` two or three times per frame while it is open,
+    #: and each call rebuilt a frame-uid -> index dict over the *whole*
+    #: animation. Deliberately excluded from ``__eq__``/``repr`` (it is a
+    #: cache, not document state) and deliberately **not copied** by
+    #: :meth:`copy`: a copy is what every edit -- a render, a resolved
+    #: conflict -- makes before mutating ``conflicts``, so dropping the cache
+    #: there is what invalidates it. Carrying it across the copy would let a
+    #: render's own edit answer with the *pre-render* conflict list.
+    _conflicts_cache: tuple[Any, list[int]] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def copy(self) -> FlourishState:
         return FlourishState(
@@ -176,12 +189,29 @@ class FlourishOps:
         return self.flourish_group_for(self.member_uid_of(layer))
 
     def flourish_conflicts(self: Document, group_uid: int) -> list[int]:
-        """Flagged cels of the group, as frame indices."""
+        """Flagged cels of the group, as frame indices.
+
+        The 2026-09-13 audit, finding inker-07: the Flourish inspector calls
+        this two or three times per frame while it is open, and it used to
+        rebuild a frame-uid -> index dict over the whole animation on every
+        call. ``state.conflicts`` is replaced wholesale (never mutated in
+        place -- see ``merge_render`` and ``resolve_flourish``, which both
+        build the next state via ``.copy()`` or a fresh ``FlourishState``) by
+        every edit that could change the answer, so a signature of it plus
+        the frame count is enough to know nothing has changed since the last
+        call, without walking ``anim.frames`` to check.
+        """
         state = self.flourish_state(group_uid)
         if state is None or self.anim is None:
             return []
+        signature = (frozenset(state.conflicts), len(self.anim.frames))
+        cached = state._conflicts_cache
+        if cached is not None and cached[0] == signature:
+            return cached[1]
         at = {frame.uid: i for i, frame in enumerate(self.anim.frames)}
-        return sorted({at[f] for _t, f in state.conflicts if f in at})
+        result = sorted({at[f] for _t, f in state.conflicts if f in at})
+        state._conflicts_cache = (signature, result)
+        return result
 
     # -- insert ----------------------------------------------------------------
 

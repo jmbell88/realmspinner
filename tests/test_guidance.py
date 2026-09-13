@@ -183,8 +183,26 @@ def test_the_bg_removal_default_is_gated_on_the_weights_being_on_disk(tmp_path):
     to load and falls back to a threshold cutout anyway.
     """
     assert guidance.default_bg_removal(tmp_path) == "auto"
-    (tmp_path / guidance.BIREFNET_WEIGHTS).write_bytes(b"")
+    # Real bytes, not ``b""``: the 2026-09-13 audit, finding create-04 --
+    # this test used to write an empty file here and still assert
+    # "birefnet", pinning the exact bug the finding reports. A zero-byte
+    # file is a *present but unusable* file, not a downloaded one; only
+    # genuine content should flip the default.
+    (tmp_path / guidance.BIREFNET_WEIGHTS).write_bytes(b"weights")
     assert guidance.default_bg_removal(tmp_path) == "birefnet"
+
+
+def test_default_bg_removal_falls_back_to_auto_for_a_zero_byte_weight_file(tmp_path):
+    """The 2026-09-13 audit, finding create-04.
+
+    ``default_bg_removal`` gated the "birefnet" default on ``path.exists()``
+    alone, so a zero-byte ``birefnet.gguf`` -- the exact damage
+    ``doctor._birefnet_check`` (and ``fetch.suspect_files``) already report
+    as unhealthy -- was still what new jobs requested. A truncated or
+    hard-killed download must fall back to ``auto``, same as a missing file.
+    """
+    (tmp_path / guidance.BIREFNET_WEIGHTS).write_bytes(b"")
+    assert guidance.default_bg_removal(tmp_path) == "auto"
 
 
 def test_the_gate_and_the_doctor_row_name_the_same_file(tmp_path):

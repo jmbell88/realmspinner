@@ -242,6 +242,41 @@ def _not_indexed(ctx: Any, state: Any, tab: Any) -> None:
     )
 
 
+def remove_slot_gate(count: int, slot: int, hole: int) -> tuple[bool, str]:
+    """Whether Remove is enabled for ``slot``, and the truthful reason if not.
+
+    The 2026-09-13 audit, finding inker-06: the greyed reason used to be the
+    same sentence regardless of *why* Remove was refused, and it was untrue
+    for the transparent slot -- an indexed document with two colours, one of
+    them the hole, still greys Remove on the hole even though "at least one
+    colour" was satisfied. ``remove_slot`` refuses that case by *raising*
+    ``ValueError`` (``_doc_indexed.py``), not by the count rule this reason
+    used to cite for every refusal.
+    """
+    if slot == hole:
+        return False, (
+            "The transparent slot cannot be removed; move the transparency "
+            "elsewhere first."
+        )
+    return count > 1, "An indexed document keeps at least one colour."
+
+
+def remove_slot_or_say(state: Any, doc: Any, slot: int) -> bool:
+    """``doc.remove_slot`` from the palette pane, with a toast where it refuses.
+
+    The 2026-09-13 audit, finding inker-06: ``remove_slot`` raises
+    ``ValueError`` on the transparent slot rather than returning ``False``,
+    and this door had no ``try`` around it -- the pane guard unwinds and
+    logs, so the click silently did nothing. Pulled into its own function so
+    it is reachable without a live imgui popup.
+    """
+    try:
+        return doc.remove_slot(slot)
+    except ValueError as exc:
+        state.say(str(exc))
+        return False
+
+
 def _hole_marker(at: Any, side: float) -> None:
     """A small notch on the transparent slot's top-left corner."""
     draw = imgui.get_window_draw_list()
@@ -321,12 +356,13 @@ def _slots(ctx: Any, state: Any, tab: Any) -> None:
         state.palette_slot = len(doc.palette) - 1
         state.palette_usage = None
     imgui.same_line()
+    removable, remove_reason = remove_slot_gate(len(palette), slot, hole)
     if widgets.disabled_button(
         "Remove",
-        len(palette) > 1,
-        reason="An indexed document keeps at least one colour.",
+        removable,
+        reason=remove_reason,
         tooltip="Pixels painted in it merge into the nearest remaining colour.",
-    ) and doc.remove_slot(slot):
+    ) and remove_slot_or_say(state, doc, slot):
         state.palette_moved()
     if widgets.disabled_button("<", slot > 0, reason="Already first."):
         doc.move_slot(slot, slot - 1)

@@ -142,6 +142,15 @@ def audition(ctx: Any, tab: SongTab | None, uid: int) -> bool:
     if not sirens_audio.available():
         ctx.toast(sirens_audio.unavailable_reason(), "warn")
         return False
+    # Checked *before* the snapshot, ``request_render``'s own reasoning (the
+    # 2026-09-13 audit, finding sirens-01): ``wsng_bytes`` DEFLATEs every
+    # pattern and encodes every sample on the frame thread, and ``submit``
+    # below refuses a key already in flight regardless -- so without this,
+    # every typed note or clicked audition while one was already rendering
+    # paid a whole-document encode for a submit that was always going to be
+    # refused.
+    if ctx.busy(f"{AUDITION_PREFIX}{tab.uid}"):
+        return False
 
     from .sirens import wsng
 
@@ -200,6 +209,11 @@ def preview_note(ctx: Any, note: int) -> bool:
         # would cut whatever is on it -- and typing into bar 3 while bar 1
         # plays is exactly what follow mode is for. A preview interrupts only
         # an earlier preview.
+        return False
+    # See ``audition``'s comment on this same check (the 2026-09-13 audit,
+    # finding sirens-01): otherwise every typed note re-encoded the whole
+    # document just to have the submit below refuse it.
+    if ctx.busy(f"{PREVIEW_PREFIX}{tab.uid}"):
         return False
 
     from .sirens import wsng
@@ -366,6 +380,10 @@ def play_pattern(ctx: Any, tab: SongTab | None = None) -> bool:
         return False
     if not sirens_audio.available():
         ctx.toast(sirens_audio.unavailable_reason(), "warn")
+        return False
+    # See ``audition``'s comment on this same check (the 2026-09-13 audit,
+    # finding sirens-01).
+    if ctx.busy(f"{PATTERN_PREFIX}{tab.uid}"):
         return False
     from .sirens import wsng
 

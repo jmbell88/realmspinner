@@ -314,3 +314,55 @@ def test_a_click_past_the_last_column_clamps_rather_than_refusing():
     widths = [30.0, 20.0, 20.0, 10.0, 20.0]
     assert column_at(10_000.0, widths, 6.0) == 4
     assert column_at(-5.0, widths, 6.0) == 0
+
+
+def test_retarget_popup_refuses_a_selection_while_the_song_is_busy(frames, monkeypatch):
+    """Finding sirens-04, the 2026-09-13 audit. The order list's "point this
+    entry at another pattern" popup drew its rows with no regard for
+    ``editable``, so a popup left open across a save starting still called
+    ``set_order`` on a tab the rest of the pane was refusing to touch --
+    imgui's own disabled state does not close an already-open popup, and
+    imgui's real click-blocking under ``BeginDisabled`` is not something this
+    suite has a headless way to drive. Reproduced against the unfixed code by
+    faking a click through ``controls.selectable`` regardless of ``enabled``:
+    the unfixed ``_retarget`` applied it whether or not the row could really
+    have been clicked.
+    """
+    from imgui_bundle import imgui
+
+    from warlock.studio.panes import sirens_orders
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    doc = tab.doc
+    first = doc.patterns[0].uid
+    second = doc.add_pattern().uid
+    doc.set_order([first])
+
+    # Simulates a stale click landing on the popup's first row, regardless of
+    # whether the row was actually clickable.
+    monkeypatch.setattr(
+        sirens_orders.controls, "selectable", lambda *a, **k: (True, False)
+    )
+    monkeypatch.setattr(imgui, "begin_popup", lambda *_a, **_k: True)
+    monkeypatch.setattr(imgui, "end_popup", lambda: None)
+    monkeypatch.setattr(imgui, "open_popup", lambda *_a, **_k: None)
+
+    # ``frames`` runs ``build`` for its side effects and returns nothing, so
+    # ``_retarget``'s answer is captured through this dict rather than a
+    # return value.
+    result: dict[str, bool] = {}
+
+    def busy_call():
+        result["changed"] = sirens_orders._retarget(ctx, tab, 0, first, False)
+
+    frames(busy_call)
+    assert not result["changed"]
+    assert list(doc.order) == [first]
+
+    def editable_call():
+        result["changed"] = sirens_orders._retarget(ctx, tab, 0, first, True)
+
+    frames(editable_call)
+    assert result["changed"]
+    assert list(doc.order) == [second]

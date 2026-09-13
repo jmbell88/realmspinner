@@ -555,8 +555,14 @@ def _card_body(ctx: Any, tour: Any, step: Any, state: Any, focused: bool) -> Non
     # ``is_window_focused()`` itself rather than assume nothing else wants
     # the same press.
     back = focused and imgui.is_key_pressed(imgui.Key.left_arrow)
+    # Both Enter keys, the 2026-09-13 audit's tour-02: ``App._shortcut``
+    # swallows ``K_KP_ENTER`` whenever the tour has focus (main.py), and
+    # every other Enter-confirms site in the app reads both keys -- reading
+    # only ``Key.enter`` here left the numpad key dead on this one surface.
     forward = focused and (
-        imgui.is_key_pressed(imgui.Key.right_arrow) or imgui.is_key_pressed(imgui.Key.enter)
+        imgui.is_key_pressed(imgui.Key.right_arrow)
+        or imgui.is_key_pressed(imgui.Key.enter)
+        or imgui.is_key_pressed(imgui.Key.keypad_enter)
     )
     if state.index > 0 and back:
         advance(ctx, -1)

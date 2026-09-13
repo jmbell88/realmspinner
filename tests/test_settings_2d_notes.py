@@ -527,3 +527,14 @@ def test_no_fold_machinery_survives_the_flat_form():
     themselves."""
     for name in ("folds_to_open", "folded_fields", "MORE_KEY", "ADVANCED_KEY"):
         assert not hasattr(settings_2d, name)
+
+
+def test_settings_2d_docstring_does_not_describe_a_missing_composed_prompt_preview():
+    """The 2026-09-13 audit, finding create-10: the module docstring
+    described a debounced composed-prompt token preview, computed on a task
+    thread by loading CLIP's tokenizers, that this module does not build --
+    no such preview, debounce, or tokenizer call exists here."""
+    doc = settings_2d.__doc__ or ""
+    assert "composed-prompt" not in doc
+    assert "debounced" not in doc
+    assert "tokenizers" not in doc

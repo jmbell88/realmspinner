@@ -746,7 +746,15 @@ class MasonView(FrameOps):
             # ``resolve`` never reports one. ``resolved_for`` answers for any
             # node, which is what a properties panel and a gizmo both need.
             for uid in sorted(selection):
-                found = msc.resolved_for(doc, uid)
+                try:
+                    found = msc.resolved_for(doc, uid)
+                except ValueError:
+                    # mason-03, the 2026-09-13 audit: a document past
+                    # ``MAX_PLACED`` makes ``resolved_for`` raise the same
+                    # refusal ``resolve`` always has; the frame thread must
+                    # not crash over a pivot lookup, so this uid simply
+                    # contributes no point, same as "not found".
+                    found = None
                 if found is not None:
                     points.append(found.world[:3, 3])
         if not points:
@@ -1291,7 +1299,13 @@ class MasonView(FrameOps):
         parent_uid = doc.parent_uid_of(uid)
         if parent_uid is None:
             return np.eye(3), np.eye(4)
-        found = msc.resolved_for(doc, parent_uid)
+        try:
+            found = msc.resolved_for(doc, parent_uid)
+        except ValueError:
+            # mason-03, the 2026-09-13 audit: same refusal as the pivot
+            # lookup above -- a document past ``MAX_PLACED`` must not crash a
+            # drag's basis lookup on the frame thread.
+            found = None
         if found is None:
             return np.eye(3), np.eye(4)
         world = np.asarray(found.world, dtype="f8")

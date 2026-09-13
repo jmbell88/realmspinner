@@ -6,9 +6,6 @@ form is flat -- no folds, no guidance groups -- and every section draws as a
 full-width tinted block, matching Plotter's tools pane: the block scope is
 opened *inside* the ``2d-form`` child so the fills land on the child's own
 draw list rather than under its opaque background.
-
-The composed-prompt preview is debounced and computed on a task thread: it
-loads CLIP's tokenizers to count tokens, which is far too slow for a keystroke.
 """
 
 from __future__ import annotations
@@ -1907,8 +1904,14 @@ def _model(ctx: Any, form: dict[str, Any], findings_doc: Any = _LOAD_FINDINGS) -
     # is selected and not downloaded, with the ``hf download`` line in it.
     widgets.field_error(ctx.state, "base_model")
     if form.get("model_mode") == "auto":
-        request = generation.request_from_legacy(form)
-        resolved = generation.resolve_recipe(request, ctx.svc.config)
+        # The 2026-09-13 audit, finding create-03: this called
+        # ``generation.resolve_recipe`` directly instead of going through
+        # the ``_resolved_recipe`` memo, repeating
+        # ``provenance._dir_fingerprint``'s ``rglob`` over every installed
+        # checkpoint directory every frame -- the five sibling call sites
+        # were moved onto the memo by the 2026-09-08 create-06 fix, but the
+        # Model combo's own Automatic branch was missed.
+        resolved = _resolved_recipe(ctx, form)
         if resolved is None:
             widgets.muted_wrapped(
                 "No compatible installed recipe is available. "

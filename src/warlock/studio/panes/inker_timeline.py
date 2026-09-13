@@ -1709,6 +1709,26 @@ def row_targets(tab: Any, doc: Any, index: int) -> list[int]:
     return [index]
 
 
+def merge_range_or_say(ctx: Any, doc: Any, low: int, high: int) -> bool:
+    """``doc.merge_range`` from the row menu, with a toast where it refuses.
+
+    The 2026-09-13 audit, finding inker-06: a per-cel Z lift between the pair
+    makes ``merge_range`` refuse by *raising* ``ValueError``
+    (``_doc_layers.py``'s ``_refuse_merge_across_z``) rather than returning
+    ``False``, and this menu had no ``try`` around the call -- the pane guard
+    unwinds and logs, so the click silently did nothing and never said why.
+    ``inker_ops.run`` is the house choke point for this shape (see its own
+    catch, finding inker-01), but the row menu calls the document directly, so
+    the catch is repeated here, pulled into its own function so it is
+    reachable without a live imgui popup.
+    """
+    try:
+        return doc.merge_range(low, high)
+    except ValueError as exc:
+        ctx.state.inker.say(str(exc))
+        return False
+
+
 def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
     """The row's own verbs -- over the range where there is one."""
     if not imgui.begin_popup_context_item("layer-menu"):
@@ -1740,7 +1760,7 @@ def _row_menu(ctx: Any, tab: Any, doc: Any, index: int) -> None:
     if controls.selectable(f"Duplicate{span or ' layer'}", False)[0]:
         doc.duplicate_layers(rows)
     if controls.selectable(f"Merge down{span}", False)[0]:
-        doc.merge_range(min(rows), max(rows))
+        merge_range_or_say(ctx, doc, min(rows), max(rows))
     if controls.selectable(f"Delete{span or ' layer'}", False)[0]:
         doc.remove_layers(rows)
     widgets.divider()

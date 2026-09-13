@@ -547,13 +547,23 @@ def resolve_layout(
         ):
             if any(not isinstance(d, Mapping) for d in raw_directions):
                 raise ValueError("every Troupe direction must be an object")
-            directions = tuple(
-                (
-                    str(d.get("key") or d.get("name") or ""),
-                    float(d.get("yaw")),
+            # A v2 direction object with no ``yaw`` used to hit
+            # ``float(None)`` and surface a raw TypeError instead of a named
+            # refusal -- the 2026-09-13 audit, finding troupe-01. Wrapped the
+            # same way the sibling branch below refuses an out-of-range
+            # direction preset by name.
+            try:
+                directions = tuple(
+                    (
+                        str(d.get("key") or d.get("name") or ""),
+                        float(d.get("yaw")),
+                    )
+                    for d in raw_directions
                 )
-                for d in raw_directions
-            )
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "every Troupe direction must carry a numeric yaw"
+                ) from None
             if directions not in DIRECTION_PRESETS.values():
                 raise ValueError("directions must use the 1, 4, 8, or 16 direction preset")
         else:

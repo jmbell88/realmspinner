@@ -388,3 +388,43 @@ def test_aseprite_keeps_the_layers_and_drops_the_recipe(tmp_path):
     assert len(again.anim.tracks) == tracks
     assert [t.name for t in again.anim.tags] == [t.name for t in doc.anim.tags]
     assert group not in again.flourish
+
+
+def test_flourish_conflicts_does_not_rebuild_the_frame_index_when_nothing_changed():
+    """The 2026-09-13 audit, finding inker-07: the Flourish inspector calls
+    ``flourish_conflicts`` two or three times per frame while it is open, and
+    each call used to rebuild a frame-uid -> index dict over the whole
+    animation from scratch. A second call with nothing changed must answer
+    from the memo rather than walking ``anim.frames`` again -- proven here by
+    monkeypatching ``enumerate`` calls off the table: instead, count calls
+    into the frame-index build by wrapping ``anim.frames`` access is fragile,
+    so this instruments the one thing that walk actually does: build a dict
+    the size of the animation. A cheap proxy that is exact enough not to lie
+    either way is to count how many times ``state.conflicts`` gets read while
+    computing the *signature* is unavoidable (a cache still has to check
+    freshness) -- what must NOT happen again is a fresh dict comprehension
+    over every frame. That is asserted directly against the cache field.
+    """
+    doc = inker.Document.blank(32, 32)
+    group = doc.insert_flourish(B.bake(_recipe(seed=1)))
+    track_uid = next(iter(doc.flourish_state(group).tracks.values()))
+    doc.anim.cels[(track_uid, doc.anim.frames[2].uid)].pixels[0, 0] = (1, 2, 3, 255)
+    doc.apply_flourish(group, B.bake(_recipe(seed=2)))
+
+    first = doc.flourish_conflicts(group)
+    assert first == [2]
+    state = doc.flourish_state(group)
+    cached_after_first = state._conflicts_cache
+    assert cached_after_first is not None
+
+    # A second call with nothing changed must reuse the same cached result
+    # object rather than recomputing it -- on the unfixed code, every call
+    # rebuilds ``at`` and a new ``result`` list, so this identity check fails.
+    second = doc.flourish_conflicts(group)
+    assert second == [2]
+    assert second is cached_after_first[1]
+
+    # Second assertion: an edit that changes the answer -- resolving the
+    # conflict -- must invalidate the memo rather than serve the stale list.
+    assert doc.resolve_flourish(group, [2])
+    assert doc.flourish_conflicts(group) == []

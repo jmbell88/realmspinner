@@ -656,6 +656,28 @@ def test_a_partial_directory_is_absent(tmp_path):
     assert entry.is_present(cfg)
 
 
+def test_a_directory_in_place_of_a_named_weight_file_is_not_present(tmp_path):
+    # pipelines-03 (the 2026-09-13 audit): ``present`` and ``base_model_state``
+    # used ``Path.exists()`` (and, for the metric/pose/matting tail, an
+    # unfiltered ``rglob("*.safetensors")``) against named weight files, and
+    # ``exists()`` is true for a directory too -- so a directory standing
+    # where a style LoRA's ``.safetensors`` belongs read as installed and
+    # would have passed ``check_weights`` straight through to a load that
+    # then tried to open a directory as a checkpoint.
+    cfg = _config(tmp_path)
+    spec = models.STYLE_LORAS["render3d"]
+    lora_path = cfg.t2i_model_root / "loras" / spec.filename
+    lora_path.mkdir(parents=True)
+    assert not fetch.present(cfg, "lora", spec)
+
+    # The base-model probe files go through the same helper.
+    base_spec = models.BASE_MODELS["sdxl"]
+    base_dir = fetch.base_model_dir(cfg, base_spec)
+    (base_dir / "model_index.json").mkdir(parents=True)
+    ok, _missing = fetch.base_model_state(cfg, base_spec)
+    assert not ok
+
+
 def test_a_checkpoint_without_its_step_distillation_lora_is_absent(tmp_path):
     cfg = _config(tmp_path)
     root = cfg.t2i_model_root / "sdxl-base-1.0"

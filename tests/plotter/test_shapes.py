@@ -123,6 +123,14 @@ def test_a_negative_size_is_refused_on_every_shape_that_has_one():
             build()
 
 
+def test_text_object_colour_is_refused_when_malformed():
+    """The 2026-09-13 audit (finding plotter-02) found ``Text.color`` was never
+    validated as ``#RRGGBB``/``#AARRGGBB`` at construction, in the readers, or
+    in the writers, unlike every sibling colour field."""
+    with pytest.raises(ValueError, match="#RRGGBB"):
+        Text("x", color="not-a-colour")
+
+
 def test_a_tile_shape_carries_its_flip_flags_in_the_gid():
     """Exactly like a cell: one number, flags in the top bits, nothing between
     here and the renderer strips them."""

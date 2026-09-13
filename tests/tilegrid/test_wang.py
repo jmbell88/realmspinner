@@ -53,6 +53,14 @@ def test_a_negative_colour_probability_is_refused() -> None:
         wang.WangColour(probability=-1.0)
 
 
+def test_wangcolour_refuses_a_malformed_colour_string() -> None:
+    """The 2026-09-13 audit (finding plotter-04) found ``colour`` stringified
+    and never checked, unlike every sibling colour field in this format
+    (``ObjectLayer.color``, ``MapDoc.backgroundcolor``, a layer's ``tint``)."""
+    with pytest.raises(ValueError, match="#RRGGBB"):
+        wang.WangColour(colour="not-a-colour")
+
+
 def test_the_kind_decides_the_slots_not_the_data() -> None:
     """A corner set every one of whose tiles happens to have an unset edge is
     still a corner set; inferring the kind from the table would make an all-blank

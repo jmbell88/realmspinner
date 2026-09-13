@@ -25,6 +25,12 @@ from typing import Any
 
 from . import models
 
+# Owned here, not in ``service.validation`` (which imports it back): the
+# queue/worker layer imports this module (``_q_lora.py``) and must never
+# import ``service``, function-body imports included, so the constant lives
+# at the layer both sides can reach.
+MAX_REFERENCE_COUNT = 8
+
 GENERATION_TYPES = ("image", "3d_model", "seamless_material", "tileset", "sprite_sheet")
 GENERATION_TYPE_OPTIONS = (
     ("image", "Image"),
@@ -241,7 +247,12 @@ class GenerationRequest:
             model_override=(str(raw["model_override"]) if raw.get("model_override") else None),
             style_lora=(str(raw["style_lora"]) if raw.get("style_lora") else None),
             lora_weight=raw.get("lora_weight"),
-            references=tuple(str(x) for x in raw.get("references") or ()),
+            # The 2026-09-13 audit, finding create-02: ``tuple(...)`` over a
+            # raw value that turns out to be a bare ``str`` iterates its
+            # characters, so ``{"references": "ref.png"}`` became seven
+            # single-character "references" instead of one. Route it
+            # through ``_as_items``, which treats a ``str`` as one item.
+            references=_as_items(raw.get("references")),
             reference_mode=str(raw.get("reference_mode") or "none"),
             structure_control=str(raw.get("structure_control") or ""),
             # img2img intent. Dropped here until the 2026-09-11 audit (finding
@@ -253,23 +264,38 @@ class GenerationRequest:
             # ``init_image=False, init_strength=None`` with no error and no
             # visible signal, changing the actual output.
             init_image=bool(raw.get("init_image")),
+            # The 2026-09-13 audit, finding create-01: this used a bare
+            # ``float()``/``int()`` cast, so a non-numeric top-level scalar
+            # (e.g. ``{"seed": "banana"}``) raised ``ValueError`` out of this
+            # constructor instead of surviving to be refused by
+            # ``validate_request`` as a ``CompatibilityIssue`` -- the same
+            # crash create2-07 fixed one level down, in ``TileSettings`` and
+            # friends, via ``_required_int``. Route these through the same
+            # tolerant helper so an unconvertible value comes back unchanged
+            # and gets refused by type further down the pipeline.
             init_strength=(
-                float(raw["init_strength"])
+                _required_float(raw["init_strength"], None)
                 if raw.get("init_strength") not in (None, "")
                 else None
             ),
-            seed=int(raw.get("seed") or 0),
-            count=int(raw.get("count") or 1),
+            seed=_required_int(raw.get("seed"), 0),
+            count=_required_int(raw.get("count"), 1),
             tile=TileSettings(
                 **_coerce_settings(
                     {
-                        k: (tuple(v) if k == "prompt_items" else v)
+                        k: (_as_items(v) if k == "prompt_items" else v)
                         for k, v in tile.items()
                         if k in TileSettings.__dataclass_fields__
                     },
                     _TILE_COERCIONS,
                 ),
-                **{"prompt_items": tuple(tile["prompt_items"])}
+                # The 2026-09-13 audit, finding create-02: a bare ``str``
+                # here (e.g. a short tileset prompt typed where a list was
+                # expected) exploded into one prompt item per character via
+                # a raw ``tuple(...)`` call, passing validation and queuing
+                # per-character materials. ``_as_items`` treats a ``str`` as
+                # one item, matching ``_prompt_lines``'s rule.
+                **{"prompt_items": _as_items(tile["prompt_items"])}
                 if "prompt_items" in tile
                 else {},
                 **{"target_cell_px": _optional_int(tile["target_cell_px"])}
@@ -747,8 +773,32 @@ def validate_request(
         issues.append(
             CompatibilityIssue("references", "Multi-reference mode needs at least two images.")
         )
-    if request.count < 1:
-        issues.append(CompatibilityIssue("count", "Count must be at least one."))
+    # The 2026-09-13 audit, finding create-01: ``count`` can now arrive as
+    # whatever ``_required_int`` left an unconvertible value at (unchanged,
+    # not folded to a default), so this must check the type before the
+    # range comparison -- an uncaught ``TypeError`` here is the crash the
+    # finding reproduced. Finding create-07: ``create_job`` enforces an
+    # upper bound (``MAX_REFERENCE_COUNT``, defined in this module and
+    # re-exported by ``service.validation`` -- see that constant's own
+    # comment for why this module owns it) that this door never mirrored,
+    # so a request could pass here and still be refused two steps later
+    # with no field pointed at until it did.
+    if not isinstance(request.count, int) or isinstance(request.count, bool):
+        issues.append(CompatibilityIssue("count", "Count must be a whole number."))
+    elif not 1 <= request.count <= MAX_REFERENCE_COUNT:
+        issues.append(
+            CompatibilityIssue(
+                "count", f"Count must be between 1 and {MAX_REFERENCE_COUNT}."
+            )
+        )
+    # Same reasoning as ``count`` above, for ``init_strength``: ``_required_float``
+    # can now leave an unconvertible value in place, and ``request_to_legacy``
+    # calls a bare ``float()`` on it, so the type must be refused here rather
+    # than left to crash further down the pipeline.
+    if request.init_strength is not None and not isinstance(request.init_strength, (int, float)):
+        issues.append(CompatibilityIssue("init_strength", "Init strength must be a number."))
+    if not isinstance(request.seed, int) or isinstance(request.seed, bool):
+        issues.append(CompatibilityIssue("seed", "Seed must be a whole number."))
     if request.generation_type == "tileset":
         t = request.tile
         if t.mode not in TILE_MODES:
@@ -1083,6 +1133,24 @@ def request_to_legacy(
     return out
 
 
+def _as_items(value: Any) -> tuple[str, ...]:
+    """A tuple of items from whatever a JSON document is holding.
+
+    The 2026-09-13 audit, finding create-02: ``references`` and
+    ``tile.prompt_items`` were built with a bare ``tuple(str(x) for x in
+    value)``, and ``str`` is itself iterable, so a bare string value (one
+    reference path, one tileset prompt) turned into one entry per
+    character. A ``str`` is one item, same rule as :func:`_prompt_lines`.
+    """
+    if value in (None, ""):
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Iterable):
+        return tuple(str(x) for x in value)
+    return ()
+
+
 def _prompt_lines(value: Any) -> tuple[str, ...]:
     """A material list from whatever the form is holding.
 
@@ -1134,6 +1202,28 @@ def _required_int(value: Any, default: int) -> Any:
         return value
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _required_float(value: Any, default: Any) -> Any:
+    """:func:`_required_int`'s reasoning, for a bare (non-``Optional``) float.
+
+    The 2026-09-13 audit, finding create-01: ``init_strength`` was cast with
+    a bare ``float()`` in :meth:`GenerationRequest.from_dict`, so a
+    non-numeric value crashed the constructor instead of surviving to be
+    refused by ``validate_request``. Same contract as ``_required_int``: an
+    unconvertible value is returned unchanged rather than folded to the
+    default, so the caller can still tell it was garbage.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return value
 

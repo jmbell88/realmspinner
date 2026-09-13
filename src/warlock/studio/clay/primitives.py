@@ -195,6 +195,28 @@ MIN_SECTIONS = 1
 # guarantee for an unbounded outline.
 MAX_SECTIONS = 256
 
+# The length ceiling the 2026-09-13 audit added (finding clay-01):
+# ``_clamp_profile``, ``_clamp_outline`` and ``_clamp_path`` bounded a
+# station's shape and the list's ordering but never its *count*, unlike every
+# other size-shaped generator parameter above. A profile is multiplied by
+# ``segments`` (a lathe's ring count), an outline by ``sections`` (a sweep's
+# band count), and a path by ``sides`` (a tube's ring count) -- exactly the
+# same "two counts multiplied together" shape :data:`MAX_SEGMENTS` and
+# :data:`MAX_RINGS` already bound for ``torus``, ``uv_sphere`` and
+# ``capsule``, just with one side of the product coming from caller-supplied
+# array length instead of another int parameter. Reproduced: a 50,000-station
+# profile at ``segments=64`` built 3,199,938 faces in 10.8 s, past
+# ``glbimport.MAX_TRIANGLES`` (2,000,000), and reached from an agent's single
+# ``clay_add_primitive``/``clay_set_params`` call, which blocks the
+# frame-thread call queue while it runs. 512 mirrors :data:`MAX_SEGMENTS`
+# itself -- the same order of headroom the torus/uv_sphere/capsule pairs
+# already lean on (512 * 512 * 2 = 524,288 triangles, comfortably under 2M
+# with headroom left for the rest of a document sharing that budget) -- for
+# each of the three parameters this ceiling now bounds.
+MAX_PROFILE_STATIONS = 512
+MAX_OUTLINE_CORNERS = 512
+MAX_PATH_POINTS = 512
+
 
 def _clamp_segments(value: Any) -> int:
     """The floor and ceiling every ring-and-cap generator applies to its own
@@ -234,6 +256,15 @@ def _clamp_profile(value: Any) -> list[list[float]]:
     ``sweep``'s ``outline`` and ``tube``'s ``path`` can each register their
     own normaliser beside it in :data:`_PROFILE_CLAMPS` rather than growing a
     second copy of this function's shape.
+
+    Truncated to :data:`MAX_PROFILE_STATIONS` stations before any of the
+    steps below runs, added by the 2026-09-13 audit (finding clay-01): every
+    other size-shaped parameter in this module has a ceiling, and a profile's
+    station count did not, so it reached ``lathe``'s ring-per-station
+    allocation unbounded and multiplied against ``segments`` with nothing
+    stopping it short of ``glbimport.MAX_TRIANGLES``. Truncating first, ahead
+    of the six steps below, means a huge profile costs one slice rather than
+    a full pass through all of them.
 
     Six steps, in the order ``docs/INVARIANTS.md``'s generator paragraph
     states the first four of them:
@@ -284,6 +315,10 @@ def _clamp_profile(value: Any) -> list[list[float]]:
         stations = [[abs(float(r)), float(y)] for r, y in value]
     except (TypeError, ValueError):
         stations = []
+    # clay-01 (2026-09-13 audit): truncate before any O(n) pass below runs,
+    # let alone before ``lathe`` allocates a ring per surviving station --
+    # see :data:`MAX_PROFILE_STATIONS`.
+    stations = stations[:MAX_PROFILE_STATIONS]
     for i in range(1, len(stations)):
         if stations[i][1] < stations[i - 1][1]:
             stations[i][1] = stations[i - 1][1]
@@ -326,6 +361,13 @@ def _clamp_outline(value: Any) -> list[list[float]]:
     """``sweep``'s own floor on its array-valued parameter, registered beside
     :func:`_clamp_profile` in :data:`_PROFILE_CLAMPS` rather than copying that
     function's shape a second time.
+
+    Truncated to :data:`MAX_OUTLINE_CORNERS` corners before any of the steps
+    below runs -- the 2026-09-13 audit's finding clay-01, the same one that
+    gives :func:`_clamp_profile` its own :data:`MAX_PROFILE_STATIONS`: an
+    outline's corner count had a shape and winding clamp but no ceiling, and
+    it multiplies against ``sweep``'s own ``sections`` with nothing stopping
+    it short of ``glbimport.MAX_TRIANGLES``.
 
     Five steps:
 
@@ -372,6 +414,11 @@ def _clamp_outline(value: Any) -> list[list[float]]:
         corners = [[float(x), float(y)] for x, y in value]
     except (TypeError, ValueError):
         corners = []
+    # clay-01 (2026-09-13 audit): truncate before the winding/re-centring
+    # passes below run, let alone before ``sweep`` allocates a ring per
+    # surviving corner for every one of its ``sections`` -- see
+    # :data:`MAX_OUTLINE_CORNERS`.
+    corners = corners[:MAX_OUTLINE_CORNERS]
     deduped: list[list[float]] = []
     for corner in corners:
         if deduped and deduped[-1] == corner:
@@ -398,6 +445,14 @@ def _clamp_path(value: Any) -> list[list[float]]:
     """``tube``'s own floor on its array-valued parameter, registered beside
     :func:`_clamp_profile` and :func:`_clamp_outline` in :data:`_PROFILE_CLAMPS`
     rather than growing a third copy of either function's shape.
+
+    Truncated to :data:`MAX_PATH_POINTS` points before any of the steps below
+    runs -- the 2026-09-13 audit's finding clay-01, the same one that gives
+    :func:`_clamp_profile` its own :data:`MAX_PROFILE_STATIONS` and
+    :func:`_clamp_outline` its own :data:`MAX_OUTLINE_CORNERS`: a path's
+    point count had a shape and dedup clamp but no ceiling, and it multiplies
+    against ``tube``'s own ``sides`` with nothing stopping it short of
+    ``glbimport.MAX_TRIANGLES``.
 
     Four steps:
 
@@ -443,6 +498,10 @@ def _clamp_path(value: Any) -> list[list[float]]:
         points = [[float(x), float(y), float(z)] for x, y, z in value]
     except (TypeError, ValueError):
         points = []
+    # clay-01 (2026-09-13 audit): truncate before the re-centring pass below
+    # runs, let alone before ``tube`` allocates a ring per surviving point for
+    # every one of its ``sides`` -- see :data:`MAX_PATH_POINTS`.
+    points = points[:MAX_PATH_POINTS]
     deduped: list[list[float]] = []
     for point in points:
         if deduped and deduped[-1] == point:

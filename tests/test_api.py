@@ -799,7 +799,14 @@ def test_a_job_gets_the_learned_matte_when_its_weights_are_on_disk(svc):
     from warlock import guidance as guidance_mod
 
     svc.config.trellis_models_dir.mkdir(parents=True, exist_ok=True)
-    (svc.config.trellis_models_dir / guidance_mod.BIREFNET_WEIGHTS).write_bytes(b"")
+    # One byte, not zero: the 2026-09-13 audit, finding create-04 --
+    # ``default_bg_removal`` now falls back to ``auto`` for a zero-byte
+    # weight file (the same damage ``doctor._birefnet_check`` already
+    # reported unhealthy), so an empty placeholder here no longer means
+    # "downloaded", it means "corrupt". docs/INVARIANTS.md: "Test fixtures
+    # therefore write one byte, not zero -- an empty placeholder now means
+    # 'corrupt'".
+    (svc.config.trellis_models_dir / guidance_mod.BIREFNET_WEIGHTS).write_bytes(b"x")
     job_id = svc_jobs.create_job(svc, kind="text", prompt="a rogue")["id"]
     assert _params(svc, job_id)["bg_removal"] == "birefnet"
 

@@ -46,7 +46,7 @@ def _render(seconds: float = 30.0, rate: int = synth.SAMPLE_RATE) -> bytes:
 def test_the_two_engines_already_agree_about_the_sample_rate():
     """Asserted rather than claimed in a comment, which is the whole point:
     ``synth.SAMPLE_RATE`` is what Sirens renders at and 44100 is what
-    ``WARLOCK 5/5`` makes Muse write, so neither leg of the bridge needs a
+    ``WARLOCK 5/6`` makes Muse write, so neither leg of the bridge needs a
     resample and a change to either would fail here rather than silently
     transpose a song."""
     assert synth.SAMPLE_RATE == 44100

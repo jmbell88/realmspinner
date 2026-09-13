@@ -32,7 +32,7 @@ from pathlib import Path
 #: Which libsndfile format and subtype each re-encoded name is written as.
 #:
 #: The subtypes are chosen, not defaulted. FLAC and AIFF at ``PCM_16`` match
-#: what ``WARLOCK 5/5`` writes, so either is *lossless with respect to the
+#: what ``WARLOCK 5/6`` writes, so either is *lossless with respect to the
 #: file it came from* rather than lossless with respect to a re-quantisation.
 #: MP3 and Vorbis take libsndfile's own VBR default, and there is deliberately
 #: no bitrate knob: one would cost a Config field, a SETTINGS row and the

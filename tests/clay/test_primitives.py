@@ -1436,3 +1436,57 @@ def test_a_clamped_path_is_stored_as_the_value_that_was_built() -> None:
     from_clamped = bp.tube(**clamped)
     assert np.array_equal(from_raw.positions, from_clamped.positions)
     assert list(from_raw.starts) == list(from_clamped.starts)
+
+
+# --- clay-01: array-parameter station ceilings (2026-09-13 audit) ----------
+
+
+def test_lathe_refuses_a_profile_whose_station_count_times_segments_exceeds_max_triangles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_clamp_profile`` bounded a station's shape and ordering but never its
+    *count*: reproduced pre-fix, 50,000 stations at ``segments=64`` built
+    3,199,938 faces in 10.8 s, past ``glbimport.MAX_TRIANGLES`` (2,000,000),
+    reachable from a single agent ``clay_add_primitive``/``clay_set_params``
+    call. The ceiling is patched down here so the test proves refusal without
+    building anywhere near that many faces."""
+    monkeypatch.setattr(bp, "MAX_PROFILE_STATIONS", 8)
+    profile = [[1.0 + 0.01 * i, float(i)] for i in range(1000)]
+    clamped = bp.clamp_params("lathe", {"profile": profile})
+    assert len(clamped["profile"]) <= 8
+    mesh = bp.lathe(profile=profile, segments=64)
+    assert bm.face_count(mesh) < 1000
+    bm.validate(mesh)
+
+
+def test_sweep_refuses_an_outline_whose_corner_count_times_sections_exceeds_max_triangles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_clamp_outline`` bounded a corner's shape and winding but never the
+    outline's own *count*, the same clay-01 gap :func:`_clamp_profile` had --
+    an outline's corner count multiplies against ``sweep``'s own ``sections``
+    with nothing stopping it short of ``glbimport.MAX_TRIANGLES``."""
+    monkeypatch.setattr(bp, "MAX_OUTLINE_CORNERS", 8)
+    outline = [[np.cos(2 * np.pi * i / 1000), np.sin(2 * np.pi * i / 1000)] for i in range(1000)]
+    clamped = bp.clamp_params("sweep", {"outline": outline})
+    assert len(clamped["outline"]) <= 8
+    mesh = bp.sweep(outline=outline, sections=256)
+    assert bm.face_count(mesh) < 3000
+    bm.validate(mesh)
+
+
+def test_tube_refuses_a_path_whose_point_count_times_sides_exceeds_max_triangles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_clamp_path`` bounded a point's shape and dedup but never the path's
+    own *count*, the same clay-01 gap :func:`_clamp_profile` and
+    :func:`_clamp_outline` had -- a path's point count multiplies against
+    ``tube``'s own ``sides`` with nothing stopping it short of
+    ``glbimport.MAX_TRIANGLES``."""
+    monkeypatch.setattr(bp, "MAX_PATH_POINTS", 8)
+    path = [[0.01 * i, 0.0, 0.0] for i in range(1000)]
+    clamped = bp.clamp_params("tube", {"path": path})
+    assert len(clamped["path"]) <= 8
+    mesh = bp.tube(path=path, sides=64)
+    assert bm.face_count(mesh) < 1000
+    bm.validate(mesh)

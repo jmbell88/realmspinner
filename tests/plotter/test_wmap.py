@@ -1493,3 +1493,22 @@ def test_a_slot_outside_one_to_nine_is_dropped_rather_than_refused():
         manifest["stamps"] = [dict(manifest["stamps"][0], slot=12)]
 
     assert wmap.read_wmap(_rewrite(_stamped(), mangle)).stamps == {}
+
+
+def test_read_wmap_refuses_a_malformed_object_layer_colour_and_backgroundcolor():
+    """The 2026-09-13 audit (finding plotter-03) found ``read_wmap`` assigning
+    ``ObjectLayer.color`` and ``MapDoc.backgroundcolor`` straight from the
+    file, without ``colour_text`` -- so a bad value opened, round-tripped into
+    exports, and made ``render_map`` raise at export instead of being refused
+    here."""
+    def bad_layer_colour(manifest):
+        manifest["layers"][1]["color"] = "not-a-colour"
+
+    with pytest.raises(ValueError, match="#RRGGBB"):
+        wmap.read_wmap(_rewrite(_doc(), bad_layer_colour))
+
+    def bad_background(manifest):
+        manifest["backgroundcolor"] = "not-a-colour"
+
+    with pytest.raises(ValueError, match="#RRGGBB"):
+        wmap.read_wmap(_rewrite(_doc(), bad_background))

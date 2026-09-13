@@ -134,6 +134,6 @@ class WarlockCancelled(RuntimeError):
 
     This module is the one place both sides can reach that costs nothing: it is
     already the shared worker plumbing, and it imports only the standard
-    library. The vendored pipeline imports this name (WARLOCK 1/3 in its
+    library. The vendored pipeline imports this name (WARLOCK 1/6 in its
     ATTRIBUTION.md); everything else in that file stays upstream's.
     """

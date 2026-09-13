@@ -836,6 +836,8 @@ def test_every_real_provider_is_registered_by_ensure():
         ("warlock.studio.clay_state", "ClayTab"),
         ("warlock.studio.plotter_state", "PlotterDoc"),
         ("warlock.studio.packwright_state", "PackTab"),
+        ("warlock.studio.sirens_state", "SongTab"),
+        ("warlock.studio.mason_state", "MasonTab"),
     ],
 )
 def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls):
@@ -847,9 +849,12 @@ def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls
     with the ground set, and nothing anywhere went red.
 
     Declared fields rather than a round-trip through ``set_mark``, because the
-    round-trip is what passes either way. These four are the dataclasses; the
-    pose and profile slots carry the same three as properties over state that
-    outlives one document, which is checked by their own modes' tests.
+    round-trip is what passes either way. These six are the dataclasses (the
+    2026-09-13 audit's shell-07 widened this from four to also cover Sirens'
+    ``SongTab`` and Mason's ``MasonTab``, both registered providers that had
+    been sitting outside this test); the pose and profile slots carry the
+    same three as properties over state that outlives one document, which is
+    checked by their own modes' tests.
     """
     import dataclasses
     import importlib

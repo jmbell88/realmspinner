@@ -132,3 +132,50 @@ def test_an_edit_and_undo_resolves_again_rather_than_reading_a_sticky_cache():
         )
     finally:
         generation.resolve_recipe = original
+
+
+def test_model_combo_resolves_the_recipe_through_the_memo_not_directly():
+    """The 2026-09-13 audit, finding create-03.
+
+    ``_model``'s Automatic branch called ``generation.resolve_recipe``
+    directly instead of going through the ``_resolved_recipe`` memo,
+    repeating ``provenance._dir_fingerprint``'s ``rglob`` over every
+    installed checkpoint directory on every frame -- the five sibling call
+    sites (the note helpers this module already covers) were moved onto the
+    memo by the 2026-09-08 create-06 fix, but the Model combo itself was
+    missed. Widgets calls are stubbed out (no imgui context in this suite)
+    so the pane function can be driven headlessly, same as this module's
+    other tests drive ``_resolved_recipe`` directly.
+    """
+    from warlock.studio.panes import settings_2d as mod
+
+    form = default_form_2d()
+    create_assets.sync_legacy_fields(form)
+    form["model_mode"] = "auto"
+    ctx = _ctx()
+    ctx.base_models = []
+
+    calls: list[int] = []
+    counting, original = _counting_resolve_recipe(calls)
+    generation.resolve_recipe = counting
+
+    stub_widgets = SimpleNamespace(
+        field_label=lambda *a, **k: None,
+        combo=lambda name, before, options: before,
+        field_error=lambda *a, **k: None,
+        muted_wrapped=lambda *a, **k: None,
+        wrapped=lambda *a, **k: None,
+    )
+    real_widgets = mod.widgets
+    mod.widgets = stub_widgets
+    try:
+        mod._model(ctx, form)
+        ctx.state.frame_index += 1
+        mod._model(ctx, form)
+        assert len(calls) == 1, (
+            "expected one resolution across two unchanged frames "
+            f"(the memo should have been reused), got {len(calls)}"
+        )
+    finally:
+        mod.widgets = real_widgets
+        generation.resolve_recipe = original

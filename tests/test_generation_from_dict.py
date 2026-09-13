@@ -131,3 +131,60 @@ def test_from_dict_round_trips_init_image_and_init_strength():
     off = generation.GenerationRequest.from_dict({"prompt": "x"})
     assert off.init_image is False
     assert off.init_strength is None
+
+
+def test_a_non_numeric_top_level_count_refuses_instead_of_crashing():
+    """The 2026-09-13 audit, finding create-01.
+
+    ``from_dict`` cast ``seed``, ``count`` and ``init_strength`` with a bare
+    ``int()``/``float()``, so a non-numeric top-level scalar raised
+    ``ValueError`` out of the constructor instead of surviving to be
+    refused by ``validate_request`` as a ``CompatibilityIssue`` -- the same
+    crash create2-07 fixed one level down, in ``TileSettings`` and friends.
+    """
+    raw = {"generation_type": "3d_model", "prompt": "a knight", "count": "banana"}
+    req = generation.GenerationRequest.from_dict(raw)  # must not raise
+    issues = generation.validate_request(req)
+    assert any(issue.field == "count" for issue in issues)
+
+
+def test_from_dict_does_not_explode_a_bare_string_reference_into_characters():
+    """The 2026-09-13 audit, finding create-02.
+
+    ``references`` and ``tile.prompt_items`` were built with
+    ``tuple(str(x) for x in value)``, and ``str`` is itself iterable, so a
+    bare string turned into one entry per character -- a short tileset
+    prompt would pass validation and queue per-character materials.
+    """
+    raw = {
+        "generation_type": "3d_model",
+        "prompt": "a knight",
+        "references": "some/ref.png",
+    }
+    req = generation.GenerationRequest.from_dict(raw)
+    assert req.references == ("some/ref.png",)
+
+    tile_raw = {
+        "generation_type": "tileset",
+        "prompt": "a knight",
+        "tile": {"mode": "collection", "prompt_items": "grass"},
+    }
+    tile_req = generation.GenerationRequest.from_dict(tile_raw)
+    assert tile_req.tile.prompt_items == ("grass",)
+
+
+def test_validate_request_refuses_a_count_above_the_doors_own_ceiling():
+    """The 2026-09-13 audit, finding create-07.
+
+    ``validate_request`` refused ``count < 1`` but had no upper bound,
+    though ``service._jobs_create.create_job`` enforces
+    ``MAX_REFERENCE_COUNT`` -- so a request could clear this door and still
+    be refused two steps later with no field pointed at until it did.
+    """
+    from warlock.service.validation import MAX_REFERENCE_COUNT
+
+    req = generation.GenerationRequest(
+        generation_type="3d_model", prompt="a knight", count=MAX_REFERENCE_COUNT + 1
+    )
+    issues = generation.validate_request(req)
+    assert any(issue.field == "count" for issue in issues)

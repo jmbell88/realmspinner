@@ -364,9 +364,11 @@ def release_prefix(ctx: Any, prefix: str) -> None:
             forget_texture(value)
 
 
-#: The five document modes, by the ``AppState`` attribute each keeps its tabs
-#: on. The quit chain walks these in order; :func:`any_unsaved` asks all five
-#: the one question the window caption is about.
+#: The document modes, by the ``AppState`` attribute each keeps its tabs
+#: on. The quit chain walks these in order; :func:`any_unsaved` asks each of
+#: them the one question the window caption is about. (Not counted by number
+#: in prose: the 2026-09-13 audit's shell-12 found this comment stuck at
+#: "five" after Mason's addition made it six.)
 DOC_MODES: tuple[str, ...] = ("inker", "clay", "mason", "plotter", "packwright", "sirens")
 
 

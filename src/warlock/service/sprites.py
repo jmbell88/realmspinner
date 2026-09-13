@@ -421,7 +421,20 @@ def check_sheet_kind(kind: str, logical: int) -> None:
             f"sheet_type must be one of {list(sprite_sheet_types())}",
             field="sheet_type",
         )
-    if not spritesynth.has_guide_template(kind):
+    guide_missing = not spritesynth.has_guide_template(kind)
+    if not guide_missing:
+        # The 2026-09-13 audit, finding troupe-02: the file existing was never
+        # proof the JSON in it was usable -- ``load_guide_template`` only ran
+        # in the worker, after matting had already spent its generations, so a
+        # guide that was present but unparseable (or missing a field
+        # ``_parse_template`` requires) passed this door and broke downstream.
+        # Parsed here too, read-only reuse of spritesynth's own loader, and
+        # folded into the same named refusal a missing guide gets.
+        try:
+            spritesynth.load_guide_template(kind)
+        except Exception:
+            guide_missing = True
+    if guide_missing:
         offered = ", ".join(sprite_sheet_types())
         raise Invalid(
             f"there is no pose guide for a {kind!r} sheet, and the guide is what "

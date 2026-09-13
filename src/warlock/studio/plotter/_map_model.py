@@ -38,7 +38,7 @@ from typing import Any
 
 import numpy as np
 
-from ..tilegrid.tileset import RGBA, frozen_rgba, rgba_colour
+from ..tilegrid.tileset import RGBA, colour_text, frozen_rgba, rgba_colour
 
 _uids = itertools.count(1)
 
@@ -257,6 +257,16 @@ class Text:
         width, height = _size(self.w, self.h, "text object")
         object.__setattr__(self, "w", width)
         object.__setattr__(self, "h", height)
+        # The 2026-09-13 audit (finding plotter-02) found ``color`` was the one
+        # field on this shape never checked as ``#RRGGBB``/``#AARRGGBB`` at
+        # construction, in the readers, or in the writers -- unlike every
+        # sibling colour field (``ObjectLayer.color``, ``MapDoc.backgroundcolor``,
+        # a layer's ``tint``). ``colour_text`` returns ``None`` for an unset
+        # value, which is folded back to this shape's own default rather than
+        # left as ``None``: unlike the two fields above, ``color`` is not
+        # optional here -- Tiled always writes one.
+        validated = colour_text(self.color, "a text object colour")
+        object.__setattr__(self, "color", "#000000" if validated is None else validated)
 
 
 Shape = Rect | Point | Ellipse | Capsule | Polygon | Polyline | TileShape | Text
@@ -794,7 +804,14 @@ class ObjectLayer:
             raise ValueError(
                 f"a draw order is one of {list(DRAW_ORDERS)}, not {self.draworder!r}"
             )
-        self.color = None if self.color in (None, "") else str(self.color)
+        # Through ``colour_text``, not a bare stringify: the 2026-09-13 audit
+        # (finding plotter-03) found this constructor -- the one door every
+        # reader and the props-panel setter (``_map_layers.set_layer_props``)
+        # both go through -- was the one place an object layer's colour was
+        # *not* checked, so a malformed value opened, round-tripped into
+        # exports, and made ``render_map`` raise later at export time instead
+        # of being refused where it was read.
+        self.color = colour_text(self.color, "an object layer colour")
         _normalize_layer(self)
 
     def snapshot(self) -> dict[str, Any]:

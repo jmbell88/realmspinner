@@ -15,7 +15,7 @@ from typing import Any
 
 from . import files
 from .core import WarlockService
-from .errors import Invalid, NotFound
+from .errors import Conflict, Invalid, NotFound
 from .files import MEDIA
 from .validation import ARTIFACT_HEALTH, check_job_id
 
@@ -268,9 +268,21 @@ def export_planned_to_folder(
     members = collect(svc, ids, names)
     if not members:
         raise NotFound("nothing to export")
-    pairs = [
-        (path, target.dest) for (_arcname, path), target in zip(members, plan.files, strict=True)
-    ]
+    # The 2026-09-13 audit (service-03): the "Keep both"/"Replace" popup this
+    # feeds can outlive the plan it was built from -- a job finishes, or a
+    # file goes stale, while the popup is still on screen. ``zip(...,
+    # strict=True)`` used to be the only guard, and a length mismatch there
+    # raised a raw ValueError that the pane had no ``field`` to toast against.
+    # Match by name instead, so a plan that no longer describes what
+    # ``collect`` would write now is refused with a message the UI can show,
+    # not a traceback.
+    plan_by_name = {f.name: f for f in plan.files}
+    if {arcname for arcname, _path in members} != set(plan_by_name):
+        raise Conflict(
+            "the export plan is out of date -- re-open the export dialog and try again",
+            field="plan",
+        )
+    pairs = [(path, plan_by_name[arcname].dest) for arcname, path in members]
     for _source, dest in pairs:
         dest.parent.mkdir(parents=True, exist_ok=True)
     staged_copy_all(pairs)

@@ -243,6 +243,7 @@ def walk(
     include_hidden: bool = False,
     expand_prefabs: bool = True,
     enter: VisitFn | None = None,
+    max_items: int | None = None,
 ) -> None:
     """The single traversal every other function in this module is built on.
 
@@ -271,11 +272,27 @@ def walk(
     module docstring states -- and an exporter that emitted a node for one
     anyway would put something in the file that the viewport does not draw,
     which is the one disagreement between them this module exists to prevent.
+
+    ``max_items`` is the 2026-09-13 audit's mason-03: :func:`resolve` used to
+    be the only place this ceiling was enforced, so ``resolved_for`` (a
+    Properties panel and the gizmo, every frame) and ``gltfout.scene_model``'s
+    bare walk had none -- 152 nodes of nested prefabs resolved to 127,550
+    items through those two paths while ``resolve`` itself correctly refused.
+    Counted here, once, so every caller of this traversal -- present or
+    future -- inherits the same refusal ``resolve`` always had, rather than
+    each consumer needing to remember to ask for it.
     """
+    # Read off the module global at call time rather than bound as the
+    # parameter default: a caller (or a test) that adjusts ``MAX_PLACED`` at
+    # runtime must see it take effect on the very next walk, the same way
+    # ``resolve``'s own default always has.
+    ceiling = MAX_PLACED if max_items is None else max_items
+    counted = _bounded(visit, ceiling)
+    counted_enter = _bounded(enter, ceiling) if enter is not None else None
     _walk_segment(
         doc.roots,
         doc,
-        visit,
+        counted,
         include_hidden=include_hidden,
         expand_prefabs=expand_prefabs,
         parent_path=(),
@@ -284,8 +301,29 @@ def walk(
         inherited=_IDENTITY_STATE,
         prefab_chain=frozenset(),
         prefab_depth=0,
-        enter=enter,
+        enter=counted_enter,
     )
+
+
+def _bounded(visit: VisitFn, max_items: int) -> VisitFn:
+    """Wrap ``visit`` so the call past ``max_items`` refuses instead of
+    running -- the single point ``walk`` enforces :data:`MAX_PLACED` from, so
+    ``resolve``, ``resolved_for`` and every structural exporter share one
+    ceiling rather than each needing its own copy of the count."""
+    count = 0
+
+    def counting_visit(*args: Any, **kwargs: Any) -> None:
+        nonlocal count
+        count += 1
+        if count > max_items:
+            raise ValueError(
+                f"this scene resolves to more than {max_items} placed items "
+                "(MAX_PLACED); refusing rather than silently drawing or "
+                "exporting a truncated scene"
+            )
+        visit(*args, **kwargs)
+
+    return counting_visit
 
 
 def _walk_segment(

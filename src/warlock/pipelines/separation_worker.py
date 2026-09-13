@@ -78,7 +78,7 @@ def separate(spec: dict) -> dict:
     state = torch.load(
         str(Path(spec["model_dir"]) / CHECKPOINT),
         map_location="cpu",
-        # ``WARLOCK 4/5``'s argument on a different checkpoint: these weights
+        # ``WARLOCK 4/6``'s argument on a different checkpoint: these weights
         # arrive through ``warlock.fetch`` and are digest-pinned, so they are
         # not untrusted input -- but restricting the load to tensors costs
         # nothing and closes the same class of risk.

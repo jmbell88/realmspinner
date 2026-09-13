@@ -1020,7 +1020,14 @@ def read_tmx(
         infinite=infinite,
     )
     doc.renderorder = root.get("renderorder", "right-down")
-    doc.backgroundcolor = root.get("backgroundcolor")
+    # The 2026-09-13 audit (finding plotter-03) found this reader assigning
+    # straight from the file, unlike ``MapDoc._apply_map_settings`` (the
+    # props-panel path) which already runs it through ``colour_text`` -- so a
+    # bad value opened, round-tripped into exports, and made ``render_map``
+    # raise at export instead of being refused here.
+    doc.backgroundcolor = colour_text(
+        root.get("backgroundcolor"), "a map background colour"
+    )
     doc.class_name = root.get("class") or root.get("type") or ""
     doc.parallax_origin = (
         float(root.get("parallaxoriginx", 0) or 0),
@@ -1391,7 +1398,10 @@ def read_tmj(
         infinite=bool(payload.get("infinite")),
     )
     doc.renderorder = str(payload.get("renderorder", "right-down"))
-    doc.backgroundcolor = payload.get("backgroundcolor")
+    # Same reader-side gap as ``read_tmx``, plotter-03: see that comment.
+    doc.backgroundcolor = colour_text(
+        payload.get("backgroundcolor"), "a map background colour"
+    )
     doc.class_name = str(payload.get("class", ""))
     doc.parallax_origin = (
         float(payload.get("parallaxoriginx", 0) or 0),

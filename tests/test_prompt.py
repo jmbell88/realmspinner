@@ -104,6 +104,19 @@ def test_build_with_no_trigger_has_no_leading_comma():
     assert not text.startswith(",")
 
 
+def test_build_selects_the_sheet_template_when_asked():
+    # pipelines-02 (the 2026-09-13 audit): build() claimed parity with
+    # text2image.generate()'s own template assembly but had no ``sheet``
+    # argument, so it could never select SHEET_TEMPLATE -- the prompt preview
+    # could not show what a sheet job would actually send. tilesheet still
+    # wins over sheet, mirroring generate()'s precedence.
+    text = prompt.build("a knight", {}, sheet=True)
+    assert text == prompt.SHEET_TEMPLATE.format(prompt="a knight")
+
+    text = prompt.build("a knight", {}, sheet=True, tilesheet=True)
+    assert text == prompt.TILESHEET_TEMPLATE.format(prompt="a knight")
+
+
 def test_a_tile_prompt_does_not_ask_for_a_single_centred_object():
     out = prompt.build("mossy cobblestone", {}, tile=True)
     assert "single subject" not in out

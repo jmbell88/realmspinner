@@ -206,6 +206,37 @@ def test_ensure_config_treats_guidance_and_tokens_as_launch_config(tmp_path):
     srv._proc = None
 
 
+def test_ensure_config_does_not_commit_a_new_launch_config_when_stop_fails(tmp_path):
+    """pipelines-01, the 2026-09-13 audit: ``ensure_config`` wrote the new
+    band/texture/token fields onto ``self`` *before* calling ``stop()``. When
+    ``stop()`` raised ``TrellisStopFailed`` (the kill did not take and the old
+    server is still running with its old settings), the object was left
+    claiming the new config was live. A repeated request with the same new
+    values then read ``_launch_config() == wanted`` as unchanged and skipped
+    the restart entirely -- the job silently generated under the stale
+    settings while its row recorded the ones it asked for and never got.
+
+    The fields must only take effect once ``stop()`` has actually returned.
+    """
+    srv = TrellisServer(tmp_path / "exe", tmp_path / "models", 17971)
+    assert srv.ensure_config(tex_res=512, band=None) is False  # nothing running
+
+    def failing_stop():
+        raise trellis_mod.TrellisStopFailed("pid 1 did not exit")
+
+    srv.stop = failing_stop
+    srv._proc = SimpleNamespace(poll=lambda: None, pid=1)
+    with pytest.raises(trellis_mod.TrellisStopFailed):
+        srv.ensure_config(tex_res=512, band=4)
+
+    # stop() raised, so the old server is still running with band=None -- the
+    # object must still say so, not band=4.
+    assert srv._launch_config() == (512, None, None, None, None, None, None)
+    argv = srv._argv()
+    assert "--band" not in argv or argv[argv.index("--band") + 1] != "4"
+    srv._proc = None
+
+
 def test_argv_omits_decim_and_atlas_when_unset(tmp_path):
     """Absent means the exe's own quadric simplify and its default atlas."""
     srv = TrellisServer(tmp_path / "exe", tmp_path / "models", 17971)

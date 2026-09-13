@@ -384,11 +384,13 @@ def draw(app: Any, ctx: Any) -> None:
     # **And then the section gaps go too, last of all.** The ladder above gives
     # up the row-to-row air before it compresses the rows; this is its third
     # rung, and it exists because the second one has a floor with a citation
-    # (:data:`MIN_ITEM_H`) that must not be argued down. The rail is thirteen
-    # rows (``rows`` above, ``sum(len(g) for g in modes.RAIL_GROUPS)``), and at
-    # the resize floor on a dense display even a fraction of a design pixel's
-    # shortfall a row adds up to physical pixels of overflow -- which is an
-    # unreachable mode.
+    # (:data:`MIN_ITEM_H`) that must not be argued down. The rail's row count
+    # (``rows`` above, ``sum(len(g) for g in modes.RAIL_GROUPS)``) is not
+    # restated here as a number -- the 2026-09-13 audit's shell-14 found this
+    # comment naming a count that had drifted from the actual row total --
+    # and at the resize floor on a dense display even a fraction of a design
+    # pixel's shortfall a row adds up to physical pixels of overflow -- which
+    # is an unreachable mode.
     #
     # A section marker is air, and air is what this ladder spends first. Giving
     # up some of it to keep every row at the floor is the same trade the two

@@ -14,13 +14,10 @@ import secrets
 from typing import Any
 
 from .. import packs, rigging, vram
+from ..generation import MAX_REFERENCE_COUNT as MAX_REFERENCE_COUNT
 from .errors import Invalid, NotFound, invalid_from
 
 ALLOWED_RESOLUTIONS = {512, 1024, 1536}
-
-# A submit may ask for several reference candidates at once. Bounded because
-# each is a real queued job holding a place in the serial worker.
-MAX_REFERENCE_COUNT = 8
 
 # And a promotion may ask for several *mesh* candidates. Far smaller, because
 # the two are not the same purchase: a reference candidate is four steps of

@@ -1068,6 +1068,102 @@ def test_repeated_textures_over_the_document_budget_are_refused(monkeypatch):
         gltf.load(data)
 
 
+def test_a_large_weights_0_accessor_s_normalisation_copies_are_charged_against_the_document_budget(
+    monkeypatch,
+):
+    """The 2026-09-13 audit, finding create-05: the WEIGHTS_0 path builds two
+    or three same-size float32 arrays -- the normalising division (for a
+    ubyte/ushort source) and the renormalising division that always runs --
+    without charging either, so a skinned mesh's peak allocation was
+    undercounted against MAX_TOTAL_BYTES. 99 vertices (a multiple of 3, so
+    create-01's unindexed-vertex-count refusal does not fire) of VEC4 float32
+    weights: everything already charged elsewhere (POSITION decoded and
+    retyped, WEIGHTS_0 decoded and retyped) comes to 5,940 bytes, comfortably
+    under the 6,500-byte budget below; the always-run renormalising
+    division's own 1,584 bytes pushes the total to 7,524, over budget, once
+    charged.
+    """
+    monkeypatch.setattr(gltf, "MAX_TOTAL_BYTES", 6_500)
+    n = 99
+    positions = np.zeros((n, 3), dtype="<f4")
+    weights = np.tile(np.array([1, 0, 0, 0], dtype="<f4"), (n, 1))
+    binary = positions.tobytes() + weights.tobytes()
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [
+            {
+                "primitives": [
+                    {"attributes": {"POSITION": 0, "WEIGHTS_0": 1}}
+                ]
+            }
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": positions.nbytes},
+            {"buffer": 0, "byteOffset": positions.nbytes, "byteLength": weights.nbytes},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": n, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": n, "type": "VEC4"},
+        ],
+    }
+    with pytest.raises(ValueError, match="byte budget"):
+        gltf.load(_glb(doc, binary))
+
+
+def test_a_texture_bufferview_past_the_end_of_the_bin_chunk_is_skipped_not_truncated(
+    caplog,
+):
+    """The 2026-09-13 audit, finding create-09: an image's bufferView was
+    sliced straight out of the BIN chunk with no span check, so a byteLength
+    that overran the buffer was silently truncated into a corrupt-looking
+    image instead of refused -- and then failed to decode and got skipped
+    for the wrong reason. Same skip contract as a genuinely unreadable
+    texture (clay-09's ``_check_buffer`` branch just above it): the model
+    still loads, the texture is dropped, and the warning names the real
+    cause.
+    """
+    import io as _io
+
+    from PIL import Image
+
+    png_buf = _io.BytesIO()
+    Image.new("RGBA", (2, 2), (10, 20, 30, 255)).save(png_buf, "PNG")
+    png_bytes = png_buf.getvalue()
+
+    positions = np.zeros((3, 3), dtype="<f4")
+    binary = positions.tobytes() + png_bytes
+
+    data = _minimal(
+        [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        [
+            {"buffer": 0, "byteOffset": 0, "byteLength": positions.nbytes},
+            # Declares far more bytes than actually remain in the buffer.
+            {
+                "buffer": 0,
+                "byteOffset": positions.nbytes,
+                "byteLength": len(png_bytes) * 1000,
+            },
+        ],
+        binary,
+        images=[{"bufferView": 1}],
+        textures=[{"source": 0}],
+        materials=[{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        meshes=[{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+    )
+
+    with caplog.at_level("WARNING"):
+        model = gltf.load(data)
+
+    assert len(model.meshes[0][0].positions) == 3, "the mesh still loads"
+    assert model.meshes[0][0].material.base_color is None
+    assert model.skipped_textures == 1
+    assert "past the end" in caplog.text
+
+
 # --- material and texture indices: negative and out-of-range -----------------
 #
 # The 2026-09-06 audit, findings clay-06 and clay-09: node.mesh, node.skin and

@@ -176,6 +176,22 @@ def _label(doc: Any, one: Any, index: int) -> str:
     return f"{one.name or f'Effect {index + 1}'}  ({length})"
 
 
+def audition_reason(editable: bool) -> str:
+    """The Audition button's disabled reason, or "" while it is live.
+
+    Pulled out pure for the 2026-09-13 audit's finding sirens-05: this was an
+    inline ternary, the shape that produced findings sirens-03/04/05 of the
+    2026-09-07 audit (see :func:`.sirens_orders.add_to_order_reason`) and, in
+    this same file, :func:`delete_reason` -- an untested priority among
+    competing disabled causes with nothing to catch a wrong order before it
+    shipped. ``editable`` wins over the device: a busy song should read "the
+    song is being written," not the device's own sentence, once both are true.
+    """
+    if not editable:
+        return _BUSY_WHY
+    return sirens_audio.unavailable_reason()
+
+
 def _rows(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
     """One row per effect: the name, and the button that plays it.
 
@@ -191,11 +207,7 @@ def _rows(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
     # One sentence per way the button can be dead, and the device's is
     # ``sirens_audio``'s own so this pane and the transport cannot say two
     # different things about the same missing card.
-    why = (
-        "This song is being written; the buttons come back when it lands."
-        if not editable
-        else sirens_audio.unavailable_reason()
-    )
+    why = audition_reason(editable)
     for index, one in enumerate(list(doc.oneshots)):
         if controls.selectable(
             f"{_label(doc, one, index)}###sirens-oneshot-{one.uid}",

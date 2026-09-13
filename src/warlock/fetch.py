@@ -751,12 +751,12 @@ def base_model_state(config: Config, spec: models.BaseModel) -> tuple[bool, Path
     path = base_model_dir(config, spec)
     variant = f".{spec.variant}" if spec.variant else ""
     wanted = spec.probe or (f"unet/diffusion_pytorch_model{variant}.safetensors",)
-    ok = (path / "model_index.json").exists() and all(
-        (path / rel).exists() for rel in wanted
+    ok = _is_file(path / "model_index.json") and all(
+        _is_file(path / rel) for rel in wanted
     )
     if ok and spec.base_lora:
         lora_path = config.t2i_model_root / "loras" / spec.base_lora
-        if not lora_path.exists():
+        if not _is_file(lora_path):
             return False, lora_path
     return ok, None
 
@@ -902,6 +902,22 @@ def verify_all(config: Config) -> list[Verification]:
     return [verify_manifest(dest) for dest in dests]
 
 
+def _is_file(path: Path) -> bool:
+    """True only for a real file at ``path``, never a directory.
+
+    Shared by ``present``, ``base_model_state`` and ``suspect_files``
+    (pipelines-03, the 2026-09-13 audit): ``Path.exists()`` is true for a
+    directory too, so a directory standing in for a named weight file (base
+    model, LoRA, adapter, ControlNet, or metric/pose/matting weights) read as
+    installed and passed ``check_weights`` straight through to a dispatch
+    that then tried to load it as a checkpoint.
+    """
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     """Files that are present but obviously unusable. Cheap: sizes only.
 
@@ -923,7 +939,7 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
         candidates = [engine_probe_dir(config, spec) / name for name in spec.probe]
         for path in candidates:
             try:
-                if path.exists() and path.stat().st_size == 0:
+                if _is_file(path) and path.stat().st_size == 0:
                     out.append(str(path))
             except OSError:
                 continue
@@ -945,7 +961,7 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
         ]
     for path in candidates:
         try:
-            if path.exists() and path.stat().st_size == 0:
+            if _is_file(path) and path.stat().st_size == 0:
                 out.append(str(path))
         except OSError:
             continue
@@ -972,20 +988,20 @@ def present(config: Config, kind: str, spec: Any) -> bool:
     if kind == "base":
         return base_model_state(config, spec)[0]
     if kind == "lora":
-        return (root / "loras" / spec.filename).exists()
+        return _is_file(root / "loras" / spec.filename)
     if kind == "adapter":
         base = root / spec.dir_name
         # Both halves: weights without the CLIP vision encoder load fine and
         # then fail at the first call.
-        return (base / spec.subfolder / spec.weight_name).exists() and (
+        return _is_file(base / spec.subfolder / spec.weight_name) and _is_file(
             base / spec.image_encoder_dir / "config.json"
-        ).exists()
+        )
     if kind == "control":
         base = root / spec.dir_name
         variant = f".{spec.variant}" if spec.variant else ""
-        return (base / "config.json").exists() and (
+        return _is_file(base / "config.json") and _is_file(
             base / f"diffusion_pytorch_model{variant}.safetensors"
-        ).exists()
+        )
     if kind == "music":
         # Named files rather than the formula below: ACE-Step has no top-level
         # config.json at all -- it is four sibling subfolders, each with its own
@@ -1007,6 +1023,6 @@ def present(config: Config, kind: str, spec: Any) -> bool:
     # directory holding config.json without its 3.7 GB model.safetensors used
     # to read as present with no compensating doctor load probe.
     base = root / spec.dir_name
-    if not (base / "config.json").exists():
+    if not _is_file(base / "config.json"):
         return False
-    return any(base.rglob("*.safetensors"))
+    return any(p.is_file() for p in base.rglob("*.safetensors"))

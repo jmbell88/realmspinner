@@ -104,6 +104,41 @@ def test_held_by_us_tracks_the_live_lock(tmp_path):
     assert instance.held_by_us() is False
 
 
+def test_held_by_us_is_false_when_one_of_several_unsafe_acquired_locks_actually_failed(
+    tmp_path, monkeypatch
+):
+    """service-04 (2026-09-13 audit): ``held_by_us`` used to read the single
+    module-level ``_current``, which each ``InstanceLock.acquire`` overwrites
+    -- so in a multi-lock group, under ``WARLOCK_ALLOW_UNSAFE_LOCK``, a later
+    lock's *real* success hid an earlier lock's infrastructure failure from
+    ``held_by_us()``, and Health reported ownership Warlock does not actually
+    have."""
+    real_lock = instance._lock
+
+    calls = {"n": 0}
+
+    def flaky(fd: int) -> bool:
+        # The first lock in the group fails to lock at all (infrastructure
+        # failure); the second locks for real.
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError(5, "locking unavailable")
+        return real_lock(fd)
+
+    monkeypatch.setattr(instance, "_lock", flaky)
+    locks = instance.InstanceLocks(
+        [tmp_path / "one.lock", tmp_path / "two.lock"]
+    )
+    try:
+        assert locks.acquire(allow_unsafe=True) is True
+        # The group is not really held -- one of its locks never took the OS
+        # lock -- so this process does not actually own the resource set.
+        assert locks.held is False
+        assert instance.held_by_us() is False
+    finally:
+        locks.release()
+
+
 def test_resource_lock_paths_converge_for_two_homes_sharing_external_roots(tmp_path):
     shared_db = tmp_path / "shared" / "jobs.sqlite"
     shared_models = tmp_path / "shared-models"

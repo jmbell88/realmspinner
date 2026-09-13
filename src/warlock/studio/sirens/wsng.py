@@ -356,7 +356,22 @@ def _instruments_from(manifest: dict) -> tuple[list[inst.Instrument], dict[int, 
             stored.append(int(entry.get("uid", index)))
         except (TypeError, ValueError) as exc:
             raise ValueError(_MALFORMED) from exc
-    legal = all(0 <= uid < D.MAX_INSTRUMENTS for uid in stored) and len(set(stored)) == len(stored)
+    # **A duplicate uid is refused, not renumbered (the 2026-09-13 audit,
+    # finding sirens-03).** The renumbering below exists for ids that are out
+    # of range -- an earlier build's process-global counter, or a hand edit --
+    # and it walks the manifest in file order, so two instruments sharing one
+    # uid used to collapse through the same last-writer-wins ``dict`` comment
+    # that ``_samples_from`` already refuses for samples: every pattern cell
+    # naming the first instrument silently ended up pointing at the second
+    # (or, once the first key an entry visited was overwritten, at nothing),
+    # with no error anywhere. ``_samples_from`` refuses a duplicate *key* by
+    # name; this is the same refusal for uid.
+    seen: set[int] = set()
+    for uid in stored:
+        if uid in seen:
+            raise ValueError(f"this song lists the instrument {uid} twice")
+        seen.add(uid)
+    legal = all(0 <= uid < D.MAX_INSTRUMENTS for uid in stored)
     remap: dict[int, int] = {} if legal else {uid: i for i, uid in enumerate(stored)}
 
     out: list[inst.Instrument] = []

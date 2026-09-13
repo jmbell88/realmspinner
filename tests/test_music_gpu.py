@@ -127,7 +127,7 @@ def test_a_different_seed_gives_a_different_track(client, tmp_path):
 
 
 def test_a_cancel_stops_a_running_generation(client, tmp_path):
-    """WARLOCK 1/3, proved rather than read.
+    """WARLOCK 1/6, proved rather than read.
 
     ``ACEStepPipeline.__call__`` takes no cancel hook upstream; this is the one
     vendored modification the feature cannot work without, and its presence in

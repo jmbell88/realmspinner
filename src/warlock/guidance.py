@@ -162,12 +162,30 @@ BIREFNET_WEIGHTS = "birefnet.gguf"
 
 def default_bg_removal(trellis_models_dir: Path) -> str:
     """The matte to use when the caller named none: the learned one when its
-    weights are on disk, ``auto`` when they are not."""
-    return (
-        DEFAULT_BG_REMOVAL
-        if (trellis_models_dir / BIREFNET_WEIGHTS).exists()
-        else FALLBACK_BG_REMOVAL
-    )
+    weights are on disk and healthy, ``auto`` when they are not.
+
+    The 2026-09-13 audit, finding create-04: this used a bare
+    ``path.exists()``, so a zero-byte ``birefnet.gguf`` -- which
+    ``doctor._birefnet_check`` already reports unhealthy -- was still what
+    new jobs requested, quietly routing every new job at a matte that
+    cannot load. ``doctor._birefnet_check`` asks the same question through
+    ``fetch.suspect_files(config, "engine", ...)``, which this function
+    cannot call directly: every caller here holds only
+    ``config.trellis_models_dir`` (a bare ``Path``), not the full
+    ``Config`` that helper needs, and none of those call sites belong to
+    this finding. ``fetch.suspect_files``'s own check for an "engine" kind
+    is exactly this -- ``path.exists() and path.stat().st_size == 0`` at
+    ``engine_probe_dir(config, spec) / name``, which for a non-runtime spec
+    (this one) is ``config.trellis_models_dir`` -- the same path this
+    function already has, so it is reproduced here rather than duplicated
+    under a different name.
+    """
+    path = trellis_models_dir / BIREFNET_WEIGHTS
+    try:
+        healthy = path.exists() and path.stat().st_size > 0
+    except OSError:
+        healthy = False
+    return DEFAULT_BG_REMOVAL if healthy else FALLBACK_BG_REMOVAL
 
 # What a TRELLIS reference image must not be. A second subject or a cropped one
 # is the single most common cause of a mesh that reconstructs into nonsense, so

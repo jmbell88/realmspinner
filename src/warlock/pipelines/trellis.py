@@ -250,10 +250,6 @@ class TrellisServer:
         with self._stop_lock:
             wanted = (tex_res, band, gss, gsh, max_tokens, decim, atlas)
             changed = self._launch_config() != wanted
-            (
-                self._tex_res, self._band, self._gss, self._gsh, self._max_tokens,
-                self._decim, self._atlas,
-            ) = wanted
             # Read under the same lock that guards stop()'s check-then-act, and
             # released before calling it: _stop_lock is a plain Lock.
             restart = changed and self._proc is not None and self._proc.poll() is None
@@ -263,7 +259,30 @@ class TrellisServer:
                 "max_tokens=%s decim=%s atlas=%s); restarting",
                 tex_res, band, gss, gsh, max_tokens, decim, atlas,
             )
+            # pipelines-01, the 2026-09-13 audit: the fields used to be
+            # written onto self *before* this call, so a raised
+            # TrellisStopFailed (the kill did not take; the old server is
+            # still running) left the object claiming the new config was
+            # live while the old process kept running under the old one. A
+            # repeated request with the same new values then read
+            # `_launch_config() == wanted` as unchanged and skipped the
+            # restart it still owed -- jobs silently generated under
+            # settings they never got, recorded as the ones they asked for.
+            # Committing only after stop() returns keeps a failed restart
+            # from being recorded as done: `_launch_config()` still reads the
+            # old, still-running values, so the next call sees `changed` and
+            # tries again.
             self.stop()
+        # Committed after the restart succeeds (or was never needed), never
+        # before: see the comment on the `self.stop()` call above. Back under
+        # the lock for the write itself, the same way the read of `changed`
+        # was -- `_stop_lock` is what keeps a concurrent ensure_config from
+        # observing the fields half-written, not just from double-stopping.
+        with self._stop_lock:
+            (
+                self._tex_res, self._band, self._gss, self._gsh, self._max_tokens,
+                self._decim, self._atlas,
+            ) = wanted
         return restart
 
     def _reap_if_dead(self) -> None:

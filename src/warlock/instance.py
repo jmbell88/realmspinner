@@ -178,24 +178,53 @@ class InstanceLocks:
             for held in reversed(acquired):
                 held.release()
             return False
+        # The 2026-09-13 audit, finding service-04: each individual
+        # ``InstanceLock.acquire`` above sets the module-level ``_current`` to
+        # *itself* the moment it is truly held, so with several locks the last
+        # one to succeed for real is what ``held_by_us()`` saw -- even when an
+        # earlier one in this same group only "succeeded" via
+        # ``allow_unsafe`` without ever holding its OS lock. Overwriting
+        # ``_current`` with the group itself, once every lock has had its
+        # turn, makes ``held_by_us()`` defer to :attr:`held`, which requires
+        # *all* of them -- not whichever lock happened to touch ``_current``
+        # last.
+        global _current
+        _current = self
         return True
 
     def release(self) -> None:
+        global _current
+        if _current is self:
+            _current = None
         for lock in reversed(self.locks):
             lock.release()
 
 
-# The lock this process is holding, if any. Set on a successful acquire so a
-# later caller can ask "do *we* already have it" without trying to take it
-# again -- which is not a question an OS lock answers: re-locking the same file
-# from the same process is either allowed (and proves nothing) or refused (and
-# would read as "somebody else has it"), depending on the platform. Doctor's
-# single-instance row is the caller that needs the distinction.
-_current: InstanceLock | None = None
+# The lock (or group of locks) this process is holding, if any. Set on a
+# successful acquire so a later caller can ask "do *we* already have it"
+# without trying to take it again -- which is not a question an OS lock
+# answers: re-locking the same file from the same process is either allowed
+# (and proves nothing) or refused (and would read as "somebody else has it"),
+# depending on the platform. Doctor's single-instance row is the caller that
+# needs the distinction.
+#
+# Holds an ``InstanceLocks`` group rather than the individual ``InstanceLock``
+# whenever one was used to acquire: the 2026-09-13 audit, finding service-04,
+# found that a bare ``InstanceLock`` here reported ownership off whichever
+# lock in a multi-lock group last touched this variable, which under
+# ``allow_unsafe`` could be a lock that never actually held anything while an
+# earlier, real failure in the same group went unseen.
+_current: InstanceLock | InstanceLocks | None = None
 
 
 def held_by_us() -> bool:
-    """Whether this process is holding an instance lock right now."""
+    """Whether this process is holding an instance lock right now.
+
+    Deferring to ``.held`` -- rather than re-deriving what "held" means here
+    -- is what makes this correct for both a bare :class:`InstanceLock` and
+    an :class:`InstanceLocks` group: the group's own ``.held`` already
+    requires *every* lock in it, which is the property service-04 needed.
+    """
     return _current is not None and _current.held
 
 

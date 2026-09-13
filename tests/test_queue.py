@@ -1296,6 +1296,49 @@ async def test_a_resident_sdxl_pipe_is_not_charged_twice_at_dispatch(
         worker.store.close()
 
 
+async def test_check_resources_credits_the_registry_estimate_when_torch_is_imported_for_unrelated_reasons(  # noqa: E501
+    tmp_path, fake_pipelines, monkeypatch
+):
+    """service-02, the 2026-09-13 audit: ``vram_gib()`` returns ``None`` only
+    when torch has never entered ``sys.modules`` in this process. ``pose2d``
+    imports torch on the CPU during a rig, so after any rig job ``vram_gib()``
+    returns a near-zero tuple instead -- not ``None`` -- for the rest of the
+    process's life. The credit read that tuple's ``reserved`` figure whenever
+    it was not ``None``, crediting the *out-of-process* image pipe (the
+    default since ``t2i_client`` moved SDXL into its own child) with ~0 GiB
+    instead of its real footprint: a later image job was then refused for
+    "close other GPU applications" against VRAM this process was never
+    holding -- the exact MDL-06 phantom-VRAM class this credit exists to
+    prevent.
+
+    The out-of-process pipe must be credited from the registry regardless of
+    what ``vram_gib()`` says, because ``vram_gib()`` can only ever see this
+    process's own CUDA allocations and the checkpoint lives in the child.
+    """
+    import warlock.queue as queue_mod
+    from warlock import models, vram
+
+    monkeypatch.setattr(queue_mod, "commit_fraction", lambda: None)
+    # The near-zero tuple pose2d's CPU-only torch import leaves behind --
+    # not None, which is what made the old code skip the registry fallback.
+    monkeypatch.setattr(queue_mod, "vram_gib", lambda: (0.0, 0.0))
+    # Tight enough that the trellis credit alone (16 GiB, resolution 1024's
+    # multiplier) does not cover `need` (20.6 GiB) on its own: only crediting
+    # the registry's ~7 GiB for the resident pipe closes the gap. A looser
+    # card would pass either way and prove nothing about the credit itself.
+    monkeypatch.setattr(vram, "device_memory", lambda: vram.DeviceMemory(32.0, 2.0))
+    worker = _make_worker(tmp_path)
+    try:
+        worker.trellis.running = True
+        worker._text2image = SimpleNamespace(loaded=True)
+        worker._t2i_key = models.DEFAULT_BASE_MODEL
+
+        job = {"kind": "text", "stage": "model", "params": {"resolution": 512}}
+        worker._check_resources(job)
+    finally:
+        worker.store.close()
+
+
 async def test_an_image_job_gets_no_credit_for_the_resident_pipe(
     tmp_path, fake_pipelines, monkeypatch
 ):

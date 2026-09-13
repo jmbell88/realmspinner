@@ -129,7 +129,16 @@ def _world_transform(doc: Any, node: Any) -> None:
     see the module docstring for why this is the resolver's answer, read
     only, and never a second computation of its own."""
     widgets.field_label("world transform")
-    placed = mscene.resolved_for(doc, node.uid)
+    try:
+        placed = mscene.resolved_for(doc, node.uid)
+    except ValueError:
+        # mason-03, the 2026-09-13 audit: ``resolved_for`` walks the whole
+        # document looking for one uid, so a document past ``MAX_PLACED``
+        # raises the same refusal ``resolve`` always has -- caught here
+        # rather than left to crash the frame thread, since a properties
+        # panel asking "where did this end up" is not the caller that should
+        # be the one to discover a corrupt/absurd document.
+        placed = None
     if placed is None:
         # ``muted_wrapped`` and not ``muted``: this is a sentence rather than
         # a status line, and ``muted`` does not wrap in a 300 dp sidebar --
@@ -185,6 +194,13 @@ def _light_block(doc: Any, node: Any) -> None:
         doc.set_props(node.uid, color=tuple(float(c) for c in colour))
     widgets.field_label("intensity")
     changed, intensity = controls.input_float("##mlightintensity", float(node.intensity), 0.1, 0.0)
+    # The 2026-09-13 audit's mason-01: this field called the undoable
+    # ``set_props`` on every changed frame with no ``controls.fold_undo``,
+    # so typing "2000" digit by digit (or a drag) pushed one step per
+    # keystroke/report -- one Ctrl+Z left the value mid-edit rather than
+    # undoing the whole gesture. Folded here as every other door does:
+    # draw, fold, act.
+    controls.fold_undo(doc.history)
     if changed:
         doc.set_props(node.uid, intensity=max(0.0, intensity))
     if node.kind in ("point", "spot"):
@@ -201,6 +217,8 @@ def _light_block(doc: Any, node: Any) -> None:
             "##mlightrange", float(node.range), 0.5, 0.0
         )
         widgets.help_marker("Distance the light reaches. 0 means no limit.")
+        # mason-01: same unfolded door as intensity above.
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_props(node.uid, range=max(0.0, light_range))
     if node.kind == "spot":
@@ -208,12 +226,16 @@ def _light_block(doc: Any, node: Any) -> None:
         changed, inner = controls.input_float(
             "##mlightinner", float(node.inner_cone_angle), 0.05, 0.0
         )
+        # mason-01: same unfolded door as intensity above.
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_props(node.uid, inner_cone_angle=max(0.0, inner))
         widgets.field_label("outer cone (rad)")
         changed, outer = controls.input_float(
             "##mlightouter", float(node.outer_cone_angle), 0.05, 0.0
         )
+        # mason-01: same unfolded door as intensity above.
+        controls.fold_undo(doc.history)
         if changed:
             doc.set_props(node.uid, outer_cone_angle=max(0.0, outer))
 
@@ -221,13 +243,17 @@ def _light_block(doc: Any, node: Any) -> None:
 def _camera_block(doc: Any, node: Any) -> None:
     widgets.field_label("vertical fov (rad)")
     changed, yfov = controls.input_float("##mcamfov", float(node.yfov), 0.05, 0.01)
+    # mason-01: same unfolded door as the light block above.
+    controls.fold_undo(doc.history)
     if changed:
         doc.set_props(node.uid, yfov=max(0.01, yfov))
     widgets.field_label("near / far")
     changed, near = controls.input_float("##mcamnear", float(node.znear), 0.01, 0.001)
+    controls.fold_undo(doc.history)
     if changed:
         doc.set_props(node.uid, znear=max(0.001, near))
     changed, far = controls.input_float("##mcamfar", float(node.zfar), 1.0, 0.01)
+    controls.fold_undo(doc.history)
     if changed:
         doc.set_props(node.uid, zfar=max(node.znear + 0.01, far))
 
@@ -267,7 +293,12 @@ def _terrain_block(doc: Any) -> None:
     widgets.muted(f"{terrain.side} x {terrain.side} cells")
     widgets.field_label("size x / z (m)")
     changed_x, size_x = controls.input_float("##mterrainx", float(terrain.size_x), 1.0, 0.01)
+    controls.fold_undo(doc.history)
     changed_z, size_z = controls.input_float("##mterrainz", float(terrain.size_z), 1.0, 0.01)
+    # mason-01: same unfolded door as the transform/light/camera fields --
+    # ``set_terrain_config`` is the undoable write and it fired once per
+    # changed frame with no fold.
+    controls.fold_undo(doc.history)
     if changed_x or changed_z:
         # ``max`` and not a refusal: ``set_terrain_config`` raises on a
         # non-positive size, and a spinbox that can be dragged to zero must not

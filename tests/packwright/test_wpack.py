@@ -511,6 +511,24 @@ def test_a_source_image_past_the_pixel_ceiling_is_refused(monkeypatch):
         wpack.read_wpack(data)
 
 
+def test_a_document_of_many_near_ceiling_sprites_is_refused_before_the_aggregate_pixel_budget_is_allocated(  # noqa: E501
+    monkeypatch,
+):
+    """packwright-01 (2026-09-13 audit): ``MAX_SOURCE_PIXELS`` bounds one
+    source and ``MAX_DECOMPRESSED_BYTES`` bounds the archive's stored (still
+    -PNG) bytes -- neither bounds what this loop decodes in *total* across
+    every source, so a ``.wpack`` of many sources each individually under
+    ``MAX_SOURCE_PIXELS`` decoded without limit. Each of ``_doc(4)``'s four
+    sources is 8x6 = 48 pixels; the document budget is patched down to 100 so
+    the third source (144 pixels so far) is refused before it -- or the
+    fourth -- is ever decoded, without needing anywhere near the real ceiling
+    (8192 squared) built to prove it."""
+    data = wpack.wpack_bytes(_doc(4))
+    monkeypatch.setattr(wpack, "MAX_DOCUMENT_PIXELS", 100)
+    with pytest.raises(ValueError, match="decode past 100 pixels in total"):
+        wpack.read_wpack(data)
+
+
 def test_a_refusal_does_not_leave_the_archive_open(monkeypatch):
     """Every refusal moved inside the ``with``: they used to sit in the gap
     between ``ZipFile(...)`` and the block, where the one thing that block

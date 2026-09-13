@@ -26,6 +26,8 @@ as pure functions beside it (``sirens_patterns.first_channel``,
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -986,3 +988,119 @@ def test_bridge_export_and_compose_reasons_are_pulled_out_and_tested():
     assert sirens_bridge.compose_reason(has_order=False, busy=True) == (
         "There is nothing in the order list to compose from."
     )
+
+
+# --- the 2026-09-13 audit -------------------------------------------------
+
+
+def test_preview_note_does_not_reencode_the_song_while_a_preview_is_already_rendering(
+    monkeypatch,
+):
+    """Finding sirens-01. ``audition``, ``preview_note`` and ``play_pattern``
+    used to build ``wsng.wsng_bytes(tab.doc)`` -- a whole-document DEFLATE and
+    sample encode, on the frame thread -- before asking ``ctx.busy(key)``,
+    although ``submit`` refuses a key already in flight regardless and
+    ``request_render`` already asks first for exactly this reason. Reproduced
+    against the unfixed code by making ``wsng_bytes`` raise: with the busy
+    check first, a preview asked for while one is already rendering never
+    reaches it."""
+    from warlock.studio import sirens_audio
+    from warlock.studio.sirens import wsng
+
+    monkeypatch.setattr(sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_audio, "playing", lambda: False)
+
+    def _boom(_doc):
+        raise AssertionError("re-encoded the song although the key was busy")
+
+    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    state = sirens_mode.ensure(ctx)
+    state.instrument = tab.doc.add_instrument().uid
+    ctx.busy_keys.add(f"{sirens_mode.PREVIEW_PREFIX}{tab.uid}")
+    assert not sirens_mode.preview_note(ctx, 60)
+
+
+def test_audition_does_not_reencode_the_song_while_already_rendering(monkeypatch):
+    """The same finding, sirens-01, for ``audition``."""
+    from warlock.studio import sirens_audio
+    from warlock.studio.sirens import wsng
+
+    monkeypatch.setattr(sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_audio, "playing", lambda: False)
+
+    def _boom(_doc):
+        raise AssertionError("re-encoded the song although the key was busy")
+
+    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    effect = tab.doc.add_oneshot("coin")
+    ctx.busy_keys.add(f"{sirens_mode.AUDITION_PREFIX}{tab.uid}")
+    assert not sirens_mode.audition(ctx, tab, effect.uid)
+
+
+def test_play_pattern_does_not_reencode_the_song_while_already_rendering(monkeypatch):
+    """The same finding, sirens-01, for ``play_pattern``."""
+    from warlock.studio import sirens_audio
+    from warlock.studio.sirens import wsng
+
+    monkeypatch.setattr(sirens_audio, "available", lambda: True)
+    monkeypatch.setattr(sirens_audio, "playing", lambda: False)
+
+    def _boom(_doc):
+        raise AssertionError("re-encoded the song although the key was busy")
+
+    monkeypatch.setattr(wsng, "wsng_bytes", _boom)
+
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    state = sirens_mode.ensure(ctx)
+    state.pattern = tab.doc.patterns[0].uid
+    ctx.busy_keys.add(f"{sirens_mode.PATTERN_PREFIX}{tab.uid}")
+    assert not sirens_mode.play_pattern(ctx, tab)
+
+
+@pytest.mark.parametrize("module", ["sirens_play", "sirens_keys", "sirens_edit"])
+def test_every_name_defined_in_the_split_modules_is_in_the_moved_table(module):
+    """Finding sirens-02. ``_MOVED`` promises every name the split-out modules
+    define stays reachable as ``sirens_mode.<name>``, but the ghost test
+    (``test_the_moved_table_names_each_thing_once_and_no_ghosts``) only checks
+    that direction: a table entry resolves. It never checked the other way, so
+    ``sirens_play._caret_offset`` and ``sirens_keys._piano_elsewhere`` could be
+    -- and were -- missing from the table with nothing failing. Reproduced
+    against the unfixed code: both names are module-level in their files and
+    absent from ``sirens_mode._MOVED``.
+    """
+    import warlock.studio as studio_pkg
+
+    path = Path(studio_pkg.__file__).parent / f"{module}.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    defined: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defined.add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined.add(node.target.id)
+    missing = {name for name in defined if sirens_mode._MOVED.get(name) != module}
+    assert not missing, f"{module} defines {missing} but _MOVED does not point there"
+
+
+def test_audition_reason_names_the_state_that_is_actually_true():
+    """Finding sirens-05: the Audition button's disabled reason was an inline
+    ternary, the shape behind findings sirens-03/04/05 of the 2026-09-07
+    audit. Reproduced against the unfixed code: ``sirens_effects`` has no
+    ``audition_reason`` at all, so this fails with an ``AttributeError``.
+    """
+    from warlock.studio import sirens_audio
+    from warlock.studio.panes import sirens_effects
+
+    assert sirens_effects.audition_reason(False) == sirens_effects._BUSY_WHY
+    assert sirens_effects.audition_reason(True) == sirens_audio.unavailable_reason()

@@ -37,7 +37,9 @@ from warlock.studio.panes import (
     inker_colors,
     inker_picker,
     inker_timeline,
+    mason_props,
     packwright_settings,
+    packwright_sources,
     plotter_layers,
     plotter_tileset_editor,
     sirens_effects,
@@ -518,7 +520,94 @@ def test_packwright_settings_drags_fold_between_the_field_and_the_write(field, w
     assert fold < after_field.index(write), f"{write} runs before the fold"
 
 
-# --- 7. the shared ``Form`` helper ---------------------------------------------
+@pytest.mark.parametrize(
+    "field",
+    ['"##pivotx"', '"##pivoty"'],
+    ids=["pivot-x", "pivot-y"],
+)
+def test_packwright_sources_pivot_drag_folds_between_the_field_and_the_write(field):
+    """packwright-03, the 2026-09-13 audit: ``_pivot_row`` already calls
+    ``controls.fold_undo`` correctly (draw, fold, act) for both drag fields,
+    but this file's scan -- rows 4 and 6 above -- never included
+    ``packwright_sources.py`` at all, so a regression here would have shipped
+    silently. This is an *evidence gap*, not a live bug: the fold is already
+    in place, so this cannot be made to fail against the current source.
+    What it does pin is the same invariant every other row in this file
+    pins -- and a scratch copy of ``_pivot_row`` with the fold call deleted
+    fails this exact assertion (``ValueError: substring not found``),
+    proving the check bites if the fold is ever removed.
+    """
+    source = inspect.getsource(packwright_sources._pivot_row)
+    after_field = source.split(field, 1)[1]
+    fold = after_field.index("controls.fold_undo(")
+    assert fold < after_field.index("set_pivot("), "set_pivot runs before the fold"
+
+
+# --- 7. Mason's Properties panel ------------------------------------------------
+
+
+def test_light_intensity_typed_digit_by_digit_is_one_undo_step(monkeypatch, frames):
+    """mason-01, the 2026-09-13 audit: ``_light_block`` called the undoable
+    ``doc.set_props`` on every changed frame with no ``controls.fold_undo``,
+    so typing "2000" into intensity digit by digit pushed four undo steps and
+    one Ctrl+Z left ``200.0`` rather than the pre-edit value.
+    """
+    from warlock.studio.mason import document as md
+    from warlock.studio.mason import nodes as nd
+
+    node = nd.LightNode(uid=nd.new_uid(), name="Lamp", kind="point")
+    doc = md.MasonDoc(roots=[node])
+    before = len(doc.history)
+    values = [2.0, 20.0, 200.0, 2000.0]
+    item = _Item(monkeypatch, begin=1, end=1 + len(values))
+    _scripted_field(monkeypatch, item, "input_float", "##mlightintensity", values)
+    _drag(frames, lambda: mason_props._light_block(doc, node), item)
+    assert node.intensity == values[-1]
+    assert len(doc.history) == before + 1, "one drag folded to one undo step"
+    assert doc.history.undo(doc)
+    assert node.intensity != values[-1], "one Ctrl+Z takes the whole edit back"
+
+
+@pytest.mark.parametrize(
+    "func,field,write",
+    [
+        # mason-01: the light, camera and terrain blocks called
+        # ``doc.set_props``/``doc.set_terrain_config`` -- both unconditional
+        # ``history.push`` -- on every changed frame with no fold at all.
+        (mason_props._light_block, '"##mlightintensity"', "doc.set_props("),
+        (mason_props._light_block, '"##mlightrange"', "doc.set_props("),
+        (mason_props._light_block, '"##mlightinner"', "doc.set_props("),
+        (mason_props._light_block, '"##mlightouter"', "doc.set_props("),
+        (mason_props._camera_block, '"##mcamfov"', "doc.set_props("),
+        (mason_props._camera_block, '"##mcamnear"', "doc.set_props("),
+        (mason_props._camera_block, '"##mcamfar"', "doc.set_props("),
+        (mason_props._terrain_block, '"##mterrainx"', "doc.set_terrain_config("),
+        (mason_props._terrain_block, '"##mterrainz"', "doc.set_terrain_config("),
+    ],
+    ids=[
+        "light-intensity",
+        "light-range",
+        "light-inner-cone",
+        "light-outer-cone",
+        "camera-fov",
+        "camera-near",
+        "camera-far",
+        "terrain-size-x",
+        "terrain-size-z",
+    ],
+)
+def test_mason_properties_fields_fold_between_the_field_and_the_write(func, field, write):
+    """mason-01: the light, camera and terrain numeric fields folded nothing
+    -- pinned by source the same way Packwright's Columns/Padding/Extrude are,
+    since these are plain ``input_float`` doors rather than drag gestures a
+    headless frame can script one at a time."""
+    source = inspect.getsource(func)
+    after_field = source.split(field, 1)[1]
+    fold = after_field.index("controls.fold_undo(")
+    assert fold < after_field.index(write), f"{write} runs before the fold"
+
+
+# --- 8. the shared ``Form`` helper ---------------------------------------------
 
 
 def test_form_slider_used_for_an_undoable_field_folds_a_multi_frame_drag_into_one_step(

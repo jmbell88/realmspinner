@@ -291,11 +291,26 @@ def _retarget(ctx: Any, tab: Any, index: int, uid: int, editable: bool) -> bool:
         imgui.open_popup(name)
     changed = False
     if imgui.begin_popup(name):
+        # **Gated on ``editable``, not merely drawn (the 2026-09-13 audit,
+        # finding sirens-04).** The button above that opens this popup already
+        # checks ``editable``, but a popup already open stays open across a
+        # save starting -- imgui does not close it for you -- so with these
+        # rows undisabled, a click landed mid-save still called ``set_order``
+        # on a tab the rest of the pane was refusing to touch.
+        if not editable:
+            widgets.muted(_BUSY_WHY)
         for pattern in list(doc.patterns):
-            if controls.selectable(
+            clicked = controls.selectable(
                 f"{_name_of(doc, pattern.uid)}###sirens-point-{index}-{pattern.uid}",
                 pattern.uid == uid,
-            )[0]:
+                enabled=editable,
+            )[0]
+            # The visual disable above is imgui's job and is not this
+            # function's to trust: a popup left open across a save starting is
+            # exactly the frame where "disabled" and "still clickable" can
+            # disagree, so the actual mutation below is refused in software
+            # too, whatever the widget answered.
+            if clicked and editable:
                 order = list(doc.order)
                 order[index] = pattern.uid
                 if doc.set_order(order):

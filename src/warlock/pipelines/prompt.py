@@ -287,6 +287,7 @@ def build(
     *,
     trigger: str = "",
     tile: bool = False,
+    sheet: bool = False,
     tilesheet: bool = False,
 ) -> str:
     """The final positive prompt.
@@ -294,18 +295,24 @@ def build(
     The composed subject, then the LoRA trigger (if any), then the template --
     the same assembly text2image.generate() does by hand, exposed here so the
     prompt preview can show it before a job runs. ``tile`` swaps in the
-    tileable template, whose framing is its own flat top-down clause, and
-    ``tilesheet`` the grid one.
+    tileable template, whose framing is its own flat top-down clause,
+    ``sheet`` the character-pose grid one, and ``tilesheet`` the tile grid
+    one.
 
-    ``tilesheet`` wins over ``tile``: an output kind is a property of what the
-    job produces, and the sheet is the part that decides which clauses can be
-    present at all.
+    ``tilesheet`` wins over ``sheet``, which wins over ``tile``: an output
+    kind is a property of what the job produces, and the sheet is the part
+    that decides which clauses can be present at all. This mirrors
+    text2image.generate()'s own precedence -- pipelines-02 (the 2026-09-13
+    audit) found that ``build()`` claimed parity with that assembly but had
+    no ``sheet`` argument at all, so it could never select SHEET_TEMPLATE.
     """
     from .. import guidance
 
     composed = guidance.compose_prompt(user_prompt, params)
     if tilesheet:
         template = TILESHEET_TEMPLATE
+    elif sheet:
+        template = SHEET_TEMPLATE
     elif tile:
         template = TILE_TEMPLATE
     else:

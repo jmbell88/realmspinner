@@ -8,7 +8,7 @@ stops that coming back, and it is deliberately three cheap tests rather than one
 expensive one: none of them needs weights, a card, or the ``music`` extra for
 the scan.
 
-The vendored change they pin is ``WARLOCK 5/5``; see
+The vendored change they pin is ``WARLOCK 5/6``; see
 ``pipelines/acestep/ATTRIBUTION.md`` for the argument, including why 16-bit
 rather than a float branch in the tracker's reader.
 """
@@ -81,6 +81,63 @@ def test_the_marker_count_matches_the_attribution_document():
     entries = re.findall(r"^(\d+)\. \*\*", doc, re.M)
     assert [int(e) for e in entries] == list(range(1, count + 1)), (
         f"ATTRIBUTION.md lists {entries} modifications but the source carries {count}"
+    )
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: Every non-vendored file the 2026-09-13 audit found citing an ACE-Step
+#: ``WARLOCK n/N`` marker in prose. Not a repo-wide sweep: the marker string
+#: is reused, with its own independent numbering, by other vendored packages
+#: (BiRefNet's ``ATTRIBUTION.md``, ``pipelines/_workerio.py``'s own note) that
+#: this finding never touched and this module does not own, so a blind
+#: ``rglob`` over ``src/``/``tests/`` false-positives on those instead of
+#: catching drift here. This list is exactly muse-04's file set (its own
+#: files plus the two the orchestrator also saw), kept beside the finding
+#: rather than discovered fresh each run.
+_MUSE_PROSE_FILES = (
+    "src/warlock/_q_music.py",
+    "src/warlock/pipelines/audioout.py",
+    "src/warlock/pipelines/separation_worker.py",
+    "src/warlock/pipelines/_workerio.py",
+    "src/warlock/studio/muse_io.py",
+    "src/warlock/studio/muse_mode.py",
+    "tests/test_music_format.py",
+    "tests/test_muse_bridge.py",
+    "tests/test_q_music_tasks.py",
+    "tests/test_music_gpu.py",
+)
+
+
+def test_warlock_marker_prose_outside_acestep_matches_attribution_count():
+    """The 2026-09-13 audit, finding muse-04.
+
+    ``test_the_marker_count_matches_the_attribution_document`` above only
+    scans the vendored files themselves -- ``pipeline_ace_step.py`` and
+    ``__init__.py`` -- so when ``ATTRIBUTION.md`` moved from five
+    modifications to six, ``_MUSE_PROSE_FILES`` kept naming the fifth and
+    fourth markers by their old five-of-five denominator in prose and
+    nothing caught it. This pins every
+    ``WARLOCK n/N`` mention in those files to the document's real
+    modification count, so the next renumbering fails here instead of
+    shipping stale prose again.
+    """
+    doc = _ATTRIBUTION.read_text(encoding="utf-8")
+    entries = re.findall(r"^(\d+)\. \*\*", doc, re.M)
+    count = len(entries)
+    assert count > 0, "ATTRIBUTION.md's numbered modification list is empty"
+
+    stale: list[str] = []
+    for rel in _MUSE_PROSE_FILES:
+        path = _REPO_ROOT / rel
+        text = path.read_text(encoding="utf-8")
+        for n, of in re.findall(r"WARLOCK (\d+)/(\d+)", text):
+            if int(of) != count:
+                stale.append(f"{rel}: WARLOCK {n}/{of}")
+
+    assert not stale, (
+        "prose references a stale modification count -- ATTRIBUTION.md now "
+        f"has {count}:\n" + "\n".join(stale)
     )
 
 

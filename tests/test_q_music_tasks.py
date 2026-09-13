@@ -15,10 +15,51 @@ import numpy as np
 import pytest
 
 from warlock import _q_music as q
+from warlock import models, packs
 
 
 def _dir() -> Path:
     return Path("C:/jobs/abc")
+
+
+class _FakeWorker:
+    """Just enough of ``Worker`` for ``MusicOps._get_music_client``.
+
+    Not a client, a card or a queue either -- the point of muse-03's fix is
+    that the pack is probed before any of those exist.
+    """
+
+    _music_client = None
+
+
+# --- _get_music_client ---------------------------------------------------
+
+
+async def test_missing_music_extra_reports_pack_guidance_not_a_child_traceback(
+    monkeypatch,
+):
+    """The 2026-09-13 audit, finding muse-03.
+
+    ``music_client.py`` imports no torch, so the old ``except ImportError``
+    around its import could never fire on a host missing the ``music`` extra
+    -- the import only fails *inside the spawned child*, which surfaced as a
+    raw ``ChildFailed("the music worker exited during startup")`` instead of
+    the pack guidance. Failing this test against the unfixed code means the
+    old code raised no ``RuntimeError`` at all here (nothing probed the pack
+    before constructing the client), because ``MusicClient`` never even
+    imports torch to fail on.
+    """
+    monkeypatch.setattr(packs, "installed", lambda pack: False)
+    spec = models.MUSIC_MODELS[models.DEFAULT_MUSIC_MODEL]
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await q.MusicOps._get_music_client(_FakeWorker(), spec)
+
+    message = str(excinfo.value)
+    assert "Music generation pack" in message
+    assert "Settings -> Packs" in message
+    assert "ChildFailed" not in message
+    assert "exited during startup" not in message
 
 
 # --- _task_kwargs ------------------------------------------------------------
@@ -175,7 +216,7 @@ def test_a_file_this_build_did_not_write_is_refused_rather_than_mangled():
     out = io.BytesIO()
     with wave.open(out, "wb") as handle:
         handle.setnchannels(1)
-        handle.setsampwidth(1)  # 8-bit, which WARLOCK 5/5 never writes
+        handle.setsampwidth(1)  # 8-bit, which WARLOCK 5/6 never writes
         handle.setframerate(44100)
         handle.writeframes(b"\x00" * 100)
     with pytest.raises(RuntimeError, match="16-bit PCM"):

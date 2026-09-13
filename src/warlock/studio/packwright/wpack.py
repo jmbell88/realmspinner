@@ -57,6 +57,25 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 # so the two are one answer written twice on purpose.
 MAX_SOURCE_PIXELS = 16_000_000
 
+# The 2026-09-13 audit's packwright-01, the aggregate half of the same finding
+# that already gives :data:`MAX_SOURCE_PIXELS` its per-image ceiling.
+# ``MAX_SOURCE_PIXELS`` bounds one image, ``MAX_DECOMPRESSED_BYTES`` bounds the
+# archive's *stored* (still-PNG) bytes -- neither bounds what ``read_wpack``
+# decodes in total across every source it reads, so a ``.wpack`` of a few
+# hundred near-ceiling sources, each individually legal, decodes to hundreds of
+# gigabytes of RGBA before the loop that reads them ever finishes. No atlas
+# this app can pack ever holds more content than the largest atlas it can
+# produce -- ``pipelines.sheet.MAX_ATLAS_PX`` (8192) squared -- which is the
+# same figure ``studio.pixelguard.MAX_DECODE_PIXELS`` is already set to and
+# for the identical reason stated there. The number is written here rather
+# than imported, the same call :data:`MAX_SOURCE_PIXELS` above already makes
+# about ``service.validation.MAX_IMAGE_PIXELS``: this package's own import
+# pin (``tests/packwright/test_packwright_imports.py``) enumerates its eight
+# outward reaches exactly, and a ninth for one shared constant is a worse
+# trade than one number written twice on purpose. Module-level so a test
+# lowers it rather than decoding anywhere near a document this size.
+MAX_DOCUMENT_PIXELS = 8192 * 8192
+
 
 def _rect(rect: Any) -> dict[str, int]:
     return {"x": int(rect[0]), "y": int(rect[1]), "w": int(rect[2]), "h": int(rect[3])}
@@ -238,6 +257,16 @@ def read_wpack(data: bytes) -> PackDoc:
         settings = _settings_from(manifest.get("settings"))
         sources: list[Source] = []
         seen: set[str] = set()
+        # The 2026-09-13 audit's packwright-01: a running total of what this
+        # loop has decoded so far, checked against :data:`MAX_DOCUMENT_PIXELS`
+        # *before* the next source is decoded rather than after -- the same
+        # "asked before the allocating call" rule ``_pixels_from``'s own
+        # per-image check already follows, applied across the whole document
+        # instead of to one member of it. A one-element list rather than a
+        # nonlocal ``int``: ``_pixels_from`` mutates it in place so the check
+        # and the decode it guards stay in one function, the way the per-image
+        # ceiling already does.
+        budget = [MAX_DOCUMENT_PIXELS]
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError("this atlas document holds a malformed source")
@@ -263,7 +292,7 @@ def read_wpack(data: bytes) -> PackDoc:
                     sprite=Sprite(
                         key=key,
                         name=str(entry.get("name", key)),
-                        pixels=_pixels_from(raw, name),
+                        pixels=_pixels_from(raw, name, budget),
                         meta=_meta_from(entry, key),
                     ),
                     name_override=str(entry.get("name_override", "")),
@@ -324,7 +353,7 @@ def _meta_from(entry: dict, key: str) -> SpriteMeta:
         ) from exc
 
 
-def _pixels_from(raw: bytes, name: str) -> np.ndarray:
+def _pixels_from(raw: bytes, name: str, budget: list[int]) -> np.ndarray:
     """One embedded member as RGBA, refused at the door if it is not one.
 
     ``UnidentifiedImageError`` is an ``OSError``, so a member that is not an
@@ -332,6 +361,15 @@ def _pixels_from(raw: bytes, name: str) -> np.ndarray:
     The pixel ceiling is asked *before* ``convert``, because that is the call
     that allocates: a header saying 60000 squared is four bytes on disk and
     fourteen gigabytes decoded.
+
+    ``budget`` is ``read_wpack``'s running document-wide total, in a
+    one-element list so this call can deduct from it -- the 2026-09-13 audit's
+    packwright-01. ``MAX_SOURCE_PIXELS`` alone bounds one member; a document of
+    many members individually under that ceiling was never checked in
+    aggregate, so a few hundred near-ceiling sources decoded to hundreds of
+    gigabytes before this function ever refused one. Checked here, against the
+    header's declared size, in the same breath as the per-image ceiling and
+    before the same ``convert`` call that would pay for either.
     """
     from PIL import Image
 
@@ -342,11 +380,19 @@ def _pixels_from(raw: bytes, name: str) -> np.ndarray:
             f"this atlas document's {name} is not an image this build can read"
         ) from exc
     with image:
-        if image.width * image.height > MAX_SOURCE_PIXELS:
+        declared = image.width * image.height
+        if declared > MAX_SOURCE_PIXELS:
             raise ValueError(
                 f"this atlas document's {name} is {image.width}x{image.height}; "
                 f"the limit is {MAX_SOURCE_PIXELS} pixels"
             )
+        if declared > budget[0]:
+            raise ValueError(
+                f"this atlas document's sources decode past "
+                f"{MAX_DOCUMENT_PIXELS} pixels in total once {name} is added; "
+                "that is the most this build will unpack from one document"
+            )
+        budget[0] -= declared
         return np.asarray(image.convert("RGBA"), dtype=np.uint8)
 
 

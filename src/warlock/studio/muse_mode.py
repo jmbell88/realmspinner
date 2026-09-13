@@ -11,7 +11,7 @@ model lives in a subprocess two layers down -- so this module imports
 ``play(pcm, rate, tag=..., loops=)`` is already mode-agnostic and tag-keyed, and
 it refuses anything but its ``RATE`` (44100) outright rather than resampling.
 ACE-Step's vendored ``latents2audio`` *defaulted* to 48000, which is why
-``read_track`` reconciles the two -- but ``WARLOCK 5/5`` now pins the writer to
+``read_track`` reconciles the two -- but ``WARLOCK 5/6`` now pins the writer to
 44 100 Hz 16-bit at the call site, so that path is the fallback for a take made
 by an older build rather than the normal one. See
 ``pipelines/acestep/ATTRIBUTION.md``.

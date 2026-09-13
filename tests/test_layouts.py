@@ -742,7 +742,7 @@ def _column_shares(lay: layout_mod.Layout, slots: list) -> dict[str, float]:
     }
 
 
-@pytest.mark.parametrize("workspace", ["clay", "inker", "plotter", "sirens"])
+@pytest.mark.parametrize("workspace", ["clay", "inker", "mason", "plotter", "sirens"])
 def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
     """The property the flat default broke, asserted where it can be seen.
 
@@ -778,7 +778,7 @@ def test_no_pane_of_any_workspace_is_allocated_nothing(workspace):
     from warlock.studio import skeletons
 
     ctx = SimpleNamespace(
-        state=SimpleNamespace(clay=None, inker=None, plotter=None, sirens=None)
+        state=SimpleNamespace(clay=None, inker=None, mason=None, plotter=None, sirens=None)
     )
     lay = layout_mod.Layout(_Settings())
     for column in skeletons.BUILDERS[workspace](ctx).values():

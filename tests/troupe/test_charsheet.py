@@ -262,6 +262,26 @@ def test_troupe_columns_are_fixed_at_eight() -> None:
         )
 
 
+def test_a_v2_direction_object_missing_yaw_is_refused_by_name_not_by_typeerror():
+    """The 2026-09-13 audit (troupe-01): a direction object with no ``yaw``
+    used to surface as a raw ``float(None)`` ``TypeError`` instead of the
+    named refusal its sibling branch (an out-of-range direction preset)
+    already gives."""
+    with pytest.raises(ValueError, match="yaw"):
+        cs.resolve_layout(
+            {
+                "version": 2,
+                "movements": [
+                    {
+                        "key": "idle",
+                        "frames": 1,
+                        "directions": [{"key": "front"}],
+                    }
+                ],
+            }
+        )
+
+
 def test_a_resolved_v2_snapshot_round_trips_without_changing_cell_identity():
     first = cs.resolve_layout(
         {

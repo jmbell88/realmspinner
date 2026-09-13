@@ -106,6 +106,16 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
     custom_skeleton = False
     custom_missing = 0
     if rigged:
+        # The 2026-09-13 audit, finding troupe-03: this reads rig.json
+        # synchronously from a button handler, on the frame thread. Recorded
+        # here rather than moved off-thread, because the read is a single
+        # small JSON on an explicit click, not a loop or a poll, and it is
+        # already bounded -- ``rigging.read_record`` (which ``get_rig`` goes
+        # through) stats the file before reading and refuses anything over
+        # ``MAX_RECORD_BYTES`` (1 MiB) rather than loading it, so the worst
+        # case here is one small stat call and a suppressed exception, not an
+        # unbounded read. See docs/INVARIANTS.md.
+        #
         # P4 (2026-09-13): a rig whose skeleton was edited away from its
         # template may no longer have every bone the template's clip library
         # animates -- Troupe warns, once, at the door, rather than a silently

@@ -66,6 +66,7 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from . import icons, modes, verbs
+from .create_stages import IMAGE_STAGES as _NEAR_MISS_IMAGE_STAGES
 
 #: The stages a job carries before it has a mesh -- a picture still being
 #: painted, generated or reconstructed from. The same tuple
@@ -74,6 +75,9 @@ from . import icons, modes, verbs
 #: one answers "is this row shaped like a reference at all" -- the two
 #: currently agree, and if they ever stop, that is a decision for whoever
 #: changes one of them, not a second module quietly drifting off the first.
+#: Deliberately narrower than :data:`_NEAR_MISS_IMAGE_STAGES` above: Inker
+#: opens a reference or a single tile to paint over, never a whole
+#: generated tile sheet.
 _REFERENCE_STAGES = ("reference", "tile")
 
 
@@ -427,7 +431,15 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     # could theoretically carry the file -- a mesh missing it is not "close",
     # it is a promotion that did not copy the reference, which is a bug
     # elsewhere and not a state this button should be narrating.
-    if job.get("stage") not in _REFERENCE_STAGES:
+    #
+    # The 2026-09-13 audit, finding create-08: this checked
+    # ``_REFERENCE_STAGES`` (``"reference"``, ``"tile"``), which left out
+    # ``"tilesheet"`` -- so a running tile *sheet* job showed no button at
+    # all instead of a greyed one, the one near-miss shape this whole
+    # module exists to draw. ``create_stages.IMAGE_STAGES`` is the list
+    # that already carries all three "this row is a picture, not a mesh
+    # yet" stages.
+    if job.get("stage") not in _NEAR_MISS_IMAGE_STAGES:
         return None
     if job.get("status") != "done":
         reason = _status_reason(job)
@@ -464,7 +476,10 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
     if "input.png" in _files(job):
         return Exit("packwright", label, hint, "", "", door)
 
-    if job.get("stage") not in _REFERENCE_STAGES:
+    # The 2026-09-13 audit, finding create-08: same fix as ``_plotter_add``
+    # above -- ``create_stages.IMAGE_STAGES`` instead of ``_REFERENCE_STAGES``
+    # so a running tile sheet job dims rather than vanishes.
+    if job.get("stage") not in _NEAR_MISS_IMAGE_STAGES:
         return None
     if job.get("status") != "done":
         reason = _status_reason(job)

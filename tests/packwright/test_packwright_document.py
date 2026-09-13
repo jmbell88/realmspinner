@@ -52,3 +52,40 @@ def test_a_document_with_a_source_past_max_source_pixels_is_refused_at_add_not_o
             uid, Sprite(key="b", name="b", pixels=np.zeros((11, 11, 4), dtype=np.uint8))
         )
     assert doc.sources[0].sprite.width == 4, "the refused replacement did not land"
+
+
+def test_a_document_of_many_near_ceiling_sprites_is_refused_before_the_aggregate_pixel_budget_is_allocated(  # noqa: E501
+    monkeypatch,
+):
+    """packwright-01 (2026-09-13 audit): ``MAX_SOURCE_PIXELS`` bounds one
+    sprite and ``MAX_DECOMPRESSED_BYTES`` bounds the archive's stored PNG
+    bytes -- neither bounds the *sum* of every sprite a document holds, so a
+    document of many sprites each individually under the per-sprite ceiling
+    had no ceiling on their total at all. Exercised at a monkeypatched
+    document budget so this proves refusal without allocating anywhere near
+    the real one (8192 squared)."""
+    from warlock.studio.packwright import wpack
+
+    monkeypatch.setattr(wpack, "MAX_DOCUMENT_PIXELS", 100)
+    doc = PackDoc()
+    # Each sprite is 40 pixels, comfortably under any per-sprite ceiling; two
+    # of them (80) still fit the patched document budget of 100, a third
+    # (120) does not.
+    doc.add_source(Sprite(key="a", name="a", pixels=np.zeros((5, 8, 4), dtype=np.uint8)))
+    doc.add_source(Sprite(key="b", name="b", pixels=np.zeros((5, 8, 4), dtype=np.uint8)))
+    assert doc.total_pixels() == 80
+    with pytest.raises(ValueError, match="document-wide limit is 100 pixels"):
+        doc.add_source(Sprite(key="c", name="c", pixels=np.zeros((5, 8, 4), dtype=np.uint8)))
+    assert {s.key for s in doc.sources} == {"a", "b"}, "refused at the door, not left half-added"
+
+    # A replacement is checked the same way, with its own source's pixels
+    # backed out of the running total first -- replacing "a" with a
+    # same-sized sprite must not be refused for a budget the document already
+    # holds under its old reading of "a".
+    uid = doc.sources[0].uid
+    same_size = np.zeros((5, 8, 4), dtype=np.uint8) + 1
+    doc.replace_source(uid, Sprite(key="a", name="a", pixels=same_size))
+    with pytest.raises(ValueError, match="document-wide limit is 100 pixels"):
+        doc.replace_source(
+            uid, Sprite(key="a", name="a", pixels=np.zeros((9, 8, 4), dtype=np.uint8))
+        )

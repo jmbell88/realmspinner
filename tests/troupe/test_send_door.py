@@ -308,6 +308,41 @@ def test_a_custom_skeleton_warns_how_many_bones_its_clips_will_skip(ctx, svc):
     assert "custom_skeleton_missing" in source
 
 
+def test_ask_does_not_touch_disk_when_the_mesh_is_not_rigged(ctx, svc, monkeypatch):
+    """The 2026-09-13 audit, finding troupe-03: ``ask`` reads rig.json
+    synchronously from a button handler on the frame thread, which is
+    deliberate for a rigged mesh (see the comment in ``ask``) -- but an
+    unrigged mesh must not pay for a disk read it has no rig to make."""
+    import warlock.rigging as rigging_module
+
+    def _boom(*_a, **_kw):
+        raise AssertionError("read_rig must not be called for an unrigged mesh")
+
+    monkeypatch.setattr(rigging_module, "read_rig", _boom)
+    job = _mesh(svc, rigged=False)
+    assert troupe_send.ask(ctx, job)
+    assert ctx.state.troupe_send.rigged is False
+    assert ctx.state.troupe_send.custom_skeleton is False
+
+
+def test_ask_treats_an_oversized_rig_json_as_no_warning_rather_than_a_crash(ctx, svc):
+    """The frame-thread read ``ask`` does for a rigged mesh (troupe-03, see the
+    comment in ``ask``) is bounded by ``rigging.read_record``'s own
+    ``MAX_RECORD_BYTES`` ceiling -- a rig.json over that size is refused by
+    the reader rather than loaded, and ``ask`` must survive that as a missed
+    warning, not an unhandled exception on the frame thread."""
+    job = _mesh(svc, rigged=True)
+    job_dir = svc.job_dir(job["id"])
+    oversized = json.dumps({"template": "humanoid", "skeleton": "custom", "pad": "x" * (1 << 21)})
+    (job_dir / "rig.json").write_text(oversized, "utf-8")
+
+    assert troupe_send.ask(ctx, job)
+    state = ctx.state.troupe_send
+    assert state.rigged is True
+    assert state.custom_skeleton is False
+    assert state.custom_skeleton_missing == 0
+
+
 def test_a_template_skeleton_is_not_flagged_custom(ctx, svc):
     troupe_send.ask(ctx, _mesh(svc, rigged=True))
     state = ctx.state.troupe_send

@@ -74,6 +74,30 @@ def _refuse_oversized(sprite: Sprite) -> None:
         )
 
 
+def _refuse_over_budget(existing_total: int, sprite: Sprite) -> None:
+    """Refuse a sprite that would push the document's *total* decoded pixels
+    past ``wpack.MAX_DOCUMENT_PIXELS`` -- the 2026-09-13 audit's packwright-01,
+    the aggregate half of the finding ``_refuse_oversized`` already closes.
+
+    ``_refuse_oversized`` bounds one sprite; nothing bounded the sum of every
+    sprite a document holds, so up to :data:`.layout.MAX_SPRITES` sprites each
+    individually under that ceiling could still add up to hundreds of
+    gigabytes resident as decoded RGBA. Imported lazily for the same reason
+    ``_refuse_oversized`` already is: ``wpack.py`` imports this module for
+    ``PackDoc``/``Source``/``new_uid``, and a top-level import here would be
+    circular.
+    """
+    from .wpack import MAX_DOCUMENT_PIXELS
+
+    total = existing_total + sprite.width * sprite.height
+    if total > MAX_DOCUMENT_PIXELS:
+        raise ValueError(
+            f"this pack's sources would decode to {total} pixels in total; "
+            f"the atlas format's document-wide limit is {MAX_DOCUMENT_PIXELS} "
+            "pixels -- split it into several packs"
+        )
+
+
 @dataclass
 class Source:
     """One sprite in the document, plus whatever the user renamed it to.
@@ -232,6 +256,14 @@ class PackDoc:
     def has_key(self, key: str) -> bool:
         return any(entry.key == key for entry in self.sources)
 
+    def total_pixels(self) -> int:
+        """The sum of every held source's decoded pixel count -- what
+        :func:`_refuse_over_budget` checks a new sprite against. The 2026-09-13
+        audit's packwright-01: nothing tracked this sum before, so a document
+        already near ``wpack.MAX_DOCUMENT_PIXELS`` had no way to refuse the
+        next sprite that would push it over."""
+        return sum(entry.sprite.width * entry.sprite.height for entry in self.sources)
+
     def sprites(self) -> list[Sprite]:
         """Every sprite, in canonical key order, wearing its display name.
 
@@ -278,6 +310,7 @@ class PackDoc:
         named, while the user still has it in front of them.
         """
         _refuse_oversized(sprite)
+        _refuse_over_budget(self.total_pixels(), sprite)
         if self.has_key(sprite.key):
             raise ValueError(
                 f"this pack already holds {sprite.key!r} -- two sprites under one "
@@ -323,6 +356,13 @@ class PackDoc:
                 "reading of one source, not a different one"
             )
         _refuse_oversized(sprite)
+        # The replaced source's own pixels come out of the total before the
+        # new ones are checked against it -- a same-size or smaller
+        # replacement must never be refused for a budget the document already
+        # holds under its *old* reading of this exact source.
+        _refuse_over_budget(
+            self.total_pixels() - source.sprite.width * source.sprite.height, sprite
+        )
         before = source.sprite
         if before.pixels.shape == sprite.pixels.shape and np.array_equal(
             before.pixels, sprite.pixels

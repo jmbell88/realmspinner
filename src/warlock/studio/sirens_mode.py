@@ -576,6 +576,13 @@ _MOVED: dict[str, str] = {
     "PREVIEW_ROWS": "sirens_play",
     "_MUTATING_CTRL": "sirens_keys",
     "_caret_kind": "sirens_play",
+    # Added by the 2026-09-13 audit, finding sirens-02: both names were
+    # reachable from their own modules but missing from this table, breaking
+    # the promise that every split-out name stays reachable as
+    # ``sirens_mode.<name>``. The ghost test that should have caught it
+    # checked only that every table entry still resolves, not that every
+    # module-level name in the split modules is in the table.
+    "_caret_offset": "sirens_play",
     "_column_ceiling": "sirens_edit",
     "_ctrl_key": "sirens_keys",
     "step_history": "sirens_edit",
@@ -598,6 +605,7 @@ _MOVED: dict[str, str] = {
     "jump_row": "sirens_edit",
     "move_caret": "sirens_edit",
     "paste": "sirens_edit",
+    "_piano_elsewhere": "sirens_keys",
     "play": "sirens_play",
     "play_from_caret": "sirens_play",
     "play_pattern": "sirens_play",

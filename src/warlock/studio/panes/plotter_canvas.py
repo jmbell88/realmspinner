@@ -2949,7 +2949,7 @@ def _object_input(ctx: Any, state: Any, tab: Any, origin, hovered: bool) -> None
             state.drag_kind = "object-resize"
             state.drag_handle = handle
             return
-        hit = _object_at(layer, point)
+        hit = _object_at(tab.view, origin, layer, point, (mouse.x, mouse.y), (dx, dy))
         # Tiled's two bindings for "and this one as well". Read once, because
         # both a body click and an empty-space press ask the same question, and
         # a second read a branch later is how the two drift apart.
@@ -3519,7 +3519,14 @@ def _resized(obj: Any, fixed: tuple[float, float], point: tuple[float, float]):
     )
 
 
-def _object_at(layer: Any, point: tuple[float, float]):
+def _object_at(
+    view: Any,
+    origin,
+    layer: Any,
+    point: tuple[float, float],
+    mouse: tuple[float, float],
+    shift: tuple[float, float] = (0.0, 0.0),
+):
     """Topmost first, so a small object drawn over a large one is reachable.
 
     Tiled's second half of "prefer the current layer" is the caller's: this is
@@ -3527,11 +3534,21 @@ def _object_at(layer: Any, point: tuple[float, float]):
     layer under the cursor is not a candidate at all. Stated here because the
     first half -- highlight the current layer -- is a view setting and it would
     be easy to read the pair as one feature.
+
+    A point object is hit-tested in **screen** space against its marker's
+    drawn radius (``_objects`` rings it at ``sp(7)``), not in map pixels: the
+    2026-09-13 audit found this arm alone comparing against a fixed 8 *map
+    pixel* box while every handle in this file -- resize, rotate, vertex --
+    already hit-tests in screen space (``_handle_at``, ``_rotate_at``,
+    ``_vertex_at``). Zoomed out, 8 map pixels is a few screen pixels and a
+    click on the marker missed it; zoomed in, 8 map pixels is far wider than
+    the drawn ring and a click well away from it grabbed the point anyway.
     """
     x, y = point
     for obj in reversed(layer.objects):
         if obj.kind == "point":
-            if abs(obj.x - x) <= 8 and abs(obj.y - y) <= 8:
+            sx, sy = inker_state.to_screen(view, origin, obj.x + shift[0], obj.y + shift[1])
+            if abs(sx - mouse[0]) <= sp(7) and abs(sy - mouse[1]) <= sp(7):
                 return obj
             continue
         local_x, local_y = _object_local(obj, x, y)

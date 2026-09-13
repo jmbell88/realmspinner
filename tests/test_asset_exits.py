@@ -378,6 +378,31 @@ def test_an_errored_reference_dims_every_reachable_door_and_hides_nothing_extra(
         assert "failed" in e.reason.lower()
 
 
+def test_plotter_add_dims_rather_than_hides_a_running_tileset_job(svc):
+    """The 2026-09-13 audit, finding create-08.
+
+    ``_plotter_add``/``_packwright_add`` dimmed the near-miss for
+    ``"reference"``/``"tile"`` stages only, so a running ``tilesheet`` job
+    -- generated_from a tileset request, not yet finished -- matched
+    neither ``_REFERENCE_STAGES``'s old members, returned ``None``, and
+    offered no button at all instead of a greyed one. ``create_stages.IMAGE_STAGES``
+    (``"reference"``, ``"tile"``, ``"tilesheet"``) is the fix.
+    """
+    job = _job(svc, "text", stage="tilesheet", status="running", params={})
+    job["files"] = []
+    ctx = FakeCtx(svc)
+    exits = asset_exits.exits_for(ctx, job)
+    by_mode = _labels(exits)
+    assert "plotter" in by_mode, "a running tileset job must still offer a (dimmed) plotter door"
+    assert "packwright" in by_mode, (
+        "a running tileset job must still offer a (dimmed) packwright door"
+    )
+    _label, dimmed = by_mode["plotter"]
+    assert dimmed
+    _label, dimmed = by_mode["packwright"]
+    assert dimmed
+
+
 def test_a_deleted_row_offers_nothing_at_all(svc):
     """Every action a builder could offer either fails outright or quietly
     resurrects a trashed row into the workshop without saying so -- the same

@@ -14,6 +14,7 @@ import pytest
 
 from warlock.service import export as svc_export
 from warlock.service import jobs as svc_jobs
+from warlock.service.errors import Conflict
 
 
 @pytest.fixture
@@ -132,3 +133,30 @@ def test_keep_both_picks_the_smallest_free_number_when_nothing_collides(svc, ass
 
     assert kept.files[0].name == f"{a}/model-2.glb"
     assert kept.files[0].exists is False
+
+
+def test_export_planned_to_folder_refuses_cleanly_when_the_plan_goes_stale(svc, assets, tmp_path):
+    """service-03 (2026-09-13 audit): the Keep both/Replace popup can outlive
+    a readiness change -- a second job finishes, or one goes stale, while the
+    popup is still on screen. ``export_planned_to_folder`` used to re-collect
+    against the (by then wrong) ``plan.files`` with ``zip(..., strict=True)``,
+    which raised a raw ``ValueError`` the pane had no ``field`` to toast. It
+    must instead refuse with a ``service.errors`` exception."""
+    a = _done_job(svc, assets)
+    dest = tmp_path / "project" / "assets"
+    svc.config.export_dir = dest
+
+    job = svc_export.ExportJob(svc=svc, ids=[a], names_wanted=None, as_zip=False)
+    plan = svc_export.plan_export(job, dest)
+
+    # The plan was built for one ready job; a second job becomes ready before
+    # "Keep both" is clicked, so ``collect`` now returns more members than the
+    # stale plan describes.
+    b = _done_job(svc, assets)
+
+    with pytest.raises(Conflict) as excinfo:
+        svc_export.export_planned_to_folder(svc, [a, b], None, plan)
+    assert excinfo.value.field == "plan"
+    # And nothing was written for the mismatch -- a refused plan writes
+    # nothing, matching every other refusal in this module.
+    assert not dest.exists()

@@ -923,10 +923,18 @@ class _Reader:
             # glTF allows weights as normalized ubyte/ushort as well as float.
             # Reading the integer forms as-is would give every vertex a weight
             # of 65535, which renders as an explosion rather than as a mesh.
+            # The 2026-09-13 audit, finding create-05: ``/ 255.0`` and
+            # ``/ 65535.0`` each build a fresh float32 array the same size as
+            # the one ``_astype`` just charged, and the renormalising
+            # division a few lines down builds a third -- none of them
+            # charged, so a skinned mesh's peak allocation was undercounted
+            # against MAX_TOTAL_BYTES by up to 2x its weights array alone.
             if raw.dtype == np.uint8:
                 weights = self._astype(raw, "f4") / 255.0
+                self._charge(weights.nbytes)
             elif raw.dtype == np.uint16:
                 weights = self._astype(raw, "f4") / 65535.0
+                self._charge(weights.nbytes)
             else:
                 weights = self._astype(raw, "f4")
             # **Renormalised, and a zero-sum vertex pinned to its first joint.**
@@ -946,6 +954,10 @@ class _Reader:
                 weights[dead, 0] = 1.0
                 total = weights.sum(axis=1, keepdims=True)
             out.weights = weights / total
+            # create-05 again: the renormalising division itself, run for
+            # every vertex regardless of whether the dead-vertex branch above
+            # fired -- the second (or third) uncharged same-size copy.
+            self._charge(out.weights.nbytes)
         # The 2026-09-06 audit, finding clay-06: this only checked the upper
         # bound, so ``"material": -1`` resolved through Python's own
         # negative-index wraparound to the *last* palette entry instead of
@@ -1035,7 +1047,28 @@ class _Reader:
                 self.skipped += 1
                 return None
             start = view.get("byteOffset", 0)
-            return self.buffer[start : start + view["byteLength"]]
+            byte_length = view.get("byteLength", 0)
+            # The 2026-09-13 audit, finding create-09: this used to slice
+            # straight out of ``self.buffer`` with no span check, so a
+            # bufferView whose declared byteLength overran the BIN chunk was
+            # silently *truncated* -- a corrupt-looking image that then
+            # failed to decode -- rather than refused at the boundary the
+            # way an accessor's own span is (``_check_span``). Same
+            # reachability class as the buffer check just above: a texture
+            # is a cosmetic loss, so this stays a skip rather than a raise,
+            # using the accessor path's own span logic so the two boundaries
+            # cannot drift apart.
+            try:
+                self._check_span(start, byte_length)
+            except Exception as exc:
+                log.warning(
+                    "skipping a texture whose bufferView reads past the end "
+                    "of the binary chunk: %s",
+                    exc,
+                )
+                self.skipped += 1
+                return None
+            return self.buffer[start : start + byte_length]
         uri = str(image.get("uri") or "")
         if uri.startswith("data:"):
             import base64

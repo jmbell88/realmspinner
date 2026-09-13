@@ -471,6 +471,14 @@ class RigOps:
                 cell["root_offset"] = offset
             cells.append(cell)
 
+        # The 2026-09-13 audit (docs-18): ``_sheet`` had no
+        # ``self._cancel.event.is_set()`` check anywhere in its body -- only
+        # the ``commit()`` at the very end -- so a cancel landing at any point
+        # (including here, before the render has even started) still paid for
+        # the whole Blender render. Nothing has been produced yet, so there is
+        # nothing to discard beyond returning.
+        if self._cancel is not None and self._cancel.event.is_set():
+            return
         self.progress.update(
             job_id, phase="sheet", label="Starting Blender", inner=0.0,
             inner_next=0.05, nominal=12.0, detail=f"{len(cells)} frames",
@@ -512,6 +520,14 @@ class RigOps:
                 pack_target=png_tmp,
                 before_pack=before_pack,
             )
+            # The second of docs-18's two checks: png_tmp already holds the
+            # packed atlas at this point, exactly as ``_deform_qa``'s own
+            # second check (docs-10) found it does, so skipping the publish
+            # below leaves nothing behind but a temp for the ``finally`` to
+            # discard -- a cancel landing mid-render no longer buys a published
+            # sheet nobody asked to keep.
+            if self._cancel is not None and self._cancel.event.is_set():
+                return
             await asyncio.to_thread(os.replace, png_tmp, png)
         finally:
             with contextlib.suppress(OSError):

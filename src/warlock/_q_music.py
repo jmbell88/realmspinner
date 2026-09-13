@@ -33,6 +33,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from . import models
+from . import packs as packs_mod
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -187,7 +188,7 @@ def _roll_wav(data: bytes, seconds: float) -> bytes:
     # resamples to a target rate, and a roll has to be exact and reversible.
     # Round-tripping the same ``getparams`` is what makes it lossless: no
     # float conversion, no re-quantisation, the identical frames in a new
-    # order. ``WARLOCK 5/5`` makes the width 16-bit by construction.
+    # order. ``WARLOCK 5/6`` makes the width 16-bit by construction.
     if params.sampwidth != 2 or params.nchannels < 1:
         raise RuntimeError("source.wav is not the 16-bit PCM this build writes")
     frames = np.frombuffer(raw, dtype="<i2").reshape(-1, params.nchannels)
@@ -355,15 +356,19 @@ class MusicOps:
     async def _get_music_client(self: Worker, spec: models.MusicModel):
         """The resident music child, constructed on first use.
 
-        The import is guarded and names the extra for ``_get_text2image``'s
-        reason: the client is import-light, but the child it spawns is not, and
-        a host without the extra should hear one clear sentence rather than a
-        subprocess failing to start.
+        The pack is probed here, before any child is spawned, for the reason
+        the 2026-09-13 audit recorded as muse-03: ``music_client.py`` imports
+        no torch, so a bare ``except ImportError`` around its import can never
+        fire -- the missing extra only breaks an import *inside the spawned
+        child*, which would otherwise surface as a raw
+        ``pipelines.music_client.ChildFailed("the music worker exited during
+        startup")`` instead of the guidance below. ``packs.installed`` answers
+        the same question the import used to, cheaply and without spawning
+        anything.
         """
         if self._music_client is None:
-            try:
-                from .pipelines.music_client import MusicClient
-            except ImportError as exc:
+            pack = packs_mod.find("music")
+            if pack is not None and not packs_mod.installed(pack):
                 # The backstop, not the door -- ``service.validation.check_pack``
                 # is the door now, and a packaged install never reaches this
                 # line. What still can: a source checkout that queued a music
@@ -375,7 +380,9 @@ class MusicOps:
                     "Muse needs the Music generation pack: install it in "
                     "Settings -> Packs, or from a source checkout: "
                     "uv sync --extra music"
-                ) from exc
+                )
+            from .pipelines.music_client import MusicClient
+
             self._music_client = MusicClient(
                 spec, self.config.t2i_model_root / spec.dir_name
             )

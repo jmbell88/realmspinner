@@ -126,6 +126,7 @@ from ..tilegrid.tileset import (
     TileRect,
     Tileset,
     TilesetRef,
+    colour_text,
 )
 from ..tilegrid.wang import WangColour, WangSet
 from . import project
@@ -1353,7 +1354,14 @@ def read_wmap(data: bytes) -> MapDoc:
             origin = _two(manifest, "origin", (0, 0))
             doc.origin_x, doc.origin_y = int(origin[0]), int(origin[1])
         doc.renderorder = str(manifest.get("renderorder", "right-down"))
-        doc.backgroundcolor = manifest.get("backgroundcolor")
+        # The 2026-09-13 audit (finding plotter-03) found this reader assigning
+        # straight from the file, unlike the props-panel path
+        # (``MapDoc._apply_map_settings``) which already runs it through
+        # ``colour_text`` -- so a bad value opened, round-tripped into exports,
+        # and made ``render_map`` raise at export instead of being refused here.
+        doc.backgroundcolor = colour_text(
+            manifest.get("backgroundcolor"), "a map background colour"
+        )
         doc.class_name = str(manifest.get("class", ""))
         doc.parallax_origin = _pair(manifest, "parallax_origin", (0.0, 0.0))
         skew = _two(manifest, "skew", (0, 0))

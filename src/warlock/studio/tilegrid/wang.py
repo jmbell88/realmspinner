@@ -31,6 +31,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from . import blob
+from .tileset import colour_text
 
 #: The eight ``wangid`` slots, in Tiled's own order: top, top-right, right,
 #: bottom-right, bottom, bottom-left, left, top-left. The same clockwise-from-
@@ -122,7 +123,15 @@ class WangColour:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", str(self.name))
-        object.__setattr__(self, "colour", str(self.colour))
+        # Through ``colour_text``, not a bare stringify: the 2026-09-13 audit
+        # (finding plotter-04) found this field stringified and never checked,
+        # reached from ``tsx.py``'s reader, unlike the object-layer and
+        # map-background colours beside it in this format. ``colour_text``
+        # returns ``None`` for an unset value; folded back to this dataclass's
+        # own default rather than left as ``None``, because ``colour`` is not
+        # optional here -- Tiled always writes one.
+        validated = colour_text(self.colour, "a wang colour")
+        object.__setattr__(self, "colour", "#ffffff" if validated is None else validated)
         object.__setattr__(self, "probability", float(self.probability))
         object.__setattr__(self, "tile", int(self.tile))
         object.__setattr__(self, "klass", str(self.klass))

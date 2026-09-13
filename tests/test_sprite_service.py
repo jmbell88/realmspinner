@@ -522,6 +522,23 @@ def test_an_action_with_no_guide_on_disk_is_refused_by_name(
         svc_sprites.create_sprite_synthesis(svc, job_id, action="idle", directions=8)
 
 
+def test_check_sheet_kind_refuses_a_guide_template_that_is_present_but_unparseable(
+    svc, weights, monkeypatch, tmp_path
+):
+    """The 2026-09-13 audit (troupe-02): ``check_sheet_kind`` used to check
+    only that the guide template *file* existed, so a guide present on disk
+    but not valid JSON -- or missing a field ``_parse_template`` requires --
+    passed the door and only broke in the worker, after matting had already
+    run. The door now parses it and refuses by name, the same sentence a
+    missing guide gets."""
+    monkeypatch.setattr(ss, "TEMPLATE_DIR", tmp_path)
+    (tmp_path / "idle8.json").write_text("not json", encoding="utf-8")
+    job_id = _reference(svc)
+    with pytest.raises(Invalid, match="no pose guide"):
+        svc_sprites.create_sprite_synthesis(svc, job_id, action="idle", directions=8)
+    assert svc.store.active_jobs() == []
+
+
 def test_an_unknown_action_is_refused_before_anything_is_queued(svc, weights):
     job_id = _reference(svc)
     with pytest.raises(Invalid, match="sheet_type must be one of"):
