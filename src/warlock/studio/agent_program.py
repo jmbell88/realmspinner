@@ -6,17 +6,27 @@ document, or even a session, to run against.
 
 **This module does not execute anything.** :func:`compile_program` turns a
 program into a :class:`Compiled` -- a flat list of ``(tool_name, arguments,
-path)`` entries plus ``("live", kind, arguments, path)`` placeholders for the
-four kinds no tool answers yet -- and stops there. ``agent_clay._h_program``
+path)`` entries plus ``("live", kind, arguments, path)`` placeholders for
+the four kinds in :data:`LIVE_KINDS` -- and stops there. ``agent_clay._h_program``
 is what runs the result, folding ``calls`` into one atomic run through the
 same ``_fold_run`` ``clay_batch`` uses (reusing that tool's own ``$ref``
 convention, which is why a compiled reference is already shaped
-``{"$ref": "<name>"}`` rather than something this module invents); a
-``("live", kind, ...)`` placeholder is refused there, by name, the moment
-its turn in the run comes, because none of :data:`LIVE_KINDS` is answerable
-without the live document a batch alone cannot see (a relative move, a
-runtime assertion). Because there is no document here, an id resolves to a
-*name* -- ``{"$ref": name}`` -- never to a uid; a literal integer or
+``{"$ref": "<name>"}`` rather than something this module invents). A
+``("live", kind, ...)`` placeholder's own turn in that run does not call
+``call()`` the way a real tool entry does: ``move``/``turn``/``scale_by``
+read the target's current transform straight off the live document, compose
+*this step's own* delta onto it, and issue their own ``clay_transform``
+call per resolved target (one entry per group member, so a group of N still
+folds into the program's single undo step); ``assert`` evaluates its
+condition -- compiled here to a validated AST plus the ``$var`` scope it
+closed over, never a raw string re-parsed later -- against :data:`FACTS`,
+and a false result (or a :class:`ConditionError`) refuses the whole run
+exactly like a failed real tool call would. None of that needs a *name*
+this module could compile ahead of time to, which is why these four stay
+placeholders here rather than becoming a fifth shape of ``calls`` entry.
+Because there is no document here, an id resolves to a *name* -- ``{"$ref":
+name}`` for a real tool call's argument, or a bare ``("id", name)`` AST leaf
+inside an ``assert`` condition -- never to a uid; a literal integer or
 ``{"uid": n}``/``{"uids": [...]}`` passes straight through instead,
 addressing an object that already exists live, outside this program's own
 namespace.
@@ -57,6 +67,7 @@ from .clay import primitives as bp
 __all__ = [
     "EXPR_MAX_CHARS",
     "EXPR_MAX_DEPTH",
+    "FACTS",
     "PROGRAM_MAX_BOOLEANS",
     "PROGRAM_MAX_CALLS",
     "PROGRAM_MAX_NESTING",
@@ -67,8 +78,10 @@ __all__ = [
     "UID_BEARING_KEYS",
     "LIVE_KINDS",
     "Compiled",
+    "ConditionError",
     "ProgramError",
     "compile_program",
+    "evaluate_condition",
 ]
 
 # --- limits ------------------------------------------------------------
@@ -210,12 +223,15 @@ none (``add``, ``figure``, ``mesh``, which only ever *create*; ``repeat``,
 sugar or control flow)."""
 
 LIVE_KINDS = frozenset({"move", "turn", "scale_by", "assert"})
-"""Step kinds this compiler recognises and shape-checks but cannot compile
-to a tool call, because each needs the live document a batch alone cannot
-answer for (a relative move, a runtime assertion). Compiled to a
-``("live", kind, arguments, path)`` placeholder instead of being refused as
-unknown, so a later change can execute them without this one having to be
-revisited."""
+"""Step kinds this compiler shape-checks and validates fully but never
+compiles to a fixed tool call, because each needs the live document a batch
+alone cannot answer for: ``move``/``turn``/``scale_by`` read the target's
+*current* transform before they know what absolute values to send, and
+``assert`` evaluates its condition against the document's live geometry
+(:data:`FACTS`). Each compiles to a ``("live", kind, arguments, path)``
+placeholder instead -- ``agent_clay._h_program`` is what actually runs one,
+per its own turn in the same fold a real tool call's entry runs in, so a
+program with a live step is still one atomic undo step start to finish."""
 
 _CREATOR_KINDS = frozenset({"add", "figure", "mesh"})
 _WRAPPER_KINDS = frozenset({"repeat", "array", "mirror", "group", "let", "if"})
@@ -278,10 +294,16 @@ def _tokenize(text: str) -> list[_Tok]:
 
 
 class _Parser:
-    def __init__(self, tokens: list[_Tok]) -> None:
+    def __init__(self, tokens: list[_Tok], *, allow_ids: bool = False) -> None:
         self.toks = tokens
         self.i = 0
         self.depth = 0
+        # False for every numeric-grammar field (translation, a range bound,
+        # ...), where a bare identifier has always been a mistake -- $name is
+        # how those fields spell a variable. True only for an ``assert``
+        # condition (see ``_parse_condition``), the one grammar that needs a
+        # bare identifier to name an object rather than a number.
+        self.allow_ids = allow_ids
 
     def _peek(self) -> _Tok:
         return self.toks[self.i]
@@ -428,6 +450,8 @@ class _Parser:
                 return ("call", name, args)
             if name == "pi":
                 return ("const", "pi")
+            if self.allow_ids:
+                return ("id", name)
             raise _ExprError(
                 f"unknown name {name!r} at position {tok.pos} (expected a function call)."
             )
@@ -468,6 +492,51 @@ _FUNCTIONS: dict[str, tuple[int, int | None, Any]] = {
 degrees, matching every rotation field in this program grammar -- an
 expression that computes an angle never needs a caller-side ``radians()``
 conversion this language does not have."""
+
+
+def _apply_binop(op: str, left: float, right: float) -> float:
+    """The arithmetic/comparison half of a ``binop`` node -- shared by
+    :func:`_evaluate` (compile-time, a numeric field) and
+    :func:`evaluate_condition` (run-time, an ``assert``), so the two stay one
+    language rather than drifting into two dialects of ``+``. ``and``/``or``
+    are not here -- both evaluators short-circuit them themselves, before
+    this is ever reached, so the right operand is only evaluated when it
+    matters.
+
+    Raises plain ``ValueError`` on a divide-by-zero or non-finite power;
+    each caller wraps that in its own exception type (``_ExprError`` at
+    compile time, :class:`ConditionError` at run time) rather than this
+    shared helper picking one on their behalf.
+    """
+    if op in _COMPARISON_OPS:
+        result = {
+            "<": left < right, "<=": left <= right, ">": left > right,
+            ">=": left >= right, "==": left == right, "!=": left != right,
+        }[op]
+        return 1.0 if result else 0.0
+    if op == "+":
+        return left + right
+    if op == "-":
+        return left - right
+    if op == "*":
+        return left * right
+    if op == "/":
+        if right == 0.0:
+            raise ValueError("division by zero.")
+        return left / right
+    if op == "%":
+        if right == 0.0:
+            raise ValueError("division by zero.")
+        return math.fmod(left, right)
+    if op == "^":
+        try:
+            return float(left**right)
+        except ZeroDivisionError:
+            raise ValueError("division by zero.") from None
+        except (ValueError, OverflowError):
+            raise ValueError("expression evaluates to a non-finite number.") from None
+    # pragma: no cover - the parser emits no other op
+    raise AssertionError(f"unknown operator {op!r}.")
 
 
 def _evaluate(node: Any, scope: dict[str, float]) -> float:
@@ -516,34 +585,10 @@ def _evaluate(node: Any, scope: dict[str, float]) -> float:
         if op == "or":
             return 1.0 if left != 0.0 else (0.0 if _evaluate(node[3], scope) == 0.0 else 1.0)
         right = _evaluate(node[3], scope)
-        if op in _COMPARISON_OPS:
-            result = {
-                "<": left < right, "<=": left <= right, ">": left > right,
-                ">=": left >= right, "==": left == right, "!=": left != right,
-            }[op]
-            return 1.0 if result else 0.0
-        if op == "+":
-            return left + right
-        if op == "-":
-            return left - right
-        if op == "*":
-            return left * right
-        if op == "/":
-            if right == 0.0:
-                raise _ExprError("division by zero.")
-            return left / right
-        if op == "%":
-            if right == 0.0:
-                raise _ExprError("division by zero.")
-            return math.fmod(left, right)
-        if op == "^":
-            try:
-                return float(left**right)
-            except ZeroDivisionError:
-                raise _ExprError("division by zero.") from None
-            except (ValueError, OverflowError):
-                raise _ExprError("expression evaluates to a non-finite number.") from None
-        raise _ExprError(f"unknown operator {op!r}.")  # pragma: no cover - unreachable
+        try:
+            return _apply_binop(op, left, right)
+        except ValueError as exc:
+            raise _ExprError(str(exc)) from None
     raise _ExprError(f"unknown node {tag!r}.")  # pragma: no cover - unreachable
 
 
@@ -561,6 +606,324 @@ def _eval_expr(text: str, scope: dict[str, float]) -> float:
     if not math.isfinite(value):
         raise _ExprError("expression evaluates to a non-finite number.")
     return value
+
+
+# --- assert conditions: an id-bearing dialect of the same expression language ---
+#
+# An ``assert`` step's condition is the one place this grammar names an
+# object rather than a number, because it is the one place that needs to:
+# every other reference in this program (a ``uid`` field, a ``uids`` field)
+# is a plain string or a small ``{"id"|"name"|"$ref"|"uid": ...}`` wrapper
+# *outside* the expression language, resolved by :func:`_resolve_singular`/
+# :func:`_resolve_plural` long before an expression is ever involved. A
+# condition has no such second channel -- ``"touches(a, b) and size(a, 1) >
+# 1"`` names two objects and a number in one string -- so the expression
+# grammar itself grows exactly one construct, a bare identifier that is not
+# a function call, parsed by :func:`_parse_condition` (``_Parser(...,
+# allow_ids=True)``) to an ``("id", name)`` leaf. :func:`_validate_condition`
+# then refuses, by name and at compile time, any use of that leaf a fact
+# does not accept in that exact argument position -- so by the time
+# :func:`evaluate_condition` runs, at least one of every id/group it touches
+# is known to have named something this program actually built.
+
+
+class ConditionError(Exception):
+    """Raised by :func:`evaluate_condition` (or a :data:`FACTS`
+    implementation it calls) for anything that can only go wrong once the
+    live document is in hand -- an id :func:`_validate_condition` approved at
+    compile time but that no longer resolves, a division by zero or a
+    non-finite result inside a numeric sub-expression, an axis argument that
+    is not 0, 1 or 2. Distinct from :class:`ProgramError` and ``_ExprError``,
+    both of which are compile-time-only: this module never raises this one
+    itself before a document exists to evaluate against."""
+
+
+def _axis_index(axis: float) -> int:
+    """0, 1 or 2 -- never ``"x"``/``"y"``/``"z"``, because a string literal
+    would collide with the same bare-identifier grammar an id argument uses
+    (``lo(box, x)`` could not be told from ``lo(box, <the object named x>)``
+    without a second, incompatible reading of the same token), and the
+    numeric spelling is what every other rotation/vector field in this
+    program already uses for an axis (``mirror``'s own ``axis`` is the one
+    exception, spelled out because it is a fixed enum of exactly three
+    values chosen up front, not a computed expression)."""
+    i = int(axis)
+    if float(i) != axis or i not in (0, 1, 2):
+        raise ConditionError(f"axis must be 0, 1 or 2; got {axis!r}.")
+    return i
+
+
+def _fact_lo(access: Any, uid: Any, axis: float) -> float:
+    lo, _hi = access.bounds(uid)
+    return float(lo[_axis_index(axis)])
+
+
+def _fact_hi(access: Any, uid: Any, axis: float) -> float:
+    _lo, hi = access.bounds(uid)
+    return float(hi[_axis_index(axis)])
+
+
+def _fact_size(access: Any, uid: Any, axis: float) -> float:
+    lo, hi = access.bounds(uid)
+    i = _axis_index(axis)
+    return float(hi[i] - lo[i])
+
+
+def _fact_center(access: Any, uid: Any, axis: float) -> float:
+    lo, hi = access.bounds(uid)
+    i = _axis_index(axis)
+    return float((lo[i] + hi[i]) * 0.5)
+
+
+def _fact_count(access: Any, uids: Any) -> float:
+    del access
+    return float(len(uids))
+
+
+def _fact_exists(access: Any, name: Any) -> float:
+    return 1.0 if access.exists(name) else 0.0
+
+
+def _fact_touches(access: Any, uid_a: Any, uid_b: Any) -> float:
+    return 1.0 if access.touches(uid_a, uid_b) else 0.0
+
+
+def _fact_grounded(access: Any, uid: Any) -> float:
+    return 1.0 if access.grounded(uid) else 0.0
+
+
+def _fact_floating(access: Any, uid: Any) -> float:
+    return 1.0 if access.floating(uid) else 0.0
+
+
+def _fact_volume(access: Any, uid: Any) -> float:
+    return float(access.volume(uid))
+
+
+FACTS: dict[str, tuple[tuple[str, ...], Any]] = {
+    "lo": (("id", "num"), _fact_lo),
+    "hi": (("id", "num"), _fact_hi),
+    "size": (("id", "num"), _fact_size),
+    "center": (("id", "num"), _fact_center),
+    "count": (("group",), _fact_count),
+    "exists": (("any",), _fact_exists),
+    "touches": (("id", "id"), _fact_touches),
+    "grounded": (("id",), _fact_grounded),
+    "floating": (("id",), _fact_floating),
+    "volume": (("id",), _fact_volume),
+}
+"""Every function name an ``assert`` condition may call beyond
+:data:`_FUNCTIONS`'s plain math, name -> (argument kinds, implementation).
+An argument kind is ``"id"`` (a bare identifier naming one object this
+program placed -- resolved through *access*, never a group), ``"group"`` (a
+bare identifier naming a ``group`` step's own id), ``"any"`` (a bare
+identifier taken as a plain string and never checked against anything --
+``exists`` is the one fact whose entire point is that its argument might
+name nothing) or ``"num"`` (an ordinary numeric sub-expression, evaluated
+exactly like any other -- ``lo``/``hi``/``size``/``center``'s own axis
+argument is the only user of this kind today).
+
+Each implementation is ``(access, *values) -> float`` -- 0.0/1.0 for the
+boolean-shaped facts, matching every comparison and ``and``/``or``/``not``
+this language already returns as a float rather than a real bool. *access*
+is whatever :func:`evaluate_condition`'s own caller passed it -- this module
+never constructs one and never imports a document type to describe its
+shape; see that function's own docstring for the small surface it must
+provide. ``lo``/``hi``/``size``/``center`` read ``access.bounds(uid)`` --
+world-space, and conservative under rotation exactly like ``clay_scene``'s
+own bounds block, not the exact-vertex box :mod:`.clay.analyze` computes for
+its own object rows -- one object's box is cheap enough to recompute per
+fact call, and matching the number an agent already read off ``clay_scene``
+matters more here than shaving a rotated box down to its true extent.
+``touches``/``grounded``/``floating``/``volume`` are thin wrappers over
+:mod:`.clay.analyze` instead, because those facts -- contact, ground,
+closed-mesh volume -- are exactly what that module already measures and
+this registry has no reason to recompute."""
+
+
+def _parse_condition(text: str) -> Any:
+    """Parse one ``assert`` condition to the same tuple-node shape
+    :func:`_eval_expr` builds for a numeric field, except a bare identifier
+    that is not a function call parses to an ``("id", name)`` leaf instead of
+    being refused -- see this section's own header comment. Grammar only:
+    :func:`_validate_condition` is what refuses an id used somewhere a fact
+    does not accept one, or naming nothing this program knows."""
+    if len(text) > EXPR_MAX_CHARS:
+        raise _ExprError(
+            f"expression is {len(text)} characters, over EXPR_MAX_CHARS ({EXPR_MAX_CHARS})."
+        )
+    tokens = _tokenize(text)
+    return _Parser(tokens, allow_ids=True).parse()
+
+
+def _validate_condition(
+    node: Any,
+    objects: dict[str, _Obj],
+    groups: dict[str, tuple[str, ...]],
+    scope: dict[str, float],
+    path: str,
+) -> None:
+    """Walk one parsed ``assert`` condition and refuse, by name and with
+    *path*, anything :func:`evaluate_condition` could not possibly answer at
+    run time: an unknown ``$var``, an unknown fact or math function, a wrong
+    argument count, a bare id used somewhere other than a fact's own
+    id/group argument slot, or an id/group naming nothing this program has
+    created (or already consumed) -- reusing :func:`_resolve_singular` for
+    that last check, the identical function (and identical wording) every
+    other reference field in this program already refuses through. Never
+    evaluates anything; :func:`evaluate_condition` is the run-time twin that
+    shares this exact tree once this has approved it.
+    """
+    tag = node[0]
+    if tag in ("num", "const"):
+        return
+    if tag == "var":
+        name = node[1]
+        if name not in scope:
+            raise _err(f"unknown variable ${name}.", field="steps", path=path)
+        return
+    if tag == "id":
+        name = node[1]
+        raise _err(
+            f"{name!r} is a bare id -- it may only appear as a fact's own "
+            f"argument, e.g. touches({name}, other) or lo({name}, 0), not as "
+            "a value on its own.",
+            field="steps", path=path,
+        )
+    if tag in ("neg", "pos", "not"):
+        _validate_condition(node[1], objects, groups, scope, path)
+        return
+    if tag == "binop":
+        _validate_condition(node[2], objects, groups, scope, path)
+        _validate_condition(node[3], objects, groups, scope, path)
+        return
+    if tag == "call":
+        name, arg_nodes = node[1], node[2]
+        if name in FACTS:
+            arg_kinds, _impl = FACTS[name]
+            if len(arg_nodes) != len(arg_kinds):
+                raise _err(
+                    f"{name!r} takes {len(arg_kinds)} argument(s), got {len(arg_nodes)}.",
+                    field="steps", path=path,
+                )
+            for arg_node, arg_kind in zip(arg_nodes, arg_kinds, strict=True):
+                if arg_kind == "num":
+                    _validate_condition(arg_node, objects, groups, scope, path)
+                    continue
+                if arg_node[0] != "id":
+                    raise _err(
+                        f"{name!r} takes a bare id here, not an expression.",
+                        field="steps", path=path,
+                    )
+                if arg_kind == "id":
+                    _resolve_singular(arg_node[1], objects, groups, path, "steps")
+                elif arg_kind == "group" and arg_node[1] not in groups:
+                    raise _err(f"unknown group {arg_node[1]!r}.", field="steps", path=path)
+                # "any" (exists's own argument): deliberately unchecked --
+                # the fact this program is asking exists() is precisely
+                # whether that name resolves to anything at all.
+            return
+        if name in _FUNCTIONS:
+            lo, hi, _fn = _FUNCTIONS[name]
+            if not _arity_ok(name, lo, hi, len(arg_nodes)):
+                expected = (
+                    f"{lo}" if lo == hi else f"{lo}-{hi}" if hi is not None else f"at least {lo}"
+                )
+                raise _err(
+                    f"{name!r} takes {expected} argument(s), got {len(arg_nodes)}.",
+                    field="steps", path=path,
+                )
+            for arg_node in arg_nodes:
+                _validate_condition(arg_node, objects, groups, scope, path)
+            return
+        raise _err(f"unknown fact or function {name!r}.", field="steps", path=path)
+    raise AssertionError(tag)  # pragma: no cover - the parser emits no other node tag
+
+
+def evaluate_condition(ast: Any, scope: dict[str, float], access: Any) -> float:
+    """Evaluate one compiled ``assert`` condition's AST -- the exact tuple
+    tree :func:`_parse_condition` built and :func:`_validate_condition` has
+    already approved -- against *access*, a small duck-typed adapter the
+    caller (``agent_clay``) builds around its own live document. This module
+    imports no document type and never will (see the module docstring), so
+    *access* is the one seam through which a live fact reaches an actual
+    object: it must provide
+
+    - ``resolve(name) -> uid``: the live uid of the program-placed object
+      called *name*, or raise :class:`ConditionError`;
+    - ``resolve_group(name) -> Sequence[uid]``: the live uids of a
+      ``group`` step's own members;
+    - ``exists(name) -> bool``;
+    - ``bounds(uid) -> (lo, hi)``, two length-3 sequences;
+    - ``touches(uid, uid) -> bool``, ``grounded(uid) -> bool``,
+      ``floating(uid) -> bool``, ``volume(uid) -> float``.
+
+    *scope* is the ``{name: float}`` snapshot the program's own ``$var``
+    bindings held when this ``assert`` step compiled -- a condition never
+    sees a variable the program itself did not already resolve, so this is
+    a plain lookup, never a fresh bind the way ``repeat``/``let`` build one
+    at compile time.
+
+    Raises :class:`ConditionError` for anything that can only go wrong once
+    the live document is in hand; never raises anything else itself, and
+    trusts *access*'s own geometry calls (``analyze.analyze`` included) to
+    have already converted their own exceptions the same way before this
+    function ever sees them.
+    """
+    tag = ast[0]
+    if tag == "num":
+        return ast[1]
+    if tag == "var":
+        return scope[ast[1]]
+    if tag == "const":
+        return math.pi
+    if tag == "neg":
+        return -evaluate_condition(ast[1], scope, access)
+    if tag == "pos":
+        return +evaluate_condition(ast[1], scope, access)
+    if tag == "not":
+        return 0.0 if evaluate_condition(ast[1], scope, access) != 0.0 else 1.0
+    if tag == "binop":
+        op = ast[1]
+        left = evaluate_condition(ast[2], scope, access)
+        if op == "and":
+            return 0.0 if left == 0.0 else (
+                0.0 if evaluate_condition(ast[3], scope, access) == 0.0 else 1.0
+            )
+        if op == "or":
+            return 1.0 if left != 0.0 else (
+                0.0 if evaluate_condition(ast[3], scope, access) == 0.0 else 1.0
+            )
+        right = evaluate_condition(ast[3], scope, access)
+        try:
+            return _apply_binop(op, left, right)
+        except ValueError as exc:
+            raise ConditionError(str(exc)) from None
+    if tag == "call":
+        name, arg_nodes = ast[1], ast[2]
+        if name in _FUNCTIONS:
+            _lo, _hi, fn = _FUNCTIONS[name]
+            args = [evaluate_condition(a, scope, access) for a in arg_nodes]
+            try:
+                return float(fn(*args))
+            except ZeroDivisionError:
+                raise ConditionError(f"{name}(...) divided by zero.") from None
+            except (ValueError, OverflowError):
+                raise ConditionError(f"{name}(...) is not finite for these arguments.") from None
+        arg_kinds, impl = FACTS[name]
+        values: list[Any] = []
+        for arg_node, arg_kind in zip(arg_nodes, arg_kinds, strict=True):
+            if arg_kind == "id":
+                values.append(access.resolve(arg_node[1]))
+            elif arg_kind == "group":
+                values.append(access.resolve_group(arg_node[1]))
+            elif arg_kind == "any":
+                values.append(arg_node[1])
+            else:  # "num"
+                values.append(evaluate_condition(arg_node, scope, access))
+        return float(impl(access, *values))
+    # pragma: no cover - _validate_condition already refused anything else
+    raise AssertionError(tag)
 
 
 # --- numeric-grammar and id-template fields ---------------------------------
@@ -1273,30 +1636,77 @@ class _Compiler:
     # -- live kinds --
 
     def _compile_live(self, kind: str, body: dict, path: str, scope: dict[str, float]) -> None:
+        if kind == "assert":
+            self._compile_assert(body, path, scope)
+            return
+
         if "uid" not in body:
             raise _err(f"{kind} requires uid.", field="steps", path=path)
-        args: dict[str, Any] = {"uid": self._ref1(body["uid"], path)}
+        # A group target expands to one live entry per member here, at
+        # compile time -- clay_transform (what each entry eventually calls)
+        # takes exactly one uid, so a group move genuinely is N calls, not
+        # one call with a list. All N still land inside the same
+        # ``_fold_run`` the whole program folds into, so the program itself
+        # still spends one undo step, whatever `len(targets)` turns out to
+        # be. ``_refN`` (plural resolution: a group name, a plain id, or an
+        # explicit list of either) is what gives this its width; a single
+        # id or uid comes back as a one-element list and costs nothing extra
+        # below -- ``entry_path`` stays exactly *path*, unindexed, so an
+        # existing single-target program's own ``stopped_at``/``calls``
+        # shape does not change.
+        targets = self._refN(body["uid"], path)
+
         if kind in ("move", "turn"):
             if "by" not in body:
                 raise _err(f"{kind} requires by.", field="steps", path=path)
-            args["by"] = _vec3(body["by"], scope, path, "steps", "by")
-        elif kind == "scale_by":
-            if "factor" not in body:
-                raise _err("scale_by requires factor.", field="steps", path=path)
-            factor = body["factor"]
-            args["factor"] = (
-                _vec3(factor, scope, path, "steps", "factor")
-                if isinstance(factor, list)
-                else _num(factor, scope, f"{path}.factor", "steps")
-            )
-        elif kind == "assert":
-            if "condition" not in body:
-                raise _err("assert requires condition.", field="steps", path=path)
-            condition = body["condition"]
-            if not isinstance(condition, str) or not condition:
-                raise _err("condition must be a non-empty string.", field="steps", path=path)
-            args["condition"] = condition
-        self._emit_live(kind, args, path)
+            by = _vec3(body["by"], scope, path, "steps", "by")
+            for i, target in enumerate(targets):
+                entry_path = path if len(targets) == 1 else f"{path}[{i}]"
+                self._emit_live(kind, {"uid": target, "by": list(by)}, entry_path)
+            return
+
+        # scale_by
+        if "factor" not in body:
+            raise _err("scale_by requires factor.", field="steps", path=path)
+        factor_raw = body["factor"]
+        factor = (
+            _vec3(factor_raw, scope, path, "steps", "factor")
+            if isinstance(factor_raw, list)
+            else _num(factor_raw, scope, f"{path}.factor", "steps")
+        )
+        for i, target in enumerate(targets):
+            entry_path = path if len(targets) == 1 else f"{path}[{i}]"
+            args: dict[str, Any] = {
+                "uid": target,
+                "factor": list(factor) if isinstance(factor, list) else factor,
+            }
+            self._emit_live(kind, args, entry_path)
+
+    def _compile_assert(self, body: dict, path: str, scope: dict[str, float]) -> None:
+        if "uid" in body:
+            # Optional, and not read by :func:`evaluate_condition` at all --
+            # a human-readable hint about which object this assertion is
+            # chiefly about. Checked here anyway, the same as every other
+            # reference in this program, so a stale hint refuses at compile
+            # time rather than being silently ignored.
+            self._ref1(body["uid"], path)
+        if "condition" not in body:
+            raise _err("assert requires condition.", field="steps", path=path)
+        condition = body["condition"]
+        if not isinstance(condition, str) or not condition:
+            raise _err("condition must be a non-empty string.", field="steps", path=path)
+        try:
+            ast = _parse_condition(condition)
+        except _ExprError as exc:
+            raise _err(str(exc), field="steps", path=path) from None
+        _validate_condition(ast, self.objects, self.groups, scope, path)
+        # ``scope`` is copied, not aliased, for the identical reason
+        # ``clay_material``'s color and every other numeric field already
+        # copies its own evaluated result: a *later* step's ``let`` rebinding
+        # the same name must not reach back and change what this already-
+        # compiled condition would see when it finally runs.
+        args = {"condition": condition, "ast": ast, "scope": dict(scope)}
+        self._emit_live("assert", args, path)
 
 
 def _negate_grammar(value: Any) -> Any:

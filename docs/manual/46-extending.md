@@ -405,10 +405,12 @@ handed was well-formed and was true when it was read, so the answer is to go and
 rather than to correct it.
 
 A new tool is also two decisions, both of which the test suite makes you take. Name it in
-`BATCH_EXCLUDED` if it belongs there — the only two reasons anything is on that list are that its
-result is a picture a client has to see as an image, which is not a shape a batch's own result can
-carry, or that it is deliberately one-shot, an action nothing should ever want folded silently into
-somebody else's block-out. And `tests/test_agent_clay.py` gates the other list: every handler has to
+`BATCH_EXCLUDED` if it belongs there. Three reasons put something on that list. Its result may be a
+picture a client has to see as an image, which is not a shape a batch's own result can carry. It
+may be deliberately one-shot, an action nothing should ever want folded silently into somebody
+else's block-out. Or it may move or fold the history itself, as `clay_undo`, `clay_redo`,
+`clay_batch` and `clay_program` do, which inside another fold would leave no coherent head to
+roll back to. And `tests/test_agent_clay.py` gates the other list: every handler has to
 appear in either the tools that need a tab already open or the tools a session can run without one,
 and a handler that answers to neither fails the suite instead of quietly falling through — you cannot
 add a tool without deciding which kind it is. Two families push no undo step at all: the reference

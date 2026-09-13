@@ -874,17 +874,151 @@ class TestLiveKinds:
         prog = {
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
-                {"assert": {"uid": "a", "condition": "closed"}},
+                {"assert": {"uid": "a", "condition": "grounded(a)"}},
             ]
         }
         c = compile_ok(prog)
-        assert c.calls[1] == (
-            "live", "assert", {"uid": {"$ref": "a"}, "condition": "closed"}, "steps[1].assert"
-        )
+        assert c.calls[1][:2] == ("live", "assert")
+        args = c.calls[1][2]
+        assert args["condition"] == "grounded(a)"
+        assert args["scope"] == {}
+        assert c.calls[1][3] == "steps[1].assert"
+
+    def test_assert_uid_is_optional_and_condition_alone_is_enough(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "exists(a)"}},
+            ]
+        }
+        c = compile_ok(prog)
+        assert "uid" not in c.calls[1][2]
+
+    def test_a_group_move_expands_to_one_live_entry_per_member(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"add": {"generator": "box", "id": "b"}},
+                {"group": {"id": "pair", "members": ["a", "b"]}},
+                {"move": {"uid": "pair", "by": [1, 0, 0]}},
+            ]
+        }
+        c = compile_ok(prog)
+        moves = [call for call in c.calls if call[0] == "live" and call[1] == "move"]
+        assert len(moves) == 2
+        assert {m[2]["uid"]["$ref"] for m in moves} == {"a", "b"}
+        assert {m[3] for m in moves} == {"steps[3].move[0]", "steps[3].move[1]"}
+        # Every expanded member entry counts against the call budget too.
+        assert c.expanded == 4
+
+    def test_a_single_target_move_keeps_the_unindexed_path(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"move": {"uid": "a", "by": [1, 0, 0]}},
+            ]
+        }
+        c = compile_ok(prog)
+        assert c.calls[1][3] == "steps[1].move"
 
     def test_all_live_kinds_recognised_not_unknown(self):
         for kind in ap.LIVE_KINDS:
             assert kind in ap.STEP_KINDS
+
+
+class TestAssertConditions:
+    """Static validation of an ``assert`` condition -- what
+    :func:`agent_program._validate_condition` refuses at compile time,
+    before there is ever a document to evaluate against."""
+
+    def test_unknown_fact_is_refused_with_a_path(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "frobnicate(a)"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert err.field == "steps"
+        assert err.path == "steps[1].assert"
+        assert "frobnicate" in err.reason
+
+    def test_unknown_id_is_refused_with_a_path(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "touches(a, ghost)"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert err.path == "steps[1].assert"
+        assert "unknown id 'ghost'" in err.reason
+
+    def test_a_bare_id_used_outside_a_fact_argument_is_refused(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "a"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert "bare id" in err.reason
+
+    def test_a_group_used_where_a_fact_wants_one_id_is_refused(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"group": {"id": "g", "members": ["a"]}},
+                {"assert": {"condition": "grounded(g)"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert "group" in err.reason
+
+    def test_count_wants_a_group_not_a_plain_id(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "count(a) == 1"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert "unknown group" in err.reason
+
+    def test_exists_argument_needs_no_prior_registration(self):
+        c = compile_ok({"steps": [{"assert": {"condition": "not exists(nothing_here)"}}]})
+        assert c.calls[0][0] == "live"
+
+    def test_wrong_fact_arity_is_refused(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "touches(a)"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert "takes 2 argument" in err.reason
+
+    def test_unknown_variable_inside_a_condition_is_refused(self):
+        prog = {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"assert": {"condition": "lo(a, $missing) > 0"}},
+            ]
+        }
+        err = compile_err(prog)
+        assert "unknown variable $missing" in err.reason
+
+    def test_a_math_function_still_works_mixed_with_a_fact(self):
+        c = compile_ok(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"assert": {"condition": "size(a, 1) > sqrt(1) - 0.5"}},
+                ]
+            }
+        )
+        assert c.calls[-1][0] == "live"
 
 
 # --- figure part-count weighting ------------------------------------------

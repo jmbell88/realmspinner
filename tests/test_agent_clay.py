@@ -2788,7 +2788,10 @@ def test_the_compiler_never_emits_a_batch_excluded_tool() -> None:
             assert call[0] not in agent_clay.BATCH_EXCLUDED, call[0]
 
 
-def test_a_live_step_is_refused_and_rolls_back() -> None:
+def test_a_relative_move_composes_with_an_earlier_absolute_transform() -> None:
+    """move's ``by`` adds to whatever the object already holds -- an
+    absolute clay_transform-shaped step earlier in the same program included
+    -- rather than starting over from the origin."""
     ctx = _Ctx()
     session = agent_clay.Session()
     result = agent_clay.call(
@@ -2796,17 +2799,211 @@ def test_a_live_step_is_refused_and_rolls_back() -> None:
         {
             "steps": [
                 {"add": {"generator": "box", "id": "a"}},
-                {"move": {"uid": "a", "by": [1.0, 0.0, 0.0]}},
+                {"transform": {"uid": "a", "translation": [1.0, 0.0, 0.0]}},
+                {"move": {"uid": "a", "by": [0.0, 1.0, 0.0]}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    assert payload["stopped_at"] is None
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = next(o for o in tab.doc.objects if o.name == "a")
+    assert list(obj.translation) == pytest.approx([1.0, 1.0, 0.0])
+    assert tab.doc.history.top.label == "Agent program"
+
+
+def test_turn_composes_rotations_and_scale_by_multiplies() -> None:
+    """A single-axis composition well clear of the +-180 degree ambiguity a
+    3-angle Euler readout can otherwise pick a different-looking (but
+    equivalent) representation for -- 30 then 20 more is unambiguously 50."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a"}},
+                {"transform": {"uid": "a", "rotation": [0.0, 30.0, 0.0], "scale": [2.0, 2.0, 2.0]}},
+                {"turn": {"uid": "a", "by": [0.0, 20.0, 0.0]}},
+                {"scale_by": {"uid": "a", "factor": 1.5}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    obj = next(o for o in tab.doc.objects if o.name == "a")
+    rx, ry, rz = agent_clay._euler_xyz_from_quat(obj.rotation)
+    assert (rx, ry, rz) == pytest.approx((0.0, 50.0, 0.0), abs=1e-4)
+    assert list(obj.scale) == pytest.approx([3.0, 3.0, 3.0])
+
+
+def test_a_group_move_moves_every_member_as_one_undo_step() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    history_before = _history_len(ctx, session) if session.tab_uid else 0
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "g1"}},
+                {"add": {"generator": "box", "id": "g2", "translation": [2.0, 0.0, 0.0]}},
+                {"group": {"id": "pair", "members": ["g1", "g2"]}},
+                {"move": {"uid": "pair", "by": [0.0, 3.0, 0.0]}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    g1 = next(o for o in tab.doc.objects if o.name == "g1")
+    g2 = next(o for o in tab.doc.objects if o.name == "g2")
+    assert list(g1.translation) == pytest.approx([0.0, 3.0, 0.0])
+    assert list(g2.translation) == pytest.approx([2.0, 3.0, 0.0])
+    # Four compiled calls (2 adds + 1 move per member) still fold into the
+    # one undo step every clay_program run promises.
+    assert _history_len(ctx, session) == history_before + 1
+
+
+def test_an_assert_failure_rolls_back_pushes_no_step_and_names_the_step_path() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"assert": {"condition": "size(a, 1) > 100"}},
             ]
         },
     )
     assert result["isError"] is True
     payload = _payload(result)
     assert payload["rolled_back"] is True
-    assert payload["stopped_at"] == {"step": "steps[1].move", "call": "live:move"}
-    assert "cannot run yet" in payload["failure"]["content"][0]["text"]
+    assert payload["changed"] is False
+    assert payload["stopped_at"] == {"step": "steps[1].assert", "call": "live:assert"}
+    assert "size(a, 1) > 100" in payload["failure"]["content"][0]["text"]
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     assert len(tab.doc.objects) == 0
+
+
+def test_a_passing_assert_over_touches_and_grounded_lets_the_program_commit() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"add": {"generator": "box", "id": "b", "translation": [1.0, 0.5, 0.0]}},
+                {"assert": {"condition": "grounded(a) and touches(a, b)"}},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert {o.name for o in tab.doc.objects} == {"a", "b"}
+
+
+def test_a_dry_run_with_live_steps_still_leaves_the_scene_unchanged() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    history_before = len(tab.doc.history)
+    objects_before = {o.name for o in tab.doc.objects}
+
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "c", "translation": [0.0, 0.5, 0.0]}},
+                {"move": {"uid": "c", "by": [1.0, 0.0, 0.0]}},
+                {"assert": {"condition": "grounded(c)"}},
+            ],
+            "dry_run": True,
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is True
+    assert payload["changed"] is False
+    assert len(tab.doc.history) == history_before
+    assert {o.name for o in tab.doc.objects} == objects_before
+
+
+def test_an_unknown_fact_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
+    from warlock.studio import agent_program as ap
+
+    err = None
+    try:
+        ap.compile_program(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"assert": {"condition": "frobnicate(a)"}},
+                ]
+            }
+        )
+    except ap.ProgramError as exc:
+        err = exc
+    assert err is not None
+    assert err.field == "steps"
+    assert err.path == "steps[1].assert"
+    assert "frobnicate" in err.reason
+
+
+def test_facts_read_lo_hi_size_center_count_and_exists_off_known_boxes() -> None:
+    """A 1x1x1 box sat with its bottom on the ground at [0, 0.5, 0] has a
+    known box (y from 0 to 1) -- and a group of two such boxes, and a name
+    nothing was ever given, exercise count/exists the same way."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    result = agent_clay.call(
+        ctx, session, "clay_program",
+        {
+            "steps": [
+                {"add": {"generator": "box", "id": "a", "translation": [0.0, 0.5, 0.0]}},
+                {"add": {"generator": "box", "id": "b", "translation": [5.0, 0.5, 0.0]}},
+                {"group": {"id": "pair", "members": ["a", "b"]}},
+                {"assert": {
+                    "condition": (
+                        "lo(a, 1) > -0.01 and lo(a, 1) < 0.01 "
+                        "and hi(a, 1) > 0.99 and hi(a, 1) < 1.01 "
+                        "and size(a, 1) > 0.99 and size(a, 1) < 1.01 "
+                        "and center(a, 1) > 0.49 and center(a, 1) < 0.51 "
+                        "and count(pair) == 2 "
+                        "and exists(a) and not exists(nope)"
+                    )
+                }},
+            ]
+        },
+    )
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert payload["rolled_back"] is False
+
+
+def test_an_unknown_id_inside_assert_is_refused_at_compile_time_with_a_path() -> None:
+    from warlock.studio import agent_program as ap
+
+    err = None
+    try:
+        ap.compile_program(
+            {
+                "steps": [
+                    {"add": {"generator": "box", "id": "a"}},
+                    {"assert": {"condition": "touches(a, ghost)"}},
+                ]
+            }
+        )
+    except ap.ProgramError as exc:
+        err = exc
+    assert err is not None
+    assert err.path == "steps[1].assert"
+    assert "unknown id 'ghost'" in err.reason
 
 
 def test_a_session_whose_document_was_closed_can_start_another_via_clay_program() -> None:
@@ -4434,11 +4631,22 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     ceiling above -- a whole new tool, not an unnoticed drift, so the ceiling
     moves with it rather than being defended against it. Raised to 52,600,
     again just past the measurement.
+
+    The same day, ``clay_program``'s four ``LIVE_KINDS`` (move/turn/
+    scale_by/assert) went from compiling to a refused placeholder to
+    actually running: its grammar-card description grew a paragraph naming
+    those four steps and the ``FACTS`` an assert condition may call
+    (lo/hi/size/center/count/exists/touches/grounded/floating/volume), and
+    ``instructions()`` gained one sentence in its own clay_program
+    paragraph. Catalogue JSON 45,961 chars + instructions 7,565 chars =
+    53,526 chars total, over the 52,600 ceiling above by 926 -- again a
+    whole grammar growing, not drift. Raised to 53,600, just past this
+    measurement.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 52_600
+    CEILING = 53_600
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

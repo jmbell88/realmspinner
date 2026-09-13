@@ -1407,7 +1407,11 @@ def instructions() -> str:
         "when a partial, kept prefix is useful on a refusal. clay_program "
         "cannot be a clay_batch entry, and dry_run lets a program be "
         "previewed -- built for real and then undone -- before it is run "
-        "for keeps.\n\n"
+        "for keeps. Its move/turn/scale_by steps read the live document to "
+        "compose a relative delta, and assert checks a condition against it "
+        "(lo/hi/size/center/count/exists/touches/grounded/floating/volume) "
+        "-- a false or unevaluable assert rolls the whole program back, the "
+        "same as any other failed step.\n\n"
         f"A call that outruns this bridge's {int(agent_host.CALL_TIMEOUT)}-"
         "second timeout is handled one of two ways, and the reply says "
         "which. If Warlock had not started the call yet, it is dropped and "
@@ -2239,8 +2243,21 @@ def tools() -> list[Any]:
                 "(axis/add, places the original and a reflected copy -- "
                 "placement only, never the mesh itself), group (id/"
                 "members, names a set for a later uids field), let (vars, "
-                "binds more variables for the rest of this steps list) and "
-                "if (cond/then/else). A numeric field (translation, a "
+                "binds more variables for the rest of this steps list), if "
+                "(cond/then/else), move (uid/by -- by added to the "
+                "target's current translation), turn (uid/by -- degrees "
+                "composed in world space onto the current rotation), "
+                "scale_by (uid/factor -- a number or [x,y,z] multiplied "
+                "onto the current scale) and assert (condition, optionally "
+                "uid -- a false or unevaluable condition refuses the whole "
+                "program). move/turn/scale_by read the live document, so "
+                "their uid may also name a group (one call per member, "
+                "still one undo step). assert's condition is the numeric "
+                "expression language below plus facts, each taking bare "
+                "ids/groups (never $name or a string): lo/hi/size/center"
+                "(id, axis 0|1|2) read a world-space box; count(group); "
+                "exists(name); touches(id, id); grounded(id); floating(id) "
+                "(whole-document); volume(id) (0 unless closed). A numeric field (translation, a "
                 "params value, a range bound, ...) takes a plain number or "
                 "an expression string: + - * / % and ^ for power, "
                 "comparisons and and/or/not, parentheses, degree trig "
@@ -5259,6 +5276,167 @@ def _describe_compiled_call(compiled_call: tuple[Any, ...]) -> dict[str, Any]:
     return {"name": name, "arguments": arguments}
 
 
+@dataclass
+class _ConditionAccess:
+    """The ``access`` adapter :func:`agent_program.evaluate_condition` calls
+    into -- the one seam that hands a *live* fact something to measure,
+    built fresh per ``assert`` step rather than once per program, since the
+    document it wraps must be exactly the one the step is running against
+    right now (not the one at program-compile time, which for a live step
+    reached mid-program has already been mutated by every step before it).
+
+    Every method here either resolves a name against *doc* the same way
+    :func:`_resolve_batch_ref` already does for a real tool call's own
+    ``$ref``, or reads a fact off :mod:`.clay.analyze`/``clay_geom_ops`` the
+    same way ``clay_scene`` and ``clay_diagnose`` already do -- nothing here
+    is a new way to look at the document, only a new door into the old one.
+    """
+
+    doc: Any
+    groups: dict[str, tuple[str, ...]]
+
+    def resolve(self, name: str) -> int:
+        matches = [obj.uid for obj in self.doc.objects if obj.name == name]
+        if not matches:
+            raise agent_program.ConditionError(f"no object named {name!r}.")
+        if len(matches) > 1:
+            raise agent_program.ConditionError(
+                f"{len(matches)} objects are named {name!r}; this program's "
+                "own ids are no longer unique in the document."
+            )
+        return matches[0]
+
+    def resolve_group(self, name: str) -> list[int]:
+        return [self.resolve(member) for member in self.groups.get(name, ())]
+
+    def exists(self, name: str) -> bool:
+        return any(obj.name == name for obj in self.doc.objects)
+
+    def bounds(self, uid: int) -> tuple[Any, Any]:
+        obj = self._by_uid(uid)
+        box = clay_geom_ops.world_box(obj)
+        if box is None:
+            raise agent_program.ConditionError(f"{obj.name!r} has no geometry to measure.")
+        return box
+
+    def touches(self, uid_a: int, uid_b: int) -> bool:
+        obj_a, obj_b = self._by_uid(uid_a), self._by_uid(uid_b)
+        analysis = self._analyze([obj_a, obj_b], pairs_among=[uid_a, uid_b])
+        return bool(analysis.pairs) and analysis.pairs[0].contact
+
+    def grounded(self, uid: int) -> bool:
+        obj = self._by_uid(uid)
+        analysis = self._analyze([obj], pairs_among=[uid])
+        row = analysis.objects[0]
+        return bool(row.ground and row.ground.contact)
+
+    def floating(self, uid: int) -> bool:
+        # The one fact that genuinely needs the whole document, not just the
+        # object(s) named in the condition -- see clay_analyze.analyze's own
+        # docstring on why ``pairs_among=None`` is what turns "floating" on
+        # at all.
+        analysis = self._analyze(list(self.doc.objects), pairs_among=None)
+        return uid in (analysis.floating or ())
+
+    def volume(self, uid: int) -> float:
+        obj = self._by_uid(uid)
+        analysis = self._analyze([obj], pairs_among=[uid])
+        vol = analysis.objects[0].volume
+        return float(vol) if vol is not None else 0.0
+
+    def _by_uid(self, uid: int) -> Any:
+        try:
+            return self.doc.by_uid(uid)
+        except KeyError:
+            raise agent_program.ConditionError(f"no object with uid {uid}.") from None
+
+    def _analyze(self, objects: list[Any], *, pairs_among: list[int] | None) -> Any:
+        try:
+            return clay_analyze.analyze(objects, pairs_among=pairs_among)
+        except OpError as error:
+            raise agent_program.ConditionError(str(error)) from None
+
+
+def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, arguments: dict) -> dict:
+    """Run one compiled ``move``/``turn``/``scale_by`` entry: resolve its
+    already-validated target, read that object's *current* transform,
+    compose this step's own delta onto it, and issue the resulting absolute
+    values through the real ``clay_transform`` tool -- never ``doc.
+    set_transform`` directly, so this step gets exactly the same argument
+    validation, history behaviour and refusal shape any other caller of that
+    tool already gets."""
+    uid, failure = _resolve_batch_ref(doc, arguments["uid"], "uid")
+    if failure:
+        return failure
+    try:
+        obj = doc.by_uid(int(uid))
+    except (KeyError, TypeError, ValueError):
+        return fail(f"no object with uid {uid!r}.", field="uid", recovery="read_scene")
+
+    if kind == "move":
+        delta = arguments["by"]
+        translation = [float(obj.translation[i]) + delta[i] for i in range(3)]
+        return call(ctx, session, "clay_transform", {"uid": uid, "translation": translation})
+
+    if kind == "turn":
+        # Composed in world space, the same frame ``by`` already implies for
+        # move (a plain vector add, not one rotated into the object's own
+        # axes first) and factor already implies for scale_by (a plain
+        # multiply) -- so all three read the same way to an agent: "add this
+        # delta to what is already there," never "in this object's own,
+        # possibly already-turned, frame." ``quat_mul(a, b)`` applies ``b``
+        # first, so the delta quaternion goes on the *left* to apply after
+        # the object's current orientation.
+        delta_deg = arguments["by"]
+        new_quat = m3.quat_mul(_quat_from_euler_xyz(delta_deg), obj.rotation)
+        rotation = list(_euler_xyz_from_quat(new_quat))
+        return call(ctx, session, "clay_transform", {"uid": uid, "rotation": rotation})
+
+    # scale_by
+    factor = arguments["factor"]
+    if isinstance(factor, list):
+        scale = [float(obj.scale[i]) * factor[i] for i in range(3)]
+    else:
+        scale = [float(obj.scale[i]) * factor for i in range(3)]
+    return call(ctx, session, "clay_transform", {"uid": uid, "scale": scale})
+
+
+def _run_live_assert(doc: Any, arguments: dict, groups: dict[str, tuple[str, ...]]) -> dict:
+    """Run one compiled ``assert`` entry: evaluate its condition against
+    *doc*, right now, through :func:`agent_program.evaluate_condition`. A
+    false result and an unevaluable one (:class:`agent_program.
+    ConditionError` -- an id that stopped resolving, a division by zero, a
+    non-finite result) both refuse the same way, because either means this
+    program's own assumption did not hold; the message tells the two apart."""
+    access = _ConditionAccess(doc=doc, groups=groups)
+    try:
+        value = agent_program.evaluate_condition(arguments["ast"], arguments["scope"], access)
+    except agent_program.ConditionError as error:
+        return fail(
+            f"assert {arguments['condition']!r} could not be evaluated: {error}",
+            field="condition",
+        )
+    if not math.isfinite(value):
+        return fail(
+            f"assert {arguments['condition']!r} evaluated to a non-finite value.",
+            field="condition",
+        )
+    if value != 0.0:
+        return _json({"assert": arguments["condition"], "result": True})
+    return fail(f"assert failed: {arguments['condition']}.", field="condition")
+
+
+def _run_live_step(
+    ctx: Any, session: Session, doc: Any, kind: str, arguments: dict,
+    groups: dict[str, tuple[str, ...]],
+) -> dict:
+    if kind == "assert":
+        return _run_live_assert(doc, arguments, groups)
+    if kind in ("move", "turn", "scale_by"):
+        return _run_live_transform(ctx, session, doc, kind, arguments)
+    return fail(f"the {kind!r} step kind cannot run yet.", field="steps")  # pragma: no cover
+
+
 def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     """Compile a declarative program (:mod:`.agent_program`) and run it as
     one atomic undo step, through the same :func:`_fold_run` ``clay_batch``
@@ -5294,11 +5472,15 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
     per-step echo of it.
 
     A compiled ``("live", kind, arguments, path)`` placeholder -- one of
-    :data:`agent_program.LIVE_KINDS`, none of them answerable without the
-    live document a batch alone cannot see -- is refused the moment its turn
-    in the run comes, with no tool ever called for it; that refusal folds
-    into the run exactly like any other, so it rolls the whole attempt back
-    the same way a real tool's refusal would.
+    :data:`agent_program.LIVE_KINDS`, each needing the live document a batch
+    alone cannot see -- runs through :func:`_run_live_step` at its own turn
+    in the fold: ``move``/``turn``/``scale_by`` read the target's current
+    transform and issue their own ``clay_transform`` call, and ``assert``
+    evaluates its condition through :func:`agent_program.evaluate_condition`
+    against a fresh :class:`_ConditionAccess`. A refusal there (a failed
+    ``clay_transform``, a false or unevaluable assert) folds into the run
+    exactly like any other, so it rolls the whole attempt back the same way
+    a real tool's refusal would.
     """
     dry_run = args.get("dry_run", False)
     if not isinstance(dry_run, bool):
@@ -5366,10 +5548,8 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
                     "smaller clay_program calls.",
                 )
             if compiled_call[0] == "live":
-                kind = compiled_call[1]
-                return fail(
-                    f"the {kind!r} step kind cannot run yet.", field="steps"
-                )
+                kind, arguments = compiled_call[1], compiled_call[2]
+                return _run_live_step(ctx, session, doc, kind, arguments, compiled.groups)
             name, arguments, _path = compiled_call
             return _resolve_and_call(ctx, session, doc, name, arguments)
 

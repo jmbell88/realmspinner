@@ -20,6 +20,21 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**`clay_program` runs relative steps and checks its own work.** `move`, `turn`
+and `scale_by` read an object's transform as it stands at that point in the
+program, then set the composed value through `clay_transform`. They also work
+on a group, and the program stays one undo step. `assert` evaluates a condition
+at run time over facts about the scene:
+- `lo`, `hi`, `size` and `center` of an object on an axis, from the same box
+  `clay_scene` reports;
+- `count` for a group and `exists` for a name;
+- `touches`, `grounded`, `floating` and `volume`, from `clay_analyze`'s pure
+  analysis.
+
+A false assert rolls the whole program back and names its step path. An
+unknown fact or id is refused at compile time. Ids appear in a condition as
+bare names, and only as a fact's argument, so the no-eval guarantee holds.
+
 **An agent can build a whole assembly in one call with `clay_program`.** A
 program's steps compile to tool calls that run on the frame thread as a single
 undo step labelled "Agent program". A program is all or nothing: if any call
