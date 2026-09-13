@@ -128,6 +128,10 @@ library. Rigging is a real cost: minutes of CPU before a single cell is rendered
 dialog says so. You get two rows in the queue — the rig, then the sheet — and either can be
 cancelled on its own; cancelling the rig simply means no sheet.
 
+Sending the same unrigged mesh to Troupe a second time while its first rig is still running is
+refused rather than queuing a second rig behind it — one rig for a mesh at a time, so wait for the
+first (or cancel it) before asking again.
+
 A mesh **already** rigged is animated on the skeleton it already carries, so the dialog does not ask
 — and one rigged on a skeleton that has no clips is refused immediately, before anything is queued:
 a walk cycle means nothing to a skeleton nobody wrote one for. Four of the eight templates ship with

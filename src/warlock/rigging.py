@@ -740,6 +740,48 @@ def user_clip_error(template_key: str) -> str | None:
     return (_user_clip_errors or {}).get(template_key)
 
 
+def shipped_clip_library(template_key: str) -> dict[str, Any]:
+    """The template's *shipped* clips only -- never a user edit.
+
+    :func:`clip_library` is the renderer's own door, and the user's file wins
+    whole there by design (see ``_user_clips``' own comment): a hand-edited
+    library is meant to change what a sheet renders the moment it is saved.
+    An agent's movement vocabulary needs the opposite promise -- the catalogue
+    it was told about at connect time must still be the catalogue a call
+    against it means, for as long as the connection lasts -- so this reads
+    straight out of the shipped ``_clips`` cache and never consults
+    ``user_clip_dir()`` at all. Same empty-library fallback as
+    :func:`clip_library`, and the same ``ValueError`` for an unknown template,
+    both through :func:`get_template`.
+    """
+    global _clips
+    get_template(template_key)
+    # Bound to a local once and read only through it below: a concurrent
+    # ``invalidate_clips()`` (Poser's save door, on another thread) between
+    # the None check and the read used to be able to set the module global
+    # back to None in the gap, and the second read raised
+    # ``AttributeError: 'NoneType' object has no attribute 'get'`` instead of
+    # simply serving the library this call had already committed to loading.
+    clips = _clips
+    if clips is None:
+        clips = _load_clip_library(CLIP_DIR)
+        _clips = clips
+    library = clips.get(template_key)
+    return library or {"poses": {}, "clips": [], "space": "node"}
+
+
+def shipped_clip_templates() -> tuple[str, ...]:
+    """Every template with at least one shipped clip, in :func:`catalog` order."""
+    return tuple(
+        row["key"] for row in catalog() if shipped_clip_library(row["key"])["clips"]
+    )
+
+
+def shipped_clip_names(template_key: str) -> tuple[str, ...]:
+    """A template's shipped clip names, library order."""
+    return tuple(str(c["name"]) for c in shipped_clip_library(template_key)["clips"])
+
+
 def clip_keys(template_key: str, clip_name: str) -> list[dict[str, Any]]:
     """One clip's key poses, in order. Raises KeyError for an unknown clip."""
     library = clip_library(template_key)

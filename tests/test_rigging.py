@@ -592,6 +592,62 @@ def test_a_clips_key_list_over_the_cap_is_refused():
         rigging.parse_clip_library(raw)
 
 
+def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
+    """``shipped_clip_library`` used to check ``_clips is None`` and then
+    read the module global a *second* time (``library = _clips.get(...)``)
+    to actually fetch the library. Between those two reads is exactly the
+    window Poser's save door's ``invalidate_clips()`` can land in, on another
+    thread, once the cache is already warm -- and when it does, the second
+    read finds ``None`` and raises ``AttributeError: 'NoneType' object has
+    no attribute 'get'`` instead of simply serving the library this call had
+    already found present.
+
+    A real second thread would only land in that window *sometimes*, so this
+    forces it deterministically with ``sys.settrace``: fire
+    ``invalidate_clips()`` from a line-event callback right before the
+    function's own read of the cache executes, the same interruption point a
+    genuinely concurrent ``invalidate_clips()`` call would have to hit.
+    """
+    import inspect
+    import sys as sys_mod
+
+    # Warm the cache first -- the crash only reaches the vulnerable line when
+    # the None-check is skipped because the library is already loaded.
+    monkeypatch.setattr(rigging, "_clips", None)
+    rigging.shipped_clip_library("humanoid")
+    assert rigging._clips is not None
+
+    source_lines, start_line = inspect.getsourcelines(rigging.shipped_clip_library)
+    target_line = next(
+        start_line + offset
+        for offset, line in enumerate(source_lines)
+        if "library = " in line and ".get(template_key)" in line
+    )
+
+    fired = False
+
+    def tracer(frame, event, arg):
+        nonlocal fired
+        if (
+            not fired
+            and event == "line"
+            and frame.f_code is rigging.shipped_clip_library.__code__
+            and frame.f_lineno == target_line
+        ):
+            fired = True
+            rigging.invalidate_clips()
+        return tracer
+
+    sys_mod.settrace(tracer)
+    try:
+        result = rigging.shipped_clip_library("humanoid")
+    finally:
+        sys_mod.settrace(None)
+
+    assert fired, "the interruption point was never reached; the test no longer matches the source"
+    assert result["clips"]
+
+
 # --- the authored clip libraries --------------------------------------------
 #
 # A template can only produce a character sheet if its skeleton has clips --

@@ -91,17 +91,13 @@ def expand_clips(
 ANIMATION_FPS = 100
 
 
-def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
-    """``clip name -> charsheet.ClipTiming``, from a rig's own clip library.
+def _timing_of(library: Mapping[str, Any]) -> dict[str, charsheet.ClipTiming]:
+    """``clip_timing``'s and :func:`shipped_clip_timing`'s shared arithmetic.
 
-    ``resolve_layout``'s ``timing`` door: the service layer builds this once
-    per rig and passes it down, so a layout can name any clip the library
-    defines instead of one of :data:`charsheet.ANIMATIONS`' five. Frame count
-    is not stored on the clip -- it is what the clip's own ``segments`` (plus
-    one more sample for a one-shot, which lands on its last key rather than
-    looping back to its first) expand to.
+    Frame count is not stored on the clip -- it is what the clip's own
+    ``segments`` (plus one more sample for a one-shot, which lands on its last
+    key rather than looping back to its first) expand to.
     """
-    library = rigging.clip_library(template_key)
     out: dict[str, charsheet.ClipTiming] = {}
     for clip in library["clips"]:
         closed = bool(clip["closed"])
@@ -110,6 +106,29 @@ def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
             frames=frames, loop=closed, duration_ms=int(clip["duration_ms"])
         )
     return out
+
+
+def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
+    """``clip name -> charsheet.ClipTiming``, from a rig's own clip library.
+
+    ``resolve_layout``'s ``timing`` door: the service layer builds this once
+    per rig and passes it down, so a layout can name any clip the library
+    defines instead of one of :data:`charsheet.ANIMATIONS`' five. User-first,
+    like :func:`~warlock.rigging.clip_library` itself -- see
+    :func:`shipped_clip_timing` for the agent-facing library that never moves
+    under a hand edit.
+    """
+    return _timing_of(rigging.clip_library(template_key))
+
+
+def shipped_clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
+    """:func:`clip_timing`'s shape, off the *shipped* library only.
+
+    ``rigging.shipped_clip_library``'s reason applied to timing: the agent
+    catalogue's movement/frame-bound vocabulary must not move the moment a
+    user edits their own copy of a template's clips.
+    """
+    return _timing_of(rigging.shipped_clip_library(template_key))
 
 
 def loop_names(template_key: str) -> tuple[str, ...]:

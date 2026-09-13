@@ -480,51 +480,84 @@ def staged_tree(dest_root: Path, name: str, write: Callable[[Path], None]) -> Pa
 class CharacterExport:
     """One row of the character-export menu.
 
-    ``door`` is called uniformly as ``door(svc, job_id, sheet_id)`` --
-    ``sheet_id`` is ``None`` for the two rows that export the mesh alone --
-    so :func:`run_character_export` never has to know one door's signature
-    from another's.
+    ``door`` is called uniformly as ``door(svc, job_id, sheet_id, stem)`` --
+    ``sheet_id`` is ``None`` for the two rows that export the mesh alone, and
+    ``stem`` is ``None`` for an ordinary (human) export, which names its own
+    folder/file after the job the way it always has -- so
+    :func:`run_character_export` never has to know one door's signature from
+    another's.
     """
 
     key: str
     label: str
     needs_sheet: bool
-    door: Callable[[WarlockService, str, str | None], Any]
+    door: Callable[[WarlockService, str, str | None, str | None], Any]
 
 
-def _export_animated_glb(svc: WarlockService, job_id: str, sheet_id: str | None) -> Any:
-    """Bake or refresh ``animated.glb``, then copy it out the ordinary way.
+def _export_animated_glb(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
+    """Bake or refresh ``animated.glb``, then copy it out.
 
-    Two existing doors back to back rather than a new copy routine:
-    ``derive.get_file`` is what bakes the file and keeps it fresh against an
-    edited clip library (see its own module docstring, design decision D6),
-    and ``export_to_folder`` is already the staged, degraded-aware copy this
-    module offers every other artifact -- restating either would be a second
-    place either could drift from its original.
+    Two existing doors back to back rather than a new copy routine when no
+    ``stem`` is given: ``derive.get_file`` is what bakes the file and keeps
+    it fresh against an edited clip library (see its own module docstring,
+    design decision D6), and ``export_to_folder`` is already the staged,
+    degraded-aware copy this module offers every other artifact -- restating
+    either would be a second place either could drift from its original.
+
+    **With an explicit ``stem``** -- an agent's own call, through
+    ``characters.agent_export_stem`` -- the copy is named ``<stem>.glb``
+    through :func:`staged_copy` (a temp file beside the destination, then
+    ``os.replace``) rather than ``export_to_folder``'s job-named arcname:
+    the same scope rule ``export_frames``/``export_godot``/``export_package``
+    already keep, closing the one format that used to let two agent-built
+    characters sharing a display name replace each other's animated GLB.
+    Without ``stem`` this is byte-for-byte today's behaviour.
     """
     from . import derive as svc_derive
 
     check_job_id(job_id)
-    svc_derive.get_file(svc, job_id, "animated.glb")
-    return export_to_folder(svc, [job_id], ["animated.glb"])
+    animated_path = svc_derive.get_file(svc, job_id, "animated.glb")
+    if not stem:
+        return export_to_folder(svc, [job_id], ["animated.glb"])
+
+    safe_stem = _safe_export_name(stem)
+    dest_dir = svc.config.export_dir
+    if dest_dir is None:
+        raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_stem}.glb"
+    staged_copy(animated_path, dest)
+    return {
+        "copied": 1,
+        "dir": str(dest_dir),
+        "degraded": degraded_ids(svc, [job_id]),
+    }
 
 
-def _export_sheet_package(svc: WarlockService, job_id: str, sheet_id: str | None) -> Any:
+def _export_sheet_package(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_package(svc, job_id, str(sheet_id or ""))
+    return svc_characters.export_package(svc, job_id, str(sheet_id or ""), stem=stem)
 
 
-def _export_godot_scene(svc: WarlockService, job_id: str, sheet_id: str | None) -> Any:
+def _export_godot_scene(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_godot(svc, job_id)
+    return svc_characters.export_godot(svc, job_id, stem=stem)
 
 
-def _export_frame_folders(svc: WarlockService, job_id: str, sheet_id: str | None) -> Any:
+def _export_frame_folders(
+    svc: WarlockService, job_id: str, sheet_id: str | None, stem: str | None
+) -> Any:
     from . import characters as svc_characters
 
-    return svc_characters.export_frames(svc, job_id, str(sheet_id or ""))
+    return svc_characters.export_frames(svc, job_id, str(sheet_id or ""), stem=stem)
 
 
 #: Every character export a card may offer, in menu order. Additive: a fifth
@@ -547,7 +580,12 @@ CHARACTER_EXPORTS: dict[str, CharacterExport] = {
 
 
 def run_character_export(
-    svc: WarlockService, key: str, job_id: str, sheet_id: str | None = None
+    svc: WarlockService,
+    key: str,
+    job_id: str,
+    sheet_id: str | None = None,
+    *,
+    stem: str | None = None,
 ) -> Any:
     """The one door every character-export control calls.
 
@@ -557,10 +595,16 @@ def run_character_export(
     ``needs_sheet``, so a caller that forgot to pick a sheet is told which
     control is at fault rather than reaching ``export_package``'s or
     ``export_frames``' own id check with an empty string.
+
+    ``stem`` passes straight through to whichever door *key* names --
+    ``characters.agent_export_stem`` is what an agent calls to build one, so
+    its own export can only ever replace its own earlier export of the same
+    asset (and never a human's). Every door honours it, ``animated_glb``
+    included.
     """
     row = CHARACTER_EXPORTS.get(key)
     if row is None:
         raise Invalid(f"{key!r} is not a character export format", field="format")
     if row.needs_sheet and not sheet_id:
         raise Invalid("choose a sheet to export", field="sheet_id")
-    return row.door(svc, job_id, sheet_id)
+    return row.door(svc, job_id, sheet_id, stem)

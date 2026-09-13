@@ -29,10 +29,10 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .. import rigging
+from .. import followups, rigging
 from ..clips import clip_timing, expand_clips
 from ..pipelines import charsheet, pixelize, spritesynth
-from .errors import Invalid, NotFound, invalid_from
+from .errors import Conflict, Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
 from .validation import DERIVED_PARAMS, check_job_id, check_vram
 
@@ -88,6 +88,20 @@ DEFAULT_TROUPE_OUTLINE = "outer"
 #: own page size, and ``studio.troupe_mode``'s: a sheet older than this is one
 #: whose settings the door reports as no longer on record, by name.
 _SCAN_LIMIT = 400
+
+#: How far a candidate charsheet's own ``created_at`` may sit from the rig's
+#: ``finished_at`` and still be recognised as *that* rig's follow-up.
+#: ``_q_jobs._maybe_queue_sheet_after_rig`` runs in the same terminal-write
+#: step that calls ``store.finish`` (queue.py's ``elif status == "done":``
+#: block: the rig's ``finished_at`` is written first, and the follow-up sheet
+#: is minted a few ``await``s later in the same step, normally milliseconds
+#: apart) -- so this is generous headroom for scheduling jitter, not a
+#: measured bound. Wide enough to never miss a genuine follow-up, narrow
+#: enough that a human's later, independent ``create_charsheet`` call with
+#: identical settings on the same mesh -- the false positive this window
+#: exists to close -- has to land within a minute of the rig finishing to be
+#: mistaken for it.
+FOLLOW_UP_WINDOW_S = 60.0
 
 #: The rig template every door here *defaults* to, and no longer the only one
 #: allowed: what a character sheet actually needs is a template with clips
@@ -684,6 +698,91 @@ def rerender_charsheet(
     }
 
 
+def follow_up_sheet_job(svc: WarlockService, rig_job_id: str) -> str | None:
+    """The ``charsheet`` row :func:`send_to_troupe`'s rig-and-sheet path will
+    mint (or already has), for a rig job that carries a ``troupe_sheet``
+    reservation. None until it lands.
+
+    A character's mesh row is minted with a *rig* id, not a sheet id --
+    ``_q_jobs._maybe_queue_sheet_after_rig`` mints the sheet with a fresh,
+    random id once the rig finishes, with no back-link recorded anywhere. An
+    agent (or a pane) polling "is my sheet ready yet" needs a way to find that
+    row without knowing its id in advance, which is what this answers by
+    re-deriving the same match ``_maybe_queue_sheet_after_rig`` would have made.
+
+    Matched, not merely the newest ``charsheet`` row naming this mesh:
+    ``source_job`` -- the mesh -- equal; ``base_sheet`` absent, which excludes
+    a re-render of some other sheet on the same character; minted within
+    :data:`FOLLOW_UP_WINDOW_S` of this rig's own ``finished_at``; and every
+    setting the reservation actually pinned (``troupe_sheet`` minus
+    ``sheet_id``, which it never carries) equal on the candidate's own params.
+    **The oldest match wins** -- a re-render of *this* sheet is a second
+    ``charsheet`` row with the same settings and a later ``created_at``, and
+    the first one minted is the follow-up, not the redo.
+
+    **A rig that has not finished yet, or did not finish at all, has no
+    follow-up.** A ``queued``/``running`` rig answers None outright -- there
+    is nothing to have minted a sheet yet -- and so does a ``cancelled`` or
+    ``error`` one: ``_maybe_queue_sheet_after_rig`` only ever runs from the
+    worker's ``done`` branch (queue.py). Without this, a later, unrelated
+    ``create_charsheet`` call on the same mesh with the same settings --
+    nothing here refuses that -- would have matched an abandoned reservation
+    that never actually queued anything, purely because its own
+    ``created_at`` happened to be no earlier than the dead rig's.
+    """
+    row = svc.require_job(rig_job_id)
+    if row.get("kind") != "rig":
+        return None
+    if row.get("status") != "done":
+        return None
+    finished_at = row.get("finished_at")
+    if not finished_at:
+        return None
+    params = row.get("params") or {}
+    block = params.get("troupe_sheet")
+    if not isinstance(block, Mapping):
+        return None
+    source = str(params.get("source_job") or "")
+    if not rigging.is_valid_id(source):
+        return None
+    wanted = {k: v for k, v in block.items() if k != "sheet_id"}
+    window_start = float(finished_at) - FOLLOW_UP_WINDOW_S
+    window_end = float(finished_at) + FOLLOW_UP_WINDOW_S
+    matches: list[tuple[Any, str]] = []
+    for candidate in svc.store.list(limit=_SCAN_LIMIT, kind="charsheet"):
+        cparams = candidate.get("params") or {}
+        if str(cparams.get("source_job") or "") != source:
+            continue
+        if "base_sheet" in cparams:
+            continue
+        created = candidate.get("created_at") or 0
+        if not (window_start <= created <= window_end):
+            continue
+        if all(cparams.get(k) == v for k, v in wanted.items()):
+            matches.append((created, str(candidate["id"])))
+    if not matches:
+        return None
+    matches.sort(key=lambda pair: (pair[0], pair[1]))
+    return matches[0][1]
+
+
+def follow_up_failure(svc: WarlockService, mesh_job_id: str) -> dict[str, Any] | None:
+    """The recorded failure of a mesh's automatic character-sheet follow-up.
+
+    ``followups.persist`` is what a failed
+    ``_q_jobs._maybe_queue_sheet_after_rig`` writes onto the *mesh* row (its
+    ``source_job``), not the rig -- so a caller that only has the rig id (an
+    agent polling ``character_job``) reads it off the mesh instead.
+    """
+    row = svc.require_job(mesh_job_id)
+    params = row.get("params") or {}
+    failures = params.get(followups.PARAM_KEY)
+    if not isinstance(failures, Mapping):
+        return None
+    record = failures.get("charsheet")
+    return dict(record) if isinstance(record, Mapping) else None
+
+
 def _charsheet_row(
     svc: WarlockService, job_id: str, sheet_id: str
 ) -> dict[str, Any] | None:
@@ -864,6 +963,22 @@ def send_to_troupe(
     # taken here, under the same hold the direct door takes it.
     with svc.convert_lock(job_id, "sheets"):
         check_sheet_cap(svc, job_id, job_dir)
+        # **The mesh is not rigged, and a rig for it may already be running.**
+        # Before this check existed (the 2026-09-13 brief for the agent's
+        # character tools), a second press -- a doubled agent call, a pane
+        # retried after a slow frame -- minted a second rig row with its own
+        # ``troupe_sheet`` reservation, and the later rig overwrote the earlier
+        # one's ``rig.glb``. Checked here, under the same hold that mints the
+        # row, so two presses cannot both pass it; and after the cap, so a full
+        # pool still answers with the cap's own sentence (the first cut checked
+        # it before everything else and hid the cap from
+        # ``test_the_sheet_cap_counts_every_door_that_reserves_a_slot``). No
+        # ``field``: the pane that draws this door draws no ``job_id`` control
+        # for a refusal to ring (``tests/test_field_error_wiring.py``).
+        from .rig import rig_in_flight
+
+        if rig_in_flight(svc, job_id) is not None:
+            raise Conflict("a rig for this mesh is already running")
         new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "rigged": False}

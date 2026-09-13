@@ -53,6 +53,50 @@ hairline divides them, and the rail's (?) button is no longer clipped: every
 help button was placed 4 dp too far right. Home's two columns are padded,
 bordered and rounded.
 
+**An agent can take a character from a species name to rigged, animated
+sprite sheets and engine exports.** The agent surface used to reach one Clay
+tab and nothing else. Ten `character_*` tools now let it list species, clips
+and Library assets, create a character from a prompt or a family, rig a mesh,
+queue a sheet, poll jobs, preview a sheet as an image, export the animated GLB,
+a Godot scene, frame folders or a sheet package, and cancel what it started. It
+also gets a `warlock://character/vocabulary` resource, per-sheet sidecar and
+atlas resources, and a `character_sheets_from_description` prompt. The scope
+is additive: an agent reads any Library row by id but only adds rows and
+derived files, never re-rigs, deletes, reruns, edits clips or touches an open
+document, accepts no paths, and exports only into the configured folder, under
+a name built from the asset's own ids, so an agent's export can never replace
+one it did not make. It can cancel only jobs it started on the same connection,
+including the sheet a rig it asked for queues afterwards. It still starts no model —
+species come from the procedural family registry, and an import pin keeps
+text-to-image and mesh reconstruction out of reach. So "swamp knight" builds a
+knight and says the knight has no swamp look, rather than inventing one. There
+are no named animation sets; the movements list is the set. Character calls run
+on an agent-owned two-worker task lane, never the frame thread and never the
+listener, and switching the server off shuts that lane down without waiting,
+because a timed shutdown kills every tracked child process in the app. The
+tool catalogue grows, so the Clay-assistant dataset's manifest hash will now
+refuse; that dataset is regenerated under its own plan. TODO P43 records the
+larger catalogue as a dated addendum.
+
+**Sending a mesh to Troupe while its rig is still running no longer queues a
+second rig.** The unrigged path minted a new rig row every time, and the later
+rig overwrote the earlier one's `rig.glb` under whatever sheet was waiting on
+it. It is refused now while a rig for that mesh is in flight.
+
+**`resources/templates/list` answers under the key the MCP specification
+names.** It returned `templates`, which no conforming client reads, instead of
+`resourceTemplates`.
+
+**A character named after a Windows device exports under its id.** A name like
+`CON` or `COM1` made the sheet package write `CON.png`, which Windows treats as
+a device rather than a file.
+
+**Create no longer fills in a look the species does not have.** A prompt such
+as "swamp knight" copied the swamp theme onto a knight, which offers only
+natural and blackened, so the character was then refused on the look. The
+prompt's action words also now understand hit, death, cast, fall and a second
+attack.
+
 **A character can hit, die, cast, fall and attack twice, not just the five
 movements it has always had.** One table, `charsheet.ANIMATIONS`, owned both
 the names a character could perform and their timing, so Troupe refused any

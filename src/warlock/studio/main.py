@@ -532,11 +532,12 @@ STARTUP_HOME = "home"
 STARTUP_LAST = "last"
 LAST_WORKSPACE_SETTING = "last_workspace"
 
-#: Whether an external MCP agent may drive Clay through ``agent_host.
-#: AgentHost``. The Settings pane and ``setup_context`` both read the setting
-#: through this constant rather than by spelling the string themselves, so the
-#: two cannot drift onto different keys and leave the switch reading one name
-#: while the listener asks for another.
+#: Whether an external MCP agent may build in Clay and make characters for
+#: you, through ``agent_host.AgentHost``. The Settings pane and
+#: ``setup_context`` both read the setting through this constant rather than
+#: by spelling the string themselves, so the two cannot drift onto different
+#: keys and leave the switch reading one name while the listener asks for
+#: another.
 AGENT_SERVER_SETTING = "agent_server"
 
 

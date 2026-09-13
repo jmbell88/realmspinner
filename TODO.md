@@ -969,6 +969,19 @@ of the five subjects (the chair) has a hand-authored transcript, written by
 reasoning about the geometry rather than by a model, and every file that
 mentions it says so.
 
+**Addendum (2026-09-13):** the tool catalogue grew again before this sitting's
+sessions ran — ten `character_*` tools, one resource family
+(`warlock://character/...`) and one prompt (`character_sheets_from_description`)
+landed on `feature/game-character-pipeline` for the character pipeline's own
+agent surface. This sitting's corpus stays Clay-only; nothing in it asks a
+model to touch a character tool, and the pre-registration above is unchanged.
+But the fixed context every session pays before its first useful call —
+`tools/list` plus the `initialize` instructions — now includes that whole
+second surface regardless of whether a session ever calls into it, so whoever
+runs these sessions must account for the added catalogue cost when reading how
+a model spends its calls, the same way `docs/INVARIANTS.md`'s catalogue-budget
+bullet already tracks Clay's own growth.
+
 **Do:**
 
 1. Run `uv run python scripts/agent_bench.py --serve`. It prints a
@@ -1589,10 +1602,23 @@ Decisions with arguments beside them, not backlog:
   **This bullet is about Warlock calling out, and it stays refused.** The MCP
   server (`src/warlock/mcp/`, 2026-09-09) is the opposite arrow and is not a
   counter-example: an agent already running on the machine connects *in*, over
-  a named pipe, and drives Clay through the same doors a pane does. Warlock
-  ships no model, runs no inference, opens no socket and reaches no endpoint;
-  `HF_HUB_OFFLINE=1` is untouched. What was refused was the app acquiring an
-  appetite for a service somewhere else, and it still has none.
+  a named pipe, and drives Clay and the character pipeline through the same
+  doors a pane does. Warlock ships no model, runs no inference, opens no
+  socket and reaches no endpoint; `HF_HUB_OFFLINE=1` is untouched. What was
+  refused was the app acquiring an appetite for a service somewhere else, and
+  it still has none. The character pipeline (2026-09-13) does not change this
+  either: the agent surface starts no image model and no mesh model of its
+  own -- species come only from the procedural family registry, text->SDXL->
+  trellis stays unreachable from it (import-pinned), and a human still judges
+  the sprite sheets it writes once by eye, the same as one built from a pane.
+- **A named animation "set" as a registry.** "Sword-and-shield", "unarmed" and
+  the like are not entries anywhere: a set is only ever the list of movements
+  it implies, and `character_create`/`character_sheet_create` take that list
+  directly. A real weapon-style motion set -- one where "sword-and-shield"
+  actually moved differently from "unarmed" rather than sharing the same idle
+  and walk -- would be a clip-library-variant registry plus the P8 art pass to
+  fill it, not a label over the existing ten clips, and nobody has asked for
+  that yet.
 
 ## P46. Decide whether the bridge stays lockstep
 

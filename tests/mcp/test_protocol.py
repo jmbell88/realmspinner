@@ -800,7 +800,42 @@ def test_legacy_resources_templates_list_is_empty() -> None:
     state = p.BridgeEra()
     _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
     reply = _dispatch({"jsonrpc": "2.0", "id": 2, "method": "resources/templates/list"}, state)
-    assert reply["result"]["templates"] == []
+    assert reply["result"]["resourceTemplates"] == []
+
+
+@pytest.mark.parametrize("version", [*p.LEGACY, *p.MODERN])
+def test_resource_templates_list_answers_under_the_specs_key(version: str) -> None:
+    """`resources/templates/list` used to answer `{"templates": []}` -- a key
+    the MCP spec never uses; every era from 2024-11-05 through 2026-07-28
+    names this result's array `resourceTemplates` (found 2026-09-13 in the
+    character-pipeline brief). Pinned per era, legacy and modern alike, so a
+    future era can't silently regress the key back."""
+    state = p.BridgeEra()
+    if version in p.LEGACY:
+        _dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": version},
+            },
+            state,
+        )
+        reply = _dispatch({"jsonrpc": "2.0", "id": 2, "method": "resources/templates/list"}, state)
+    else:
+        _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+        reply = _dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "resources/templates/list",
+                "params": _modern_meta(version),
+            },
+            state,
+        )
+    assert "resourceTemplates" in reply["result"]
+    assert reply["result"]["resourceTemplates"] == []
+    assert "templates" not in reply["result"]
 
 
 def test_legacy_resources_read_ok() -> None:
