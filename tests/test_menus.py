@@ -157,3 +157,102 @@ def test_status_items_render_right_aligned_in_the_menu_bar(monkeypatch):
         imgui.render()
 
     assert rect_min.x > 1600 * 0.55, rect_min.x
+
+
+def test_status_group_items_do_not_overlap(monkeypatch):
+    """Familiar T0 (ef853790): every status readout landed at the same x as
+    the one before it. ``_draw_status_group`` chained ``same_line(0.0, 0.0)``
+    calls after an initial absolute jump, which is how an ordinary window's
+    line-wrapping layout accumulates left-to-right -- but a menu bar runs its
+    own cursor bookkeeping, and there ``same_line(0.0, 0.0)`` kept landing
+    back at the first item's start instead of after the previous item, so
+    "Inker" and "Loaded 31.2/32 RAM..." printed on top of each other.
+
+    Wraps ``imgui.text_colored`` to record each drawn item's on-screen rect
+    and asserts none overlap the next, and that the last one ends near the
+    menu bar's right edge.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import menus
+
+    ctx = _ctx("home")
+    ctx.state.errors = ["boom"]  # forces a "health" row to exist
+
+    rects: list[tuple[float, float]] = []
+    with imgui_context(monkeypatch) as imgui:
+        original = imgui.text_colored
+
+        def recording_text_colored(color, text):
+            start = imgui.get_cursor_screen_pos().x
+            result = original(color, text)
+            rects.append((start, start + imgui.calc_text_size(text).x))
+            return result
+
+        monkeypatch.setattr(imgui, "text_colored", recording_text_colored)
+
+        imgui.new_frame()
+        imgui.set_next_window_size((1600, 950))
+        imgui.begin("##host", None, imgui.WindowFlags_.menu_bar.value)
+        menus.draw(ctx)
+        imgui.end()
+        imgui.render()
+
+    assert len(rects) >= 2, "expected at least two status readouts to be drawn"
+    for (_, prev_end), (next_start, _) in zip(rects, rects[1:]):  # noqa: B905 (offset pairing)
+        assert next_start >= prev_end, f"status items overlap: {rects}"
+    assert rects[-1][1] > 1600 * 0.9, rects
+
+
+def test_the_status_group_never_runs_past_the_menu_bar_edge(monkeypatch):
+    """Familiar T0 (ef853790): at 1100x700 the status group clipped at the
+    right edge ("RAM 23." cut off) instead of ``fit_status_rows`` dropping
+    ``resources`` first. ``_draw_status_group`` fit the group against
+    ``get_content_region_avail()`` -- the content-region right edge, which
+    already excludes the window's frame padding -- but then placed it against
+    ``get_window_width()``, the *full* window width. That disagreement let a
+    group the fit had approved land past where the fit thought the edge was.
+
+    A real host window at 1100x700 (the narrowest ``screenshot_modes.py``
+    size) with Inker's own roots drawn, at window position (0, 0) so screen
+    coordinates and window-local coordinates coincide -- proving the last
+    status item's rect never extends past the content region's own right
+    edge, not just "some" edge.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import inker_state, menus
+
+    ctx = _ctx("inker")
+    ctx.state.inker = inker_state.InkerState()
+    ctx.state.errors = ["boom"]  # forces a "health" row to exist
+
+    width = 1100.0
+    rects: list[tuple[float, float]] = []
+    with imgui_context(monkeypatch) as imgui:
+        original = imgui.text_colored
+
+        def recording_text_colored(color, text):
+            start = imgui.get_cursor_screen_pos().x
+            result = original(color, text)
+            rects.append((start, start + imgui.calc_text_size(text).x))
+            return result
+
+        monkeypatch.setattr(imgui, "text_colored", recording_text_colored)
+
+        imgui.new_frame()
+        imgui.set_next_window_pos((0, 0))
+        imgui.set_next_window_size((width, 700))
+        imgui.begin("##host", None, imgui.WindowFlags_.menu_bar.value)
+        menus.draw(ctx)
+        window_padding_x = imgui.get_style().window_padding.x
+        imgui.end()
+        imgui.render()
+
+    content_max_x = width - window_padding_x
+
+    assert rects, "expected at least one status readout to be drawn"
+    assert rects[-1][1] <= content_max_x, (
+        f"status group runs past the content region edge: last item ends at "
+        f"{rects[-1][1]}, content region ends at {content_max_x}"
+    )

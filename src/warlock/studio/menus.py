@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import icons
 from .tour import scripts as tour_scripts
 
 
@@ -280,7 +281,14 @@ def roots(rows: list[MenuSpec]) -> list[str]:
 #: behind it yet). Unlike the status group below, this is never dropped for
 #: space -- it is drawn before the status group's available width is
 #: measured, the same way any other root would be.
-FAMILIAR_LABEL = "✦ Familiar"
+#:
+#: The sigil is drawn as ``icons.SPARKLES`` rather than the literal ✦
+#: (U+2726 BLACK FOUR POINTED STAR) that character stands in for: none of
+#: the vendored faces -- Inter or Lucide -- carry that codepoint, so it fell
+#: through to the box-with-hex missing-glyph glyph (imgui's stand-in reads as
+#: "?" at menu-bar size). Lucide's own sparkle icon is already merged into
+#: every face (:mod:`.fonts`) and reads the same way at a glance.
+FAMILIAR_LABEL = f"{icons.SPARKLES} Familiar"
 
 #: Status keys the right-aligned menu-bar group drops, lowest priority first,
 #: when the roots and the Familiar menu leave it no room. ``health`` (and the
@@ -338,7 +346,17 @@ def _draw_status_group(ctx: Any) -> None:
 
     from . import fonts, theme, tokens
 
+    # ``get_cursor_pos_x() + avail`` is the content-region right edge -- the
+    # same reference ``fit_status_rows`` below is measured against. Drawing
+    # against ``get_window_width()`` instead (as this used to) disagreed with
+    # it: the window's full width includes the frame padding/scrollbar
+    # reservation that ``get_content_region_avail`` already excludes, so the
+    # fit thought a group fit and the draw then placed it past the content
+    # edge -- clipped at the menu bar's right border ("RAM 23." cut off at
+    # 1100x700). One width, used by both, is what keeps them agreeing.
+    cursor_start = imgui.get_cursor_pos_x()
     avail = imgui.get_content_region_avail().x
+    right_edge = cursor_start + avail
     rows = status_rows(ctx)
     if not rows or avail <= 0:
         return
@@ -356,13 +374,30 @@ def _draw_status_group(ctx: Any) -> None:
         fitted = fit_status_rows(rows, max(avail - pad_x, 0.0), measure)
         if not fitted:
             return
-        total = sum(imgui.calc_text_size(_text(i, item)).x for i, item in enumerate(fitted))
-        x = max(imgui.get_cursor_pos_x(), imgui.get_window_width() - total - pad_x)
-        imgui.same_line(x)
-        for index, item in enumerate(fitted):
-            text = _text(index, item)
-            if index:
-                imgui.same_line(0.0, 0.0)
+        texts = [_text(i, item) for i, item in enumerate(fitted)]
+        widths = [imgui.calc_text_size(text).x for text in texts]
+        total = sum(widths)
+        x = max(cursor_start, right_edge - total - pad_x)
+        # Each item gets its own absolute cursor position rather than a chain
+        # of same_line(0.0, 0.0) calls -- and set via ``set_cursor_pos_x``,
+        # not ``same_line``: a menu bar runs its own cursor bookkeeping, and
+        # ``same_line``'s ``offset_from_start_x`` is measured from a
+        # different origin there than ``get_cursor_pos_x``/
+        # ``get_content_region_avail`` read from (off by exactly the window's
+        # left padding, empirically) -- so a ``same_line(x)`` computed from
+        # those two lands ``window_padding.x`` further right than intended,
+        # which is what let a group the fit had approved clip past the
+        # content edge anyway even once the items stopped overlapping.
+        # ``set_cursor_pos_x`` writes into the same coordinate space
+        # ``get_cursor_pos_x`` reads, so the two stay in agreement.
+        y = imgui.get_cursor_pos_y()
+        cursor = x
+        offsets = []
+        for width in widths:
+            offsets.append(cursor)
+            cursor += width
+        for item, text, item_x in zip(fitted, texts, offsets, strict=True):
+            imgui.set_cursor_pos((item_x, y))
             if item.warning:
                 imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), text)
                 if imgui.is_item_hovered():

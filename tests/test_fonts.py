@@ -91,6 +91,26 @@ def test_every_vendored_face_is_present():
         assert (Path(fonts.FONT_DIR) / name).is_file()
 
 
+def test_familiar_sigil_is_covered_by_the_vendored_faces():
+    """Familiar T0 (ef853790): ``menus.FAMILIAR_LABEL`` and the bottom pane's
+    row were built with the literal ✦ (U+2726 BLACK FOUR POINTED STAR), but
+    neither Inter nor Lucide carries that codepoint, so it fell through to
+    the atlas's missing-glyph box -- which at menu-bar size reads as "?".
+
+    Every character actually drawn for the sigil must resolve against one of
+    the merged faces' cmaps (Inter's three weights, each with Lucide merged
+    in) or it will draw a box, not the mark.
+    """
+    from warlock.studio import menus
+
+    covered: set[int] = set()
+    for face in (*FACES, "lucide.ttf"):
+        covered |= set(_cmap(face))
+
+    missing = {ch: f"U+{ord(ch):04X}" for ch in menus.FAMILIAR_LABEL if ord(ch) not in covered}
+    assert not missing, f"codepoints in FAMILIAR_LABEL absent from every vendored face: {missing}"
+
+
 def test_no_icon_constant_is_an_empty_placeholder():
     """The 2026-09-08 audit's shell-06: ``_icon_codepoints`` above filters on
     ``len(value) == 1``, which silently drops an empty-string constant from
