@@ -444,6 +444,21 @@ def test_an_unreadable_image_is_refused_at_the_door(svc, tmp_path, base_present)
     assert info.value.field == "images"
 
 
+def test_train_lora_refuses_at_submit_when_the_text2image_pack_is_missing(
+    svc, tmp_path, monkeypatch
+):
+    """The 2026-09-13 audit, finding service-01: this door checked weights and
+    never the pack, so a host with weights present but ``text2image`` removed
+    by an upgrade queued the job and died in the worker on the SDXL import
+    instead of refusing here."""
+    from warlock import packs as packs_mod
+
+    monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
+    with pytest.raises(Invalid) as info:
+        svc_loras.train_lora(svc, _images(tmp_path, 3), label="x", trigger="y")
+    assert "pack" in str(info.value)
+
+
 def test_the_training_door_needs_the_base_weights(svc, tmp_path):
     # The svc fixture materialises the default checkpoint's marker files so
     # text jobs are admitted; take the marker away and the door must refuse.

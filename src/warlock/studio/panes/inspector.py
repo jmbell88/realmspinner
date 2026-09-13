@@ -633,6 +633,26 @@ def _write_field(ctx: Any, key: str, job_id: str, payload: Any, typed: str, curr
         _unsent.pop(key, None)
 
 
+def flush_unsent_on_mode_change(ctx: Any) -> None:
+    """Submit everything still parked in ``_unsent``, regardless of job.
+
+    shell-06 in the 2026-09-13 audit: the 2026-09-07 fix above (shell-02)
+    only drains a refused edit when the *selection* changes, because that is
+    the one event ``draw()`` itself can see. But ``_write_field``'s retry
+    also stops the moment ``draw()`` itself stops running -- and switching to
+    a mode that never draws the inspector (anything but Create) does exactly
+    that without touching the selection, so a refused rename typed just
+    before the switch froze in ``_unsent`` with nothing left to retry it.
+    Unlike :func:`flush_unsent_for`, this is not filtered by job id: a mode
+    change means the inspector is not drawing *any* job's header, so every
+    parked entry -- not just the one belonging to the job that was selected
+    -- is about to lose its only retry path.
+    """
+    for key, (jid, payload, pending) in list(_unsent.items()):
+        if ctx.submit(key, svc_jobs.update_job, ctx.svc, jid, payload(pending)):
+            _unsent.pop(key, None)
+
+
 def flush_unsent_for(ctx: Any, job_id: str) -> None:
     """Submit whatever is still parked in ``_unsent`` for ``job_id``.
 

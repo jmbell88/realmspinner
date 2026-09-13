@@ -257,7 +257,7 @@ while one you pressed the button for tells you what went wrong.
 
 ## Storage
 
-Four figures and two buttons. The figures are how many job directories exist and what they occupy,
+Four figures and four buttons. The figures are how many job directories exist and what they occupy,
 what is sitting in the [trash](37-library-and-jobs.md#the-trash) waiting to be emptied, how much
 disk the downloaded model weights are actually using, and what the evidence archive holds. All four
 are measured on a background thread and the last answer is drawn until a new one arrives, so none of
@@ -269,6 +269,12 @@ the progress bar and the free-disk check.
 The fourth is absent until there is something to report. The archive fills up on a *delete* — the
 moment you are least expecting anything to be written — so it says so; but a line reading "0 archived
 jobs" would be a permanent fixture explaining a thing that has not happened.
+
+**Check library** looks for assets whose files are gone, folders no asset claims, and reviews whose
+asset was deleted; it changes nothing, only reports. **Back up the index** copies the database
+holding every prompt, seed, name, tag and review — the part that cannot be regenerated from the
+files — into a stamped folder under your library; there is no destination dialog, since the
+stamped folder beside the library is where a backup goes.
 
 **Prune...** deletes everything but the newest N assets from disk, after a confirm that carries the
 count — N is yours to choose and it starts at twenty every time it is asked. Running jobs are never
@@ -331,6 +337,17 @@ Moving the window to a monitor with different scaling re-reads the new display a
 interface at its size, fonts included — you do not have to restart. Your *UI scale* is applied fresh
 against the new monitor rather than carried across as a number of pixels, so a zoom that had to be
 capped on one display is offered in full again on a display with room for it.
+
+**Workspace layouts.** A **Layout** combo picks the active saved layout, with an explanatory
+tooltip and, for one saved on a newer version that cannot be fully read back, a marker beside its
+name. **Duplicate** copies the active layout under a new name and switches to the copy;
+**Rename...** is disabled for the built-in layouts, which keep their names; **Reset** puts the
+active layout back to its built-in arrangement; **Delete this layout** removes it outright and is
+likewise disabled for a built-in, which is reset rather than deleted — there is no state a pane
+cannot be recovered from. A layout can only reorder and hide panes, never delete one, and a hidden
+pane is always listed here with one click to bring it back. This section is on the Settings page
+specifically because Settings itself never changes shape with the layout, so it is reachable even
+when a saved layout has gone wrong.
 
 **AI agents.** *Allow AI agents to drive the Studio* lets a program that speaks the Model Context
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated

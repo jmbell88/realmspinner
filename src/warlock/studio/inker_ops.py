@@ -596,7 +596,18 @@ def run(ctx: Any, op: Op, **params: Any) -> bool:
     for param in op.params:
         value = min(max(float(values[param.name]), param.low), param.high)
         values[param.name] = int(value) if param.integer else value
-    return op.run(ctx, tab, **values) is not False
+    try:
+        return op.run(ctx, tab, **values) is not False
+    except ValueError as exc:
+        # The 2026-09-13 audit, finding inker-01: this is the one choke point
+        # every menu row, shortcut and gesture funnels through, and it carried
+        # no exception boundary -- so a document method that refuses by
+        # *raising* (e.g. ``Document.flip`` on a tile-misaligned canvas)
+        # escaped through the keyboard route, which sits outside the pane
+        # guard, and tore the whole session down. One catch here closes every
+        # such door at once instead of nine call-site wrappers.
+        state.say(str(exc))
+        return False
 
 
 # --- the predicates ---------------------------------------------------------

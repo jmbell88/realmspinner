@@ -671,6 +671,17 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         state.asset_poses = []
         state.skeleton_editing = False
         state.skeleton_error = None
+        # The 2026-09-13 audit (poser-01): these five fields are session
+        # scratch for the Re-rig picker and the Add-limb form, and their own
+        # docstrings say the session clears them -- but only close_asset did.
+        # Picking a different asset while the picker was open on the first
+        # carried its stale template choice (and any half-filled limb form)
+        # onto the new asset, so Confirm re-rigged the wrong mesh under it.
+        state.rerig_open = False
+        state.rerig_choice = ""
+        state.limb_preset = ""
+        state.limb_side = ""
+        state.limb_mirror = False
         viewer = viewer_of(ctx)
         if viewer is not None:
             # Whatever the viewer was showing -- another asset, the meshless

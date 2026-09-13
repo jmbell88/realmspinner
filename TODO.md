@@ -1820,3 +1820,21 @@ them.
 
 **Expected outcome:** three dated documents, and either the constants confirmed
 where they are or moved with the run that moved them. Strike this out then.
+
+## P52. Decide whether INSTALL.md keeps exact installer and runtime sizes
+
+**Why it is yours:** it wants a release build on a clean machine and a decision
+only the person cutting releases can make. The 2026-09-13 audit (finding
+docs-03, an evidence gap) found that `INSTALL.md` states exact byte counts for
+the v0.0.46 installer (169,666,529 B) and the installed runtime (539 MB: 446 /
+48 / 41) as this build's, but `/warlock-land --release` only renames the
+installer file; nothing re-measures those figures, so every later release
+inherits numbers that describe an earlier one.
+
+**Do:** decide between the two. Either measure the built installer and the
+installed runtime at each release, and add that step to the release walk; or
+soften the figures in `INSTALL.md` to approximate ones ("about 170 MB",
+"about 540 MB installed") that survive a patch release.
+
+**Expected outcome:** `INSTALL.md` states figures that are either re-measured
+per release or honestly approximate. Strike this out then.

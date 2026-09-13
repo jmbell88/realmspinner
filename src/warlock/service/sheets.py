@@ -12,6 +12,7 @@ from .errors import Conflict, Invalid, NotFound, invalid_from
 from .validation import (
     check_base_model_weights,
     check_job_id,
+    check_pack,
     check_pose_id,
     check_seed,
     check_sheet_id,
@@ -391,6 +392,11 @@ def _check_weights(svc: WarlockService) -> None:
     from .. import fetch
     from .downloads import needed_keys
 
+    # The 2026-09-13 audit, finding service-01: this door checked weights and
+    # never the pack, so a host with weights present but ``text2image``
+    # removed by an upgrade queued the job and died in the worker on the SDXL
+    # import instead of refusing here.
+    check_pack(svc, "pixel_sheet", {}, field="style_lora")
     base = models.BASE_MODELS[PIXEL_SHEET_BASE_MODEL]
     pixel_lora = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
     check_base_model_weights(svc, base, rows=needed_keys(svc, PIXEL_SHEET_ROWS))

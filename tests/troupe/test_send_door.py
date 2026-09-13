@@ -272,7 +272,10 @@ def test_a_custom_skeleton_warns_how_many_bones_its_clips_will_skip(ctx, svc):
     animated: set[str] = set()
     for pose in library["poses"].values():
         animated.update(pose["bones"])
-    dropped = next(iter(animated))
+    # Sorted and never the root: a set's order changes with the hash seed, and
+    # dropping the root left ``next`` below with nothing to find.
+    parents = {b["name"]: b["parent"] for b in template.bones}
+    dropped = next(n for n in sorted(animated) if parents.get(n) is not None)
     bones = [dict(b) for b in template.bones if b["name"] != dropped]
     root = next(b["name"] for b in bones if b["parent"] is None)
 

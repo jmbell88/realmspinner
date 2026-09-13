@@ -34,8 +34,8 @@ A flat grid appears, sixty-four metres on a side at one vertex per metre. That i
 Mason allows, and it is deliberately generous: you are not going to run out of room, and a ground
 four times this size costs frame rate you would rather spend elsewhere.
 
-Now shape it a little. Press `T` for the Sculpt tool, pick the **Raise** brush, set **Radius** to
-about 6, and drag across one corner of the ground. The ground comes up under the pointer for as long
+Now shape it a little. Press `T` for the Sculpt tool, pick the **Raise** brush, set **radius
+(cells)** to about 6, and drag across one corner of the ground. The ground comes up under the pointer for as long
 as you hold the button, and lets go when you do — one stroke is one undo step, however long you drew
 for.
 

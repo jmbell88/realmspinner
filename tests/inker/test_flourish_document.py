@@ -246,6 +246,35 @@ def test_more_frames_are_appended_when_a_phase_grows():
     assert len(doc.anim.frames) == 20
 
 
+def test_regenerate_after_shrinking_a_phase_updates_the_tag_and_flags_the_orphaned_frames():
+    """The 2026-09-13 audit (inker-02): ``apply_flourish`` never rewrote
+    ``Document.anim.tags``. A phase that grows leaves its new frames outside
+    every tag (checked by ``test_more_frames_are_appended_when_a_phase_grows``,
+    which only counted frames); a phase that *shrinks* is the other half --
+    the tag still spans the now-stale cels past its new end, and play or a
+    per-tag export would show them with no notice."""
+    doc = inker.Document.blank(32, 32)
+    rec = _recipe()
+    group = doc.insert_flourish(B.bake(rec))
+    tag = next(t for t in doc.anim.tags if t.name == rec.phases[0].name)
+    assert tag.end == rec.phases[0].frames - 1
+    track_uid = next(iter(doc.flourish_state(group).tracks.values()))
+    old_end = tag.end
+
+    shorter = dataclasses.replace(
+        rec, phases=(dataclasses.replace(rec.phases[0], frames=old_end),)
+    )
+    doc.apply_flourish(group, B.bake(shorter))
+
+    new_tag = next(t for t in doc.anim.tags if t.name == rec.phases[0].name)
+    assert new_tag.end == old_end - 1
+    # The last frame of the old span held a rendered cel and is no longer
+    # covered by the tag: it must be flagged, not left to look untouched.
+    last_frame_uid = doc.anim.frames[old_end].uid
+    assert (track_uid, last_frame_uid) in doc.flourish_state(group).conflicts
+    assert old_end in doc.flourish_conflicts(group)
+
+
 def test_detach_forgets_the_recipe_and_keeps_the_layers():
     doc = inker.Document.blank(32, 32)
     group = doc.insert_flourish(B.bake(_recipe()))

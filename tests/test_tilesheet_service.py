@@ -55,6 +55,20 @@ def _png(width: int = 64, height: int = 64) -> bytes:
 # -- the good path -----------------------------------------------------------
 
 
+def test_create_tile_sheet_refuses_at_submit_when_the_text2image_pack_is_missing(
+    svc, monkeypatch
+):
+    """The 2026-09-13 audit, finding service-01: this door checked weights and
+    never the pack, so a host with weights present but ``text2image`` removed
+    by an upgrade queued the job and died in the worker on the SDXL import
+    instead of refusing here."""
+    from warlock import packs as packs_mod
+
+    monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
+    with pytest.raises(Invalid, match="pack"):
+        _create(svc)
+
+
 def test_a_good_request_writes_a_queued_row_and_no_files(svc):
     made = _create(svc, seed=42)
     row = svc.store.get(made["id"])

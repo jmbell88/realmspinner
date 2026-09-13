@@ -55,7 +55,8 @@ def test_xray_picks_through_the_surface():
     from warlock.studio import _view_pick
 
     source = inspect.getsource(_view_pick)
-    assert 'getattr(self, "xray", False) else hit.t' in source
+    assert 'xray = getattr(self, "xray", False)' in source
+    assert "depth = None if hit is None or xray else hit.t" in source
 
 
 def test_the_shortcut_sheet_lists_the_sirens_clipboard():

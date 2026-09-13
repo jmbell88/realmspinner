@@ -2394,17 +2394,16 @@ def measure_trash(ctx: Any, jobs: list[Any]) -> dict[str, Any] | None:
     if cached is not None and cached[0] == key:
         return cached[1]
 
-    def run(stamp: Any = key) -> Any:
-        answer = svc_jobs.trash_size(ctx.svc)
-        # Written on the task thread and read on the frame thread, as
-        # ``JobsCache.storage_error`` beside it already is: one dict assignment,
-        # and nothing branches on it twice. Stamped with the key this run was
-        # asked for, so an answer arriving after the trash moved on is replaced
-        # rather than believed.
-        ctx.state.preview[TRASH_SIZE_SLOT] = (stamp, answer)
-        return answer
-
-    ctx.submit(TRASH_SIZE_KEY, run)
+    # The 2026-09-13 audit (shell-05) found this task returning its answer
+    # *and* writing it into ``ctx.state.preview`` itself -- the write
+    # ``JobsCache.storage_error``'s comment claimed as precedent, when that
+    # value is only ever written by the frame-thread ``adopt_storage``. A
+    # task thread amending state the frame loop reads sixty times a second is
+    # exactly the T3 hazard this test file exists to catch. So ``run`` now
+    # only reads and returns; ``main._on_task_done`` adopts the reading on
+    # the frame thread, keyed by the ``tag`` so a late answer for a trash
+    # that has since moved on is still discarded rather than believed.
+    ctx.submit(TRASH_SIZE_KEY, svc_jobs.trash_size, ctx.svc, tag=key)
     # The last measurement meanwhile, stale or not, exactly as the workshop
     # figure above is drawn: a number that vanishes while it is being re-taken
     # is a row that changes height every time something is restored.

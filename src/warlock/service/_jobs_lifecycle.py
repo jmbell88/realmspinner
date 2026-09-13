@@ -442,8 +442,20 @@ def empty_trash(svc: WarlockService) -> dict[str, Any]:
 
 
 def trash_size(svc: WarlockService) -> dict[str, Any]:
-    """How much the trash is holding. Blocking -- call from a task thread."""
-    rows = svc.store.trashed()
+    """How much the trash is holding, and would actually be reclaimed by
+    :func:`empty_trash`. Blocking -- call from a task thread.
+
+    shell-02 in the 2026-09-13 audit: this used to count every trashed job,
+    but ``empty_trash`` keeps a job named by :func:`retained_job_ids` (an
+    accepted or rejected reference the quality judge and tier checks are
+    measured against). The figure shown before the destructive confirm was
+    therefore an overstatement of what emptying would free, with no later
+    figure to correct it. Excluded here rather than reported as a second
+    number, because the one question the confirm has to answer is "what does
+    this button actually free."
+    """
+    retained = retained_job_ids(svc)
+    rows = [job for job in svc.store.trashed() if job["id"] not in retained]
     total = 0
     for job in rows:
         try:

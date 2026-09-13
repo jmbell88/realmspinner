@@ -60,6 +60,15 @@ def measure(points: Any) -> dict[str, tuple[list[float], list[float]]]:
     if pts.ndim != 2 or pts.shape[1] != 3 or len(pts) < 64:
         raise ValueError("a joint fit needs an (N, 3) vertex cloud")
     x, z = pts[:, 0], pts[:, 2]
+    # The 2026-09-13 audit, finding poser-03: every band below used to be cut
+    # at an absolute-Z fraction of height, silently assuming the mesh's floor
+    # sits at world Z=0 (the docstring's own stated axis convention). A floor
+    # a few centimetres off that -- unremarkable for a base mesh that has not
+    # yet been through grounding -- shifted every band by the same offset with
+    # no error, so the hips came out at the right *height above the floor* but
+    # the wrong world Z, and every joint chained off them (thighs, spine) drifted
+    # with it. Bands are now cut relative to the mesh's own floor.
+    floor = float(z.min())
     height = float(z.max() - z.min())
     reach = float(x.max())
     if height <= 0.0 or reach <= 0.0:
@@ -67,7 +76,7 @@ def measure(points: Any) -> dict[str, tuple[list[float], list[float]]]:
 
     # The torso's half-width, taken at the *hips* -- the one height where the
     # arms certainly are not, whatever pose the mesh is standing in.
-    hip_band = pts[(z > height * 0.42) & (z < height * 0.50)]
+    hip_band = pts[(z > floor + height * 0.42) & (z < floor + height * 0.50)]
     if not len(hip_band):
         raise ValueError("no geometry at hip height")
     torso_half = float(np.abs(hip_band[:, 0]).max())
@@ -120,10 +129,10 @@ def measure(points: Any) -> dict[str, tuple[list[float], list[float]]]:
     finger = on_arm(_FINGER)
 
     # --- leg. Inside the torso's half-width, below the hips, left side only.
-    leg_band = pts[(np.abs(x) < torso_half * 1.2) & (z < height * 0.50) & (x > 0.0)]
+    leg_band = pts[(np.abs(x) < torso_half * 1.2) & (z < floor + height * 0.50) & (x > 0.0)]
 
     def leg_at(frac: float) -> Any:
-        at = height * frac
+        at = floor + height * frac
         span = height * 0.025
         sel = leg_band[(leg_band[:, 2] >= at - span) & (leg_band[:, 2] < at + span)]
         if not len(sel):
@@ -131,17 +140,25 @@ def measure(points: Any) -> dict[str, tuple[list[float], list[float]]]:
         return sel.mean(axis=0)
 
     knee, ankle = leg_at(_KNEE), leg_at(_ANKLE)
-    pelvis = height * _PELVIS
+    pelvis = floor + height * _PELVIS
     hip_x = float(leg_at(_HIP)[0])
     # Forward depth off the *leg* band, never the whole mesh: a nose, a chest
     # or a held prop reaches further forward than any foot, and the shipped clips
     # pose the ankle in delta space -- relative to exactly this rest orientation.
-    toe = [hip_x, float(leg_band[:, 1].min()), 0.0]
+    # The foot sits on the mesh's own floor, not on world Z=0 (poser-03, above).
+    toe = [hip_x, float(leg_band[:, 1].min()), floor]
 
     # --- spine. The chest sits at the shoulder joint and the head tops the box.
+    #
+    # ``z.max()`` here, not ``height``: the space remaining above the chest is
+    # the distance up to the mesh's own top, and ``height`` (= z.max() - floor)
+    # only equals that when the floor is at world Z=0. The same poser-03 offset
+    # that motivated ``floor`` above showed up here too -- a mesh lifted off
+    # Z=0 got a neck and head pulled down by the floor's own offset.
+    z_top = float(z.max())
     chest_z = float(shoulder[2])
-    neck_z = chest_z + (height - chest_z) * 0.22
-    head_z = chest_z + (height - chest_z) * 0.46
+    neck_z = chest_z + (z_top - chest_z) * 0.22
+    head_z = chest_z + (z_top - chest_z) * 0.46
     spine_z = pelvis + (chest_z - pelvis) * 0.45
 
     def pt(p: Any) -> list[float]:

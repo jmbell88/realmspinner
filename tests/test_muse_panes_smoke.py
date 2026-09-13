@@ -471,3 +471,72 @@ def test_the_derive_popup_draws_for_every_task(frames, tmp_path, task):
 
     frames(build)
     assert opened_popup, "derive_popup never reached begin_popup_modal for this task"
+
+
+def test_repaint_window_slider_reaches_the_full_length_of_a_take_longer_than_the_extend_ceiling(
+    frames, tmp_path, monkeypatch
+):
+    """The 2026-09-13 audit, finding muse-01.
+
+    ``_derive_field`` bounded ``repaint_start``/``repaint_end`` by
+    ``_max_extend()`` (240s, the *extend* path's sampler ceiling) even though
+    ``derive_music_job`` bounds a repaint by the take's own duration (up to
+    600s) and a loop by half of it. On a take over four minutes this both
+    hid the true window from the slider and refused typed input past 240s.
+
+    Fails against the unfixed code: with a 500s take, the repaint slider's
+    ``high`` came back 240.0 instead of 500.0.
+    """
+    long_take = _take("a")
+    long_take["params"] = {"duration": 500.0, "actual_duration": 500.0}
+    ctx = _ctx(tmp_path, [long_take])
+    muse_mode.open_derive(ctx, "a", "repaint")
+
+    seen: dict[str, tuple[float, float]] = {}
+    from warlock.studio import widgets as widgets_module
+
+    real_slider = widgets_module.labeled_slider_float
+
+    def spy_slider(title, value, low, high, **kwargs):
+        seen[title] = (low, high)
+        return real_slider(title, value, low, high, **kwargs)
+
+    monkeypatch.setattr(muse_results.widgets, "labeled_slider_float", spy_slider)
+
+    def build() -> None:
+        muse_results.draw(ctx)
+
+    frames(build)
+
+    assert seen["From"] == (0.0, 500.0)
+    assert seen["To"] == (0.0, 500.0)
+
+
+def test_loop_span_slider_is_bounded_by_half_the_takes_own_duration(frames, tmp_path, monkeypatch):
+    """The 2026-09-13 audit, finding muse-01, loop half.
+
+    ``derive_music_job`` refuses a loop span past ``parent_duration / 2.0``;
+    the popup must offer no more than that, not ``_max_extend() / 2``.
+    """
+    long_take = _take("a")
+    long_take["params"] = {"duration": 500.0, "actual_duration": 500.0}
+    ctx = _ctx(tmp_path, [long_take])
+    muse_mode.open_derive(ctx, "a", "loop")
+
+    seen: dict[str, tuple[float, float]] = {}
+    from warlock.studio import widgets as widgets_module
+
+    real_slider = widgets_module.labeled_slider_float
+
+    def spy_slider(title, value, low, high, **kwargs):
+        seen[title] = (low, high)
+        return real_slider(title, value, low, high, **kwargs)
+
+    monkeypatch.setattr(muse_results.widgets, "labeled_slider_float", spy_slider)
+
+    def build() -> None:
+        muse_results.draw(ctx)
+
+    frames(build)
+
+    assert seen["Joint to rewrite"] == (0.0, 250.0)

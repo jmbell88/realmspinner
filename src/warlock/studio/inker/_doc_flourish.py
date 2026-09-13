@@ -352,6 +352,46 @@ class FlourishOps:
                     conflicts.add((track_uid, frame_uid))
                 digests[(track_uid, frame_uid)] = fresh
 
+        # Recompute this effect's tag spans from the fresh bake. The 2026-09-13
+        # audit (inker-02) found this method never touched ``Document.anim.tags``
+        # at all: ``insert_flourish`` builds them from ``baked.tags()`` but a
+        # regenerate left the old spans standing, so a phase that grew left its
+        # new frames outside every tag (play and per-tag export skipped them)
+        # and a phase that shrank left its tag spanning cels that no longer
+        # belong to it. Tags are matched by name, the only identity a tag has
+        # (``TagsEdit``'s own docstring): a phase's tag keeps its name across a
+        # regenerate unless the recipe itself renamed the phase.
+        before_tags = list(anim.tags)
+        new_by_name = {name: (first, last, loop) for name, first, last, loop in baked.tags()}
+        after_tags = list(before_tags)
+        matched: set[str] = set()
+        for idx, tag in enumerate(after_tags):
+            spec = new_by_name.get(tag.name)
+            if spec is None:
+                continue
+            matched.add(tag.name)
+            first, last, loop = spec
+            if (tag.start, tag.end, tag.loop) == (first, last, loop):
+                continue
+            if last < tag.end:
+                # Shrunk: the frames between the new, shorter end and the old
+                # one used to be this phase's but the fresh bake no longer
+                # covers them. Flag any cel still sitting there rather than
+                # silently drop it -- the same "a person decides" rule the
+                # per-cel digest comparison above already applies to a hand
+                # edit the render disagrees with.
+                for f in anim.frames[last + 1 : tag.end + 1]:
+                    for track_uid in tracks.values():
+                        if anim.cels.get((track_uid, f.uid)) is not None:
+                            conflicts.add((track_uid, f.uid))
+            after_tags[idx] = replace(tag, start=first, end=last, loop=loop)
+        for name, (first, last, loop) in new_by_name.items():
+            if name not in matched:
+                after_tags.append(Tag(name=name, start=first, end=last, loop=loop))
+        if after_tags != before_tags:
+            self._set_tags(after_tags)
+            edits.append(TagsEdit(before_tags, after_tags))
+
         after = FlourishState(
             recipe=baked.recipe, tracks=tracks, digests=digests, conflicts=conflicts, offset=offset
         )

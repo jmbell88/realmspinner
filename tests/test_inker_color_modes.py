@@ -80,7 +80,10 @@ def test_a_refusal_reaches_the_user_with_the_attempt_in_front_of_it():
     being tried."""
     ctx = _Ctx()
     tab = _tab(ctx)
-    tab.doc.set_palette([(i, i, i, 255) for i in range(257)])
+    # Assigned rather than ``set_palette``d: the write door itself refuses past
+    # 256 since the 2026-09-13 audit's inker-04, and this test is about the
+    # Indexed switch's own refusal of a table that arrived some other way.
+    tab.doc.palette = [(i, i, i, 255) for i in range(257)]
 
     assert inker_mode.set_color_mode(ctx, tab, "indexed") is False
     assert tab.doc.color_mode == "rgb"

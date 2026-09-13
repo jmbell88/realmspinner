@@ -528,3 +528,56 @@ def test_quit_summary_names_a_sweep_launch_or_delete_in_flight():
     # And a sweep deletion in flight is named too, not just a launch.
     app.app_ctx.tasks = SimpleNamespace(busy_keys={review_mode.DELETE_KEY})
     assert app._quit_summary()
+
+
+# --- shell-03: a quit confirm should name a library export or update download
+
+
+def test_quit_summary_warns_while_a_packwright_library_export_is_busy():
+    """shell-03 (2026-09-13 audit): ``_quit_summary`` matched "-export:" (the
+    per-mode in-editor export queue key, muse-05) but Packwright, Mason and
+    Plotter each queue their *library* export as "<mode>-library:<name>" --
+    a shape neither "-export:" nor any prefix checked here matches. Quitting
+    mid-write could leave a library export whose sidecar never landed,
+    unopenable in its own editor afterwards.
+    """
+    from warlock.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.runtime = SimpleNamespace(current_job_id=None)
+    app.app_ctx = SimpleNamespace(
+        cache=SimpleNamespace(active=None),
+        tasks=SimpleNamespace(busy_keys={"packwright-library:atlas-1"}),
+    )
+
+    summary = app._quit_summary()
+
+    assert summary, "a library export in flight must not pass through silently"
+    assert "library" in summary.lower()
+
+    # Mason and Plotter follow the same convention and must be caught too.
+    for key in ("mason-library:scene-1", "plotter-library:map-1"):
+        app.app_ctx.tasks = SimpleNamespace(busy_keys={key})
+        assert app._quit_summary(), key
+
+
+def test_quit_summary_warns_while_an_update_download_is_in_flight():
+    """shell-03 (2026-09-13 audit): an update-installer download
+    (``app_ctx.UPDATE_DOWNLOAD_KEY``) has no resume marker, so a quit mid-
+    download loses the whole thing -- exactly like a model download, which
+    *was* checked here (it starts with "download:"). This key does not.
+    """
+    from warlock.studio import app_ctx as app_ctx_mod
+    from warlock.studio import main as main_mod
+
+    app = main_mod.App.__new__(main_mod.App)
+    app.runtime = SimpleNamespace(current_job_id=None)
+    app.app_ctx = SimpleNamespace(
+        cache=SimpleNamespace(active=None),
+        tasks=SimpleNamespace(busy_keys={app_ctx_mod.UPDATE_DOWNLOAD_KEY}),
+    )
+
+    summary = app._quit_summary()
+
+    assert summary, "an update download in flight must not pass through silently"
+    assert "update" in summary.lower()

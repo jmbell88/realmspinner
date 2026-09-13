@@ -195,8 +195,9 @@ each with its hex value in a box you can type into and a swatch that opens the f
 shuffle button beneath them swaps the two, as `X` does.
 
 The primary letters are Aseprite's: `L` is line and `U` rectangle, while shifted letters select the
-paired tools (`Shift+B/G/L/U/D/M/C`). Earlier Inker letters remain as compatibility aliases and can
-be removed or changed under **Edit > Keyboard Shortcuts**.
+paired tools (`Shift+B/G/L/U/D/M`). `Shift+C` is not among them — it reaches Slice, the same tool
+`C` does, since Slice has no paired tool to shift into. Earlier Inker letters remain as
+compatibility aliases and can be removed or changed under **Edit > Keyboard Shortcuts**.
 
 | Tool | Key | What it does |
 | --- | --- | --- |

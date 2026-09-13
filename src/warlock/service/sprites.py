@@ -468,8 +468,13 @@ def _check_weights(svc: WarlockService) -> None:
     """
     from .. import fetch
     from .downloads import needed_keys
-    from .validation import check_base_model_weights, install_remedy
+    from .validation import check_base_model_weights, check_pack, install_remedy
 
+    # The 2026-09-13 audit, finding service-01: this door checked weights and
+    # never the pack, so a host with weights present but ``text2image``
+    # removed by an upgrade queued the job and died in the worker on the SDXL
+    # import instead of refusing here.
+    check_pack(svc, "sprite_synthesis", {}, field="sheet_type")
     check_base_model_weights(
         svc,
         models.BASE_MODELS[SPRITE_BASE_MODEL],

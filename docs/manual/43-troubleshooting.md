@@ -38,9 +38,9 @@ the fastest way to see it. `warlock doctor` prints the same block.
 they cannot change without the disk changing — so having just installed something a row complained
 about, nothing short of a restart would otherwise change its mind. This button re-runs everything.
 
-A first run that has downloaded nothing yet is better served by the **Issues / Set up models**
-row on the [Home screen](21-home.md), which opens the model list and its Download buttons rather
-than this read-only list.
+A first run that has downloaded nothing yet is better served by Home's own rows: a health row
+mirroring the status bar's count, and, separately, **Generation is not set up yet** — which opens
+the model list and its Download buttons rather than this read-only list.
 
 ## Out of memory
 

@@ -266,3 +266,22 @@ def test_report_and_verdict_say_something_readable():
     assert sentence and "8px source grid" in sentence
     # UI strings stay inside imgui's default Basic-Latin + Latin-1 atlas.
     sentence.encode("latin-1")
+
+
+def test_palette_fraction_reflects_pixel_coverage_not_distinct_color_count():
+    """inker-08, the 2026-09-13 audit: ``report()`` used to divide distinct
+    on-palette colours by distinct colours, so a single stray off-palette
+    pixel scattered across a field of one on-palette colour counted as "50%
+    on palette" -- as bad as an image that is actually half off palette.
+    Weighted by pixel count, the same image should read as ~99% on palette.
+    """
+    palette = ((0, 0, 0),)
+    arr = np.zeros((10, 10, 4), np.uint8)
+    arr[:, :, 3] = 255  # fully opaque, colour channels default to (0, 0, 0)
+    arr[0, 0, :3] = (255, 255, 255)  # one off-palette pixel out of 100
+    src = Image.fromarray(arr, "RGBA")
+    rep = pixel.report(src, palette=palette)
+    assert rep["colors"] == 2
+    # Distinct-colour counting would give 1/2 == 0.5; pixel counting gives
+    # 99/100.
+    assert rep["palette_fraction"] == pytest.approx(0.99)

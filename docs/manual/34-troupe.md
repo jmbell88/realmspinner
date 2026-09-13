@@ -300,8 +300,9 @@ ordinary sheet with an animation block on it.
 the [Inker timeline](29-inker-animation.md). It opens *unlinked*: the first `Ctrl+S`
 is a Save As, so cleaning up frames cannot overwrite the render they came from.
 
-**Add to Packwright** contributes one sprite per cell to an open atlas, alongside everything else
-being packed.
+**Add to Packwright** parks the sheet as a pending tile-set import: it opens Packwright's tile-size
+popup with the cell size already filled in from the render, and nothing is added to the atlas
+until you confirm **Import** there.
 
 The last two are the ones that produce *files*, and both write into a folder you choose — or
 straight into your configured export folder, if you have one.

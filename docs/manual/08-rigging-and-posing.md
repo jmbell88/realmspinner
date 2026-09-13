@@ -79,7 +79,8 @@ failure — the point of Poser is that the pose is not about any particular mode
 model is shown.
 
 Poses are saved into a global library per skeleton: save, rename, duplicate, apply, delete. A handful
-of presets ship read-only; apply one, adjust it, and **Save as** promotes it into your own library.
+of presets ship read-only; apply one, adjust it, and **Save as reusable pose...** promotes it into
+your own library.
 
 Note that **deleting a pose here is permanent.** There is no trash in the pose library, unlike the
 asset library.
@@ -130,8 +131,8 @@ Play scrubs the *interpolated* frames exactly as the renderer will produce them.
 sits between keys and has nowhere to store an edit, so Update-key refuses while scrubbing rather
 than quietly writing to the nearest key.
 
-Saving clips writes to your own data folder and never touches the shipped template, so **Revert** is
-always safe.
+Saving clips writes to your own data folder and never touches the shipped template, so **Revert to
+shipped clips** is always safe.
 
 Four of the eight templates carry a clip library — `humanoid`, `quadruped`, `bird` and `blob` — and
 each carries all five movements a character sheet asks for: idle, walk, run, attack and jump. Those
@@ -151,7 +152,8 @@ step is one or two. If you tweak easing and see no change, the control is fine a
    button here to press: Troupe's Character route measures joints for you, before the rig is built.
    Compare one built that way, or open the asset's Pose panel and use **Adjust joints** by hand.
 3. In the asset's Pose panel, rotate an arm, mirror it, and save the pose.
-4. Open Poser on the same skeleton. Notice the bare armature. Author a wave and **Save as**.
+4. Open Poser on the same skeleton. Notice the bare armature. Author a wave and
+   **Save as reusable pose...**.
 5. Back on the asset, apply that pose from **Library poses**, then delete the library original and
    confirm the asset's copy is untouched.
 6. Author a crouch with **Move root**, apply it, and note that the preview shows the rotations but

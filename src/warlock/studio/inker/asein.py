@@ -1445,6 +1445,16 @@ def _build_cels(
     tight: dict[tuple[int, int], np.ndarray] = {}
     tight_indices: dict[tuple[int, int], np.ndarray] = {}
     made: dict[tuple[int, int], Layer] = {}
+    # The 2026-09-13 audit (inker-05): ``pixelguard.check`` above bounds one
+    # canvas, but every non-linked cel gets its *own* canvas-sized plane here
+    # (``_place`` pastes it onto a fresh ``size`` array) and nothing bounded
+    # the product. ``ora._read_animation`` already carries this shape as
+    # ``MAX_ORA_FRAMES``/``_layer_budget`` for the identical bug; this is the
+    # same running total, since frames here are cels rather than one count. A
+    # 65,258-byte file was measured opening as 62,914,560 decoded bytes (964x)
+    # with no warning before this fix.
+    decoded_pixels = 0
+    canvas_pixels = sprite.width * sprite.height
     for key, cel in by_slot.items():
         if cel.kind == _CEL_LINKED:
             continue
@@ -1460,6 +1470,15 @@ def _build_cels(
         if layer.group:
             warn("a cel on a group layer was dropped; a group holds no pixels")
             continue
+        # Charged once per real cel, before its decode, not after: a raise
+        # that only fired once the plane already existed would have paid the
+        # allocation it exists to refuse.
+        decoded_pixels += canvas_pixels
+        if decoded_pixels > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                "this .aseprite's frames decode to more pixels than this"
+                f" build will open ({pixelguard.MAX_DECODE_PIXELS} total)"
+            )
         if layer.tileset is not None:
             made[key] = _build_tilemap_cel(cel, layer, sprite, tileset_slots, warn)
             continue

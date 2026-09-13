@@ -119,7 +119,7 @@ at the bottom of the sweep list takes:
   accepts: tick boxes for a choice field or a switch, and a hint naming the legal range for a
   number. Whichever you use, what is stored is the same comma-separated list, so you can still type
   one out by hand.
-- **Start from current settings** — captures the Reference and Mesh stage forms as the baseline the axes vary
+- **Start from current 2D/3D settings** — captures the Reference and Mesh stage forms as the baseline the axes vary
   from. A sweep off an unstated baseline is not reproducible.
 
 Under the form is a line spelling out what will be queued — "12 jobs: baseline + Style strength x 3
@@ -166,7 +166,7 @@ that contrast's parameter and its two values, and **Seeds** with exactly as many
 contrast still needs — one fresh seed closes one more matched pair, the same "same subject, same
 seed, one setting differing" match the axis verdicts below are computed from. It leaves the prompt
 and the baseline exactly as you last set them: a suggestion is "run this contrast again", not "start
-a sweep from scratch". Type the prompt (or press **Start from current settings** for a fresh
+a sweep from scratch". Type the prompt (or press **Start from current 2D/3D settings** for a fresh
 baseline) and press **Launch sweep** to queue it.
 
 **A unit that fails outright cancels the rest of its own server config rather than repeating the

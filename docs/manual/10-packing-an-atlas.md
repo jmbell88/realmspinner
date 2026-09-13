@@ -18,7 +18,9 @@ Six doors, and they all produce the same kind of thing:
   frame, pixel-identical to the timeline; a still one contributes one sprite per layer, including
   hidden ones.
 - **From the library** — right-click a card, *Add to Packwright as an atlas source*.
-- **From Troupe** — a rendered character sheet contributes one sprite per cell.
+- **From Troupe** — a rendered character sheet is parked as a pending tile-set import, opening the
+  tile-size popup with the cell size already filled in; nothing is added until you confirm
+  **Import**.
 
 A sprite's identity comes from where it came from, never from its display name, so renaming one is
 cosmetic and cannot collide with anything.

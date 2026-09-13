@@ -587,6 +587,36 @@ def test_a_dirty_editor_guards_opening_an_asset(svc):
     assert viewer.cleared == 1, "the old session must not stay poseable"
 
 
+def test_opening_a_different_asset_resets_the_stale_rerig_picker_and_limb_form(svc):
+    """The 2026-09-13 audit, finding poser-01: ``open_asset``'s ``proceed()``
+    reset the asset session's fields but not ``rerig_open``, ``rerig_choice``,
+    ``limb_preset``, ``limb_side`` or ``limb_mirror``, although their own
+    docstrings say the session clears them. Picking a different asset while
+    A's Re-rig picker was open showed B with A's skeleton pre-chosen, and
+    Confirm would re-rig B under it -- discarding B's own skeleton, poses and
+    baked animation."""
+    job_a = _rigged_job(svc)
+    job_b = _rigged_job(svc)
+    ctx = FakeCtx(svc)
+    ctx.poser_viewer = FakeViewer()
+
+    poser_mode.open_asset(ctx, {"id": job_a, "name": "A"})
+    state = poser_mode.ensure(ctx)
+    state.rerig_open = True
+    state.rerig_choice = "quadruped"
+    state.limb_preset = "arm"
+    state.limb_side = "L"
+    state.limb_mirror = True
+
+    poser_mode.open_asset(ctx, {"id": job_b, "name": "B"})
+    assert state.job_id == job_b
+    assert state.rerig_open is False, "B must not inherit A's open picker"
+    assert state.rerig_choice == "", "B must not inherit A's chosen skeleton"
+    assert state.limb_preset == ""
+    assert state.limb_side == ""
+    assert state.limb_mirror is False
+
+
 def test_close_asset_resets_every_asset_field(svc, monkeypatch):
     """The poser-01 lesson, restated for the asset session: every field
     ``open_asset`` can leave set has to be cleared by its own exit door."""

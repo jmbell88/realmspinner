@@ -416,6 +416,19 @@ def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[st
     except Exception as exc:
         raise invalid_from(exc, "That clip library cannot be saved") from exc
 
+    # The 2026-09-13 audit, finding poser-02: _check_shape bounds keys and
+    # segments but not bones per pose or the serialized whole, so a save could
+    # exceed rigging.MAX_CLIP_LIBRARY_BYTES -- the exact cap _load_clip_library
+    # enforces on read -- and be silently skipped forever after, the file
+    # reverting to the shipped clips with no error pointing at why. Checked
+    # against the same constant, at the door, before a byte reaches disk.
+    size = len(json.dumps(document, indent=2).encode("utf-8"))
+    if size > rigging.MAX_CLIP_LIBRARY_BYTES:
+        raise Conflict(
+            f"this clip library is {size} bytes, over the "
+            f"{rigging.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
+            field="poses",
+        )
     with _lock(svc):
         _commit_locked(svc, key, document)
     return library(svc, key)

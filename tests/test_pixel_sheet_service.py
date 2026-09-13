@@ -50,6 +50,21 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
     return job_id, sheet_id
 
 
+def test_create_pixel_sheet_refuses_at_submit_when_the_text2image_pack_is_missing(
+    svc, monkeypatch
+):
+    """The 2026-09-13 audit, finding service-01: this door checked weights and
+    never the pack, so a host with weights present but ``text2image`` removed
+    by an upgrade queued the job and died in the worker on the SDXL import
+    instead of refusing here."""
+    from warlock import packs as packs_mod
+
+    job_id, sheet_id = _sheet_on_disk(svc)
+    monkeypatch.setattr(packs_mod, "installed", lambda pack: False)
+    with pytest.raises(Invalid, match="pack"):
+        svc_sheets.create_pixel_sheet(svc, job_id, sheet_id)
+
+
 def test_a_restyle_is_queued_as_its_own_job_against_the_render(svc):
     job_id, sheet_id = _sheet_on_disk(svc)
 
