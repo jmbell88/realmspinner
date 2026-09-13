@@ -20,6 +20,18 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Clay programs have a compiler, though no tool publishes it yet.**
+`studio/agent_program.py` turns a program into a validated list of tool calls.
+A program is variables plus steps: add, figure, mesh, transform, params,
+material, delete, op, boolean, repeat, array, mirror, group, let and if. Its
+numeric fields take expressions in a small parsed language with degree trig
+and a dozen functions. It never uses `eval`, so an `__import__` string is
+refused as a bad token. Each refusal names its exact path, for example
+`steps[3].repeat.steps[1].add.translation[0]`. Limits cap steps, calls, repeat
+size, nesting, booleans, variables and expression size. A boolean's survivor
+stays addressable when every input is the program's own. A test checks every
+emitted call against the real tools' schemas.
+
 **A `clay_render` compare now scores the silhouette against the reference.**
 The header gains `silhouette`: `iou`, both masks' aspect ratios and their
 error, and whether the reference mask came from alpha or a flood fill. The
