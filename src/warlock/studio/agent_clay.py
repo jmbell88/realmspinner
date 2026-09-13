@@ -206,7 +206,7 @@ out of the text block. ``recovery`` is a closed, bounded vocabulary
 (:data:`RECOVERY`, below) naming what a client should try next --
 ``"fix_arguments"``, ``"read_scene"``, ``"switch_mode"``, ``"start_document"``,
 ``"retry"``, ``"wait"`` -- and a refusal whose recovery is genuinely unknown
-(the blanket backstops in :func:`call` and in ``protocol.dispatch`` itself)
+(the blanket backstops in :func:`call` and in ``agent_host._call`` itself)
 carries no ``recovery`` key at all: an absent key is a real, distinct answer,
 never a seventh member invented to avoid omitting the field.
 
@@ -639,9 +639,15 @@ def _tab(ctx: Any, session: Session, *, create: bool = False) -> tuple[Any, dict
 
 
 def _protocol() -> Any:
-    from ..mcp import protocol
+    """Named `_protocol` for history, not for where the names now live:
+    `Tool`/`ok`/`fail`/`text`/`image_png`/`MAX_FRAME` are `mcp/rpc.py`'s own
+    vocabulary (`mcp/protocol.py` only re-exports them for the bridge's MCP
+    path), and importing `rpc` directly here -- rather than `protocol` --
+    is what keeps `warlock.studio` from ever importing `warlock.mcp.protocol`
+    (`tests/mcp/test_mcp_imports.py` pins that)."""
+    from ..mcp import rpc
 
-    return protocol
+    return rpc
 
 
 def ok(*content: dict, structured: dict | None = None) -> dict:
@@ -1197,7 +1203,7 @@ def _scene_row(doc: Any, obj: Any) -> dict:
 
 
 def instructions() -> str:
-    """The prose ``agent_host`` hands ``protocol.dispatch`` for ``initialize``.
+    """The prose ``agent_host`` puts in the RPC v1 ``catalogue`` reply.
 
     Read once, by whatever model is driving the bridge, before its first tool
     call -- so this is where the conventions no single schema field can carry

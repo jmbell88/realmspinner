@@ -13,14 +13,21 @@ Modelled closely on ``tests/sirens/test_sirens_imports.py`` (itself the
 "fifth instance" of this pin) -- same ``ast.walk``-based scan, same shape of
 tests. The one thing that matters more here than it did there: the forbidden
 direction for this package is the app reaching back down into it becoming the
-*opposite*, this leaf reaching back up into the app -- and ``studio/
-agent_host.py`` already imports ``protocol`` **lazily**, inside methods,
-because that is the direction that is allowed. A lazy import the wrong way
-round would be exactly as easy to write and just as real a violation, so the
-scan walks every node in the tree with ``ast.walk`` rather than only
-``tree.body`` -- catching a `def f(): import ...` the way a body-only scan
-never would -- and ``test_the_scan_would_catch_a_lazy_studio_import`` proves
-that against a planted module rather than trusting the implementation.
+*opposite*, this leaf reaching back up into the app.
+
+That direction used to be allowed one way: ``studio/agent_host.py`` imported
+``protocol`` lazily, inside methods, to answer bare MCP JSON-RPC directly on
+Studio's own pipe. It no longer does -- Studio speaks RPC v1 exclusively now
+(``docs/INVARIANTS.md``'s agent paragraph), and nothing under
+``warlock.studio`` may import ``warlock.mcp.protocol`` at all, lazily or
+otherwise (the second half of this file, below the package's own outward-
+import pins, checks the studio side of that same line). A lazy import the
+wrong way round would be exactly as easy to write and just as real a
+violation, so both scans walk every node in the tree with ``ast.walk``
+rather than only ``tree.body`` -- catching a `def f(): import ...` the way a
+body-only scan never would -- and ``test_the_scan_would_catch_a_lazy_studio_
+import``/``test_the_studio_scan_would_catch_a_lazy_protocol_import`` prove
+that against planted modules rather than trusting the implementation.
 """
 
 from __future__ import annotations
@@ -98,7 +105,7 @@ def _modules() -> list[Path]:
 
 
 def test_there_are_modules_to_check():
-    assert len(_modules()) >= 3  # __init__.py, protocol.py, pipe.py, bridge.py
+    assert len(_modules()) >= 5  # __init__.py, protocol.py, pipe.py, bridge.py, rpc.py
 
 
 def test_the_only_warlock_import_in_the_mcp_package_is_bridges_config():
@@ -145,3 +152,69 @@ def test_the_scan_would_catch_a_lazy_studio_import(tmp_path):
 def test_every_module_imports():
     from warlock import mcp  # noqa: F401
     from warlock.mcp import bridge, pipe, protocol, rpc  # noqa: F401
+
+
+# =============================================================================
+# The other side of the same line: nothing under ``warlock.studio`` may
+# import ``warlock.mcp.protocol`` -- Studio's own pipe answers RPC v1 only
+# now (``docs/INVARIANTS.md``'s agent paragraph), and the bare-MCP dispatcher
+# that module used to expose was deleted along with the last caller of it in
+# ``studio/agent_host.py``. A regression here would be a lazy, function-local
+# import exactly as easily as a module-level one, so this scan is the same
+# ``ast.walk`` shape as ``_outward`` above, not a narrower ``tree.body`` one.
+# =============================================================================
+
+import warlock.studio as _studio  # noqa: E402
+
+STUDIO_PACKAGE_DIR = Path(_studio.__file__).parent
+
+
+def _studio_modules() -> list[Path]:
+    return sorted(STUDIO_PACKAGE_DIR.rglob("*.py"))
+
+
+def _imports_mcp_protocol(path: Path) -> bool:
+    """Whether *path* imports ``warlock.mcp.protocol`` (module or attribute
+    access via ``from warlock.mcp import protocol`` / ``from ..mcp import
+    protocol`` / ``from .. import mcp`` used as ``mcp.protocol`` is not
+    tracked here -- every real call site in this codebase uses one of the
+    first two forms, and a rename to dodge this pin would be its own,
+    separately obvious tell)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "warlock.mcp.protocol" or alias.name.endswith(".mcp.protocol"):
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module in ("warlock.mcp", "mcp") and any(
+                alias.name == "protocol" for alias in node.names
+            ):
+                return True
+            if node.module in ("warlock.mcp.protocol", "mcp.protocol"):
+                return True
+    return False
+
+
+def test_no_studio_module_imports_warlock_mcp_protocol():
+    offenders = [str(p) for p in _studio_modules() if _imports_mcp_protocol(p)]
+    assert not offenders, (
+        "warlock.studio must speak only RPC v1 to warlock.mcp -- "
+        f"these modules still import warlock.mcp.protocol: {offenders}"
+    )
+
+
+def test_the_studio_scan_would_catch_a_lazy_protocol_import(tmp_path):
+    """Proven against a planted module, the same way
+    ``test_the_scan_would_catch_a_lazy_studio_import`` proves the package's
+    own outward-import scan above -- a lazy, function-local ``from ..mcp
+    import protocol`` is exactly the shape this used to be, in
+    ``agent_host.py``, before it was deleted."""
+    planted = tmp_path / "not_actually_in_studio.py"
+    planted.write_text(
+        "def f():\n"
+        "    from ..mcp import protocol\n"
+        "    return protocol\n",
+        encoding="utf-8",
+    )
+    assert _imports_mcp_protocol(planted)

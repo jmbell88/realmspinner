@@ -1,13 +1,10 @@
 """Warlock's own private RPC v1 -- stdlib-only, and a leaf like its siblings.
 
-**Why this exists alongside `protocol.py`.** The MCP path (`protocol.py`,
-`bridge.py`) is what a third-party agent's MCP client speaks today, and it
-is not going away. This module is the wire format for a second, private
-channel Studio also understands over the same pipe (`pipe.py`) -- compact
-JSON requests, a JSON header plus an optional raw body for replies -- that a
-bridge that serves MCP itself uses instead of relaying MCP frames one at a
-time. Studio answers it (the first-frame sniff in `studio/agent_host.py`)
-and `bridge.py` is its one client.
+**Why this exists beside `protocol.py`.** MCP is spoken only between an
+agent's client and `bridge.py` (`protocol.py`). This module is the one
+private channel between `bridge.py` and Studio over the pipe (`pipe.py`) --
+compact JSON requests, a JSON header plus an optional raw body for replies --
+so Studio never has to know which MCP revision a client speaks.
 
 **Wire shape.** A request is one frame: compact JSON, `{"rpc": 1, "op": ...}`
 plus whatever fields that op needs. A reply is one frame too, but two parts
@@ -64,6 +61,13 @@ SUPPORTED_RPC_VERSIONS = (1,)
 """Every RPC integer this module can honestly answer `hello` with. See the
 module docstring's versioning rule for what does, and does not, bump this."""
 
+SERVER_NAME = "warlock-studio"
+"""The name Studio answers as, on both wire formats -- moved here from
+`protocol.py` (which re-exports it) since it is `rpc.py`'s own
+`catalogue_payload`/`hello_header` that build the envelope carrying it, and
+`studio/agent_host.py` reads it from here directly rather than from
+`protocol`, which `warlock.studio` must never import."""
+
 MAX_FRAME = 8 << 20
 """Ceiling on one frame -- request or reply -- moved here from `protocol.py`
 (re-exported there) since both wire formats share the same transport and the
@@ -109,11 +113,9 @@ def decode_request(frame: bytes) -> dict[str, Any]:
 
 def looks_like_rpc(frame: bytes) -> bool:
     """Whether *frame* is plausibly a v1 RPC request, cheaply -- used only to
-    sniff the *first* frame of a connection so `studio/agent_host.py` can
-    choose a wire format for the rest of it. Never raises: an undecodable
-    first frame is not this module's business to diagnose, only to decline,
-    so the existing MCP path's own parse-error handling still gets a look
-    at it."""
+    check the *first* frame of a connection, which `studio/agent_host.py`
+    answers with `bad_request` and a closed connection when it is not.
+    Never raises: an undecodable frame is declined, not diagnosed."""
     try:
         message = json.loads(frame.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -200,11 +202,10 @@ def fail(message: str, **extra: Any) -> dict[str, Any]:
 
 
 def tool_dict(tool: Tool) -> dict[str, Any]:
-    """One `Tool` as the JSON object the `catalogue` op (and MCP's
-    `tools/list`, via `protocol._tool_json`) both put on the wire. Kept as
-    its own small function, rather than shared with `protocol._tool_json`
-    directly, so this leaf module never has to import `protocol` -- the two
-    build the same shape by construction, and a test pins them equal."""
+    """One `Tool` as the JSON object the `catalogue` op puts on the wire --
+    the same shape MCP's `tools/list` (`bridge_dispatch`, via the
+    `catalogue` payload this module builds) forwards verbatim, never
+    re-encoding it."""
     result: dict[str, Any] = {
         "name": tool.name,
         "title": tool.title,

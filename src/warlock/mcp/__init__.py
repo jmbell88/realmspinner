@@ -22,20 +22,22 @@ The layering this buys:
 - `pipe.py` is the transport: a named pipe (Windows) or a Unix socket
   (everywhere else) via `multiprocessing.connection`, guarded by a token so
   a stray local connection cannot drive the Studio.
-- `bridge.py` is `warlock mcp` itself -- the real MCP server. It speaks
-  `rpc.py`'s private RPC v1 to Studio (`hello`, `catalogue`, `call`) and
-  dual-era MCP (`protocol.bridge_dispatch`) to whatever client dialled its
-  stdio: legacy, `initialize`-first JSON-RPC (with batching only for the one
-  legacy revision that still had it) and a newer "modern" era that drops
+- `bridge.py` is `warlock mcp` itself -- the real MCP server, and the
+  *only* MCP server: `studio/agent_host.py` answers RPC v1 exclusively now,
+  never bare MCP JSON-RPC (`docs/INVARIANTS.md`'s agent paragraph; enforced
+  by `tests/mcp/test_mcp_imports.py`, which pins that nothing under
+  `warlock.studio` imports `warlock.mcp.protocol` at all). `bridge.py`
+  speaks `rpc.py`'s private RPC v1 to Studio (`hello`, `catalogue`, `call`)
+  and dual-era MCP (`protocol.bridge_dispatch`) to whatever client dialled
+  its stdio: legacy, `initialize`-first JSON-RPC (with batching only for the
+  one legacy revision that still had it) and a newer "modern" era that drops
   `initialize` for `server/discover` and versions each request through
   `params._meta`. Studio keeps all per-call state (dedup, replay,
   `warlock_status`, transcript, timeouts) behind the RPC v1 `call` op; this
   module never re-parses a tool result, only splices its raw bytes into
-  whichever MCP envelope the connection's era calls for. `WARLOCK_MCP_RELAY=1`
-  keeps the old dumb byte-relay behaviour available as an escape hatch.
-  `studio/agent_host.py` still sniffs a connection's first frame to serve
-  the old, unwrapped MCP path directly too, for a bridge that has not been
-  updated to speak RPC v1 yet.
+  whichever MCP envelope the connection's era calls for. There is no relay
+  hatch back to a dumb byte relay -- Studio's pipe has nothing left that
+  would answer one.
 """
 
 from __future__ import annotations

@@ -3694,19 +3694,19 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
 
     Measured on 2026-09-11: catalogue JSON 36,682 chars + instructions 5,712
     chars = 42,394 chars total (26 Clay tools plus ``warlock_status``, at
-    ``protocol._tool_json`` encoding). Ceiling here is 48,000 -- about 13%
+    ``rpc.tool_dict`` encoding). Ceiling here is 48,000 -- about 13%
     of headroom above that measurement, more than any single existing tool's
     schema (the largest, ``clay_add_primitive``, is 3,927 chars) so one
     ordinary new tool does not trip it, but nowhere near the ~84,800 chars a
     doubling would reach, so a doubling reliably does.
     """
-    from warlock.mcp import protocol
+    from warlock.mcp import rpc
     from warlock.studio import agent_host
 
     CEILING = 48_000
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
-    tool_jsons = [protocol._tool_json(t) for t in tools]
+    tool_jsons = [rpc.tool_dict(t) for t in tools]
     catalogue = json.dumps({"tools": tool_jsons})
     instructions = agent_clay.instructions()
     total = len(catalogue) + len(instructions)

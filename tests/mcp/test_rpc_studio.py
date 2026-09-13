@@ -1,4 +1,5 @@
-"""Studio speaks ``warlock.mcp.rpc`` v1 alongside the existing MCP path.
+"""Studio speaks only ``warlock.mcp.rpc`` v1 -- there is no MCP path left on
+its own pipe.
 
 Everything here drives a real :class:`~warlock.studio.agent_host.AgentHost`
 over a real pipe (:mod:`warlock.mcp.pipe`), the same fixture shape
@@ -222,17 +223,37 @@ def test_an_identical_call_over_rpc_can_be_asked_about_by_operation_id(tmp_path)
         _stop(host, stop_pumping, pumper)
 
 
-# --- a connection's first frame sticks to one wire format ---------------------
+# --- Studio speaks only RPC v1: a non-RPC first frame is refused and closed ---
 
 
-def test_a_connection_that_opens_with_jsonrpc_still_gets_the_mcp_path(tmp_path) -> None:
+def test_a_connection_that_opens_with_jsonrpc_gets_bad_request_and_is_closed(tmp_path) -> None:
+    """Studio's pipe used to sniff a connection's first frame and, if it
+    looked like bare MCP JSON-RPC rather than RPC v1, serve that old in-app
+    path for the rest of the connection. That path is gone: the only server
+    that speaks MCP at all now is `warlock mcp` (`bridge.py`), and Studio
+    itself answers RPC v1 exclusively (`docs/INVARIANTS.md`'s agent
+    paragraph). A first frame that is not RPC v1 gets one `bad_request`
+    header reply and the connection is closed -- proven here by a bare MCP
+    `initialize`, and by the connection refusing a second request rather
+    than answering it."""
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:
         conn = pipe.connect(tmp_path)
         try:
             conn.send_bytes(protocol.encode({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
-            reply = protocol.decode(_recv(conn))
-            assert reply == {"jsonrpc": "2.0", "id": 1, "result": {}}
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert header["error"]["code"] == "bad_request"
+
+            # The connection is closed right after that one reply -- a
+            # second request either raises sending into a closed pipe, or
+            # is sent but never answered.
+            try:
+                conn.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="test"))
+            except OSError:
+                pass
+            else:
+                assert not conn.poll(0.5), "the connection should already be closed"
         finally:
             conn.close()
     finally:

@@ -1,15 +1,15 @@
-"""`warlock mcp` -- the real MCP server, and its `WARLOCK_MCP_RELAY=1`
-dumb-relay escape hatch.
+"""`warlock mcp` -- the real MCP server.
 
-`bridge.main`'s primary path negotiates Studio's private RPC v1
-(`hello`/`catalogue`/`call`) and then answers whatever MCP era its stdio
-peer negotiates, via `protocol.bridge_dispatch` -- see `test_protocol.py`
-for that dispatcher's own behaviour, pinned without a real pipe. What this
-file pins is the bridge process itself: the readable remedy on stderr when
-nothing is listening, a real RPC v1 handshake and `tools/call` round trip
-against a fake Studio that only speaks `rpc.py`'s wire format, the
-`MAX_FRAME` bound on one stdin line, and -- for the escape hatch -- the old
-byte-for-byte relay behaviour unchanged.
+`bridge.main` negotiates Studio's private RPC v1 (`hello`/`catalogue`/
+`call`) and then answers whatever MCP era its stdio peer negotiates, via
+`protocol.bridge_dispatch` -- see `test_protocol.py` for that dispatcher's
+own behaviour, pinned without a real pipe. What this file pins is the
+bridge process itself: the readable remedy on stderr when nothing is
+listening, a real RPC v1 handshake and `tools/call` round trip against a
+fake Studio that only speaks `rpc.py`'s wire format, and the `MAX_FRAME`
+bound on one stdin line. There is no relay-hatch escape any more -- Studio's
+pipe answers RPC v1 only now, so a byte-for-byte relay would have nothing to
+talk to.
 """
 
 from __future__ import annotations
@@ -205,56 +205,3 @@ def test_an_oversize_stdin_line_is_refused_and_the_connection_keeps_going(
     assert replies[1]["result"]["protocolVersion"] in protocol.LEGACY
 
 
-# --- the escape hatch: WARLOCK_MCP_RELAY=1 ---------------------------------------
-
-
-def _serve_one_message(server: pipe.Server, *, reply: bytes, request_box: dict) -> threading.Thread:
-    def run() -> None:
-        conn = server.accept()
-        assert conn is not None
-        assert conn.poll(10)
-        request_box["request"] = conn.recv_bytes()
-        conn.send_bytes(reply)
-        conn.close()
-
-    thread = threading.Thread(target=run)
-    thread.start()
-    return thread
-
-
-def test_relay_escape_hatch_forwards_bytes_unmodified(home, monkeypatch) -> None:
-    monkeypatch.setenv("WARLOCK_MCP_RELAY", "1")
-    request = protocol.encode({"jsonrpc": "2.0", "id": 1, "method": "ping"})
-    canned_reply = protocol.encode({"jsonrpc": "2.0", "id": 1, "result": {}})
-
-    server = pipe.Server(home)
-    server.start()
-    request_box: dict = {}
-    server_thread = _serve_one_message(server, reply=canned_reply, request_box=request_box)
-    stdout = _patch_stdio(monkeypatch, request)
-    try:
-        assert bridge.main([]) == 0
-    finally:
-        server_thread.join(timeout=10)
-        server.close()
-
-    assert request_box["request"] == request
-    assert stdout.getvalue() == canned_reply
-
-
-def test_relay_escape_hatch_zero_length_reply_writes_nothing(home, monkeypatch) -> None:
-    monkeypatch.setenv("WARLOCK_MCP_RELAY", "1")
-    request = protocol.encode({"jsonrpc": "2.0", "method": "notifications/initialized"})
-
-    server = pipe.Server(home)
-    server.start()
-    request_box: dict = {}
-    server_thread = _serve_one_message(server, reply=b"", request_box=request_box)
-    stdout = _patch_stdio(monkeypatch, request)
-    try:
-        assert bridge.main([]) == 0
-    finally:
-        server_thread.join(timeout=10)
-        server.close()
-
-    assert stdout.getvalue() == b""

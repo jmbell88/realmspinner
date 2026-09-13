@@ -1,23 +1,21 @@
 """MCP over JSON-RPC 2.0 -- the wire format, with no idea what a tool does.
 
-Two dispatchers live here now. `dispatch` (below) is the original, in-app
-path `studio/agent_host.py` still calls directly -- one revision family, one
-JSON-RPC shape, no era negotiation, because Studio only ever needs to answer
-what it has always answered. `bridge_dispatch` (at the bottom of this file)
-is what `warlock mcp` (`bridge.py`) calls instead: it is the module's
-dual-era MCP *server* logic -- legacy `initialize`-first negotiation and a
-newer, no-`initialize` "modern" era, JSON-RPC batching, and splicing a tool
-result's raw bytes (fetched from Studio over `rpc.py`'s private RPC v1)
+`bridge_dispatch` (at the bottom of this file) is `warlock mcp` (`bridge.
+py`)'s dual-era MCP *server* logic -- legacy `initialize`-first negotiation
+and a newer, no-`initialize` "modern" era, JSON-RPC batching, and splicing a
+tool result's raw bytes (fetched from Studio over `rpc.py`'s private RPC v1)
 into whichever envelope a connection's negotiated era calls for, all
-without ever `json.loads`-ing that result. The two share `Tool`/`ok`/
-`fail`/`text`/`image_png`/`encode`/`decode` because both wire formats need
-the same vocabulary, not because they are the same dispatcher.
+without ever `json.loads`-ing that result.
 
-`dispatch` takes a decoded JSON-RPC message plus two callbacks -- `tools`
-(the catalogue) and `call` (run one) -- and returns the reply, or `None` for
-a notification. Nothing here knows Clay exists; `studio/agent_clay.py` and
-`studio/agent_host.py` own that, which is what makes this module testable
-without a GL context and reusable the day a second mode grows tools.
+There used to be a second dispatcher here, `dispatch`, that answered bare
+MCP JSON-RPC directly on Studio's own pipe -- `studio/agent_host.py` called
+it before Studio spoke only RPC v1. It is gone: `docs/INVARIANTS.md`'s agent
+paragraph is now "Studio speaks only RPC v1; the bridge is the only MCP
+server", and `warlock.studio` importing this module at all is a pinned
+regression (`tests/mcp/test_mcp_imports.py`). Nothing here knows Clay
+exists; `studio/agent_clay.py` and `studio/agent_host.py` own that, and now
+reach `Tool`/`ok`/`fail`/`text`/`image_png`/`MAX_FRAME` through `rpc.py`
+directly rather than through this module.
 
 **The one distinction that matters more than any other in this file: a tool
 failing its job is not a JSON-RPC error.** `tools/call` on an *unknown* tool,
@@ -29,64 +27,43 @@ not exist" -- is a **successful** JSON-RPC response whose result carries
 Get this backwards and an agent's tool runner throws the failure away as a
 transport error instead of handing the model the sentence it needs to
 recover; this is reportedly the single most common MCP protocol bug, and the
-whole reason `call()`'s contract is "must not raise, and if it does anyway
-this module still turns it into `isError` rather than propagating it."
+whole reason a tool's own `call` contract is "must not raise, and if it does
+anyway `bridge_dispatch`'s own backstop still turns it into `isError` rather
+than propagating it."
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Any
 
-from .rpc import MAX_FRAME, Tool, fail, image_png, ok, text  # noqa: F401 -- re-exported
-
-PROTOCOL_VERSION = "2025-06-18"
-SERVER_NAME = "warlock-studio"
-
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
-"""Every revision `dispatch`'s `initialize` may honestly echo back, newest first.
-
-The MCP spec's own rule: a server SHOULD reply with the client's requested
-`protocolVersion` if it supports that version, and otherwise with the version
-it does support -- the client then decides whether to continue or disconnect.
-`PROTOCOL_VERSION` above stays the first element and the one used when nothing
-else applies; it must keep meaning "the one we prefer" because `test_agent_host.
-py` and `test_agent_perf.py` already depend on that name.
-
-The two older revisions earn their place here, not a free pass: this module's
-JSON-RPC message shapes for `initialize`/`notifications/initialized`/
-`tools/list`/`tools/call`/`ping` are otherwise unchanged across all three --
-the only 2025-06-18-specific wire additions are `structuredContent`/
-`outputSchema` (`ok`, `_tool_json`) and a tool's `title`. All three are
-additive keys on objects an older client already parses, so it ignores them;
-none is a shape it has to recognise in order to proceed.
-The other deltas between these revisions -- JSON-RPC batching (added
-2025-03-26, removed 2025-06-18), the `MCP-Protocol-Version` HTTP header,
-OAuth/resource-server changes -- are transport- and auth-layer, and this
-server was never on the spec's stdio or Streamable HTTP transport to begin
-with: `mcp/pipe.py` is a bespoke authenticated named pipe/socket, so those
-deltas never applied here under any version this module has ever claimed,
-2025-06-18 included. That is what makes 2024-11-05 and 2025-03-26 honest
-claims rather than merely convenient ones."""
+from .rpc import (  # noqa: F401 -- re-exported
+    MAX_FRAME,
+    SERVER_NAME,
+    Tool,
+    fail,
+    image_png,
+    ok,
+    text,
+)
 
 SERVER_VERSION = "0.0.0"
-"""Overwritten by whoever knows the real version, before the first `initialize`.
-
-This module cannot import `warlock.__version__` -- that would break the "pure
-stdlib, no warlock imports" rule that lets it be unit-tested and imported on a
-headless box -- and `dispatch`'s signature is fixed by the interface contract
-this package was built against, so it cannot take a `version` keyword either.
-A module constant is the remaining option: `studio/agent_host.py` sets this
-once, at startup, from the real `warlock.__version__`, the same way logging
-configuration is a module-level knob rather than a parameter threaded through
-every call.
+"""Overwritten by whoever knows the real version, before this process's first
+MCP request. Only `bridge.py` sets this now -- once, from the RPC v1 `hello`
+reply's `studio_version` -- since `warlock.studio` no longer imports this
+module at all (see the module docstring). This module still cannot import
+`warlock.__version__` itself: that would break the "pure stdlib, no warlock
+imports" rule that lets it be unit-tested and imported on a headless box, so
+a module constant, set by whoever knows the real version, remains the way
+`bridge_dispatch` and `discover_result` learn it without either taking a
+`version` parameter that would have to be threaded through every call.
 """
 
-# Tool, ok, fail, text, image_png and MAX_FRAME now live in `rpc.py` -- the
-# private RPC v1 wire format shares them with this MCP one -- and are
-# imported above so every existing `protocol.Tool` / `protocol.ok` / etc.
-# call site keeps working unchanged.
+# Tool, ok, fail, text, image_png, MAX_FRAME and SERVER_NAME now live in
+# `rpc.py` -- the private RPC v1 wire format shares them with this MCP one --
+# and are imported above so every existing `protocol.Tool` / `protocol.ok` /
+# `protocol.SERVER_NAME` / etc. call site keeps working unchanged.
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -100,7 +77,7 @@ def decode(line: bytes) -> dict[str, Any]:
     Two refusals live here rather than in the caller: an oversize frame (see
     `MAX_FRAME`) and a frame that parses but is not a JSON *object* -- a bare
     `42` or `"hi"` is valid JSON and invalid JSON-RPC, and letting it through
-    would hand `dispatch` a `message.get` call on a list or a string.
+    would hand a caller a `.get` call on a list or a string.
     """
     if len(line) > MAX_FRAME:
         raise ValueError(f"frame of {len(line)} bytes exceeds MAX_FRAME ({MAX_FRAME})")
@@ -113,148 +90,26 @@ def decode(line: bytes) -> dict[str, Any]:
     return message
 
 
-def _tool_json(tool: Tool) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "name": tool.name,
-        "title": tool.title,
-        "description": tool.description,
-        "inputSchema": tool.schema,
-    }
-    if tool.output_schema is not None:
-        result["outputSchema"] = tool.output_schema
-    return result
-
-
-def _result(msg_id: Any, result: dict[str, Any]) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
-
-
-def _error(msg_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
-
-
-def dispatch(
-    message: dict[str, Any],
-    *,
-    tools: Callable[[], Sequence[Tool]],
-    call: Callable[[str, dict[str, Any]], dict[str, Any]],
-    instructions: str | None = None,
-) -> dict[str, Any] | None:
-    """One JSON-RPC request in, one response out. `None` for a notification.
-
-    Handles `initialize`, `notifications/initialized`, `tools/list`,
-    `tools/call` and `ping`; anything else is `-32601`. See the module
-    docstring for why a tool's own failure never reaches this function as an
-    exception worth turning into a JSON-RPC error -- `call`'s contract already
-    promises `isError` content instead, and the `try` around it below is a
-    backstop for that promise being broken, not the advertised path.
-
-    `instructions` is MCP's optional top-level `initialize` field -- prose a
-    client may show its model before the first tool call. This module has no
-    text to put there: it knows nothing about Clay, so the caller supplies
-    the sentence, exactly the way `tools` and `call` are already supplied
-    rather than imported. Left `None` (the default), the key is omitted
-    entirely rather than sent as `""` -- an empty string is a thing a server
-    said, and a server with nothing to say omits the field, per the spec.
-    """
-    method = message.get("method")
-    has_id = "id" in message
-    msg_id = message.get("id")
-
-    if not isinstance(method, str) or not method:
-        # A request this malformed cannot have been a well-formed notification
-        # either -- both require a real method name -- so it always gets an
-        # answer, with whatever id (possibly none) we could find. That is the
-        # one place this function replies to something lacking an "id".
-        return _error(msg_id, -32600, "invalid request: 'method' must be a non-empty string")
-
-    params = message.get("params", {})
-    if params is None:
-        params = {}
-    if not isinstance(params, dict):
-        return _error(msg_id, -32602, "'params' must be an object") if has_id else None
-
-    if not has_id:
-        # JSON-RPC notifications never get a reply, success or error -- the
-        # sender already told us it is not listening for one by omitting
-        # "id". `notifications/initialized` is the only one MCP defines today;
-        # anything else unrecognised is silently ignored, per spec, rather
-        # than reported.
-        return None
-
-    try:
-        if method == "initialize":
-            # Echo the client's requested version back if it's one we can
-            # honestly serve (see SUPPORTED_PROTOCOL_VERSIONS); otherwise fall
-            # back to the one we prefer. An unrecognised or absent version is
-            # not a JSON-RPC error -- the spec's answer to "I don't speak
-            # that" is a successful reply naming what we *do* speak, leaving
-            # the client to decide whether to continue or disconnect.
-            requested = params.get("protocolVersion")
-            version = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
-            result: dict[str, Any] = {
-                "protocolVersion": version,
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-            }
-            if instructions:
-                result["instructions"] = instructions
-            return _result(msg_id, result)
-        if method == "ping":
-            return _result(msg_id, {})
-        if method == "tools/list":
-            return _result(msg_id, {"tools": [_tool_json(t) for t in tools()]})
-        if method == "tools/call":
-            name = params.get("name")
-            if not isinstance(name, str) or not name:
-                return _error(msg_id, -32602, "tools/call needs a string 'name'")
-            arguments = params.get("arguments", {})
-            if arguments is None:
-                arguments = {}
-            if not isinstance(arguments, dict):
-                return _error(msg_id, -32602, "'arguments' must be an object")
-            try:
-                result = call(name, arguments)
-            except Exception as exc:  # noqa: BLE001 -- call() promises not to raise; this
-                # is what happens the day that promise is broken anyway, so an
-                # agent still gets isError content instead of a dropped
-                # connection.
-                result = fail(f"{type(exc).__name__}: {exc}")
-            return _result(msg_id, result)
-        return _error(msg_id, -32601, f"unknown method: {method}")
-    except Exception as exc:  # noqa: BLE001 -- e.g. tools() raising; dispatch itself
-        # must never propagate, since it runs on the listener thread in
-        # studio/agent_host.py and an uncaught exception there would take the
-        # whole agent session down instead of reporting one bad call.
-        return _error(msg_id, -32603, f"{type(exc).__name__}: {exc}")
-
-
 # ---------------------------------------------------------------------------
 # Bridge-side, dual-era dispatch.
 #
-# Everything above this point still runs *inside the app*
-# (``studio/agent_host.py``) and answers exactly one revision family -- the
-# legacy MCP revisions ``SUPPORTED_PROTOCOL_VERSIONS`` names, all sharing one
-# JSON-RPC shape. ``bridge.py`` (``warlock mcp``) is a different peer
-# entirely: it is the real MCP server a third-party client's tool runner
-# dials, so it has to speak whatever revision that client actually
-# negotiates -- both the legacy family and a newer "modern" era that drops
-# `initialize` for `server/discover` and carries its version per-request.
-# Studio itself never has to know about any of this: it answers a private
-# RPC (`rpc.py`), not MCP, and the bridge is the only thing that speaks MCP
-# to the outside world. The functions below build that: era negotiation,
-# per-request modern versioning, and splicing a tool result's raw JSON bytes
-# (fetched from Studio over RPC v1, never re-parsed here) into whichever
-# envelope this connection's era calls for.
+# `bridge.py` (``warlock mcp``) is the real MCP server a third-party
+# client's tool runner dials, so it has to speak whatever revision that
+# client actually negotiates -- both a legacy family and a newer "modern"
+# era that drops `initialize` for `server/discover` and carries its version
+# per-request. Studio itself never has to know about any of this: it
+# answers a private RPC (`rpc.py`), not MCP, and the bridge is the only
+# thing that speaks MCP to the outside world. The functions below build
+# that: era negotiation, per-request modern versioning, and splicing a tool
+# result's raw JSON bytes (fetched from Studio over RPC v1, never re-parsed
+# here) into whichever envelope this connection's era calls for.
 # ---------------------------------------------------------------------------
 
 LEGACY = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 """Every MCP revision the bridge may honestly negotiate under classic,
-`initialize`-first JSON-RPC semantics, newest first. Distinct from
-``SUPPORTED_PROTOCOL_VERSIONS`` above (the in-app path's own, narrower list)
-because the bridge is a real MCP server facing real clients and has to keep
-up with what they actually request; the in-app dispatcher answers a fixed,
-already-shipped set instead."""
+`initialize`-first JSON-RPC semantics, newest first. The bridge is a real
+MCP server facing real clients and has to keep up with what they actually
+request."""
 
 MODERN = ("2026-07-28",)
 """Every revision the bridge may serve under the newer, no-`initialize`

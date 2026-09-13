@@ -1,57 +1,42 @@
-"""The MCP listener that lets an external agent drive Clay through Warlock.
+"""The RPC v1 listener that lets an external agent drive Clay through Warlock.
 
 **One thread reads the pipe; only the frame thread ever touches a document,
 GL or imgui.** ``AgentHost`` owns a :class:`~warlock.mcp.pipe.Server` and a
 daemon thread that loops ``accept`` -> a per-connection ``recv_bytes`` ->
-``protocol.decode`` -> ``protocol.dispatch`` -> ``protocol.encode`` ->
-``send_bytes``. ``protocol.dispatch`` needs a ``call(name, arguments)``
-callback to actually run a tool, and running a tool means touching a
-:class:`~.clay.document.Document` and, for ``clay_render``, a moderngl
-context -- exactly the two things this thread must never reach for itself
-(see ``CLAUDE.md``'s "one GL context" rule and ``docs/INVARIANTS.md``'s
-three-thread model). So the callback this module hands ``dispatch`` does not
+``rpc.decode_request`` -> one of ``hello``/``catalogue``/``call`` ->
+``rpc.encode_reply`` -> ``send_bytes``. A ``call`` op needs a
+``call(name, arguments)`` step to actually run a tool, and running a tool
+means touching a :class:`~.clay.document.Document` and, for ``clay_render``,
+a moderngl context -- exactly the two things this thread must never reach
+for itself (see ``CLAUDE.md``'s "one GL context" rule and ``docs/
+INVARIANTS.md``'s three-thread model). So :meth:`AgentHost._call` does not
 run the tool at all: it drops a job on a queue and blocks *this* thread on a
 :class:`threading.Event` until :meth:`AgentHost.pump`, called once a frame
 from ``main.py:App.frame``, dequeues it and runs ``agent_clay.call`` for
 real. The listener thread waits; it never works.
 
-**A notification gets a zero-length reply, never no reply.** ``protocol.
-dispatch`` returns ``None`` for a JSON-RPC notification (``notifications/
-initialized`` today), which correctly means "nothing to say" at the protocol
-level -- but ``warlock.mcp.bridge`` relays exactly one frame back to its
-stdout per frame it reads from stdin, and an empty write there is how it
-tells the calling agent's MCP client "no reply, keep going" without the two
-ends of the relay losing count of whose turn it is. Sending literally
-nothing for a notification would leave the bridge blocked in its own
-``recv_bytes``, waiting for a reply that the *next* real request's answer
-would then be misread as. ``b""`` is a legitimate, empty frame on this
-transport (length-prefixed, per ``pipe.py``'s use of ``multiprocessing.
-connection``) and is exactly what keeps the two sides in step.
+**Studio speaks only RPC v1 on this pipe -- there is no bare-MCP path
+here any more, and none of this module (or anything else under
+``warlock.studio``) may import ``warlock.mcp.protocol``** (``docs/
+INVARIANTS.md``'s agent paragraph; pinned by ``tests/mcp/
+test_mcp_imports.py``). ``bridge.py`` (``warlock mcp``) is the only MCP
+*server*: it is the thing a third-party agent client's tool runner dials,
+and it translates whatever MCP era that client negotiates into RPC v1
+calls against this listener, never the other way around. A connection's
+first frame that does not look like an RPC v1 request (``rpc.looks_like_
+rpc``) gets a single ``bad_request`` header reply and the connection is
+closed -- there is no second wire format left to fall back to, and no
+relay hatch either.
 
-**``_serve`` sniffs the first frame of a connection to decide which
-of two private wire formats the rest of it speaks.** A first frame that
-parses as a JSON object containing ``"jsonrpc"`` is the MCP path described
-above, unchanged. A first frame containing ``"rpc"`` instead is ``warlock.
-mcp.rpc``'s own versioned RPC v1 -- see that module's docstring for the wire
-shape and the versioning rule. Both paths route a ``call``/``tools/call``
-through the exact same :meth:`AgentHost._call` (dedup, replay,
-``warlock_status``, transcript, timeout refusals included) -- there is one
-copy of that logic, not two wire formats each with their own. `bridge.py`
-now speaks RPC v1 as its primary path and is the real MCP server a
-third-party client dials; the bare-MCP-over-the-pipe path answered here is
-what a bridge not yet updated to RPC v1 still gets, and
-``WARLOCK_MCP_RELAY=1`` is `bridge.py`'s own escape hatch back to relaying
-it byte-for-byte with no protocol logic on either side.
-
-**`initialize`'s `instructions` text is supplied by `agent_clay`, not written
-here or in `protocol.py`.** `protocol.dispatch` takes `instructions` as a
-plain keyword and has no opinion about its content -- it is a stdlib leaf
-that knows nothing about Clay (see its own module docstring). The text this
-module passes is entirely about Clay's units and conventions ("a metre is a
-metre", elements are indices into a mesh that already exists, that kind of
-thing), so the module that owns the tools -- `agent_clay` -- is the one that
-owns the sentence that introduces them, the same division that already puts
-the tool catalogue itself in `agent_clay.tools` rather than here.
+**``initialize``'s `instructions` text is supplied by `agent_clay`, not
+written here.** The RPC v1 ``catalogue`` op's reply carries whatever
+``agent_clay.instructions()`` returns, verbatim -- this module has no text
+of its own to put there. The text is entirely about Clay's units and
+conventions ("a metre is a metre", elements are indices into a mesh that
+already exists, that kind of thing), so the module that owns the tools --
+`agent_clay` -- is the one that owns the sentence that introduces them, the
+same division that already puts the tool catalogue itself in `agent_clay.
+tools` rather than here.
 
 **The tab a connecting agent gets is opened before it can ask for one.**
 `docs/manual/46-extending.md` promises "It opens one when it connects", so
@@ -104,7 +89,7 @@ are never folded together -- placing two identical boxes on purpose places
 two boxes, not one box and a memory of it. An operation whose result has
 been delivered keeps no payload at all (see :class:`_Op`'s own docstring for
 why that bound matters -- a remembered ``clay_render`` would otherwise pin a
-reply up to ``protocol.MAX_FRAME`` for the rest of the connection), and the
+reply up to ``rpc.MAX_FRAME`` for the rest of the connection), and the
 store remembers at most ``MAX_REMEMBERED_CALLS`` operations, discarded whole
 with the connection -- a reconnecting agent gets a fresh document, so
 remembering a previous connection's calls would only be remembering answers
@@ -310,7 +295,7 @@ class _Op:
     :meth:`AgentHost._call` lets ``job`` (and ``result``) go right then. That
     is what keeps the bound in ``MAX_REMEMBERED_CALLS`` meaningful rather
     than nominal: without it, a remembered ``clay_render`` would keep
-    pinning a payload up to ``protocol.MAX_FRAME`` in memory for the rest of
+    pinning a payload up to ``rpc.MAX_FRAME`` in memory for the rest of
     the connection, for a reply the peer already has.
     """
 
@@ -395,7 +380,7 @@ def _carries_an_image(result: dict) -> bool:
 
     Two reasons together, not either alone. An image is the largest thing
     this store could end up pinning in memory -- a ``clay_render`` reply's
-    base64 payload runs up to ``protocol.MAX_FRAME`` less
+    base64 payload runs up to ``rpc.MAX_FRAME`` less
     ``agent_clay.RENDER_FRAME_RESERVE`` -- and a render is a pure read of the
     document, so re-running one is strictly better for the agent than being
     handed a picture of the document as it stood whenever the original call
@@ -430,10 +415,10 @@ def _transport_tools() -> list[Any]:
     Clay's catalogue, keeps ``agent_clay``'s derived-catalogue claim true
     rather than quietly widened to cover a tool that holds no document.
     """
-    from ..mcp import protocol
+    from ..mcp import rpc
 
     return [
-        protocol.Tool(
+        rpc.Tool(
             name=STATUS_TOOL,
             title="Check on a call",
             description=(
@@ -493,6 +478,13 @@ class AgentHost:
         # it could. Read by the Settings pane, which has to say something
         # other than nothing when the switch will not stay on.
         self.failure: str | None = None
+        # Set for real in :meth:`start`, from ``warlock.__version__`` --
+        # this default only covers the window before a first ``start()``,
+        # which nothing should be asking about the version during anyway.
+        self._version = "0.0.0"
+        # The catalogue hash this connection last served; see the ``call``
+        # branch of ``_serve_rpc_frame``.
+        self._served_catalogue_hash: str | None = None
         # The live per-connection ``Connection``, so :meth:`stop` can close it
         # out from under a listener thread blocked in that connection's own
         # ``recv_bytes`` -- closing the *Listener* (``pipe.Server.close``)
@@ -545,13 +537,14 @@ class AgentHost:
         if self.running:
             return True
         from .. import __version__
-        from ..mcp import pipe, protocol
+        from ..mcp import pipe
 
-        # Set once, here, per ``protocol.SERVER_VERSION``'s own docstring:
-        # that module cannot import ``warlock`` itself without breaking the
-        # "pure stdlib, no warlock imports" rule that keeps it testable on a
-        # headless box.
-        protocol.SERVER_VERSION = __version__
+        # Kept on the instance, not a module global: unlike the old
+        # bare-MCP path, nothing here may import ``warlock.mcp.protocol``
+        # (see the module docstring), and ``rpc.py`` -- a pure stdlib leaf
+        # that cannot import ``warlock`` itself -- takes the version as a
+        # plain argument on every call that needs it instead.
+        self._version = __version__
         server = pipe.Server(self.home)
         try:
             server.start()
@@ -629,7 +622,7 @@ class AgentHost:
         result at all. A job already claimed by ``pump`` (state no longer
         ``QUEUED``) is left alone -- it is mid-``run()`` or finished, and
         this method has no business overwriting either outcome."""
-        from ..mcp import protocol
+        from ..mcp import rpc
 
         q = self._queue
         if q is None:
@@ -643,7 +636,7 @@ class AgentHost:
                 if job.state != QUEUED:
                     continue
                 job.state = DROPPED
-                job.result = protocol.fail("Warlock's agent server was switched off.")
+                job.result = rpc.fail("Warlock's agent server was switched off.")
             job.event.set()
 
     # -- the listener thread ---------------------------------------------------
@@ -669,14 +662,18 @@ class AgentHost:
 
     def _serve(self, conn: Any) -> None:
         """One bridge's whole lifetime: open a session and a tab for it,
-        answer every request until it disconnects, then say so.
+        answer every RPC v1 request until it disconnects, then say so.
 
-        The *first* frame decides which of two wire formats the rest of the
-        connection speaks -- see the module docstring's first-frame paragraph. Every
-        frame after that goes through the same branch: a connection cannot
-        switch formats mid-stream, since nothing on either side ever needs
-        it to."""
-        from ..mcp import protocol, rpc
+        The *first* frame is checked with ``rpc.looks_like_rpc`` -- a
+        connection that opens with anything else (a stray bare-MCP peer
+        that has not been updated, or garbage) gets one ``bad_request``
+        header reply and the connection is closed right there; there is no
+        second wire format to fall back to any more (see the module
+        docstring). Every frame after the first is assumed RPC too, the
+        same way the old sniff locked in whichever format the first frame
+        decided -- a connection cannot switch formats mid-stream, since
+        nothing on either side ever needs it to."""
+        from ..mcp import rpc
 
         session = agent_clay.Session()
         calls = _Calls()
@@ -687,7 +684,8 @@ class AgentHost:
         # inspected: ``create=True`` cannot fail, and every tool call after
         # this resolves the tab fresh through ``agent_clay._tab`` regardless.
         self._run_on_frame(lambda: agent_clay._tab(self.ctx, session, create=True))
-        rpc_mode: bool | None = None
+        checked_first_frame = False
+        self._served_catalogue_hash = None
         try:
             while True:
                 try:
@@ -696,35 +694,13 @@ class AgentHost:
                     # The bridge went away -- not this host's problem to
                     # report, just to notice.
                     return
-                if rpc_mode is None:
-                    rpc_mode = rpc.looks_like_rpc(frame_bytes)
-                if rpc_mode:
-                    reply_bytes = self._serve_rpc_frame(session, calls, frame_bytes)
-                else:
-                    try:
-                        message = protocol.decode(frame_bytes)
-                    except ValueError as exc:
-                        reply_bytes = _parse_error_frame(exc)
-                        if reply_bytes is None:
-                            return
-                    else:
-                        reply = protocol.dispatch(
-                            message,
-                            # Clay's derived catalogue, plus the
-                            # transport-level tools this module publishes
-                            # itself -- see _transport_tools for why
-                            # STATUS_TOOL cannot join agent_clay._HANDLERS
-                            # instead.
-                            tools=lambda: [*agent_clay.tools(), *_transport_tools()],
-                            call=lambda name, arguments: self._call(
-                                session, calls, name, arguments
-                            ),
-                            instructions=agent_clay.instructions(),
-                        )
-                        # A notification: see the module docstring for why
-                        # this is a zero-length frame and never a skipped
-                        # write.
-                        reply_bytes = b"" if reply is None else protocol.encode(reply)
+                if not checked_first_frame:
+                    checked_first_frame = True
+                    if not rpc.looks_like_rpc(frame_bytes):
+                        with contextlib.suppress(OSError):
+                            conn.send_bytes(rpc.encode_reply(rpc.bad_request_header()))
+                        return
+                reply_bytes = self._serve_rpc_frame(session, calls, frame_bytes)
                 try:
                     conn.send_bytes(reply_bytes)
                 except OSError:
@@ -741,9 +717,8 @@ class AgentHost:
     ) -> bytes:
         """One RPC v1 request answered, per ``warlock.mcp.rpc``'s wire
         shape. Never raises: an undecodable frame or an unknown op both get
-        an ``{"error": ...}`` header rather than taking the connection down,
-        the same tolerance the MCP path gives a malformed frame via
-        :func:`_parse_error_frame`."""
+        an ``{"error": ...}`` header rather than taking the connection
+        down."""
         from ..mcp import rpc
 
         try:
@@ -753,15 +728,18 @@ class AgentHost:
 
         op = message.get("op")
         if op == "hello":
+            self._served_catalogue_hash = self._catalogue_hash()
             header = rpc.hello_header(
                 message.get("versions"),
                 studio_version=self._rpc_studio_version(),
-                catalogue_hash=self._catalogue_hash(),
+                catalogue_hash=self._served_catalogue_hash,
                 call_timeout=CALL_TIMEOUT,
             )
             return rpc.encode_reply(header)
         if op == "catalogue":
-            return rpc.encode_reply(self._catalogue_payload())
+            payload = self._catalogue_payload()
+            self._served_catalogue_hash = payload["hash"]
+            return rpc.encode_reply(payload)
         if op == "call":
             name = message.get("tool")
             arguments = message.get("args")
@@ -778,38 +756,38 @@ class AgentHost:
             # on every single call (two different `warlock_status` replies
             # hash differently), so the bridge believed the catalogue moved
             # after every ordinary call and spammed the notification.
-            return rpc.encode_reply({"hash": self._catalogue_hash()}, body)
+            # Remembered from this connection's hello/catalogue rather than
+            # rebuilt: rebuilding cost 0.42 ms a call (2026-09-12), which put
+            # the fifty-object round trip past its +0.5 ms allowance, and
+            # the registries it hashes do not change inside one process.
+            if self._served_catalogue_hash is None:
+                self._served_catalogue_hash = self._catalogue_hash()
+            return rpc.encode_reply({"hash": self._served_catalogue_hash}, body)
         return rpc.encode_reply(rpc.unknown_op_header())
 
     def _rpc_studio_version(self) -> str:
-        from ..mcp import protocol
-
-        return protocol.SERVER_VERSION
+        return self._version
 
     def _rpc_tools(self) -> list[Any]:
-        """The exact tool list both wire formats publish -- see
-        ``_serve``'s ``tools=`` lambda for the MCP-path twin of this."""
+        """The exact tool list this host publishes -- see :meth:`_serve`
+        for where it is served."""
         return [*agent_clay.tools(), *_transport_tools()]
 
     def _catalogue_payload(self) -> dict[str, Any]:
-        from ..mcp import protocol, rpc
+        from ..mcp import rpc
 
         return rpc.catalogue_payload(
             self._rpc_tools(),
             instructions=agent_clay.instructions(),
-            server_name=protocol.SERVER_NAME,
-            server_version=protocol.SERVER_VERSION,
+            server_name=rpc.SERVER_NAME,
+            server_version=self._version,
         )
 
     def _catalogue_hash(self) -> str:
-        """The catalogue's own hash. Not cached: ``agent_clay.tools()``'s
-        own docstring already treats rebuilding the catalogue from the
-        registries as cheap enough to redo on every ``tools/list``, and
-        `test_the_catalogue_hash_changes_when_the_tool_list_changes` (this
-        package's own regression test) depends on this recomputing fresh
-        each call rather than answering from a stale cache -- see
-        `tests/test_agent_perf.py` for the measured cost of doing so on the
-        RPC v1 `call` reply path as well, now that this is read there too."""
+        """The catalogue's own hash, rebuilt fresh. The ``call`` reply does
+        not use this directly -- it reuses the hash its connection last
+        served -- so a hash per ``tools/list``-sized rebuild is only paid on
+        ``hello`` and ``catalogue``."""
         return self._catalogue_payload()["hash"]
 
     def _write_catalogue_snapshot(self) -> None:
@@ -841,7 +819,7 @@ class AgentHost:
     def _call(
         self, session: agent_clay.Session, calls: _Calls, name: str, arguments: dict
     ) -> dict:
-        """The ``call`` callback handed to ``protocol.dispatch``. Runs on the
+        """The ``call`` callback handed to the RPC v1 ``call`` op. Runs on the
         listener thread but never runs the tool itself -- it queues the real
         work for :meth:`pump` and blocks here (never the frame thread) until
         an answer lands or ``CALL_TIMEOUT`` passes.
@@ -857,7 +835,7 @@ class AgentHost:
         genuine result, or the error backstop below), kept replayable if a
         timeout refusal is about to be returned instead.
         """
-        from ..mcp import protocol
+        from ..mcp import rpc
 
         # STATUS_TOOL is answered here, before anything else, and never
         # queued: it exists precisely for the case where the frame thread
@@ -885,11 +863,11 @@ class AgentHost:
         )
         if error is not None:
             # ``agent_clay.call`` promises never to raise; this is the same
-            # backstop ``protocol.dispatch`` keeps around its own call site,
+            # backstop the RPC v1 ``call`` op keeps around its own call site,
             # for the day that promise is broken anyway. Delivered: the
             # refusal below is the peer's answer.
             op.state, op.job, op.result, op.delivered = state, None, None, True
-            return protocol.fail(f"{type(error).__name__}: {error}")
+            return rpc.fail(f"{type(error).__name__}: {error}")
         # Checked before ``state``: ``agent_clay.call`` is contracted never to
         # return ``None`` (it always answers with a result dict, even a
         # refusal), so a result in hand means the job genuinely answered --
@@ -934,7 +912,7 @@ class AgentHost:
         # (see :meth:`_replay`).
         op.job, op.state, op.delivered = job, state, False
         if state == DROPPED:
-            return protocol.fail(
+            return rpc.fail(
                 f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the window is busy. "
                 f"The call was dropped before it ran, as operation {op.operation_id}, so nothing "
                 "changed -- send it again.",
@@ -949,7 +927,7 @@ class AgentHost:
         # exactly what a client already does with "read_scene" for a document
         # it has not re-read since a uid went missing. See agent_clay.RECOVERY
         # for the shared vocabulary this reuses rather than duplicates.
-        return protocol.fail(
+        return rpc.fail(
             f"Warlock did not answer within {int(CALL_TIMEOUT)} seconds; the call had already "
             f"started and will finish on its own, as operation {op.operation_id}. Ask "
             f"{STATUS_TOOL} about it -- and once it has finished, sending that same call "
@@ -984,7 +962,7 @@ class AgentHost:
           handed to the peer, a ``note`` says so and points at the recovery
           :meth:`_call` itself now offers: send the identical call again and
           it comes back as a replay rather than running twice.
-        * Given but unknown to this connection's store -- ``protocol.fail``,
+        * Given but unknown to this connection's store -- ``rpc.fail``,
           naming the id and ``field="operation_id"`` (the convention every
           other refusal in this bridge follows), and saying plainly that the
           store only remembers the most recent ``MAX_REMEMBERED_CALLS``.
@@ -1000,16 +978,16 @@ class AgentHost:
         declares no ``outputSchema`` of its own, for the same "no reader"
         reason ``agent_clay``'s own undeclared tools do not either.
         """
-        from ..mcp import protocol
+        from ..mcp import rpc
 
         operation_id = args.get("operation_id")
         if operation_id is not None and not isinstance(operation_id, str):
-            return protocol.fail("'operation_id' must be a string.", field="operation_id")
+            return rpc.fail("'operation_id' must be a string.", field="operation_id")
 
         if operation_id:
             op = calls.get(operation_id)
             if op is None:
-                return protocol.fail(
+                return rpc.fail(
                     f"No operation named {operation_id!r} on this connection -- its store "
                     f"only remembers the most recent {MAX_REMEMBERED_CALLS} calls.",
                     field="operation_id",
@@ -1020,7 +998,7 @@ class AgentHost:
                     "Its result is still waiting -- sending the same call again will hand "
                     "it back rather than run it a second time."
                 )
-            return protocol.ok(protocol.text(json.dumps(payload)), structured=payload)
+            return rpc.ok(rpc.text(json.dumps(payload)), structured=payload)
 
         payload = {"operations": [self._op_row(op) for op in calls.recent(MAX_REMEMBERED_CALLS)]}
         q = self._queue
@@ -1033,7 +1011,7 @@ class AgentHost:
             # entries on the queue right now -- and never claims to be a
             # count of work still to run.
             payload["queue_depth"] = q.qsize()
-        return protocol.ok(protocol.text(json.dumps(payload)), structured=payload)
+        return rpc.ok(rpc.text(json.dumps(payload)), structured=payload)
 
     def _replay(self, prior: _Op) -> dict | None:
         """Whether a retry of *prior*'s intent should be answered from memory
@@ -1060,11 +1038,11 @@ class AgentHost:
           the old operation is closed first, so a third identical call runs
           for real rather than matching a replay of a replay.
         """
-        from ..mcp import protocol
+        from ..mcp import rpc
 
         state = prior.status(self._job_lock)
         if state in (RUNNING, QUEUED):
-            return protocol.fail(
+            return rpc.fail(
                 f"That same call is already {state} as operation {prior.operation_id} and its "
                 "result was never delivered; sending it again would run it twice. Wait for it "
                 "rather than repeating it.",
@@ -1093,7 +1071,7 @@ class AgentHost:
         # once and must not accumulate flags across replays, so the reply is
         # a fresh copy all the way down to structuredContent.
         content = list(payload.get("content", [])) + [
-            protocol.text(
+            rpc.text(
                 f"(This is the remembered result of operation {prior.operation_id}, replayed "
                 "because that call's answer never reached you. It was not run again.)"
             )
@@ -1145,9 +1123,9 @@ class AgentHost:
             # Never queued, so nothing ran -- and this is the same situation
             # ``_fail_pending`` answers, so it gets the same sentence rather
             # than a second wording for one condition.
-            from ..mcp import protocol
+            from ..mcp import rpc
 
-            return None, protocol.fail("Warlock's agent server was switched off."), None, DROPPED
+            return None, rpc.fail("Warlock's agent server was switched off."), None, DROPPED
         job = _Job(run)
         q.put(job)
         if job.event.wait(timeout):
@@ -1233,35 +1211,3 @@ class AgentHost:
             finally:
                 job.event.set()
 
-
-def _parse_error_frame(exc: ValueError) -> bytes | None:
-    """A JSON-RPC parse-error reply for a frame ``protocol.decode`` refused.
-
-    There is no request id to answer with -- decoding is what would have
-    told us one -- so this builds the one JSON-RPC error shape that is
-    allowed to omit it (``id: null``, code ``-32700``) by hand rather than
-    through ``protocol``, which only ever builds a reply *from* a parsed
-    message. ``None`` means even this could not be built, which the caller
-    reads as "drop the connection" -- the last resort the module docstring
-    promises for a frame malformed enough to fail here too.
-    """
-    from ..mcp import protocol
-
-    try:
-        return protocol.encode(
-            {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": f"parse error: {exc}"},
-            }
-        )
-    except Exception:
-        # Silent on purpose, and this is the one place in this module that is.
-        # Everything encoded here is a literal but the interpolated ``exc``
-        # message, so reaching this means ``json.dumps`` refused a string --
-        # which should not happen and, if it somehow does, has nowhere useful
-        # to be reported: the connection is about to be dropped, which is the
-        # consequence the peer actually observes, and a log line about a
-        # failure to describe a malformed frame is noise a hostile peer could
-        # produce on demand by sending more of them.
-        return None

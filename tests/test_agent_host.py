@@ -18,18 +18,16 @@ is about that seam holding, with no real GL and no real app:
   and ``start`` are idempotent, which the Settings toggle relies on by calling
   them every frame the checkbox is drawn, not only on the transition.
 * A real round trip over a real pipe: ``pipe.connect`` against a started
-  host, an ``initialize`` and a ``tools/list`` request answered while a
-  background thread drives ``pump()`` the way ``main.py:App.frame`` would,
-  and the one case the module docstring calls out by name -- a JSON-RPC
-  *notification* gets a zero-length reply frame, never a skipped write,
-  because that is what keeps the bridge relaying one frame in for one frame
-  out.
-* ``_serve`` hands ``agent_clay.instructions()`` to ``protocol.dispatch`` --
-  a thread-boundary claim like every other bullet here, proven the same way,
-  by reading it back out of a real ``initialize`` reply rather than off the
-  source. This is the one place this file's title bends: it does not care
-  *what* Clay's conventions say, only that whatever ``agent_clay.
-  instructions()`` returns is what a bridge actually receives.
+  host, a ``hello``/``catalogue``/``call`` sequence answered while a
+  background thread drives ``pump()`` the way ``main.py:App.frame`` would --
+  RPC v1 is the only wire format Studio's pipe answers now (see ``tests/mcp/
+  test_rpc_studio.py`` for the fuller surface of that).
+* ``_catalogue_payload`` hands ``agent_clay.instructions()`` straight
+  through -- a thread-boundary claim like every other bullet here, proven
+  the same way, by reading it back out of a real ``catalogue`` reply rather
+  than off the source. This is the one place this file's title bends: it
+  does not care *what* Clay's conventions say, only that whatever
+  ``agent_clay.instructions()`` returns is what a bridge actually receives.
 * A call the frame thread has not started yet is **dropped**, not run late,
   once the listener stops waiting for it -- proven with no pump running at
   all, so the job is provably still ``QUEUED`` when the wait gives up. A call
@@ -99,7 +97,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from warlock.mcp import pipe, protocol
+from warlock.mcp import pipe, rpc
 from warlock.studio import agent_clay, agent_host, agent_transcript
 
 #: A generous but bounded ceiling for anything that talks over the real pipe
@@ -325,11 +323,16 @@ def test_a_start_that_succeeds_clears_an_earlier_failure(tmp_path, monkeypatch) 
 # --- a real round trip over a real pipe --------------------------------------
 
 
-def test_a_real_round_trip_answers_requests_and_gives_a_notification_zero_bytes(
+def test_a_real_round_trip_answers_hello_catalogue_and_call(
     tmp_path,
 ) -> None:
     """Drives ``host.pump()`` from this thread the way ``App.frame`` would,
-    while a real bridge connection (``pipe.connect``) talks JSON-RPC at it."""
+    while a real bridge connection (``pipe.connect``) talks RPC v1 at it --
+    the wire format Studio's pipe answers exclusively now (see ``tests/mcp/
+    test_rpc_studio.py`` for the fuller RPC v1 surface; this file's own
+    round trip stays here so ``AgentHost``'s thread claims are proven
+    against the same pipe/pump harness every other test in this file
+    uses)."""
     host = agent_host.AgentHost(_Ctx(), tmp_path)
     host.start()
     stop_pumping = threading.Event()
@@ -344,39 +347,33 @@ def test_a_real_round_trip_answers_requests_and_gives_a_notification_zero_bytes(
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(protocol.encode({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
-            reply = protocol.decode(_recv(conn))
-            assert reply["id"] == 1
-            assert reply["result"]["protocolVersion"] == protocol.PROTOCOL_VERSION
-            assert reply["result"]["serverInfo"]["name"] == protocol.SERVER_NAME
-            # ``_serve`` passes ``agent_clay.instructions()`` to
-            # ``protocol.dispatch`` unconditionally -- see the module
-            # docstring's note on why the text lives in ``agent_clay`` rather
-            # than here or in ``protocol.py`` -- so a real ``initialize``
-            # reply over a real bridge carries Clay's own conventions, named
-            # by the word every one of them is stated in: a metre.
-            #
-            # **Expected to fail with ``AttributeError`` until agent B lands
-            # ``agent_clay.instructions()``** in ``src/warlock/studio/
-            # agent_clay.py`` -- every other assertion in this test is
-            # unrelated to that landing and must keep passing regardless.
-            assert "metre" in reply["result"]["instructions"]
+            conn.send_bytes(rpc.encode_request("hello", versions=[1], bridge_version="test"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert header["rpc"] == 1
+            assert isinstance(header["studio_version"], str)
 
-            conn.send_bytes(protocol.encode({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
-            reply = protocol.decode(_recv(conn))
-            names = {tool["name"] for tool in reply["result"]["tools"]}
+            conn.send_bytes(rpc.encode_request("catalogue"))
+            cat_header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            names = {tool["name"] for tool in cat_header["tools"]}
             assert "clay_scene" in names
             assert "clay_export" in names
+            # ``_serve``/`` _catalogue_payload`` pass ``agent_clay.
+            # instructions()`` through unconditionally -- see the module
+            # docstring's note on why the text lives in ``agent_clay`` --
+            # so a real ``catalogue`` reply over a real pipe carries Clay's
+            # own conventions, named by the word every one of them is
+            # stated in: a metre.
+            assert "metre" in cat_header["instructions"]
 
-            # The claim the module docstring names by hand: a notification (no
-            # "id") gets a reply frame of zero length, never a skipped write --
-            # anything else desynchronises the bridge's one-frame-in-one-out
-            # relay with its own MCP client on the other side.
             conn.send_bytes(
-                protocol.encode({"jsonrpc": "2.0", "method": "notifications/initialized"})
+                rpc.encode_request("call", tool=agent_host.STATUS_TOOL, args={})
             )
-            frame = _recv(conn)
-            assert frame == b""
+            call_header, body = rpc.split_reply(_recv(conn))
+            result = json.loads(body.decode("utf-8"))
+            assert result["isError"] is False
+            assert call_header["hash"] == cat_header["hash"]
         finally:
             conn.close()
     finally:
@@ -385,19 +382,15 @@ def test_a_real_round_trip_answers_requests_and_gives_a_notification_zero_bytes(
         host.stop()
 
 
-# --- initialize carries agent_clay's instructions -----------------------------
+# --- catalogue carries agent_clay's instructions ------------------------------
 
 
-def test_the_initialize_reply_carries_agent_clay_supplied_instructions(
+def test_the_catalogue_reply_carries_agent_clay_supplied_instructions(
     tmp_path, monkeypatch
 ) -> None:
-    """``_serve`` passes ``agent_clay.instructions()`` to ``protocol.dispatch``
-    -- proven over a real pipe, the way the round trip above proves everything
-    else ``_serve`` promises, rather than by reading the source. Monkeypatched
-    so this passes today regardless of whether ``agent_clay.instructions`` is
-    a real sentence about Clay's conventions yet -- the module docstring's
-    reasoning for *why* the text lives there is a separate claim from *that*
-    ``_serve`` wires it through, and this test is only the second one."""
+    """``_catalogue_payload`` passes ``agent_clay.instructions()`` through --
+    proven over a real pipe, the way the round trip above proves everything
+    else ``_serve`` promises, rather than by reading the source."""
     monkeypatch.setattr(agent_clay, "instructions", lambda: "known string", raising=False)
 
     host = agent_host.AgentHost(_Ctx(), tmp_path)
@@ -414,9 +407,10 @@ def test_the_initialize_reply_carries_agent_clay_supplied_instructions(
     try:
         conn = pipe.connect(tmp_path)
         try:
-            conn.send_bytes(protocol.encode({"jsonrpc": "2.0", "id": 1, "method": "initialize"}))
-            reply = protocol.decode(_recv(conn))
-            assert reply["result"]["instructions"] == "known string"
+            conn.send_bytes(rpc.encode_request("catalogue"))
+            header, body = rpc.split_reply(_recv(conn))
+            assert body == b""
+            assert header["instructions"] == "known string"
         finally:
             conn.close()
     finally:

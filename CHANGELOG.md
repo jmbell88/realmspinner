@@ -20,6 +20,20 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**The app no longer speaks MCP at all; `warlock mcp` is the only MCP
+server.** Once a real Claude Code client had passed all four live checks
+through the new bridge (the tool list, a render, starting before the app, and
+losing the app mid-boolean), the old path went: the app's own JSON-RPC
+dispatcher, the zero-length frame it sent for a notification, and the
+`WARLOCK_MCP_RELAY=1` escape hatch. A connection that opens with bare MCP now
+gets `bad_request` and is closed. A test walks every `warlock.studio` module,
+lazy imports included, and fails if one imports `warlock.mcp.protocol`, so MCP
+revisions stay the bridge's business. Found while measuring the change: since
+the catalogue-hash fix, every call rebuilt and hashed the whole tool catalogue,
+0.42 ms each, which pushed the fifty-object `clay_scene` round trip to 6.7 ms
+against a 6.1 ms allowance. A connection now reuses the hash it last served,
+and the median is back to 5.9 ms.
+
 **`warlock mcp` can start before the app, and losing the app mid-call
 doesn't kill the bridge.** If the app is not running, the bridge answers
 discovery and `tools/list` from `mcp.catalogue.json`, the tool list the app

@@ -8,9 +8,11 @@ replay, `warlock_status`, transcript, timeouts) behind its RPC v1 `call` op
 stdio peer, fetch and cache the tool catalogue, and translate one MCP
 `tools/call` into one RPC v1 `call` -- splicing the raw result bytes back
 into an MCP envelope without ever re-parsing them (see
-`protocol.splice_tool_result`). `WARLOCK_MCP_RELAY=1` keeps the old dumb
-byte-relay behaviour available as an escape hatch (`_relay_main`, below),
-in case a client ever depended on it.
+`protocol.splice_tool_result`). There is no relay-hatch escape back to the
+old dumb byte-relay behaviour any more: Studio's own pipe stopped answering
+bare MCP JSON-RPC the day its listener moved to RPC v1 only (`studio/
+agent_host.py`, `docs/INVARIANTS.md`'s agent paragraph), so a relay would
+have nothing to talk to on the other end.
 
 **Main thread only, and that is not a style preference.**
 `pipelines/_workerio.py` documents a measured Windows deadlock: a daemon
@@ -40,7 +42,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -277,9 +278,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     `warlock mcp` takes no flags today, and the parameter exists so a test
     can call this the same way `cli.main` does, argv and all.
     """
-    if os.environ.get("WARLOCK_MCP_RELAY") == "1":
-        return _relay_main()
-
     from ..config import get_config
 
     home = get_config().home
@@ -340,45 +338,4 @@ def main(argv: Sequence[str] | None = None) -> int:
         pass
     finally:
         session._disconnect()
-    return 0
-
-
-def _relay_main() -> int:
-    """The pre-RPC behaviour, kept verbatim as an escape hatch
-    (`WARLOCK_MCP_RELAY=1`): every byte read from stdin goes straight to
-    Studio's pipe via `send_bytes`, and every reply comes straight back to
-    stdout, with no JSON parsed and no method names known here. This only
-    works against a Studio old enough to still answer bare MCP JSON-RPC on
-    the pipe directly, without RPC v1's `hello`/`catalogue`/`call` envelope."""
-    from ..config import get_config
-
-    home = get_config().home
-    try:
-        conn = pipe.connect(home)
-    except OSError:
-        print(
-            "Warlock Studio is not accepting agent connections. Open the app "
-            "and switch on Settings -> Advanced -> Allow AI agents to drive "
-            "the Studio.",
-            file=sys.stderr,
-        )
-        return 1
-
-    try:
-        stdin = sys.stdin.buffer
-        stdout = sys.stdout.buffer
-        while True:
-            line = stdin.readline()
-            if not line:
-                break
-            conn.send_bytes(line)
-            reply = conn.recv_bytes()
-            if not reply:
-                continue
-            stdout.write(reply)
-            stdout.flush()
-    except EOFError:
-        pass
-    finally:
-        conn.close()
     return 0
