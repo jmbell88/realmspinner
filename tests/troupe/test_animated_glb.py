@@ -300,6 +300,25 @@ def test_an_animated_glb_records_the_library_it_was_baked_from(svc, monkeypatch)
     assert stamp["clips_digest"] == clips.library_digest("humanoid")
 
 
+def test_an_animated_glb_records_the_rig_it_was_baked_from(svc, monkeypatch):
+    """The other half of the stamp, beside ``clips_digest``: a hash of the
+    rig.json this bake actually read. A re-rig always rewrites rig.json's
+    bones (see ``derive._rig_digest``'s docstring for why that file, and not
+    rig.glb, is the reliable signal), so this is what lets a later request
+    tell "this copy's skeleton is gone" apart from "nothing changed"."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+    job_dir = svc.job_dir(job_id)
+
+    out = derive.get_file(svc, job_id, "animated.glb")
+
+    assert calls == [1]
+    stamp = glbio.root_extras(out.read_bytes())["warlock_animation"]
+    assert stamp["rig_digest"] == derive._rig_digest(job_dir)
+    assert stamp["rig_digest"], "a real rig.json must hash to something, not the empty fallback"
+
+
 def test_the_loop_set_rides_the_file(svc, monkeypatch):
     """The clip player on the far side of an export needs to know which
     animations loop without re-deriving the clip library itself."""
@@ -344,6 +363,84 @@ def test_a_pre_digest_animated_glb_is_rebaked_once(svc, monkeypatch):
 
     derive.get_file(svc, job_id, "animated.glb")
     assert calls == [1], "the rebake's own stamp should make the second request free"
+
+
+def test_a_bake_stamped_before_rig_digests_existed_is_rebaked_once(svc, monkeypatch):
+    """``rig_digest``'s own migration case, ``test_a_pre_digest_animated_glb_is_
+    rebaked_once``'s shape exactly: a file stamped by ``_bake_animated_glb``
+    before this fix carries ``clips_digest``/``loops`` but no ``rig_digest`` at
+    all. It has to be rebaked once -- ``_animation_stale`` treats a missing
+    ``rig_digest`` the same as a mismatched one -- and the rebake's own stamp
+    must make the next request free, or every job rigged before this fix would
+    pay a Blender subprocess on every download forever."""
+    calls: list[int] = []
+    _stub_run_worker(monkeypatch, calls)
+    job_id = _rigged(svc)
+    job_dir = svc.job_dir(job_id)
+    stamped = glbio.set_root_extras(
+        _minimal_glb(),
+        "warlock_animation",
+        {
+            "clips_digest": clips.library_digest("humanoid"),
+            "loops": list(clips.loop_names("humanoid")),
+            # No "rig_digest" key -- the exact shape _bake_animated_glb wrote
+            # before this fix.
+        },
+    )
+    (job_dir / "animated.glb").write_bytes(stamped)
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1]
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1], "the rebake's own rig_digest stamp should make the second request free"
+
+
+def test_a_bake_that_raced_a_rerig_is_rebaked_on_the_next_request(svc, monkeypatch):
+    """Defect, fixed 2026-09-13: ``rigging.finalize_rig`` -- run from a
+    re-rig job in ``_q_rig.py`` after a Poser skeleton edit -- deletes
+    ``animated.glb`` and replaces ``rig.glb``/``rig.json`` without ever taking
+    this artifact's ``convert_lock``. A bake already in flight under the lock
+    used to read the *old* rig, publish an ``animated.glb`` still depicting
+    it, and stamp it with a ``clips_digest`` that never changed -- so
+    ``_animation_stale`` read it as fresh forever after, and the skeleton
+    edit never reached a download.
+
+    ``rigging.run_worker`` is monkeypatched to make the re-rig itself,
+    mid-call -- exactly where the race lands it -- rather than relying on
+    timing: it writes the finished (old-skeleton) GLB, same as
+    ``_stub_run_worker``, and only then overwrites rig.glb/rig.json and
+    unlinks animated.glb, the way ``rigging.finalize_rig`` does.
+    """
+    calls: list[int] = []
+    job_id = _rigged(svc)
+    job_dir = svc.job_dir(job_id)
+
+    def fake(spec, *, timeout=None, **kwargs):
+        calls.append(1)
+        Path(spec["out_glb"]).write_bytes(_minimal_glb())
+        if len(calls) == 1:
+            # Stands in for the re-rig landing mid-bake: a new skeleton
+            # replaces rig.glb/rig.json, and finalize_rig deletes
+            # animated.glb -- none of it under this artifact's lock.
+            (job_dir / "rig.glb").write_bytes(b"fake-rig-2")
+            (job_dir / "rig.json").write_text(
+                json.dumps({"template": "humanoid", "bones": [{"name": "extra"}]}),
+                "utf-8",
+            )
+            (job_dir / "animated.glb").unlink(missing_ok=True)
+        return {}
+
+    monkeypatch.setattr(rigging, "run_worker", fake)
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert calls == [1], "the first request always bakes: nothing is on disk yet"
+
+    derive.get_file(svc, job_id, "animated.glb")
+    assert len(calls) == 2, (
+        "the rig that changed mid-bake must be caught and rebaked on the very "
+        "next request, not served as fresh forever"
+    )
 
 
 def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
@@ -474,13 +571,19 @@ def test_a_skeleton_with_no_resolvable_clip_library_is_a_refusal_not_a_traceback
     path = tmp_path / "animated.glb"
     # A stamped file, so this exercises the digest comparison itself rather
     # than the earlier "no stamp at all" branch, which returns True before
-    # ``clips.library_digest`` is ever reached.
+    # ``clips.library_digest`` is ever reached. ``rig_digest`` matches what is
+    # passed below for the same reason: a mismatch there short-circuits
+    # before ``clips.library_digest`` is ever called (see
+    # ``_animation_stale``'s own docstring), which would prove nothing about
+    # this refusal.
     stamped = glbio.set_root_extras(
-        _minimal_glb(), "warlock_animation", {"clips_digest": "whatever", "loops": []}
+        _minimal_glb(),
+        "warlock_animation",
+        {"clips_digest": "whatever", "loops": [], "rig_digest": "matching-rig"},
     )
     path.write_bytes(stamped)
     with pytest.raises(NotReady, match="clip library"):
-        derive._animation_stale(path, "no-such-skeleton")
+        derive._animation_stale(path, "no-such-skeleton", "matching-rig")
 
 
 def test_a_corrupt_animated_glb_is_rebaked_not_served(svc, monkeypatch, caplog):

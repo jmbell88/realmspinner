@@ -2283,6 +2283,39 @@ def test_import_clip_is_disabled_without_blender_with_a_reason():
     assert _import_clip_reason(True, True, False) == ""
 
 
+def test_import_clip_is_disabled_with_a_reason_while_a_skeleton_edit_is_open():
+    """P6 (2026-09-13): master hides the whole Clips section while a skeleton
+    edit is open because every control in it reads or writes the armature's
+    pose; this branch keeps "Import clip..." drawn through that state instead
+    (``poser_clips.draw``'s comment), so it must say why it is greyed rather
+    than pretend Blender or the library is the reason. Checked first: even
+    with Blender missing and no library at all, this is still the one true
+    reason while a skeleton edit is open."""
+    from warlock.studio.panes.poser_clips import _import_clip_reason
+
+    assert (
+        _import_clip_reason(True, True, False, True)
+        == "Apply or cancel the skeleton edit first."
+    )
+    assert (
+        _import_clip_reason(False, False, True, True)
+        == "Apply or cancel the skeleton edit first."
+    )
+    assert _import_clip_reason(True, True, False, False) == ""
+
+
+def test_import_clip_submits_nothing_while_a_skeleton_edit_is_open():
+    """The button is disabled, but a disabled button only stops a mouse -- a
+    keyboard shortcut or an agent's own call still has to go through
+    ``poser_mode.import_clip`` itself, so the refusal has to live here too,
+    not only in the pane's reason string."""
+    ctx, state = _clip_ctx()
+    state.skeleton_editing = True
+
+    assert poser_mode.import_clip(ctx) is False
+    assert ctx.submitted == []
+
+
 def test_saving_after_an_import_keeps_where_the_clip_came_from(monkeypatch):
     """``source`` rides in the working copy untouched, the same
     ``test_saving_keeps_the_provisional_flag`` argument -- so a later Save

@@ -53,6 +53,22 @@ hairline divides them, and the rail's (?) button is no longer clipped: every
 help button was placed 4 dp too far right. Home's two columns are padded,
 bordered and rounded.
 
+**A re-rig no longer leaves a stale `animated.glb` stuck forever.** Applying a
+skeleton edit deletes the animated export so it rebuilds against the new
+skeleton, but a bake already running when the edit landed could still publish
+a file built from the old skeleton, and because only the clip library was
+fingerprinted, nothing ever asked for it again — the stamp still matched, so
+it looked fresh for the life of the job. The animated export's freshness
+stamp now records the rig it was baked from too, so the very next request
+notices the mismatch and rebakes once.
+
+**Poser hides clip import during a skeleton edit, the same as every other
+clip control.** Import clip… stayed live and clickable while a skeleton
+draft was open, even though the rest of the Clips section is hidden because
+it all reads or writes the pose a draft holds at rest throughout. The button
+now disables with "Apply or cancel the skeleton edit first." and the Import
+report stays hidden too.
+
 **An agent can take a character from a species name to rigged, animated
 sprite sheets and engine exports.** The agent surface used to reach one Clay
 tab and nothing else. Ten `character_*` tools now let it list species, clips
@@ -70,7 +86,9 @@ including the sheet a rig it asked for queues afterwards. It still starts no mod
 species come from the procedural family registry, and an import pin keeps
 text-to-image and mesh reconstruction out of reach. So "swamp knight" builds a
 knight and says the knight has no swamp look, rather than inventing one. There
-are no named animation sets; the movements list is the set. Character calls run
+are no named animation sets; the movements list is the set. A sheet's size
+takes any whole pixel value in Troupe's 8–256 px custom range, not just the
+preset ladder, matching the send dialog and Troupe's own form. Character calls run
 on an agent-owned two-worker task lane, never the frame thread and never the
 listener, and switching the server off shuts that lane down without waiting,
 because a timed shutdown kills every tracked child process in the app. The

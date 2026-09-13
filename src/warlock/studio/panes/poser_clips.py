@@ -110,16 +110,26 @@ def _new_key_reason(posing: bool, *, error: str = "", asset_error: str = "") -> 
     return _not_posing_reason(error, asset_error)
 
 
-def _import_clip_reason(rigging_available: bool, has_library: bool, busy: bool) -> str:
+def _import_clip_reason(
+    rigging_available: bool, has_library: bool, busy: bool, skeleton_editing: bool = False
+) -> str:
     """Why "Import clip..." is disabled right now, or "" if it is not.
 
     Checked in this order for the same reason ``_update_key_reason`` picks its
     own: whichever fact actually explains the greyed button, named first.
+    ``skeleton_editing`` goes first of all (P6, 2026-09-13): master hides the
+    whole Clips section during a skeleton edit because every control in it
+    reads or writes the armature's *pose*, which a skeleton draft holds at
+    rest throughout, and this button is the one control this branch still
+    draws through that state (see ``draw``'s comment) -- so while it is true,
+    it is the only reason that matters, ahead of Blender or a busy import.
     Blender missing means nothing here can even sample the file; no library
     means :func:`poser_mode.adopt_imported_clips` would have nothing to merge
     into (``state.clips`` is empty for a template that ships none); busy means
     a previous import is still out sampling one.
     """
+    if skeleton_editing:
+        return "Apply or cancel the skeleton edit first."
     if not rigging_available:
         return "Importing an animation needs Blender, which is not installed."
     if not has_library:
@@ -132,7 +142,9 @@ def _import_clip_reason(rigging_available: bool, has_library: bool, busy: bool) 
 def _import_button(ctx: Any, state: Any) -> None:
     busy = ctx.busy(poser_mode.CLIP_IMPORT_KEY)
     has_library = bool(state.clips.get("clips"))
-    reason = _import_clip_reason(bool(ctx.rigging_available), has_library, busy)
+    reason = _import_clip_reason(
+        bool(ctx.rigging_available), has_library, busy, bool(state.skeleton_editing)
+    )
     if widgets.disabled_button(
         "Import clip...",
         not reason,
@@ -144,7 +156,12 @@ def _import_button(ctx: Any, state: Any) -> None:
         ),
     ):
         poser_mode.import_clip(ctx)
-    _import_report(ctx, state)
+    if not state.skeleton_editing:
+        # The report is an account of a *finished* import; master hides this
+        # whole section during a skeleton edit (``draw``, below) and a report
+        # left visible above that early return would be the one piece of it
+        # still on screen while nothing else is.
+        _import_report(ctx, state)
 
 
 def _import_report(ctx: Any, state: Any) -> None:
@@ -189,10 +206,11 @@ def draw(ctx: Any) -> None:
     # opens with one, and Poser alone could fold its pane shut (2026-09-05).
     widgets.section("Clips")
     manual_render.help_button(ctx, "poser-clips")
-    # Drawn before every bail-out below, and that is deliberate: two of this
-    # button's three disabled reasons (no Blender, no clip library for this
-    # skeleton) are exactly the states those bail-outs short-circuit on, so a
-    # button that only existed past them could never say why it was missing.
+    # Drawn before every bail-out below, and that is deliberate: three of this
+    # button's four disabled reasons (a skeleton edit in progress, no Blender,
+    # no clip library for this skeleton) are exactly the states those
+    # bail-outs short-circuit on, so a button that only existed past them
+    # could never say why it was missing.
     _import_button(ctx, state)
     if not ctx.rigging_available:
         widgets.muted("Editing clips needs Blender, which is not installed.")

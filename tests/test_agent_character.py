@@ -92,7 +92,7 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
 
     A hand-picked list used to check only ``character_create``'s own
     top-level enums plus a handful of others: ``character_sheet_create``'s
-    own ``directions``/``size``/``fps``/``camera``/``colors``/``outline``/
+    own ``directions``/``fps``/``camera``/``colors``/``outline``/
     ``reduce_mode`` (the same pixel-settings properties ``character_create``
     already carries, declared a second time on a second tool) and *every*
     tool's own ``movements[]`` item enums (``name`` on both minting tools,
@@ -113,6 +113,16 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     ``rigging.clip_library`` instead of the shipped-only
     ``rigging.shipped_clip_names`` -- see the next test for that one, since
     a fresh ``WARLOCK_HOME`` with no user file makes the two agree here).
+
+    ``size`` is deliberately absent from this walk's own expectation table:
+    since master's 8b091e98 Send to Troupe, it is a bounded integer, not an
+    enum (see ``agent_character``'s own "Registries, not a hand-kept menu"
+    paragraph), so this walk -- which only ever records an ``enum`` key --
+    must never find one at ``("character_create"|"character_sheet_create",
+    ("size",))``. The checks below the sorted-order block, at the end of
+    this same test, are this walk's replacement for that property: both
+    tools' own ``size`` schema is asserted to carry no ``enum`` and to
+    bound the same ``TROUPE_CUSTOM_SIZE_RANGE`` the door underneath enforces.
     """
     from warlock import rigging
     from warlock.characters import family as family_mod
@@ -130,7 +140,6 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     directions = set(charsheet.DIRECTION_PRESETS)
     facings = set(charsheet.COMPASS_16)
     cameras = {key for key, _label, _elev in charsheet.CAMERA_PRESETS}
-    sizes = set(charsheet.SIZES)
     fps = set(charsheet.FPS_CHOICES)
     colors = set(svc_troupe.TROUPE_COLOR_CHOICES)
     outlines = set(pixelize.OUTLINE_MODES)
@@ -152,7 +161,6 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
         ("character_create", ("theme",)): themes,
         ("character_create", ("movements", "[]", "name")): movements,
         ("character_create", ("directions",)): directions,
-        ("character_create", ("size",)): sizes,
         ("character_create", ("fps",)): fps,
         ("character_create", ("camera",)): cameras,
         ("character_create", ("colors",)): colors,
@@ -163,7 +171,6 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
         ("character_sheet_create", ("movements", "[]", "directions")): directions,
         ("character_sheet_create", ("directions",)): directions,
         ("character_sheet_create", ("template",)): sheet_templates,
-        ("character_sheet_create", ("size",)): sizes,
         ("character_sheet_create", ("fps",)): fps,
         ("character_sheet_create", ("camera",)): cameras,
         ("character_sheet_create", ("colors",)): colors,
@@ -211,6 +218,22 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     assert tools_by_name["character_create"].schema["properties"]["movements"]["items"][
         "properties"
     ]["name"]["enum"] == sorted(movements)
+
+    # "size" is the one property this walk deliberately never finds an enum
+    # at any more (see this test's own docstring): master's 8b091e98 Send to
+    # Troupe widened it to any whole number in
+    # ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE``, so the schema declares
+    # that range instead of ``charsheet.SIZES``'s preset ladder. Checked on
+    # both tools that carry it -- ``pix_properties()`` is shared between
+    # them -- against the same process-stable constant, not a restated pair
+    # of numbers.
+    size_lo, size_hi = svc_troupe.TROUPE_CUSTOM_SIZE_RANGE
+    for tool_name in ("character_create", "character_sheet_create"):
+        size_schema = tools_by_name[tool_name].schema["properties"]["size"]
+        assert "enum" not in size_schema, (tool_name, size_schema)
+        assert size_schema["type"] == "integer", (tool_name, size_schema)
+        assert size_schema["minimum"] == size_lo, (tool_name, size_schema)
+        assert size_schema["maximum"] == size_hi, (tool_name, size_schema)
 
 
 def test_a_camera_preset_added_at_runtime_appears_in_the_next_catalogue(
@@ -359,8 +382,15 @@ def test_the_character_catalogue_fits_its_own_budget() -> None:
     clips per template, four sheet templates): the ten tools' catalogue
     JSON plus ``instructions()`` totalled about 10.5k chars. CHARACTER_CEILING
     here is 12,000 -- roughly 14% of headroom above that measurement.
+
+    Raised to 12,500 the same day: the custom-size fix (``size`` widened
+    from an enum to a bounded integer, see ``agent_character``'s "Registries,
+    not a hand-kept menu" paragraph) gave ``character_create``'s and
+    ``character_sheet_create``'s own ``size`` property a ``description``
+    naming the range and the preset ladder, on both tools -- deliberate
+    growth (~12.1k measured), not a side effect.
     """
-    CHARACTER_CEILING = 12_000
+    CHARACTER_CEILING = 12_500
 
     tools = ac.tools()
     tool_jsons = [rpc.tool_dict(t) for t in tools]
@@ -425,6 +455,68 @@ def test_a_refusal_names_a_property_the_tool_declares(tmp_path: Path) -> None:
         field = result["structuredContent"]["field"]
         assert field == expected_field
         assert field in declared
+
+
+def test_an_agent_may_ask_for_a_custom_sprite_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """40px is off ``charsheet.SIZES``' own preset ladder but inside
+    ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- master's 8b091e98 Send to
+    Troupe accepts exactly this off-ladder size, and this surface's own
+    ``size`` property, now a bounded integer rather than an enum of
+    presets, must reach the sheet door with it unchanged rather than refuse
+    it the way the old enum-only schema did."""
+    from warlock.service import rig as svc_rig
+    from warlock.service import troupe as svc_troupe
+
+    e = ac._enums()
+    assert 40 not in e.sizes  # sanity: genuinely off the preset ladder
+    assert e.size_range[0] <= 40 <= e.size_range[1]
+
+    monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: False)
+    captured: dict[str, Any] = {}
+
+    def fake_send_to_troupe(svc, jid, **kw):
+        captured.update(kw)
+        return {"id": "dddddddddddd", "source_job": jid, "sheet_id": "eeeeeeeeeeee"}
+
+    monkeypatch.setattr(svc_troupe, "send_to_troupe", fake_send_to_troupe)
+
+    result = ac.call(
+        object(),
+        ac.Session(),
+        "character_sheet_create",
+        {"job_id": "a" * 12, "movements": [{"name": e.movements[0]}], "size": 40},
+    )
+    assert result["isError"] is False, result
+    assert captured["logical_size"] == 40
+
+
+def test_a_size_outside_the_custom_range_is_refused_on_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Below the floor (7) or above the ceiling (257) of
+    ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE``, on both tools that declare
+    ``size`` -- refused by the handler itself, on ``field="size"``, before
+    either door (``create_character``/``send_to_troupe``) ever runs."""
+    from warlock.service import rig as svc_rig
+
+    monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: False)
+    e = ac._enums()
+    lo, hi = e.size_range
+    assert lo == 8 and hi == 256  # sanity: this test's own claimed bounds
+
+    for size in (7, 257):
+        create_result = ac.call(object(), ac.Session(), "character_create", {"size": size})
+        assert create_result["isError"], size
+        assert create_result["structuredContent"]["field"] == "size"
+
+        sheet_result = ac.call(
+            object(),
+            ac.Session(),
+            "character_sheet_create",
+            {"job_id": "a" * 12, "movements": [{"name": e.movements[0]}], "size": size},
+        )
+        assert sheet_result["isError"], size
+        assert sheet_result["structuredContent"]["field"] == "size"
 
 
 def test_no_character_tool_accepts_a_path() -> None:

@@ -21,6 +21,8 @@ def test_the_vocabulary_resource_is_process_stable() -> None:
     """Same call, same bytes -- a pure function of the shipped registries,
     never of wall-clock time, randomness or a mutable module-level cache
     that could drift between two reads in the same process."""
+    from warlock.service import troupe as svc_troupe
+
     mime1, body1 = acr.read_static(acr.VOCABULARY_URI)
     mime2, body2 = acr.read_static(acr.VOCABULARY_URI)
     assert mime1 == mime2 == "application/json"
@@ -29,6 +31,12 @@ def test_the_vocabulary_resource_is_process_stable() -> None:
     assert "movements" in payload
     assert "families" in payload
     assert payload["sheet_uri_pattern"] == acr.SHEET_URI_RE.pattern
+    # The custom-size door's own bound (master's 8b091e98 Send to Troupe),
+    # alongside "sizes"' preset ladder -- both read fresh off the same
+    # process-stable constant agent_character's own "size" schema uses, so
+    # a client reading this resource once sees the exact range a size
+    # outside "sizes" is still checked against.
+    assert payload["size_range"] == list(svc_troupe.TROUPE_CUSTOM_SIZE_RANGE)
 
 
 def test_a_uri_outside_the_strict_sheet_pattern_is_not_owned() -> None:

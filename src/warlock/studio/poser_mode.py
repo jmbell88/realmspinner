@@ -2844,7 +2844,12 @@ def import_clip(ctx: Any) -> bool:
     already gates on) -- checked here rather than left for
     ``service.clip_import.analyse``'s own ``doctor.blender_check()`` to refuse,
     so a missing Blender does not cost the user a round trip through the OS
-    file picker before saying so.
+    file picker before saying so. Also refused while ``state.skeleton_editing``
+    (P6, 2026-09-13): ``poser_clips._import_button`` draws "Import clip..."
+    disabled with that reason, but a disabled button only stops a mouse --
+    this is the door a keyboard shortcut or an agent's own call still has to
+    go through, and it must say no for the same reason the pane already
+    shows.
 
     The open-file dialog is asked **on the task thread**, inside ``run`` --
     ``troupe_mode.export_package``'s and ``library._export_zip``'s
@@ -2857,6 +2862,8 @@ def import_clip(ctx: Any) -> bool:
     from ..service import clip_import as svc_clip_import
 
     state = ensure(ctx)
+    if state.skeleton_editing:
+        return False
     if not state.template or not state.clips.get("clips"):
         return False
     if not getattr(ctx, "rigging_available", False):

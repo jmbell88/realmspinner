@@ -494,6 +494,45 @@ def test_a_provisional_clip_shows_its_badge(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
 
 
+def test_the_import_report_is_hidden_while_a_skeleton_edit_is_open(app_ctx, imgui_ctx, monkeypatch):
+    """P6 (2026-09-13): master hides the whole Clips section during a skeleton
+    edit; this branch keeps "Import clip..." drawn through it (see
+    ``poser_clips.draw``'s comment) but the report of a *finished* import is
+    exactly the section master hides, so it must not be the one piece of it
+    left on screen. ``poser_clips._import_report`` only ever draws through
+    imgui, so the assertion is on whether ``_import_button`` calls it at all
+    rather than on anything the renderer produced."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_clips
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    state = poser_mode.ensure(app_ctx)
+    state.clips_dirty_flag = False
+    poser_mode.adopt_clips(app_ctx, _library())
+    state.clip_import_reports = [
+        {"map": "mixamo", "loop": {}, "ignored": [], "left_at_rest": [], "frames": 10, "keys": 3}
+    ]
+    # ``enter_skeleton_edit``'s own requirements (see its docstring): a real
+    # asset open with a readable rig and the viewer already in pose mode.
+    state.job_id = "0123456789ab"
+    state.asset_rig = _skeleton_rig()
+
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        poser_clips, "_import_report", lambda ctx, state: calls.append(state)
+    )
+
+    _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
+    assert calls, "not editing the skeleton: the report is drawn"
+
+    calls.clear()
+    poser_mode.enter_skeleton_edit(app_ctx)
+    assert state.skeleton_editing is True
+    _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
+    assert calls == [], "editing the skeleton: the report must not be drawn"
+
+
 def test_the_clip_pane_builds_without_rigging(app_ctx, imgui_ctx):
     from warlock.studio.panes import poser_clips
 

@@ -430,9 +430,16 @@ def test_the_exercise_walk_attempts_a_pinned_number_of_cases() -> None:
     than before this file's own fix-4 pass: the type-violation case now
     fires for every property that declares a ``type`` (previously only
     ones that also carried an ``enum``/``minimum``/``maximum``), since fix
-    4's structural pre-check enforces all of them now, not just those."""
-    assert len(_ALL_CASES) == 116, (
-        f"the walk now attempts {len(_ALL_CASES)} cases, not 116. If this "
+    4's structural pre-check enforces all of them now, not just those.
+
+    116 -> 118 (2026-09-13): master's 8b091e98 Send to Troupe widened
+    ``size`` to any whole number in ``service.troupe.TROUPE_CUSTOM_SIZE_
+    RANGE``, so ``character_create``'s and ``character_sheet_create``'s own
+    ``size`` property dropped its ``enum`` case and gained ``minimum`` and
+    ``maximum`` ones instead -- net +1 case on each of the two tools that
+    declare it."""
+    assert len(_ALL_CASES) == 118, (
+        f"the walk now attempts {len(_ALL_CASES)} cases, not 118. If this "
         f"growth is deliberate (a tool or a constraint was added), update "
         f"the pinned number in this test and say why in the same commit."
     )

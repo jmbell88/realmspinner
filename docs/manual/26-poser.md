@@ -329,7 +329,11 @@ because the alternative is discovering the problem the next time you render a ch
 **Import clip…**, above the clip picker, brings in an animation someone else authored — a Mixamo
 download, a Rigify metarig export — instead of keying one by hand. It needs Blender and a clip
 library to import into, and says so when either is missing: "Importing an animation needs Blender,
-which is not installed" or "This skeleton has no clip library to import into". Only the humanoid
+which is not installed" or "This skeleton has no clip library to import into". While a skeleton edit
+is open, the button stays visible but disables the same way, with "Apply or cancel the skeleton edit
+first." beneath it, and the Import report stays hidden until the edit is applied or cancelled — every
+other control in this section is hidden for the same reason: they all read or write the pose a
+skeleton draft holds at rest throughout the edit. Only the humanoid
 skeleton has a shipped mapping table today; nothing stops you pressing the button on quadruped,
 bird or blob, but there is nowhere for the sampled bones to land, and the import is refused once you
 have picked a file rather than before.

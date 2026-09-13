@@ -24,11 +24,16 @@ cross the same GL boundary this module exists to avoid.
 
 **Registries, not a hand-kept menu.** Every enum a schema declares --
 families, themes, movements, rig templates, sheet templates, cameras,
-sizes, colours -- is read fresh off the same registries the human panes
-read (``characters.family``, ``rigging``, ``clips``, ``pipelines.charsheet``,
+colours -- is read fresh off the same registries the human panes read
+(``characters.family``, ``rigging``, ``clips``, ``pipelines.charsheet``,
 ``pipelines.pixelize``, ``service.troupe``/``export``/``characters``) every
 time :func:`tools` or a handler runs, through :func:`_enums`. A species or a
-shipped clip added tomorrow needs no edit here.
+shipped clip added tomorrow needs no edit here. ``size`` is the one
+exception to "enum": since master's 8b091e98, ``service.troupe`` accepts any
+whole pixel size in ``TROUPE_CUSTOM_SIZE_RANGE``, so the schema declares
+that same range (``_Enums.size_range``) instead of a ladder, and
+``charsheet.SIZES`` survives only as guidance text and in the vocabulary
+resource.
 
 **Movements are the *shipped* vocabulary, never a user's edited one.**
 ``rigging.shipped_clip_library``/``shipped_clip_names`` read only the
@@ -187,6 +192,7 @@ class _Enums:
     facings: tuple[str, ...]
     cameras: tuple[str, ...]
     sizes: tuple[int, ...]
+    size_range: tuple[int, int]
     fps: tuple[int, ...]
     colors: tuple[int, ...]
     outlines: tuple[str, ...]
@@ -218,6 +224,7 @@ def _enums() -> _Enums:
         facings=tuple(charsheet.COMPASS_16),
         cameras=tuple(key for key, _label, _elev in charsheet.CAMERA_PRESETS),
         sizes=tuple(charsheet.SIZES),
+        size_range=tuple(svc_troupe.TROUPE_CUSTOM_SIZE_RANGE),
         fps=tuple(charsheet.FPS_CHOICES),
         colors=tuple(svc_troupe.TROUPE_COLOR_CHOICES),
         outlines=tuple(pixelize.OUTLINE_MODES),
@@ -311,8 +318,24 @@ def tools() -> list[rpc.Tool]:
     movements_cap = max(len(e.movements), 1)
 
     def pix_properties() -> dict[str, Any]:
+        size_lo, size_hi = e.size_range
         return {
-            "size": {"type": "integer", "enum": list(e.sizes)},
+            # An integer range, not an enum -- since master's 8b091e98 Send
+            # to Troupe accepts any logical size in
+            # ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE``, not only the
+            # preset ladder ``e.sizes`` still lists for guidance. The
+            # description keeps that ladder visible to an agent (and repeats
+            # the panes' own nearest-neighbour note) without narrowing what
+            # the schema actually accepts.
+            "size": {
+                "type": "integer",
+                "minimum": size_lo,
+                "maximum": size_hi,
+                "description": (
+                    f"{size_lo}-{size_hi}px, any whole number; off "
+                    f"{list(e.sizes)} is resized nearest-neighbour."
+                ),
+            },
             "fps": {"type": "integer", "enum": list(e.fps)},
             "camera": {"type": "string", "enum": list(e.cameras)},
             "colors": {"type": "integer", "enum": list(e.colors)},
@@ -920,8 +943,9 @@ def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
             return fail(f"{args['camera']!r} is not a camera preset.", field="camera")
         overrides["camera"] = args["camera"]
     if "size" in args:
-        if args["size"] not in e.sizes:
-            return fail(f"size must be one of {list(e.sizes)}.", field="size")
+        refusal = _range_refusal(args["size"], *e.size_range, "size")
+        if refusal:
+            return refusal
         overrides["logical_size"] = args["size"]
     if "colors" in args:
         if args["colors"] not in e.colors:
@@ -1082,8 +1106,9 @@ def _h_character_sheet_create(svc: Any, session: Session, args: Args) -> dict:
 
     pixel_kwargs: dict[str, Any] = {}
     if "size" in args:
-        if args["size"] not in e.sizes:
-            return fail(f"size must be one of {list(e.sizes)}.", field="size")
+        refusal = _range_refusal(args["size"], *e.size_range, "size")
+        if refusal:
+            return refusal
         pixel_kwargs["logical_size"] = args["size"]
     if "colors" in args:
         if args["colors"] not in e.colors:

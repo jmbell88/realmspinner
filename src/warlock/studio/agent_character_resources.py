@@ -112,6 +112,11 @@ def _vocabulary_json() -> dict[str, Any]:
             for key, label, elevation in charsheet.CAMERA_PRESETS
         ],
         "sizes": list(charsheet.SIZES),
+        # The custom-size door's own bound (master's 8b091e98 Send to
+        # Troupe): a whole number in this range is accepted even off the
+        # "sizes" ladder above -- see agent_character's own "size" schema,
+        # built from the same constant.
+        "size_range": list(svc_troupe.TROUPE_CUSTOM_SIZE_RANGE),
         "fps": list(charsheet.FPS_CHOICES),
         "colors": list(svc_troupe.TROUPE_COLOR_CHOICES),
         "outlines": list(pixelize.OUTLINE_MODES),

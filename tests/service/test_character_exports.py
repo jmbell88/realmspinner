@@ -438,12 +438,15 @@ def test_two_characters_with_the_same_name_do_not_share_an_agent_export_folder(s
 # --- export_godot --------------------------------------------------------------
 
 
-def _fake_glb(animation_names: list[str], *, loops: list[str], digest: str) -> bytes:
+def _fake_glb(
+    animation_names: list[str], *, loops: list[str], digest: str, rig_digest: str
+) -> bytes:
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
+    stamp = {"clips_digest": digest, "rig_digest": rig_digest, "loops": list(loops)}
     gltf = {
         "asset": {"version": "2.0"},
         "animations": [{"name": name} for name in animation_names],
-        "extras": {"warlock_animation": {"clips_digest": digest, "loops": list(loops)}},
+        "extras": {"warlock_animation": stamp},
     }
     return glbio.rebuild_glb(header, gltf, b"")
 
@@ -451,12 +454,21 @@ def _fake_glb(animation_names: list[str], *, loops: list[str], digest: str) -> b
 def _rigged_and_animated(
     svc, *, animation_names: list[str], loops: list[str], template: str = "humanoid", name=None
 ) -> str:
+    # Stamped exactly as a fresh bake would be -- the clip library's digest AND
+    # the rig's -- so ``derive.get_file`` serves this file instead of trying to
+    # rebake it from the fake ``rig.glb`` (a stamp missing ``rig_digest`` reads
+    # as a bake from before a re-rig and is rebuilt).
+    from warlock.service import derive as svc_derive
+
     job_id = _new_job(svc, name=name)
     job_dir = svc.job_dir(job_id)
     (job_dir / "rig.glb").write_bytes(b"fake-rig")
     (job_dir / "rig.json").write_text(json.dumps({"template": template}), "utf-8")
     digest = clips.library_digest(template)
-    (job_dir / "animated.glb").write_bytes(_fake_glb(animation_names, loops=loops, digest=digest))
+    glb = _fake_glb(
+        animation_names, loops=loops, digest=digest, rig_digest=svc_derive._rig_digest(job_dir)
+    )
+    (job_dir / "animated.glb").write_bytes(glb)
     return job_id
 
 
