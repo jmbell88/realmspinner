@@ -442,6 +442,20 @@ def has_three_selected(doc: Any) -> bool:
     return len(doc.selection) == 3
 
 
+def has_three_or_more_selected(doc: Any) -> bool:
+    """Distribute's own gate -- at least three, not exactly three.
+
+    Unlike Place Between, which reads two of the selection as fixed anchors
+    and a third to move, Distribute treats every selected object as one item
+    in a row: a fourth, fifth or sixtieth selected object is one more item to
+    space, never a role the op runs out of. Two items have a single gap
+    between them and nothing to distribute it against -- there is no "even"
+    or "uneven" with one interval -- so the floor is three, but nothing above
+    it is refused.
+    """
+    return len(doc.selection) >= 3
+
+
 def in_mode(*modes: str) -> Callable[[Any], bool]:
     def check(doc: Any) -> bool:
         return doc.element_mode in modes and bool(doc.element_sel)
@@ -512,6 +526,11 @@ def _has_three_selected_reason(doc: Any) -> str:
 
 def _selection_reason(doc: Any) -> str:
     return "" if doc.selection else "Select an object first."
+
+
+def _has_three_or_more_selected_reason(doc: Any) -> str:
+    n = len(doc.selection)
+    return "" if n >= 3 else f"Select at least three objects first -- {n} selected now."
 
 
 def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
@@ -983,6 +1002,115 @@ def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
         rotation=placed.rotation,
         scale=placed.scale,
     )
+
+
+def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+    """``{uid: world_box}`` for every *uid* whose mesh is not empty.
+
+    Shared by :func:`_align`, :func:`_distribute` and :func:`_drop_to_ground`,
+    which all hand ``mason.ops``' box arithmetic the same ``Boxes`` mapping
+    ``scene.world_bounds`` already builds for Mason's own selection -- see
+    that module's docstring for why the three take world boxes rather than a
+    ``GeometrySource``. An object whose mesh has no vertices reports no box
+    (``ops.world_box`` returns ``None``) and is left out rather than degrading
+    every other object's math with a phantom point at the origin.
+    """
+    from .clay import ops as clay_ops_geom
+
+    out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for uid in uids:
+        box = clay_ops_geom.world_box(doc.by_uid(uid))
+        if box is not None:
+            out[uid] = box
+    return out
+
+
+def _apply_deltas(doc: Any, deltas: dict[int, np.ndarray]) -> bool:
+    """Add each world-space delta to its object's own translation. -> whether
+    any object actually moved.
+
+    One call per object rather than one ``set_transform`` per axis: ``run``'s
+    own ``_one_step`` folds however many of these land into the single undo
+    step its docstring promises, exactly as ``_bake``'s two-call-per-object
+    fold already does, so a multi-object Align or Distribute is one Ctrl+Z
+    whatever it moved.
+    """
+    ran = False
+    for uid, delta in deltas.items():
+        translation = np.asarray(doc.by_uid(uid).translation, dtype="f8") + delta
+        if doc.set_transform(uid, translation=translation):
+            ran = True
+    return ran
+
+
+_ALIGN_MODES = ("min", "centre", "max")
+
+
+def _align(ctx: Any, doc: Any, axis: float = 0.0, mode: float = 1.0, **_: Any) -> bool:
+    """Line up every selected object's *world box* -- its visible edge or
+    middle, not its pivot -- along one axis.
+
+    The arithmetic is ``mason.ops.align``'s: Mason's placement math takes
+    plain world boxes rather than a ``GeometrySource``, which is exactly the
+    shape Clay's own ``ops.world_box`` already answers per object, so this is
+    an import rather than a second copy. Mason may not import Clay (its own
+    import pin says so, and for a real reason -- a scene links to a library
+    asset by job id and must not resolve one itself), but nothing bars a
+    plain ``studio/`` module reaching into Mason's pure package the way
+    ``mason_view.py`` already does for the human-driven version of this same
+    op; see that module's ``from .mason import ops as mops``.
+    """
+    from .mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.align(boxes, int(axis), _ALIGN_MODES[int(mode)])
+    return _apply_deltas(doc, deltas)
+
+
+def _distribute(ctx: Any, doc: Any, axis: float = 0.0, **_: Any) -> bool:
+    """Space every selected object's world box evenly along one axis, the two
+    extreme objects held fixed. See :func:`_align`'s docstring for why the
+    box arithmetic is imported from ``mason.ops`` rather than duplicated.
+    """
+    from .mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.distribute(boxes, int(axis))
+    return _apply_deltas(doc, deltas)
+
+
+def _drop_to_ground(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Rest each selected object's own world-box *bottom* on ``y=0``.
+
+    Per object, not per group: unlike Align and Distribute, there is no
+    shared axis to agree on, so a box sitting three metres above the floor and
+    one already resting on it both land correctly in the same call. The flat
+    ground plane at ``y=0`` is this op's whole contract -- ``mason.ops.
+    drop_to_ground`` also takes a ``Terrain`` for Mason's own version, which
+    this row has no use for and does not pass.
+    """
+    from .mason import ops as mason_ops
+
+    del ctx
+    boxes = _world_boxes(doc, doc.selection)
+    deltas = mason_ops.drop_to_ground(boxes, ground=0.0)
+    return _apply_deltas(doc, deltas)
+
+
+def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
+    """Snap every selected object's translation onto a grid of *step* metres,
+    each axis independently -- ``ops.snap_translation``'s own rounding
+    (half away from zero, so the grid stays symmetric about the origin).
+    """
+    from .clay import ops as clay_ops_geom
+
+    def one(doc: Any, obj: Any) -> None:
+        snapped = clay_ops_geom.snap_translation(obj.translation, step)
+        doc.set_transform(obj.uid, translation=snapped)
+
+    run_object_op(ctx, doc, one)
 
 
 def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
@@ -1572,6 +1700,67 @@ def _register_defaults() -> None:
             "between them. 'Fit' also stretches it along its own Y so it "
             "spans the gap exactly.",
             params=(Param("fit", "fit to gap", 1.0, 1.0, low=0.0, high=1.0, boolean=True),),
+        )
+    )
+    register(
+        Op(
+            name="align",
+            label="Align...",
+            modes=("object",),
+            run=_align,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Lines up every selected object's world box -- its visible "
+            "edge or middle, not its pivot -- along one axis. Two boxes of "
+            "different sizes sharing a translation do not share a centre.",
+            params=(
+                Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),
+                Param(
+                    "mode", "align to", 1.0, 1.0, low=0.0, high=2.0,
+                    choices=("Min", "Centre", "Max"),
+                ),
+            ),
+            separator_before=True,
+        )
+    )
+    register(
+        Op(
+            name="distribute",
+            label="Distribute...",
+            modes=("object",),
+            run=_distribute,
+            enabled=has_three_or_more_selected,
+            reason=_has_three_or_more_selected_reason,
+            hint="Spaces the selection evenly along one axis, equal gap for "
+            "equal gap between neighbouring boxes -- the two extreme objects "
+            "stay exactly where they were.",
+            params=(Param("axis", "axis", 0.0, 1.0, low=0.0, high=2.0, choices=("X", "Y", "Z")),),
+        )
+    )
+    register(
+        Op(
+            name="drop-to-ground",
+            label="Drop to Ground",
+            modes=("object",),
+            run=_drop_to_ground,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Rests each selected object's own world-box bottom on y=0, "
+            "not its pivot -- a barrel authored with its pivot at the middle "
+            "no longer floats half its height in the air.",
+        )
+    )
+    register(
+        Op(
+            name="snap-to-grid",
+            label="Snap to Grid...",
+            modes=("object",),
+            run=_snap_to_grid,
+            enabled=has_objects,
+            reason=_has_objects_reason,
+            hint="Snaps every selected object's translation onto a grid of "
+            "the given step, one axis at a time.",
+            params=(Param("step", "grid step (m)", 1.0, 0.1, low=0.0),),
         )
     )
 

@@ -254,6 +254,17 @@ def test_every_op_name_is_a_clay_op_enum_option_and_vice_versa() -> None:
     assert enum == {op.name for op in clay_ops.OPS}
 
 
+def test_the_placement_ops_reach_the_clay_op_enum() -> None:
+    """align/distribute/drop-to-ground/snap-to-grid are ``clay_ops`` rows like
+    any other, so the bidirectional gate above already covers them -- this
+    names the four directly so an agent-visible regression (one dropped from
+    the registry, or renamed) fails here rather than only as a shrinking set
+    the test above would not explain."""
+    tools = {t.name: t for t in agent_clay.tools()}
+    enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])
+    assert {"align", "distribute", "drop-to-ground", "snap-to-grid"} <= enum
+
+
 def test_a_thirteenth_generator_reaches_the_agent_surface_with_no_edit_here(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

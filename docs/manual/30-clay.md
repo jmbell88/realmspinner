@@ -427,6 +427,18 @@ prop usually does not; a flat shape with nothing to stretch — a Plane or a Gri
 have no Y extent at all — is moved and turned the same as anything else, with the fit itself skipped
 rather than refusing the whole placement over an axis that shape has no length along.
 
+**Align...** lines up every selected object's **world box** — its visible edge or middle, not its
+pivot — along one axis: `min` and `max` line up the lowest or highest edge, `centre` lines up the
+middle of the whole group. Two boxes of different sizes sharing a translation do not share a centre,
+which is the whole reason this reads the geometry rather than the transform. **Distribute...** spaces
+three or more selected objects evenly along one axis, gap for gap between neighbouring boxes, holding
+the two extreme objects fixed — with fewer than three selected there is no gap to distribute against,
+so the row is disabled rather than a no-op. **Drop to Ground** rests each selected object's own world
+box on `y=0`, one at a time rather than as a group, so an object already on the ground and one
+floating three metres up both land correctly in the same press. **Snap to Grid...** rounds every
+selected object's translation onto a grid of the given step, each axis independently — unlike **Snap**
+below, this acts once on whatever is already selected rather than following a live gizmo drag.
+
 ## The outliner
 
 Every object in the document, newest at the top. Click to select, `Ctrl`-click to toggle one and

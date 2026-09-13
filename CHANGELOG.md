@@ -20,6 +20,17 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Clay can align, distribute, drop to ground and snap to grid.** Four new
+object-mode rows act on the selection, and each gesture is one undo step. Align
+lines objects up on their world bounds rather than their origins, so boxes of
+different sizes share a visible centre. Distribute needs three or more objects
+and leaves equal gaps between their edges. Drop to ground rests each object's
+world-box bottom on y=0. Snap to grid rounds translations to a step. The box
+maths is Mason's, reached through a lazy import rather than copied. Agents get
+the rows through `clay_op`, whose options derive from the op list. The tool
+catalogue changes, so the Clay-assistant dataset's manifest hash will now
+refuse; that dataset is regenerated under its own plan, not here.
+
 **A 2026-07-28 client that declares the MCP Tasks extension gets a task
 handle instead of holding a thirty-second wait.** A client declaring
 `io.modelcontextprotocol/tasks` has its `tools/call` answered at once with a

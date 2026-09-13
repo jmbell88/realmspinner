@@ -9,6 +9,7 @@ that nothing here reaches for a GUI.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -19,6 +20,7 @@ from warlock.studio import clay_ops
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import elements as el
 from warlock.studio.clay import mesh as bm
+from warlock.studio.clay import ops as clay_ops_geom
 from warlock.studio.clay import ops_topo
 from warlock.studio.clay import primitives as bp
 
@@ -1263,3 +1265,198 @@ def test_difference_and_intersection_are_enabled_and_forget_the_absorbed_manifol
         ctx.state.clay.manifold[second] = object()
         assert clay_ops.run(ctx, doc, clay_ops.get(kind)) is True
         assert second not in ctx.state.clay.manifold, f"{kind}: left a stale cache entry"
+
+
+# --- align / distribute / drop-to-ground / snap-to-grid -----------------------
+#
+# The box arithmetic itself (``mason.ops.align``/``distribute``/
+# ``drop_to_ground``) is Mason's own and tested there; what belongs here is
+# the Clay-side wiring -- world boxes gathered from the *selection*, one
+# undo step per gesture, and the refusal Distribute gives with too few
+# objects.
+
+
+def _offset_box(size: tuple[float, float, float], offset: tuple[float, float, float]) -> bm.Mesh:
+    """A box mesh whose own vertices sit away from its local origin, with the
+    object's ``translation`` left at the default zero -- so an op that reads
+    ``translation`` instead of the mesh's actual world box gets this wrong."""
+    mesh = bp.box(size=size)
+    return replace(mesh, positions=mesh.positions + np.array(offset, dtype="f4"))
+
+
+def test_align_centres_on_world_boxes_not_origins_or_translations() -> None:
+    """Two boxes of different sizes, plus one whose *mesh* -- not its
+    translation -- sits away from the origin: 'align to centre' has to read
+    each one's world box, never a pivot, or the three would not land on the
+    same centre."""
+    doc = bd.ClayDoc()
+    small = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Small", mesh=bp.box(size=(2, 2, 2)))
+    )
+    big = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Big", mesh=bp.box(size=(4, 4, 4)), translation=[0, 10, 0])
+    )
+    offcentre = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="Offcentre", mesh=_offset_box((2, 2, 2), (0, 20, 0)))
+    )
+    doc.select([small.uid, big.uid, offcentre.uid])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("align"), axis=1, mode=1) is True
+
+    centres = []
+    for uid in (small.uid, big.uid, offcentre.uid):
+        lo, hi = clay_ops_geom.world_box(doc.by_uid(uid))
+        centres.append(float((lo[1] + hi[1]) / 2.0))
+    assert centres == pytest.approx([centres[0]] * 3)
+
+
+def test_align_min_lines_up_the_lowest_edge_not_the_pivot() -> None:
+    doc = bd.ClayDoc()
+    a = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box(size=(2, 2, 2))))
+    b = doc.add_object(
+        bd.Obj(uid=bd.new_uid(), name="B", mesh=bp.box(size=(2, 6, 2)), translation=[0, 3, 0])
+    )
+    doc.select([a.uid, b.uid])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("align"), axis=1, mode=0) is True
+
+    lo_a, _hi_a = clay_ops_geom.world_box(doc.by_uid(a.uid))
+    lo_b, _hi_b = clay_ops_geom.world_box(doc.by_uid(b.uid))
+    assert float(lo_a[1]) == pytest.approx(float(lo_b[1]))
+
+
+def test_align_is_gated_on_a_selection() -> None:
+    doc, uid = _doc()
+    op = clay_ops.get("align")
+    assert not op.enabled(doc)
+    assert clay_ops.reason_for(op, doc) == "Select an object first."
+    doc.select([uid])
+    assert op.enabled(doc)
+
+
+def test_align_is_one_undo_step_for_the_whole_selection() -> None:
+    doc, uids = _three_boxes_selected()
+    doc.set_transform(uids[1], translation=[0, 5, 0])
+    doc.set_transform(uids[2], translation=[0, -3, 0])
+    depth = len(doc.history)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("align"), axis=1, mode=1) is True
+    assert len(doc.history) == depth + 1
+    assert doc.undo() is True
+
+
+def test_align_appears_in_the_object_menu() -> None:
+    assert "align" in [op.name for op in clay_ops.menu("object")]
+
+
+def test_distribute_leaves_equal_edge_gaps_and_holds_the_extremes() -> None:
+    doc = bd.ClayDoc()
+    uids = []
+    for i, x in enumerate((0.0, 3.0, 20.0)):
+        obj = doc.add_object(
+            bd.Obj(
+                uid=bd.new_uid(), name=f"B{i}", mesh=bp.box(size=(2, 2, 2)), translation=[x, 0, 0]
+            )
+        )
+        uids.append(obj.uid)
+    doc.select(uids)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("distribute"), axis=0) is True
+
+    boxes = sorted(
+        (clay_ops_geom.world_box(doc.by_uid(uid)) for uid in uids), key=lambda box: float(box[0][0])
+    )
+    gap_1 = float(boxes[1][0][0] - boxes[0][1][0])
+    gap_2 = float(boxes[2][0][0] - boxes[1][1][0])
+    assert gap_1 == pytest.approx(gap_2)
+    assert float(boxes[0][0][0]) == pytest.approx(-1.0), "the lowest extreme stayed put"
+    assert float(boxes[2][1][0]) == pytest.approx(21.0), "the highest extreme stayed put"
+
+
+def test_distribute_is_disabled_with_fewer_than_three_selected() -> None:
+    doc, uids = _three_boxes_selected()
+    op = clay_ops.get("distribute")
+    assert op.enabled(doc)
+
+    doc.select(uids[:2])
+    assert not op.enabled(doc)
+    assert "2 selected now" in clay_ops.reason_for(op, doc)
+
+
+def test_distribute_is_one_undo_step() -> None:
+    doc, uids = _three_boxes_selected()
+    doc.set_transform(uids[1], translation=[3, 0, 0])
+    doc.set_transform(uids[2], translation=[20, 0, 0])
+    depth = len(doc.history)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("distribute"), axis=0) is True
+    assert len(doc.history) == depth + 1
+    assert doc.undo() is True
+
+
+def test_distribute_appears_in_the_object_menu() -> None:
+    assert "distribute" in [op.name for op in clay_ops.menu("object")]
+
+
+def test_drop_to_ground_rests_a_rotated_scaled_objects_world_box_on_y_zero() -> None:
+    from warlock.studio.viewer import math3d as m3
+
+    doc = bd.ClayDoc()
+    rotation = m3.quat_from_axis_angle(np.array([0.0, 0.0, 1.0]), np.radians(45.0))
+    obj = doc.add_object(
+        bd.Obj(
+            uid=bd.new_uid(),
+            name="Tilted",
+            mesh=bp.box(size=(1, 1, 1)),
+            translation=[0, 5, 0],
+            rotation=rotation,
+            scale=[2, 2, 2],
+        )
+    )
+    doc.select([obj.uid])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("drop-to-ground")) is True
+
+    lo, _hi = clay_ops_geom.world_box(doc.by_uid(obj.uid))
+    assert float(lo[1]) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_drop_to_ground_is_one_undo_step_for_several_objects() -> None:
+    doc, uids = _three_boxes_selected()  # default box, half-height 0.5
+    for uid, y in zip(uids, (2.0, 5.0, -1.0), strict=True):
+        doc.set_transform(uid, translation=[0, y, 0])
+    depth = len(doc.history)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("drop-to-ground")) is True
+    assert len(doc.history) == depth + 1
+    for uid in uids:
+        assert doc.by_uid(uid).translation[1] == pytest.approx(0.5)
+    assert doc.undo() is True
+
+
+def test_drop_to_ground_appears_in_the_object_menu() -> None:
+    assert "drop-to-ground" in [op.name for op in clay_ops.menu("object")]
+
+
+def test_snap_to_grid_rounds_a_translation_onto_the_step() -> None:
+    doc, uid = _doc()
+    doc.set_transform(uid, translation=[1.24, -0.63, 2.51])
+    doc.select([uid])
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("snap-to-grid"), step=0.5) is True
+    assert np.allclose(doc.by_uid(uid).translation, [1.0, -0.5, 2.5])
+
+
+def test_snap_to_grid_is_one_undo_step_for_several_objects() -> None:
+    doc, uids = _three_boxes_selected()
+    for uid, x in zip(uids, (1.24, 2.6, 9.9), strict=True):
+        doc.set_transform(uid, translation=[x, 0, 0])
+    depth = len(doc.history)
+
+    assert clay_ops.run(_Ctx(), doc, clay_ops.get("snap-to-grid"), step=1.0) is True
+    assert len(doc.history) == depth + 1
+    assert doc.undo() is True
+
+
+def test_snap_to_grid_appears_in_the_object_menu() -> None:
+    assert "snap-to-grid" in [op.name for op in clay_ops.menu("object")]
