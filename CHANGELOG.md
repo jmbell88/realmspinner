@@ -20,6 +20,19 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**An agent can measure a Clay scene with `clay_analyze`.** For each object it
+reports exact world bounds, area, volume (for closed meshes), connected
+components, how the object meets the ground, and per-axis mirror symmetry. For
+each nearby pair it reports distance, whether they intersect or touch, and how
+much closed meshes overlap. A whole-document call also lists what is floating.
+The bounds are exact, so under rotation they are tighter than `clay_scene`'s
+conservative box. It is read-only and batchable, and unlike `clay_diagnose` it
+reports facts rather than defects and never selects anything. Caps (64
+objects, 200,000 triangles, 16 overlap booleans) refuse or truncate, and a
+maximal call joins `clay_boolean` among the accepted stalls. A six-object
+kitbash measured about 10 ms. The tool catalogue changes again, so the
+Clay-assistant dataset's manifest hash still refuses.
+
 **Clay can align, distribute, drop to ground and snap to grid.** Four new
 object-mode rows act on the selection, and each gesture is one undo step. Align
 lines objects up on their world bounds rather than their origins, so boxes of

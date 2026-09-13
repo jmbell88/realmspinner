@@ -433,8 +433,8 @@ one exception is a tool whose reply carries a picture — `clay_render` and `cla
 both bypass `_json` and build their result directly, because an image block has no JSON to
 duplicate, so a new tool answering with an image should follow their lead rather than call `_json`
 at all. Declaring an `outputSchema` for it is a separate, deliberate choice, not something that comes
-along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh` and
-`clay_diagnose` have one, because writing a schema for a result as small as a uid or a count is
+along for the ride — today only `clay_scene`, `clay_add_primitive`, `clay_add_mesh`,
+`clay_diagnose` and `clay_analyze` have one, because writing a schema for a result as small as a uid or a count is
 authorship with no reader. Reach for one only when a client would actually be validating or
 generating against the shape — and when the shape is one already written down, compose it rather
 than copying it out again, the way `clay_add_mesh`'s own schema is the shared object-row schema

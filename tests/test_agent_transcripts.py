@@ -154,9 +154,9 @@ see that module's own docstring for the derivation itself."""
 
 def test_the_uid_bearing_argument_names_are_exactly_uid_and_uids() -> None:
     """The derivation gate the whole remap rule rests on. Walks every
-    argument schema :func:`agent_clay.tools` publishes today (26 tools, at
+    argument schema :func:`agent_clay.tools` publishes today (27 tools, at
     the time this was written) rather than trusting a hand-written pair, so
-    a twenty-seventh tool naming a uid some other way fails loudly here --
+    the next tool naming a uid some other way fails loudly here --
     :data:`UID_KEYS` would have already grown to include it, which is what
     forces a decision about :func:`agent_transcript.remap` and
     :func:`agent_transcript.produced_uids` instead of letting a stale

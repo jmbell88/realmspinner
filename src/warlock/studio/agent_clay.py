@@ -256,20 +256,20 @@ that leaf staying ignorant of Clay is a decision this file does not get to
 revisit. A test that checks real behaviour is worth more than a validator
 that checks only some of it.
 
-Four tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh`` and
-``clay_diagnose`` -- go one step further and declare an ``outputSchema``
-describing that structured shape; the rest deliberately do not, because a
-schema for a uid and a count is authorship with no reader. ``clay_add_mesh``
-composes its schema from :func:`_object_row_output_schema` rather than
-repeating it -- the same row ``clay_add_primitive`` declares, plus the two
-keys only this tool answers with -- because a hand-copied second row schema
-is exactly the drift the derivation paragraphs above rule out for a query
-enum or a generator list, and a row's own shape is no different. None of the
-four declares ``required``: a refusal shares this same result envelope
-(``protocol.fail``'s own ``structuredContent`` is whatever ``field`` it was
-given, nothing more), so a ``required`` list on the success shape would make
-every refusal of these tools non-conforming for a client validating strictly
-against its schema.
+Five tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh``,
+``clay_diagnose`` and ``clay_analyze`` -- go one step further and declare an
+``outputSchema`` describing that structured shape; the rest deliberately do
+not, because a schema for a uid and a count is authorship with no reader.
+``clay_add_mesh`` composes its schema from :func:`_object_row_output_schema`
+rather than repeating it -- the same row ``clay_add_primitive`` declares,
+plus the two keys only this tool answers with -- because a hand-copied
+second row schema is exactly the drift the derivation paragraphs above rule
+out for a query enum or a generator list, and a row's own shape is no
+different. None of the five declares ``required``: a refusal shares this
+same result envelope (``protocol.fail``'s own ``structuredContent`` is
+whatever ``field`` it was given, nothing more), so a ``required`` list on
+the success shape would make every refusal of these tools non-conforming
+for a client validating strictly against its schema.
 
 **``clay_render``'s payload is bounded before the GPU work, not after.**
 ``RENDER_PIXEL_BUDGET`` refuses a request for too many total pixels across
@@ -334,6 +334,7 @@ from ..service import files as svc_files
 from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
 from . import clay_mode, clay_ops
+from .clay import analyze as clay_analyze
 from .clay import diagnose as clay_diagnose
 from .clay import document as bd
 from .clay import elements as el
@@ -937,6 +938,29 @@ def _validate_unit(value: Any, field: str) -> tuple[float | None, dict | None]:
     return out, None
 
 
+def _validate_range(
+    value: Any, field: str, lo: float, hi: float
+) -> tuple[float | None, dict | None]:
+    """One finite number in ``lo..hi``, or a refusal naming *field*.
+
+    :func:`_validate_unit` fixed at 0..1 for a colour component; this is the
+    same check with the bound as an argument, for ``clay_analyze``'s three
+    tolerances, each declared with its own ``minimum``/``maximum`` in the
+    schema and none of them 0..1.
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None, fail(
+            f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
+        )
+    if not math.isfinite(out) or not (lo <= out <= hi):
+        return None, fail(
+            f"{field} must be a number, {lo}..{hi}.", field=field, recovery="fix_arguments"
+        )
+    return out, None
+
+
 def _validate_number_or_vec(
     value: Any, field: str
 ) -> tuple[float | list[float] | list[list[float]] | None, dict | None]:
@@ -1282,6 +1306,15 @@ def instructions() -> str:
         "and its survivor is whichever object comes first in the "
         "document's own order, never first in the uids list handed to "
         "it.\n\n"
+        "clay_diagnose and clay_analyze both read without selecting anything "
+        "you did not ask them to: diagnose finds what is wrong with a mesh "
+        "(a hole, a non-manifold edge) and can select the offending elements; "
+        "analyze measures facts about one or more objects that are not "
+        "defects -- exact bounds, area, volume, ground contact, symmetry, and "
+        "for a pair, distance, contact and overlap -- and never selects "
+        "anything. Reach for analyze to check placement (is this resting on "
+        "the ground, do these two touch or overlap, by how much) and "
+        "diagnose to check mesh health before a boolean.\n\n"
         "Materials are linear RGB, 0..1. clay_scene's 'materials' lists the "
         "palette already in use -- reuse an index from it rather than "
         "appending a near-duplicate.\n\n"
@@ -1899,6 +1932,64 @@ def tools() -> list[Any]:
             output_schema=_clay_diagnose_output_schema(),
         ),
         protocol.Tool(
+            name="clay_analyze",
+            title="Measure bounds, mass and contact -- never selects",
+            description=(
+                "Facts, not defects: exact world-space bounds, area, volume "
+                "(null unless closed), connected components, ground contact "
+                "and symmetry for one or more objects, plus pairwise "
+                "distance/contact/overlap and -- for a whole-document call, "
+                "no uids given -- which objects are floating (touching "
+                "nothing that reaches the ground). Use clay_diagnose to find "
+                "what is wrong with a mesh and select it; use this to learn "
+                "how big something is, whether it is touching the ground or "
+                "another object, or how deep two objects overlap. Bounds "
+                "here are the object's own exact extent under its current "
+                "rotation, which is tighter than clay_scene's 'bbox' -- that "
+                "one transforms the local bounding box's own corners, "
+                "conservative for anything that is not itself box-shaped. "
+                "Refused past 64 objects or 200,000 triangles combined; "
+                "past 500,000 candidate triangle pairs for one object pair, "
+                "that pair's distance is a cheaper vertex estimate marked "
+                "exact:false instead."
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "uids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 1,
+                        "description": "Only these objects, and pairs among "
+                        "them -- no floating check. Omitted means every "
+                        "visible object, with floating computed.",
+                    },
+                    "contact_tol": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Metres apart still counted as touching. Default 0.001.",
+                    },
+                    "near": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 10.0,
+                        "description": "Metres of margin a pair's boxes must "
+                        "overlap by to be looked at closely at all. Default 0.05.",
+                    },
+                    "symmetry_tol": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Mirror-partner tolerance, as a "
+                        "fraction of the object's own bounds diagonal. Default 0.002.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            output_schema=_clay_analyze_output_schema(),
+        ),
+        protocol.Tool(
             name="clay_export",
             title="Export the document as an asset",
             description=(
@@ -2130,15 +2221,15 @@ def _params_value_schema() -> dict:
 
 # --- output schemas -----------------------------------------------------------
 #
-# Only three tools below declare an ``outputSchema`` at all -- ``clay_scene``,
-# ``clay_add_primitive`` and ``clay_diagnose``. Every other tool's result is
-# small and self-explanatory (a uid, a count, a list of names); writing a
-# schema for each would be schema authoring with no reader, so this file
-# deliberately does not. These three are the ones whose shape is worth
-# writing down once rather than making a client work it back out of a
-# sample reply.
+# Five tools below declare an ``outputSchema`` at all -- ``clay_scene``,
+# ``clay_add_primitive``, ``clay_add_mesh``, ``clay_diagnose`` and
+# ``clay_analyze``. Every other tool's result is small and self-explanatory
+# (a uid, a count, a list of names); writing a schema for each would be
+# schema authoring with no reader, so this file deliberately does not.
+# These five are the ones whose shape is worth writing down once rather
+# than making a client work it back out of a sample reply.
 #
-# None of the three declares ``required``, and none sets
+# None of the five declares ``required``, and none sets
 # ``additionalProperties: false``. That is not an oversight -- a refusal
 # from any of these tools answers through the *same* result envelope
 # (``protocol.fail``), and a refusal's own ``structuredContent`` is whatever
@@ -2347,6 +2438,91 @@ def _clay_diagnose_output_schema() -> dict:
                     "mode": {"type": "string"},
                     "stamp": {"type": "integer"},
                     "selected": _sel_counts_schema(),
+                },
+            },
+        },
+    }
+
+
+def _clay_analyze_output_schema() -> dict:
+    """``clay_analyze``'s declared ``outputSchema`` -- built from what
+    :func:`_h_analyze` actually returns. ``bounds`` admits ``null`` for an
+    object with no vertices, exactly as ``clay_scene``'s own ``bbox`` does,
+    and for the same reason: :func:`~.analyze.analyze` cannot measure a box
+    around nothing."""
+    vec3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+    ground_schema = {
+        "type": "object",
+        "properties": {
+            "min_y": {"type": "number"},
+            "contact": {"type": "boolean"},
+            "penetration": {"type": "number"},
+        },
+    }
+    overlap_schema = {
+        "type": "object",
+        "properties": {
+            "volume": {"type": "number"},
+            "depth": {"type": "number"},
+        },
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "objects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "uid": {"type": "integer"},
+                        "name": {"type": "string"},
+                        "bounds": {
+                            "anyOf": [
+                                {"type": "null"},
+                                {"type": "object", "properties": {"min": vec3, "max": vec3}},
+                            ]
+                        },
+                        "area": {"type": "number"},
+                        "volume": {"anyOf": [{"type": "null"}, {"type": "number"}]},
+                        "closed": {"type": "boolean"},
+                        "components": {"type": "integer"},
+                        "ground": {"anyOf": [{"type": "null"}, ground_schema]},
+                        "symmetry": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                    },
+                },
+            },
+            "pairs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "uids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "distance": {"anyOf": [{"type": "null"}, {"type": "number"}]},
+                        "intersects": {"type": "boolean"},
+                        "contact": {"type": "boolean"},
+                        "overlap": {"anyOf": [{"type": "null"}, overlap_schema]},
+                        "exact": {"type": "boolean"},
+                    },
+                },
+            },
+            "floating": {"type": "array", "items": {"type": "integer"}},
+            "truncated": {"type": "boolean"},
+            "tolerances": {
+                "type": "object",
+                "properties": {
+                    "contact_tol": {"type": "number"},
+                    "near": {"type": "number"},
+                    "symmetry_tol": {"type": "number"},
                 },
             },
         },
@@ -4216,6 +4392,106 @@ def _h_diagnose(ctx: Any, session: Session, args: dict) -> dict:
     return _json(payload)
 
 
+def _h_analyze(ctx: Any, session: Session, args: dict) -> dict:
+    """Bounds, mass properties, ground contact, symmetry and pairwise
+    distance/contact/overlap -- read-only, and selects nothing.
+
+    ``uids`` given restricts both which objects are reported on and which
+    pairs are computed among them, and switches ``floating`` off entirely --
+    see :func:`~.analyze.analyze`'s own docstring for why a scoped call
+    cannot answer that question. Omitted, every visible object takes part
+    and ``floating`` is always present in the reply, even when empty.
+    """
+    tab, failure = _tab(ctx, session)
+    if failure:
+        return failure
+    doc = tab.doc
+
+    uids_arg = args.get("uids")
+    if uids_arg is None:
+        targets = [obj for obj in doc.objects if obj.visible]
+        pairs_among = None
+    else:
+        uids, failure = _resolve_uids(doc, uids_arg, field="uids")
+        if failure:
+            return failure
+        if not uids:
+            return fail("uids must name at least one object.", field="uids")
+        by_uid = {obj.uid: obj for obj in doc.objects}
+        targets = [by_uid[uid] for uid in uids]
+        pairs_among = uids
+
+    contact_tol, failure = _validate_range(
+        args.get("contact_tol", 0.001), "contact_tol", 0.0, 1.0
+    )
+    if failure:
+        return failure
+    near, failure = _validate_range(args.get("near", 0.05), "near", 0.0, 10.0)
+    if failure:
+        return failure
+    symmetry_tol, failure = _validate_range(
+        args.get("symmetry_tol", 0.002), "symmetry_tol", 0.0, 1.0
+    )
+    if failure:
+        return failure
+
+    result = clay_analyze.analyze(
+        targets,
+        pairs_among=pairs_among,
+        contact_tol=contact_tol,
+        near=near,
+        symmetry_tol=symmetry_tol,
+    )
+
+    objects_out = [
+        {
+            "uid": row.uid,
+            "name": row.name,
+            "bounds": None
+            if row.bounds is None
+            else {"min": _round(row.bounds[0]), "max": _round(row.bounds[1])},
+            "area": _round(row.area),
+            "volume": None if row.volume is None else _round(row.volume),
+            "closed": row.closed,
+            "components": row.components,
+            "ground": None
+            if row.ground is None
+            else {
+                "min_y": _round(row.ground.min_y),
+                "contact": row.ground.contact,
+                "penetration": _round(row.ground.penetration),
+            },
+            "symmetry": _round(list(row.symmetry)),
+        }
+        for row in result.objects
+    ]
+
+    pairs_out = [
+        {
+            "uids": list(pair.uids),
+            "distance": None if pair.distance is None else _round(pair.distance),
+            "intersects": pair.intersects,
+            "contact": pair.contact,
+            "overlap": None
+            if pair.overlap is None
+            else {"volume": _round(pair.overlap.volume), "depth": _round(pair.overlap.depth)},
+            "exact": pair.exact,
+        }
+        for pair in result.pairs
+    ]
+
+    payload: dict[str, Any] = {
+        "objects": objects_out,
+        "pairs": pairs_out,
+        "tolerances": {"contact_tol": contact_tol, "near": near, "symmetry_tol": symmetry_tol},
+    }
+    if result.floating is not None:
+        payload["floating"] = list(result.floating)
+    if result.truncated:
+        payload["truncated"] = True
+    return _json(payload)
+
+
 def _h_export(ctx: Any, session: Session, args: dict) -> dict:
     del args
     tab, failure = _tab(ctx, session)
@@ -4823,6 +5099,7 @@ _HANDLERS = {
     "clay_op": _h_op,
     "clay_render": _h_render,
     "clay_diagnose": _h_diagnose,
+    "clay_analyze": _h_analyze,
     "clay_export": _h_export,
     "clay_undo": _h_undo,
     "clay_redo": _h_redo,

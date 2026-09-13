@@ -43,8 +43,9 @@ image_png(...))``) both build their result directly rather than through
 structurally rather than as a name or a count, and pinned exhaustively --
 walking every entry in ``_HANDLERS`` rather than a hand-kept subset -- by
 ``test_every_tool_answers_with_structured_content_unless_its_reply_carries_a_picture``.
-Three tools -- ``clay_scene``, ``clay_add_primitive`` and ``clay_diagnose``
--- also declare an ``outputSchema`` describing that shape, and none declares
+Five tools -- ``clay_scene``, ``clay_add_primitive``, ``clay_add_mesh``,
+``clay_diagnose`` and ``clay_analyze`` -- also declare an ``outputSchema``
+describing that shape, and none declares
 ``required`` or ``additionalProperties: false``, because a refusal shares
 the same result envelope and its ``structuredContent`` is whatever
 ``fail()``'s ``**extra`` was given -- ``field`` where one is knowable, always
@@ -608,6 +609,7 @@ _NEEDS_A_TAB = [
     ("clay_op", {}),
     ("clay_render", {}),
     ("clay_diagnose", {}),
+    ("clay_analyze", {}),
     ("clay_export", {}),
     ("clay_undo", {}),
     ("clay_redo", {}),
@@ -3061,6 +3063,75 @@ def test_clay_diagnose_can_select_the_finding_it_reports() -> None:
     assert tab.doc.element_sel_of(uid).verts.tolist() == [original_vert_count]
 
 
+def test_clay_analyze_reports_bounds_area_volume_and_ground_for_a_box() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    row = next(o for o in payload["objects"] if o["uid"] == uid)
+    assert row["closed"] is True
+    assert row["volume"] == pytest.approx(1.0, abs=1e-4)
+    assert row["area"] == pytest.approx(6.0, abs=1e-4)
+    assert row["bounds"] is not None
+    assert "floating" in payload  # a whole-document call: no uids were given
+    assert payload["tolerances"] == {"contact_tol": 0.001, "near": 0.05, "symmetry_tol": 0.002}
+
+
+def test_clay_analyze_with_uids_skips_floating_and_reports_only_those_objects() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid1 = _new_agent_tab(ctx, session)
+    add2 = agent_clay.call(
+        ctx, session, "clay_add_primitive", {"generator": "box", "translation": [5.0, 5.0, 0.0]}
+    )
+    uid2 = _payload(add2)["uid"]
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {"uids": [uid1]})
+    assert result["isError"] is False, result
+    payload = _payload(result)
+    assert {o["uid"] for o in payload["objects"]} == {uid1}
+    assert "floating" not in payload
+    del uid2
+
+
+def test_clay_analyze_pushes_no_undo_step() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+    before = _history_len(ctx, session)
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {})
+    assert result["isError"] is False, result
+    assert _history_len(ctx, session) == before
+
+
+def test_clay_analyze_is_batchable() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(
+        ctx, session, "clay_batch", {"calls": [{"name": "clay_analyze", "arguments": {}}]}
+    )
+    assert result["isError"] is False, result
+    batch_payload = _payload(result)
+    assert batch_payload["completed"] == 1
+    assert "objects" in _payload(batch_payload["results"][0])
+
+
+def test_clay_analyze_refuses_an_out_of_range_tolerance() -> None:
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session)
+
+    result = agent_clay.call(ctx, session, "clay_analyze", {"near": 100.0})
+    assert result["isError"] is True
+    assert result["structuredContent"]["field"] == "near"
+
+
 def test_an_element_selection_reports_a_stamp_that_changes_when_an_op_replaces_the_mesh() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -3365,7 +3436,7 @@ def test_a_render_does_not_duplicate_its_header_into_structured_content(
     assert "_json(" not in source
 
 
-def test_the_four_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
+def test_the_five_declared_output_schemas_describe_what_those_tools_actually_return() -> None:
     """The test that catches a schema drifting from ``_scene_row`` (or from
     ``_h_scene``/``_h_diagnose``'s own payload): every key a real call's
     ``structuredContent`` actually carries must appear in that tool's own
@@ -3419,11 +3490,23 @@ def test_the_four_declared_output_schemas_describe_what_those_tools_actually_ret
     assert set(diag_structured) <= set(diag_schema["properties"])
     assert "objects" in diag_schema["properties"]
 
+    analyze_schema = getattr(tools["clay_analyze"], "output_schema", None)
+    assert analyze_schema is not None
+    analyze_result = agent_clay.call(ctx, session, "clay_analyze", {})
+    analyze_structured = analyze_result.get("structuredContent") or {}
+    assert analyze_structured, "clay_analyze answered with no structuredContent at all"
+    # A subset, like clay_diagnose's: ``truncated`` only appears when true,
+    # and ``floating`` only for a whole-document call (this one -- no uids
+    # were given).
+    assert set(analyze_structured) <= set(analyze_schema["properties"])
+    assert "objects" in analyze_schema["properties"]
+    assert "pairs" in analyze_schema["properties"]
+
 
 def test_no_declared_output_schema_demands_required_keys_because_a_refusal_shares_the_envelope() -> (  # noqa: E501
     None
 ):
-    """None of the four declared schemas names a ``required`` list or sets
+    """None of the five declared schemas names a ``required`` list or sets
     ``additionalProperties: false`` -- proven alongside the reason itself: a
     refusal from one of these same tools really does put ``field`` in
     ``structuredContent`` -- and, since ``changed`` was added, nothing else
@@ -3432,7 +3515,13 @@ def test_no_declared_output_schema_demands_required_keys_because_a_refusal_share
     point: it is what would catch an accidental extra key landing in this
     envelope, ``changed`` among them if its default ever drifted."""
     tools = {t.name: t for t in agent_clay.tools()}
-    for name in ("clay_scene", "clay_add_primitive", "clay_add_mesh", "clay_diagnose"):
+    for name in (
+        "clay_scene",
+        "clay_add_primitive",
+        "clay_add_mesh",
+        "clay_diagnose",
+        "clay_analyze",
+    ):
         schema = getattr(tools[name], "output_schema", None)
         assert schema is not None
         assert "required" not in schema
@@ -3703,13 +3792,15 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     ``warlock_status`` out would undercount what a connecting agent is
     actually billed for by one whole tool; the honest number includes it.
 
-    Measured on 2026-09-11: catalogue JSON 36,682 chars + instructions 5,712
-    chars = 42,394 chars total (26 Clay tools plus ``warlock_status``, at
-    ``rpc.tool_dict`` encoding). Ceiling here is 48,000 -- about 13%
-    of headroom above that measurement, more than any single existing tool's
-    schema (the largest, ``clay_add_primitive``, is 3,927 chars) so one
-    ordinary new tool does not trip it, but nowhere near the ~84,800 chars a
-    doubling would reach, so a doubling reliably does.
+    Measured on 2026-09-13, after ``clay_analyze`` landed: catalogue JSON
+    40,865 chars + instructions 6,499 chars = 47,364 chars total (27 Clay
+    tools plus ``warlock_status``, at ``rpc.tool_dict`` encoding). Ceiling
+    here is still 48,000, but ``clay_analyze``'s own ~3,375-char schema ate
+    almost all of the headroom the previous measurement had (42,394 chars,
+    26 tools) -- only about 636 chars, well under any single existing tool's
+    schema, are left above this measurement. The next tool that grows the
+    catalogue at all will need to raise this ceiling and say why; this one
+    did not, but only just.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host

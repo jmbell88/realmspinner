@@ -75,6 +75,7 @@ WAIT = 5.0
 SMALL_SCENE_RUNS = 101
 LARGE_SCENE_RUNS = 51
 TOOLS_LIST_RUNS = 51
+ANALYZE_KITBASH_RUNS = 51
 
 #: Budgets, generously above the measured medians in the module docstring --
 #: see there for the reasoning (5-8x on the two ``clay_scene`` shapes, ~20x
@@ -82,6 +83,14 @@ TOOLS_LIST_RUNS = 51
 MAX_MEDIAN_MS_SMALL_SCENE = 15.0
 MAX_MEDIAN_MS_LARGE_SCENE = 30.0
 MAX_MEDIAN_MS_TOOLS_LIST = 10.0
+#: ``clay.analyze``'s own module docstring states the target this pins:
+#: "about 100 ms for a typical kitbash." Measured on the development machine
+#: (Windows 11, Python 3.13.13, ``-n 0``), median of 51 round trips over a
+#: six-object kitbash (three boxes, three cylinders, two pairs close enough
+#: to intersect and trigger an overlap boolean): ~9.8 ms. This budget is
+#: about 5x that, the same headroom ``MAX_MEDIAN_MS_LARGE_SCENE`` gives its
+#: own measurement.
+MAX_MEDIAN_MS_ANALYZE_KITBASH = 50.0
 
 
 class _Ctx:
@@ -241,3 +250,42 @@ def test_bridge_tools_list_round_trip(rpc_bridge: _RpcBridge) -> None:
 
     median_ms = _median_round_trip_ms(one_call, TOOLS_LIST_RUNS, "bridge tools/list")
     assert median_ms < MAX_MEDIAN_MS_TOOLS_LIST, f"{median_ms:.3f} ms median"
+
+
+@pytest.mark.perf
+def test_bridge_clay_analyze_round_trip_on_a_typical_kitbash(rpc_bridge: _RpcBridge) -> None:
+    """``clay.analyze``'s own module docstring states a budget in these
+    terms -- "a typical kitbash (a few primitives/figure parts)" -- so this
+    builds exactly that rather than a document sized to make some other
+    property (triangle count, object count) round: three boxes and three
+    cylinders, two of the pairs close enough to actually intersect, so the
+    measured cost includes at least one overlap boolean rather than only the
+    cheap broad-phase-rejects-everything path.
+    """
+    positions = [
+        (0.0, 0.5, 0.0),
+        (1.2, 0.5, 0.0),
+        (2.4, 0.5, 0.0),
+        (0.0, 1.5, 0.0),
+        (1.2, 0.25, 1.5),
+        (0.0, 0.5, 3.0),
+    ]
+    for i, translation in enumerate(positions):
+        generator = "box" if i % 2 == 0 else "cylinder"
+        reply = rpc_bridge.mcp_call(
+            "tools/call",
+            {
+                "name": "clay_add_primitive",
+                "arguments": {"generator": generator, "translation": list(translation)},
+            },
+        )
+        assert reply["result"]["isError"] is False, reply
+
+    def one_call() -> None:
+        reply = rpc_bridge.mcp_call("tools/call", {"name": "clay_analyze", "arguments": {}})
+        assert reply["result"]["isError"] is False, reply
+
+    median_ms = _median_round_trip_ms(
+        one_call, ANALYZE_KITBASH_RUNS, "bridge clay_analyze, kitbash"
+    )
+    assert median_ms < MAX_MEDIAN_MS_ANALYZE_KITBASH, f"{median_ms:.3f} ms median"
