@@ -39,6 +39,19 @@ image-generation pack at submit. "% on palette" weighs pixels, not colours.
 Seventeen manual passages that described the wrong label, count or step are
 corrected.
 
+**Three stalls measured and removed.** Select Linked (L) in Clay took 11 s
+on a 200k-vertex import made of long thin strips; it is now a SciPy
+connected-components pass and returns the same selection in milliseconds.
+Proportional editing's nearest-selected-vertex search is a KD-tree instead of
+a brute-force broadcast, about 20 times faster at the old limit, and the limit
+is now 300,000 mesh vertices rather than a selected-times-vertices product —
+which had silently turned a 201-vertex selection on a 200k import into a hard
+drag. Distances now agree with the old search to 1e-9 rather than bit for bit.
+Flourish's textured particles and sprites no longer allocate a whole frame per
+stamp: 400 textured particles fell from 1.9 s to about 30 ms a frame, with
+identical pixels. The numbers are in
+`docs/measurements/2026-09-13-native-batch-10-candidates.md`.
+
 **The rest of the 2026-09-13 audit.** Mason's light, camera and terrain fields
 undo as one step rather than one per keystroke, and a scene of deeply nested
 prefabs is refused everywhere it is walked, not only on open. Plotter picks a

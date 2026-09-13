@@ -14,11 +14,14 @@ n+1 edges. Those are the numbers a wrong walk gets wrong.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 from warlock.studio.clay import adjacency as adj
+from warlock.studio.clay import mesh as bm
 from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import select
+from warlock.studio.clay import select, topo
 
 
 def _grid():
@@ -137,6 +140,115 @@ def test_linked_stops_at_a_shell_boundary():
 
 def test_linked_from_nothing_selects_nothing():
     assert len(select.linked(_grid(), [])) == 0
+
+
+def _strip_mesh(n_verts: int, islands: int = 4, width: int = 2):
+    """*islands* disconnected quad strips *width* faces wide, ~*n_verts* total.
+
+    Mirrors ``scripts/bench_native.py``'s ``_linked_mesh`` fixture (the one
+    behind ``docs/measurements/2026-09-13-native-batch-10-candidates.md``
+    §1): a long thin strip is label propagation's worst case, since its pass
+    count is the strip's length, not the square root of its size. Kept as its
+    own copy here because ``bench_native.py`` is a script, not an importable
+    module.
+    """
+    length = max(1, n_verts // islands // (width + 1))
+    positions, faces = [], []
+    for island in range(islands):
+        xx, zz = np.meshgrid(np.arange(width + 1.0), np.arange(length + 1.0), indexing="ij")
+        base = sum(len(p) for p in positions)
+        positions.append(
+            np.stack([xx.ravel() + island * 1000.0, np.zeros(xx.size), zz.ravel()], axis=1)
+        )
+        faces += [
+            [
+                base + a
+                for a in (
+                    i * (length + 1) + j,
+                    i * (length + 1) + j + 1,
+                    (i + 1) * (length + 1) + j + 1,
+                    (i + 1) * (length + 1) + j,
+                )
+            ]
+            for i in range(width)
+            for j in range(length)
+        ]
+    return bm.Mesh(
+        positions=np.concatenate(positions),
+        loops=np.asarray([c for f in faces for c in f], dtype="i4"),
+        starts=topo.starts_from_counts([4] * len(faces)),
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+    )
+
+
+def _linked_by_label_propagation(mesh, verts) -> np.ndarray:
+    """Reference copy of the propagation ``select.linked`` used to ship with
+    (see the 2026-09-13 measurement, §1) -- kept only so the fast path can be
+    checked against it, never as the shipped implementation."""
+    seeds = np.unique(np.asarray(verts, dtype="i8").reshape(-1))
+    count = len(mesh.positions)
+    if not len(seeds) or count == 0:
+        return np.zeros(0, dtype="i4")
+    a = adj.adjacency(mesh)
+    inside = np.zeros(count, dtype=bool)
+    inside[seeds[(seeds >= 0) & (seeds < count)]] = True
+    if a.n_edges == 0:
+        return np.flatnonzero(inside).astype("i4")
+    lo = a.edge_verts[:, 0].astype("i8")
+    hi = a.edge_verts[:, 1].astype("i8")
+    while True:
+        grown = inside.copy()
+        grown[lo[inside[hi]]] = True
+        grown[hi[inside[lo]]] = True
+        if bool(np.array_equal(grown, inside)):
+            break
+        inside = grown
+    return np.flatnonzero(inside).astype("i4")
+
+
+def test_linked_on_a_long_thin_strip_finishes_well_under_a_second():
+    """The regression this batch is about. Label propagation's pass count is
+    a strip's *length*, not its size, so four 200k-vertex-total quad strips
+    two faces wide took 11.1 s (docs/measurements/
+    2026-09-13-native-batch-10-candidates.md §1) -- 11 seconds on the frame
+    thread for one L key. ``connected_components`` over the edge graph is
+    flat in the strip's length, not linear in it, so a generous 1 s bound
+    still fails hard against the unfixed propagation and passes easily
+    against the fix."""
+    mesh = _strip_mesh(200_000)
+
+    start = time.perf_counter()
+    result = select.linked(mesh, [0])
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"took {elapsed:.3f}s -- still O(passes x mesh)?"
+    # One island's worth, not all four.
+    assert 0 < len(result) < len(mesh.positions)
+
+
+def test_linked_matches_label_propagation_on_several_seeded_islands():
+    """Parity with the propagation ``linked`` used to be: several small
+    meshes, seeds landing in one, several, and no island."""
+    rng = np.random.default_rng(0)
+    for islands, width, seed_islands in (
+        (1, 2, (0,)),
+        (3, 2, (0,)),
+        (3, 2, (0, 2)),
+        (4, 3, (1, 3)),
+        (5, 1, ()),
+    ):
+        mesh = _strip_mesh(400, islands=islands, width=width)
+        per_island = len(mesh.positions) // islands
+        seeds = np.concatenate(
+            [rng.integers(i * per_island, (i + 1) * per_island, size=2) for i in seed_islands]
+        ) if seed_islands else np.zeros(0, dtype="i8")
+
+        fast = select.linked(mesh, seeds)
+        reference = _linked_by_label_propagation(mesh, seeds)
+
+        assert fast.dtype == reference.dtype
+        assert np.array_equal(np.sort(fast), np.sort(reference))
 
 
 # --- more and less ------------------------------------------------------------
