@@ -20,6 +20,24 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**`warlock mcp` can start before the app, and losing the app mid-call
+doesn't kill the bridge.** If the app is not running, the bridge answers
+discovery and `tools/list` from `mcp.catalogue.json`, the tool list the app
+saved when agents were last switched on. It connects on the first tool call,
+and until the app is reachable that call is a refusal saying how to switch
+agents on. Before this, the bridge exited and the client showed a dead server.
+An app that closes mid-call, or a call that overruns the backstop, now gets
+"may or may not have happened; re-read `clay_scene`", and nothing retries,
+because a blind retry could build the same edit twice. The next call
+reconnects, and a reconnect is a new document, which the agent instructions
+now say. Found while probing the bridge against a live app: the RPC `call`
+reply hashed the tool's *result* where the bridge expected the catalogue's
+hash, so every ordinary call pushed `notifications/tools/list_changed`.
+`test_two_ordinary_calls_over_a_real_subprocess_emit_no_spurious_list_changed`
+fails against the old reply. The Clay-assistant dataset's manifest hash no
+longer matches the instructions, and that is expected: the dataset is not
+regenerated here.
+
 **`warlock mcp` is the MCP server now, not a relay, and it speaks both
 eras of the protocol.** It used to copy stdio bytes to the app and back, so
 every MCP revision the app did not understand was refused inside the app.

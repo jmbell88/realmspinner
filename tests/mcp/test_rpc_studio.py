@@ -1,4 +1,4 @@
-"""B1: Studio speaks ``warlock.mcp.rpc`` v1 alongside the existing MCP path.
+"""Studio speaks ``warlock.mcp.rpc`` v1 alongside the existing MCP path.
 
 Everything here drives a real :class:`~warlock.studio.agent_host.AgentHost`
 over a real pipe (:mod:`warlock.mcp.pipe`), the same fixture shape
@@ -6,8 +6,7 @@ over a real pipe (:mod:`warlock.mcp.pipe`), the same fixture shape
 ``host.pump()`` the way ``main.py:App.frame`` would, while this thread is
 the "bridge" dialling in with ``pipe.connect``. RPC v1 requests are built by
 hand with ``rpc.encode_request``/``rpc.split_reply`` rather than through
-``warlock.mcp.bridge`` -- B1 does not touch ``bridge.py`` at all; only
-Studio's side of the pipe (``agent_host.py``) is new here.
+``warlock.mcp.bridge``, so a failure here is Studio's side of the pipe alone.
 """
 
 from __future__ import annotations
@@ -92,7 +91,13 @@ def test_hello_catalogue_and_call_round_trip_over_a_real_pipe(tmp_path) -> None:
             call_header, body = rpc.split_reply(_recv(conn))
             result = json.loads(body.decode("utf-8"))
             assert result["isError"] is False
-            assert call_header["hash"] == rpc.canonical_hash(result)
+            # The `call` reply's `hash` is the *catalogue*'s hash (the same
+            # value `hello` and `catalogue` already reported), never a hash
+            # of this call's own result -- see rpc.py's `call` op docs. A
+            # bridge uses this field to detect a moved catalogue; hashing
+            # the result instead made it move on every single call.
+            assert call_header["hash"] == header["catalogue_hash"]
+            assert call_header["hash"] != rpc.canonical_hash(result)
         finally:
             conn.close()
     finally:

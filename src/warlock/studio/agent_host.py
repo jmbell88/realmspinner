@@ -769,7 +769,16 @@ class AgentHost:
                 return rpc.encode_reply(rpc.bad_request_header())
             result = self._call(session, calls, name, arguments)
             body = json.dumps(result, separators=(",", ":")).encode("utf-8")
-            return rpc.encode_reply({"hash": rpc.canonical_hash(result)}, body)
+            # The catalogue hash, not a hash of this call's own result: the
+            # bridge's `_maybe_refresh_catalogue` compares this field against
+            # the catalogue it already holds to decide whether to re-fetch
+            # and, for a legacy-era client, push
+            # `notifications/tools/list_changed` -- see `rpc.py`'s `call` op
+            # docs. Hashing the result instead made that comparison change
+            # on every single call (two different `warlock_status` replies
+            # hash differently), so the bridge believed the catalogue moved
+            # after every ordinary call and spammed the notification.
+            return rpc.encode_reply({"hash": self._catalogue_hash()}, body)
         return rpc.encode_reply(rpc.unknown_op_header())
 
     def _rpc_studio_version(self) -> str:
@@ -793,6 +802,14 @@ class AgentHost:
         )
 
     def _catalogue_hash(self) -> str:
+        """The catalogue's own hash. Not cached: ``agent_clay.tools()``'s
+        own docstring already treats rebuilding the catalogue from the
+        registries as cheap enough to redo on every ``tools/list``, and
+        `test_the_catalogue_hash_changes_when_the_tool_list_changes` (this
+        package's own regression test) depends on this recomputing fresh
+        each call rather than answering from a stale cache -- see
+        `tests/test_agent_perf.py` for the measured cost of doing so on the
+        RPC v1 `call` reply path as well, now that this is read there too."""
         return self._catalogue_payload()["hash"]
 
     def _write_catalogue_snapshot(self) -> None:

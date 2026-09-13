@@ -6,8 +6,8 @@ is not going away. This module is the wire format for a second, private
 channel Studio also understands over the same pipe (`pipe.py`) -- compact
 JSON requests, a JSON header plus an optional raw body for replies -- that a
 bridge that serves MCP itself uses instead of relaying MCP frames one at a
-time. Studio answers it (the first-frame sniff in `studio/agent_host.py`);
-`bridge.py` does not speak it yet.
+time. Studio answers it (the first-frame sniff in `studio/agent_host.py`)
+and `bridge.py` is its one client.
 
 **Wire shape.** A request is one frame: compact JSON, `{"rpc": 1, "op": ...}`
 plus whatever fields that op needs. A reply is one frame too, but two parts
@@ -33,7 +33,13 @@ as JSON text) and this module never touches its contents.
 * `call` -- request carries `tool` and `args`. Reply header is `{"hash": ...}`
   and the body is the raw result JSON, byte-for-byte what `tools/call` would
   have put in its JSON-RPC `result` field on the MCP path -- the same object,
-  a different envelope.
+  a different envelope. **`hash` here is the *catalogue*'s hash (the same
+  value `hello` and `catalogue` report), never a hash of this call's own
+  result** -- a bridge compares it against the catalogue it already holds to
+  decide whether to re-fetch, and hashing the result instead would change
+  this field on every single call (two different tool results hash
+  differently) and make the bridge believe the catalogue moved after every
+  ordinary call.
 * Anything else -- `{"error": {"code": "unknown_op"}}`.
 * A request this module cannot decode at all (oversize, not JSON, not an
   object) -- `{"error": {"code": "bad_request"}}`.

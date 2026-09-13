@@ -213,8 +213,16 @@ Code, Codex, anything with an MCP client — can build in Clay for you. It is of
 on, in Settings under Advanced. If you installed Warlock rather than running it from a checkout,
 point the agent at the launcher the installer staged:
 `claude mcp add warlock -- "%LOCALAPPDATA%\Programs\Warlock Studio\bin\warlock-mcp.cmd"`. From a
-checkout, use `claude mcp add warlock -- uv run warlock mcp` instead. Either way it will find the
-running app.
+checkout, use `claude mcp add warlock -- uv run warlock mcp` instead.
+
+The bridge does not need the app to already be running. Start it first and it serves the tool list
+saved from the previous session — enough for your agent's client to see what Clay can do — and only
+dials into the app on the first tool call that actually needs it; if nothing answers at that point,
+the call comes back refused, naming the same Settings switch, rather than the bridge giving up.
+If the app closes while a call is in flight, you get an explicit refusal saying the call may or may
+not have completed, never a guess either way. Reconnecting after that — whether the app closed
+mid-call or was simply never open at start-up — opens a new tab in the app, not a resume of
+whatever tab or document the agent was using before.
 
 The arrow only ever points inwards. Warlock ships no language model, runs no inference and reaches
 no endpoint; an agent that is already running connects to it. The transport is a local named pipe

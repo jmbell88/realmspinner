@@ -1300,6 +1300,10 @@ def instructions() -> str:
         "document than the call's own answer. This only works for a call "
         "whose answer never arrived -- two identical calls that both got "
         "answered stay two calls, deliberately.\n\n"
+        "Restarting the bridge, or losing its connection to the app, starts "
+        "a new session with a new document -- never assume continuity across "
+        "either; re-read clay_scene before trusting anything about the "
+        "document again.\n\n"
         "Known generators: " + _generator_catalog()
     )
 
