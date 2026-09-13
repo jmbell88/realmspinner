@@ -428,11 +428,20 @@ def stamp(
     degrees: float,
     tint: np.ndarray,
     alpha: float,
-) -> np.ndarray | None:
+) -> tuple[Window, np.ndarray] | None:
     """``texture`` (straight uint8 RGBA) centred at logical ``(cx, cy)``,
-    ``width`` logical px wide, turned by ``degrees``, as a premultiplied
-    full-frame plane. Nearest sampling, so a pixel-art texture stays one.
-    ``None`` when nothing of it lands on the raster."""
+    ``width`` logical px wide, turned by ``degrees``, as ``(window, patch)``
+    -- ``patch`` a premultiplied array shaped like ``window.shape + (4,)``.
+    Nearest sampling, so a pixel-art texture stays one. ``None`` when nothing
+    of it lands on the raster.
+
+    Used to return a full ``(H, W, 4)`` zero plane with the patch pasted in --
+    1.9 s at 400 textured particles on a 512px raster (§3,
+    ``docs/measurements/2026-09-13-native-batch-10-candidates.md``), almost
+    all of it a per-particle allocate-and-composite of pixels that are zero
+    everywhere outside this window. Every caller composites the window slice
+    directly now; outside it the old plane was exactly zero, so the visible
+    result is unchanged."""
     th, tw = texture.shape[:2]
     if tw == 0 or th == 0 or width <= 0.0 or alpha <= 0.0:
         return None
@@ -454,6 +463,4 @@ def stamp(
     texel = texture[vv, uu].astype(np.float32) / 255.0
     cov = texel[..., 3] * inside.astype(np.float32) * np.float32(alpha * tint[3])
     rgb = texel[..., :3] * tint[:3]
-    out = np.zeros((ctx.height, ctx.width, 4), dtype=np.float32)
-    out[win.rows, win.cols] = premultiply(rgb, cov)
-    return out
+    return win, premultiply(rgb, cov)

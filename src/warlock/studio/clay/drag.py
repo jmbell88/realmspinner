@@ -39,8 +39,7 @@ from ..viewer import math3d as m3
 
 __all__ = [
     "AXES",
-    "FALLOFF_CHUNK_PAIRS",
-    "MAX_FALLOFF_PAIRS",
+    "MAX_FALLOFF_VERTICES",
     "DragInput",
     "constrain_rotation",
     "constrain_scale",
@@ -201,39 +200,42 @@ def constrain_rotation(quat: np.ndarray, drag: DragInput) -> np.ndarray:
 # capable, and it is a weight per vertex and nothing else -- the drag maths, the
 # preview and the commit are all untouched by it.
 
-#: The largest ``selected x vertices`` product the distance search will attempt.
-#: The search is a broadcast rather than a spatial index, which is right for the
-#: blockout geometry Clay authors and quadratic on an imported reconstruction --
-#: so past this it declines, and the drag is an ordinary one. Declining beats
-#: both a stall at the press and a spatial index nothing else here needs. This
-#: is the **time** cap; the memory cap is the chunk below, because at this
-#: count the one-shot broadcast materialised ``pairs x 3 x float64`` -- close to
-#: a gigabyte, on the frame thread, at the press of a drag.
-MAX_FALLOFF_PAIRS = 40_000_000
-
-#: How many pairs one chunk of the search materialises: ~48 MB of delta at
-#: float64, and gone before the next chunk allocates. The result is
-#: bit-identical to the one-shot broadcast -- every per-element value is
-#: computed by the same expression in the same order, and the running
-#: ``minimum`` fold only *selects* among them, which is the native-kernel bar
-#: applied to a rewrite that never left numpy.
-FALLOFF_CHUNK_PAIRS = 2_000_000
+#: The largest vertex count (the mesh, not the selection) the distance search
+#: will attempt. Replaced the ``selected x vertices`` pair cap on 2026-09-13
+#: (`docs/measurements/2026-09-13-native-batch-10-candidates.md` §2): a
+#: ``cKDTree`` query is ~O((n + m) log m) rather than the broadcast's O(n*m),
+#: so the cost that matters is no longer the product -- it is dominated by the
+#: mesh's own vertex count, because the query side touches every vertex
+#: regardless of how few are selected. Measured on this machine (positions,
+#: selected -> best of 3): 300k/300k full-selection worst case 362 ms;
+#: 500k/100 155 ms; 1M/100 320 ms; 2M/2M 3.5 s. 300,000 keeps the realistic
+#: worst case (an imported mesh, fully selected, dragged with a soft falloff)
+#: at a few hundred milliseconds rather than seconds, matching the "well under
+#: a second" bar the other Clay op ceilings use. Past this the drag declines
+#: to an ordinary hard one, same as it always has.
+MAX_FALLOFF_VERTICES = 300_000
 
 
 def _min_distance(positions: np.ndarray, anchors: np.ndarray) -> np.ndarray:
-    """Per-vertex distance to the nearest of *anchors*, in bounded memory.
+    """Per-vertex distance to the nearest of *anchors*.
 
-    Chunked over the anchor rows under a running minimum rather than one
-    broadcast over all of them: the peak temporary is one chunk's delta, not
-    the whole ``anchors x positions`` block, and the answer cannot differ --
-    ``min`` over chunk minima is ``min`` over the same values.
+    A ``cKDTree`` over *anchors*, queried once for every row of *positions* --
+    replaced the chunked brute-force broadcast on 2026-09-13
+    (`docs/measurements/2026-09-13-native-batch-10-candidates.md` §2): 1343 ms
+    to 66 ms at the old cap's 40M pairs. The two agree to 1e-9, not bit for
+    bit, which is why this is no longer pinned bit-identical against a
+    reference broadcast in the tests -- only ``allclose``, with the selected
+    vertices asserted at exactly distance 0 regardless.
+
+    Lazy ``scipy`` import: this package's rule (`tests/clay/test_clay_imports.py`)
+    is that a whole second numerics stack does not sit behind every Clay
+    module that imports ``drag`` for an unrelated question.
     """
-    rows = max(1, FALLOFF_CHUNK_PAIRS // max(len(positions), 1))
-    nearest = np.full(len(positions), np.inf)
-    for start in range(0, len(anchors), rows):
-        delta = positions[None, :, :] - anchors[start : start + rows][:, None, :]
-        np.minimum(nearest, np.sqrt((delta**2).sum(axis=2)).min(axis=0), out=nearest)
-    return nearest
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(anchors)
+    distance, _ = tree.query(positions, k=1)
+    return np.asarray(distance, dtype="f8")
 
 
 def falloff(distance: np.ndarray, radius: float) -> np.ndarray:
@@ -268,14 +270,14 @@ def proportional_set(
     so no ordering beyond that alignment is promised. A vertex at exactly the
     radius weighs zero and is dropped, because carrying it means a drag that
     reports moving geometry it does not move. The two declining paths -- zero
-    radius, or a mesh past ``MAX_FALLOFF_PAIRS`` -- hand the selection back in
-    the order it arrived, at weight 1 throughout.
+    radius, or a mesh past ``MAX_FALLOFF_VERTICES`` -- hand the selection back
+    in the order it arrived, at weight 1 throughout.
     """
     positions = np.asarray(positions, dtype="f8").reshape(-1, 3)
     selected = np.asarray(selected, dtype="i8").reshape(-1)
     if len(selected) == 0 or radius <= 0.0:
         return selected.astype("i4"), np.ones(len(selected))
-    if len(selected) * len(positions) > MAX_FALLOFF_PAIRS:
+    if len(positions) > MAX_FALLOFF_VERTICES:
         return selected.astype("i4"), np.ones(len(selected))
 
     distance = _min_distance(positions, positions[selected])

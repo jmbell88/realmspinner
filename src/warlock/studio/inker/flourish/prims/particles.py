@@ -199,10 +199,17 @@ def _render_textured(
             continue
         tint = np.append(ramp(c0, c1, np.asarray(st["u"][i])), 1.0).astype(np.float32)
         angle = float(phases[i]) + spin * float(st["u"][i]) * float(ctx.phase_seconds)
-        plane = stamp(ctx, texture, float(st["x"][i]), float(st["y"][i]), width, angle, tint, a)
-        if plane is None:
+        result = stamp(ctx, texture, float(st["x"][i]), float(st["y"][i]), width, angle, tint, a)
+        if result is None:
             continue
-        out[..., :3] += plane[..., :3]
-        out[..., 3] = out[..., 3] + plane[..., 3] - out[..., 3] * plane[..., 3]
+        # Composite only the particle's window -- stamp() used to hand back a
+        # whole zeroed (H, W, 4) plane per particle to add and alpha-compose
+        # here; both were no-ops outside the window, which was the whole cost
+        # at 400 particles (docs/measurements/
+        # 2026-09-13-native-batch-10-candidates.md §3, 1.9s -> ~30ms).
+        win, patch = result
+        tile = out[win.rows, win.cols]
+        tile[..., :3] += patch[..., :3]
+        tile[..., 3] = tile[..., 3] + patch[..., 3] - tile[..., 3] * patch[..., 3]
     np.clip(out, 0.0, 1.0, out=out)
     return out

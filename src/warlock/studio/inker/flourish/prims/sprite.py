@@ -64,4 +64,13 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
     if bool(layer.params.get("face_direction", True)):
         angle += ctx.direction
     tint = color(layer, "tint")
-    return stamp(ctx, texture, cx, cy, size, angle, tint, alpha)
+    result = stamp(ctx, texture, cx, cy, size, angle, tint, alpha)
+    if result is None:
+        return None
+    win, patch = result
+    # stamp() now returns only its window (docs/measurements/
+    # 2026-09-13-native-batch-10-candidates.md §3) -- a layer render() still
+    # returns a full-frame plane, so paste the patch into one zeroed frame.
+    out = np.zeros((ctx.height, ctx.width, 4), dtype=np.float32)
+    out[win.rows, win.cols] = patch
+    return out

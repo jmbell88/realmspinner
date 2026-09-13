@@ -204,17 +204,20 @@ def test_a_vertex_exactly_at_the_radius_is_dropped_rather_than_carried():
     assert verts.tolist() == [0]
 
 
-def test_a_mesh_too_big_for_the_broadcast_falls_back_to_a_hard_selection():
-    """Declining beats both a stall at the press and a spatial index nothing
-    else in this package needs."""
+def test_a_mesh_too_big_for_the_search_falls_back_to_a_hard_selection():
+    """Declining beats a stall at the press. The cap (``MAX_FALLOFF_VERTICES``,
+    2026-09-13) is on the mesh's own vertex count now, not the ``selected x
+    vertices`` product: the ``cKDTree`` query that replaced the chunked
+    broadcast is dominated by how many vertices it touches, not by how many
+    are selected."""
     positions = np.zeros((10, 3))
     verts, weights = bd.proportional_set(positions, np.arange(10), 1.0)
     assert len(verts) == 10
-    saved, bd.MAX_FALLOFF_PAIRS = bd.MAX_FALLOFF_PAIRS, 1
+    saved, bd.MAX_FALLOFF_VERTICES = bd.MAX_FALLOFF_VERTICES, 1
     try:
         verts, weights = bd.proportional_set(positions, np.array([0, 1]), 1.0)
     finally:
-        bd.MAX_FALLOFF_PAIRS = saved
+        bd.MAX_FALLOFF_VERTICES = saved
     assert verts.tolist() == [0, 1]
     assert weights.tolist() == [1.0, 1.0]
 

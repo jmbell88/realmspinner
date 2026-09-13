@@ -190,29 +190,39 @@ def linked(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
     """Every vertex reachable from ``verts`` along edges. -> vertex indices.
 
     The verb that makes two objects welded into one mesh separable again: L
-    over one of them takes the whole shell. Label propagation over the edge
-    list rather than a queue -- it is a handful of numpy passes over an array
-    that is already built, where a per-vertex walk in Python is not something to
-    run on a keystroke over a 200k-vertex import.
+    over one of them takes the whole shell.
+
+    ``scipy.sparse.csgraph.connected_components`` over the edge graph, not
+    label propagation. Propagation's pass count is a shell's *length* along
+    the mesh, not the square root of its size, so four disconnected quad
+    strips two faces wide totalling 200k vertices took 11.1 s -- 11 seconds on
+    the frame thread for one L key (docs/measurements/
+    2026-09-13-native-batch-10-candidates.md, §1). ``connected_components``
+    answers the same question -- which vertices share a component with the
+    seeds -- in one pass over the whole graph regardless of its shape, and
+    ``adjacency`` is already cached per mesh so the graph itself costs
+    nothing extra to build here.
     """
     seeds = np.unique(np.asarray(verts, dtype="i8").reshape(-1))
     count = len(mesh.positions)
     if not len(seeds) or count == 0:
         return np.zeros(0, dtype="i4")
+    seeds = seeds[(seeds >= 0) & (seeds < count)]
+    if not len(seeds):
+        return np.zeros(0, dtype="i4")
     a = adjacency(mesh)
-    inside = np.zeros(count, dtype=bool)
-    inside[seeds[(seeds >= 0) & (seeds < count)]] = True
     if a.n_edges == 0:
-        return np.flatnonzero(inside).astype("i4")
-    lo = a.edge_verts[:, 0].astype("i8")
-    hi = a.edge_verts[:, 1].astype("i8")
-    while True:
-        grown = inside.copy()
-        grown[lo[inside[hi]]] = True
-        grown[hi[inside[lo]]] = True
-        if bool(np.array_equal(grown, inside)):
-            break
-        inside = grown
+        return np.unique(seeds).astype("i4")
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    edges = a.edge_verts.astype("i8")
+    graph = coo_matrix(
+        (np.ones(len(edges), dtype="i1"), (edges[:, 0], edges[:, 1])),
+        shape=(count, count),
+    )
+    labels = connected_components(graph, directed=False)[1]
+    inside = np.isin(labels, np.unique(labels[seeds]))
     return np.flatnonzero(inside).astype("i4")
 
 

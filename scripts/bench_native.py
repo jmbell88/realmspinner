@@ -176,10 +176,7 @@ def _case_unique_packed(n_verts: int) -> Callable[[], Any]:
 
 def _canvas(entries: int, side: int = 2048) -> tuple[np.ndarray, list[tuple[int, ...]]]:
     rng = np.random.default_rng(0xA11CE)
-    palette = [
-        (int(r), int(g), int(b), 255)
-        for r, g, b in rng.integers(0, 256, size=(entries, 3))
-    ]
+    palette = [(int(r), int(g), int(b), 255) for r, g, b in rng.integers(0, 256, size=(entries, 3))]
     table = np.asarray([p[:3] for p in palette], dtype=np.uint8)
     picks = rng.integers(0, entries, size=(side, side))
     pixels = np.dstack([table[picks], np.full((side, side), 255, dtype=np.uint8)])
@@ -207,13 +204,9 @@ def _case_histogram_packed(entries: int) -> Callable[[], Any]:
     def work() -> Any:
         visible = pixels[..., 3] > 0
         rgb = pixels[..., :3][visible]
-        packed = (
-            rgb[:, 0].astype(np.uint32) << 16 | rgb[:, 1].astype(np.uint32) << 8 | rgb[:, 2]
-        )
+        packed = rgb[:, 0].astype(np.uint32) << 16 | rgb[:, 1].astype(np.uint32) << 8 | rgb[:, 2]
         keys, hits = np.unique(packed, return_counts=True)
-        want = np.asarray(
-            [(c[0] << 16) | (c[1] << 8) | c[2] for c in palette], dtype=np.uint32
-        )
+        want = np.asarray([(c[0] << 16) | (c[1] << 8) | c[2] for c in palette], dtype=np.uint32)
         at = np.clip(np.searchsorted(keys, want), 0, max(len(keys) - 1, 0))
         found = keys[at] == want
         return np.where(found, hits[at], 0).tolist()
@@ -457,9 +450,7 @@ def _pack_items(n: int) -> tuple[list[tuple[str, int, int]], int]:
     from warlock.studio.packwright import layout, maxrects
 
     rng = random.Random(7)
-    items = maxrects.order(
-        [(f"s{i}", rng.randint(8, 64), rng.randint(8, 64)) for i in range(n)]
-    )
+    items = maxrects.order([(f"s{i}", rng.randint(8, 64), rng.randint(8, 64)) for i in range(n)])
     area = sum(w * h for _k, w, h in items)
     side = layout.next_pot(int((area * 2) ** 0.5) + 1)
     return items, side
@@ -529,7 +520,7 @@ def _pack_new_only(items: list[tuple[str, int, int]], width: int, height: int) -
             if dead[i]:
                 continue
             ix, iy, ir, ib = bounds[i]
-            js = range(i + 1, count) if fresh[i] else new_idx[bisect_right(new_idx, i):]
+            js = range(i + 1, count) if fresh[i] else new_idx[bisect_right(new_idx, i) :]
             for j in js:
                 if dead[j]:
                     continue
@@ -965,10 +956,7 @@ def _case_map_palette(entries: int) -> Callable[[], Any]:
     side = 1024
     arr = rng.integers(0, 256, size=(side, side, 4), dtype=np.uint8)
     image = Image.fromarray(arr, "RGBA")
-    palette = tuple(
-        (int(r), int(g), int(b))
-        for r, g, b in rng.integers(0, 256, size=(entries, 3))
-    )
+    palette = tuple((int(r), int(g), int(b)) for r, g, b in rng.integers(0, 256, size=(entries, 3)))
 
     def work() -> Any:
         return pixel.map_palette(image, palette)
@@ -1031,6 +1019,494 @@ def _case_welded(n_verts: int) -> Callable[[], Any]:
         )
 
     return work
+
+
+# --- batch 10 (2026-09-13): the frame-thread and bake paths batches 6-9 never
+# looked at. docs/measurements/2026-09-13-native-batch-10-candidates.md is the
+# output. Every warlock import is inside a builder, as above, so --list stays
+# cheap; WARLOCK_HOME is pinned below because an audit probe on 2026-09-13
+# zeroed a real weight through Config's path defaults.
+
+
+def _pick_grid(n_tris: int) -> tuple[np.ndarray, np.ndarray]:
+    """A jittered heightfield of *n_tris* triangles: every downward ray hits."""
+    side = max(2, int(round((n_tris / 2) ** 0.5)))
+    rng = np.random.default_rng(0xB1CE)
+    xx, zz = np.meshgrid(np.arange(side + 1.0), np.arange(side + 1.0), indexing="ij")
+    positions = np.stack([xx.ravel(), rng.random(xx.size) * 0.5, zz.ravel()], axis=1)
+    i, j = (a.ravel() for a in np.meshgrid(np.arange(side), np.arange(side), indexing="ij"))
+    a, b, c, d = (
+        i * (side + 1) + j,
+        i * (side + 1) + j + 1,
+        (i + 1) * (side + 1) + j + 1,
+        (i + 1) * (side + 1) + j,
+    )
+    return positions, np.concatenate([np.stack([a, b, c], 1), np.stack([a, c, d], 1)]).astype("i8")
+
+
+def _pick_sphere(n_tris: int) -> tuple[np.ndarray, np.ndarray]:
+    """A closed, radially jittered UV sphere -- the shape of a reconstruction.
+
+    The grid alone flatters the walk: straight-down rays into a heightfield
+    visit a thin column of tight boxes. Oblique rays into a closed surface
+    cross far more overlapping boxes and cost about three times as much.
+    """
+    rings = int((n_tris / 2) ** 0.5)
+    theta, phi = np.meshgrid(
+        np.linspace(0, np.pi, rings + 1),
+        np.linspace(0, 2 * np.pi, rings, endpoint=False),
+        indexing="ij",
+    )
+    r = 1.0 + 0.05 * np.random.default_rng(1).random(theta.shape)
+    positions = np.stack(
+        [r * np.sin(theta) * np.cos(phi), r * np.cos(theta), r * np.sin(theta) * np.sin(phi)], -1
+    ).reshape(-1, 3)
+    i, j = (a.ravel() for a in np.meshgrid(np.arange(rings), np.arange(rings), indexing="ij"))
+    j2 = (j + 1) % rings
+    a, b, c, d = i * rings + j, i * rings + j2, (i + 1) * rings + j2, (i + 1) * rings + j
+    return positions, np.concatenate([np.stack([a, b, c], 1), np.stack([a, c, d], 1)]).astype("i8")
+
+
+def _pick_case(shape: str) -> Callable[[int], Callable[[], Any]]:
+    """64 picks against one built BVH; per-pick cost is the reported ms / 64."""
+
+    def build(n_tris: int) -> Callable[[], Any]:
+        from warlock.studio.viewer import picking
+
+        rng = np.random.default_rng(0x9A11)
+        if shape == "grid":
+            positions, tris = _pick_grid(n_tris)
+            lo, hi = positions[:, [0, 2]].min(axis=0), positions[:, [0, 2]].max(axis=0)
+            down = np.asarray([0.0, -1.0, 0.0])
+            rays = [(np.asarray([x, 20.0, z]), down) for x, z in rng.uniform(lo, hi, (64, 2))]
+        else:
+            positions, tris = _pick_sphere(n_tris)
+            rays = []
+            for _ in range(64):
+                eye = rng.normal(size=3)
+                eye = 3.0 * eye / np.linalg.norm(eye)
+                aim = rng.uniform(-0.5, 0.5, 3) - eye
+                rays.append((eye, aim / np.linalg.norm(aim)))
+        bvh = picking.build_bvh(positions, tris)
+        # Every ray must land, or this times 64 early-outs instead of 64 walks.
+        for origin, direction in rays:
+            assert picking.ray_triangles(origin, direction, positions, tris, bvh) is not None
+        return lambda: [picking.ray_triangles(o, d, positions, tris, bvh) for o, d in rays]
+
+    return build
+
+
+def _falloff_fixture(pairs: int) -> tuple[np.ndarray, np.ndarray]:
+    """200k positions (a large import); the selection sized so the product is *pairs*."""
+    rng = np.random.default_rng(0xFA11)
+    positions = rng.random((200_000, 3)) * 10.0
+    selected = rng.choice(200_000, size=max(1, pairs // 200_000), replace=False)
+    return positions, positions[selected]
+
+
+def _case_falloff(pairs: int) -> Callable[[], Any]:
+    from warlock.studio.clay import drag
+
+    positions, anchors = _falloff_fixture(pairs)
+    return lambda: drag._min_distance(positions, anchors)
+
+
+def _case_falloff_kdtree(pairs: int) -> Callable[[], Any]:
+    """``cKDTree`` build + query, both timed: every press is a new selection.
+
+    **Not bit-identical** -- the tree sums squared deltas in its own order, so
+    distances agree to 1e-9, not exactly. Chosen anyway on 2026-09-13, so
+    since then ``chunked`` times the tree too; the assertion below is
+    deliberately the weaker one.
+    """
+    from scipy.spatial import cKDTree
+
+    from warlock.studio.clay import drag
+
+    positions, anchors = _falloff_fixture(pairs)
+    shipped = drag._min_distance(positions, anchors)
+    assert np.allclose(shipped, cKDTree(anchors).query(positions, k=1)[0], rtol=0.0, atol=1e-9)
+    return lambda: cKDTree(anchors).query(positions, k=1)[0]
+
+
+def _linked_mesh(n_verts: int, islands: int = 4, width: int = 2) -> Any:
+    """*islands* disconnected quad strips *width* faces wide, ~*n_verts* total.
+
+    A long thin strip is label propagation's worst case: its pass count is
+    the strip's length, not the square root of its size.
+    """
+    from warlock.studio.clay import mesh as bm
+    from warlock.studio.clay import topo
+
+    length = max(1, n_verts // islands // (width + 1))
+    positions, faces = [], []
+    for island in range(islands):
+        xx, zz = np.meshgrid(np.arange(width + 1.0), np.arange(length + 1.0), indexing="ij")
+        base = sum(len(p) for p in positions)
+        positions.append(
+            np.stack([xx.ravel() + island * 1000.0, np.zeros(xx.size), zz.ravel()], axis=1)
+        )
+        faces += [
+            [
+                base + a
+                for a in (
+                    i * (length + 1) + j,
+                    i * (length + 1) + j + 1,
+                    (i + 1) * (length + 1) + j + 1,
+                    (i + 1) * (length + 1) + j,
+                )
+            ]
+            for i in range(width)
+            for j in range(length)
+        ]
+    return bm.Mesh(
+        positions=np.concatenate(positions),
+        loops=np.asarray([c for f in faces for c in f], dtype="i4"),
+        starts=topo.starts_from_counts([4] * len(faces)),
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+    )
+
+
+def _case_select_linked(n_verts: int) -> Callable[[], Any]:
+    from warlock.studio.clay import select
+
+    mesh = _linked_mesh(n_verts)
+    return lambda: select.linked(mesh, np.asarray([0], dtype="i8"))
+
+
+def _case_select_linked_csgraph(n_verts: int) -> Callable[[], Any]:
+    """``connected_components`` over the edge graph; the graph build is untimed
+    because ``adjacency`` is already cached per mesh in the app."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    from warlock.studio.clay import adjacency, select
+
+    mesh = _linked_mesh(n_verts)
+    edges = adjacency.adjacency(mesh).edge_verts.astype("i8")
+    n = len(mesh.positions)
+    graph = coo_matrix((np.ones(len(edges), dtype="i1"), (edges[:, 0], edges[:, 1])), shape=(n, n))
+
+    def work() -> Any:
+        labels = connected_components(graph, directed=False)[1]
+        return np.flatnonzero(labels == labels[0]).astype("i4")
+
+    shipped = select.linked(mesh, np.asarray([0], dtype="i8"))
+    assert np.array_equal(np.sort(shipped), np.sort(work()))
+    return work
+
+
+def _particle_ctx(count: int, textured: bool) -> tuple[Any, Any]:
+    """One particles layer at the recipe default raster: 128 px at 4x."""
+    from warlock.studio.inker.flourish.recipe import Layer, Phase
+    from warlock.studio.inker.flourish.render import FrameCtx
+
+    ctx = FrameCtx(
+        seed=1,
+        width=512,
+        height=512,
+        scale=4.0,
+        frame=4,
+        phase=Phase("main", 12, True),
+        phase_index=0,
+        phase_frame=4,
+        fps=18,
+        layer_index=0,
+    )
+    params: dict[str, Any] = {"count": count, "emission": "burst"}
+    if textured:
+        tex = np.random.default_rng(0x7E57).integers(0, 256, size=(16, 16, 4), dtype=np.uint8)
+        tex[..., 3] = 255
+        ctx.assets = {"spark": tex}
+        params["texture"] = "spark"
+    return Layer(uid=1, kind="particles", params=params), ctx
+
+
+def _case_particles(textured: bool) -> Callable[[int], Callable[[], Any]]:
+    def build(count: int) -> Callable[[], Any]:
+        from warlock.studio.inker.flourish.prims import particles
+
+        layer, ctx = _particle_ctx(count, textured)
+        return lambda: particles.render(layer, ctx, None)
+
+    return build
+
+
+def _render_textured_windowed(
+    layer: Any, ctx: Any, st: dict[str, np.ndarray], texture: np.ndarray
+) -> Any:
+    """``particles._render_textured`` with ``stamp``'s full frame cut to its window.
+
+    ``stamp`` allocates an (H, W, 4) zero plane per particle and the caller
+    adds and alpha-composes the whole frame. Outside the window the plane is
+    exactly zero, so both are no-ops there; applying the same elementwise
+    expressions to the window slice only gives the same floats.
+    """
+    from warlock.studio.inker.flourish.prims import (
+        color,
+        hashed,
+        premultiply,
+        ramp,
+        rotate_arrays,
+        val,
+        window,
+    )
+
+    out = np.zeros((ctx.height, ctx.width, 4), dtype=np.float32)
+    c0, c1 = color(layer, "color_start"), color(layer, "color_end")
+    spin = val(layer, "spin", ctx)
+    phases = hashed(ctx.lseed(17), len(st["x"])) * 360.0
+    th, tw = texture.shape[:2]
+    for i in range(len(st["x"])):
+        a = float(st["alpha"][i]) * min(c0[3], c1[3])
+        width = float(st["size"][i]) * 2.0
+        if a <= 0.0 or width <= 0.0 or tw == 0 or th == 0:
+            continue
+        tint = np.append(ramp(c0, c1, np.asarray(st["u"][i])), 1.0).astype(np.float32)
+        degrees = float(phases[i]) + spin * float(st["u"][i]) * float(ctx.phase_seconds)
+        cx, cy = float(st["x"][i]), float(st["y"][i])
+        scale = width / tw
+        win = window(ctx, cx, cy, 0.5 * (width**2 + (th * scale) ** 2) ** 0.5)
+        if win is None:
+            continue
+        dx, dy = rotate_arrays(win.x - cx, win.y - cy, -degrees)
+        u = np.floor(dx / scale + tw / 2.0).astype(np.int64)
+        v = np.floor(dy / scale + th / 2.0).astype(np.int64)
+        inside = (u >= 0) & (u < tw) & (v >= 0) & (v < th)
+        if not inside.any():
+            continue
+        texel = texture[np.clip(v, 0, th - 1), np.clip(u, 0, tw - 1)].astype(np.float32) / 255.0
+        cov = texel[..., 3] * inside.astype(np.float32) * np.float32(a * tint[3])
+        plane = premultiply(texel[..., :3] * tint[:3], cov)
+        rows, cols = win.rows, win.cols
+        out[rows, cols, :3] += plane[..., :3]
+        out[rows, cols, 3] = out[rows, cols, 3] + plane[..., 3] - out[rows, cols, 3] * plane[..., 3]
+    np.clip(out, 0.0, 1.0, out=out)
+    return out
+
+
+def _case_particles_windowed(count: int) -> Callable[[], Any]:
+    from warlock.studio.inker.flourish.prims import particles
+
+    layer, ctx = _particle_ctx(count, textured=True)
+    texture = ctx.asset("spark")
+    shipped = particles._render_textured(layer, ctx, particles._state(layer, ctx), texture)
+    assert np.array_equal(
+        shipped, _render_textured_windowed(layer, ctx, particles._state(layer, ctx), texture)
+    )
+    # _state is inside the clock on both sides: particles.render computes it too.
+    return lambda: _render_textured_windowed(layer, ctx, particles._state(layer, ctx), texture)
+
+
+def _case_smoke(count: int) -> Callable[[], Any]:
+    from warlock.studio.inker.flourish.prims import smoke
+    from warlock.studio.inker.flourish.recipe import Layer, Phase
+    from warlock.studio.inker.flourish.render import FrameCtx
+
+    ctx = FrameCtx(
+        seed=2,
+        width=512,
+        height=512,
+        scale=4.0,
+        frame=8,
+        phase=Phase("main", 24, True),
+        phase_index=0,
+        phase_frame=8,
+        fps=18,
+        layer_index=0,
+    )
+    layer = Layer(uid=2, kind="smoke", params={"count": count, "emission": "burst"})
+    return lambda: smoke.render(layer, ctx, None)
+
+
+def _sprite(side: int) -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(0x50A1)
+    return rng.integers(0, 256, size=(side, side, 4), dtype=np.uint8), rng.random(
+        (side, side)
+    ) > 0.3
+
+
+def _case_rotsprite(side: int) -> Callable[[], Any]:
+    """One mouse-move of a 30-degree rotate drag, as ``render_transform`` runs it."""
+    from warlock.studio.inker import selection
+
+    pixels, mask = _sprite(side)
+    return lambda: selection.render_transform(
+        pixels, mask, 30.0, (1.0, 1.0), (0.0, 0.0), "rotsprite"
+    )
+
+
+def _rotsprite_bands(
+    pixels: np.ndarray, mask: np.ndarray, degrees: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """EPX per plane as shipped, then one single-band nearest rotate per band.
+
+    Measured and rejected: exact (nearest never mixes bands) but 4-8 % slower,
+    because the time is in ``epx`` and ``_packed``, not in how the rotates are
+    grouped. Kept so the idea is not re-proposed on paper.
+    """
+    from PIL import Image
+
+    from warlock.studio.inker import transform as tf
+
+    big, mask_big = pixels, mask
+    for _ in range(tf.ROTSPRITE_ROUNDS):
+        big, mask_big = tf.epx(big), tf.epx(mask_big)
+    # The mask band is raw 0/1 bytes: tf.rotate feeds a bool plane straight to
+    # Image.fromarray(..., "L") without rescaling it to 0/255.
+    bands = [big[..., c] for c in range(4)] + [mask_big.astype(np.uint8)]
+    turned = [
+        np.asarray(Image.fromarray(b, "L").rotate(degrees, Image.NEAREST, expand=True, fillcolor=0))
+        for b in bands
+    ]
+    half, step = tf.ROTSPRITE_SCALE // 2, tf.ROTSPRITE_SCALE
+    return (
+        np.ascontiguousarray(np.stack(turned[:4], axis=2)[half::step, half::step]),
+        np.ascontiguousarray(turned[4][half::step, half::step].astype(bool)),
+    )
+
+
+def _case_rotsprite_bands(side: int) -> Callable[[], Any]:
+    from warlock.studio.inker import transform as tf
+
+    small_p, small_m = _sprite(32)
+    got_p, got_m = _rotsprite_bands(small_p, small_m, 30.0)
+    assert np.array_equal(got_p, tf.rotate(small_p, 30.0, expand=True, resample="rotsprite"))
+    assert np.array_equal(got_m, tf.rotate(small_m, 30.0, expand=True, resample="rotsprite"))
+    pixels, mask = _sprite(side)
+    return lambda: _rotsprite_bands(pixels, mask, 30.0)
+
+
+#: Four bars of 64 rows, about 45 s of audio. Render cost is per tick and the
+#: tick count is linear in bars, so the 3-minute gate figure is four times this.
+SIRENS_BARS = 4
+
+
+def _busy_song(channels: int) -> Any:
+    """tests/sirens/test_synth_perf.py's busy song, *channels* wide.
+
+    Extra channels cycle pulse/triangle/noise; never ``sample``, which with no
+    sample loaded returns early from ``_sound`` and costs nothing per tick.
+    """
+    from warlock.studio.sirens import document as D
+    from warlock.studio.sirens import synth
+
+    doc = D.new_song()
+    while len(doc.channels) < channels:
+        doc.add_channel(kind=("pulse", "triangle", "noise")[len(doc.channels) % 3])
+    for kind in {c.kind for c in doc.channels} - {i.kind for i in doc.instruments}:
+        doc.add_instrument(kind=kind)
+    pattern = doc.patterns[0]
+    doc.resize_pattern(pattern.uid, 64)
+    instruments = {one.kind: one.uid for one in doc.instruments}
+    for row in range(64):
+        for index, channel in enumerate(doc.channels):
+            if channel.kind == "sample":
+                continue
+            doc.set_cell(pattern.uid, row, index, D.NOTE, 36 + (row * (index + 1)) % 36)
+            doc.set_cell(pattern.uid, row, index, D.INSTRUMENT, instruments[channel.kind])
+            doc.set_cell(pattern.uid, row, index, D.EFFECT, synth.FX_VIBRATO)
+            doc.set_cell(pattern.uid, row, index, D.PARAM, 0x44)
+    doc.set_order([pattern.uid] * SIRENS_BARS)
+    return doc
+
+
+def _case_sirens(channels: int) -> Callable[[], Any]:
+    from warlock.studio.sirens import synth
+
+    doc = _busy_song(channels)
+    return lambda: synth.render(doc)
+
+
+def _sirens_decimate_once(doc: Any) -> np.ndarray:
+    """``synth._render``'s non-looping tick loop, decimating once at the end.
+
+    A copy of the loop body -- voice generation, tempo accumulator, row and
+    order advance, release-on-stop -- so the one change under test is *when*
+    ``Decimator.process`` runs. Bit-identical at 5, 16 and 32 channels, and no
+    faster: the decimator is about a tenth of the render.
+    """
+    from warlock.studio.sirens import document as D
+    from warlock.studio.sirens import synth, voices
+
+    order, rate = list(doc.order), synth.SAMPLE_RATE
+    player = synth.Player(
+        speed=max(D.MIN_SPEED, min(D.MAX_SPEED, int(doc.speed))),
+        tempo=max(D.MIN_TEMPO, min(D.MAX_TEMPO, int(doc.tempo))),
+        voices=[synth.Voice(kind=one.kind, pan=one.pan) for one in doc.channels],
+    )
+    over = float(rate * voices.OVERSAMPLE)
+    left_chunks: list[np.ndarray] = []
+    right_chunks: list[np.ndarray] = []
+    produced = ticks = anchor_tick = anchor_samples = 0
+    tempo_now = player.tempo
+    body_end: int | None = None
+    tail_left = int(synth.TAIL_SECONDS * rate)
+    while produced < int(synth.MAX_RENDER_SECONDS * rate):
+        playing = 0 <= player.order_index < len(order) and not player.halted
+        if not playing:
+            if body_end is None:
+                body_end = produced
+                for one in player.voices:
+                    if one.active and one.release_tick is None:
+                        one.release_tick = one.tick
+            if tail_left <= 0 or not any(one.active for one in player.voices):
+                break
+        if playing:
+            pattern = doc.pattern(order[player.order_index])
+            if pattern is None:
+                player.order_index += 1
+                continue
+            if player.row >= pattern.rows:
+                player.row = 0
+                player.order_index += 1
+                continue
+            if player.tick == 0:
+                synth._apply_row(doc, player, pattern.cells[player.row])
+        if player.tempo != tempo_now:
+            anchor_tick, anchor_samples, tempo_now = ticks, produced, player.tempo
+        spt = rate / (player.speed * tempo_now * D.ROWS_PER_BEAT / 60.0)
+        want = max(1, int(round((ticks - anchor_tick + 1) * spt)) + anchor_samples - produced)
+        if not playing:
+            want = min(want, tail_left)
+            tail_left -= want
+        count = want * voices.OVERSAMPLE
+        mix_l = np.zeros(count, dtype=np.float32)
+        mix_r = np.zeros(count, dtype=np.float32)
+        for voice in player.voices:
+            block = synth._sound(voice, count, over, doc.samples)
+            if block.size:
+                mix_l += block * (1.0 - max(0.0, voice.pan))
+                mix_r += block * (1.0 + min(0.0, voice.pan))
+            if voice.active:
+                synth._advance(voice)
+                voice.tick += 1
+        left_chunks.append(mix_l)
+        right_chunks.append(mix_r)
+        produced += want
+        ticks += 1
+        if playing:
+            player.tick += 1
+            if player.tick >= player.speed:
+                player.tick = 0
+                was = player.order_index
+                if synth._end_of_row(player, order, pattern.rows) and player.order_index <= was:
+                    tail_left = 0
+                    player.halted = True
+    left = voices.Decimator().process(np.concatenate(left_chunks))
+    right = voices.Decimator().process(np.concatenate(right_chunks))
+    return np.clip(np.stack([left, right], axis=1) * synth.MASTER_GAIN, -1.0, 1.0).astype(
+        np.float32
+    )
+
+
+def _case_sirens_decimate_once(channels: int) -> Callable[[], Any]:
+    from warlock.studio.sirens import synth
+
+    doc = _busy_song(channels)
+    assert np.array_equal(synth.render(doc)[0], _sirens_decimate_once(doc))
+    return lambda: _sirens_decimate_once(doc)
 
 
 CASES: dict[str, Case] = {
@@ -1165,7 +1641,74 @@ CASES: dict[str, Case] = {
         build=_case_welded,
         sizes=(20_000, 200_000, 500_000),
     ),
+    "bvh_pick": Case(
+        name="bvh_pick",
+        site="viewer/picking.py:367 _bvh_candidates, :401 ray_triangles",
+        gate=">2 ms per pick at 200k tris (reported ms is 64 picks)",
+        build=_pick_case("sphere"),
+        sizes=(2_000, 20_000, 200_000),
+        variants={"grid_down": _pick_case("grid"), "sphere_oblique": _pick_case("sphere")},
+    ),
+    "clay_falloff": Case(
+        name="clay_falloff",
+        site="clay/drag.py _min_distance (a cKDTree since 2026-09-13)",
+        gate=">100 ms at 40M pairs, the old MAX_FALLOFF_PAIRS (frame-thread drag press)",
+        build=_case_falloff,
+        sizes=(4_000_000, 16_000_000, 40_000_000),
+        variants={"chunked": _case_falloff, "kdtree": _case_falloff_kdtree},
+    ),
+    "select_linked": Case(
+        name="select_linked",
+        site="clay/select.py:189 linked",
+        gate=">50 ms on a 200k-vert import (frame thread, L key)",
+        build=_case_select_linked,
+        sizes=(2_000, 20_000, 200_000),
+        variants={"shipped": _case_select_linked, "csgraph": _case_select_linked_csgraph},
+    ),
+    "flourish_particles": Case(
+        name="flourish_particles",
+        site="inker/flourish/prims/particles.py:135 disc, :195 textured; "
+        "prims/__init__.py:422 stamp",
+        gate=">100 ms per frame at 400 particles",
+        build=_case_particles(True),
+        sizes=(50, 200, 400),
+        variants={
+            "disc": _case_particles(False),
+            "textured": _case_particles(True),
+            "stamp_windowed": _case_particles_windowed,
+        },
+    ),
+    "flourish_smoke": Case(
+        name="flourish_smoke",
+        site="inker/flourish/prims/smoke.py:54 render; noise.py value2d; "
+        "prims/__init__.py:288 fbm_plane, :387 over_into",
+        gate=">100 ms per frame for a smoke layer with 80 blobs",
+        build=_case_smoke,
+        sizes=(10, 40, 80),
+    ),
+    "rotsprite_drag": Case(
+        name="rotsprite_drag",
+        site="inker/transform.py:277 epx/rotsprite; selection.py:654 render_transform",
+        gate=">16 ms per move at 256 square (frame thread)",
+        build=_case_rotsprite,
+        sizes=(64, 128, 256),
+        variants={"shipped": _case_rotsprite, "bands_merged": _case_rotsprite_bands},
+    ),
+    "sirens_render": Case(
+        name="sirens_render",
+        site="sirens/synth.py:412 _render, :306 _sound; sirens/voices.py:189 Decimator.process",
+        gate=">1 s per edit for a 3-minute busy song (timed at SIRENS_BARS=4, ~45 s of audio; x4)",
+        build=_case_sirens,
+        sizes=(5, 16, 32),  # 32 is sirens.document.MAX_CHANNELS
+        variants={"shipped": _case_sirens, "decimate_once": _case_sirens_decimate_once},
+    ),
 }
+
+# Batch 10's builders import warlock lazily, but some reach Config's path
+# defaults; never let a benchmark write into the real library.
+os.environ.setdefault(
+    "WARLOCK_HOME", os.path.join(os.environ.get("TEMP", "."), "warlock-bench-home")
+)
 
 
 def run_case(case: Case, sweep: bool) -> dict[str, Any]:
@@ -1232,9 +1775,7 @@ def main(argv: list[str] | None = None) -> int:
             cmd.append("--sweep")
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
         proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        line = next(
-            (ln for ln in proc.stdout.splitlines() if ln.startswith("@@JSON@@")), None
-        )
+        line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("@@JSON@@")), None)
         if line is None:
             print(f"{name}: FAILED\n{proc.stdout}\n{proc.stderr}", file=sys.stderr)
             continue
