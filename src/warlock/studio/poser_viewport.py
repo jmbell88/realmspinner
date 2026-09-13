@@ -152,7 +152,7 @@ class PoserViewport:
         """
         from imgui_bundle import imgui
 
-        from . import controls, widgets
+        from . import widgets
 
         popup = "poser-joint-menu"
         if viewer.menu_request is not None:
@@ -161,6 +161,17 @@ class PoserViewport:
         if not imgui.begin_popup(popup):
             return
         widgets.popup_chrome(_imgui=imgui)
+        if viewer.editor.mode == "skeleton":
+            self._poser_skeleton_menu(ctx, viewer)
+        else:
+            self._poser_pose_menu(ctx, viewer)
+        imgui.end_popup()
+
+    def _poser_pose_menu(self, ctx: Any, viewer: Any) -> None:
+        from imgui_bundle import imgui
+
+        from . import controls, widgets
+
         selected = viewer.editor.selected
         if selected is None:
             widgets.secondary("No joint selected")
@@ -183,7 +194,35 @@ class PoserViewport:
             from . import poser_mode
 
             poser_mode.guard(ctx, "reset every joint", viewer.reset_all)
-        imgui.end_popup()
+
+    def _poser_skeleton_menu(self, ctx: Any, viewer: Any) -> None:
+        """The skeleton draft's own right-click menu (P6, 2026-09-13).
+
+        A short cut to the same doors ``panes/poser_skeleton.py`` draws as
+        buttons -- through :mod:`poser_mode`'s own ``skeleton_*`` controllers,
+        never the editor directly, the same rule the pose menu above follows.
+        """
+        from imgui_bundle import imgui
+
+        from . import controls, poser_mode, widgets
+
+        selected = viewer.editor.selected_bone()
+        if selected is None:
+            widgets.secondary("No pivot selected")
+            return
+        widgets.secondary(str(selected))
+        imgui.separator()
+        if controls.menu_item_simple("Add child"):
+            poser_mode.skeleton_add_child(ctx, selected)
+        if controls.menu_item_simple("Split"):
+            poser_mode.skeleton_split(ctx, selected)
+        if controls.menu_item_simple("Delete pivot"):
+            poser_mode.skeleton_remove_pivot(ctx, selected)
+        if selected != viewer.editor.draft_root and controls.menu_item_simple("Delete limb"):
+            poser_mode.skeleton_remove_subtree(ctx, selected)
+        imgui.separator()
+        if controls.menu_item_simple("Deselect"):
+            viewer.editor.selected = None
 
     def _ensure_poser_viewer(self) -> Any:
         """Poser's own Viewer, built on first use for ClayView's reason -- and

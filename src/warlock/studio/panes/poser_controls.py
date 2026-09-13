@@ -17,6 +17,7 @@ from .. import controls, forms, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 from ..viewer import math3d as m3
+from . import poser_skeleton
 
 # Blender's own default pose-bone Euler order -- ``blender_worker.py`` never
 # sets a per-bone ``rotation_mode`` other than QUATERNION for a rig bone, so
@@ -99,12 +100,23 @@ def draw(ctx: Any) -> None:
         if state.job_id:
             _asset_banner(ctx, state)
             widgets.divider()
+        if state.skeleton_editing:
+            # A skeleton draft has no pose -- the armature is at rest for the
+            # whole of this session (``PoseEditor.enter_skeleton_mode`` resets
+            # it going in) -- so the rotate/root/save controls below have
+            # nothing to act on and are skipped entirely rather than merely
+            # disabled.
+            poser_skeleton.draw(ctx)
+            return
         _banner(state, viewer)
         _joint(ctx, viewer)
         _root(viewer)
         if state.job_id:
             _front(ctx, state, viewer)
         _save(ctx, state, viewer)
+        if state.job_id:
+            widgets.divider()
+            poser_skeleton.draw(ctx)
 
 
 def _asset_banner(ctx: Any, state: Any) -> None:

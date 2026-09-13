@@ -1,0 +1,10 @@
+{
+  "key": "wing",
+  "label": "Wing (3 segments)",
+  "comment": "Same frame as arm.json. A wing extends mostly sideways (x, flipped for side='R') with a trailing edge along the negative parent direction.",
+  "bones": [
+    {"name": "wing_base", "parent": null,         "head": [0.0, 0.0, 0.0], "tail": [1.0, 0.0, 0.0]},
+    {"name": "wing_mid",  "parent": "wing_base",  "head": [1.0, 0.0, 0.0], "tail": [2.0, -0.3, 0.0]},
+    {"name": "wing_tip",  "parent": "wing_mid",   "head": [2.0, -0.3, 0.0], "tail": [3.0, -0.3, 0.0]}
+  ]
+}

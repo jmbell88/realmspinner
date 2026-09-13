@@ -1018,12 +1018,36 @@ def _rig_bones(
     list whose names do not match builds an armature whose parents do not
     resolve; falling back to the fit that is always available costs the
     informed placement and never the rig.
+
+    A *custom* skeleton (``spec["skeleton"] == "custom"``, from ``service.rig.
+    edit_skeleton``) gets the same treatment as ``template_bones``, for the
+    same reason: it was already checked host-side by ``rigging.
+    validate_skeleton`` before this job was queued, but the spec crossed a
+    pipe as plain JSON to get here, and re-trusting a structure this process
+    did not itself check would build an armature whose parents do not resolve
+    on any spec that failed to round-trip. ``op_rig`` tells the difference
+    between "used the caller's structure" and "fell back" by identity (the
+    list returned here *is* ``spec["bones"]`` in the success case), so this
+    stays a 2-tuple like every other call site expects.
     """
     template = rigging.get_template(spec["template"])
     if spec.get("bones"):
+        if spec.get("skeleton") == "custom":
+            try:
+                rigging.check_skeleton_structure(spec["bones"])
+            except ValueError as exc:
+                print(
+                    f"custom skeleton structure is unusable, using the bbox fit: {exc}",
+                    flush=True,
+                )
+                return rigging.fit_template(template, lo, hi), {
+                    "method": "bbox",
+                    "fallback_reason": str(exc),
+                }
         # Caller-supplied joints win over any fit. They are already validated
-        # against the template host-side (rigging.validate_joints), so this is
-        # a straight substitution rather than a second, disagreeing check.
+        # host-side (rigging.validate_joints / rigging.validate_skeleton), so
+        # this is a straight substitution rather than a second, disagreeing
+        # check.
         return spec["bones"], spec.get("fit") or {"method": "manual"}
 
     landmarks = spec.get("template_bones")
@@ -1051,6 +1075,9 @@ def _rig_meta(
     weighting_reason: str | None,
     adjusted: bool,
     fit: dict[str, Any],
+    root: str | None = None,
+    mirror_pairs: Any = None,
+    skeleton: str | None = None,
 ) -> dict[str, Any]:
     """Everything rig.json says about a rig, as a plain dict.
 
@@ -1058,12 +1085,21 @@ def _rig_meta(
     ``op_rig`` needs bpy, so pulling the *content* of the file out is what
     makes it assertable on a machine with no Blender -- which is every machine
     the app ships on.
+
+    ``root``/``mirror_pairs``/``skeleton`` fall back to the template's own
+    (and ``skeleton`` to ``"template"``) when not given -- an ordinary
+    template rig or joint move, which is every rig before the skeleton editor
+    existed, writes exactly what it always wrote. ``op_rig`` passes them only
+    when the spec named a custom skeleton *and* ``_rig_bones`` used it
+    unchanged (see its own docstring); a spec that fell back to the bbox fit
+    must not have a fallback armature labelled with the custom root/pairs it
+    was never built from.
     """
     return {
         "version": 1,
         "template": template.key,
         "label": template.label,
-        "root": template.root,
+        "root": root or template.root,
         "weighting": weighting,
         # Additive beside ``weighting``, and no version bump with it for the
         # same reason ``fit`` needed none: every reader is .get-based, so a
@@ -1073,8 +1109,15 @@ def _rig_meta(
         "weighting_reason": weighting_reason,
         "bounds": {"min": lo, "max": hi},
         "bones": bones,
-        "mirror_pairs": [list(pair) for pair in template.mirror_pairs],
+        "mirror_pairs": [
+            list(pair)
+            for pair in (mirror_pairs if mirror_pairs is not None else template.mirror_pairs)
+        ],
         "adjusted": adjusted,
+        # "template" is the shape every rig before the skeleton editor
+        # existed wrote implicitly; this makes it explicit so a reader never
+        # has to treat an absent key and "template" as two different things.
+        "skeleton": skeleton or "template",
         "fit": fit,
     }
 
@@ -1118,6 +1161,12 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         else:
             spec = {**spec, "bones": validated}
     bones, fit = _rig_bones(spec, lo, hi)
+    # Identity, not equality: a spec that asked for a custom skeleton but
+    # failed re-verification (``_rig_bones``) returns a *fresh* list from
+    # ``fit_template``, never ``spec["bones"]`` itself. Only the case that
+    # actually built the armature from the caller's structure gets to label
+    # rig.json with the caller's root/mirror_pairs/skeleton.
+    custom_ok = spec.get("skeleton") == "custom" and bones is spec.get("bones")
     arm_obj = _build_armature(bpy, bones)
 
     progress(0.40, "Computing weights")
@@ -1135,6 +1184,9 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         weighting_reason=weighting_reason,
         adjusted=bool(spec.get("bones")),
         fit=fit,
+        root=spec.get("root") if custom_ok else None,
+        mirror_pairs=spec.get("mirror_pairs") if custom_ok else None,
+        skeleton=spec.get("skeleton") if custom_ok else None,
     )
     Path(spec["out_json"]).write_text(json.dumps(rig_meta, indent=2), encoding="utf-8")
     progress(1.0, "Rig complete")

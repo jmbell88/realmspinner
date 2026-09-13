@@ -1,0 +1,9 @@
+{
+  "key": "antenna",
+  "label": "Antenna (2 segments)",
+  "comment": "Same frame as arm.json. An antenna extends mostly along the parent's own direction (forward, when the parent points forward or up) with a small sideways splay.",
+  "bones": [
+    {"name": "antenna_base", "parent": null,           "head": [0.0, 0.0, 0.0], "tail": [0.3, 0.8, 0.0]},
+    {"name": "antenna_tip",  "parent": "antenna_base", "head": [0.3, 0.8, 0.0], "tail": [0.5, 1.4, 0.0]}
+  ]
+}

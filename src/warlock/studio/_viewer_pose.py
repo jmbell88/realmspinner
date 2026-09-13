@@ -169,34 +169,92 @@ class PoseOps:
     def corrected_bones(self: Viewer) -> list[dict[str, Any]]:
         return self.editor.corrected_bones()
 
+    # -- skeleton mode -------------------------------------------------------
+
+    def enter_skeleton_mode(self: Viewer, rig: dict[str, Any]) -> None:
+        self.editor.enter_skeleton_mode(rig)
+        self._after_pose_change()
+
+    def exit_skeleton_mode(self: Viewer) -> None:
+        self.editor.exit_skeleton_mode()
+        self._after_pose_change()
+
+    def skeleton_payload(self: Viewer) -> dict[str, Any]:
+        return self.editor.skeleton_payload()
+
+    def skel_add_child(self: Viewer, parent: str) -> str:
+        name = self.editor.skel_add_child(parent)
+        self._after_pose_change()
+        return name
+
+    def skel_split(self: Viewer, name: str) -> str:
+        new_name = self.editor.skel_split(name)
+        self._after_pose_change()
+        return new_name
+
+    def skel_remove_pivot(self: Viewer, name: str) -> None:
+        self.editor.skel_remove_pivot(name)
+        self._after_pose_change()
+
+    def skel_remove_subtree(self: Viewer, name: str) -> int:
+        count = self.editor.skel_remove_subtree(name)
+        self._after_pose_change()
+        return count
+
+    def skel_rename(self: Viewer, old: str, new: str) -> None:
+        self.editor.skel_rename(old, new)
+        self._after_pose_change()
+
+    def skel_attach_limb(
+        self: Viewer, preset_key: str, parent: str, side: str | None, mirror: bool
+    ) -> list[str]:
+        names = self.editor.skel_attach_limb(preset_key, parent, side, mirror)
+        self._after_pose_change()
+        return names
+
+    def subtree_size(self: Viewer, name: str) -> int:
+        return self.editor.subtree_size(name)
+
     # -- the pose-only half of the render list -----------------------------
 
     def _overlays(self: Viewer, height: int) -> list[Any]:
         if not self.pose_mode or not self.editor.bound:
             return []
         radius = picking.marker_radius(self.radius)
+        skeleton_mode = self.editor.mode == "skeleton"
+        items: list[Any] = []
         # Ghosts first of all, so the live skeleton draws over them: an onion
         # skin that covered the pose being edited would make the thing you are
         # posing harder to read rather than easier. Positions come from
         # ``pose.ghost_handles``, a *pure* walk that never touches a node --
         # posing the model to read it and posing it back would fight
         # ``_resync_handles`` for the live markers, every frame of a drag.
-        items: list[Any] = []
-        for ghost, rotations in zip(self.ghostlines, self.onion, strict=False):
-            if not rotations:
-                continue
-            items += ghost.draws(
-                poselib_pose.ghost_handles(self.model, self.editor.bones, rotations),
-                self._bone_pairs,
-                None,
-                self.placement,
-                colour=bonelineslib.GHOST,
-                alpha=bonelineslib.GHOST_ALPHA,
-            )
+        # Skipped in skeleton mode: a ghost is a rotation set replayed over
+        # the *loaded* rig, which says nothing about a draft bone that has no
+        # node to rotate.
+        if not skeleton_mode:
+            for ghost, rotations in zip(self.ghostlines, self.onion, strict=False):
+                if not rotations:
+                    continue
+                items += ghost.draws(
+                    poselib_pose.ghost_handles(self.model, self.editor.bones, rotations),
+                    self._bone_pairs,
+                    None,
+                    self.placement,
+                    colour=bonelineslib.GHOST,
+                    alpha=bonelineslib.GHOST_ALPHA,
+                )
         # Lines then markers: the skeleton is context, the joints are the
-        # controls.
+        # controls. Skeleton mode draws the draft's own connectivity, which
+        # includes a leaf's tail handle that ``self._bone_pairs`` has no
+        # equivalent of.
+        bone_pairs = (
+            bonelineslib.draft_segments(self.editor.draft)
+            if skeleton_mode
+            else self._bone_pairs
+        )
         items += self.bonelines.draws(
-            self.editor.handles, self._bone_pairs, self.editor.selected, self.placement
+            self.editor.handles, bone_pairs, self.editor.selected, self.placement
         )
         items += self.markers.draws(
             self.editor.handles, radius, self.editor.selected, self.placement
@@ -208,19 +266,29 @@ class PoseOps:
             # frame, which is the right degrade on the render path. Indexing
             # raised KeyError inside the frame loop instead.
             handle = self.editor.handles.get(self.editor.selected)
-            index = self.model.by_name.get(self.editor.selected)
-            if handle is None or index is None:
+            if handle is None:
                 return items
             origin = picking.to_world(self.placement, handle)
-            # A translate gizmo always works in world axes -- the joints-mode
-            # convention, kept for the root translate; the rotate gizmo's
-            # rings are drawn in the joint's own frame.
-            node = self.model.nodes[index]
-            basis = (
-                m3.identity()
-                if gizmo is self.translate_gizmo
-                else self.placement @ node.world
-            )
+            if skeleton_mode:
+                # A draft bone has no glTF node -- there is no world matrix to
+                # read a frame from -- but this never matters in practice: a
+                # skeleton-mode selection always takes the translate gizmo
+                # (see ``_active_gizmo``), which works in world axes and never
+                # asks for ``basis`` at all.
+                basis = m3.identity()
+            else:
+                index = self.model.by_name.get(self.editor.selected)
+                if index is None:
+                    return items
+                node = self.model.nodes[index]
+                # A translate gizmo always works in world axes -- the
+                # joints-mode convention, kept for the root translate; the
+                # rotate gizmo's rings are drawn in the joint's own frame.
+                basis = (
+                    m3.identity()
+                    if gizmo is self.translate_gizmo
+                    else self.placement @ node.world
+                )
             gizmo.place(origin, basis, self.camera, height)
             items += gizmo.draws()
         return items
@@ -228,7 +296,7 @@ class PoseOps:
     def _active_gizmo(self: Viewer):
         if not self.pose_mode:
             return None
-        if self.editor.mode == "joints":
+        if self.editor.mode in ("joints", "skeleton"):
             return self.translate_gizmo
         if (
             self.editor.root_translate

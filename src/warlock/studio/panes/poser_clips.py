@@ -104,6 +104,18 @@ def draw(ctx: Any) -> None:
     if not ctx.rigging_available:
         widgets.muted("Editing clips needs Blender, which is not installed.")
         return
+    if state.skeleton_editing:
+        # P6 (2026-09-13): every control below reads or writes the armature's
+        # *pose*, and a skeleton-editing session holds it at rest throughout
+        # (``PoseEditor.enter_skeleton_mode`` resets it on the way in) -- key
+        # capture and scrubbing would silently write or play a rest pose.
+        # ``poser_mode.scrub``/``capture_key`` refuse this by name too, but
+        # hiding the whole section is the honester picture of what a skeleton
+        # draft actually has to offer a clip.
+        widgets.muted_wrapped(
+            "Editing the skeleton. Apply or cancel to get back to posing and clips."
+        )
+        return
     poser_mode.clips_pump(ctx)
     if state.clips_loading and not state.clips:
         widgets.muted("Reading the clip library...")

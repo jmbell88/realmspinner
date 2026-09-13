@@ -90,7 +90,18 @@ def _same(a: dict[str, Any], b: dict[str, Any]) -> bool:
     gizmo points at and nothing about the pose, and a stack that recorded it
     would spend a user's undo presses putting the highlight back.
     """
-    for key in ("rotations", "moved", "root_translation", "mode", "current", "dirty"):
+    for key in (
+        "rotations",
+        "moved",
+        "root_translation",
+        "mode",
+        "current",
+        "dirty",
+        "draft",
+        "draft_pairs",
+        "draft_root",
+        "draft_dirty",
+    ):
         if a.get(key) != b.get(key):
             return False
     for key in ("handles", "home"):
@@ -108,7 +119,8 @@ def _snapshot_cost(snap: dict[str, Any]) -> int:
     handles = len(snap.get("handles") or ()) * 3 * 8
     home = len(snap.get("home") or ()) * 3 * 8
     moved = len(snap.get("moved") or ()) * 3 * 8
-    return rotations + handles + home + moved + 128
+    draft = len(snap.get("draft") or ()) * 6 * 8
+    return rotations + handles + home + moved + draft + 128
 
 
 class PoseEditor:
@@ -135,6 +147,32 @@ class PoseEditor:
         # ``root_translate`` is whether the gizmo currently translates it.
         self.root: str | None = None
         self.root_translate = False
+        # Skeleton mode (Poser's structure editor): a DRAFT bone list edited
+        # in place, disconnected from the loaded glTF -- a bone this session
+        # adds has no node, so it cannot be posed or joint-corrected the way
+        # ``fitted``/``moved`` above assume. ``draft`` is
+        # ``{name, parent, head, tail}`` dicts, Blender axes, the exact shape
+        # ``rigging.py``'s pure editors take and return. ``draft_root`` is the
+        # edited skeleton's root name; ``draft_pairs`` its mirror pairs.
+        self.draft: list[dict[str, Any]] = []
+        self.draft_pairs: list[list[str]] = []
+        self.draft_root: str | None = None
+        self.draft_dirty = False
+        # Whether a skeleton-mode drag also moves the dragged bone's mirror
+        # partner, reflected in Blender X. A plain settable flag rather than a
+        # mode of its own: the UI toggles it mid-session the way Clay's own
+        # mirror toggle works.
+        self.mirror_edit = False
+        # The fixed anchor a skeleton-mode drag's Blender-space draft point is
+        # mapped through to reach glTF world space, and back. Captured once on
+        # ``enter_skeleton_mode`` from the *root* bone -- its Blender head and
+        # its already-computed glTF handle -- because a new bone has no glTF
+        # node of its own to read a world matrix from. Anchoring on a single
+        # bone rather than converting through each bone's own parent chain is
+        # what keeps the mapping well-defined for a bone the draft has not
+        # built a hierarchy for yet.
+        self._skel_anchor_blender = np.zeros(3)
+        self._skel_anchor_gltf = np.zeros(3)
         # Undo, per pose *session*. Dropped by ``bind`` and ``clear`` rather
         # than carried, because adopting a different model rebuilds ``bones``
         # and ``rest`` -- a surviving step would restore rotations onto a
@@ -165,6 +203,11 @@ class PoseEditor:
         self.root = None
         self.root_translate = False
         self.handles = {b: model.nodes[model.by_name[b]].world[:3, 3].copy() for b in self.bones}
+        self.draft = []
+        self.draft_pairs = []
+        self.draft_root = None
+        self.draft_dirty = False
+        self.mirror_edit = False
         self._reset_history()
 
     def clear(self) -> None:
@@ -180,6 +223,11 @@ class PoseEditor:
         self.mode = "pose"
         self.root = None
         self.root_translate = False
+        self.draft = []
+        self.draft_pairs = []
+        self.draft_root = None
+        self.draft_dirty = False
+        self.mirror_edit = False
         self._reset_history()
 
     def _reset_history(self) -> None:
@@ -192,7 +240,7 @@ class PoseEditor:
         return self.model is not None and bool(self.bones)
 
     def has_unsaved_edits(self) -> bool:
-        return bool(self.dirty or self.moved)
+        return bool(self.dirty or self.moved or self.draft_dirty)
 
     # -- undo ---------------------------------------------------------------
     #
@@ -225,6 +273,10 @@ class PoseEditor:
             "selected": self.selected,
             "current": self.current,
             "dirty": self.dirty,
+            "draft": [dict(b) for b in self.draft],
+            "draft_pairs": [list(p) for p in self.draft_pairs],
+            "draft_root": self.draft_root,
+            "draft_dirty": self.draft_dirty,
         }
 
     def restore(self, snap: dict[str, Any]) -> None:
@@ -248,8 +300,13 @@ class PoseEditor:
         self.mode = snap.get("mode", "pose")
         self.moved = {name: list(delta) for name, delta in (snap.get("moved") or {}).items()}
         self.home = {name: point.copy() for name, point in (snap.get("home") or {}).items()}
+        self.draft = [dict(b) for b in (snap.get("draft") or [])]
+        self.draft_pairs = [list(p) for p in (snap.get("draft_pairs") or [])]
+        self.draft_root = snap.get("draft_root")
+        self.draft_dirty = bool(snap.get("draft_dirty"))
         # Handles last and verbatim, because ``_resync_handles`` deliberately
-        # refuses to touch them in joints mode -- where the marker *is* the edit.
+        # refuses to touch them in joints or skeleton mode -- where the marker
+        # *is* the edit.
         self._resync_handles()
         self.handles = {
             name: point.copy() for name, point in (snap.get("handles") or {}).items()
@@ -391,9 +448,11 @@ class PoseEditor:
             )
 
     def _resync_handles(self) -> None:
-        """Markers follow their bones -- except in joints mode, where a marker
-        *is* the drag and snapping it back would undo it as fast as it is made."""
-        if self.model is None or self.mode == "joints":
+        """Markers follow their bones -- except in joints or skeleton mode,
+        where a marker *is* the drag (or, in skeleton mode, has no bone to
+        follow at all) and snapping it back would undo it as fast as it is
+        made."""
+        if self.model is None or self.mode in ("joints", "skeleton"):
             return
         self.handles = {
             b: self.model.nodes[self.model.by_name[b]].world[:3, 3].copy() for b in self.bones
@@ -498,8 +557,21 @@ class PoseEditor:
         for name, point in self.home.items():
             self.handles[name] = point.copy()
 
-    def move_handle(self, bone: str, position: np.ndarray) -> None:
-        """Place a marker during a joints-mode drag and record its displacement."""
+    def move_handle(self, key: str, position: np.ndarray) -> None:
+        """Place a marker during a joints- or skeleton-mode drag.
+
+        ``key`` is a bone name in joints mode; in skeleton mode it is that same
+        bone-name convention plus the ``"@tail"`` suffix a leaf bone's own tail
+        handle carries (see :meth:`skeleton_payload`'s neighbours below). The
+        dispatch is on ``self.mode`` rather than on the key's shape, because a
+        joints-mode bone name never collides with one -- ``BONE_NAME_RE``
+        forbids ``@`` -- but asking the mode is the same rule every other
+        mode-conditional method here already follows.
+        """
+        if self.mode == "skeleton":
+            self._move_skeleton_handle(key, position)
+            return
+        bone = key
         if bone not in self.handles:
             return
         self.handles[bone] = np.asarray(position, dtype="f8").copy()
@@ -544,6 +616,297 @@ class PoseEditor:
             }
             for bone in self.fitted
         ]
+
+    # -- skeleton editing ----------------------------------------------------
+    #
+    # A DRAFT bone list -- ``rigging.py``'s pure ``{name, parent, head, tail}``
+    # shape -- edited in place. A bone this session adds has no glTF node, so
+    # unlike joints mode (which moves a marker that already has one) the mesh
+    # cannot be reposed to show it: the mesh stays at rest throughout, and the
+    # skeleton is drawn from ``draft`` alone via :func:`bonelines.draft_segments`
+    # and the handles below.
+    #
+    # Every mutator is a thin, undoable wrapper over the corresponding pure
+    # function in ``rigging.py`` -- never a second implementation of the edit,
+    # only of the bookkeeping (``draft_dirty``, ``selected``, the handle cache)
+    # around it. A :class:`RigError` from one of those raises *before* any of
+    # that bookkeeping runs, which is what keeps ``@_undoable``'s "no state
+    # changed" promise true on a refusal.
+
+    @_undoable
+    def enter_skeleton_mode(self, rig: dict[str, Any]) -> None:
+        """Seed ``draft`` from ``rig`` and switch to skeleton mode.
+
+        Resets the pose to rest first, exactly like ``enter_joints_mode``: the
+        draft's positions are read against the rest skeleton, and a rotation
+        left over from posing would draw it in the wrong place.
+        """
+        if not self.bound:
+            return
+        self.reset_all(dirty=False)
+        self.draft = [dict(b) for b in (rig.get("bones") or [])]
+        self.draft_pairs = [list(p) for p in (rig.get("mirror_pairs") or [])]
+        self.draft_root = rig.get("root")
+        self.draft_dirty = False
+        self.mirror_edit = False
+        self.selected = None
+        self.mode = "skeleton"
+        # The anchor is captured from the *current* (rest) handles, before
+        # ``_recompute_skeleton_handles`` below replaces them -- a new bone
+        # added later has no entry in ``self.handles`` at all.
+        anchor_gltf = self.handles.get(self.draft_root)
+        self._skel_anchor_gltf = (
+            np.zeros(3) if anchor_gltf is None else anchor_gltf.copy()
+        )
+        anchor_bone = next(
+            (b for b in self.draft if b["name"] == self.draft_root), None
+        )
+        self._skel_anchor_blender = np.asarray(
+            anchor_bone["head"] if anchor_bone is not None else [0.0, 0.0, 0.0],
+            dtype="f8",
+        )
+        self._recompute_skeleton_handles()
+
+    @_undoable
+    def exit_skeleton_mode(self) -> None:
+        """Back to pose mode. The draft is discarded, saved or not: a caller
+        that wants to keep it queues the re-rig (via :meth:`skeleton_payload`)
+        before calling this."""
+        self.mode = "pose"
+        self.draft = []
+        self.draft_pairs = []
+        self.draft_root = None
+        self.draft_dirty = False
+        self.selected = None
+        self._resync_handles()
+
+    def skeleton_payload(self) -> dict[str, Any]:
+        """The draft, in ``service.rig.edit_skeleton``'s payload shape."""
+        return {
+            "bones": [dict(b) for b in self.draft],
+            "root": self.draft_root,
+            "mirror_pairs": [list(p) for p in self.draft_pairs],
+        }
+
+    def selected_bone(self) -> str | None:
+        """The selected handle's bone name, with any ``"@tail"`` stripped."""
+        if self.selected is None:
+            return None
+        return self.selected[:-5] if self.selected.endswith("@tail") else self.selected
+
+    def subtree_size(self, name: str) -> int:
+        """How many bones :meth:`skel_remove_subtree` would remove -- ``name``
+        and everything beneath it. A query, not an edit: the confirmation a UI
+        wants before committing to a removal that might take a whole limb."""
+        doomed = {name}
+        changed = True
+        while changed:
+            changed = False
+            for b in self.draft:
+                if b["parent"] in doomed and b["name"] not in doomed:
+                    doomed.add(b["name"])
+                    changed = True
+        return len(doomed)
+
+    def _check_skeleton_cap(self, count: int) -> None:
+        if count > rigging.MAX_SKELETON_BONES:
+            raise rigging.RigError(
+                f"a skeleton may hold at most {rigging.MAX_SKELETON_BONES} bones, "
+                f"not {count}",
+                field="bones",
+            )
+
+    @_undoable
+    def skel_add_child(self, parent: str) -> str:
+        """A new bone as ``parent``'s child, continuing its direction at half
+        its length -- a starting point the user drags into place, not a
+        finished joint."""
+        self._check_skeleton_cap(len(self.draft) + 1)
+        by_name = {b["name"]: b for b in self.draft}
+        if parent not in by_name:
+            raise rigging.RigError(f"unknown parent {parent!r}", field="parent")
+        parent_bone = by_name[parent]
+        head = np.asarray(parent_bone["tail"], dtype="f8")
+        direction = head - np.asarray(parent_bone["head"], dtype="f8")
+        length = float(np.linalg.norm(direction))
+        if length <= 0:
+            direction, length = np.array([0.0, 0.0, 1.0]), 1.0
+        else:
+            direction = direction / length
+        tail = head + direction * (0.5 * length)
+        new_name = rigging.unique_name(self.draft, "bone")
+        self.draft = rigging.add_bone(self.draft, parent, new_name, head, tail)
+        self.draft_dirty = True
+        self.selected = new_name
+        self._recompute_skeleton_handles()
+        return new_name
+
+    @_undoable
+    def skel_split(self, name: str) -> str:
+        self._check_skeleton_cap(len(self.draft) + 1)
+        new_name = rigging.unique_name(self.draft, name)
+        self.draft = rigging.split_bone(self.draft, name, new_name)
+        self.draft_dirty = True
+        self.selected = new_name
+        self._recompute_skeleton_handles()
+        return new_name
+
+    @_undoable
+    def skel_remove_pivot(self, name: str) -> None:
+        by_name = {b["name"]: b for b in self.draft}
+        if name not in by_name:
+            raise rigging.RigError(f"unknown bone {name!r}", field="name")
+        parent_name = by_name[name]["parent"]
+        if parent_name is None:
+            children = [b["name"] for b in self.draft if b["parent"] == name]
+            next_selected = children[0] if len(children) == 1 else None
+        else:
+            next_selected = parent_name
+        self.draft = rigging.remove_pivot(self.draft, name)
+        self.draft_pairs = rigging.prune_pairs(self.draft, self.draft_pairs)
+        if self.draft_root == name and next_selected is not None:
+            self.draft_root = next_selected
+        self.draft_dirty = True
+        self.selected = next_selected
+        self._recompute_skeleton_handles()
+
+    @_undoable
+    def skel_remove_subtree(self, name: str) -> int:
+        by_name = {b["name"]: b for b in self.draft}
+        if name not in by_name:
+            raise rigging.RigError(f"unknown bone {name!r}", field="name")
+        parent_name = by_name[name]["parent"]
+        count = self.subtree_size(name)
+        self.draft = rigging.remove_subtree(self.draft, name)
+        self.draft_pairs = rigging.prune_pairs(self.draft, self.draft_pairs)
+        self.draft_dirty = True
+        self.selected = parent_name
+        self._recompute_skeleton_handles()
+        return count
+
+    @_undoable
+    def skel_rename(self, old: str, new: str) -> None:
+        # Pre-checked here, with ``field="name"``, ahead of
+        # ``rigging.rename_bone``'s own checks (``field="new"``): every other
+        # skel_* refusal names the argument the *UI* labels "name", and a
+        # rename dialog has exactly one field for the user to blame.
+        if not rigging.BONE_NAME_RE.match(new):
+            raise rigging.RigError(f"bone name {new!r} is not usable", field="name")
+        names = {b["name"] for b in self.draft}
+        if new != old and new in names:
+            raise rigging.RigError(f"duplicate bone name {new!r}", field="name")
+        bones, pairs = rigging.rename_bone(self.draft, self.draft_pairs, old, new)
+        self.draft = bones
+        self.draft_pairs = [list(p) for p in pairs]
+        if self.draft_root == old:
+            self.draft_root = new
+        self.draft_dirty = True
+        if self.selected == old:
+            self.selected = new
+        elif self.selected == f"{old}@tail":
+            self.selected = f"{new}@tail"
+        self._recompute_skeleton_handles()
+
+    @_undoable
+    def skel_attach_limb(
+        self, preset_key: str, parent: str, side: str | None, mirror: bool
+    ) -> list[str]:
+        before = len(self.draft)
+        bones, pairs = rigging.attach_limb(
+            self.draft, self.draft_pairs, preset_key, parent, side, mirror
+        )
+        self._check_skeleton_cap(len(bones))
+        new_names = [b["name"] for b in bones[before:]]
+        self.draft = bones
+        self.draft_pairs = [list(p) for p in pairs]
+        self.draft_dirty = True
+        self.selected = new_names[0] if new_names else None
+        self._recompute_skeleton_handles()
+        return new_names
+
+    def _first_child(self, parent: str) -> str | None:
+        for b in self.draft:
+            if b["parent"] == parent:
+                return b["name"]
+        return None
+
+    def _mirror_partner(self, name: str) -> str | None:
+        for a, b in self.draft_pairs:
+            if a == name:
+                return b
+            if b == name:
+                return a
+        partner = rigging.mirror_partner_name(name)
+        names = {b["name"] for b in self.draft}
+        return partner if partner in names else None
+
+    def _set_draft_point(self, name: str, end: str, point: np.ndarray) -> None:
+        by_name = {b["name"]: b for b in self.draft}
+        bone = by_name.get(name)
+        if bone is None:
+            return
+        bone[end] = [float(v) for v in point]
+        if end == "head":
+            # The tail-follows-first-child rule ``corrected_bones`` already
+            # applies in joints mode, restated here as a write rather than a
+            # read: a structural edit has no separate "corrected" view, so the
+            # continuity has to land in ``draft`` itself.
+            parent_name = bone.get("parent")
+            if parent_name is not None and self._first_child(parent_name) == name:
+                by_name[parent_name]["tail"] = [float(v) for v in point]
+
+    def _move_skeleton_handle(self, key: str, world_pos: Any) -> None:
+        if key is None:
+            return
+        name, end = (key[:-5], "tail") if key.endswith("@tail") else (key, "head")
+        names = {b["name"] for b in self.draft}
+        if name not in names:
+            return
+        point = self._gltf_to_skeleton(world_pos)
+        self._set_draft_point(name, end, point)
+        if self.mirror_edit:
+            partner = self._mirror_partner(name)
+            if partner is not None:
+                mirrored = point.copy()
+                mirrored[0] = -mirrored[0]
+                self._set_draft_point(partner, end, mirrored)
+        self.draft_dirty = True
+        self.selected = key
+        self._recompute_skeleton_handles()
+
+    def _gltf_to_skeleton(self, world_pos: Any) -> np.ndarray:
+        """glTF world space -> the draft's Blender space, through the anchor
+        captured on ``enter_skeleton_mode``. The inverse of
+        :meth:`_skeleton_to_gltf`."""
+        p = np.asarray(world_pos, dtype="f8")
+        return self._skel_anchor_blender + m3.gltf_delta_to_blender(
+            p - self._skel_anchor_gltf
+        )
+
+    def _skeleton_to_gltf(self, point: Any) -> np.ndarray:
+        """A draft point, Blender space -> glTF world space for drawing and
+        picking. Anchored on the root the way :func:`ghost_handles` anchors on
+        a rest pose rather than accumulating a transform per bone -- a new
+        bone has no node to walk a parent chain from."""
+        p = np.asarray(point, dtype="f8")
+        return self._skel_anchor_gltf + m3.blender_delta_to_gltf(
+            p - self._skel_anchor_blender
+        )
+
+    def _recompute_skeleton_handles(self) -> None:
+        """Every draft bone's head, plus a leaf bone's own tail, in glTF world
+        space. A non-leaf bone's tail gets no handle of its own: it is drawn as
+        its first child's head, ``draft_segments``' rule, the same one
+        ``corrected_bones`` applies in joints mode."""
+        if self.mode != "skeleton":
+            return
+        parents = {b["parent"] for b in self.draft if b.get("parent")}
+        handles: dict[str, np.ndarray] = {}
+        for b in self.draft:
+            handles[b["name"]] = self._skeleton_to_gltf(b["head"])
+            if b["name"] not in parents:
+                handles[f"{b['name']}@tail"] = self._skeleton_to_gltf(b["tail"])
+        self.handles = handles
 
 
 def _skin_bones(model: Model) -> list[str]:

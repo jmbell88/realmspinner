@@ -88,16 +88,31 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
     A queued rig job rather than an inline call, for the same reason the
     original rig is: skinning is minutes of CPU and must never overlap a
     trellis run.
+
+    A rig whose ``skeleton`` is already ``"custom"`` (built by
+    :func:`edit_skeleton`) is checked against *its own* structure, not the
+    base template's -- ``rigging.validate_joints`` only ever accepts a joint
+    move that keeps the structure it is handed, so validating against the
+    template here would refuse a plain joint move on a rig with, say, an
+    extra tail bone the template never had. ``skeleton``/``root``/
+    ``mirror_pairs`` are forwarded into the new job's params the same way, so
+    a joint move never resets a custom rig back to template shape.
     """
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
     rig = rigging.read_rig(job_dir)
     if rig is None or not (job_dir / "model.glb").exists():
         raise Invalid("job is not rigged")
+    template = rigging.get_template(str(rig.get("template") or svc.config.rig_template))
+    is_custom = rig.get("skeleton") == "custom"
     try:
-        template = rigging.get_template(str(rig.get("template") or svc.config.rig_template))
-        bones = rigging.validate_joints(payload, template)
-    except ValueError as exc:
+        if is_custom:
+            rigging.validate_rig_bones(rig.get("bones", []))
+            structure = rig["bones"]
+        else:
+            structure = template
+        bones = rigging.validate_joints(payload, structure)
+    except (ValueError, KeyError, TypeError) as exc:
         raise invalid_from(exc, "Those joint positions cannot be used") from exc
 
     # Same door as ``create_rig``'s, for the same reason: a re-rig queues a
@@ -110,9 +125,76 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
         "bones": bones,
         "adjusted": True,
     }
+    if is_custom:
+        params["skeleton"] = "custom"
+        params["root"] = rig.get("root")
+        params["mirror_pairs"] = rig.get("mirror_pairs")
     new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id}
+
+
+def edit_skeleton(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Re-rig a mesh with a skeleton whose *shape* the user edited.
+
+    ``adjust_joints``'s shape, for a caller that may have added or removed a
+    pivot, split a bone, renamed one or grafted a limb preset on -- anything
+    :func:`rigging.validate_skeleton` accepts, not only a joint moved within
+    the base template's own structure. The queue is serial, exactly like
+    every other rig job: two edits queued against the same source job can
+    never race each other's temp names (``rigging.RIG_GLB_TMP``/
+    ``RIG_JSON_TMP``), because only one rig job ever runs at a time.
+
+    ``rig.json`` keeps naming the *base* template this rig started from
+    (``rig["template"]``) even once its shape has diverged from it --
+    ``rigging.clip_coverage`` and the pose library both need to know which
+    template's poses/clips this rig might still play.
+    """
+    source = svc.require_job(job_id)
+    job_dir = svc.job_dir(job_id)
+    rig = rigging.read_rig(job_dir)
+    if rig is None or not (job_dir / "model.glb").exists():
+        raise Invalid("job is not rigged")
+    base = rigging.get_template(str(rig.get("template") or svc.config.rig_template))
+    bounds = rig.get("bounds")
+    try:
+        if not isinstance(bounds, dict) or "min" not in bounds or "max" not in bounds:
+            raise rigging.RigError("rig.json has no usable bounds", field="bounds")
+        result = rigging.validate_skeleton(payload, base=base, bounds=bounds)
+    except ValueError as exc:
+        raise invalid_from(exc, "That skeleton cannot be used") from exc
+
+    # Same door as ``create_rig``'s and ``adjust_joints``'s, for the same
+    # reason: this queues a fresh job that runs Blender exactly like they do.
+    if not doctor.blender_check().ok:
+        raise Invalid("Rigging needs Blender, which is not installed.")
+    params = {
+        "source_job": job_id,
+        "template": base.key,
+        "bones": result["bones"],
+        "root": result["root"],
+        "mirror_pairs": [list(p) for p in result["mirror_pairs"]],
+        "skeleton": result["skeleton"],
+        "adjusted": True,
+    }
+    new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+    svc.wake_worker()
+    return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
+
+
+def limb_presets() -> list[dict[str, Any]]:
+    """The shipped limb presets the skeleton editor can graft onto a bone.
+
+    Read-only and job-independent, like :func:`rig_templates`'s own
+    ``templates`` list: ``{key, label, bone_count}`` is enough for a menu. The
+    coordinate frame a preset is authored in, and what ``side``/``mirror``
+    mean, are documented on :func:`rigging.attach_limb`, which is what
+    actually places one -- this is only the catalogue.
+    """
+    return [
+        {"key": p["key"], "label": p["label"], "bone_count": len(p["bones"])}
+        for p in rigging.limb_presets().values()
+    ]
 
 
 def get_rig(svc: WarlockService, job_id: str) -> dict[str, Any]:

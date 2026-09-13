@@ -141,6 +141,14 @@ class RigOps:
             # the chest. ``rig_spec`` documents where this sits in the order of
             # preference: below a user correction, above the template.
             joints=params.get("joints") or None,
+            # A custom skeleton (service.rig.edit_skeleton) carries its own
+            # structure across the pipe -- see rig_spec's own docstring. Absent
+            # for every other rig job (an ordinary rig, or adjust_joints's
+            # template-shaped correction), which keeps their specs exactly
+            # what they always were.
+            skeleton=params.get("skeleton"),
+            root=params.get("root"),
+            mirror_pairs=params.get("mirror_pairs"),
         )
         try:
             result = await asyncio.to_thread(

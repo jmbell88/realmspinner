@@ -231,6 +231,42 @@ class FakeViewer:
     def mirror(self) -> None:
         self.editor.mirror()
 
+    # -- skeleton mode (P6, 2026-09-13) --------------------------------------
+    #
+    # ``_viewer_pose.PoseOps``'s own pass-throughs, minus the GPU refresh
+    # they also do -- this fake never binds a mesh a palette could be
+    # recomputed for, so there is nothing that call would touch.
+
+    def enter_skeleton_mode(self, rig) -> None:
+        self.editor.enter_skeleton_mode(rig)
+
+    def exit_skeleton_mode(self) -> None:
+        self.editor.exit_skeleton_mode()
+
+    def skeleton_payload(self):
+        return self.editor.skeleton_payload()
+
+    def skel_add_child(self, parent):
+        return self.editor.skel_add_child(parent)
+
+    def skel_split(self, name):
+        return self.editor.skel_split(name)
+
+    def skel_remove_pivot(self, name) -> None:
+        self.editor.skel_remove_pivot(name)
+
+    def skel_remove_subtree(self, name):
+        return self.editor.skel_remove_subtree(name)
+
+    def skel_rename(self, old, new) -> None:
+        self.editor.skel_rename(old, new)
+
+    def skel_attach_limb(self, preset_key, parent, side, mirror):
+        return self.editor.skel_attach_limb(preset_key, parent, side, mirror)
+
+    def subtree_size(self, name) -> int:
+        return self.editor.subtree_size(name)
+
 
 def _full_bones(template="humanoid"):
     """Every bone at identity -- validate_record requires the whole skeleton,
@@ -898,6 +934,252 @@ def test_rerig_control_is_gated_by_the_pane_s_own_blender_check():
     assert reason < branch, "the availability refusal must guard the whole branch"
 
 
+# --- the skeleton editor (P6, 2026-09-13) -------------------------------------
+
+
+def _humanoid_bones():
+    return [dict(b) for b in rigging.get_template("humanoid").bones]
+
+
+def _custom_rig_meta():
+    bones = _humanoid_bones()
+    root = next(b["name"] for b in bones if b["parent"] is None)
+    return {
+        "skeleton": "custom",
+        "bones": bones,
+        "root": root,
+        "mirror_pairs": [],
+        # ``service.rig.edit_skeleton`` refuses outright with no usable
+        # bounds on the rig -- the canonical unit box every template is fit
+        # inside (``poselib.UNIT_LO``/``UNIT_HI``) is generous enough that no
+        # humanoid bone in this file's tests falls outside it.
+        "bounds": {"min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 1.0]},
+    }
+
+
+def _opened_asset_for_skeleton(svc, monkeypatch, **rig_meta):
+    """``_opened_asset``'s own setup, with the editor actually bound to a
+    model.
+
+    ``PoseEditor.enter_skeleton_mode`` no-ops on an unbound editor
+    (``PoseEditor.bound``), and the fake asset session ``_opened_asset``
+    builds never binds one -- ``FakeViewer.enter_pose_mode`` (unlike the real
+    ``Viewer``'s) only flips ``pose_mode``, since most of this file's asset-
+    session tests never look at the editor's own bones. The skeleton editor
+    is the first thing here that does.
+    """
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch, **rig_meta)
+    names = [b["name"] for b in rigging.get_template("humanoid").bones]
+    viewer.editor.bind(_armature_model(), names)
+    viewer.editor.root = next(
+        b["name"] for b in rigging.get_template("humanoid").bones if b["parent"] is None
+    )
+    return ctx, viewer, job_id
+
+
+def test_enter_skeleton_edit_requires_an_open_asset(svc):
+    ctx = FakeCtx(svc)
+    poser_mode.enter_skeleton_edit(ctx)
+    assert any("rigged asset" in msg for msg, _level in ctx.toasts)
+    assert poser_mode.ensure(ctx).skeleton_editing is False
+
+
+def test_enter_skeleton_edit_refuses_over_an_unsaved_pose(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset(svc, monkeypatch, bones=_humanoid_bones())
+    viewer.editor.dirty = True
+
+    poser_mode.enter_skeleton_edit(ctx)
+    assert any("before editing the skeleton" in msg for msg, _level in ctx.toasts)
+    assert viewer.editor.mode != "skeleton"
+    assert poser_mode.ensure(ctx).skeleton_editing is False
+
+
+def test_enter_skeleton_edit_refuses_a_rig_with_no_bones(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset(svc, monkeypatch)  # default meta: bones=[]
+
+    poser_mode.enter_skeleton_edit(ctx)
+    assert any("no readable rig" in msg for msg, _level in ctx.toasts)
+    assert poser_mode.ensure(ctx).skeleton_editing is False
+
+
+def test_enter_skeleton_edit_switches_the_editor_and_the_pane_state(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+
+    poser_mode.enter_skeleton_edit(ctx)
+    state = poser_mode.ensure(ctx)
+    assert state.skeleton_editing is True
+    assert viewer.editor.mode == "skeleton"
+    assert len(viewer.editor.draft) == len(_humanoid_bones())
+
+
+def test_apply_skeleton_submits_edit_skeleton_under_the_rerig_key(svc, monkeypatch):
+    ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    before = len(viewer.editor.draft)
+    viewer.editor.skel_add_child(viewer.editor.draft_root)
+
+    poser_mode.apply_skeleton(ctx)
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    assert key in ctx.submitted
+    assert key.startswith("poser-"), "must land on this module's own on_task_done"
+    result = ctx.results[key]
+    assert result["source_job"] == job_id
+    assert result["skeleton"] == "custom"
+    # The queued job's own params carry the drafted skeleton -- one more bone
+    # than the session started with, from the added child.
+    queued = svc.store.get(result["id"])
+    assert len(queued["params"]["bones"]) == before + 1
+
+
+def test_apply_skeleton_records_a_field_addressed_refusal(svc, monkeypatch):
+    """``FakeCtx.submit`` runs the call inline, so a raised refusal surfaces
+    straight out of :func:`poser_mode.apply_skeleton` here -- the real
+    ``TaskRunner`` instead catches it into a ``Done`` and hands it to
+    :func:`poser_mode.on_task_failed`, which is exercised directly below."""
+    from warlock.service.errors import Invalid
+
+    ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    # ``rigging.validate_skeleton`` derives the root from the bones' own
+    # ``parent`` fields, not from the payload's own ``root`` -- so a second
+    # parentless bone, poked straight into the draft rather than through a
+    # ``skel_*`` door (none of which can produce this on their own), is what
+    # makes it refuse with ``field="root"``.
+    viewer.editor.draft.append(
+        {"name": "stray-root", "parent": None, "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.0, 1.0]}
+    )
+
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    with pytest.raises(Invalid) as excinfo:
+        poser_mode.apply_skeleton(ctx)
+
+    poser_mode.on_task_failed(
+        ctx, SimpleNamespace(key=key, error=excinfo.value, message=str(excinfo.value))
+    )
+    state = poser_mode.ensure(ctx)
+    assert state.skeleton_error is not None
+    assert state.skeleton_error["field"] == "root"
+
+
+def test_cancel_skeleton_edit_asks_only_when_the_draft_is_dirty(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+
+    poser_mode.cancel_skeleton_edit(ctx)
+    assert ctx.confirms.asked == [], "a clean draft needs no confirm"
+    assert poser_mode.ensure(ctx).skeleton_editing is False
+    assert viewer.editor.mode != "skeleton"
+
+    poser_mode.enter_skeleton_edit(ctx)
+    viewer.editor.skel_add_child(viewer.editor.draft_root)
+    assert viewer.editor.draft_dirty is True
+
+    poser_mode.cancel_skeleton_edit(ctx)
+    assert len(ctx.confirms.asked) == 1
+    assert poser_mode.ensure(ctx).skeleton_editing is True, "not discarded until confirmed"
+    ctx.confirms.asked[0].on_confirm()
+    assert poser_mode.ensure(ctx).skeleton_editing is False
+    assert viewer.editor.mode != "skeleton"
+
+
+def test_scrub_and_capture_key_refuse_by_name_while_editing_the_skeleton(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    state = poser_mode.ensure(ctx)
+    state.frames = [{"bones": {}}]
+
+    poser_mode.scrub(ctx, 0)
+    assert any("scrubbing" in msg for msg, _level in ctx.toasts)
+    assert state.frame == -1
+
+    poser_mode.capture_key(ctx)
+    assert any("capturing a key" in msg for msg, _level in ctx.toasts)
+
+
+def test_pose_saves_refuse_by_name_while_editing_the_skeleton(svc, monkeypatch):
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+
+    poser_mode.save(ctx)
+    poser_mode.save_as(ctx)
+    poser_mode.save_pose_to_asset(ctx)
+    assert ctx.prompts.asked == [], "no save reached the naming prompt"
+    assert poser_mode.SAVE_KEY not in ctx.submitted
+    assert sum(
+        "before saving a pose" in msg for msg, _level in ctx.toasts
+    ) == 3
+
+
+def test_rerig_of_a_custom_skeleton_always_confirms_even_with_a_clean_editor(svc, monkeypatch):
+    """The generic ``guard`` only asks about an unsaved *pose*; a custom
+    skeleton's own shape needs its own warning even over a clean editor."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch, **_custom_rig_meta())
+    assert not viewer.editor.has_unsaved_edits()
+
+    poser_mode.rerig(ctx, "humanoid")
+    assert len(ctx.confirms.asked) == 1
+    assert "custom skeleton" in ctx.confirms.asked[0].title.lower()
+    key = f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}"
+    assert key not in ctx.submitted, "not submitted until the confirm is answered"
+    ctx.confirms.asked[0].on_confirm()
+    assert key in ctx.submitted
+
+
+def test_rerig_of_a_template_skeleton_is_unaffected(svc, monkeypatch):
+    """A plain template rig keeps the ordinary guard's behaviour: nothing
+    unsaved means no confirm at all."""
+    ctx, viewer, job_id = _opened_asset(svc, monkeypatch, bones=_humanoid_bones())
+    poser_mode.rerig(ctx, "quadruped")
+    assert ctx.confirms.asked == []
+    assert f"{poser_mode.ASSET_RERIG_KEY_PREFIX}{job_id}" in ctx.submitted
+
+
+def test_skeleton_state_resets_on_open_and_close_but_not_on_template_switch(svc, monkeypatch):
+    ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    state = poser_mode.ensure(ctx)
+    assert state.skeleton_editing is True
+
+    # A template switch (poser-01's own reset) must not silently end an
+    # editing session it says nothing about -- ``_reset_for_template`` is not
+    # in the call chain for a mid-session skeleton edit at all, but this pins
+    # that adding a field there was a deliberate choice, not an oversight.
+    import warlock.studio.poser_mode as poser_mode_module
+
+    fields_reset = poser_mode_module._reset_for_template.__code__.co_names
+    assert "skeleton_editing" not in fields_reset
+
+    poser_mode.close_asset(ctx)
+    assert state.skeleton_editing is False
+    assert state.skeleton_error is None
+
+
+def test_land_rerig_ends_the_skeleton_editing_session_and_announces_a_custom_skeleton(
+    svc, monkeypatch
+):
+    ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    assert poser_mode.ensure(ctx).skeleton_editing is True
+
+    # A second rig job lands on the same source, now recorded as custom with
+    # an envelope fallback -- the banner names both facts.
+    new_rig = _custom_rig_meta()
+    new_rig["weighting"] = "envelope"
+    new_rig["weighting_reason"] = "bone-heat weighting failed: non-manifold mesh"
+    (ctx.job_dir(job_id) / "rig.json").write_text(
+        json.dumps({"version": 1, "template": "humanoid", **new_rig}), "utf-8"
+    )
+
+    poser_mode._land_rerig(ctx)
+    state = poser_mode.ensure(ctx)
+    assert state.skeleton_editing is False
+    assert state.skeleton_error is None
+    assert any(
+        "Custom skeleton from humanoid" in msg and "non-manifold" in msg
+        for msg, _level in ctx.toasts
+    )
+
+
 # --- applying ----------------------------------------------------------------
 
 
@@ -1035,6 +1317,38 @@ def test_save_over_the_edited_pose_updates_in_place(svc):
     assert result["id"] == stored["id"]
     on_disk = {p["id"]: p for p in svc_poses.list_library(svc)["poses"]}
     assert on_disk[stored["id"]]["updated"] == result["updated"]
+
+
+def test_saving_to_the_shared_library_filters_bones_the_template_does_not_have(svc):
+    """P4 (2026-09-13): a custom skeleton's own bone is not on the shared
+    template and would make ``poselib.validate_record`` refuse the whole save
+    outright ("unknown bone"); the library save drops it instead and says so,
+    rather than losing the rest of a pose over one bone the template cannot
+    place."""
+    ctx = FakeCtx(svc)
+    poser_mode.ensure(ctx)
+    viewer = ctx.poser_viewer = _bound_viewer()
+    viewer.editor.dirty = True
+    extra = dict(_full_bones())
+    extra["tail.001"] = [0.0, 0.0, 0.0, 1.0]
+    viewer.get_pose = lambda: extra
+
+    poser_mode.save_as(ctx)
+    ctx.prompts.asked[0].on_accept("Crouch")
+    result = ctx.results[poser_mode.SAVE_KEY]
+    assert "tail.001" not in result["bones"]
+    assert any("1 custom bone" in message for message, _level in ctx.toasts)
+
+
+def test_saving_to_the_shared_library_with_no_extra_bones_toasts_nothing(svc):
+    ctx = FakeCtx(svc)
+    poser_mode.ensure(ctx)
+    viewer = ctx.poser_viewer = _bound_viewer()
+    viewer.editor.dirty = True
+
+    poser_mode.save_as(ctx)
+    ctx.prompts.asked[0].on_accept("Crouch")
+    assert ctx.toasts == []
 
 
 def test_deleting_the_edited_pose_clears_current(svc):
@@ -1325,6 +1639,61 @@ def test_a_recovered_pose_restores_joint_corrections(tmp_path):
     assert recovered.mode == "joints"
     assert recovered.moved == moved
     assert recovered.has_unsaved_edits()
+
+
+def _skeleton_rig_for_journal():
+    bones = [dict(b) for b in rigging.get_template("humanoid").bones]
+    root = next(b["name"] for b in bones if b["parent"] is None)
+    return {"bones": bones, "root": root, "mirror_pairs": []}
+
+
+def test_a_recovered_skeleton_draft_reenters_skeleton_mode(tmp_path):
+    """P7 (2026-09-13): a skeleton draft is not a pose -- ``_pose_payload``
+    carries ``draft``/``draft_pairs``/``draft_root`` for it, and a recovered
+    one has to land back in skeleton mode, not as a rest pose with the edit
+    silently dropped."""
+    viewer = _bound_viewer()
+    viewer.enter_skeleton_mode(_skeleton_rig_for_journal())
+    new_name = viewer.editor.skel_add_child(viewer.editor.draft_root)
+    assert viewer.editor.draft_dirty is True
+
+    slot = poser_mode._PoseSlot(viewer, viewer.editor, "poser")
+    path = tmp_path / "poser.pose.json"
+    path.write_bytes(poser_mode._pose_payload(slot))
+
+    ctx = FakeCtx()
+    ctx.poser_viewer = target = _bound_viewer()
+    assert poser_mode._journal_adopt(ctx, path, {}) is True
+    recovered = target.editor
+    assert recovered.mode == "skeleton"
+    assert recovered.draft_dirty is True
+    assert any(b["name"] == new_name for b in recovered.draft)
+    assert poser_mode.ensure(ctx).skeleton_editing is True
+
+
+def test_an_invalid_recovered_skeleton_draft_keeps_the_journal_file_and_warns(tmp_path):
+    """A draft re-validated on the way back in and found unusable (here: two
+    parentless bones, which ``skel_*`` can never itself produce but a
+    hand-edited recovery file or a stale rig might) is declined -- kept, not
+    silently discarded, the rule every other adopt refusal here follows."""
+    viewer = _bound_viewer()
+    viewer.enter_skeleton_mode(_skeleton_rig_for_journal())
+    viewer.editor.draft.append(
+        {"name": "stray-root", "parent": None, "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.0, 1.0]}
+    )
+    viewer.editor.draft_dirty = True
+
+    slot = poser_mode._PoseSlot(viewer, viewer.editor, "poser")
+    path = tmp_path / "poser.pose.json"
+    path.write_bytes(poser_mode._pose_payload(slot))
+
+    ctx = FakeCtx()
+    ctx.poser_viewer = _bound_viewer()
+    assert poser_mode._journal_adopt(ctx, path, {}) is False
+    assert path.exists(), "a declined adopt must not delete the recovery file itself"
+    assert any("no longer usable" in msg for msg, _level in ctx.toasts)
+    assert ctx.poser_viewer.editor.mode != "skeleton"
+    assert poser_mode.ensure(ctx).skeleton_editing is False
 
 
 # --- the clip editor ----------------------------------------------------------

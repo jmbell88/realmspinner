@@ -157,6 +157,11 @@ existing rig. **Revert** undoes your unapplied moves; **Back to posing** returns
 mode asks first if you have an unsaved pose, since a leftover rotation would put the markers where
 the posed bones are rather than where the rest skeleton is.
 
+Changing the skeleton's actual *shape* — adding, splitting or removing a pivot, or grafting a limb
+on — is a different door again, reached from an open asset session in the
+[Poser](26-poser.md#editing-the-skeleton), and a rig built that way is recorded as `"skeleton":
+"custom"` in `rig.json` rather than a plain copy of its starting template.
+
 Rigged meshes are also what [Sprite sheets](27-sprite-sheets.md) render rows from.
 
 ## Authoring a pose against the skeleton instead

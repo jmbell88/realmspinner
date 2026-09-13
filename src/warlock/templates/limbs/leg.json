@@ -1,0 +1,10 @@
+{
+  "key": "leg",
+  "label": "Leg (thigh, shin, foot)",
+  "comment": "Same frame as arm.json. A leg drops mostly along the negative parent direction (down, when the parent points up) with a small sideways offset, and the foot kicks out along z (forward/back).",
+  "bones": [
+    {"name": "thigh", "parent": null,    "head": [0.0, 0.0, 0.0],  "tail": [0.3, -1.0, 0.0]},
+    {"name": "shin",  "parent": "thigh", "head": [0.3, -1.0, 0.0], "tail": [0.3, -2.0, 0.0]},
+    {"name": "foot",  "parent": "shin",  "head": [0.3, -2.0, 0.0], "tail": [0.3, -2.0, -0.6]}
+  ]
+}

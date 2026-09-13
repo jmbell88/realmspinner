@@ -2122,3 +2122,594 @@ def test_a_garbage_result_from_an_exit_zero_worker_is_a_blender_error(tmp_path, 
     with pytest.raises(rigging.BlenderError, match="unreadable result"):
         rigging.run_worker({"op": "rig", "result_path": str(result)}, timeout=30)
     assert not result.exists()
+
+
+# --- the skeleton editor (P1: rigging.py, pure) -------------------------------
+#
+# Poser's skeleton editor: move/add/remove pivots, split a bone, graft a limb
+# preset. Everything here is pure -- list[dict] in, a new list[dict] out -- so
+# an editor's undo stack is just the sequence of dicts each edit returned.
+
+
+def test_max_skeleton_bones_matches_the_viewer_shader_uniform():
+    """The viewer's skinning shader has a fixed-size joint uniform array
+    (programs.MAX_JOINTS); a skin with more joints draws at rest with no error
+    on screen (viewer.scene's warning). The two constants must never drift
+    apart independently, or the skeleton editor could build a rig the viewer
+    silently fails to animate."""
+    from warlock.studio.viewer.programs import MAX_JOINTS
+
+    assert rigging.MAX_SKELETON_BONES == MAX_JOINTS
+
+
+def _humanoid_rig_bones():
+    template = rigging.get_template("humanoid")
+    return rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+
+
+def _humanoid_bounds():
+    return {"min": [-1, -1, 0], "max": [1, 1, 2]}
+
+
+class TestValidateSkeleton:
+    def test_the_unedited_fit_reports_as_template(self):
+        base = rigging.get_template("humanoid")
+        result = rigging.validate_skeleton(
+            {
+                "bones": _humanoid_rig_bones(),
+                "mirror_pairs": [list(p) for p in base.mirror_pairs],
+            },
+            base=base,
+            bounds=_humanoid_bounds(),
+        )
+        assert result["skeleton"] == "template"
+        assert result["root"] == "hips"
+        assert {tuple(p) for p in result["mirror_pairs"]} == set(base.mirror_pairs)
+
+    def test_a_renamed_bone_is_custom(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[0] = dict(bones[0], name="pelvis")
+        for b in bones[1:]:
+            if b["parent"] == "hips":
+                b["parent"] = "pelvis"
+        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        assert result["skeleton"] == "custom"
+
+    def test_an_extra_bone_is_custom(self):
+        base = rigging.get_template("humanoid")
+        bones = rigging.add_bone(
+            _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
+        )
+        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        assert result["skeleton"] == "custom"
+        assert any(b["name"] == "tail_01" for b in result["bones"])
+
+    def test_rejects_an_empty_skeleton(self):
+        base = rigging.get_template("humanoid")
+        with pytest.raises(rigging.RigError, match="non-empty"):
+            rigging.validate_skeleton({"bones": []}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_too_many_bones(self):
+        base = rigging.get_template("humanoid")
+        bones = [
+            {
+                "name": f"b{i}",
+                "parent": None if i == 0 else f"b{i - 1}",
+                "head": [0, 0, float(i)],
+                "tail": [0, 0, float(i) + 1],
+            }
+            for i in range(rigging.MAX_SKELETON_BONES + 1)
+        ]
+        with pytest.raises(rigging.RigError, match="at most") as exc:
+            rigging.validate_skeleton(
+                {"bones": bones}, base=base, bounds={"min": [0, 0, 0], "max": [0, 0, 100]}
+            )
+        assert exc.value.field == "bones"
+
+    def test_rejects_a_bad_name(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[0] = dict(bones[0], name="has a space")
+        with pytest.raises(rigging.RigError, match="not usable"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_a_name_over_63_bytes(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[0] = dict(bones[0], name="x" * 64)
+        with pytest.raises(rigging.RigError, match="not usable"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_a_duplicate_name(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[1] = dict(bones[1], name=bones[0]["name"])
+        with pytest.raises(rigging.RigError, match="duplicate"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_an_unknown_parent(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[1] = dict(bones[1], parent="nonexistent")
+        with pytest.raises(rigging.RigError, match="unknown parent"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_two_roots(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[1] = dict(bones[1], parent=None)
+        with pytest.raises(rigging.RigError, match="exactly one root") as exc:
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        assert exc.value.field == "root"
+
+    def test_rejects_a_cycle(self):
+        """A single root satisfies the root check; the cycle is a *second*,
+        disconnected pair of bones pointing at each other."""
+        base = rigging.get_template("humanoid")
+        bones = [
+            {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+            {"name": "a", "parent": "b", "head": [0, 0, 1], "tail": [0, 0, 2]},
+            {"name": "b", "parent": "a", "head": [0, 0, 2], "tail": [0, 0, 3]},
+        ]
+        with pytest.raises(rigging.RigError, match="cycle"):
+            rigging.validate_skeleton(
+                {"bones": bones}, base=base, bounds={"min": [0, 0, 0], "max": [0, 0, 3]}
+            )
+
+    def test_rejects_a_zero_length_bone(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[0] = dict(bones[0], tail=list(bones[0]["head"]))
+        with pytest.raises(rigging.RigError, match="zero-length"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_rejects_a_joint_far_outside_the_mesh(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones[0] = dict(bones[0], head=[1000.0, 1000.0, 1000.0])
+        with pytest.raises(rigging.RigError, match="far outside"):
+            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+
+    def test_accepts_a_limb_reaching_past_the_bbox_diagonal(self):
+        """A deliberately extended limb (a tail, a reaching wing) is expected
+        to stick out past the mesh's own bounds -- the box is widened by its
+        own diagonal before anything is checked against it."""
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        bones = rigging.add_bone(bones, "hips", "tail_01", [0, -0.1, 0.5], [0, -1.5, 0.5])
+        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        assert any(b["name"] == "tail_01" for b in result["bones"])
+
+    def test_mirror_pairs_must_name_real_distinct_bones(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        with pytest.raises(rigging.RigError, match="does not have"):
+            rigging.validate_skeleton(
+                {"bones": bones, "mirror_pairs": [["hips", "nonexistent"]]},
+                base=base,
+                bounds=_humanoid_bounds(),
+            )
+        with pytest.raises(rigging.RigError, match="itself"):
+            rigging.validate_skeleton(
+                {"bones": bones, "mirror_pairs": [["hips", "hips"]]},
+                base=base,
+                bounds=_humanoid_bounds(),
+            )
+
+    def test_a_bone_cannot_be_in_two_mirror_pairs(self):
+        base = rigging.get_template("humanoid")
+        bones = _humanoid_rig_bones()
+        with pytest.raises(rigging.RigError, match="more than one"):
+            rigging.validate_skeleton(
+                {
+                    "bones": bones,
+                    "mirror_pairs": [
+                        ["upper_arm.L", "upper_arm.R"],
+                        ["upper_arm.L", "hand.L"],
+                    ],
+                },
+                base=base,
+                bounds=_humanoid_bounds(),
+            )
+
+
+# --- pure bone-list edits -----------------------------------------------------
+
+
+def test_add_bone_appends_and_never_mutates_the_input():
+    bones = _humanoid_rig_bones()
+    before = [dict(b) for b in bones]
+    out = rigging.add_bone(bones, "hips", "tail_01", [0, 0, 0], [0, -1, 0])
+    assert bones == before, "add_bone must not mutate its input"
+    assert len(out) == len(bones) + 1
+    assert out[-1] == {
+        "name": "tail_01", "parent": "hips", "head": [0.0, 0.0, 0.0], "tail": [0.0, -1.0, 0.0],
+    }
+
+
+def test_add_bone_rejects_a_duplicate_name():
+    bones = _humanoid_rig_bones()
+    with pytest.raises(rigging.RigError, match="duplicate"):
+        rigging.add_bone(bones, "hips", bones[0]["name"], [0, 0, 0], [0, 0, 1])
+
+
+def test_add_bone_rejects_an_unknown_parent():
+    bones = _humanoid_rig_bones()
+    with pytest.raises(rigging.RigError, match="unknown parent"):
+        rigging.add_bone(bones, "nonexistent", "new", [0, 0, 0], [0, 0, 1])
+
+
+def test_split_bone_inserts_a_child_at_the_midpoint():
+    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]}]
+    out = rigging.split_bone(bones, "a", "a2")
+    by_name = {b["name"]: b for b in out}
+    assert by_name["a"]["tail"] == pytest.approx([0, 0, 1])
+    assert by_name["a2"]["parent"] == "a"
+    assert by_name["a2"]["head"] == pytest.approx([0, 0, 1])
+    assert by_name["a2"]["tail"] == pytest.approx([0, 0, 2])
+
+
+def test_split_bone_moves_children_onto_the_new_half():
+    bones = [
+        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]},
+        {"name": "child", "parent": "a", "head": [0, 0, 2], "tail": [0, 0, 3]},
+    ]
+    out = rigging.split_bone(bones, "a", "a2")
+    by_name = {b["name"]: b for b in out}
+    assert by_name["child"]["parent"] == "a2"
+
+
+def test_remove_pivot_reparents_children_and_keeps_their_heads():
+    bones = [
+        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
+        {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
+    ]
+    out = rigging.remove_pivot(bones, "b")
+    names = {b["name"] for b in out}
+    assert names == {"a", "c"}
+    by_name = {b["name"]: b for b in out}
+    assert by_name["c"]["parent"] == "a"
+    assert by_name["c"]["head"] == [0, 0, 2]
+
+
+def test_remove_pivot_promotes_the_sole_child_when_removing_the_root():
+    bones = [
+        {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+        {"name": "child", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
+    ]
+    out = rigging.remove_pivot(bones, "root")
+    by_name = {b["name"]: b for b in out}
+    assert by_name["child"]["parent"] is None
+
+
+def test_remove_pivot_refuses_the_root_with_more_than_one_child():
+    bones = [
+        {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+        {"name": "a", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
+        {"name": "b", "parent": "root", "head": [0, 0, 1], "tail": [1, 0, 1]},
+    ]
+    with pytest.raises(rigging.RigError, match="exactly one child") as exc:
+        rigging.remove_pivot(bones, "root")
+    assert exc.value.field == "root"
+
+
+def test_remove_subtree_takes_every_descendant():
+    bones = [
+        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
+        {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
+        {"name": "d", "parent": "a", "head": [0, 0, 1], "tail": [1, 0, 1]},
+    ]
+    out = rigging.remove_subtree(bones, "b")
+    assert {b["name"] for b in out} == {"a", "d"}
+
+
+def test_remove_subtree_refuses_the_root():
+    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
+    with pytest.raises(rigging.RigError, match="root"):
+        rigging.remove_subtree(bones, "a")
+
+
+def test_rename_bone_updates_children_and_pairs():
+    bones = [
+        {"name": "arm.L", "parent": None, "head": [0, 0, 0], "tail": [1, 0, 0]},
+        {"name": "hand.L", "parent": "arm.L", "head": [1, 0, 0], "tail": [1.3, 0, 0]},
+    ]
+    pairs = [("arm.L", "arm.R")]
+    out_bones, out_pairs = rigging.rename_bone(bones, pairs, "arm.L", "upper_arm.L")
+    by_name = {b["name"]: b for b in out_bones}
+    assert "upper_arm.L" in by_name
+    assert by_name["hand.L"]["parent"] == "upper_arm.L"
+    assert out_pairs == [("upper_arm.L", "arm.R")]
+
+
+def test_rename_bone_rejects_a_collision():
+    bones = [
+        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
+    ]
+    with pytest.raises(rigging.RigError, match="duplicate"):
+        rigging.rename_bone(bones, [], "a", "b")
+
+
+def test_prune_pairs_drops_pairs_naming_a_gone_bone():
+    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
+    pairs = [("a", "b"), ("c", "d")]
+    assert rigging.prune_pairs(bones, pairs) == []
+
+
+def test_mirror_partner_name():
+    assert rigging.mirror_partner_name("hand.L") == "hand.R"
+    assert rigging.mirror_partner_name("hand.R") == "hand.L"
+    assert rigging.mirror_partner_name("spine") is None
+
+
+def test_unique_name_disambiguates():
+    bones = [{"name": "tail_01", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
+    assert rigging.unique_name(bones, "tail_01") == "tail_01.2"
+    assert rigging.unique_name(bones, "wing") == "wing"
+
+
+# --- limb presets --------------------------------------------------------------
+
+
+EXPECTED_LIMB_PRESETS = {"arm", "leg", "tail", "wing", "antenna"}
+
+
+def test_every_shipped_limb_preset_loads():
+    assert set(rigging.limb_presets()) == EXPECTED_LIMB_PRESETS
+
+
+def test_no_limb_preset_key_collides_with_a_template_key():
+    assert not (set(rigging.limb_presets()) & set(rigging.templates()))
+
+
+def test_limb_dir_is_not_swept_up_by_the_template_loader():
+    """``_load_templates`` globs ``TEMPLATE_DIR / "*.json"`` non-recursively;
+    ``templates/limbs/`` is a subdirectory precisely so a preset never shows up
+    in the skeleton template catalogue."""
+    assert "arm" not in rigging.templates()
+    assert "leg" not in rigging.templates()
+
+
+@pytest.mark.parametrize("preset", sorted(EXPECTED_LIMB_PRESETS))
+def test_every_preset_attaches_to_the_humanoid_chest_as_a_valid_skeleton(preset):
+    base = rigging.get_template("humanoid")
+    bones = _humanoid_rig_bones()
+    is_centre = preset == "tail"
+    out_bones, out_pairs = rigging.attach_limb(
+        bones, [], preset, "chest", None if is_centre else "L", mirror=not is_centre
+    )
+    result = rigging.validate_skeleton(
+        {"bones": out_bones, "mirror_pairs": out_pairs}, base=base, bounds=_humanoid_bounds()
+    )
+    assert result["skeleton"] == "custom"
+    assert len(result["bones"]) > len(bones)
+
+
+def test_attach_limb_mirror_names_both_sides_and_pairs_them():
+    bones = _humanoid_rig_bones()
+    out_bones, out_pairs = rigging.attach_limb(bones, [], "wing", "chest", "L", mirror=True)
+    names = {b["name"] for b in out_bones}
+    assert "wing_base.L" in names
+    assert "wing_base.R" in names
+    assert ("wing_base.L", "wing_base.R") in out_pairs
+
+
+def test_attach_limb_refuses_mirroring_a_centre_limb():
+    bones = _humanoid_rig_bones()
+    with pytest.raises(rigging.RigError, match="no side to mirror"):
+        rigging.attach_limb(bones, [], "tail", "hips", None, mirror=True)
+
+
+def test_attach_limb_rejects_an_unknown_parent():
+    bones = _humanoid_rig_bones()
+    with pytest.raises(rigging.RigError, match="unknown parent"):
+        rigging.attach_limb(bones, [], "arm", "nonexistent", "L", mirror=False)
+
+
+def test_attach_limb_rejects_an_unknown_preset():
+    bones = _humanoid_rig_bones()
+    with pytest.raises(ValueError, match="unknown limb preset"):
+        rigging.attach_limb(bones, [], "tentacle", "chest", "L", mirror=False)
+
+
+# --- clip coverage -------------------------------------------------------------
+
+
+def test_clip_coverage_is_empty_for_an_unedited_template_rig():
+    bones = _humanoid_rig_bones()
+    rig = {"bones": bones}
+    library = rigging.clip_library("humanoid")
+    if library["poses"]:
+        assert rigging.clip_coverage(rig, "humanoid") == []
+
+
+def test_clip_coverage_names_bones_a_custom_rig_dropped():
+    library = rigging.clip_library("humanoid")
+    if not library["poses"]:
+        pytest.skip("humanoid ships no clip library to test coverage against")
+    animated_bone = next(iter(next(iter(library["poses"].values()))["bones"]))
+    bones = rigging.remove_pivot(_humanoid_rig_bones(), animated_bone)
+    rig = {"bones": bones}
+    assert animated_bone in rigging.clip_coverage(rig, "humanoid")
+
+
+# --- rig_spec: skeleton/root/mirror_pairs (P2) --------------------------------
+
+
+def test_rig_spec_leaves_out_skeleton_fields_by_default(tmp_path):
+    """Byte-identical to before the skeleton editor existed: an ordinary rig
+    or joint-move spec must not gain any of the three new keys."""
+    spec = rigging.rig_spec(tmp_path, "humanoid")
+    assert "skeleton" not in spec
+    assert "root" not in spec
+    assert "mirror_pairs" not in spec
+
+
+def test_rig_spec_carries_a_custom_skeletons_structure(tmp_path):
+    spec = rigging.rig_spec(
+        tmp_path, "humanoid", skeleton="custom", root="hips", mirror_pairs=[("a.L", "a.R")]
+    )
+    assert spec["skeleton"] == "custom"
+    assert spec["root"] == "hips"
+    assert spec["mirror_pairs"] == [["a.L", "a.R"]]
+
+
+# --- the worker's own re-check of a custom skeleton (P2) ----------------------
+
+
+def test_check_skeleton_structure_returns_the_root():
+    bones = [
+        {"name": "a", "parent": None},
+        {"name": "b", "parent": "a"},
+    ]
+    assert rigging.check_skeleton_structure(bones) == "a"
+
+
+def test_check_skeleton_structure_rejects_a_bad_parent():
+    with pytest.raises(rigging.RigError, match="unknown parent"):
+        rigging.check_skeleton_structure([{"name": "a", "parent": "nonexistent"}])
+
+
+def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(capsys):
+    """The spec crosses a pipe as plain JSON; a custom skeleton that failed to
+    round-trip must cost the informed placement, never the rig -- the same
+    rule ``template_bones`` already follows for a mismatched landmark set."""
+    from warlock.pipelines import blender_worker
+
+    template = rigging.get_template("humanoid")
+    broken = [{"name": "a", "parent": "nonexistent", "head": [0, 0, 0], "tail": [0, 0, 1]}]
+    spec = {"template": "humanoid", "bones": broken, "skeleton": "custom"}
+    bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
+    assert bones is not broken
+    assert [b["name"] for b in bones] == [b["name"] for b in template.bones]
+    assert fit["method"] == "bbox"
+    assert "unusable" in capsys.readouterr().out
+
+
+def test_a_valid_custom_skeleton_is_used_unchanged():
+    from warlock.pipelines import blender_worker
+
+    custom = rigging.add_bone(
+        _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
+    )
+    spec = {"template": "humanoid", "bones": custom, "skeleton": "custom"}
+    bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
+    assert bones is custom
+    assert fit == {"method": "manual"}
+
+
+def test_rig_meta_carries_a_custom_skeletons_root_and_pairs():
+    from warlock.pipelines import blender_worker
+
+    template = rigging.get_template("humanoid")
+    meta = blender_worker._rig_meta(
+        template,
+        bones=[{"name": "pelvis", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
+        lo=[0.0, 0.0, 0.0],
+        hi=[1.0, 1.0, 1.0],
+        weighting="automatic",
+        weighting_reason=None,
+        adjusted=True,
+        fit={"method": "manual"},
+        root="pelvis",
+        mirror_pairs=[("a.L", "a.R")],
+        skeleton="custom",
+    )
+    assert meta["root"] == "pelvis"
+    assert meta["mirror_pairs"] == [["a.L", "a.R"]]
+    assert meta["skeleton"] == "custom"
+
+
+def test_rig_meta_defaults_to_the_template_shape():
+    """Every rig before the skeleton editor existed, and every ordinary joint
+    move today, must write exactly what it always wrote."""
+    from warlock.pipelines import blender_worker
+
+    template = rigging.get_template("humanoid")
+    meta = blender_worker._rig_meta(
+        template,
+        bones=[],
+        lo=[0.0, 0.0, 0.0],
+        hi=[1.0, 1.0, 1.0],
+        weighting="automatic",
+        weighting_reason=None,
+        adjusted=False,
+        fit={"method": "bbox"},
+    )
+    assert meta["root"] == template.root
+    assert meta["mirror_pairs"] == [list(p) for p in template.mirror_pairs]
+    assert meta["skeleton"] == "template"
+
+
+def test_op_rig_records_a_custom_skeleton_end_to_end(tmp_path):
+    """The seam whole: a valid custom skeleton reaches rig.json's root,
+    mirror_pairs and skeleton fields untouched by the template."""
+    pytest.importorskip("bpy")
+    import bpy
+
+    from warlock.pipelines import blender_worker
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
+
+    custom = rigging.add_bone(
+        _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
+    )
+    spec = rigging.rig_spec(
+        tmp_path, "humanoid", custom, skeleton="custom", root="hips",
+        mirror_pairs=[("upper_arm.L", "upper_arm.R")],
+    )
+    blender_worker.op_rig(bpy, spec)
+    rigging.finalize_rig(tmp_path)
+
+    rig = json.loads((tmp_path / "rig.json").read_text(encoding="utf-8"))
+    assert rig["skeleton"] == "custom"
+    assert rig["root"] == "hips"
+    assert rig["mirror_pairs"] == [["upper_arm.L", "upper_arm.R"]]
+    assert any(b["name"] == "tail_01" for b in rig["bones"])
+
+
+# --- stale bakes are invalidated by a re-rig (P2.4) ---------------------------
+
+
+def test_finalize_rig_deletes_a_stale_pose_bake(tmp_path):
+    """A pose baked under the previous skeleton depicts joints this rig no
+    longer has; existence is ``posed_model``'s whole freshness test, so a
+    stale bake left behind would be served, silently wrong, forever."""
+    job_dir = tmp_path
+    poses_dir = job_dir / rigging.POSE_DIR_NAME
+    poses_dir.mkdir()
+    (poses_dir / "abc123456789.glb").write_bytes(b"stale bake")
+    (poses_dir / "abc123456789.json").write_text('{"name": "a pose"}', encoding="utf-8")
+    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+
+    rigging.finalize_rig(job_dir)
+
+    assert not (poses_dir / "abc123456789.glb").exists()
+    # The pose *record* survives -- only its cached bake is invalidated.
+    assert (poses_dir / "abc123456789.json").exists()
+
+
+def test_finalize_rig_deletes_a_stale_animated_glb(tmp_path):
+    job_dir = tmp_path
+    (job_dir / "animated.glb").write_bytes(b"stale clip bake")
+    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+
+    rigging.finalize_rig(job_dir)
+
+    assert not (job_dir / "animated.glb").exists()
+
+
+def test_finalize_rig_is_fine_with_no_poses_dir_at_all(tmp_path):
+    job_dir = tmp_path
+    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+    rigging.finalize_rig(job_dir)  # must not raise

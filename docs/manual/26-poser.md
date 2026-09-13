@@ -131,6 +131,60 @@ asks before discarding that edit, the same as submitting the re-rig did — and 
 different skeleton than the one you had, the clip editor and the shared library beneath it switch to
 match the new one, exactly as they do when you change skeletons in an unbound session.
 
+## Editing the skeleton
+
+Re-rigging picks a different shipped template; editing the skeleton changes the *shape* of the one
+you have — moving, adding or removing a pivot, or grafting a whole limb on. It is reached from an
+open asset session's own **Skeleton** section, with **Edit skeleton**, and needs a pose with nothing
+unsaved on it: save or reset the pose first if the button says so.
+
+While editing, the armature sits at rest and shows the skeleton's structure rather than a pose. Click
+a pivot to select it, or its tip for the very last joint of a chain:
+
+- **Add child** — a new pivot continuing the selected one's own direction, half its length, that you
+  then drag into place.
+- **Split** — cuts the selected bone at its midpoint, inserting a new pivot there; everything that
+  used to parent off the far half now parents off the new pivot instead.
+- **Delete pivot** — removes just the selected bone, reparenting its children onto its own parent.
+  The rest of the skeleton keeps its shape.
+- **Delete limb** — removes the selected bone and everything beneath it. Asks first, naming how many
+  bones go with it — losing a whole arm by one click on its shoulder is the mistake this catches.
+- Renaming — type a new name in the box above the buttons and press Enter (or click away). A name has
+  to be unique and cannot be reused from elsewhere in the skeleton.
+
+**Adding limbs.** Pick a preset, a side (Left, Right or Centre) and whether to mirror it onto the
+opposite side as well, then **Add limb** to graft it onto the selected pivot. A preset is authored
+once and oriented from the bone it lands on, so the same preset reads correctly whichever pivot and
+side you choose.
+
+**Mirror edits**, when turned on, replays Add child, Split and Delete onto the bone's `.L`/`.R`
+partner as well — for a skeleton whose two sides should stay symmetric. It has no effect on a bone
+with no mirror partner.
+
+A skeleton holds at most 64 bones; the count above the buttons turns to a warning colour as you
+approach it, and going over is refused rather than silently truncated.
+
+**Apply skeleton** queues a fresh re-rig on the edited shape — the same Blender job an ordinary
+re-rig runs, so it re-skins the mesh from scratch and can take a moment; the session stays open and
+usable while it works. Bone-heat weighting is attempted first, the same as any other rig, and falls
+back to a coarser envelope weighting on a mesh it cannot solve for — the banner that appears once the
+new rig lands says so when it happens. **Cancel** leaves editing without applying, asking first if
+the draft has unsaved changes.
+
+Applying changes what a pose or a clip can do with this asset, in both directions:
+
+- A pose already saved onto this asset, or the shared library, keeps every bone it named. A bone the
+  edit removed is simply skipped when the pose is next applied; a bone the edit added starts at rest,
+  since no saved pose has ever said anything about it.
+- A clip authored for this skeleton's template may key a bone the edit removed. [Troupe](34-troupe.md)
+  warns, at the door, how many bones its clips would skip on a custom skeleton like this one, so a
+  thinner walk cycle is not a surprise discovered after the render.
+
+Once a skeleton has been edited this way, `rig.json` records it as **custom** rather than as a plain
+copy of its starting template — the fact the banner and Troupe's warning both read off. Choosing a
+different skeleton through **Re-rig...** rebuilds from that template's own stock bones and discards
+the edited shape entirely; the confirm says so before it happens.
+
 ## Choosing the front
 
 Every directional sprite sheet is a turntable: the renderer stands the camera at yaw 0, calls that

@@ -89,6 +89,9 @@ coming from the library. Editing or deleting the library original afterwards doe
 asset. That is deliberate: an asset you posed last month should not change because you tidied your
 pose library today.
 
+An open asset's session also lets you edit the skeleton's own shape — add or remove a pivot, graft a
+limb on — rather than only pose it; see [Editing the skeleton](26-poser.md#editing-the-skeleton).
+
 ## Root offset
 
 Selecting the root joint and ticking **Move root** swaps its gizmo from rotation to translation

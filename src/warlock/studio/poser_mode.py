@@ -262,6 +262,43 @@ class PoserState:
     riggable_next: float = 0.0
     riggable_files: dict[str, Any] = field(default_factory=dict)
 
+    # -- the skeleton editor (P6, 2026-09-13) ----------------------------------
+    #
+    # Asset-session state, exactly like ``job_id``'s own block above: reset in
+    # :func:`open_asset`, :func:`close_asset` and :func:`_land_rerig`, never in
+    # :func:`_reset_for_template` -- a skeleton switch can happen mid-edit
+    # (:func:`set_template` is refused nowhere near this), but only a fresh
+    # asset or a landed re-rig legitimately starts a new skeleton-editing
+    # session. Mirrors ``viewer.editor.mode == "skeleton"`` rather than
+    # replacing it: the pane needs to branch on this with no viewer at hand in
+    # some draws (the empty-viewport paths in ``poser_viewport``), and a plain
+    # bool answers that with no editor reference required.
+    skeleton_editing: bool = False
+    #: {"field": str | None, "message": str} from the last refused
+    #: :func:`apply_skeleton`, or None. Its own field rather than the app-wide
+    #: ``ctx.state.field_errors`` ring: that mechanism addresses a control by
+    #: name across the whole app, and the skeleton pane's controls (Add child,
+    #: Split, the rename box) are not wired into it -- this is read directly by
+    #: ``panes/poser_skeleton.py`` beside the control the field names.
+    skeleton_error: dict[str, str] | None = None
+    #: The shipped limb presets (``service.rig.limb_presets``), read once and
+    #: cached -- job-independent and read-only, like ``rig_templates``' own
+    #: catalogue, so re-reading it every frame the section is open would be a
+    #: file walk for a menu that never changes underneath a running session.
+    limb_presets_cache: list[dict[str, Any]] | None = None
+    #: The "Add limb" row's own form fields -- session state, not a document
+    #: fact, the same argument ``rerig_choice`` above makes for itself.
+    limb_preset: str = ""
+    limb_side: str = ""  # "L", "R", or "" for centre
+    limb_mirror: bool = False
+    #: The rename box's live typing buffer, and which bone it was seeded for
+    #: -- ``inker_timeline``'s tag-rename idiom: the widget's value has to be
+    #: stored back every frame while it is being typed into, and re-seeded
+    #: only when the *selection* changes underneath it, or every keystroke on
+    #: a rename would be clobbered by the next draw's "current name" read.
+    skeleton_rename: str = ""
+    skeleton_rename_for: str | None = None
+
     def find_asset_pose(self, pose_id: Any) -> dict[str, Any] | None:
         return next((p for p in self.asset_poses if p.get("id") == pose_id), None)
 
@@ -618,6 +655,8 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         state.asset_front_yaw = float((job.get("params") or {}).get("front_yaw") or 0.0)
         state.asset_error = ""
         state.asset_poses = []
+        state.skeleton_editing = False
+        state.skeleton_error = None
         viewer = viewer_of(ctx)
         if viewer is not None:
             # Whatever the viewer was showing -- another asset, the meshless
@@ -659,6 +698,11 @@ def close_asset(ctx: Any) -> None:
         state.asset_error = ""
         state.rerig_open = False
         state.rerig_choice = ""
+        state.skeleton_editing = False
+        state.skeleton_error = None
+        state.limb_preset = ""
+        state.limb_side = ""
+        state.limb_mirror = False
         viewer = viewer_of(ctx)
         if viewer is not None:
             viewer.exit_pose_mode()
@@ -698,6 +742,13 @@ def save_pose_to_asset(ctx: Any) -> None:
     state = ensure(ctx)
     viewer = viewer_of(ctx)
     if not state.job_id or viewer is None or not viewer.pose_mode:
+        return
+    if viewer.editor.mode == "skeleton":
+        # P6 (2026-09-13): the armature is at rest for the whole of a
+        # skeleton-editing session (``PoseEditor.enter_skeleton_mode`` resets
+        # it on the way in), so "saving" it now would write a rest pose over
+        # whatever this asset had -- apply or cancel first.
+        ctx.toast("Apply or cancel the skeleton edit before saving a pose.", "info")
         return
     job_id = state.job_id
     existing = viewer.editor.current
@@ -872,6 +923,15 @@ def rerig(ctx: Any, template: str) -> None:
     second press while the first is still in flight, which is the whole
     concurrency guard the plan asks for here -- the same shallow, already-
     accepted protection the ordinary "Rig this mesh again" button relies on.
+
+    **A custom skeleton gets its own warning (P6, 2026-09-13), ahead of the
+    ordinary pose guard.** The generic guard above only asks about a pose
+    being *authored* right now; it says nothing when the bound rig's own
+    *shape* -- every bone :func:`apply_skeleton` added, split or renamed --
+    was edited away from its template, and a re-rig discards exactly that
+    shape by rebuilding from the chosen template's stock bones. A clean editor
+    over a custom skeleton would otherwise sail through with no warning at
+    all.
     """
     from ..service import rig as svc_rig
 
@@ -885,7 +945,244 @@ def rerig(ctx: Any, template: str) -> None:
         if not ctx.submit(key, svc_rig.create_rig, ctx.svc, job_id, template=template):
             ctx.toast("Still re-rigging this asset.", "info")
 
+    if (state.asset_rig or {}).get("skeleton") == "custom":
+        ctx.confirms.ask(
+            dialogs.Confirm(
+                title="Discard this asset's custom skeleton?",
+                message=(
+                    "This asset's skeleton was edited away from its template. "
+                    "Re-rigging discards those edits and any pose being "
+                    "authored, and rebuilds from the chosen template's own "
+                    "bones."
+                ),
+                on_confirm=proceed,
+            )
+        )
+        return
+
     guard(ctx, "re-rig this asset", proceed)
+
+
+# --- the skeleton editor (P6, 2026-09-13) -------------------------------------
+#
+# A third mode on the same ``PoseEditor`` a pose session already opened
+# (``viewer.editor.mode``: "pose" | "joints" | "skeleton"), reachable only from
+# an open asset session -- there is no rig.json to edit against the meshless
+# template preview. Applying is a re-rig, reusing :data:`ASSET_RERIG_KEY_PREFIX`
+# and the whole :func:`pump_rerig`/:func:`_land_rerig` landing path a template
+# re-rig already goes through: the mesh is re-skinned in Blender either way.
+
+
+def enter_skeleton_edit(ctx: Any) -> None:
+    """Switch the bound asset's session into skeleton editing.
+
+    Requires a real asset open with a readable rig -- refused by a toast, not
+    by disabling the door silently, so a stale press (the asset closed, the
+    rig failed to read) reads as a sentence rather than nothing happening.
+    The pane's own "Edit skeleton" button additionally greys itself with a
+    reason when there is plainly no asset open; this is the door's own
+    refusal for what that greying cannot see ahead of the press.
+
+    Refuses by name, rather than through :func:`guard`'s confirm, when the
+    editor already holds unsaved *pose* edits: entering skeleton mode resets
+    the armature to rest (``PoseEditor.enter_skeleton_mode``), and the more
+    useful answer here is "save or reset the pose first", not one more
+    confirm stacked on top of the one every other destructive door in this
+    mode already offers.
+    """
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if not state.job_id or viewer is None or not viewer.pose_mode:
+        ctx.toast("Open a rigged asset first.", "info")
+        return
+    if viewer.editor.mode == "skeleton":
+        return
+    if viewer.editor.has_unsaved_edits():
+        ctx.toast("Save or reset the pose before editing the skeleton.", "info")
+        return
+    rig = state.asset_rig
+    if not rig or not rig.get("bones"):
+        ctx.toast("This asset has no readable rig to edit.", "warn")
+        return
+    state.skeleton_error = None
+    viewer.enter_skeleton_mode(rig)
+    if viewer.editor.mode != "skeleton":
+        # ``PoseEditor.enter_skeleton_mode`` no-ops on an editor with nothing
+        # bound (``PoseEditor.bound``) -- defensive, since every real door in
+        # here binds the editor before this is reachable, but a flag this
+        # module then trusts everywhere ("editing" gates saves, scrubbing,
+        # the confirm on Cancel) must not go true over a mode that never
+        # actually switched.
+        ctx.toast("This asset has no readable rig to edit.", "warn")
+        return
+    state.skeleton_editing = True
+
+
+def exit_skeleton_edit(ctx: Any) -> None:
+    """The frame-thread half of landing or cancelling: back to pose mode,
+    with nothing left for the pane to show as "editing"."""
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if viewer is not None and viewer.editor.mode == "skeleton":
+        viewer.exit_skeleton_mode()
+    state.skeleton_editing = False
+    state.skeleton_error = None
+
+
+def cancel_skeleton_edit(ctx: Any) -> None:
+    """Leave skeleton editing, behind a confirm if the draft is unsaved.
+
+    ``guard``'s own pattern, but over ``draft_dirty`` specifically rather than
+    the editor's pose-mode dirty flag -- both live under
+    ``has_unsaved_edits()``, so :func:`guard` itself would work here too, but
+    its wording ("Unsaved pose changes...") is wrong for a skeleton draft.
+    """
+    from . import dialogs
+
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    if not viewer.editor.draft_dirty:
+        exit_skeleton_edit(ctx)
+        return
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title="Discard unsaved changes?",
+            message="Unsaved skeleton changes will be lost if you cancel editing.",
+            on_confirm=lambda: exit_skeleton_edit(ctx),
+        )
+    )
+
+
+def apply_skeleton(ctx: Any) -> None:
+    """Submit the drafted skeleton as a fresh re-rig.
+
+    Through :data:`ASSET_RERIG_KEY_PREFIX`, exactly the key :func:`rerig`
+    submits under: a landing runs the identical
+    :func:`pump_rerig`/:func:`_land_rerig` path, which is what ends the
+    skeleton-editing session once the new rig actually lands (a queued job is
+    minutes of Blender, not an inline call -- see :func:`edit_skeleton`'s own
+    docstring). A refusal (``service.errors.Invalid``, always field-addressed
+    here: ``rigging.validate_skeleton`` never raises without one) is recorded
+    on ``state.skeleton_error`` by :func:`on_task_failed`, so the pane can put
+    it under the control it names instead of only the generic red toast.
+    """
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    viewer = viewer_of(ctx)
+    if not state.job_id or viewer is None or viewer.editor.mode != "skeleton":
+        return
+    job_id = state.job_id
+    payload = viewer.skeleton_payload()
+    key = f"{ASSET_RERIG_KEY_PREFIX}{job_id}"
+    state.skeleton_error = None
+    if not ctx.submit(key, svc_rig.edit_skeleton, ctx.svc, job_id, payload):
+        ctx.toast("Still re-rigging this asset.", "info")
+
+
+def _skeleton_call(ctx: Any, fn: Any, *args: Any) -> tuple[bool, Any]:
+    """Run one draft mutator, turning a refusal into ``state.skeleton_error``.
+
+    Every ``skel_*`` editor call is local and synchronous -- unlike
+    :func:`apply_skeleton`, nothing here touches the queue -- so a refusal is
+    a :class:`rigging.RigError` raised straight out of the call, not a task
+    landing minutes later. Cleared on success, the same "only the landing
+    clears it" rule the async doors in this module already follow, applied to
+    a call that lands immediately. Returns ``(ok, result)`` rather than only
+    ``result`` because ``skel_remove_pivot`` succeeds with ``None`` -- a bare
+    result cannot tell that apart from a refusal.
+    """
+    state = ensure(ctx)
+    try:
+        result = fn(*args)
+    except rigging.RigError as exc:
+        state.skeleton_error = {"field": exc.field or "", "message": str(exc)}
+        return False, None
+    state.skeleton_error = None
+    return True, result
+
+
+def skeleton_select(ctx: Any, name: str | None) -> None:
+    """Select a bone (or its tail handle) in the skeleton editor."""
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    viewer.editor.selected = name
+
+
+def skeleton_add_child(ctx: Any, parent: str) -> None:
+    """``PoseEditor.skel_add_child`` already selects the new bone."""
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    _skeleton_call(ctx, viewer.skel_add_child, parent)
+
+
+def skeleton_split(ctx: Any, name: str) -> None:
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    _skeleton_call(ctx, viewer.skel_split, name)
+
+
+def skeleton_remove_pivot(ctx: Any, name: str) -> None:
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    _skeleton_call(ctx, viewer.skel_remove_pivot, name)
+
+
+def skeleton_remove_subtree(ctx: Any, name: str) -> None:
+    """Behind a confirm naming how many bones go with it."""
+    from . import dialogs
+
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    count = viewer.subtree_size(name)
+
+    def proceed() -> None:
+        _skeleton_call(ctx, viewer.skel_remove_subtree, name)
+
+    if count <= 1:
+        proceed()
+        return
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title="Delete this limb?",
+            message=f"{name!r} and {count - 1} bone(s) beneath it will be removed.",
+            confirm_label="Delete",
+            on_confirm=proceed,
+        )
+    )
+
+
+def skeleton_rename(ctx: Any, old: str, new: str) -> None:
+    if old == new:
+        return
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    _skeleton_call(ctx, viewer.skel_rename, old, new)
+
+
+def skeleton_attach_limb(ctx: Any, preset_key: str, parent: str, side: str, mirror: bool) -> None:
+    viewer = viewer_of(ctx)
+    if viewer is None or viewer.editor.mode != "skeleton":
+        return
+    _skeleton_call(ctx, viewer.skel_attach_limb, preset_key, parent, side or None, mirror)
+
+
+def limb_preset_rows(ctx: Any) -> list[dict[str, Any]]:
+    """The shipped limb presets, cached for the life of the session -- a
+    read-only, job-independent catalogue, like ``rig_templates``' own."""
+    from ..service import rig as svc_rig
+
+    state = ensure(ctx)
+    if state.limb_presets_cache is None:
+        state.limb_presets_cache = svc_rig.limb_presets()
+    return state.limb_presets_cache
 
 
 def pump_rerig(ctx: Any) -> None:
@@ -968,6 +1265,24 @@ def _land_rerig(ctx: Any) -> None:
         _reset_for_template(state, template)
     state.asset_rig = rig
     state.asset_error = ""
+    # A fresh rig ends whatever skeleton-editing session was open on the old
+    # one -- the draft it was editing described bones that may no longer
+    # exist, and :func:`apply_skeleton` is what queued this landing in the
+    # first place, so there is nothing left to be "editing".
+    state.skeleton_editing = False
+    state.skeleton_error = None
+    if rig is not None and rig.get("skeleton") == "custom":
+        # P8's own promise: a re-rig lands with no dialog and no confirm, so
+        # the fact that the mesh is now on a hand-edited skeleton (rather than
+        # the template it started from) has to surface here, once, or it is
+        # never said at all. ``weighting_reason`` is set only on the envelope
+        # fallback (``blender_worker._rig_meta``'s own "None on the automatic
+        # path" rule), so its mere presence is the signal.
+        message = f"Custom skeleton from {template}"
+        reason = rig.get("weighting_reason")
+        if reason:
+            message += f" -- {reason}"
+        ctx.toast(message, "info")
     viewer = viewer_of(ctx)
     if viewer is not None:
         # Whatever the viewer is showing is the *old* rig's pose session;
@@ -1245,11 +1560,34 @@ def new_pose(ctx: Any) -> None:
 # --- saving ------------------------------------------------------------------
 
 
-def _payload(state: PoserState, viewer: Any, name: str) -> dict[str, Any]:
+def _payload(ctx: Any, state: PoserState, viewer: Any, name: str) -> dict[str, Any]:
+    """A shared-library save, trimmed to the template's own bones.
+
+    P4 (2026-09-13): an asset session's editor can carry a custom skeleton's
+    bones (a grafted limb, a renamed pivot) that the *shared* template does
+    not have -- ``poselib.validate_record`` refuses any bone name outside the
+    template's own list, by name (``rigging.validate_bones``' "unknown bone"),
+    so contributing such a pose to the library has to drop them rather than
+    fail outright: the whole point of the shared library is a pose every
+    asset on this *template* can apply, and a custom bone has no template
+    meaning to apply there. Silent dropping would be its own defect (a save
+    that quietly threw away part of what was authored), so a toast names the
+    count.
+    """
+    bones = viewer.get_pose()
+    known = {b["name"] for b in rigging.get_template(state.template).bones}
+    extra = sorted(b for b in bones if b not in known)
+    if extra:
+        bones = {name_: quat for name_, quat in bones.items() if name_ in known}
+        ctx.toast(
+            f"{len(extra)} custom bone{'s' if len(extra) != 1 else ''} not on "
+            f"the {state.template} skeleton were left out of the saved pose.",
+            "info",
+        )
     return {
         "name": name,
         "template": state.template,
-        "bones": viewer.get_pose(),
+        "bones": bones,
         "root_translation": viewer.editor.root_translation(),
     }
 
@@ -1314,6 +1652,9 @@ def save(ctx: Any, tab: Any = None) -> None:
     viewer = viewer_of(ctx)
     if viewer is None or not viewer.pose_mode:
         return
+    if viewer.editor.mode == "skeleton":
+        ctx.toast("Apply or cancel the skeleton edit before saving a pose.", "info")
+        return
     existing = viewer.editor.current
     record = state.find(existing)
     if record is None:
@@ -1327,7 +1668,7 @@ def save(ctx: Any, tab: Any = None) -> None:
         svc_poses.update_library_pose,
         ctx.svc,
         existing,
-        _payload(state, viewer, str(record.get("name") or "")),
+        _payload(ctx, state, viewer, str(record.get("name") or "")),
     )
 
 
@@ -1338,11 +1679,13 @@ def save_as(ctx: Any, tab: Any = None) -> None:
     viewer = viewer_of(ctx)
     if viewer is None or not viewer.pose_mode:
         return
+    if viewer.editor.mode == "skeleton":
+        ctx.toast("Apply or cancel the skeleton edit before saving a pose.", "info")
+        return
 
     def accept(name: str) -> None:
-        _mutate(
-            ctx, SAVE_KEY, svc_poses.create_library_pose, ctx.svc, _payload(state, viewer, name)
-        )
+        payload = _payload(ctx, state, viewer, name)
+        _mutate(ctx, SAVE_KEY, svc_poses.create_library_pose, ctx.svc, payload)
 
     ctx.prompts.ask(dialogs.Prompt(title="Name this pose", label="Name", on_accept=accept))
 
@@ -1673,6 +2016,19 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     if done.key.startswith(ASSET_POSES_KEY_PREFIX):
         state.asset_poses_loading.discard(done.key[len(ASSET_POSES_KEY_PREFIX):])
         return
+    if done.key.startswith(ASSET_RERIG_KEY_PREFIX):
+        # Recorded only while a skeleton draft is what was being submitted
+        # (:func:`apply_skeleton`) -- an ordinary template :func:`rerig` can
+        # fail too (Blender missing, the job gone), but that failure has
+        # nowhere in the skeleton pane to be shown under, and the generic
+        # failure toast above has already said it.
+        if state.skeleton_editing:
+            field = getattr(done.error, "field", None)
+            state.skeleton_error = {
+                "field": str(field) if isinstance(field, str) else "",
+                "message": str(getattr(done, "message", "") or done.error or ""),
+            }
+        return
 
 
 # --- crash recovery (UX-05) ---------------------------------------------------
@@ -1936,6 +2292,13 @@ def scrub(ctx: Any, frame: int) -> None:
     editor = _viewer_editor(ctx)
     if editor is None or not state.frames:
         return
+    if editor.mode == "skeleton":
+        # P6 (2026-09-13): the armature is showing a skeleton draft, not a
+        # pose -- there is no key to interpolate towards while the skeleton
+        # itself is being edited. ``poser_clips``'s scrubber is hidden for the
+        # same fact; this is the defence for a stray call while it was.
+        ctx.toast("Apply or cancel the skeleton edit before scrubbing.", "info")
+        return
     if state.frame < 0 and editor.has_unsaved_edits():
         # The first tick of a scrub replaces the armature's pose, which is the
         # user's unsaved key edit. A confirm per slider tick is unusable, so
@@ -1976,8 +2339,13 @@ def capture_key(ctx: Any) -> None:
     """
     state = ensure(ctx)
     editor = _viewer_editor(ctx)
+    if editor is None:
+        return
+    if editor.mode == "skeleton":
+        ctx.toast("Apply or cancel the skeleton edit before capturing a key.", "info")
+        return
     record = state.open_clip()
-    if editor is None or record is None:
+    if record is None:
         return
     if state.frame >= 0:
         ctx.toast(
@@ -2349,19 +2717,25 @@ def _pose_payload(slot: Any) -> bytes:
     import json as _json
 
     editor = slot.editor
-    return _json.dumps(
-        {
-            "bones": editor.pose(),
-            "root_translation": editor.root_translation(),
-            "moved": {name: list(delta) for name, delta in editor.moved.items()},
-            "mode": editor.mode,
-            # Which job's rig this was bound to, so the inspector's copy can
-            # refuse to land on a different asset.
-            "job_id": getattr(slot.viewer, "pose_job_id", None) or "",
-            "where": slot.key,
-        },
-        sort_keys=True,
-    ).encode("utf-8")
+    payload: dict[str, Any] = {
+        "bones": editor.pose(),
+        "root_translation": editor.root_translation(),
+        "moved": {name: list(delta) for name, delta in editor.moved.items()},
+        "mode": editor.mode,
+        # Which job's rig this was bound to, so the inspector's copy can
+        # refuse to land on a different asset.
+        "job_id": getattr(slot.viewer, "pose_job_id", None) or "",
+        "where": slot.key,
+    }
+    if editor.mode == "skeleton":
+        # P7 (2026-09-13): ``bones``/``moved`` above are the *pose*, which is
+        # rest for the whole of a skeleton-editing session
+        # (``enter_skeleton_mode`` resets it going in) -- the thing actually
+        # worth recovering is the draft itself.
+        payload["draft"] = [dict(b) for b in editor.draft]
+        payload["draft_pairs"] = [list(p) for p in editor.draft_pairs]
+        payload["draft_root"] = editor.draft_root
+    return _json.dumps(payload, sort_keys=True).encode("utf-8")
 
 
 def _journal_slots(ctx: Any) -> list[Any]:
@@ -2413,10 +2787,48 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
             "warn",
         )
         return False
+    mode = str(data.get("mode") or "pose")
+    if mode == "skeleton":
+        # P7 (2026-09-13): a skeleton draft, not a pose -- re-validated
+        # structurally before anything is put back on the editor, since a
+        # crash could have caught it between two edits that individually
+        # check out but whose combination (through a hand-edited recovery
+        # file, or a bone the underlying rig no longer has) does not. Kept,
+        # not discarded, on a bad draft: the declined-adopt rule every other
+        # refusal here already follows.
+        draft = data.get("draft") or []
+        try:
+            rigging.check_skeleton_structure(draft)
+        except rigging.RigError:
+            ctx.toast(
+                "An unsaved skeleton edit was recovered, but it is no longer "
+                "usable. Open the rig it belongs to and edit its skeleton "
+                "again.",
+                "warn",
+            )
+            return False
+        # Through the same public door :func:`poser_mode.enter_skeleton_edit`
+        # uses, seeded with the *recovered* draft rather than the rig's own
+        # bones -- ``enter_skeleton_mode`` only ever reads ``bones``/
+        # ``mirror_pairs``/``root`` off whatever mapping it is handed, so a
+        # draft in that same shape re-enters the session exactly where it
+        # left off.
+        viewer.enter_skeleton_mode(
+            {
+                "bones": draft,
+                "mirror_pairs": data.get("draft_pairs") or [],
+                "root": data.get("draft_root"),
+            }
+        )
+        editor.draft_dirty = True
+        if where == "poser":
+            ensure(ctx).skeleton_editing = True
+        ctx.toast("An unsaved skeleton edit was recovered.", "success")
+        return True
     editor.apply(data.get("bones") or {}, pose_id=None, dirty=True)
     if data.get("root_translation"):
         editor.set_root_translation(data["root_translation"])
-    if str(data.get("mode") or "pose") == "joints":
+    if mode == "joints":
         # The payload records everything ``_pose_payload`` writes, and joint
         # corrections are half of it: a crash mid-placement recovered as a rest
         # pose under a success toast, the corrections silently gone. Entering

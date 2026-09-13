@@ -60,6 +60,32 @@ def bone_segments(model: Any, bones: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def draft_segments(draft: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """``(parent bone, bone)`` name pairs for a skeleton-mode draft.
+
+    Same shape and purpose as :func:`bone_segments`, over ``pose.PoseEditor``'s
+    draft bone list instead of a glTF node graph -- a draft bone has no node,
+    so there is nothing here to walk. A leaf bone (no children in the draft)
+    also gets a ``(name, f"{name}@tail")`` segment, since that is the only
+    place its own extent is drawn at all: a non-leaf bone's tail is drawn as
+    its first child's head instead, the same rule
+    ``pose.PoseEditor.corrected_bones`` applies in joints mode, so those two
+    positions coincide and a second segment there would only retrace the
+    first. Both name-pair shapes are keys :meth:`pose.PoseEditor.handles`
+    already carries, which is what lets this be drawn through the same
+    ``BoneLines.draws`` a rigged model uses, unchanged.
+    """
+    children: set[str] = {b["parent"] for b in draft if b.get("parent")}
+    pairs: list[tuple[str, str]] = []
+    for bone in draft:
+        name = bone["name"]
+        if bone.get("parent") is not None:
+            pairs.append((bone["parent"], name))
+        if name not in children:
+            pairs.append((name, f"{name}@tail"))
+    return pairs
+
+
 class BoneLines:
     """The GPU buffer for the connection lines, plus the draw list builder."""
 

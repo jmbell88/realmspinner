@@ -1,0 +1,11 @@
+{
+  "key": "tail",
+  "label": "Tail (4 segments)",
+  "comment": "Same frame as arm.json, but a tail is a centre limb: every point keeps x=0 so it sits on the mirror plane, and attach_limb refuses side='L'/'R' mirroring for it. It trails backward along the negative parent direction.",
+  "bones": [
+    {"name": "tail_01", "parent": null,      "head": [0.0, 0.0, 0.0],  "tail": [0.0, -0.5, 0.0]},
+    {"name": "tail_02", "parent": "tail_01", "head": [0.0, -0.5, 0.0], "tail": [0.0, -1.0, 0.0]},
+    {"name": "tail_03", "parent": "tail_02", "head": [0.0, -1.0, 0.0], "tail": [0.0, -1.5, 0.0]},
+    {"name": "tail_04", "parent": "tail_03", "head": [0.0, -1.5, 0.0], "tail": [0.0, -2.0, 0.0]}
+  ]
+}

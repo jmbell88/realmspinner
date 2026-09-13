@@ -156,6 +156,85 @@ class _PoserViewer:
         # refreshes it on a frame.
         self.gpu = _FakeGpu()
 
+    # -- skeleton mode (P6, 2026-09-13) --------------------------------------
+    #
+    # ``_viewer_pose.PoseOps``'s own pass-throughs, minus the GPU refresh they
+    # also do -- nothing here reads a skin palette.
+
+    def enter_skeleton_mode(self, rig) -> None:
+        self.editor.enter_skeleton_mode(rig)
+
+    def exit_skeleton_mode(self) -> None:
+        self.editor.exit_skeleton_mode()
+
+    def skeleton_payload(self):
+        return self.editor.skeleton_payload()
+
+    def skel_add_child(self, parent):
+        return self.editor.skel_add_child(parent)
+
+    def skel_split(self, name):
+        return self.editor.skel_split(name)
+
+    def skel_remove_pivot(self, name) -> None:
+        self.editor.skel_remove_pivot(name)
+
+    def skel_remove_subtree(self, name):
+        return self.editor.skel_remove_subtree(name)
+
+    def skel_rename(self, old, new) -> None:
+        self.editor.skel_rename(old, new)
+
+    def skel_attach_limb(self, preset_key, parent, side, mirror):
+        return self.editor.skel_attach_limb(preset_key, parent, side, mirror)
+
+    def subtree_size(self, name) -> int:
+        return self.editor.subtree_size(name)
+
+
+def _skeleton_rig():
+    return {
+        "bones": [
+            {"name": "hips", "parent": None, "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.1, 0.0]},
+            {"name": "spine", "parent": "hips", "head": [0.0, 0.1, 0.0], "tail": [0.0, 0.2, 0.0]},
+            {"name": "arm.L", "parent": "hips", "head": [-0.1, 0.1, 0.0], "tail": [-0.2, 0.1, 0.0]},
+            {"name": "arm.R", "parent": "hips", "head": [0.1, 0.1, 0.0], "tail": [0.2, 0.1, 0.0]},
+        ],
+        "root": "hips",
+        "mirror_pairs": [["arm.L", "arm.R"]],
+    }
+
+
+def test_the_skeleton_pane_builds_in_both_states(app_ctx, imgui_ctx):
+    """P6 (2026-09-13): the entry button, the editor with nothing and
+    something selected, and a field-addressed refusal shown under a control
+    -- each its own branch of ``panes/poser_skeleton.py``."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_controls
+
+    app_ctx.rigging_available = True
+    state = poser_mode.ensure(app_ctx)
+    state.job_id = "0123456789ab"
+    state.asset_label = "a ranger"
+    state.asset_rig = _skeleton_rig()
+    app_ctx.poser_viewer = _PoserViewer()
+
+    # Not editing: the "Edit skeleton" entry point.
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+    # Editing, nothing selected.
+    poser_mode.enter_skeleton_edit(app_ctx)
+    assert state.skeleton_editing is True
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+    # Editing, a pivot selected -- the rename box and the structure buttons.
+    app_ctx.poser_viewer.editor.selected = "hips"
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
+    # A refused Apply, addressed to a field the pane shows under Apply itself.
+    state.skeleton_error = {"field": "bones", "message": "a skeleton may hold at most 64 bones"}
+    _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
+
 
 def test_the_poser_panes_build_without_rigging(app_ctx, imgui_ctx):
     """The Blender-missing branch, which is the state a bare install opens in."""
@@ -534,6 +613,34 @@ def test_a_failed_skeleton_build_offers_retry(app_ctx, imgui_ctx, gl, monkeypatc
     on_click()
     assert state.error == ""
     assert state.building is True
+
+
+def test_the_joint_menu_switches_to_skeleton_items_in_skeleton_mode(app_ctx, imgui_ctx, gl):
+    """P6 (2026-09-13): the right-click menu over a skeleton draft offers Add
+    child/Split/Delete rather than the pose menu's rotate/reset items, which
+    have nothing to act on while a draft has no pose at all."""
+    from warlock.studio.poser_viewport import PoserViewport
+
+    class _App(PoserViewport):
+        def __init__(self, gl_ctx, ctx):
+            self.ctx = gl_ctx
+            self.app_ctx = ctx
+            self.poser_viewer = None
+            self._poser_hovered = False
+
+    app_ctx.rigging_available = True
+    viewer = _PoserViewer()
+    viewer.editor.enter_skeleton_mode(_skeleton_rig())
+    viewer.menu_request = (0.0, 0.0)
+    app = _App(gl, app_ctx)
+
+    # No pivot selected.
+    _frame(imgui_ctx, lambda: app._poser_menu(app_ctx, viewer))
+
+    # A pivot selected: the same real frame, opened again.
+    viewer.editor.selected = "hips"
+    viewer.menu_request = (0.0, 0.0)
+    _frame(imgui_ctx, lambda: app._poser_menu(app_ctx, viewer))
 
 
 # --- W1.7: numeric joint editing, the rest marker, the pending key ----------

@@ -702,7 +702,7 @@ class Viewer(PoseOps):
                 moved = gizmo.update(origin, direction)
                 if moved is not None:
                     point = picking.from_world(self.placement, moved)
-                    if self.editor.mode == "joints":
+                    if self.editor.mode in ("joints", "skeleton"):
                         self.editor.move_handle(self.editor.selected, point)
                     else:
                         self.editor.move_root(point)

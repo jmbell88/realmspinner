@@ -33,6 +33,11 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     "poser-library": ("26-poser", "the-pose-library"),
     "poser-controls": ("26-poser", "posing-a-skeleton"),
     "poser-clips": ("26-poser", "editing-clips"),
+    # The skeleton editor's own section (P6/P8, 2026-09-13): reachable only
+    # from an open asset session, and its questions -- what a pivot vs. a
+    # limb removal does, what a re-rig does to poses and clips, why choosing
+    # another template discards it -- are answered nowhere else.
+    "poser-skeleton": ("26-poser", "editing-the-skeleton"),
     "sheet": ("27-sprite-sheets", None),
     "sprites": ("27-sprite-sheets", "from-a-single-drawing"),
     "inker-timeline": ("29-inker-animation", "the-timeline"),
