@@ -145,16 +145,16 @@ plus every sentence beginning `Known generators:`, `Known ops:` or `Parts,`
 (`clay_add_primitive`/`clay_set_params`), an op's own param names and bounds
 (`clay_op`), and a figure preset's own part names (`clay_add_figure`).
 
-**The third sentence is not in this tree's card.** The `Parts, ...` sentence comes from a
-figure part catalogue in `agent_clay.tools()`'s `clay_add_figure` description. Run B
-trained with that catalogue, came out negative
-(`docs/measurements/2026-09-14-clay-assistant-run-B.md`), and the catalogue was held
-back from master on 2026-09-14, so `_summary()` finds no `Parts,` sentence to keep. The
-tracked `dataset/manifest.json` still pins the card run B actually trained on
-(`tools_sha` `cfa30687...`, kept verbatim at
-`docs/measurements/data/clay-assistant/run-B/card.txt`). This tree's card does not hash
-to it, so `build.py` refuses to regenerate `dataset/` until `--force`, which is the
-refusal doing its job.
+**The third sentence comes from a figure part catalogue.** The `Parts, ...` sentence is
+read out of `agent_clay.tools()`'s `clay_add_figure` description. Run B trained with that
+catalogue and came out negative (`docs/measurements/2026-09-14-clay-assistant-run-B.md`);
+the catalogue was held back from master that day and then landed later the same day, so
+this tree's card hashes to the card run B actually trained on (`tools_sha`
+`cfa30687...`, kept verbatim at `docs/measurements/data/clay-assistant/run-B/card.txt`)
+and `dataset/manifest.json` matches it: `build.py` regenerates `dataset/` without
+`--force` again. Run A, still the candidate, was trained on the older `70697ece` card
+(`docs/measurements/data/clay-assistant/run-A/card.txt`), which is why its evals pass
+`--card`.
 
 That third clause is a 2026-09-13 fix, not the original design: the prior
 `_first_sentence` kept the opening line only and trusted the schema's own

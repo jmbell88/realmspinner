@@ -1568,7 +1568,9 @@ def tools() -> list[Any]:
                 "proportioned thing and a per-axis scale is how you get a "
                 "squashed head; 'name_prefix' is prepended to every part's "
                 "name, refused if it would collide with an object already "
-                "in the document."
+                "in the document. Parts, each prefixed by name_prefix: "
+                + _figure_part_catalog(tuple(sorted(presets.ASSEMBLIES)))
+                + "."
             ),
             schema={
                 "type": "object",
@@ -2827,6 +2829,51 @@ def _generator_catalog() -> str:
         defaults = bp.GENERATORS[name][0]
         fields = ", ".join(f"{key}={value!r}" for key, value in defaults.items())
         parts.append(f"{name} [{fields}]")
+    return "; ".join(parts)
+
+
+@functools.lru_cache(maxsize=4)
+def _figure_part_catalog(keys: tuple[str, ...]) -> str:
+    """Every figure key's own part names, folded into one sentence.
+
+    Built from :data:`presets.ASSEMBLIES` rather than written out, so a
+    ninth figure's part names appear here the next time ``tools()`` is
+    called and nowhere needs editing for it to -- the same rule
+    :func:`_generator_catalog` and :func:`_op_catalog` already follow for
+    their own registries. Run A of the Clay-assistant fine-tune
+    (2026-09-12, ``docs/measurements/data/clay-assistant/run-A/``) showed 15
+    refusals of the shape ``no object named '...'`` because nothing told the
+    model a figure preset's part names -- nine of those, in the
+    ``creatures`` family, were guesses at a generated figure's own parts
+    (``hound_Beak``, ``t_Shank.R``, ``s_Tail 01``) that would have been
+    right had the model been told what a figure preset actually names them.
+
+    Reads each key's raw builder (``ASSEMBLIES[key][1]()``) rather than
+    calling :func:`presets.build`, which also grounds the assembly (shifts
+    it so its lowest vertex sits on Y=0, ``presets._grounded``) -- work this
+    catalogue has no use for, and which raises ``ValueError: min() iterable
+    argument is empty`` on ``test_a_ninth_figure_reaches_the_agent_surface_
+    with_no_edit_here``'s ``monkeypatch.setitem(presets.ASSEMBLIES,
+    "ninth_figure", ("Ninth", lambda: ()))`` -- an assembly with no parts at
+    all has no lowest vertex to measure. Grounding only ever changes a
+    part's translation, never its name, so the raw builder answers this
+    catalogue's own question just as well and without that crash.
+
+    Memoised on *keys* (``tuple(sorted(presets.ASSEMBLIES))``), not bare --
+    building every part of every figure is real work worth skipping across
+    the many ``tools/list`` requests one session makes, but a bare
+    no-argument cache would survive that same test's
+    ``monkeypatch.setitem`` and keep answering with the pre-patch table for
+    the rest of the test session once ``monkeypatch`` undoes the patch.
+    Keying on the sorted key tuple makes that edit a cache miss instead of a
+    stale hit, while the normal case -- the same eight keys, every call, for
+    a whole process's life -- still hits every time after the first.
+    """
+    parts = []
+    for key in keys:
+        _label, builder = presets.ASSEMBLIES[key]
+        names = ", ".join(part.name for part in builder())
+        parts.append(f"{key}: {names}")
     return "; ".join(parts)
 
 

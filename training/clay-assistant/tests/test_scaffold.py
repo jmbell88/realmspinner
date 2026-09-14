@@ -159,25 +159,24 @@ def test_holdout_catches_corpus_lines_and_a_paraphrase_but_not_a_different_stool
 # --- 4. the compact tool card -------------------------------------------------
 
 
-def test_compact_tools_names_batch_every_generator_and_op_param_and_hashes_stably() -> None:
+def test_compact_tools_names_batch_every_generator_and_op_param_and_every_figure_part_and_hashes_stably() -> (  # noqa: E501
+    None
+):
     """The claim widened 2026-09-13: it used to be enough that a generator's
     *name* appeared in the card (the schema's own enum was trusted to carry
     the rest), but run A's own refusals (Q8_0, 232 val+corpus rows) showed
     that is not enough -- 7 unknown-param refusals for a generator (e.g.
-    ``depth`` on a cylinder), and ``clay_op`` given ``axis`` outside
-    ``params`` among 6 other refusals naming an op's own arguments. This now
-    asserts every generator's own param names and every parameterised op's
-    own param names are in the card too -- not just the top-level names an
-    enum already carries.
+    ``depth`` on a cylinder), ``clay_op`` given ``axis`` outside ``params``
+    among 6 other refusals naming an op's own arguments, and 15 ``no object
+    named '...'`` refusals (nine of them creatures-family guesses at a
+    generated figure's own part names). This now asserts every generator's
+    own param names, every parameterised op's own param names, and every
+    figure key's own part names are in the card too -- not just the
+    top-level names an enum already carries.
 
     Fails against the old ``_first_sentence`` card: that card kept only each
-    tool's opening line, dropping the "Known generators: ..." and "Known
-    ops: ..." sentences this asserts against.
-
-    Figure part names are deliberately not asserted here. They need a figure
-    part catalogue in ``agent_clay.tools()``, which run B trained with and
-    which was held back from master on 2026-09-14 when run B came out
-    negative (``docs/measurements/2026-09-14-clay-assistant-run-B.md``).
+    tool's opening line, dropping the "Known generators: ...", "Known ops:
+    ..." and "Parts, ..." sentences this asserts against.
     """
     text = convert.compact_tools()
     assert "clay_batch" in text
@@ -193,6 +192,11 @@ def test_compact_tools_names_batch_every_generator_and_op_param_and_hashes_stabl
         assert op.name in text, f"op {op.name!r} missing from the card"
         for param in op.params:
             assert param.name in text, f"{op.name}'s param {param.name!r} missing from the card"
+
+    for key in sorted(presets.ASSEMBLIES):
+        _label, builder = presets.ASSEMBLIES[key]
+        for part in builder():
+            assert part.name in text, f"{key}'s part {part.name!r} missing from the card"
 
     assert convert.tools_sha() == convert.tools_sha()
 

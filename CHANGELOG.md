@@ -20,6 +20,11 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **`clay_add_figure` tells an agent every part a figure has.** Its
+  description now lists each figure's part names, the catalogue the Clay
+  assistant's run B dataset was built against, so an agent addressing
+  "leg.L" or "wing.R" is not guessing. The tool card grows to run B's, and
+  the training dataset's manifest matches the live card again.
 - **The humanoid walk and run stride forward, and the jump crouches instead
   of floating.** Rendering a real character through Troupe and running
   forward kinematics over the clip library found two data bugs. In `walk` and

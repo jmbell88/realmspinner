@@ -314,6 +314,23 @@ def test_a_ninth_figure_reaches_the_agent_surface_with_no_edit_here(
     assert "ninth_figure" in tools["clay_add_figure"].schema["properties"]["key"]["enum"]
 
 
+def test_clay_add_figure_description_names_every_part_of_every_figure() -> None:
+    """Run A of the Clay-assistant fine-tune (2026-09-12) refused 15 calls
+    with ``no object named '...'``, nine of them a creatures-family guess at
+    a generated figure's own part names (``hound_Beak``, ``t_Shank.R``,
+    ``s_Tail 01``) -- nothing in ``clay_add_figure``'s description told the
+    model what :func:`presets.build` actually calls a figure's parts.
+
+    Fails against the unfixed code: the old description ends at
+    ``name_prefix``'s collision rule and names no part of any figure.
+    """
+    tools = {t.name: t for t in agent_clay.tools()}
+    description = tools["clay_add_figure"].description
+    for key in sorted(presets.ASSEMBLIES):
+        for part in presets.build(key):
+            assert part.name in description, f"{key}'s part {part.name!r} is missing"
+
+
 # --- an array-of-arrays param, lathe's own shape -----------------------------
 
 
@@ -4642,11 +4659,24 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     53,526 chars total, over the 52,600 ceiling above by 926 -- again a
     whole grammar growing, not drift. Raised to 53,600, just past this
     measurement.
+
+    2026-09-13, same day, a different registry: ``clay_add_figure``'s own
+    description gained a "Parts, each prefixed by name_prefix: ..." sentence
+    naming every part of every figure preset (``presets.ASSEMBLIES``), so a
+    training run or a live agent is told what a figure's own parts are
+    called instead of guessing (run A of the Clay-assistant fine-tune, 2026-
+    09-12, showed 15 refusals of the shape ``no object named '...'``, nine
+    of them creatures-family guesses at a generated figure's own part names
+    -- ``hound_Beak``, ``t_Shank.R``, ``s_Tail 01`` -- that this sentence
+    would have made unnecessary). Catalogue JSON 47,377 chars + instructions
+    7,565 chars = 54,942 chars total, over the 53,600 ceiling above by 1,342
+    -- a whole new catalogue sentence, not drift. Raised to 55,000, just
+    past this measurement.
     """
     from warlock.mcp import rpc
     from warlock.studio import agent_host
 
-    CEILING = 53_600
+    CEILING = 55_000
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

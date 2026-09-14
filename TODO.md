@@ -1949,12 +1949,14 @@ this out then.
 and which card that is, is now a decision rather than a merge. Run B reached
 master on 2026-09-14 as a negative result
 (`docs/measurements/2026-09-14-clay-assistant-run-B.md`), and run A stays the
-candidate. It landed **without** its figure-part catalogue in `agent_clay.py`,
-so master's live card matches neither run A's trained card (sha `70697ece`,
-`docs/measurements/data/clay-assistant/run-A/card.txt`) nor run B's (`cfa30687`).
-Freezing now would freeze a card no trained model has seen. Decide whether T3
-freezes run A's recorded card or waits for a model trained on master's. T5–T8
-build on T3's contract.
+candidate. It landed without its figure-part catalogue in `agent_clay.py`, and
+the catalogue followed on 2026-09-14 at the user's call, so master's live card
+is now run B's (sha `cfa30687`, equal to the dataset manifest's `tools_sha`) —
+the card of the run that regressed, not of run A, which was trained on
+`70697ece` (`docs/measurements/data/clay-assistant/run-A/card.txt`). Decide
+whether T3 freezes run A's recorded card beside a live card that has moved on,
+or waits for a model that scores better on master's. T5–T8 build on T3's
+contract.
 
 **Where it stands (2026-09-13, `feature/familiar`):** T0 (menu-bar status, bottom
 pane), T1 (owner-counted agent lanes, in-app session), T2 (Clay scratch preview,
