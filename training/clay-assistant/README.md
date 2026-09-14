@@ -131,7 +131,10 @@ Every accepted record has genuinely been replayed through the real
 
 Training on the full ~26-tool schema set (~7.4k tokens of schema alone,
 `instructions()` another ~1.4k) leaves too little budget for a scene turn
-inside an E2B row. `gen/convert.compact_tools()` builds a smaller card
+inside an E2B row. `gen/convert.compact_tools()` (since Familiar T3 a re-export of
+`warlock.studio.familiar.contract.derive_clay_card()`, which is where the card, the scene
+compaction, the user-turn form and `parse_calls` now live, so the app and this directory
+cannot drift apart; `src/` never imports `training/`) builds a smaller card
 instead: the first two paragraphs of the live `agent_clay.instructions()`,
 one fixed paragraph of training-only behaviour ("answer with exactly one
 clay_batch call..."), then thirteen tools (`clay_batch`, `clay_scene`,
@@ -320,7 +323,7 @@ the five held-out subjects) and scores every reply through the real door; result
 ```powershell
 uv run python training/clay-assistant/eval/run_val.py --tag A-q8-t0 --corpus
 uv run python training/clay-assistant/eval/run_val.py --tag A-q4-t0.2-n3 --corpus `
-    --temperature 0.2 --top-k 40 --top-p 0.9 --samples 3
+    --temperature 0.2 --top-k 64 --top-p 0.95 --samples 3
 uv run python training/clay-assistant/eval/run_val.py --tag A-q8-t0-card `
     --card training/clay-assistant/out/run-A/card.txt --ids training/clay-assistant/out/run-A/val-ids.txt
 ```

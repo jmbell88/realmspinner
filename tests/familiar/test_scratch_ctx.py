@@ -1,5 +1,9 @@
-"""``familiar.scratch_ctx``: an agent tool call run against a scratch clone,
-never the real document.
+"""``familiar_preview``'s scratch ctx: an agent tool call run against a
+scratch clone, never the real document.
+
+Lives under ``tests/familiar/`` even though the code moved to
+``studio/familiar_preview.py`` (2026-09-14, so ``studio/familiar/`` could be
+made genuinely headless) -- see ``test_apply.py``'s own docstring for why.
 
 See that module's own docstring for why the sandbox is a whole private
 ``ClayState`` rather than the real ``ctx`` with a tab swapped in.
@@ -12,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import agent_clay, clay_mode, familiar
+from warlock.studio import agent_clay, clay_mode, familiar_preview
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import primitives as bp
 
@@ -49,8 +53,8 @@ def test_a_scratch_run_never_touches_the_real_clay_state():
     real_history_len = len(real_doc.history.history())
     real_object_count = len(real_doc.objects)
 
-    scratch_ctx = familiar.build(real_doc)
-    result = familiar.run_scratch(
+    scratch_ctx = familiar_preview.build(real_doc)
+    result = familiar_preview.run_scratch(
         scratch_ctx, "clay_add_primitive", {"generator": "uv_sphere"}
     )
     assert result["isError"] is False, result
@@ -66,17 +70,17 @@ def test_a_scratch_run_never_touches_the_real_clay_state():
 def test_a_scratch_run_never_mints_a_tab():
     """Building a scratch ctx pins ``Session.tab_uid`` up front, so a
     ``create=True`` tool (``clay_add_primitive`` among them) can never reach
-    ``clay_mode.new_document`` -- there is nothing in ``familiar.scratch_ctx``
+    ``clay_mode.new_document`` -- there is nothing in ``familiar_preview``
     that ever calls it."""
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="seed", mesh=bp.box()))
 
-    scratch_ctx = familiar.build(doc)
+    scratch_ctx = familiar_preview.build(doc)
     state = scratch_ctx.state.clay
     assert len(state.docs) == 1
     before_uid = state.docs[0].uid
 
-    result = familiar.run_scratch(scratch_ctx, "clay_add_primitive", {"generator": "box"})
+    result = familiar_preview.run_scratch(scratch_ctx, "clay_add_primitive", {"generator": "box"})
     assert result["isError"] is False, result
 
     # Still exactly the one tab this scratch ctx was built with.
@@ -84,14 +88,14 @@ def test_a_scratch_run_never_mints_a_tab():
     assert state.docs[0].uid == before_uid
 
 
-@pytest.mark.parametrize("name", sorted(familiar.PREVIEW_EXCLUDED))
+@pytest.mark.parametrize("name", sorted(familiar_preview.PREVIEW_EXCLUDED))
 def test_preview_excluded_tools_are_refused_before_the_door(name: str):
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="seed", mesh=bp.box()))
-    scratch_ctx = familiar.build(doc)
+    scratch_ctx = familiar_preview.build(doc)
     history_len = len(scratch_ctx.state.clay.docs[0].doc.history.history())
 
-    result = familiar.run_scratch(scratch_ctx, name, {})
+    result = familiar_preview.run_scratch(scratch_ctx, name, {})
 
     assert result["isError"] is True
     # Refused before agent_clay.call ever ran a handler: the scratch document
@@ -102,9 +106,9 @@ def test_preview_excluded_tools_are_refused_before_the_door(name: str):
 def test_a_non_excluded_tool_reaches_the_scratch_document():
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="seed", mesh=bp.box()))
-    scratch_ctx = familiar.build(doc)
+    scratch_ctx = familiar_preview.build(doc)
 
-    result = familiar.run_scratch(scratch_ctx, "clay_add_primitive", {"generator": "box"})
+    result = familiar_preview.run_scratch(scratch_ctx, "clay_add_primitive", {"generator": "box"})
     assert result["isError"] is False, result
     payload = _payload(result)
     assert "uid" in payload

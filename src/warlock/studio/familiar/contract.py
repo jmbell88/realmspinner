@@ -1,0 +1,419 @@
+"""The Clay-assistant contract: frozen prompt cards, the sampler settings run
+A's own measurement pinned, and the wire-format helpers ``training/clay-
+assistant`` and Familiar's own spawn path both need to agree on byte for
+byte.
+
+This is a T3 extraction, not a rewrite. Every function here used to live in
+``training/clay-assistant/gen/convert.py`` (built against the *live*
+``agent_clay`` registry, so a new generator or op changed the dataset on the
+next ``build.py`` run) and ``training/clay-assistant/eval/run_val.py`` (the
+reply grammar a trained model is scored against). The user chose to freeze
+run A's own card (``cards/clay-1.txt``, sha256 ``70697ece…8aab``, recorded as
+``settings.card_sha256`` in run A's own eval JSONs under
+``docs/measurements/data/clay-assistant/run-A/``) as what actually ships, so
+this module is where "the card a running Familiar loads" and "the card
+training built its dataset's system prompt from" meet: :func:`load_card`
+reads the frozen text; :func:`derive_clay_card` still rebuilds the live
+equivalent, kept only so a training run (or a test) can prove the two have
+not silently drifted apart (:func:`derived_card_sha` versus
+``training/clay-assistant/dataset/manifest.json``'s own ``tools_sha``).
+
+**No imgui, moderngl, pygame, httpx, service or queue import, ever, even
+transitively at module scope** -- this module has to be importable by
+``pipelines/llama.py`` (which runs on the asyncio loop thread, nowhere near a
+GL context) and by a training script that must never touch the GPU or the
+app's own config while a training run owns the machine. The one exception is
+``warlock.studio.agent_clay`` itself, imported lazily inside
+:func:`derive_clay_card`'s body -- that registry is what the live half of
+this contract is *of*, and nothing else here needs it.
+"""
+
+from __future__ import annotations
+
+import functools
+import hashlib
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+CARDS: dict[str, str] = {"clay": "clay-1.txt"}
+"""Skill name -> the frozen card file beside this module, under ``cards/``.
+One entry today (Clay); a future skill card is a second row here, not a
+second convention."""
+
+_CARDS_DIR = Path(__file__).resolve().parent / "cards"
+
+
+@functools.cache
+def load_card(skill: str) -> str:
+    """*skill*'s frozen prompt card, read verbatim (UTF-8, no normalisation)
+    from ``cards/<file>``. Cached: the file never changes under a running
+    process, and this is called once per ``ensure_started``/chat turn."""
+    path = _CARDS_DIR / CARDS[skill]
+    return path.read_bytes().decode("utf-8")
+
+
+@functools.cache
+def card_sha(skill: str) -> str:
+    """``sha256(<card file's own bytes>)``, hex -- compared against
+    ``models.FamiliarModel.card_shas`` by ``pipelines/llama.py``'s
+    ``ensure_started`` before a skill's llama-server child is ever spawned.
+    Hashes the file's raw bytes rather than ``load_card(skill).encode()`` so
+    this can never disagree with a plain ``sha256sum`` run against the file
+    on disk (a BOM or a decode/round-trip artefact would otherwise be
+    invisible here and visible there)."""
+    path = _CARDS_DIR / CARDS[skill]
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+SAMPLING: dict[str, dict[str, float | int]] = {
+    "clay": {"temperature": 0.2, "top_k": 64, "top_p": 0.95, "max_tokens": 4096},
+}
+"""Per-skill sampling defaults for a real chat turn. Clay's own settings are
+``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
+pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178,
+Google's stock Gemma recommendation, what run A was first scored at) were
+both beaten by t0.2/top-k 64/top-p 0.95 sampled three times a row (185.0,
+versus t1.0's own 177.7 over the same three samples)."""
+
+
+# ---------------------------------------------------------------------------
+# The tool card itself -- KEEP_TOOLS, the behaviour paragraph, the sentence-
+# and summary-trimming helpers, and derive_clay_card/derived_card_sha. Moved
+# verbatim from training/clay-assistant/gen/convert.py's compact_tools()/
+# tools_sha(); convert.py re-exports the old names so build.py, run_val.py,
+# drafts/_gen_queries.py and the training tests keep working unchanged.
+# ---------------------------------------------------------------------------
+
+KEEP_TOOLS: tuple[str, ...] = (
+    "clay_batch",
+    "clay_scene",
+    "clay_add_primitive",
+    "clay_add_figure",
+    "clay_transform",
+    "clay_set_params",
+    "clay_material",
+    "clay_boolean",
+    "clay_select",
+    "clay_op",
+    "clay_delete",
+    "clay_rename",
+    "clay_diagnose",
+)
+"""The compact tool card's membership, in the order it is printed. Thirteen,
+not the plan's original twelve: ``clay_add_figure`` was omitted from the
+first count and folded in once figures were counted, per the plan's own
+parenthetical."""
+
+BEHAVIOUR_PARAGRAPH = (
+    "You are Warlock's Clay assistant. Answer a build request with exactly "
+    "one clay_batch tool call whose calls list builds the object; name "
+    "every object; put generator parameters under params; place objects so "
+    "they rest on the ground; reuse a material index from clay_scene when "
+    "one fits, otherwise add one clay_material call at the end. Answer a "
+    "question about the scene in one or two sentences with no tool call."
+)
+"""Verbatim from the plan's "convert.compact_tools()" paragraph -- the one
+piece of this card that is prose about training behaviour rather than
+derived from a live registry, because nothing in ``agent_clay`` already says
+"answer with exactly one clay_batch call"; that is this dataset's own
+convention, not the app's."""
+
+_SENTENCE_RE = re.compile(r".+?\.(?=\s|$)", re.S)
+
+_ENUMERATION_PREFIXES = ("Known generators:", "Known ops:", "Parts,")
+"""The three catalogue sentences run A's own refusals show a fine-tune is
+scored on (measured on 232 val+corpus rows, Q8_0): ``clay_add_primitive``/
+``clay_set_params``'s "Known generators: cylinder [radius, height,
+segments] ..." (7 refusals for an unknown generator param, e.g. ``depth`` on
+a cylinder), ``clay_op``'s "Known ops: array-radial [count, angle, axis]
+..." (``clay_op`` given ``axis`` outside ``params`` among 6 other refusals),
+and ``clay_add_figure``'s "Parts, each prefixed by name_prefix: humanoid:
+Hips, Spine, ..." (15 ``no object named '...'`` refusals, nine of them
+creatures-family guesses at a generated figure's own part names --
+``hound_Beak``, ``t_Shank.R``, ``s_Tail 01``). ``_first_sentence`` kept only
+each description's opening line and trusted the schema's own enums to carry
+the rest, which is true for a plain string enum (a generator's *name*, an
+op's *name*) but not for what a generator's own params are called, what an
+op's own params are called or bounded to, or what a figure preset's own
+part names are -- none of that is expressible as a JSON Schema enum here,
+because a generator's ``params``/an op's ``params`` is one open
+``{string: number}`` object (the value shape varies per key) and a figure's
+parts are never an argument at all. These sentences are the only place any
+of that is written down."""
+
+
+def _sentences(text: str) -> list[str]:
+    """*text*, split into whole sentences -- the same one-period-plus-
+    whitespace-or-end rule ``_first_sentence`` used to apply to the first
+    sentence only, walked to the end of the string instead of stopping
+    there. A catalogue sentence's own periods (a generator's ``segments=32``
+    default, a part name like ``Shoulder.L``) are never followed by
+    whitespace, so they never end a sentence early here -- only the period
+    that actually closes the sentence, followed by a space or the string's
+    end, does."""
+    stripped = text.strip()
+    sentences: list[str] = []
+    pos = 0
+    while pos < len(stripped):
+        match = _SENTENCE_RE.match(stripped[pos:])
+        if not match:
+            sentences.append(stripped[pos:])
+            break
+        sentences.append(match.group(0))
+        pos += match.end()
+        while pos < len(stripped) and stripped[pos].isspace():
+            pos += 1
+    return sentences
+
+
+def _summary(text: str, *, seen: set[str]) -> str:
+    """*text*'s first sentence, plus every later sentence beginning
+    ``Known generators:``, ``Known ops:`` or ``Parts,`` -- the enumerations
+    the model is scored on (see ``_ENUMERATION_PREFIXES``). *seen* is the
+    card's own running set of catalogue sentences already printed: dropped
+    (a bare first sentence keeps the shorter summary) rather than fenced
+    against here, so ``clay_set_params``'s "Known generators: ..." -- word
+    for word ``clay_add_primitive``'s own, both built from the same
+    :func:`agent_clay._generator_catalog` -- is not printed twice. Measured:
+    959 of those chars, once. Anything else in ``_ENUMERATION_PREFIXES`` is
+    unique per tool in ``KEEP_TOOLS`` today (``clay_op``'s ops, ``clay_add_
+    figure``'s parts), so this dedupe currently only ever fires once, but it
+    is a running set rather than a hand-picked "skip clay_set_params" rule
+    because the next generator or op added to a second tool's description
+    should not have to earn its own special case here."""
+    sentences = _sentences(text)
+    if not sentences:
+        return text.strip()
+    keep = [sentences[0]]
+    for sentence in sentences[1:]:
+        if not sentence.startswith(_ENUMERATION_PREFIXES):
+            continue
+        if sentence in seen:
+            continue
+        seen.add(sentence)
+        keep.append(sentence)
+    return " ".join(keep)
+
+
+def derive_clay_card() -> str:
+    """The system-prompt tool card every training row shares, rebuilt fresh
+    from the *live* ``agent_clay`` registries -- never cached, so it can
+    never drift from what the running app's own tool surface actually
+    publishes. This is ``compact_tools()``, moved out of ``training/clay-
+    assistant/gen/convert.py`` unchanged (byte-identical output): what
+    training built its dataset's system prompt from, and what
+    :func:`derived_card_sha` hashes to compare against ``dataset/
+    manifest.json``'s own ``tools_sha``. The card Familiar actually loads at
+    runtime is the *frozen* one, :func:`load_card` -- this function exists
+    so that comparison can still be made, not to serve a live chat turn.
+
+    Each tool's own summary keeps its first sentence plus its catalogue
+    sentences (:func:`_summary`) rather than the first sentence alone: run A
+    (2026-09-13, Q8_0, 232 val+corpus rows) showed exactly the refusals that
+    dropping them causes -- 15 ``no object named '...'`` (a figure preset's
+    part names, nine of them in ``creatures``), 7 unknown params for a
+    generator (e.g. ``depth`` on a cylinder), and ``clay_op`` given ``axis``
+    outside ``params`` among 6 other refusals naming an op's own arguments.
+    See ``training/clay-assistant/README.md``'s "The compact tool card"
+    section for the fix's own accounting.
+
+    Imports ``agent_clay`` lazily, inside this function, rather than at
+    module scope: this module must stay importable with no imgui/moderngl/
+    pygame/httpx/service/queue in the process (``pipelines/llama.py`` on the
+    asyncio loop thread, a training script that must never touch the GPU),
+    and ``agent_clay`` is the one thing here that is not true of.
+    """
+    from warlock.studio import agent_clay
+
+    tool_map = {t.name: t for t in agent_clay.tools()}
+    instructions = agent_clay.instructions()
+    paragraphs = instructions.split("\n\n")
+
+    lines = [paragraphs[0], "", paragraphs[1], "", BEHAVIOUR_PARAGRAPH, "", "Tools:"]
+    seen: set[str] = set()
+    for name in KEEP_TOOLS:
+        tool = tool_map[name]
+        summary = _summary(tool.description, seen=seen)
+        schema_json = json.dumps(tool.schema, sort_keys=True, separators=(",", ":"))
+        lines.append(f"- {name}: {summary}")
+        lines.append(f"  schema: {schema_json}")
+    return "\n".join(lines)
+
+
+def derived_card_sha() -> str:
+    """``sha256(derive_clay_card())``, hex -- what ``build.py`` pins in
+    ``dataset/manifest.json`` and every accepted record's own ``verified``
+    block, so a registry change (a new generator, say) that regenerates a
+    different tool card is caught rather than silently appended past. This
+    is ``tools_sha()``, moved here unchanged."""
+    return hashlib.sha256(derive_clay_card().encode("utf-8")).hexdigest()
+
+
+@functools.cache
+def allowed_calls(skill: str) -> frozenset[str]:
+    """The tool names *skill*'s frozen card actually lets a ``clay_batch``
+    entry name -- parsed from the card's own ``clay_batch`` schema line
+    (the ``"name":{"enum":[...]}`` JSON Schema enum), not from whatever
+    ``agent_clay.tools()`` publishes live today. The frozen card is what a
+    running model was actually trained to see; the live registry can grow a
+    fourteenth tool tomorrow and this must not silently start accepting a
+    call name the model has never read a schema for.
+
+    Cached per skill: the card file does not change under a running
+    process."""
+    card = load_card(skill)
+    lines = card.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().startswith("- clay_batch:"):
+            schema_line = lines[i + 1].strip()
+            break
+    else:
+        raise ValueError(f"{skill!r} card has no clay_batch tool line")
+    prefix = "schema:"
+    if not schema_line.startswith(prefix):
+        raise ValueError(f"{skill!r} card's clay_batch line has no schema: {schema_line!r}")
+    schema = json.loads(schema_line[len(prefix) :].strip())
+    enum = schema["properties"]["calls"]["items"]["properties"]["name"]["enum"]
+    return frozenset(enum)
+
+
+_SCENE_ROW_KEYS: tuple[str, ...] = (
+    "uid",
+    "name",
+    "generator",
+    "params",
+    "translation",
+    "rotation",
+    "scale",
+    "size",
+    "material",
+)
+"""The Verifier design section's "Compact scene for edit/query rows"
+paragraph, verbatim: ``_scene_row`` carries fifteen fields; the training
+state turn keeps these nine plus the document's own ``materials``/``bounds``,
+dropping ``faces``/``verts``/``stamp``/``selected``/``visible``/``bbox``/
+``center`` -- the ones a token budget cannot afford and an edit prompt does
+not need to answer."""
+
+
+def compact_scene(structured: dict[str, Any]) -> dict[str, Any]:
+    """*structured* (a ``clay_scene`` ``structuredContent`` payload),
+    projected to the fields an edit/query training row's "here is the scene"
+    turn actually needs. Moved from ``training/clay-assistant/gen/
+    convert.py`` unchanged."""
+    objects = [
+        {key: row.get(key) for key in _SCENE_ROW_KEYS} for row in structured.get("objects", [])
+    ]
+    return {
+        "objects": objects,
+        "materials": structured.get("materials", []),
+        "bounds": structured.get("bounds"),
+    }
+
+
+def user_turn(prompt: str, scene: dict[str, Any] | None = None) -> str:
+    """The user turn exactly as *training* built it for an edit/query row:
+    ``"Here is the scene:\\n" + <compact json, sorted keys, no whitespace>
+    + "\\n\\n" + prompt`` -- the same same-role merge ``train/train_a.py``
+    (:117-136) folds into one user turn, with ``json.dumps(scene,
+    sort_keys=True, separators=(",", ":"))`` matching that file's own compact
+    encoding. *scene* is ``None`` for a plain build row (no prior state to
+    describe), in which case this is just *prompt*.
+
+    ``training/clay-assistant/eval/run_val.py``'s own ``_user_turn`` builds
+    the same shape but with ``json.dumps(scene, sort_keys=True)`` -- the
+    *default* separators (``", "``/``": "``), not this compact form. That is
+    a real, deliberate difference, not a bug: run A's whole eval corpus was
+    scored against that slightly longer encoding, and switching ``run_val.py``
+    over to this compact one now would change every prompt's token count and
+    make a new eval no longer comparable with ``docs/measurements/data/
+    clay-assistant/run-A/``'s own recorded numbers. ``run_val.py`` keeps its
+    own ``_user_turn`` for that reason; this function is what a *new* caller
+    (Familiar's own runtime, a future eval line) should build on.
+    """
+    if scene is None:
+        return prompt
+    scene_text = json.dumps(scene, sort_keys=True, separators=(",", ":"))
+    return "Here is the scene:\n" + scene_text + "\n\n" + prompt
+
+
+def build_messages(
+    skill: str, prompt: str, scene: dict[str, Any] | None = None
+) -> list[dict[str, str]]:
+    """One ``[system, user]`` chat turn for *skill*: the frozen card as the
+    system message, :func:`user_turn`'s shape as the user message."""
+    return [
+        {"role": "system", "content": load_card(skill)},
+        {"role": "user", "content": user_turn(prompt, scene)},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Reply grammar -- moved from training/clay-assistant/eval/run_val.py, same
+# fence and the same three failure details ("no fenced json", "json: ...",
+# "no calls list"). run_val.py and eval/tier_two.py both import parse_calls
+# from here now.
+# ---------------------------------------------------------------------------
+
+FENCE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.S)
+
+
+# ---------------------------------------------------------------------------
+# Context window -- run A's trained max sequence length is one llama-server
+# slot, not the server's whole context. See output_budget's own docstring.
+# ---------------------------------------------------------------------------
+
+TRAINED_WINDOW = 8192
+"""Run A's own trained max sequence length (``train/train_a.py``'s
+``max_seq_length``). ``pipelines/llama.py`` runs the server at
+``CTX_SIZE = 16384`` with ``PARALLEL_SLOTS = 2``, so each slot gets exactly
+this many tokens -- the server's own total context is not the number a single
+chat turn has to fit inside."""
+
+MIN_REPLY_TOKENS = 1893
+"""A floor below which :func:`output_budget` refuses rather than hand back a
+reserve too small for any real Clay reply. Measured 2026-09-14: the longest
+assistant reply text (a build/edit row's fenced ``{"calls": [...]}}`` JSON, or
+a query row's ``answer``) across ``training/clay-assistant/dataset/{train,
+val}.jsonl`` is 5,167 chars (``vehicles-0029``); at the same 2.73 chars/token
+ratio :func:`output_budget`'s own caller measures prompts with, that is
+``ceil(5167 / 2.73) == 1893`` tokens."""
+
+
+def output_budget(skill: str, prompt_tokens: int) -> int:
+    """How many tokens *skill*'s reply may use, given a prompt of
+    *prompt_tokens* -- the smaller of the skill's own configured
+    ``max_tokens`` (:data:`SAMPLING`) and whatever is left of
+    :data:`TRAINED_WINDOW` after the prompt. Refuses (``ValueError``) rather
+    than hand back a reserve under :data:`MIN_REPLY_TOKENS`: a real Clay reply
+    cannot fit in less, so a caller that got there sized its prompt wrong
+    rather than found a valid budget."""
+    remaining = TRAINED_WINDOW - prompt_tokens
+    budget = min(SAMPLING[skill]["max_tokens"], remaining)
+    if budget < MIN_REPLY_TOKENS:
+        raise ValueError(
+            f"{skill!r}: only {budget} reply tokens left of the {TRAINED_WINDOW}-token "
+            f"window after a {prompt_tokens}-token prompt -- under the "
+            f"{MIN_REPLY_TOKENS}-token floor a real reply needs"
+        )
+    return budget
+
+
+def parse_calls(reply: str) -> tuple[list[dict] | None, str | None]:
+    """Parse *reply* the way the training convention expects: a ```json```
+    fence whose body is ``{"calls": [...]}}``. Returns ``(calls, None)`` on
+    success or ``(None, detail)`` naming which of the three failure modes
+    hit -- no fence, bad JSON, or no ``calls`` list."""
+    m = FENCE.search(reply)
+    if m is None:
+        return None, "no fenced json"
+    try:
+        obj = json.loads(m.group(1))
+    except json.JSONDecodeError as exc:
+        return None, f"json: {exc}"[:200]
+    calls = obj.get("calls") if isinstance(obj, dict) else None
+    if not isinstance(calls, list) or not calls:
+        return None, "no calls list"
+    return calls, None

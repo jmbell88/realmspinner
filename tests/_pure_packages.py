@@ -56,8 +56,53 @@ STUDIO = Path(warlock.studio.__file__).parent
 WINDOW_ROOTS = frozenset({"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"})
 
 
-def _module_roots(path: Path) -> set[str]:
-    """The top-level package of every import at the top of one file.
+#: Resolved file -> its own transitive root set, so a package whose modules
+#: fan out through several relative imports (``agent_clay`` reaches ``clay_mode``,
+#: ``clay_view``, ``panes.clay_tools`` and the whole ``clay``/``viewer`` trees)
+#: is not re-parsed and re-walked once per importer. Keyed on resolved path
+#: rather than cleared between calls: the tree does not change mid-process,
+#: and a stale entry is never worse than the recomputation it replaces.
+_ROOT_CACHE: dict[Path, set[str]] = {}
+
+
+def _relative_targets(path: Path, node: ast.ImportFrom) -> list[Path]:
+    """Every filesystem path one relative ``ImportFrom`` node may name.
+
+    ``from .. import clay_mode`` inside ``studio/familiar/apply.py`` climbs
+    one directory past ``familiar`` (``level - 1`` parents beyond the file's
+    own package) to ``studio``, then resolves ``clay_mode`` there. ``from
+    .panes import clay_tools`` additionally has to try the *module* itself
+    (``studio/panes``, in case ``clay_tools`` is merely an attribute imported
+    off its ``__init__.py``) alongside the submodule guess (``studio/panes/
+    clay_tools.py``) -- this repo's real imports are always the latter, but
+    guessing wrong costs nothing (:func:`_module_file` just returns ``None``
+    for a path that is not a module), while guessing only the former would
+    silently stop resolving a whole class of relative import.
+    """
+    base = path.parent
+    for _ in range(node.level - 1):
+        base = base.parent
+    if node.module:
+        base = base.joinpath(*node.module.split("."))
+    candidates = [base] if node.module else []
+    candidates.extend(base / alias.name for alias in node.names)
+    return candidates
+
+
+def _module_file(base: Path) -> Path | None:
+    """The source file ``base`` names, as a plain module or a package."""
+    as_module = base.with_suffix(".py")
+    if as_module.is_file():
+        return as_module
+    as_package = base / "__init__.py"
+    if as_package.is_file():
+        return as_package
+    return None
+
+
+def _module_roots(path: Path, _stack: frozenset[Path] = frozenset()) -> set[str]:
+    """The outward root of every import this file reaches, directly or
+    through a chain of relative imports.
 
     Module scope only, and by AST rather than by text, for one reason each.
     Module scope because a lazy import inside a function is how three of these
@@ -66,17 +111,45 @@ def _module_roots(path: Path) -> set[str]:
     string literal, and a grep for ``import pygame`` reads that as an import
     and drops the whole raster editor out of this set -- silently, since a
     smaller ban list is still a passing test.
+
+    **Relative imports are resolved, not skipped.** ``familiar/apply.py``
+    does ``from .. import clay_mode`` and ``familiar/scratch_ctx.py`` does
+    ``from .. import agent_clay`` -- both ``node.level > 0``, and an earlier
+    version of this helper only ever looked at ``node.level == 0`` (an
+    absolute import), so neither line contributed anything to this file's
+    roots at all. That let ``familiar`` come back "pure" from
+    :func:`pure_packages` even though ``agent_clay`` imports ``clay_view``
+    (``moderngl``) and ``panes.clay_tools`` (``imgui_bundle``) at its own
+    module scope -- a real window, two relative hops away. A relative import
+    is resolved to the file it names (:func:`_relative_targets` plus
+    :func:`_module_file`) and that file's own roots are folded in
+    recursively, so the window import three sibling modules away is exactly
+    as visible here as one written directly in this file. ``_stack`` is only
+    a cycle guard against two modules that import each other -- it is never
+    populated by a caller outside this function.
     """
+    if path in _ROOT_CACHE:
+        return _ROOT_CACHE[path]
+    if path in _stack:  # a circular relative-import chain -- do not recurse forever
+        return set()
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):  # pragma: no cover - a file that will not parse
         return set()
     roots: set[str] = set()
+    stack = _stack | {path}
     for node in tree.body:
         if isinstance(node, ast.Import):
             roots.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0:
-            roots.add((node.module or "").split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                roots.add((node.module or "").split(".")[0])
+                continue
+            for candidate in _relative_targets(path, node):
+                resolved = _module_file(candidate)
+                if resolved is not None:
+                    roots.update(_module_roots(resolved, stack))
+    _ROOT_CACHE[path] = roots
     return roots
 
 

@@ -28,7 +28,6 @@ import concurrent.futures as cf
 import hashlib
 import json
 import pathlib
-import re
 import sys
 import time
 import urllib.request
@@ -46,7 +45,8 @@ sys.path.insert(0, str(HERE))
 
 from compare import reason_key  # noqa: E402
 
-FENCE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.S)
+from warlock.studio.familiar.contract import FENCE, parse_calls  # noqa: E402,F401
+
 SETTINGS = {"temperature": 1.0, "top_k": 64, "top_p": 0.95, "max_tokens": 4096}
 
 
@@ -85,7 +85,17 @@ def _chat(
 
 
 def _user_turn(record: dict) -> str:
-    """The user turn exactly as training saw it: scene (if any), blank line, request."""
+    """The user turn exactly as training saw it: scene (if any), blank line, request.
+
+    Deliberately *not* ``contract.user_turn``: this uses ``json.dumps(scene,
+    sort_keys=True)`` -- the default separators (``", "``/``": "``) -- while
+    ``contract.user_turn`` uses the compact ``separators=(",", ":")`` form
+    ``train/train_a.py`` actually trains on. Run A's whole eval corpus
+    (``docs/measurements/data/clay-assistant/run-A/``) was scored against
+    *this* file's slightly longer encoding, so switching it over now would
+    change every prompt's token count and make a new eval no longer
+    comparable with those recorded numbers. See ``contract.user_turn``'s own
+    docstring for the other side of this."""
     from gen import convert
 
     if record["kind"] in ("edit", "query"):
@@ -97,26 +107,6 @@ def _user_turn(record: dict) -> str:
             "Here is the scene:\n" + json.dumps(scene, sort_keys=True) + "\n\n" + record["prompt"]
         )
     return record["prompt"]
-
-
-def parse_calls(reply: str) -> tuple[list[dict] | None, str | None]:
-    """Parse *reply* the way the training convention expects: a ```json``` fence whose body
-    is ``{"calls": [...]}}``. Returns ``(calls, None)`` on success or ``(None, detail)``
-    naming which of the three failure modes hit -- no fence, bad JSON, or no ``calls`` list --
-    factored out of ``_score`` so ``render_corpus.py`` can parse a first sample's reply
-    without re-deriving :data:`FENCE` or duplicating these checks.
-    """
-    m = FENCE.search(reply)
-    if m is None:
-        return None, "no fenced json"
-    try:
-        obj = json.loads(m.group(1))
-    except json.JSONDecodeError as exc:
-        return None, f"json: {exc}"[:200]
-    calls = obj.get("calls") if isinstance(obj, dict) else None
-    if not isinstance(calls, list) or not calls:
-        return None, "no calls list"
-    return calls, None
 
 
 def _score(record: dict, reply: str) -> dict:

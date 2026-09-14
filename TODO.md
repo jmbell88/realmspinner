@@ -1943,9 +1943,9 @@ section and `THIRD-PARTY-NOTICES.md`, and T10 either proceeds with the
 fine-tune pin or stays on the testing pin with the reason written down. Strike
 this out then.
 
-## P54. Familiar tranches T3–T10 — fully specified, deliberately unstarted until T3's card is chosen
+## P54. Familiar tranches T5–T10 — fully specified, T3 built on run A's card
 
-**Why it waits:** T3 freezes the prompt card of the model being integrated,
+**Why it waited (history):** T3 freezes the prompt card of the model being integrated,
 and which card that is, is now a decision rather than a merge. Run B reached
 master on 2026-09-14 as a negative result
 (`docs/measurements/2026-09-14-clay-assistant-run-B.md`), and run A stays the
@@ -1968,13 +1968,23 @@ ghost, one-step Apply) and T4 (llama.cpp `b10948` and Unsloth Gemma 4 E2B Q8_0
 rows, loopback `llama-server`, GPU lease, idle stop) are landed. The weights row
 is a testing pin until the fine-tune replaces it.
 
-**Do, in order, once T3's card is chosen** (`feature/familiar` was merged into
-master on 2026-09-14, so this work starts from master): T3 frozen cards (`familiar/cards/`, hash equal to the trained dataset's
-`tools_sha`), `contract.py` moved out of `training/clay-assistant/gen/convert.py`,
-BM25 Manual retrieval, router and per-tab threads, and supply the card-hash
-provider T4's spawn path already takes — the package's import pin must settle
-whether `familiar/apply.py` and `scratch_ctx.py`, which reach Clay's GL-side
-modules, move out of the pure package; T5 conversation loop, `llama_client`,
+**The card is chosen (the user, 2026-09-14): run A's, `70697ece`.**
+~~T3 frozen cards, `contract.py`, BM25 Manual retrieval, router and per-tab
+threads~~ **Built 2026-09-14:** `studio/familiar/cards/clay-1.txt` is run A's
+card byte for byte, pinned to run A's *recorded* card sha, because run A has no
+manifest of its own and the live dataset's `tools_sha` is run B's. `contract.py`
+now holds the card derivation, scene compaction, the training-form user turn,
+`parse_calls` and the measured t0.2/k64/p0.95 sampling, and `training/` imports
+it. `apply.py`/`scratch_ctx.py` moved out to `studio/familiar_preview.py`, so the
+package is really headless, and `tests/_pure_packages.py` now sees relative
+imports. The card-hash provider needs no change: the testing pin's empty
+`card_shas` refuses the Clay card, and that is the gate below. Slot decision:
+the model sees only the current request plus the scene, so a thread is display
+history, not context. Slot 0 is the router and slot 1 the skill, so the
+two-slot, 16k-context numbers stand. `docmodes` fires `TAB_CLOSED` listeners
+after a confirmed close, and T5 registers `threads.drop`.
+
+**Do, in order, from master:** T5 conversation loop, `llama_client`,
 and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
@@ -1987,6 +1997,10 @@ debt T0–T4 left behind does not wait on the card; it is P56.
 touch a five-minute conversation has its server evicted mid-reply
 (`tests/test_familiar.py::test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted`
 is the door's test; the client's own test must show it calling it). It must
+also size every Clay request with `contract.output_budget(skill,
+prompt_tokens)`, counting the prompt with llama-server's `/tokenize`. One slot
+is 8,192 tokens, run A's trained window. The largest recorded val prompt is
+about 4,931 tokens, so a flat `max_tokens` of 4,096 overruns the slot. It must
 also read the key file rather than argv, and surface `ensure_started`'s
 "cannot start while a GPU job holds the card" refusal as a pane state. Before
 T5 ships a chat loop against the *testing* pin, note that run A's measurement

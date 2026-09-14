@@ -80,10 +80,13 @@ sys.path.insert(0, str(HERE))
 from render_corpus import SLUGS  # noqa: E402
 
 # Reused rather than copied, per the module docstring: SETTINGS is the one place the
-# sampler defaults live, _corpus_records/parse_calls/_chat are the exact prompt shape and
-# reply grammar training used, and a drift between tier one and tier two's idea of any of
-# them would be a silent divergence in what "the same eval" means.
-from run_val import SETTINGS, _chat, _corpus_records, parse_calls  # noqa: E402
+# sampler defaults live, _corpus_records/_chat are the exact prompt shape training used,
+# and a drift between tier one and tier two's idea of either would be a silent divergence
+# in what "the same eval" means. parse_calls comes straight from the contract module
+# (T3) rather than through run_val, now that the reply grammar lives there.
+from run_val import SETTINGS, _chat, _corpus_records  # noqa: E402
+
+from warlock.studio.familiar.contract import parse_calls  # noqa: E402
 
 DEFAULT_URL = "http://127.0.0.1:8081/v1/chat/completions"
 

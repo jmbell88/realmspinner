@@ -22,12 +22,16 @@ lazy-Pillow rule the engines follow holds here too.
 
 from __future__ import annotations
 
+import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -171,6 +175,36 @@ def refuse(
 CLOSE_WHILE_SAVING = "Still saving -- close it once the save lands."
 
 
+#: Listeners told when a tab is actually gone: ``(mode, uid)``, called from
+#: :func:`close_tab`'s ``drop`` after ``state.close(uid)`` -- never on a
+#: refusal (mid-save) or a cancelled "unsaved work?" prompt, because both of
+#: those leave the tab open and the uid still valid. T5 registers
+#: ``familiar.threads.drop`` here to end a closed tab's conversation thread;
+#: this module stays the one place a closed tab is *known*, so it is also the
+#: one place that announces it, and it does not import ``familiar`` itself --
+#: docmodes is reached from every document mode and must not drag the
+#: assistant in.
+TAB_CLOSED: list[Callable[[str, str], None]] = []
+
+
+def _mode_for(state: Any) -> str:
+    """The mode key a tab's ``state`` belongs to, for :data:`TAB_CLOSED`.
+
+    Derived from the state class's name (``ClayState`` -> ``"clay"``) rather
+    than threaded through every ``close_tab`` call site, because none of them
+    carry the mode key today -- ``clay_mode.close_tab`` and its four siblings
+    call through with only ``ctx``, ``uid`` and ``release`` -- and the class
+    name already spells the same word :mod:`.modes` uses (``ClayState`` /
+    ``"clay"``, ``MasonState`` / ``"mason"``, and so on for Inker, Plotter,
+    Packwright and Sirens). Lower-cased with the trailing ``State`` dropped,
+    which is a name convention every ``*_state`` module already follows.
+    """
+    name = type(state).__name__
+    if name.endswith("State"):
+        name = name[: -len("State")]
+    return name.lower()
+
+
 def close_tab(ctx: Any, state: Any, uid: str, release: Any) -> None:
     """Close one document, asking first if it has unsaved work.
 
@@ -207,6 +241,15 @@ def close_tab(ctx: Any, state: Any, uid: str, release: Any) -> None:
         journal.drop(ctx, tab)
         release(tab)
         state.close(uid)
+        mode = _mode_for(state)
+        for listener in list(TAB_CLOSED):
+            try:
+                listener(mode, uid)
+            except Exception:
+                # One bad listener must not break closing a tab -- the tab is
+                # already gone (state.close ran above) by the time this runs,
+                # so there is nothing left for a raised exception to protect.
+                log.exception("TAB_CLOSED listener failed for %s/%s", mode, uid)
 
     if not getattr(tab, "dirty", False):
         drop()

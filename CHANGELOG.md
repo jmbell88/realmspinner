@@ -20,6 +20,16 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar has the prompt card it will run, and can find things in the
+  Manual — nothing user-visible yet.** The card the Clay assistant's run A
+  was trained on is frozen into the app byte for byte, because the ablation
+  showed a model prompted with a card it did not train on loses points. The
+  code that builds prompts and reads replies moves out of the training
+  directory into the app, so the two cannot drift. The Manual gets an
+  offline keyword index that cites chapter and section, and conversations get
+  a per-tab store that forgets a tab when it closes. The base testing model
+  still cannot run the Clay skill: it refuses the card until the fine-tune is
+  pinned.
 - **`clay_add_figure` tells an agent every part a figure has.** Its
   description now lists each figure's part names, the catalogue the Clay
   assistant's run B dataset was built against, so an agent addressing

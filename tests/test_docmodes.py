@@ -8,6 +8,7 @@ rather than keeping a fourth copy that happens to agree today.
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +38,14 @@ class FakeCtx:
         self.state = _State()
         self.confirms = _Confirms()
         self.submitted: list[str] = []
+        self.toasts: list[tuple[str, str]] = []
 
     def submit(self, key: str, run: Any, *args: Any) -> bool:
         self.submitted.append(key)
         return self.accept
+
+    def toast(self, text: str, level: str = "info", **_kwargs: Any) -> None:
+        self.toasts.append((text, level))
 
 
 class _Tab:
@@ -88,7 +93,16 @@ def test_it_imports_no_window_and_no_service_at_module_scope():
             roots.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             roots.add("." * node.level + (node.module or "").split(".")[0])
-    assert roots <= {"__future__", "dataclasses", "os", "pathlib", "typing", "numpy"}, roots
+    assert roots <= {
+        "__future__",
+        "collections",
+        "dataclasses",
+        "logging",
+        "os",
+        "pathlib",
+        "typing",
+        "numpy",
+    }, roots
 
 
 # --- start_save ---------------------------------------------------------------
@@ -252,6 +266,167 @@ def test_every_mode_reaches_for_the_shared_helpers():
     assert plotter_state.title_for is docmodes.title_for
     for module in (inker_textures, plotter_textures, packwright_textures):
         assert not hasattr(module, "_forget"), f"{module.__name__} kept its own copy"
+
+
+# --- TAB_CLOSED listeners ------------------------------------------------
+
+
+class _ListenerTab:
+    def __init__(self, uid: str, *, dirty: bool = False, saving: bool = False) -> None:
+        self.uid = uid
+        self.dirty = dirty
+        self.saving = saving
+        self.title = uid
+
+
+class ClayState:
+    """Named ``ClayState`` on purpose: :func:`docmodes._mode_for` (T3) derives
+    the mode key from the state class's own name, and this fixture proves it
+    reads "clay" back out of that name rather than off some other guess."""
+
+    def __init__(self, *tabs: _ListenerTab) -> None:
+        self._tabs = {tab.uid: tab for tab in tabs}
+
+    def get(self, uid: str) -> Any:
+        return self._tabs.get(uid)
+
+    def close(self, uid: str) -> None:
+        self._tabs.pop(uid, None)
+
+
+@pytest.fixture()
+def _listener_log():
+    log: list[tuple[str, str]] = []
+
+    def listener(mode: str, uid: str) -> None:
+        log.append((mode, uid))
+
+    docmodes.TAB_CLOSED.append(listener)
+    yield log
+    docmodes.TAB_CLOSED.remove(listener)
+
+
+def test_a_clean_close_tells_tab_closed_listeners(_listener_log):
+    ctx = FakeCtx()
+    state = ClayState(_ListenerTab("bd1"))
+    docmodes.close_tab(ctx, state, "bd1", lambda tab: None)
+    assert _listener_log == [("clay", "bd1")]
+
+
+def test_a_save_in_progress_refusal_fires_no_listener(_listener_log):
+    """The tab is still open (``state`` unchanged) -- a listener firing here
+    would end a conversation about a document that never actually closed."""
+    ctx = FakeCtx()
+    state = ClayState(_ListenerTab("bd1", saving=True))
+    docmodes.close_tab(ctx, state, "bd1", lambda tab: None)
+    assert _listener_log == []
+    assert state.get("bd1") is not None
+
+
+def test_a_cancelled_dirty_close_fires_no_listener(_listener_log):
+    """Asking is not closing: the listener must wait for ``on_confirm``."""
+    ctx = FakeCtx()
+    state = ClayState(_ListenerTab("bd1", dirty=True))
+    docmodes.close_tab(ctx, state, "bd1", lambda tab: None)
+    assert _listener_log == []
+    assert len(ctx.confirms.asked) == 1
+    assert state.get("bd1") is not None
+
+
+def test_a_confirmed_dirty_close_fires_the_listener(_listener_log):
+    ctx = FakeCtx()
+    state = ClayState(_ListenerTab("bd1", dirty=True))
+    docmodes.close_tab(ctx, state, "bd1", lambda tab: None)
+    ctx.confirms.asked[0].on_confirm()
+    assert _listener_log == [("clay", "bd1")]
+
+
+def test_a_bad_listener_does_not_break_closing_the_tab():
+    """One misbehaving listener (a future ``familiar`` hook, say) must not
+    stop the tab from actually closing -- it is cleanup, and cleanup that can
+    be broken by an observer is not cleanup you can rely on."""
+
+    def boom(mode: str, uid: str) -> None:
+        raise RuntimeError("boom")
+
+    docmodes.TAB_CLOSED.append(boom)
+    try:
+        ctx = FakeCtx()
+        state = ClayState(_ListenerTab("bd1"))
+        docmodes.close_tab(ctx, state, "bd1", lambda tab: None)
+        assert state.get("bd1") is None
+    finally:
+        docmodes.TAB_CLOSED.remove(boom)
+
+
+def _modules_calling_docmodes_close_tab() -> set[str]:
+    """Every ``studio/`` module with a top-level call to ``docmodes.close_tab``
+    (the ``docmodes.close_tab(...)`` shape, not a same-named local wrapper
+    such as ``clay_mode.close_tab`` itself) -- found by walking the AST rather
+    than hand-listed, so a future mode that grows a document tab enrols
+    itself here the same way it enrols in ``_pure_packages``."""
+    import ast
+
+    studio_dir = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+    modules: set[str] = set()
+    for path in studio_dir.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "close_tab"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "docmodes"
+            ):
+                modules.add(path.stem)
+                break
+    return modules
+
+
+def test_every_tabbed_state_class_name_maps_to_a_real_mode_key():
+    """``_mode_for`` derives a mode key from a state class's own name
+    (``ClayState`` -> ``"clay"``, and so on) -- every ``*State`` class behind
+    a module that actually calls ``docmodes.close_tab`` must derive a key
+    that :mod:`.modes` recognises, or a close would silently tell
+    ``TAB_CLOSED`` listeners about a mode that does not exist.
+
+    The state classes are looked up by name in their own module (rather than
+    a hand list) once the *modules* are found by walking the AST -- only the
+    convention "the caller of close_tab lives beside its own ``*State``
+    class" is assumed, and that convention already has to hold for
+    ``close_tab``'s own ``release`` callback to reach the right document.
+    """
+    from warlock.studio import modes
+
+    caller_modules = _modules_calling_docmodes_close_tab()
+    # Sanity floor: at least the six modes known to have document tabs today
+    # (Clay, Mason, Plotter, Packwright, Sirens, Inker) must have been found --
+    # a walk that silently found nothing would pass the loop below for free.
+    expected_at_least = {
+        "clay_mode",
+        "mason_mode",
+        "plotter_mode",
+        "packwright_mode",
+        "sirens_mode",
+        "inker_mode",
+    }
+    assert expected_at_least <= caller_modules
+
+    checked = 0
+    for module_name in caller_modules:
+        module = importlib.import_module(f"warlock.studio.{module_name}")
+        prefix = module_name.split("_")[0]
+        state_name = f"{prefix.capitalize()}State"
+        state_cls = getattr(module, state_name, None)
+        if state_cls is None:
+            continue
+        key = docmodes._mode_for(state_cls.__new__(state_cls))
+        assert key in modes.KEYS, (
+            f"{module_name}.{state_name} derives mode key {key!r}, not one of {modes.KEYS}"
+        )
+        checked += 1
+    assert checked > 0, "no *State class was found beside a docmodes.close_tab caller"
 
 
 def test_clay_titles_a_tab_by_stem_on_purpose():
