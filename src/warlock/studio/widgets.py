@@ -470,7 +470,23 @@ STAGE_BADGES: dict[str, tuple[str, str]] = {
     # and a badge that borrowed it would read as "this is a waveform" beside a
     # pane that actually draws one.
     "music": (icons.MUSIC, "track"),
+    # PEN_TOOL rather than another LAYERS: it is Inker's own mode glyph, and a
+    # sprite draft's next stop is Inker.
+    "sprite": (icons.PEN_TOOL, "sprite"),
 }
+
+
+def stage_chip(key: str, *, inline: bool = False) -> None:
+    """Draw the badge for a raw :data:`STAGE_BADGES` key, no job needed.
+
+    Split out of :func:`stage_badge` so the component gallery -- which has no
+    job to hand ``card_kind``, only the table's own keys -- can still draw
+    every badge without duplicating the chip.
+    """
+    icon, label = STAGE_BADGES.get(key, (icons.CIRCLE, key or "asset"))
+    if inline:
+        imgui.same_line()
+    _chip(f"{icon} {label}", theme.rgba(theme.MUTED), 0.10)
 
 
 def stage_badge(job: dict[str, Any], *, inline: bool = False) -> None:
@@ -481,12 +497,17 @@ def stage_badge(job: dict[str, Any], *, inline: bool = False) -> None:
     mesh made from it were told apart by squinting at a 72 px picture. Unlike
     :func:`quality_badge` this always draws something, so the plain ``inline``
     is honest here -- a ``same_line`` issued for it is always spent.
+
+    Keyed on ``card_kind(job)``, not ``job["stage"]``: a follow-up row (rig,
+    sheet, charsheet, retexture, pixel_sheet, sprite_synthesis, remesh) is a
+    product of another asset and deliberately keeps the ``stage`` column's
+    default of ``"model"`` (see INVARIANTS.md), so reading ``stage`` here badged
+    every one of them "model" and left ``STAGE_BADGES["rig"]``/``["sheet"]``
+    unreachable. ``card_kind`` is the same table the thumbnail glyph
+    (``panes.thumbs.thumb_glyph``) already keys on, so the two halves of one
+    card agree again.
     """
-    stage = str(job.get("stage") or "")
-    icon, label = STAGE_BADGES.get(stage, (icons.CIRCLE, stage or "asset"))
-    if inline:
-        imgui.same_line()
-    _chip(f"{icon} {label}", theme.rgba(theme.MUTED), 0.10)
+    stage_chip(app_state.card_kind(job), inline=inline)
 
 
 def ago(when: float | None, now: float | None = None) -> str:

@@ -141,9 +141,15 @@ def _frame(imgui_ctx, build):
     renderer.render(imgui.get_draw_data())
 
 
-def _seeded(ctx, **overrides):
+def _seeded(ctx, kind="text", **overrides):
     """A finished job with a mesh, selected."""
-    job_id = svc_jobs.create_job(ctx.svc, kind="text", prompt="a barrel")["id"]
+    if kind in ("text", "image"):
+        job_id = svc_jobs.create_job(ctx.svc, kind=kind, prompt="a barrel")["id"]
+    else:
+        # A follow-up kind (rig, sheet, ...) the way ``Store.create`` actually
+        # mints one -- ``svc_jobs.create_job`` only accepts the two kinds a
+        # user starts, "text"/"image".
+        job_id = ctx.svc.store.create(kind, "a barrel", {})
     job_dir = ctx.svc.job_dir(job_id)
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "input.png").write_bytes(b"x")
@@ -3543,8 +3549,14 @@ def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage
     from warlock.studio.panes import library
     from warlock.studio.tokens import sp
 
-    job_id = _seeded(app_ctx)
-    app_ctx.svc.store.set_stage(job_id, stage)
+    # rig/sheet rows are follow-up jobs, minted with no ``stage=``, so they
+    # keep the jobs table's column default of "model" (INVARIANTS.md) -- the
+    # badge tells them apart by ``kind`` via ``card_kind``, not by a stage this
+    # row would never actually carry.
+    kind = stage if stage in ("rig", "sheet") else "text"
+    job_id = _seeded(app_ctx, kind=kind)
+    if stage not in ("rig", "sheet"):
+        app_ctx.svc.store.set_stage(job_id, stage)
     app_ctx.cache.invalidate()
     app_ctx.cache.tick()
 
@@ -3589,6 +3601,48 @@ def test_the_stage_badges_tell_pixels_from_geometry_by_glyph():
     assert len(set(glyphs)) == len(glyphs), "two stages share one glyph"
     for _icon, word in widgets.STAGE_BADGES.values():
         assert word.isascii() and word.islower()
+
+
+@pytest.mark.parametrize(
+    "kind, badge_key",
+    [
+        pytest.param("rig", "rig", id="rig"),
+        pytest.param("sheet", "sheet", id="sheet"),
+        pytest.param("charsheet", "sheet", id="charsheet"),
+        pytest.param("sprite_synthesis", "sprite", id="sprite_synthesis"),
+    ],
+)
+def test_a_rig_row_that_keeps_the_stage_column_default_is_badged_rig_not_model(
+    imgui_ctx, kind, badge_key
+):
+    """Follow-up rows (rig, sheet, charsheet, sprite_synthesis, retexture,
+    pixel_sheet, remesh) are minted by ``Store.create`` with no ``stage=``, so
+    they keep the jobs table's column default of "model" (INVARIANTS.md).
+    ``stage_badge`` used to read ``job["stage"]`` straight off the row, which
+    badged every one of these "model" with the box icon and left
+    ``STAGE_BADGES["rig"]``/``["sheet"]`` unreachable. It now keys on
+    ``state.card_kind(job)``, the same table the thumbnail glyph already
+    uses."""
+    from warlock.studio import widgets as widgets_mod
+
+    job = {"kind": kind, "stage": "model"}
+    chips: list[str] = []
+    real = widgets_mod._chip
+
+    def spy(label, colour, fill):
+        chips.append(label)
+        return real(label, colour, fill)
+
+    widgets_mod._chip = spy
+    try:
+        _frame(imgui_ctx, lambda: widgets_mod.stage_badge(job))
+    finally:
+        widgets_mod._chip = real
+
+    icon, word = widgets_mod.STAGE_BADGES[badge_key]
+    assert f"{icon} {word}" in chips, (
+        f"expected the {badge_key!r} badge for a {kind!r} row, drew {chips}"
+    )
 
 
 def _overflow_labels(app_ctx, imgui_ctx) -> list[str]:

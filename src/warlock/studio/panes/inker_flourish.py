@@ -535,6 +535,13 @@ def _layer_block(state: Any, group: int, recipe: Any) -> tuple[Any, bool]:
     specs = prims.params_of(layer.kind)
     held = state.active.doc.flourish_state(group) if state.active is not None else None
     asset_ids = list(held.assets) if held is not None else []
+    # A texture picked since the last render lives only in
+    # ``state.flourish_pending_asset`` until that render lands (inker-06,
+    # second half) -- offered here too, or the picker would go blank on the
+    # very id ``texture_from_selection`` just pointed *this* layer's own
+    # param at, for the debounce's whole ``DEBOUNCE_SECONDS``.
+    pending_ids = state.flourish_pending_asset.get(group, ())
+    asset_ids += [aid for aid in pending_ids if aid not in asset_ids]
     for name, spec in specs.items():
         if spec.kind == "asset":
             new_value, p_changed = _asset_control(name, layer.params.get(name, ""), asset_ids)

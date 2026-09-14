@@ -125,10 +125,12 @@ def test_the_selection_becomes_a_texture_on_the_inspectors_layer(tmp_path):
     _select(tab.doc, 4, 4, 12, 10)
     assert op.enabled(state, tab)
     assert inker_ops.run(ctx, op)
-    held = tab.doc.flourish_state(group)
-    assert list(held.assets) == ["tex1"]
-    assert held.assets["tex1"].shape == (6, 8, 4)
-    assert tuple(held.assets["tex1"][0, 0]) == (200, 40, 40, 255)
+    # Not in the document yet -- only pixels held in ``state`` until the
+    # render that names it lands and folds the two into one step.
+    assert tab.doc.flourish_state(group).assets == {}
+    pixels = state.flourish_pending_asset[group]["tex1"]
+    assert pixels.shape == (6, 8, 4)
+    assert tuple(pixels[0, 0]) == (200, 40, 40, 255)
     # The layer took it, as a pending edit for the next render.
     pending = state.flourish_pending[group]
     assert pending.layer(sparks.uid).params["texture"] == "tex1"
@@ -155,6 +157,129 @@ def test_texture_from_selection_on_an_incompatible_layer_leaves_no_undo_step(tmp
     assert tab.doc.flourish_state(group).assets == {}
     assert tab.doc.history.head == head
     assert group not in state.flourish_pending
+    assert group not in state.flourish_pending_asset
+
+
+def test_texture_from_selection_on_a_compatible_layer_is_one_undo_step_with_its_render(tmp_path):
+    """The other half of the 2026-09-14 audit's inker-06: on a layer that
+    *does* take a texture, ``texture_from_selection`` committed the asset as
+    its own permanent undo step and the debounced render that landed the
+    recipe edit pointing at it as a second -- so one Ctrl+Z left the recipe
+    naming a texture id the very next undo would delete, though the
+    function's own docstring promised "One step". The asset commit and the
+    render that names it must undo -- and redo -- as one."""
+    ctx, tab, group = _scene(tmp_path)
+    state = ctx.state.inker
+    rec = tab.doc.flourish_state(group).recipe
+    sparks = next(each for each in rec.layers if each.kind == "particles")
+    state.flourish_layer[group] = sparks.uid
+    _select(tab.doc, 4, 4, 12, 10)
+    before_recipe = tab.doc.flourish_state(group).recipe
+    before_assets = dict(tab.doc.flourish_state(group).assets)
+    head = tab.doc.history.head
+
+    op = inker_ops.get("flourish_texture_selection")
+    assert op.enabled(state, tab)
+    assert inker_ops.run(ctx, op)
+    # Not committed to the document yet -- only pixels held in ``state``,
+    # waiting for the render that names it to land and fold the two into
+    # one step. Nothing pushed.
+    assert tab.doc.flourish_state(group).assets == {}
+    assert tab.doc.history.head == head
+    assert list(state.flourish_pending_asset[group]) == ["tex1"]
+
+    inker_flourish.tick(ctx, state, tab, now=inker_flourish.clock() + 1.0)
+    ctx.land_all()
+
+    # Exactly one step landed, and it carries both the asset and the render.
+    assert tab.doc.history.head == head + 1
+    held = tab.doc.flourish_state(group)
+    assert list(held.assets) == ["tex1"]
+    assert held.recipe.layer(sparks.uid).params["texture"] == "tex1"
+    assert group not in state.flourish_pending
+    assert group not in state.flourish_pending_asset
+
+    tab.doc.history.undo(tab.doc)
+    assert tab.doc.history.head == head
+    after_undo = tab.doc.flourish_state(group)
+    assert after_undo.recipe == before_recipe
+    assert after_undo.assets == before_assets
+
+    tab.doc.history.redo(tab.doc)
+    assert tab.doc.history.head == head + 1
+    redone = tab.doc.flourish_state(group)
+    assert list(redone.assets) == ["tex1"]
+    assert redone.recipe.layer(sparks.uid).params["texture"] == "tex1"
+
+
+def test_undoing_an_earlier_step_while_a_texture_render_is_pending_neither_loses_the_texture_nor_resurrects_the_undone_step(  # noqa: E501
+    tmp_path,
+):
+    """An earlier cut of the inker-06 fix committed the asset the moment it
+    was picked, outside history, so the document could hold it before any
+    step covered it. Undoing an *unrelated* earlier step on the same group
+    while that render was still pending called ``_set_flourish`` with a
+    snapshot from before the texture existed, dropping it from the document
+    -- and when the render then landed, its own step's ``before`` was a
+    snapshot taken *before* that undo, so undoing the landing step later put
+    the undone work right back.
+
+    Sequence: add an asset as its own real step, pick a *different* pending
+    texture (still only pixels in ``state``), undo the first asset, then let
+    the pending render land. The pending texture must survive the unrelated
+    undo, the first asset must stay gone, and undoing the landing step must
+    return to exactly the post-undo state -- not resurrect the first asset.
+    """
+    ctx, tab, group = _scene(tmp_path)
+    state = ctx.state.inker
+    rec = tab.doc.flourish_state(group).recipe
+    sparks = next(each for each in rec.layers if each.kind == "particles")
+    state.flourish_layer[group] = sparks.uid
+
+    # An earlier, unrelated Flourish step on the same group: a real,
+    # immediately-committed asset (not the one 'Use selection as texture' is
+    # about to pick).
+    earlier_tex = np.full((3, 3, 4), 77, dtype=np.uint8)
+    earlier_id = tab.doc.add_flourish_asset(group, earlier_tex)
+    assert earlier_id == "tex1"
+    head_after_earlier_step = tab.doc.history.head
+
+    # Pick a texture from the selection. Its id must skip "tex1", already
+    # taken in the document -- proving ``next_asset_id``'s ``taken`` reaches
+    # this path, not only the group's own pending ids.
+    _select(tab.doc, 4, 4, 12, 10)
+    op = inker_ops.get("flourish_texture_selection")
+    assert op.enabled(state, tab)
+    assert inker_ops.run(ctx, op)
+    pending_id = next(iter(state.flourish_pending_asset[group]))
+    assert pending_id == "tex2"
+    assert tab.doc.history.head == head_after_earlier_step  # still nothing pushed
+
+    # Ctrl+Z the earlier step, *before* the pending render lands.
+    tab.doc.history.undo(tab.doc)
+    assert tab.doc.flourish_state(group).assets == {}
+    # The pending texture is untouched -- it was never in the document.
+    assert list(state.flourish_pending_asset[group]) == ["tex2"]
+    # ``head`` is a serial, not a depth: it never repeats and an undo does not
+    # give one back, so this position -- not any arithmetic on the earlier
+    # head -- is what "back to right here" means for the check below.
+    head_after_manual_undo = tab.doc.history.head
+    assert head_after_manual_undo != head_after_earlier_step
+
+    inker_flourish.tick(ctx, state, tab, now=inker_flourish.clock() + 1.0)
+    ctx.land_all()
+
+    held = tab.doc.flourish_state(group)
+    assert list(held.assets) == ["tex2"], "the pending texture must not be lost"
+    assert "tex1" not in held.assets, "the undone asset must not be resurrected by landing"
+    assert group not in state.flourish_pending_asset
+
+    # Undoing the landing step must return to exactly the post-undo state --
+    # not skip past it and bring "tex1" back.
+    tab.doc.history.undo(tab.doc)
+    assert tab.doc.history.head == head_after_manual_undo
+    after_undo = tab.doc.flourish_state(group)
+    assert after_undo.assets == {}, "must not resurrect the work the user had already undone"
 
 
 def test_textures_travel_with_the_render(tmp_path, monkeypatch):
@@ -249,13 +374,22 @@ def test_the_generate_door_queues_polls_decodes_and_lands(tmp_path, monkeypatch)
     inker_flourish.poll_texture(ctx, state, now=200.0)
     assert state.flourish_texture_pending is None
     ctx.land_all()
-    held = tab.doc.flourish_state(group)
-    assert list(held.assets) == ["gen1"]
-    tex = held.assets["gen1"]
+    # Not in the document yet -- only pixels in ``state``, until the render
+    # naming it lands and folds the two into one step.
+    assert tab.doc.flourish_state(group).assets == {}
+    tex = state.flourish_pending_asset[group]["gen1"]
     assert tex.shape == (64, 64, 4)
     assert tex[0, 0, 3] == 0 and tex[32, 32, 3] == 255
     assert state.flourish_pending[group].layer(sparks.uid).params["texture"] == "gen1"
     assert ctx.toasts[-1][1] == "success"
+
+    # And it does land, in one step, once the debounced render comes back.
+    inker_flourish.tick(ctx, state, tab, now=inker_flourish.clock() + 1.0)
+    ctx.land_all()
+    held = tab.doc.flourish_state(group)
+    assert list(held.assets) == ["gen1"]
+    assert held.recipe.layer(sparks.uid).params["texture"] == "gen1"
+    assert group not in state.flourish_pending_asset
 
 
 def test_a_failed_job_is_a_warning_and_clears_the_pending(tmp_path):

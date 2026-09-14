@@ -37,7 +37,7 @@ TRANSLATION_TABLE = str.maketrans(
 # 替换括号中的内容，包括中括号和小括号
 BACKSLASH_PATTERN = re.compile(r"\(.*?\)|\[.*?\]")
 
-SPACE_PATTERN = re.compile("(?<!^)\s+(?!$)")
+SPACE_PATTERN = re.compile(r"(?<!^)\s+(?!$)")
 
 
 def normalize_text(text, language, strip=True):

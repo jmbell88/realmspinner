@@ -236,7 +236,13 @@ def _badges() -> None:
     for index, stage in enumerate(widgets.STAGE_BADGES):
         if index:
             imgui.same_line()
-        widgets.stage_badge({"stage": stage})
+        # stage_badge now keys on card_kind(job), not a raw ``{"stage": ...}``
+        # dict -- every follow-up kind would draw as "model" -- so the gallery
+        # draws each table entry by its own key instead.
+        widgets.stage_chip(stage)
+    # stage_badge itself, exercised on a real job dict, so the gallery still
+    # catalogues the function a card actually calls and not only its helper.
+    widgets.stage_badge({"kind": "text", "stage": "reference"}, inline=True)
 
 
 # The five roles ``fonts`` exposes, largest first, so the ramp reads as a ramp.

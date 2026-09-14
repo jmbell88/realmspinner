@@ -164,6 +164,28 @@ def test_regenerate_with_the_same_recipe_changes_nothing_but_is_one_step():
     assert doc.history.head == head
 
 
+def test_a_regenerate_keeps_the_groups_textures():
+    """``apply_flourish``'s own ``FlourishState`` construction used to omit
+    ``assets`` altogether, which defaults to an *empty* dict
+    (``FlourishState.assets``'s ``default_factory``) -- so a plain
+    regenerate, with no texture in flight at all, silently dropped every
+    texture the group already held, whatever the recipe still named by id.
+    Found chasing the 2026-09-14 audit's inker-06 second half (a texture just
+    picked up would otherwise vanish the instant the render that names it
+    lands), but it is a bug in its own right: nothing had exercised a
+    regenerate closely enough after adding an asset to notice it."""
+    doc = inker.Document.blank(32, 32)
+    baked = B.bake(_recipe())
+    group = doc.insert_flourish(baked)
+    tex = np.full((4, 4, 4), 255, dtype=np.uint8)
+    doc.add_flourish_asset(group, tex)
+    assert list(doc.flourish_state(group).assets) == ["tex1"]
+    doc.apply_flourish(group, baked)
+    assert list(doc.flourish_state(group).assets) == ["tex1"], (
+        "a regenerate must not drop the group's existing textures"
+    )
+
+
 def test_regenerate_takes_untouched_cels_and_keeps_painted_ones():
     doc = inker.Document.blank(32, 32)
     first = B.bake(_recipe(seed=1))

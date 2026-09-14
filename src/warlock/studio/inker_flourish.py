@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import enum
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -225,10 +226,21 @@ class SubmitResult(enum.Enum):
 
 
 def submit_render(
-    ctx: Any, tab: Any, group_uid: int, recipe: Any, *, force: bool = False
+    ctx: Any,
+    tab: Any,
+    group_uid: int,
+    recipe: Any,
+    *,
+    force: bool = False,
+    pending_assets: Mapping[str, np.ndarray] | None = None,
 ) -> SubmitResult:
     """Bake ``recipe`` off-thread for ``group_uid``. -> whether it was accepted.
-    The group's textures go with it, read once here on the frame thread."""
+    The group's textures go with it, read once here on the frame thread --
+    the document's own plus ``pending_assets``, a texture picked up since the
+    last render that ``recipe`` may already name but the document does not
+    hold yet (``InkerState.flourish_pending_asset``): the bake needs it now,
+    and it lands in the document only once the render this call starts comes
+    back, through :meth:`Document.apply_flourish`'s own ``new_assets``."""
     from .inker.flourish import bake as flourish_bake
     from .inker.flourish import recipe as flourish_recipe
 
@@ -243,6 +255,8 @@ def submit_render(
     group_uid = int(group_uid)
     held = tab.doc.flourish_state(group_uid)
     assets = dict(held.assets) if held is not None else {}
+    if pending_assets:
+        assets.update(pending_assets)
 
     def work() -> dict[str, Any]:
         def progress(done: int, total: int) -> None:
@@ -297,18 +311,25 @@ def tick(ctx: Any, state: Any, tab: Any, *, now: float) -> int:
         if recipe is None or tab.doc.flourish_state(group) is None:
             state.flourish_due.pop(group, None)
             state.flourish_pending.pop(group, None)
+            # A texture picked up along the way (``_new_pending_asset``) is
+            # still only pixels in ``state`` -- the document was never
+            # touched -- so dropping it here is just forgetting them.
+            _discard_pending_asset(state, group)
             continue
         if in_flight(ctx, tab, group):
             # Let it rest until the running render lands; ``land`` re-arms the
             # clock when the pending recipe has moved past what it rendered.
             continue
-        result = submit_render(ctx, tab, group, recipe)
+        result = submit_render(
+            ctx, tab, group, recipe, pending_assets=state.flourish_pending_asset.get(group)
+        )
         if result is SubmitResult.ACCEPTED:
             state.flourish_due.pop(group, None)
             sent += 1
         elif result is SubmitResult.TOO_COSTLY:
             state.flourish_due.pop(group, None)
             state.flourish_pending.pop(group, None)
+            _discard_pending_asset(state, group)
     return sent
 
 
@@ -327,7 +348,13 @@ def land(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
         return False
     tab = _tab_by_uid(state, result.get("tab", ""))
     if tab is None:
-        return False  # the tab closed; nothing to land on and nobody to tell
+        # The tab closed; nothing to land on and nobody to tell. Whatever
+        # asset write was riding along with this render has no document left
+        # to belong to -- just forget it rather than leak the snapshot.
+        group_field = result.get("group")
+        if group_field is not None:
+            state.flourish_pending_asset.pop(int(group_field), None)
+        return False
     baked = result["baked"]
     if done.key.startswith(INSERT_KEY):
         group = tab.doc.insert_flourish(baked)
@@ -338,15 +365,25 @@ def land(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
     if tab.doc.flourish_state(group) is None:
         ctx.toast("That effect was detached while it rendered; nothing landed.", "info")
         state.flourish_pending.pop(group, None)
+        _discard_pending_asset(state, group)
         return False
     try:
-        counts = tab.doc.apply_flourish(group, baked, force=bool(result.get("force")))
+        counts = tab.doc.apply_flourish(
+            group,
+            baked,
+            force=bool(result.get("force")),
+            new_assets=state.flourish_pending_asset.get(group),
+        )
     except ValueError as exc:
         # A refusal from the document, not a crash: the linked-cel check is
         # the one that fires here. Framed as a sentence about the regenerate
         # (the house rule ``test_no_toast_forwards_a_bare_exception`` keeps).
+        # A pending asset write is left exactly as it was -- still
+        # uncommitted to a step -- so a later, successful regenerate can
+        # still fold it in.
         ctx.toast(f"Could not regenerate the effect: {exc}", "warn")
         return False
+    state.flourish_pending_asset.pop(group, None)
     pending = state.flourish_pending.get(group)
     if pending is not None and pending == baked.recipe:
         state.flourish_pending.pop(group, None)
@@ -478,15 +515,60 @@ def texture_generate_reason(state: Any, tab: Any) -> str:
     return regenerate_reason(state, tab)
 
 
+def _new_pending_asset(
+    state: Any, tab: Any, group: int, pixels: np.ndarray, *, stem: str = "tex"
+) -> str:
+    """Allocate an id for a texture that is not in the document yet, and hold
+    its pixels in ``InkerState.flourish_pending_asset`` until the render
+    that names it lands.
+
+    **The document is not touched here at all** -- that is the whole point
+    of this shape. An earlier cut of the fix committed the asset immediately
+    (outside history, since the step covering it would not be pushed until
+    the render landed) so the bake would have bytes to read; that mutation
+    was invisible to everything else that could land on the same group in
+    the meantime -- an undo of an earlier step, a resolve, a second texture
+    -- each of which either restored a document state from before the
+    texture existed (dropping it) or read/wrote past it, and the eventual
+    landing step, built from a stale snapshot, put back the wrong thing (the
+    2026-09-14 audit, inker-06, second half, redesigned once this surfaced).
+    Keeping the pixels out of the document until :func:`land` folds them into
+    ``apply_flourish``'s own step means nothing else can ever observe or
+    restore a half-written state for them.
+
+    ``next_asset_id``'s ``taken`` is checked against the group's *own*
+    pending ids too (not only the document's), so a second texture picked
+    before the first lands still gets a name of its own.
+    """
+    held = tab.doc.flourish_state(group)
+    pending = state.flourish_pending_asset.setdefault(int(group), {})
+    asset_id = held.next_asset_id(stem, taken=pending) if held is not None else f"{stem}1"
+    pending[asset_id] = np.ascontiguousarray(pixels, dtype=np.uint8).copy()
+    return asset_id
+
+
+def _discard_pending_asset(state: Any, group: int) -> None:
+    """Forget a write ``_new_pending_asset`` made that will never land. Not
+    an undo -- the document was never touched -- just the pixels dropped
+    from ``state`` before they can be mistaken for still wanting a step."""
+    state.flourish_pending_asset.pop(int(group), None)
+
+
 def texture_from_selection(ctx: Any, state: Any, tab: Any) -> str | None:
     """The selection's pixels become a texture of the active effect, and the
     inspector's layer takes it if it has a ``texture`` parameter. One step.
 
     Refuses with nothing pushed when the target layer has no texture slot at
-    all (the 2026-09-14 audit, inker-06): committing the asset first and
-    discovering only afterwards that no layer would take it left an
-    invisible, permanent undo step behind -- an asset with nothing in the
-    document ever pointing at it.
+    all (the 2026-09-14 audit, inker-06, first half): committing the asset
+    first and discovering only afterwards that no layer would take it left
+    an invisible, permanent undo step behind -- an asset with nothing in the
+    document ever pointing at it. The asset itself is held only as pixels in
+    ``state.flourish_pending_asset`` until the render that lands the pending
+    recipe edit pointing at it folds the two into one ``FlourishEdit``
+    (``_new_pending_asset``, ``Document.apply_flourish``'s ``new_assets``),
+    so one undo reverses the texture and the render together, and nothing
+    that lands on this group before then can observe an asset the document
+    does not really have yet (inker-06, second half).
     """
     group = active_group(state, tab)
     if group is None:
@@ -498,25 +580,33 @@ def texture_from_selection(ctx: Any, state: Any, tab: Any) -> str | None:
     if cutout is None or not cutout[..., 3].any():
         state.say(NO_SELECTION)
         return None
-    asset_id = tab.doc.add_flourish_asset(group, cutout)
-    _assign_texture(state, tab, group, asset_id)
+    asset_id = _new_pending_asset(state, tab, group, cutout)
+    if not _assign_texture(state, tab, group, asset_id):
+        # Unreachable given the ``_has_texture_slot`` check above -- both
+        # resolve the same target the same way and nothing between the two
+        # calls can move it -- but a future refactor that lets the two
+        # disagree must not leave orphaned pixels sitting in ``state``.
+        _discard_pending_asset(state, group)
+        return None
     return asset_id
 
 
-def _assign_texture(state: Any, tab: Any, group: int, asset_id: str) -> None:
+def _assign_texture(state: Any, tab: Any, group: int, asset_id: str) -> bool:
     """Point the inspector's current layer at ``asset_id`` when it can take
-    one, as a pending edit -- the render that lands it is one step."""
+    one, as a pending edit -- the render that lands it is one step. -> whether
+    it did."""
     from .inker.flourish import prims
 
     recipe = current_recipe(state, tab, group)
     if recipe is None or not recipe.layers:
-        return
+        return False
     uid = state.flourish_layer.get(group)
     layer = next((each for each in recipe.layers if each.uid == uid), recipe.layers[-1])
     if "texture" not in prims.params_of(layer.kind):
-        return
+        return False
     edited = recipe.replace_layer(layer.with_param("texture", asset_id))
     set_pending(state, group, edited, now=clock())
+    return True
 
 
 def key_out_black(pixels: np.ndarray) -> np.ndarray:
@@ -664,10 +754,18 @@ def land_texture(ctx: Any, state: Any, done: Any) -> bool:
     if tab.doc.flourish_state(group) is None:
         ctx.toast("That effect was detached while its texture generated.", "info")
         return False
-    asset_id = tab.doc.add_flourish_asset(group, result["pixels"], stem="gen")
+    asset_id = _new_pending_asset(state, tab, group, result["pixels"], stem="gen")
     if pending.get("layer") is not None:
         state.flourish_layer[group] = pending["layer"]
-    _assign_texture(state, tab, group, asset_id)
+    if not _assign_texture(state, tab, group, asset_id):
+        # Unlike ``texture_from_selection`` this door has no slot check ahead
+        # of the (expensive, already-run) generation, so this is reachable:
+        # the layer the inspector is showing when the picture comes back has
+        # no ``texture`` parameter. Forget the pixels rather than leave them
+        # in ``state`` with nothing that will ever land or discard them.
+        _discard_pending_asset(state, group)
+        ctx.toast("The generated texture has no layer to land on.", "info")
+        return False
     ctx.toast(f"Texture {asset_id} added ({result.get('source', '')}).", "success")
     return True
 

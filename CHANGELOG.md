@@ -20,6 +20,37 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **The humanoid walk and run stride forward, and the jump crouches instead
+  of floating.** Rendering a real character through Troupe and running
+  forward kinematics over the clip library found two data bugs. In `walk` and
+  `run` the two passing poses were each other's, so between "contact A" and
+  "passing A" the planted foot slid forward and the swinging foot went back —
+  the stride played backward, in every view, on every humanoid. And the jump's
+  crouch and landing had every leg bone's rotation inverted: an earlier fix
+  the same day flipped only the shin, which straightened the knee but left
+  the character face-down with its feet at hip height. Both are corrected in
+  the clip data and pinned by tests that read the pose numbers, with the
+  bird's already-correct walk as the control. An animated GLB baked from the
+  old clips is stamped with their digest, so it reads as stale and bakes
+  again; a sprite sheet already rendered keeps the old motion until it is
+  rendered again. If you have saved your own copy of the humanoid clip
+  library in Poser, it replaces the shipped one whole and keeps the old walk
+  until **Revert to shipped clips**. Seven other provisional poses (jump rise/apex/fall, fall,
+  death) still bend a knee backward and are recorded for re-authoring.
+- **Use selection as texture is one undo step, and a regenerate keeps the
+  effect's textures.** In an Inker Flourish effect, putting the selection (or
+  a generated picture) onto a layer that takes a texture pushed the texture
+  as one step and the render that used it as a second, so one Ctrl+Z left the
+  recipe naming a texture the next Ctrl+Z deleted. The texture now waits
+  beside the pending edit and lands inside the render's own step. Chasing it
+  found that every regenerate silently dropped every texture the effect held;
+  it no longer does.
+- **A follow-up asset's badge says what it is.** Rigs, sprite sheets,
+  character sheets and sprite drafts in the Library were all badged "model"
+  with the box icon, because the badge read the job's stage column and those
+  rows keep its default by design. The badge now reads the same kind the
+  thumbnail and the Library filter already use, and sprite drafts have a badge
+  of their own.
 - **Familiar's scaffolding stops lying and stops leaking.** A review of the
   assistant on 2026-09-14 found six defects in what T0–T4 shipped, none of
   them reachable by a user yet because there is still no chat loop, all of

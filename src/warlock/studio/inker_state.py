@@ -2238,6 +2238,21 @@ class InkerState:
     flourish_pending: dict[int, Any] = field(default_factory=dict)
     flourish_due: dict[int, float] = field(default_factory=dict)
     flourish_layer: dict[int, int] = field(default_factory=dict)
+    #: A texture the pending recipe edit for a group already names, but the
+    #: *document* does not hold yet -- ``{asset_id: pixels}`` per group uid,
+    #: written only here (``inker_flourish._new_pending_asset``) and never
+    #: touched on the document until the render lands, when it folds into
+    #: that step's own ``FlourishEdit`` (``Document.apply_flourish``'s
+    #: ``new_assets``). A render dropped instead (the cost ceiling, the group
+    #: detached, the group's whole effect removed) just pops the entry --
+    #: there is no document write to undo, because none was ever made.
+    #: 'Use selection as texture' and 'Generate texture...' promise one step
+    #: each (the 2026-09-14 audit, inker-06, second half); keeping the doc
+    #: untouched until the one step that covers both lands is what makes
+    #: that true without also letting an unrelated edit landing on the same
+    #: group in the meantime read or restore a half-written state for it --
+    #: the shape a first cut of this fix got wrong by committing early.
+    flourish_pending_asset: dict[int, dict[str, Any]] = field(default_factory=dict)
     flourish_preset: str = "fireball"
     flourish_mode: str = "painterly"
     flourish_directions: int = 1

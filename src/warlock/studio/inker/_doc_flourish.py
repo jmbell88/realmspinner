@@ -30,6 +30,7 @@ offset is recorded so a regenerate lands in the same place.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -90,9 +91,16 @@ class FlourishState:
             assets=dict(self.assets),
         )
 
-    def next_asset_id(self, stem: str = "tex") -> str:
+    def next_asset_id(self, stem: str = "tex", *, taken: Iterable[str] = ()) -> str:
+        """The next free id for ``stem``, skipping ``self.assets`` and,
+        optionally, a second set: ``inker_flourish``'s pending-texture path
+        calls this on the document's *live* state (never mutated until a
+        render lands) with ``taken`` set to whatever other pending ids the
+        same group has already handed out, so two textures picked before
+        either lands still land on two different names."""
         n = 1
-        while f"{stem}{n}" in self.assets:
+        taken = taken if isinstance(taken, (set, frozenset, dict)) else set(taken)
+        while f"{stem}{n}" in self.assets or f"{stem}{n}" in taken:
             n += 1
         return f"{stem}{n}"
 
@@ -282,7 +290,12 @@ class FlourishOps:
     # -- regenerate --------------------------------------------------------------
 
     def apply_flourish(
-        self: Document, group_uid: int, baked: Any, *, force: bool = False
+        self: Document,
+        group_uid: int,
+        baked: Any,
+        *,
+        force: bool = False,
+        new_assets: Mapping[str, np.ndarray] | None = None,
     ) -> FlourishCounts:
         """Land a fresh render on an existing effect group. One undo step.
 
@@ -290,6 +303,27 @@ class FlourishOps:
         user painted keeps the paint and is flagged unless ``force``; a cel
         whose paint already equals the new render is left alone. Recipe layers
         with no track yet (added in the inspector) get one, inside the group.
+
+        ``new_assets`` is a texture picked up since the last render (a
+        selection or a generated picture, still only pixels in memory --
+        ``inker_flourish.state.flourish_pending_asset``, never written here
+        until now) that the recipe this call bakes already names. Folded into
+        ``state.assets`` on the way into this step's own ``FlourishEdit``, so
+        the one step this call pushes covers the asset and the render
+        together -- 'Use selection as texture' and 'Generate texture...'
+        promise one step and this is how they keep it (the 2026-09-14 audit,
+        inker-06, second half).
+
+        This is deliberately the *only* place a pending texture ever touches
+        the document. An earlier cut committed it the moment it was picked,
+        outside history, so that any *other* step landing on the same group
+        in the meantime -- an undo, a resolve, a second asset -- read or
+        restored a document state that either did not yet have the texture or
+        wrongly did, and this call's own step, built from a snapshot taken
+        before all of that, undid or redid the wrong thing. Reading ``state``
+        fresh right here, at the moment this step is actually pushed, is what
+        keeps that impossible: whatever the document held one line above is
+        exactly what ``before`` restores to.
         """
         group_uid = int(group_uid)
         state = self.flourish_state(group_uid)
@@ -433,7 +467,24 @@ class FlourishOps:
             edits.append(TagsEdit(before_tags, after_tags))
 
         after = FlourishState(
-            recipe=baked.recipe, tracks=tracks, digests=digests, conflicts=conflicts, offset=offset
+            recipe=baked.recipe,
+            tracks=tracks,
+            digests=digests,
+            conflicts=conflicts,
+            offset=offset,
+            # This constructor call used to omit ``assets`` altogether, which
+            # defaults to an *empty* dict (``FlourishState.assets``'s
+            # ``default_factory``) -- so every regenerate silently dropped
+            # every texture the group held, whatever the recipe still named
+            # by id. Found chasing the 2026-09-14 audit's inker-06 second
+            # half: a texture just picked up by ``texture_from_selection``
+            # would otherwise vanish the instant the render that names it
+            # lands, which is the one case a reader would notice immediately.
+            # ``new_assets`` folds in on top, never the other way -- a name
+            # already in ``state.assets`` cannot arise in ``new_assets`` too
+            # (``FlourishState.next_asset_id``'s ``taken`` is checked against
+            # both), so which side wins is not a live question.
+            assets=dict(state.assets) | dict(new_assets or {}),
         )
         self.flourish[group_uid] = after
         edits.append(FlourishEdit(group_uid, state.copy(), after))
@@ -476,19 +527,35 @@ class FlourishOps:
     def add_flourish_asset(
         self: Document, group_uid: int, pixels: np.ndarray, *, stem: str = "tex"
     ) -> str:
-        """Hold a texture beside the recipe. One step; returns its id."""
+        """Hold a texture beside the recipe. One step; returns its id.
+
+        Committed straight away, because every caller left in ``src/`` (the
+        rest are tests) wants exactly that: a texture the document already
+        owns before anything names it. The pending-and-fold-in shape
+        ``texture_from_selection``/``land_texture`` use instead -- the
+        document is not touched at all until :meth:`apply_flourish` folds
+        the pixels into the render that lands, from ``InkerState.
+        flourish_pending_asset`` -- exists because those two are racing a
+        debounced or queued render on the *same* group, where anything else
+        landing on it first (an undo, a resolve, a second texture) must see
+        a real document state and not a mutation this method made outside
+        history for a step that has not been pushed yet (the 2026-09-14
+        audit, inker-06, second half, redesigned after the first cut of the
+        fix put exactly that mutation outside history).
+
+        Not charged against ``FlourishEdit.cost`` (which counts ``digests``
+        only), deliberately: assets are shared by convention -- ``copy()``
+        is a shallow dict copy, so every snapshot from an insert to the
+        latest edit holds the *same* array objects, not a duplicate per
+        step. Byte-costing them the way ``digests`` is costed would charge
+        the undo budget once per snapshot for memory that is in fact held
+        once.
+        """
         state = self.flourish_state(group_uid)
         if state is None:
             raise ValueError("that group is not a Flourish effect")
         if pixels.ndim != 3 or pixels.shape[2] != 4 or pixels.size == 0:
             raise ValueError("a texture is a non-empty RGBA plane")
-        # Not charged against ``FlourishEdit.cost`` (which counts ``digests``
-        # only), deliberately: assets are shared by convention -- ``copy()``
-        # is a shallow dict copy, so every snapshot from an insert to the
-        # latest edit holds the *same* array objects, not a duplicate per
-        # step. Byte-costing them the way ``digests`` is costed would charge
-        # the undo budget once per snapshot for memory that is in fact held
-        # once.
         after = state.copy()
         asset_id = after.next_asset_id(stem)
         after.assets[asset_id] = np.ascontiguousarray(pixels, dtype=np.uint8).copy()

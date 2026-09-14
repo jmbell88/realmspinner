@@ -1430,34 +1430,6 @@ on record rather than three stages of "not mine".
 
 ---
 
-## P49. Decide whether `clay_render` gives an agent a lit picture
-
-**Why it is yours:** the default is a design call, and the one default that
-cannot move is already pinned. `clay_render` goes through
-`ClayView.render_png`, which always draws `flat=True` -- Clay's *Solid*,
-albedo with no lighting. Every face of a default-grey object comes back the
-same grey, so a box's three visible sides merge into one silhouette (seen in the
-2026-09-12 live bridge check: a box and a sphere rendered as one flat blob).
-That is inherited from build-to-trellis (`main.py:_render_clay_reference`),
-whose byte-identical default is pinned by
-`test_render_png_defaults_are_the_picture_the_trellis_path_already_got`
-because stored corpora are keyed on it. An agent checking its own modelling,
-though, cannot see face orientation, an inset or bevel inside the outline, or
-which way a boolean cut went. The tool's description says "flat-shaded",
-which reads as lit.
-
-**Do:** decide whether an agent render should be lit, and if so whether lit is
-`clay_render`'s default or opt-in. The shape that leaves trellis alone: a
-`shading` argument (`"lit"`/`"flat"`) on `clay_render` passing a new keyword
-through `render_png`, whose own default stays unlit; reword the description;
-a regression test that a lit box shows at least two distinct face greys. Check
-the Clay agent round-two plan's T-items first -- shading is listed there.
-
-**Expected outcome:** a default chosen, and either the argument built or a
-line in `docs/INVARIANTS.md` saying why agent renders stay unlit.
-
----
-
 ## Open findings
 
 Code work a review or a real run turned up. Each is buildable and is struck out
@@ -1465,7 +1437,8 @@ the day it is built; this section is deleted when it is empty. F1-F4 came out
 of the 2026-09-05 clean-machine install
 (`docs/measurements/2026-09-05-clean-machine-install.md`) — two installs, four
 app sessions, and her `warlock.log` read — and all four were built the same day.
-F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
+F5 and F6 came out of the Mason programme (open questions 2 and 3); both were
+measured on 2026-09-14, F6 closed on the numbers and F5's decision moved to P57.
 
 1. ~~**F1. A failed fetch discarded everything it downloaded.**~~ Built
    2026-09-05. `fetch_one`'s unwind was `except BaseException:
@@ -1508,7 +1481,14 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    the rail, its tooltip and `set_mode`'s refusal all read that one answer, and
    the library escape applies to both halves so nobody is locked out of
    finished work. `tests/test_pack_gate.py`.
-5. **F5. A Mason scene has no VRAM admission control.** Sixty textured library
+5. ~~**F5. A Mason scene has no VRAM admission control.**~~ Measured
+   2026-09-14 (`docs/measurements/2026-09-14-mason-scene-vram-and-retint-cost.md`)
+   and no longer buildable as written: what is left is a policy decision, now
+   **P57**. Sixty distinct textured assets cost 814 MiB (~12.7 MiB each,
+   linear to 240), the GPU-side `MasonView._cache` has no byte budget at all
+   (the 512 MiB budget is CPU-side geometry only), VRAM stays at a session's
+   high-water mark after release, and an allocation failure reaches only the
+   run loop's generic crash handler. The original entry follows. Sixty textured library
    assets placed in one scene is real video memory, and `service.validation.check_vram`
    guards the **queue** — the thing that runs jobs — not the studio. Mason's
    asset cache has a byte budget and instancing means N placements of one asset
@@ -1521,7 +1501,15 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    scene of sixty distinct textured assets actually costs on the target card —
    and then a decision about whether the answer is a refusal, a warning, or
    evicting the cache harder. The measurement is the part that needs a card.
-6. **F6. A material override costs a second upload of identical geometry.** The
+6. ~~**F6. A material override costs a second upload of identical geometry.**~~
+   Measured 2026-09-14 and deliberately **not built**
+   (`docs/measurements/2026-09-14-mason-scene-vram-and-retint-cost.md`): 36
+   retinted copies of one 50K-triangle asset are 36 uploads and ~509 MiB, but
+   the median frame is 1.236 ms against 1.231 ms untinted, because the draw
+   count is the placement count either way. The per-draw material uniform
+   (~35–45 lines over `mason_view.py`, `mason/scene.py` and `viewer/render.py`,
+   no shader change) is sketched there for the day overrides prove common.
+   The original entry follows. The
    override is in the GPU cache key, so a retinted copy of a shared asset is a
    second upload of the same triangles. That is also true on the way out —
    glTF puts the material on the primitive rather than on the node, so the
@@ -1540,7 +1528,18 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    the entry asked for is still owed on the next Troupe run of a humanoid jump.
    `jump launch`/`rise`/`fall`/`apex` still carry opposite-signed thigh and shin
    and were deliberately left alone, since nobody has judged them backward.
-   The original entry follows. Found 2026-09-12 running
+   **Corrected the same day, after a render:** the shin flip was half the fix.
+   Rendering Quaternius's Superhero Male through `blender_worker` showed the
+   crouch floating face-down with its ankles at hip height, because the
+   shipped crouch had *every* leg bone's sign inverted and the "thigh and shin
+   share a sign" rule this entry reasoned from is true of a walk's swing leg
+   and false of any crouch (hip flexion is a negative thigh X, knee flexion a
+   positive shin X). `thigh` and `foot` are now negated too (`-0.4384`/`-0.2079`
+   crouch, `-0.3746`/`-0.1736` land): forward kinematics puts the ankle under the
+   hips at rest height and the foot within 4° of flat, and the re-render
+   squats with both feet on the ground. The test was replaced by
+   `tests/test_clip_library_poses.py::test_jump_crouch_and_land_flex_the_hip_forward_and_the_knee_back_with_the_foot_flat`.
+   The other jump poses are F10. The original entry follows. Found 2026-09-12 running
    a real human-authored mesh (Quaternius's CC0 "Superhero Male") through
    *Send to Troupe* for P4 — the first time this template has been judged on
    art rather than CesiumMan. `src/warlock/templates/clips/humanoid.json`'s
@@ -1562,7 +1561,20 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    they read as closer to straight-legged so the sign disagreement may not
    bite there, but they were not checked with the same rigor this pass gave
    crouch/land.
-8. **F8. The walk clip may play backward left/right — unconfirmed.** Same run
+8. ~~**F8. The walk clip may play backward left/right — unconfirmed.**~~ Built
+   2026-09-14, and it was real: not a yaw-mirroring bug (every yaw renders the
+   same bone data from an orbiting camera) but the clip itself. "walk contact
+   A" plants the left leg behind, and "walk passing A", the key after it,
+   lifted the *right* leg and planted the left under the hips, so forward
+   kinematics had the planted foot sliding forward 0.2 of a body height and
+   the swinging foot travelling back. Every pose was sane; the two passing
+   poses were each other's, and "run" had the same swap. The bone data of
+   `passing A` and `passing B` is exchanged in both clips (names and key order
+   kept, so `pipelines/sheet.py`'s "contact A, passing A, contact B, passing
+   B" stays true), pinned by
+   `tests/test_clip_library_poses.py::test_the_leg_behind_at_a_contact_is_the_leg_the_next_passing_pose_lifts`,
+   with the bird library's walk and run, which already obeyed the rule, as the
+   control. The original entry follows. Same run
    as F7: side-view (yaw 90/270) walk frames looked, on a static contact
    sheet, like the gait was reversed. Unlike F7 this is **not yet backed by
    data** — `walk contact A/B` and `walk passing A/B`'s thigh/shin signs are
@@ -1594,6 +1606,23 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    to `clay_op`'s declared `Param`s, refusing by field; the regression tests are
    the two calls above plus a list value, each asserting a refusal rather than
    an unexpected failure.
+10. **F10. Seven provisional humanoid poses bend the knee backward.** Found
+    2026-09-14 by the forward-kinematics pass that settled F7 and F8, which
+    measured the signed knee bend of every leg in the humanoid library (hip →
+    knee → ankle in the side plane; positive is a real knee). A straight
+    planted leg reads a few degrees either side of zero and is fine; these do
+    not: `jump rise` (L −40°, R −14°), `jump apex` (L −56°, R −34°), `jump fall`
+    (L −22°, R −44°), `fall a`/`fall b` (−90° on the lifted leg), `death fall`
+    (−70°), `death crumple` (−100°) and `death down` (−110°), the three deaths
+    also with ankles below the ground plane. All are `"provisional": true`
+    placeholders in P8's sense, so no new angles were invented here: the
+    convention is now written down in `tests/test_clip_library_poses.py`'s
+    docstring (negative thigh X flexes the hip forward, positive shin X flexes
+    the knee), and **Do:** re-author those poses to it, then add a
+    library-wide "no knee bends backward past ~15°" check to that file — it
+    fails on the current data today, which is why it was not added alone.
+    Needs a rendered sheet per clip to judge, which `render_check.py`-style
+    rigging of any shipped species or the Superhero Male now gives in minutes.
 
 **What is left on that machine is not code**: whether the resets stop once a
 retry can outlast them (F1 and F2 together should turn "never finishes" into
@@ -1606,6 +1635,14 @@ them.
 ---
 
 ## Closed records (kept so nobody re-derives them)
+
+- **P49, decide whether `clay_render` gives an agent a lit picture.** Closed
+  2026-09-14 as already built: Clay agent round two's T3 (`d1e7f1e0`) gave
+  `clay_render` a `shading` enum (`unlit`, `lit`, `wireframe`, `wire_overlay`,
+  `xray`, `object_id`) with `unlit` the default, so the trellis path's pinned
+  picture never moved and a lit render is opt-in. The description no longer says
+  "flat-shaded". `tests/test_clay_view.py::test_render_png_lit_shading_shows_more_than_one_face_grey`
+  and `tests/test_agent_clay.py::test_clay_render_shading_defaults_to_unlit_and_threads_through_to_render_png`.
 
 - **P55, finish Clay assistant run B.** Closed 2026-09-14: run B is written up as
   a negative result and run A stays the candidate
@@ -1975,3 +2012,36 @@ T2's ghost preview lives in) and read its press-by-press screenshots.
 
 **Expected outcome:** `screenshots/` matches the shipped frame, and an exercise
 pass over Clay either comes back clean or names what it found as open findings.
+
+## P57. Decide what Mason does when a scene wants more video memory than the card has
+
+**Why it is yours:** the measurement is done and the three answers trade a
+user's access to their own document against a crash, which is a product call.
+`docs/measurements/2026-09-14-mason-scene-vram-and-retint-cost.md` (it closed
+open finding F5): a distinct textured asset costs ~12.7 MiB of VRAM, linear
+from 60 (814 MiB) to 240 (3.1 GiB); the only byte budget on Mason's path is
+`mason_assets.AssetSource`'s 512 MiB, which counts CPU-side geometry and never a
+texture, while the GPU-side `MasonView._cache` has no budget at all; VRAM stays
+at the session's high-water mark after a release; and an allocation failure
+reaches only `main.py`'s generic crash handler. Measured on a 32 GiB card —
+on the 8 GiB cards the beta targets the same rate fills the card at roughly
+600 distinct assets, a projection nobody has run.
+
+**Do:** pick one, or say none is worth it yet:
+1. **Refuse** a placement or open that would not fit — needs a per-asset VRAM
+   estimate *before* upload (texture dimensions from the job, not decoded
+   pixels) checked against `vram.live_memory()`, which the queue's door already
+   reads.
+2. **Warn**, non-blocking, in `PLACED_WARN_THRESHOLD`'s shape — the same
+   estimate against a softer threshold, never refusing to open a document.
+3. **Evict the GPU cache harder** — byte accounting on `GpuModel` that it does
+   not have today, plus a rule for evicting a still-visible asset (a re-upload
+   stutter), and it bounds the live scene, not the session's peak.
+
+Optionally first: run the document's `f5_isolated.py` on an 8 GiB card to turn
+the ~600 projection into a number.
+
+**Expected outcome:** a policy chosen and recorded in `docs/INVARIANTS.md`'s
+Mason paragraphs, and — if it is 1, 2 or 3 — a fully specified open finding
+for it, or a line there saying why a Mason scene deliberately has no VRAM
+door.

@@ -2343,7 +2343,9 @@ def flourish_regenerate(ctx: Any, tab: Any, *, force: bool = False, **_: Any) ->
     if recipe is None:
         return False
     state.flourish_due.pop(group, None)
-    result = inker_flourish.submit_render(ctx, tab, group, recipe, force=force)
+    result = inker_flourish.submit_render(
+        ctx, tab, group, recipe, force=force, pending_assets=state.flourish_pending_asset.get(group)
+    )
     if result is inker_flourish.SubmitResult.BUSY:
         # Only the in-flight case earns this canvas tip. A cost refusal
         # already toasted ``BAKE_TOO_COSTLY`` inside ``submit_render`` -- the
@@ -2386,6 +2388,11 @@ def flourish_detach(ctx: Any, tab: Any, **_: Any) -> bool:
         return False
     state.flourish_pending.pop(group, None)
     state.flourish_due.pop(group, None)
+    # A texture picked up since the last render is still only pixels in
+    # ``state`` (``inker_flourish._new_pending_asset``) -- the group is about
+    # to stop being an effect at all, so there is no render left to land them
+    # in; just forget them along with the rest of the pending edit.
+    state.flourish_pending_asset.pop(group, None)
     if tab.doc.detach_flourish(group):
         ctx.toast("Detached: the layers are yours, the recipe is gone.", "info")
         return True
