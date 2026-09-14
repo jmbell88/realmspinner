@@ -1867,3 +1867,33 @@ fine-tuned GGUF is clear to do, needs an attribution notice
 section and `THIRD-PARTY-NOTICES.md`, and T10 either proceeds with the
 fine-tune pin or stays on the testing pin with the reason written down. Strike
 this out then.
+
+## P54. Familiar tranches T3–T10 — fully specified, deliberately unstarted until run B lands
+
+**Why it waits:** T3 freezes the prompt card of the model being integrated, so
+its text must follow the Clay-assistant run B changes (the figure-part
+catalogue in `agent_clay.py`, the card summary in `training/clay-assistant/`),
+and those are not on master yet. Freezing now would freeze run A's card and
+fail its own hash test the day run B lands. T5–T8 build on T3's contract.
+
+**Where it stands (2026-09-13, `feature/familiar`):** T0 (menu-bar status, bottom
+pane), T1 (owner-counted agent lanes, in-app session), T2 (Clay scratch preview,
+ghost, one-step Apply) and T4 (llama.cpp `b10948` and Unsloth Gemma 4 E2B Q8_0
+rows, loopback `llama-server`, GPU lease, idle stop) are landed. The weights row
+is a testing pin until the fine-tune replaces it.
+
+**Do, in order, once run B is on master:** merge master into `feature/familiar`;
+T3 frozen cards (`familiar/cards/`, hash equal to the trained dataset's
+`tools_sha`), `contract.py` moved out of `training/clay-assistant/gen/convert.py`,
+BM25 Manual retrieval, router and per-tab threads, and supply the card-hash
+provider T4's spawn path already takes — the package's import pin must settle
+whether `familiar/apply.py` and `scratch_ctx.py`, which reach Clay's GL-side
+modules, move out of the pure package; T5 conversation loop, `llama_client`,
+and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
+character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
+smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
+guess; T10 swap to the fine-tune (after P53). Before merging to master: refresh
+`screenshots/` and run `/exercise-mode` on a workspace.
+
+**Expected outcome:** Familiar answers in the bottom pane, previews Clay builds
+as a ghost, and runs the fine-tune. Strike this entry per tranche as each lands.
