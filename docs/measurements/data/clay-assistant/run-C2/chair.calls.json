@@ -1,0 +1,215 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "seat",
+   "params": {
+    "size": [
+     0.43,
+     0.05,
+     0.43
+    ]
+   },
+   "translation": [
+    0.0,
+    0.475,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fl",
+   "params": {
+    "size": [
+     0.045,
+     0.42,
+     0.045
+    ]
+   },
+   "translation": [
+    0.1725,
+    0.21,
+    0.1725
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fr",
+   "params": {
+    "size": [
+     0.045,
+     0.42,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.1725,
+    0.21,
+    0.1725
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_bl",
+   "params": {
+    "size": [
+     0.045,
+     0.42,
+     0.045
+    ]
+   },
+   "translation": [
+    0.1725,
+    0.21,
+    -0.1725
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_br",
+   "params": {
+    "size": [
+     0.045,
+     0.42,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.1725,
+    0.21,
+    -0.1725
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat_1",
+   "params": {
+    "size": [
+     0.5999999999999999,
+     0.02,
+     0.045
+    ]
+   },
+   "translation": [
+    0.0,
+    0.51,
+    -0.1925
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat_2",
+   "params": {
+    "size": [
+     0.5999999999999999,
+     0.02,
+     0.045
+    ]
+   },
+   "translation": [
+    0.0,
+    0.51,
+    -0.075
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat_3",
+   "params": {
+    "size": [
+     0.5999999999999999,
+     0.02,
+     0.045
+    ]
+   },
+   "translation": [
+    0.0,
+    0.51,
+    0.075
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat_4",
+   "params": {
+    "size": [
+     0.5999999999999999,
+     0.02,
+     0.045
+    ]
+   },
+   "translation": [
+    0.0,
+    0.51,
+    0.1925
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.24,
+    0.15,
+    0.09
+   ],
+   "metallic": 0.0,
+   "name": "Walnut",
+   "roughness": 0.7,
+   "uids": [
+    {
+     "$ref": "seat"
+    },
+    {
+     "$ref": "leg_fl"
+    },
+    {
+     "$ref": "leg_fr"
+    },
+    {
+     "$ref": "leg_bl"
+    },
+    {
+     "$ref": "leg_br"
+    },
+    {
+     "$ref": "back_slat_1"
+    },
+    {
+     "$ref": "back_slat_2"
+    },
+    {
+     "$ref": "back_slat_3"
+    },
+    {
+     "$ref": "back_slat_4"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

@@ -1,0 +1,154 @@
+[
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Leg_1",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    -0.14,
+    0.25,
+    0.14
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Leg_2",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    0.14,
+    0.25,
+    0.14
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Leg_3",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    0.07,
+    0.25,
+    -0.07
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Tripod_Head",
+   "params": {
+    "size": [
+     0.12,
+     0.02,
+     0.12
+    ]
+   },
+   "translation": [
+    0.0,
+    0.51,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Telescope_Tube",
+   "params": {
+    "height": 0.9,
+    "radius": 0.025,
+    "segments": 16
+   },
+   "translation": [
+    0.0,
+    0.99,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Objective_Lens",
+   "params": {
+    "height": 0.05,
+    "radius": 0.015,
+    "segments": 10
+   },
+   "translation": [
+    0.0,
+    1.7,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.55,
+    0.42,
+    0.18
+   ],
+   "metallic": 0.9,
+   "name": "Tripod Metal",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "Leg_1"
+    },
+    {
+     "$ref": "Leg_2"
+    },
+    {
+     "$ref": "Leg_3"
+    },
+    {
+     "$ref": "Tripod_Head"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.12,
+    0.14,
+    0.16
+   ],
+   "metallic": 0.6,
+   "name": "Telescope Metal",
+   "roughness": 0.4,
+   "uids": [
+    {
+     "$ref": "Telescope_Tube"
+    },
+    {
+     "$ref": "Objective_Lens"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

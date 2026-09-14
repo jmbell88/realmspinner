@@ -1955,8 +1955,12 @@ is now run B's (sha `cfa30687`, equal to the dataset manifest's `tools_sha`) —
 the card of the run that regressed, not of run A, which was trained on
 `70697ece` (`docs/measurements/data/clay-assistant/run-A/card.txt`). Decide
 whether T3 freezes run A's recorded card beside a live card that has moved on,
-or waits for a model that scores better on master's. T5–T8 build on T3's
-contract.
+or waits for a model that scores better on master's. The 2026-09-14 ablation
+(`docs/measurements/2026-09-14-clay-assistant-ablation.md`) is the evidence for
+that choice. Run B's card trained on run A's rows scored 174.0 against A's 185.0.
+Run A's card on run B's rows scored 169.0. Neither displaced run A. So no
+trained model yet does better on master's card than run A does on its own. T5–T8
+build on T3's contract.
 
 **Where it stands (2026-09-13, `feature/familiar`):** T0 (menu-bar status, bottom
 pane), T1 (owner-counted agent lanes, in-app session), T2 (Clay scratch preview,

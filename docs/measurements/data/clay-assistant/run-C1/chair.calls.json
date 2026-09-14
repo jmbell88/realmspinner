@@ -1,0 +1,169 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "seat",
+   "params": {
+    "size": [
+     0.42,
+     0.05,
+     0.42
+    ]
+   },
+   "translation": [
+    0.0,
+    0.475,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fl",
+   "params": {
+    "size": [
+     0.045,
+     0.45,
+     0.045
+    ]
+   },
+   "translation": [
+    0.19,
+    0.225,
+    0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fr",
+   "params": {
+    "size": [
+     0.045,
+     0.45,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.19,
+    0.225,
+    0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_bl",
+   "params": {
+    "size": [
+     0.045,
+     0.45,
+     0.045
+    ]
+   },
+   "translation": [
+    0.19,
+    0.225,
+    -0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_br",
+   "params": {
+    "size": [
+     0.045,
+     0.45,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.19,
+    0.225,
+    -0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat",
+   "params": {
+    "size": [
+     0.38,
+     0.015,
+     0.045
+    ]
+   },
+   "translation": [
+    0.0,
+    0.595,
+    0.2425
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.24,
+    0.15,
+    0.09
+   ],
+   "metallic": 0.0,
+   "name": "Walnut",
+   "roughness": 0.7,
+   "uids": [
+    {
+     "$ref": "seat"
+    },
+    {
+     "$ref": "leg_fl"
+    },
+    {
+     "$ref": "leg_fr"
+    },
+    {
+     "$ref": "leg_bl"
+    },
+    {
+     "$ref": "leg_br"
+    },
+    {
+     "$ref": "back_slat"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "back_slat"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "mirror-copy",
+   "params": {
+    "axis": 0,
+    "offset": 0.0
+   }
+  },
+  "name": "clay_op"
+ }
+]

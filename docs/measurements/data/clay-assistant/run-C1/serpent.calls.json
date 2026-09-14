@@ -1,0 +1,221 @@
+[
+ {
+  "arguments": {
+   "generator": "tube",
+   "name": "body_core",
+   "params": {
+    "path": [
+     [
+      0.0,
+      0.0,
+      0.0
+     ],
+     [
+      0.05,
+      0.0,
+      0.0
+     ],
+     [
+      0.14,
+      0.02,
+      0.0
+     ],
+     [
+      0.24,
+      0.02,
+      0.0
+     ],
+     [
+      0.32,
+      0.04,
+      0.0
+     ],
+     [
+      0.36,
+      0.1,
+      0.0
+     ],
+     [
+      0.38,
+      0.18,
+      0.0
+     ],
+     [
+      0.34,
+      0.26,
+      0.0
+     ],
+     [
+      0.24,
+      0.32,
+      0.0
+     ],
+     [
+      0.0,
+      0.36,
+      0.0
+     ]
+    ],
+    "radius": 0.11,
+    "sides": 10
+   },
+   "translation": [
+    0.0,
+    0.16,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "head",
+   "params": {
+    "radius": 0.055,
+    "rings": 5,
+    "segments": 10
+   },
+   "translation": [
+    0.0,
+    0.16,
+    0.3
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "tail",
+   "params": {
+    "radius": 0.045,
+    "rings": 5,
+    "segments": 10
+   },
+   "translation": [
+    0.0,
+    0.16,
+    -0.3
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_a",
+   "params": {
+    "size": [
+     0.02,
+     0.16,
+     0.12
+    ]
+   },
+   "rotation": [
+    0.0,
+    20.0,
+    0.0
+   ],
+   "translation": [
+    0.14,
+    0.08,
+    0.1
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "leg_a"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "mirror-copy",
+   "params": {
+    "axis": 0.0,
+    "offset": 0.0
+   }
+  },
+  "name": "clay_op"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_b",
+   "params": {
+    "size": [
+     0.02,
+     0.16,
+     0.12
+    ]
+   },
+   "rotation": [
+    0.0,
+    20.0,
+    0.0
+   ],
+   "translation": [
+    0.14,
+    0.08,
+    -0.1
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "leg_b"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "mirror-copy",
+   "params": {
+    "axis": 0.0,
+    "offset": 0.0
+   }
+  },
+  "name": "clay_op"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.3,
+    0.45,
+    0.22
+   ],
+   "name": "Scales",
+   "roughness": 0.4,
+   "uids": [
+    {
+     "$ref": "body_core"
+    },
+    {
+     "$ref": "head"
+    },
+    {
+     "$ref": "tail"
+    },
+    {
+     "$ref": "leg_a"
+    },
+    {
+     "$ref": "leg_b"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

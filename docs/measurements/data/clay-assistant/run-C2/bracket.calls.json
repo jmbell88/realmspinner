@@ -1,0 +1,106 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "web",
+   "params": {
+    "size": [
+     0.1,
+     0.012,
+     0.1
+    ]
+   },
+   "translation": [
+    0,
+    0.006,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "gusset",
+   "params": {
+    "size": [
+     0.1,
+     0.1,
+     0.012
+    ]
+   },
+   "translation": [
+    0.1,
+    0.006,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "hole_cutter",
+   "params": {
+    "height": 0.03,
+    "radius": 0.004,
+    "segments": 16
+   },
+   "translation": [
+    0.048,
+    0.006,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "web"
+    },
+    {
+     "$ref": "hole_cutter"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "gusset"
+    },
+    {
+     "$ref": "hole_cutter"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.55,
+    0.42,
+    0.18
+   ],
+   "metallic": 0.9,
+   "name": "Brass",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "web"
+    },
+    {
+     "$ref": "gusset"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

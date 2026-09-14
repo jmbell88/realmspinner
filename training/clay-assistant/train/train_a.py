@@ -1,5 +1,8 @@
 """LoRA fine-tune of Gemma 4 E2B-it on the verified Clay-assistant dataset, run by name
-(``python train_a.py run-B`` writes to ``out/run-B/``; default ``run-A``).
+(``python train_a.py run-B`` writes to ``out/run-B/``; default ``run-A``). An optional
+argv[2] points at a different dataset dir than the checked-in ``dataset/`` -- an
+ablation arm's ``out/run-Cx/data``, built by ``make_arm.py`` (``python train_a.py run-C1
+out/run-C1/data``); default is ``dataset/`` as before.
 
 Driven with Unsloth's own library from the Unsloth Studio environment
 (``~/.unsloth/studio/unsloth_studio/Scripts/python.exe``) rather than through the Studio
@@ -37,6 +40,7 @@ cost the run.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -57,12 +61,34 @@ os.environ.setdefault("UNSLOTH_CE_LOSS_TARGET_GB", "4")
 
 HERE = pathlib.Path(__file__).resolve().parent
 PKG = HERE.parent
-DATASET = PKG / "dataset"
 RUN = sys.argv[1] if len(sys.argv) > 1 else "run-A"
 OUT = PKG / "out" / RUN
 
+
+def _resolve_dataset_dir(value: str | None) -> pathlib.Path:
+    """argv[2], if given, is the dataset dir this run trains on -- an ablation arm's
+    ``out/run-Cx/data`` (``make_arm.py``'s own output), not the checked-in ``dataset/``.
+    Resolved against the cwd first (a relative path typed at an interactive prompt means
+    "from where I'm standing"), then against this package's own root (how every other
+    default here resolves), so ``train_a.py run-C1 out/run-C1/data`` does what it looks
+    like it does whether launched from ``training/clay-assistant/`` or the repo root.
+    """
+    if not value:
+        return PKG / "dataset"
+    candidate = pathlib.Path(value)
+    if candidate.is_absolute():
+        return candidate
+    cwd_relative = pathlib.Path.cwd() / candidate
+    if cwd_relative.exists():
+        return cwd_relative.resolve()
+    return (PKG / candidate).resolve()
+
+
+DATASET = _resolve_dataset_dir(sys.argv[2] if len(sys.argv) > 2 else None)
+
 CONFIG = {
     "run": RUN,
+    "dataset": str(DATASET),
     "base_model": "unsloth/gemma-4-E2B-it",
     "max_seq_length": 8192,
     "load_in_4bit": False,
@@ -84,6 +110,7 @@ CONFIG = {
     "assistant_turn": "content (fenced json) only; tool_calls dropped",
     "train_rows": None,
     "val_rows": None,
+    "card_sha256": None,
 }
 
 
@@ -144,6 +171,12 @@ def main() -> int:
     val_rows = _rows(DATASET / "unsloth_val.jsonl")
     CONFIG["train_rows"] = len(train_rows)
     CONFIG["val_rows"] = len(val_rows)
+    # The system turn every row shares, hashed off the actual rows this run trains on --
+    # not the live convert.compact_tools() -- so config.json records which card an arm's
+    # own DATASET (possibly make_arm.py's out/run-Cx/data, not dataset/) really carried.
+    CONFIG["card_sha256"] = hashlib.sha256(
+        train_rows[0]["conversations"][0]["content"].encode("utf-8")
+    ).hexdigest()
 
     def fmt(examples):
         texts = [

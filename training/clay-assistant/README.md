@@ -285,6 +285,32 @@ BF16 GGUF plus `Q8_0`, the only quant it allows (Q8_0 is the floor, 2026-09-13) 
 the llama.cpp checkout Studio installed. Run A's numbers and the decision they support are
 in `docs/measurements/2026-09-12-clay-assistant-run-A.md`.
 
+### Ablation arms
+
+Run B changed the dataset (three new families) and the card at once, so run A vs run B
+alone cannot say which change did what. `train/make_arm.py` builds one arm's
+`unsloth_{train,val}.jsonl` by pairing a chosen card against a chosen dataset (optionally
+with some families dropped back out), refusing outright rather than silently training on a
+card/scene mismatch, a stale `dataset/` build, or -- with `--expect-rev` -- a "run A's data"
+claim that is not byte-identical (past `verified.tools_sha`) to what git actually tracked
+at that commit:
+
+```powershell
+uv run python training/clay-assistant/train/make_arm.py `
+    --card training/clay-assistant/out/run-A/card.txt --out training/clay-assistant/out/run-C1/data
+uv run python training/clay-assistant/train/make_arm.py `
+    --card training/clay-assistant/out/run-B/card.txt --drop-families grounding,figures,composition `
+    --expect-rev e79b9c64 --out training/clay-assistant/out/run-C2/data
+```
+
+`C1` = run B's data (`dataset/` as it stands) + run A's card; `C2` = run A's data
+(grounding/figures/composition dropped back out of the current `dataset/`) + run B's card.
+Then train each the same way as run A/B, pointing `train_a.py` at the arm's own data dir
+via its optional second argument: `train/train_a.py run-C1 out/run-C1/data`. Writes
+`arm.json` beside the two `unsloth_*.jsonl` files: source/card hashes, dropped families,
+per-split row counts before/after, and (with `--expect-rev`) how many kept records
+differed from the rev.
+
 ### `eval/run_val.py`
 
 Against a running `llama-server --jinja`, generates on the val rows (and, with `--corpus`,
