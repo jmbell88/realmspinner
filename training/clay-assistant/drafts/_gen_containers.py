@@ -20,7 +20,7 @@ from typing import Any
 
 FAMILY = "containers"
 SEED = 20260912
-OUT = Path(__file__).parent / f"{FAMILY}.jsonl"
+OUT_PATH = Path(__file__).parent / f"{FAMILY}.jsonl"
 
 # --------------------------------------------------------------------------
 # small call-building helpers
@@ -2373,10 +2373,10 @@ def main() -> None:
             prompt, calls, notes, allow_below = fn(rng, phrase_idx)
             emit(prompt, calls, notes, allow_below)
 
-    with OUT.open("w", encoding="utf-8") as f:
+    with OUT_PATH.open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, sort_keys=False) + "\n")
-    print(f"wrote {len(records)} records to {OUT}")
+    print(f"wrote {len(records)} records to {OUT_PATH}")
 
 
 if __name__ == "__main__":

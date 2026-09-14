@@ -1,0 +1,217 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "seat",
+   "params": {
+    "size": [
+     0.44,
+     0.05,
+     0.44
+    ]
+   },
+   "translation": [
+    0.0,
+    0.475,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fl",
+   "params": {
+    "size": [
+     0.045,
+     0.475,
+     0.045
+    ]
+   },
+   "translation": [
+    0.19,
+    0.2375,
+    0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_fr",
+   "params": {
+    "size": [
+     0.045,
+     0.475,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.19,
+    0.2375,
+    0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_bl",
+   "params": {
+    "size": [
+     0.045,
+     0.475,
+     0.045
+    ]
+   },
+   "translation": [
+    0.19,
+    0.2375,
+    -0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "leg_br",
+   "params": {
+    "size": [
+     0.045,
+     0.475,
+     0.045
+    ]
+   },
+   "translation": [
+    -0.19,
+    0.2375,
+    -0.19
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "back_slat",
+   "params": {
+    "size": [
+     0.46,
+     0.03,
+     0.03
+    ]
+   },
+   "translation": [
+    0.0,
+    0.495,
+    -0.2
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "back_slat"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "array-linear",
+   "params": {
+    "count": 4.0,
+    "x": 0.16,
+    "y": 0.0,
+    "z": 0.0
+   }
+  },
+  "name": "clay_op"
+ },
+ {
+  "arguments": {
+   "kind": "union",
+   "uids": [
+    {
+     "$ref": "back_slat"
+    },
+    {
+     "$ref": "back_slat.001"
+    },
+    {
+     "$ref": "back_slat.002"
+    },
+    {
+     "$ref": "back_slat.003"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "kind": "union",
+   "uids": [
+    {
+     "$ref": "seat"
+    },
+    {
+     "$ref": "leg_fl"
+    },
+    {
+     "$ref": "leg_fr"
+    },
+    {
+     "$ref": "leg_bl"
+    },
+    {
+     "$ref": "leg_br"
+    },
+    {
+     "$ref": "back_slat.000"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.45,
+    0.31,
+    0.18
+   ],
+   "metallic": 0.0,
+   "name": "Oak",
+   "roughness": 0.6,
+   "uids": [
+    {
+     "$ref": "seat"
+    },
+    {
+     "$ref": "leg_fl"
+    },
+    {
+     "$ref": "leg_fr"
+    },
+    {
+     "$ref": "leg_bl"
+    },
+    {
+     "$ref": "leg_br"
+    },
+    {
+     "$ref": "back_slat.000"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

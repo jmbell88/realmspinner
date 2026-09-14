@@ -1,0 +1,148 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "plate",
+   "params": {
+    "size": [
+     0.1,
+     0.02,
+     0.05
+    ]
+   },
+   "translation": [
+    0,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "gusset",
+   "params": {
+    "size": [
+     0.05,
+     0.02,
+     0.1
+    ]
+   },
+   "rotation": [
+    0,
+    0,
+    90
+   ],
+   "translation": [
+    0.05,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "hole_cutter",
+   "params": {
+    "height": 0.06,
+    "radius": 0.012,
+    "segments": 16
+   },
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "translation": [
+    -0.035,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "plate"
+    },
+    {
+     "$ref": "hole_cutter"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "hole_cutter"
+    }
+   ]
+  },
+  "name": "clay_delete"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "hole2_cutter",
+   "params": {
+    "height": 0.06,
+    "radius": 0.012,
+    "segments": 16
+   },
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "translation": [
+    0.035,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "plate"
+    },
+    {
+     "$ref": "hole2_cutter"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.75,
+    0.78,
+    0.8
+   ],
+   "metallic": 0.95,
+   "name": "Chrome",
+   "roughness": 0.12,
+   "uids": [
+    {
+     "$ref": "plate"
+    },
+    {
+     "$ref": "gusset"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

@@ -1,0 +1,147 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Base1",
+   "params": {
+    "size": [
+     1.4,
+     0.3,
+     1.4
+    ]
+   },
+   "translation": [
+    0.0,
+    0.15,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Base2",
+   "params": {
+    "size": [
+     1.1,
+     0.3,
+     1.1
+    ]
+   },
+   "translation": [
+    0.0,
+    0.41,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Base3",
+   "params": {
+    "size": [
+     0.8,
+     0.3,
+     0.8
+    ]
+   },
+   "translation": [
+    0.0,
+    0.66,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column",
+   "params": {
+    "size": [
+     0.22,
+     2.64,
+     0.22
+    ]
+   },
+   "translation": [
+    0.76,
+    1.62,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Capital",
+   "params": {
+    "size": [
+     0.26,
+     0.24,
+     0.26
+    ]
+   },
+   "translation": [
+    0.76,
+    2.84,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.47,
+    0.46,
+    0.44
+   ],
+   "name": "Colonnade Stone",
+   "roughness": 0.8,
+   "uids": [
+    {
+     "$ref": "Base1"
+    },
+    {
+     "$ref": "Base2"
+    },
+    {
+     "$ref": "Base3"
+    },
+    {
+     "$ref": "Column"
+    },
+    {
+     "$ref": "Capital"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "array-radial",
+   "params": {
+    "angle": 360.0,
+    "axis": 1.0,
+    "count": 8.0
+   }
+  },
+  "name": "clay_op"
+ }
+]
