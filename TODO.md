@@ -1996,8 +1996,26 @@ history, not context. Slot 0 is the router and slot 1 the skill, so the
 two-slot, 16k-context numbers stand. `docmodes` fires `TAB_CLOSED` listeners
 after a confirmed close, and T5 registers `threads.drop`.
 
-**Do, in order, from master:** T5 conversation loop, `llama_client`,
-and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
+~~T5 conversation loop, `llama_client`, and the bottom pane's Familiar
+states~~ **Built 2026-09-14:**
+- `pipelines/llama_client.py` holds the client. It cannot live in
+  `studio/familiar/`, which bans httpx. It touches the server before and
+  after every request and reads the key file. It sizes a Clay reply with
+  `/tokenize` plus a 32-token template margin. The installed `b10948` has no
+  `/apply-template`, and a bare-text count comes out low.
+- `service/familiar.py` is the door. Refusals carry a `reason`, and the lease
+  sentence is shown verbatim. The loop timeout covers a cold start plus a full
+  reply.
+- `studio/familiar_ui.py` holds the pane's session state and its expanded
+  body.
+- Plain chat runs in every mode on the testing pin, with no card. Clay's
+  **Build** refuses before any request unless the weights row lists run A's
+  card sha, then previews the parsed calls as a ghost with Apply/Discard.
+- Both use slot 1. Slot 0 stays free for T6's router.
+- The ghost path is covered only by a canned-call test. It needs T10's
+  weights to run live.
+
+**Do, in order, from master:** T6 router and cited Manual answers; T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
 guess; T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
@@ -2043,6 +2061,13 @@ capture of a mode's frame is now stale.
 **Do:** on master, `uv run python scripts/screenshot_modes.py` and look at every
 capture's menu bar and bottom pane; then `/exercise-mode clay` (the workspace
 T2's ghost preview lives in) and read its press-by-press screenshots.
+
+**Wider since 2026-09-14 (T5):** the bottom pane now expands into a
+transcript, an input line, Send, and in Clay Build/Apply/Discard, and the
+Familiar menu's row is an enabled **Open Familiar**. None of that has been
+captured or exercised either. The exercise pass should expand the pane in
+Clay and in one other mode, and press Build on the testing pin, which should
+show the `familiar_v1.0` refusal sentence.
 
 **Expected outcome:** `screenshots/` matches the shipped frame, and an exercise
 pass over Clay either comes back clean or names what it found as open findings.

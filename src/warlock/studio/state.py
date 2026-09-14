@@ -1323,6 +1323,14 @@ class AppState:
     # first stage's workspace has no document, no engine and no selection, so
     # there is nothing yet for a mode-level ``ensure`` to build.
     mason: Any = None
+    # The bottom pane's in-session Familiar state (T5) -- whether it is
+    # expanded, the input line, and the last chat/build outcome (thinking,
+    # refused, or a Clay preview ready to Apply/Discard). Untyped and None
+    # for the reason the mode states above are, and session-only for the
+    # same reason ``familiar.threads.Threads`` is: a refusal or a pending
+    # preview describes this run, not something worth restoring across a
+    # restart.
+    familiar: Any = None
     # Whether ``findings.json`` is behind the evidence in the DB. A flag rather
     # than a submit, because ``TaskRunner.submit`` *refuses* a key already in
     # flight and nothing re-arms it: five verdicts in a second used to run one

@@ -69,6 +69,15 @@ def card_sha(skill: str) -> str:
 
 SAMPLING: dict[str, dict[str, float | int]] = {
     "clay": {"temperature": 0.2, "top_k": 64, "top_p": 0.95, "max_tokens": 4096},
+    # T5's plain-chat sampling -- there is no measurement behind this row the
+    # way there is for "clay" (that one is
+    # docs/measurements/2026-09-13-clay-assistant-sampling.md's own pick out
+    # of a 232-row corpus): base Gemma 4 E2B has no fine-tune or eval corpus
+    # of its own here yet, so this is Google's own stock instruct-model
+    # recommendation (t0.7/top-k 64/top-p 0.95), carried over unmeasured. A
+    # dated measurement document should replace this comment before the
+    # number is trusted for anything beyond "a reasonable default".
+    "chat": {"temperature": 0.7, "top_k": 64, "top_p": 0.95, "max_tokens": 1024},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
 ``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
@@ -76,6 +85,53 @@ pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178,
 Google's stock Gemma recommendation, what run A was first scored at) were
 both beaten by t0.2/top-k 64/top-p 0.95 sampled three times a row (185.0,
 versus t1.0's own 177.7 over the same three samples)."""
+
+CHAT_SYSTEM = (
+    "You are Familiar, Warlock Studio's offline assistant. You run entirely "
+    "on this machine and never reach the network. Right now you can only "
+    "talk -- you cannot see or change anything in the app from this "
+    "conversation yet. Answer briefly, and say plainly when you are not "
+    "sure of something rather than guessing."
+)
+"""The short system prompt for plain chat, on the base testing pin, in every
+mode -- unlike Clay's frozen card (:data:`CARDS`), this is not trained
+against and carries no hash pin: it is prose for whatever instruct model
+happens to be behind the base weights row, not a contract a fine-tune was
+built to match."""
+
+#: How many of a thread's most recent turns :func:`build_chat_messages` folds
+#: into a plain-chat prompt. One llama-server slot is ``CTX_SIZE //
+#: PARALLEL_SLOTS == 8192`` tokens (``pipelines/llama.py``); at a generous
+#: few hundred tokens per turn, eight turns (four back-and-forths) leaves
+#: comfortable room for the system prompt and the reply budget without
+#: measuring real conversations first. Unmeasured, same caveat as
+#: ``SAMPLING["chat"]`` above -- the point is a chat thread degrades by
+#: forgetting its oldest turns, never by having the whole request refused
+#: the way an oversized Clay prompt is.
+HISTORY_TURNS = 8
+
+
+def build_chat_messages(prompt: str, history: tuple[Any, ...] = ()) -> list[dict[str, str]]:
+    """One chat-completions message list for plain conversation: the short
+    system prompt (:data:`CHAT_SYSTEM`), up to the last :data:`HISTORY_TURNS`
+    turns of *history* (``threads.Turn``, ``role`` mapped ``"familiar"`` ->
+    ``"assistant"``), then *prompt* as the final user turn.
+
+    Unlike :func:`build_messages` (Clay's frozen card plus one merged
+    "here is the scene" user turn), plain chat has no scene to compact and no
+    card frozen against a training run -- it sends real chat-completions
+    history because there is nothing here it could disagree with, the way a
+    scene-shaped extra turn would disagree with what Clay's fine-tune was
+    trained to see (``threads.py``'s own docstring: a thread is display and
+    refinement context, never fed back as model context, *for a skill with a
+    frozen card* -- plain chat has no such card to protect).
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": CHAT_SYSTEM}]
+    role_map = {"user": "user", "familiar": "assistant"}
+    for turn in history[-HISTORY_TURNS:]:
+        messages.append({"role": role_map.get(turn.role, turn.role), "content": turn.text})
+    messages.append({"role": "user", "content": prompt})
+    return messages
 
 
 # ---------------------------------------------------------------------------

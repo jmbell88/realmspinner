@@ -97,15 +97,31 @@ def max_height(window_h: float, mode_chrome: float = 0.0) -> float:
 def height(ctx: Any) -> float:
     """The pane's current height, in design pixels.
 
-    T0 has no model to grow it: the pane is always collapsed, one row tall.
-    Kept as a function -- mirroring how call sites used to read
-    ``status_bar.STATUS_H`` -- because every caller this replaces (``main``'s
-    content-area reservation, and the overlay/toast/tour bottom anchors) calls
-    it rather than a bare constant, so a later tranche that makes this return
-    a grown height (bounded by :func:`max_height`) touches no call site.
+    Collapsed (:data:`COLLAPSED_H`) unless T5's Familiar UI state
+    (``ctx.state.familiar``) exists and is expanded, in which case this
+    returns :func:`max_height`'s clamp of :data:`familiar_ui.EXPANDED_H`
+    against the current viewport -- the growth every bottom-anchored overlay
+    (``overlay.fps_meter``/``progress_card``, ``widgets.toasts``, ``tour``'s
+    card) already subtracts through this same function, per T0's own plan.
+
+    ``getattr``-guarded rather than a plain ``ctx.state.familiar`` read: a
+    fake ``ctx`` built for a pure-arithmetic test (this module's own test
+    file builds ``SimpleNamespace(state=SimpleNamespace(mode=mode))``, with
+    no ``familiar`` attribute at all) must still read as collapsed rather
+    than raise.
     """
 
-    return COLLAPSED_H
+    ui = getattr(getattr(ctx, "state", None), "familiar", None)
+    if ui is None or not getattr(ui, "expanded", False):
+        return COLLAPSED_H
+
+    from imgui_bundle import imgui
+
+    from .. import familiar_ui
+
+    viewport = imgui.get_main_viewport()
+    ceiling = max_height(viewport.work_size.y, _mode_chrome(ctx))
+    return min(familiar_ui.EXPANDED_H, ceiling)
 
 
 def familiar_state(config: Any) -> str:
@@ -137,27 +153,26 @@ def familiar_state(config: Any) -> str:
 
 
 def draw(ctx: Any) -> None:
-    """Draw the collapsed row: the one line T0 shows in place of the status
-    items that moved to the menu bar."""
+    """Draw the bottom pane: the one collapsed row when idle, or that row
+    plus T5's conversation body once the user has expanded it."""
 
     from imgui_bundle import imgui
 
-    from .. import controls, fonts, theme, tokens
+    from .. import controls, familiar_ui, fonts, theme, tokens
     from .. import state as state_mod
     from . import app_settings
 
     pad_x = tokens.sp(tokens.SP_2)
-    # Same vertical-centring ordering as the status bar this replaces: the
-    # small face is pushed before its line height is measured, which is what
-    # centres one line of ``TEXT_SMALL`` text in the reserved height rather
-    # than half of ``TEXT_BODY``'s larger one.
+    row_h = tokens.sp(height(ctx))
+    expanded = row_h > tokens.sp(COLLAPSED_H) + 0.5
+    # Only the collapsed row centres its text vertically in the reserved
+    # height -- an expanded pane has its own rows (transcript, input) to lay
+    # out top-down, and centring *those* against the whole grown height would
+    # shove the transcript into empty space at the top instead.
     with fonts.small(imgui):
         line = imgui.get_text_line_height()
-        row_h = tokens.sp(height(ctx))
-        imgui.push_style_var(
-            imgui.StyleVar_.window_padding.value,
-            (pad_x, max((row_h - line) * 0.5, 0.0)),
-        )
+        top_pad = tokens.sp(tokens.SP_2) if expanded else max((row_h - line) * 0.5, 0.0)
+        imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad_x, top_pad))
         imgui.push_style_color(
             imgui.Col_.child_bg.value, imgui.ImVec4(*theme.rgba(theme.PANEL))
         )
@@ -178,9 +193,10 @@ def draw(ctx: Any) -> None:
                     state_mod.set_mode(ctx.state, "settings")
                     ctx.state.preview[app_settings.CATEGORY_SLOT] = "models"
             else:
-                imgui.text_colored(
-                    imgui.ImVec4(*theme.rgba(theme.MUTED)),
-                    "✦ Familiar is installed — the assistant arrives in a "
-                    "later release",
-                )
+                ui = familiar_ui.ensure(ctx)
+                label = "▾ ✦ Familiar" if ui.expanded else "▸ ✦ Familiar"
+                if controls.small_button(f"{label}##bottom-pane/familiar-toggle"):
+                    ui.expanded = not ui.expanded
+                if ui.expanded:
+                    familiar_ui.draw_expanded(ctx)
         imgui.end_child()

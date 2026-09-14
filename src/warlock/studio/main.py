@@ -1080,6 +1080,15 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             # must leave the feature off and the launch alone. The reason
             # lands on ``agent_host.failure`` for the Settings pane to show.
             self.agent_host.start()
+        # T5: one Threads instance for the process, and its TAB_CLOSED
+        # listener registered exactly once through the same door a test
+        # calls (``familiar_ui.install``) -- see that function's own
+        # docstring for why registration through it, rather than a bare
+        # ``TAB_CLOSED.append`` here, is what lets a test prove the app
+        # itself wires this rather than the test wiring it.
+        from . import familiar_ui
+
+        familiar_ui.install(self.app_ctx)
 
     def _load_static_answers(self) -> None:
         """Read the things that cannot change without a restart, once."""
@@ -2084,6 +2093,11 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             from . import journal
 
             journal.on_task_done(ctx, done)
+            return
+        if key.startswith("familiar/"):
+            from . import familiar_ui
+
+            familiar_ui.on_task_done(ctx, done)
             return
         if key.startswith("clay-"):
             from . import clay_mode

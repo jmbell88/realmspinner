@@ -441,24 +441,19 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     clicked = hit[0] if isinstance(hit, tuple) else hit
                     if clicked and row.enabled:
                         row.callback()
-        # Reserved, never dropped: T0 of the Familiar programme wires no
-        # model behind this yet, so its one row stays disabled -- its label
-        # still has to tell "not downloaded" from "downloaded but no
-        # conversation loop yet" apart, or a completed download reads as
-        # permanently broken.
+        # Reserved, never dropped -- see ``FAMILIAR_LABEL``'s own docstring.
+        # T5 wires the one row that used to read "Installed -- not yet
+        # wired" into a real command: it expands the bottom pane, the same
+        # toggle its own ▸/▾ button flips.
         with controls.menu(FAMILIAR_LABEL) as familiar_open:
             if familiar_open:
                 if bottom_pane.familiar_state(ctx.svc.config) == "idle":
-                    controls.menu_item(
-                        "Installed — not yet wired##menu/familiar-not-wired",
-                        "",
-                        False,
-                        False,
-                        reason=(
-                            "The conversation loop is a later tranche of the "
-                            "Familiar programme."
-                        ),
-                    )
+                    hit = controls.menu_item("Open Familiar##menu/familiar-open", "", False, True)
+                    clicked = hit[0] if isinstance(hit, tuple) else hit
+                    if clicked:
+                        from . import familiar_ui
+
+                        familiar_ui.ensure(ctx).expanded = True
                 else:
                     controls.menu_item(
                         "Not installed##menu/familiar-not-installed",

@@ -20,6 +20,20 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar answers.** The ✦ Familiar row at the bottom of the window opens
+  into a conversation: type, press Send or Enter, and the reply arrives
+  without the frame waiting on it. Each mode keeps its own thread, each Clay
+  tab its own, and a thread is forgotten when its tab closes. Chat runs on
+  whichever Familiar weights are installed, including the base testing model.
+  In Clay, **Build** asks for tool calls instead and shows them as a ghost
+  over the scene, with Apply and Discard. It refuses before sending anything
+  unless the installed weights are the trained `familiar_v1.0`, because the
+  base model scored 0% on Clay builds against the fine-tune's 74%. A refusal
+  says what happened: a GPU job holding the card shows the same sentence the
+  server uses, and missing weights, VRAM, a failed start and a timeout each
+  have their own. A Clay request is sized against the 8,192-token window the
+  model was trained on before it is sent, so a long scene is refused rather
+  than cut off mid-reply.
 - **The jump, fall and death clips bend their knees forward.** The same
   forward-kinematics pass that fixed the walk and the jump's crouch measured
   every leg in the humanoid library and found seven more poses with thigh and

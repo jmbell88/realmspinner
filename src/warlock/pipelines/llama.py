@@ -134,6 +134,21 @@ class LlamaServer:
     def leased(self) -> bool:
         return self._leased
 
+    @property
+    def key_path(self) -> Path | None:
+        """The current spawn's API-key file, or ``None`` between spawns.
+
+        T5's ``pipelines/llama_client.py`` reads the key from here rather
+        than a new ``_api_key`` accessor -- the file, not the in-memory
+        string, is the one thing a client outside this module is allowed to
+        touch, matching ``_write_key_file``'s own reasoning for never putting
+        the key on argv: a public getter that just handed back ``_api_key``
+        would still keep the secret alive as a plain attribute any caller
+        (or a debugger) could read at leisure, where the file at least dies
+        with :meth:`stop`.
+        """
+        return self._key_path
+
     def _resolve_exe(self) -> Path:
         return self._exe() if callable(self._exe) else self._exe
 

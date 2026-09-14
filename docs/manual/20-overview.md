@@ -222,17 +222,27 @@ report. When the menus a workspace needs leave the group no room, items drop low
 never drops, whatever the window's width. Every item in the group is a readout, not a button: none
 of it is clickable.
 
-Beside the status group, and likewise never dropped, sits **✦ Familiar** — reserved room for the
-Familiar assistant this manual does not otherwise describe yet.
+Beside the status group, and likewise never dropped, sits **✦ Familiar**. Once Familiar's weights are
+installed its menu holds one row, **Open Familiar**, which expands the bottom pane below; until then
+it stays a disabled **Not installed**.
 
 ## The bottom pane
 
-One row along the foot of the window, in every mode, where the per-item status line used to live.
-Today it carries a single line, whose text depends on whether Familiar's weights are downloaded:
-**✦ Familiar isn't installed —** beside an **Install…** button that opens Settings → Models, or once
-every row is present, **✦ Familiar is installed — the assistant arrives in a later release**. The
-per-item readouts that used to sit here (workspace, document, tool, zoom, queue, health) moved to the
-menu bar's own right-aligned group, described above.
+One row along the foot of the window, in every mode, where the per-item status line used to live. Its
+text depends on whether Familiar's weights are downloaded: **✦ Familiar isn't installed —** beside an
+**Install…** button that opens Settings → Models, or once every row is present, a clickable **▸ ✦
+Familiar** row that expands into a short conversation: a scrollback of what you and Familiar have
+said, an input line, and **Send**. The per-item readouts that used to sit here (workspace, document,
+tool, zoom, queue, health) moved to the menu bar's own right-aligned group, described above.
+
+Familiar answers in the base model's own voice today — it can talk, but it cannot yet see or change
+anything in the app from chat. In **Clay**, with a document open, the expanded pane also offers
+**Build**: describe what to add and Familiar proposes it as a translucent ghost over your document,
+with **Apply** and **Discard** beside it once it lands. Building needs the trained Clay model
+(`familiar_v1.0`); until that model replaces the testing pin, a Build press answers with a plain
+sentence saying so rather than a ghost. Each document tab keeps its own conversation, the same way it
+keeps its own undo stack — closing a tab ends its thread, and every other mode without a document of
+its own shares one Studio-wide thread.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).
