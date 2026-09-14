@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import muse_mode, muse_state
+from warlock.studio import muse_io, muse_mode, muse_state
 
 
 class _AppState:
@@ -190,6 +190,41 @@ def test_a_refused_submit_says_so_and_does_not_remember_the_prompt(tmp_path):
     assert muse_mode.generate(ctx) is False
     assert ctx.toasts and "Still submitting" in ctx.toasts[0][0]
     assert ctx.state.prompts == []
+
+
+def test_ctrl_enter_generate_is_blocked_when_the_music_model_is_missing(
+    ctx, monkeypatch
+):
+    """muse-02 (2026-09-14 audit).
+
+    Only ``muse_brief._generate``'s draw call checked ``model_gate.missing``,
+    so the button greyed itself correctly -- but Ctrl+Enter goes through
+    ``handle_key`` straight to ``generate(ctx)``, which used to have no gate
+    of its own and reached ``create_music_job``, which refuses at the door
+    with a ``music_model`` toast that names no field, instead of the mode's
+    own gate that points at the Recipe panel.
+
+    Fails against the unfixed code, which has no ``model_gate`` check in
+    ``generate`` at all and calls ``create_music_job`` regardless of
+    ``ctx.model_rows``.
+    """
+    import pygame
+
+    from warlock.service import jobs as svc_jobs
+
+    called: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        svc_jobs,
+        "create_music_job",
+        lambda svc, **kw: called.append(kw) or {"ids": ["x"]},
+    )
+    ctx.model_rows = [{"row_key": svc_jobs.MUSIC_ROWS[0], "present": False}]
+    muse_mode.ensure(ctx).form["prompt"] = "x"
+
+    assert muse_mode.handle_key(ctx, _key(pygame.K_RETURN, pygame.KMOD_CTRL)) is True
+    assert called == [], "the model gate must refuse before the door is ever asked"
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+    assert "music model" in ctx.toasts[-1][0].lower()
 
 
 def test_a_press_clears_the_rings_the_last_refusal_left(ctx, monkeypatch):
@@ -479,6 +514,57 @@ def test_is_playing_asks_the_mixers_tag_rather_than_the_stored_pointer(
     assert muse_mode.is_playing(ctx, "abc123") is True
 
 
+def test_precompute_loop_cache_does_not_land_on_a_different_take_with_the_same_region(
+    ctx,
+):
+    """muse-01 (2026-09-14 audit).
+
+    ``precompute_loop`` submits its task under
+    ``f"{CACHE_PREFIX}{one.job}"`` -- the job id is already in the key -- but
+    the CACHE_PREFIX branch of ``on_task_done`` used to check only whether the
+    *region* (``loop_cache_key``, the ``(start, end, fade)`` triple in
+    samples) still matched the player, unlike its LOAD_PREFIX/FIND_PREFIX
+    neighbours a few lines above and below it, which both check the job id.
+    ``loop_memory`` persists a take's own region across a switch, so two
+    different takes trimmed to the same numbers is not a strange coincidence
+    -- and when it happens, a cache blend still in flight for the take the
+    user left computes take A's crossfaded audio and, on landing after the
+    switch, installs it as take B's loop body: Play on B then sounds A.
+
+    Fails against the unfixed code, which has no id check in this branch at
+    all and adopts the result onto whatever player is current.
+    """
+    from warlock.studio.muse_state import Player
+
+    state = muse_mode.ensure(ctx)
+    state.player = Player(job="a", pcm=[0] * 100, rate=100, duration=1.0)
+    state.player.loop_start = 0.0
+    state.player.loop_end = 1.0
+    state.player.xfade_ms = 0.0
+    a_key = muse_io.loop_cache_key(state.player)
+    assert a_key is not None
+
+    # The user switches to take B before A's compute task lands, and B's
+    # region happens to share the same (start, end, fade) in samples.
+    state.player = Player(job="b", pcm=[0] * 100, rate=100, duration=1.0)
+    state.player.loop_start = 0.0
+    state.player.loop_end = 1.0
+    state.player.xfade_ms = 0.0
+    assert muse_io.loop_cache_key(state.player) == a_key
+
+    done = type("_Done", (), {
+        "key": f"{muse_io.CACHE_PREFIX}a", "result": (a_key, object()),
+    })()
+    muse_mode.on_task_done(ctx, done)
+
+    assert state.player.job == "b"
+    assert state.player.loop_cache is None, (
+        "A's loop-cache result must not land on B's player just because the "
+        "region matches -- the key names A, not B"
+    )
+    assert state.player.loop_cache_key is None
+
+
 # --- the bridge --------------------------------------------------------------
 
 
@@ -558,6 +644,36 @@ def test_the_bridge_refuses_a_take_with_no_audio_rather_than_switching_modes(
     assert muse_mode.open_in_sirens(ctx, "missing") is False
     assert switched == []
     assert ctx.toasts and ctx.toasts[0][1] == "warn"
+
+
+def test_compose_from_sirens_is_blocked_when_the_music_model_is_missing(
+    ctx, monkeypatch
+):
+    """muse-02's other entry point (2026-09-14 audit): Sirens' "Compose in
+    Muse" does not go through ``generate`` at all -- it builds its own
+    ``create_music_job`` call -- so gating only ``generate`` would leave this
+    door still reaching the service and getting the door's own refusal
+    instead of the mode's gate. No Sirens tab is set up here on purpose: the
+    gate must refuse before the tab/order-list check below it ever runs.
+
+    Fails against the unfixed code, which has no ``model_gate`` check here
+    and would instead reach the "nothing in the order list" refusal (since no
+    tab exists), never mind ``create_music_job``.
+    """
+    from warlock.service import jobs as svc_jobs
+
+    called: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        svc_jobs,
+        "create_music_job",
+        lambda svc, **kw: called.append(kw) or {"ids": ["x"]},
+    )
+    ctx.model_rows = [{"row_key": svc_jobs.MUSIC_ROWS[0], "present": False}]
+
+    assert muse_mode.compose_from_sirens(ctx) is False
+    assert called == []
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+    assert "music model" in ctx.toasts[-1][0].lower()
 
 
 def test_the_bridge_never_assigns_the_mode_field_directly():

@@ -62,6 +62,22 @@ def test_with_a_token_but_no_listener_main_still_returns_1(home, capsys) -> None
     assert "not accepting agent connections" in capsys.readouterr().err
 
 
+def test_bridge_docstring_names_every_fatal_startup_case_the_code_actually_has() -> None:
+    """The 2026-09-14 audit (agents-08): `main` has two distinct paths that
+    return 1 at start-up rather than serving anything -- no snapshot and no
+    reachable Studio (`test_with_nothing_listening_main_returns_1_...` and
+    `test_with_a_token_but_no_listener_main_still_returns_1` above), and a
+    reachable Studio whose `hello` reply names an RPC version mismatch
+    (`_hello` returns `None`, `main` closes the connection and returns 1
+    without falling back to a snapshot -- see `main`'s own comment on that
+    branch). The module docstring used to claim "exactly one" such case,
+    naming only the first; both must be named."""
+    doc = bridge.__doc__ or ""
+    assert "one case that is fatal" not in doc, "docstring still claims only one fatal case"
+    assert "rpc version this bridge does not understand" in doc.lower()
+    assert "two cases fatal at start-up" in doc.lower()
+
+
 # --- a fake Studio speaking RPC v1 -----------------------------------------------
 
 

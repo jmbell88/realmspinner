@@ -178,6 +178,35 @@ def test_every_shipped_template_root_is_parentless():
         assert parent is None, f"{key}: root {template.root!r} is parented"
 
 
+def test_a_template_with_a_disconnected_parent_cycle_is_rejected():
+    """The 2026-09-14 audit, finding poser-02: every existing check here
+    resolves each bone's own parent and confirms one root, but none of them
+    walk the chain from a bone to prove it actually reaches that root -- a
+    cycle among two bones neither of which is the root (``a``/``b`` parent
+    each other) satisfies every prior check. ``_build_armature`` parents
+    bones in one pass with no cycle check of its own, so this must be caught
+    here, at load, the same guarantee ``check_skeleton_structure`` and
+    ``validate_skeleton`` already give a caller-supplied skeleton."""
+    with pytest.raises(ValueError, match="cycle"):
+        rigging._parse_template(
+            {
+                "key": "x",
+                "label": "X",
+                "root": "root",
+                "bones": [
+                    {
+                        "name": "root",
+                        "parent": None,
+                        "head": [0, 0, 0],
+                        "tail": [0, 0, 1],
+                    },
+                    {"name": "a", "parent": "b", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                    {"name": "b", "parent": "a", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                ],
+            }
+        )
+
+
 def test_template_with_unknown_parent_is_rejected():
     with pytest.raises(ValueError, match="unknown parent"):
         rigging._parse_template(
@@ -2531,6 +2560,67 @@ def test_every_shipped_limb_preset_loads():
 
 def test_no_limb_preset_key_collides_with_a_template_key():
     assert not (set(rigging.limb_presets()) & set(rigging.templates()))
+
+
+def test_a_limb_preset_with_a_disconnected_parent_cycle_is_skipped_not_fatal(tmp_path, monkeypatch):
+    """The 2026-09-14 audit, finding poser-02: ``_parse_limb_preset`` checked
+    that every bone's parent resolves and that there is exactly one root, but
+    never that walking those links from every bone actually reaches that
+    root -- so a schema-valid preset naming a cycle disconnected from the
+    root (``a``/``b`` each other's parent, neither reachable from ``root``)
+    was accepted at load and would only misbehave later, wherever a consumer
+    walked the chain. Malformed presets are load-and-skip, like every other
+    template file (``_load_templates``'s stated policy, restated for limb
+    presets by ``_load_limb_presets``'s own comment) -- so this is skipped,
+    not a crash, at the loader.
+    """
+    (tmp_path / "good.json").write_text(
+        json.dumps(
+            {
+                "key": "good",
+                "label": "Good",
+                "bones": [{"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
+            }
+        )
+    )
+    (tmp_path / "cyclic.json").write_text(
+        json.dumps(
+            {
+                "key": "cyclic",
+                "label": "Cyclic",
+                "bones": [
+                    {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+                    {"name": "a", "parent": "b", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                    {"name": "b", "parent": "a", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                ],
+            }
+        )
+    )
+    monkeypatch.setattr(rigging, "LIMB_DIR", tmp_path)
+    assert set(rigging._load_limb_presets()) == {"good"}
+
+
+def test_a_limb_preset_with_out_of_order_bones_is_rejected():
+    """``attach_limb``'s ``_attach_one`` walks ``preset_data["bones"]`` in
+    file order, building ``name_map`` as it goes and looking a bone's parent
+    up in it (``name_map[b["parent"]]``) -- a schema-valid preset that lists
+    a child before its parent throws an uncaught ``KeyError`` there, on the
+    frame thread, instead of the ``RigError`` Poser's ``_skeleton_call``
+    catches. Refused at parse time instead, the same log-and-skip malformed
+    presets already get.
+    """
+    with pytest.raises(ValueError, match="listed before its parent"):
+        rigging._parse_limb_preset(
+            {
+                "key": "x",
+                "label": "X",
+                "bones": [
+                    {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
+                    {"name": "child", "parent": "mid", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                    {"name": "mid", "parent": "root", "head": [0, 0, 0], "tail": [0, 0, 1]},
+                ],
+            }
+        )
 
 
 def test_limb_dir_is_not_swept_up_by_the_template_loader():

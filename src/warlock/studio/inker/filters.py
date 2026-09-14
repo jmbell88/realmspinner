@@ -149,8 +149,20 @@ def hue_saturation(
 
     # Saturation is undefined for a grey pixel; zero is the value that makes
     # every formula below leave it grey, which is what it should stay.
+    #
+    # The 2026-09-14 audit (inker-04): this used to be
+    # ``np.divide(span, denominator, out=np.zeros_like(span), where=denominator
+    # > 1e-6)``, the masked-lane pattern removed everywhere else in this
+    # package (see ``composite.over``'s masked-lane fix, quoted again below in
+    # ``_straight``) because ``where=`` does not promise the masked lanes go
+    # unevaluated -- a SIMD lane with a near-zero denominator (a near-black or
+    # near-white pixel) still ran ``span / 0`` and raised under
+    # ``np.errstate(all="raise")``. ``_hue_of`` right below already used the
+    # safe-denominator ``np.where`` form; this now matches it.
     denominator = 1.0 - np.abs(2.0 * light - 1.0)
-    sat = np.divide(span, denominator, out=np.zeros_like(span), where=denominator > 1e-6)
+    has_sat = denominator > 1e-6
+    safe_denom = np.where(has_sat, denominator, 1.0)
+    sat = np.where(has_sat, span / safe_denom, 0.0)
 
     hue_deg = _hue_of(rgb, high, span)
     hue_deg = np.mod(hue_deg + float(hue) * 360.0, 360.0)

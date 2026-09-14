@@ -636,8 +636,19 @@ def create_tile_sheet(
                 f"can name",
                 field="prompt_items",
             )
-        for line in lines:
-            check_prompt(line, field="prompt_items")
+        for index, line in enumerate(lines, start=1):
+            # The 2026-09-14 audit, plotter-03: ``check_prompt``'s refusal
+            # names only the field, and every line in ``prompt_items`` shares
+            # that field -- a user with twenty material lines got told
+            # "prompt_items must be at most N characters" with no way to
+            # tell which of the twenty was too long. The 1-based index here
+            # is the line number as the user sees it in the text box.
+            try:
+                check_prompt(line, field="prompt_items")
+            except Invalid as exc:
+                raise Invalid(
+                    f"line {index}: {exc.message}", field="prompt_items"
+                ) from None
         try:
             draws = int(variants)
         except (TypeError, ValueError):

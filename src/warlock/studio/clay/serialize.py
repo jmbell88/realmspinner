@@ -95,6 +95,20 @@ _MESH_FIELDS = ("positions", "loops", "starts", "material", "smooth")
 # a test can lower it.
 MAX_DECOMPRESSED_BYTES = 1 << 30
 
+# The 2026-09-14 audit's clay-06: read_wblk bounded the objects array
+# (MAX_OBJECTS, imported below) but not how many materials or textures a
+# scene declared -- both are cheap in bytes, a few characters of JSON per
+# entry, so a compact hand-edited or crash-recovered archive naming a huge
+# count of either stalled the load in the loop that decodes it (_read_textures
+# below, and the materials list comprehension in read_wblk) with nothing to
+# refuse it up front the way the object count already is. Sized far past
+# anything Clay itself ever writes: a document never has more materials than
+# MAX_OBJECTS objects, or more textures than materials times
+# ``len(TEXTURE_FIELDS)`` slots, before the by-identity dedup that usually
+# shrinks it further.
+MAX_DECLARED_MATERIALS = 100_000
+MAX_DECLARED_TEXTURES = 100_000
+
 # The texture slots, in the order ``scene.TEXTURE_SLOTS`` lists them. Mirrored
 # rather than imported because ``clay/`` does not import the GL layer -- and the
 # names are a *file format* here, so pinning them locally is what stops a
@@ -675,6 +689,19 @@ def read_wblk(data: bytes) -> ClayDoc:
                 f"the {MAX_OBJECTS:,} Clay holds"
             )
 
+        declared_textures = scene.get("textures", [])
+        # Same clay-06 gap as the objects/materials counts: a "textures" field
+        # present but not a list would otherwise reach ``len`` below (or
+        # ``_read_textures``'s own loop) as a bare, unnamed failure instead of
+        # this reader's refusal.
+        if not isinstance(declared_textures, list):
+            raise ValueError("this is not a Warlock Clay document")
+        if len(declared_textures) > MAX_DECLARED_TEXTURES:
+            raise ValueError(
+                f"this clay document names {len(declared_textures):,} textures, "
+                f"past the {MAX_DECLARED_TEXTURES:,} Clay reads"
+            )
+
         textures = _read_textures(zf, scene)
         objects = []
         triangles = 0
@@ -736,6 +763,11 @@ def read_wblk(data: bytes) -> ClayDoc:
     # named refusal.
     if not isinstance(declared_materials, list):
         raise ValueError("this is not a Warlock Clay document")
+    if len(declared_materials) > MAX_DECLARED_MATERIALS:
+        raise ValueError(
+            f"this clay document declares {len(declared_materials):,} materials, "
+            f"past the {MAX_DECLARED_MATERIALS:,} Clay reads"
+        )
     materials = [_material_from(m, textures) for m in declared_materials]
     if objects and not materials:
         materials = None

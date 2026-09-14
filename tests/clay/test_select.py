@@ -591,3 +591,31 @@ def test_duplicating_several_selected_objects_undoes_in_one_step():
     doc.undo()
 
     assert len(doc.objects) == 3, "one Ctrl+Z must remove every copy the keystroke made"
+
+
+def test_duplicate_selected_preserves_the_objects_original_relative_order():
+    """The 2026-09-14 audit's clay-07: ``duplicate_selected`` iterated
+    ``doc.selection`` directly, a plain ``set``, so the copies landed in
+    whatever order the set's hash buckets gave rather than the order the
+    objects sit in the outliner.
+
+    Three consecutive uids in a ``set`` iterate in ascending numeric order in
+    CPython (each hashes to itself and lands in its own bucket), so reversing
+    ``doc.objects`` in place -- without touching any uid -- puts the
+    document's own order (index 0, 1, 2 -> Box2, Box1, Box0) at odds with
+    that ascending set order (Box0, Box1, Box2). The unfixed code copies in
+    the set's order; the fix copies in the document's.
+    """
+    from warlock.studio.clay import selection
+
+    doc = _three_boxes()
+    doc.objects.reverse()  # document order is now Box2, Box1, Box0
+    doc.select([obj.uid for obj in doc.objects])
+    expected_bases = [obj.name for obj in doc.objects]
+
+    fresh = selection.duplicate_selected(doc)
+
+    copy_bases = [doc.by_uid(uid).name.split(".")[0] for uid in fresh]
+    assert copy_bases == expected_bases, (
+        "the copies must land in the objects' document order, not set-iteration order"
+    )

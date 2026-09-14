@@ -62,8 +62,18 @@ def _reference(svc, *, status: str = "done", tileset: bool = False, ready: bool 
 
 
 def _mesh(svc, *, rigged: bool = False, status: str = "done") -> dict:
+    # A real mesh row carries its reference's ``input.png`` alongside its own
+    # ``model.glb`` -- ``_jobs_create.py``'s promotion path copies it in --
+    # so a fixture that omits it cannot catch a gate that (wrongly) keys off
+    # that file alone. The 2026-09-14 audit, finding create-02: this fixture
+    # used to leave "input.png" out entirely, which is why
+    # ``_plotter_add``/``_packwright_add`` offering a finished mesh their
+    # "Add as tileset/atlas source" doors passed unnoticed.
+    files = ["input.png", "model.glb"]
+    if rigged:
+        files.append("rig.glb")
     job = _job(svc, "image", stage="model", status=status, params={})
-    job["files"] = ["model.glb", "rig.glb"] if rigged else ["model.glb"]
+    job["files"] = files
     return job
 
 
@@ -255,6 +265,23 @@ def test_a_rigged_mesh_dims_nothing(svc):
     by_mode = _labels(exits)
     assert set(by_mode) == {"clay", "mason", "poser", "troupe"}
     assert not any(dimmed for _label, dimmed in by_mode.values())
+
+
+def test_a_finished_mesh_does_not_offer_plotter_or_packwright_add_doors(svc):
+    """The 2026-09-14 audit, finding create-02: ``_plotter_add`` and
+    ``_packwright_add``'s ready branch checked only ``"input.png" in
+    files``, with no check the job is image-shaped
+    (``create_stages.IMAGE_STAGES``). A finished mesh carries its
+    reference's ``input.png`` in its own ``files`` (the promotion path in
+    ``_jobs_create.py`` copies it across), so every finished mesh was
+    offered live "Add to Plotter as a tileset" / "Add to Packwright as an
+    atlas source" doors that act on the mesh's reference photo, not on a
+    tile sheet."""
+    ctx = FakeCtx(svc)
+    exits = asset_exits.exits_for(ctx, _rows(svc)["mesh"])
+    modes_offered = {e.mode for e in exits}
+    assert "plotter" not in modes_offered
+    assert "packwright" not in modes_offered
 
 
 def test_a_rig_row_offers_its_mesh_destinations_and_poser_opens_the_source(svc, monkeypatch):

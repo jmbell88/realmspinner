@@ -654,8 +654,13 @@ class IndexedOps:
         duplicates of colours the user can already see, and a duplicate slot is
         one nothing distinguishes from its neighbour.
 
-        Table-only, like :meth:`sort_palette` and ``move_slot``: adding a swatch
-        repaints nothing, so there is no step to push.
+        Table-only in palette-constrained RGB, like :meth:`sort_palette` and
+        ``move_slot``: adding a swatch repaints nothing there, so there is no
+        step to push. But in an indexed document this rewrites every index
+        plane exactly as :meth:`sort_palette` does, and the indexed branch
+        below pushes a ``CompoundEdit`` for it -- this docstring used to
+        promise "no step to push" unconditionally, which was wrong (the
+        2026-09-14 audit, inker-13, widened to this sibling on 2026-09-14).
         """
         if not self.palette or steps < 1:
             return False

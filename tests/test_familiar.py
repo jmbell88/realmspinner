@@ -109,6 +109,34 @@ async def test_a_card_sha_mismatch_refuses_to_start(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ensure_started_refuses_to_spawn_familiar_without_vram_headroom(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-14 audit (service-01): every other model door is admitted
+    through a VRAM-headroom gate before it can overcommit the card (the
+    2026-08-03 crash class), but ``ensure_started`` went straight to
+    ``subprocess.Popen`` -- ``vram.familiar_admission`` existed and was never
+    called from anywhere in ``src/``."""
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    srv._resolve_weights().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"")
+    monkeypatch.setattr(
+        llama_mod.fetch,
+        "verify_manifest",
+        lambda dest: fetch.Verification(dest=dest, status=fetch.VERIFY_UNKNOWN),
+    )
+    monkeypatch.setattr(llama_mod.vram, "live_memory", lambda: None)
+    spawned = []
+    monkeypatch.setattr(llama_mod.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+
+    with pytest.raises(RuntimeError, match="VRAM headroom"):
+        await srv.ensure_started()
+    assert spawned == []
+
+
+@pytest.mark.asyncio
 async def test_familiar_refuses_to_start_while_a_gpu_job_holds_the_lease(tmp_path):
     srv = _srv(tmp_path)
     srv._leased = True

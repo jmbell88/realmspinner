@@ -26,6 +26,7 @@ committed by the exact same code.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -264,6 +265,24 @@ def import_into_library(
             rigging.parse_clip_library(document)
         except Exception as exc:
             raise invalid_from(exc, "That clip library cannot be saved") from exc
+
+        # The 2026-09-14 audit, finding poser-01: this door merges into the
+        # same document shape service.clips.save writes, through the same
+        # _check_shape/_commit_locked pair, but save gained a check against
+        # rigging.MAX_CLIP_LIBRARY_BYTES on 2026-09-13 (finding poser-02) that
+        # this door never did -- so a source file with enough bones (a dense
+        # facial or cloth rig baked into the animation) could still commit a
+        # library the read door (_load_clip_library) then refuses forever,
+        # silently reverting the template to its shipped clips. Same check,
+        # same constant, same place in the sequence save uses it: after the
+        # renderer's own parser accepts the document, before a byte commits.
+        size = len(json.dumps(document, indent=2).encode("utf-8"))
+        if size > rigging.MAX_CLIP_LIBRARY_BYTES:
+            raise Conflict(
+                f"this clip library is {size} bytes, over the "
+                f"{rigging.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
+                field="poses",
+            )
         _clips._commit_locked(svc, key, document)
 
     return {"template": key, "added": added, "replaced": replaced, "reports": reports}

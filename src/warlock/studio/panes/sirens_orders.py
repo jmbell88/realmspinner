@@ -63,7 +63,18 @@ def add_to_order_reason(effect: str, doc: Any, editable: bool) -> str:
     (findings sirens-03/04/05 of that round). An inline ternary with untested
     priority among competing disabled causes is precisely what produced those,
     and this one had nothing to catch a wrong priority before it shipped.
+
+    **``editable`` goes first (the 2026-09-14 audit, finding sirens-04).**
+    The order used to put the effect-column case before it, so a song that
+    was busy saving while the caret happened to sit on an effect cell named
+    "pick a song pattern first" -- a fix that does nothing, since the button
+    stays disabled either way until the save lands. "Busy" is the state that
+    is actually blocking the button, and it is also the one about to change
+    on its own; the other two reasons describe what the user typed and stay
+    true until they change it.
     """
+    if not editable:
+        return _BUSY_WHY
     if effect:
         return (
             f"The grid is editing the sound effect {effect}, and an effect's "
@@ -71,8 +82,6 @@ def add_to_order_reason(effect: str, doc: Any, editable: bool) -> str:
         )
     if not doc.patterns:
         return "There is no pattern to add yet."
-    if not editable:
-        return _BUSY_WHY
     return ""
 
 

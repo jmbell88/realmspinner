@@ -10,6 +10,8 @@ from __future__ import annotations
 import io
 import wave
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -257,3 +259,128 @@ def test_a_loop_takes_roll_back_is_staged_not_written_in_place(tmp_path, monkeyp
         q._stage_rolled_wav(output, 0.25)
 
     assert output.read_bytes() == original
+
+
+# --- _wav_duration_seconds ----------------------------------------------------
+
+
+def test_wav_duration_seconds_reads_the_headers_real_length_not_a_guess(tmp_path):
+    """The 2026-09-14 audit, finding muse-03's pure half.
+
+    ``getnframes()``/``getframerate()`` off the header, not the caller's own
+    idea of how long the file should be -- the ``fallback`` argument exists
+    only for a file this build cannot read at all.
+    """
+    rate = 1000
+    frames = np.arange(2500 * 2, dtype="<i2").reshape(-1, 2)  # 2500 frames, 2.5 s
+    path = tmp_path / "track.wav"
+    path.write_bytes(_wav(frames, rate))
+
+    assert q._wav_duration_seconds(path, fallback=999.0) == pytest.approx(2.5)
+
+
+def test_wav_duration_seconds_falls_back_for_a_file_it_cannot_read(tmp_path):
+    path = tmp_path / "track.wav"
+    path.write_bytes(b"not a wav")
+    assert q._wav_duration_seconds(path, fallback=42.0) == 42.0
+
+
+# --- _music (the full stage) --------------------------------------------------
+
+
+class _FakeCancel:
+    """Just enough of the queue's cancel token for ``MusicOps._music``."""
+
+    def __init__(self) -> None:
+        self.event = object()
+        self.committed = False
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+class _FakeConfig:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def job_dir(self, job_id: str) -> Path:
+        return self.root / job_id
+
+
+class _FakeStore:
+    def __init__(self) -> None:
+        self.saved: dict[str, Any] = {}
+
+    def set_params(self, job_id: str, params: dict[str, Any]) -> None:
+        self.saved[job_id] = dict(params)
+
+
+class _FakeClient:
+    """Stands in for ``MusicClient``: ``generate`` writes a WAV of a length
+    the caller chooses -- an audio2audio job's own reference-sized render,
+    for this test -- regardless of what ``audio_duration`` asked for."""
+
+    def __init__(self, rendered_seconds: float, rate: int = 44100) -> None:
+        self.rendered_seconds = rendered_seconds
+        self.rate = rate
+        self.last_recipe = None
+
+    def generate(self, prompt, output, *, audio_duration, **_kw):
+        n = int(round(self.rendered_seconds * self.rate))
+        frames = np.zeros((max(n, 1), 2), dtype="<i2")
+        output.write_bytes(_wav(frames, self.rate))
+
+
+async def test_audio2audio_actual_duration_matches_the_rendered_file_not_the_request(
+    tmp_path,
+):
+    """muse-03 (2026-09-14 audit).
+
+    ``pipeline_ace_step.py`` sizes an audio2audio render's ``frame_length``
+    off the *reference*'s own latents (``ref_latents.shape[-1]``, lines
+    936-941), not off the requested ``duration`` -- so a take's file can run
+    for minutes longer or shorter than the request. This job asks for 30 s
+    and the fake sampler (standing in for that reference-sized render) writes
+    a 96 s file; the take card's ``actual_duration`` has to read the file, not
+    echo the request back.
+
+    Fails against the unfixed code, which sets
+    ``params["actual_duration"] = float(params.get("duration", 60.0))`` --
+    30.0, the request -- with nothing that ever opens ``track.wav``.
+    """
+    rendered_seconds = 96.0
+    client = _FakeClient(rendered_seconds)
+
+    # ``worker`` is a bare namespace, not a ``MusicOps``/``Worker`` instance,
+    # so these are plain attributes ``_music`` reaches through ``self.`` --
+    # not class methods -- which is why they take no ``self`` of their own.
+    async def _acquire_music(spec):
+        return client, False
+
+    async def _release_music(client, spec, *, handoff):
+        return None
+
+    worker = SimpleNamespace(
+        config=_FakeConfig(tmp_path),
+        store=_FakeStore(),
+        _cancel=_FakeCancel(),
+        _music_state=lambda job_id, s: None,
+        _music_step=lambda job_id, i, n: None,
+        _music_client=None,
+        _acquire_music=_acquire_music,
+        _release_music=_release_music,
+    )
+    job_id = "abc123"
+    params = {
+        "task": "audio2audio",
+        "duration": 30.0,
+        "reference_wav": b"",
+        "ref_audio_strength": 0.5,
+    }
+    job = {"id": job_id, "prompt": "x", "params": params}
+
+    await q.MusicOps._music(worker, job)
+
+    saved = worker.store.saved[job_id]
+    assert saved["actual_duration"] == pytest.approx(rendered_seconds)
+    assert saved["actual_duration"] != pytest.approx(30.0)

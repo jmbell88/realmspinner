@@ -458,14 +458,32 @@ def _add_sprites(ctx: Any, tab: PackTab, sprites: list[Any]) -> tuple[int, int]:
         existing = next(
             (one for one in tab.doc.sources if one.key == sprite.key), None
         )
-        if existing is None:
-            tab.doc.add_source(sprite)
-            added += 1
-            continue
-        before = tab.doc.history.head
-        tab.doc.replace_source(existing.uid, sprite)
-        if tab.doc.history.head != before:
-            replaced += 1
+        try:
+            if existing is None:
+                tab.doc.add_source(sprite)
+                added += 1
+                continue
+            before = tab.doc.history.head
+            tab.doc.replace_source(existing.uid, sprite)
+            if tab.doc.history.head != before:
+                replaced += 1
+        except ValueError as exc:
+            # A ceiling tripped partway through a multi-file batch used to
+            # propagate straight out of this loop, past on_task_done, into
+            # main.py's generic task-landing handler, which toasted "That did
+            # not finish landing: packwright-add:..." -- a fact about the
+            # frame loop, not the pack -- and left whatever sprite *did* land
+            # before it with pack_dirty unset (the 2026-09-14 audit,
+            # packwright-01). Caught here instead: what landed stays landed
+            # and dirty, and a second toast (the tsx-skip idiom in
+            # on_task_done, below) names the ceiling and how far the batch got.
+            if added or replaced:
+                tab.pack_dirty = True
+            ctx.toast(
+                f"Stopped after {added + replaced} of {len(sprites)}: {exc}",
+                "warn",
+            )
+            return added, replaced
     if added or replaced:
         tab.pack_dirty = True
     return added, replaced

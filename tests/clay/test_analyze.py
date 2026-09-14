@@ -14,6 +14,7 @@ import pytest
 
 from warlock.studio.clay import analyze
 from warlock.studio.clay import document as bd
+from warlock.studio.clay import mesh as bm
 from warlock.studio.clay import ops as clay_ops
 from warlock.studio.clay import primitives as bp
 from warlock.studio.clay.elements import OpError
@@ -164,3 +165,75 @@ def test_the_triangle_pair_cap_truncates_with_exact_false() -> None:
     assert result.truncated is True
     assert len(result.pairs) == 1
     assert result.pairs[0].exact is False
+
+
+def test_a_pair_past_the_triangle_pair_cap_never_reports_a_false_no_intersection() -> None:
+    """The 2026-09-14 audit's clay-01: past MAX_TRIANGLE_PAIRS, analyze()
+    used to hard-code intersects=False without ever running the SAT test,
+    so two heavily-overlapping dense meshes read as "not touching" -- the
+    same bits an honest "checked and clear" would produce. These two
+    cylinders share a centre (one entirely inside the other, so they
+    unambiguously intersect) and are dense enough that the grid-binned
+    candidate count clears MAX_TRIANGLE_PAIRS at this test's `near`. Past
+    the cap the SAT test itself is skipped, so the honest answer is
+    "unknown" (``None``), never ``False``.
+    """
+    a = _obj(bp.cylinder(radius=0.5, height=1.0, segments=400))
+    b = _obj(bp.cylinder(radius=0.5, height=1.0, segments=400))
+
+    result = analyze.analyze([a, b], near=1000.0)
+    assert result.truncated is True
+    pair = result.pairs[0]
+    assert pair.exact is False
+    assert pair.intersects is None
+
+
+def test_analyze_does_not_stall_on_one_large_flat_triangle() -> None:
+    """The 2026-09-14 audit's clay-02: `_grid_candidates` registered a
+    triangle into *every* grid cell its own AABB touched, in pure Python,
+    with no ceiling -- an 80 m floor plate (two triangles) at the default
+    0.05 m cell measured 2.35 s, and a 160 m one 10.6 s, with none of
+    analyze()'s three other ceilings bounding it (14 triangles total is
+    nowhere near MAX_ANALYZE_TRIANGLES). A single large quad -- exactly an
+    authored "ground plane" -- paired against a small box must stay fast.
+    """
+    import time
+
+    floor = _obj(bp.plane((160.0, 160.0)), name="floor")
+    box = _obj(bp.box((0.5, 0.5, 0.5)), translation=(0.0, 0.25, 0.0), name="box")
+
+    t0 = time.time()
+    result = analyze.analyze([floor, box])
+    dt = time.time() - t0
+
+    # Comfortably above what the fix needs (milliseconds) and comfortably
+    # below the 10.6 s the unfixed code measured on this exact shape.
+    assert dt < 2.0
+    assert len(result.pairs) == 1
+
+
+def test_analyze_refuses_before_triangulating_past_max_analyze_triangles(monkeypatch) -> None:
+    """The 2026-09-14 audit's clay-04: MAX_ANALYZE_TRIANGLES used to be
+    checked only after _geometry() -- via cached_triangulation -- had
+    already triangulated every object, so a refused call still paid the
+    triangulation cost first. An n-cornered face's triangle count (n - 2) is
+    knowable from mesh.loops and face_count alone, the same trick
+    ops_boolean._refuse_complexity uses -- so cached_triangulation must never
+    run for a call this refuses.
+    """
+
+    def _boom(mesh: object) -> None:
+        raise AssertionError("cached_triangulation ran before the triangle-count refusal")
+
+    monkeypatch.setattr(analyze, "cached_triangulation", _boom)
+
+    # One n-gon face with enough corners that n - 2 alone clears the
+    # ceiling -- no triangulation needed to know that, and this test never
+    # lets one run.
+    n = analyze.MAX_ANALYZE_TRIANGLES + 3
+    positions = [(float(i), 0.0, 0.0) for i in range(n)]
+    mesh = bm.from_faces(positions, [list(range(n))])
+    obj = _obj(mesh)
+
+    with pytest.raises(OpError):
+        analyze.analyze([obj])

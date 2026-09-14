@@ -49,6 +49,21 @@ class Group:
     def losers(self, keep_id: str) -> list[str]:
         return [m["id"] for m in self.members if m["id"] != keep_id]
 
+    @property
+    def all_failed(self) -> bool:
+        """Whether every member has settled and none reached ``done``.
+
+        The 2026-09-14 audit, finding create-04: ``finished`` alone is true
+        of this group too -- a mix of done and failed settles it exactly as
+        completely as an all-done one -- so the Keep gate (``finished and
+        member done``) never opens for a single member here, and nothing
+        else offered a way out: no dismiss on either picker, and
+        ``state.Filters.matches`` hides every row carrying
+        ``candidate_group`` from the library regardless. This is the
+        question both pickers ask instead, to offer Discard in Keep's place.
+        """
+        return self.finished and not any(m.get("status") == "done" for m in self.members)
+
 
 def pending(jobs: list[dict[str, Any]]) -> Group | None:
     """The newest undecided group among ``jobs``, or None.

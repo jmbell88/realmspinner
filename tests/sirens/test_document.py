@@ -188,6 +188,34 @@ def test_a_one_shot_and_its_pattern_are_one_gesture():
     assert doc.oneshot(effect.uid) is None
 
 
+def test_add_oneshot_at_the_pattern_ceiling_does_not_leak_an_open_gesture():
+    """the 2026-09-14 audit, finding sirens-02: ``add_oneshot`` opens a
+    gesture with ``history.mark()``, then calls ``add_pattern`` to mint the
+    effect's own pattern -- and ``add_pattern`` raises ``ValueError`` with no
+    warning once the song is already at ``MAX_PATTERNS``, before
+    ``collapse_since`` ever runs to close the gesture. ``undo.py`` defers
+    eviction for as long as any gesture is open, so a song that hit this
+    ceiling stopped trimming its undo stack for the rest of the session.
+    Reproduced against the unfixed code: after the raise, pushing well past
+    ``UNDO_MAX_DEPTH`` more (unrelated, ungestured) edits left the stack at
+    its full pushed length instead of capped.
+    """
+    from warlock.studio.undo import UNDO_MAX_DEPTH
+
+    doc = _song()
+    while len(doc.patterns) < D.MAX_PATTERNS:
+        doc.add_pattern()
+    with pytest.raises(ValueError, match=str(D.MAX_PATTERNS)):
+        doc.add_oneshot("boom")
+
+    for i in range(UNDO_MAX_DEPTH + 20):
+        doc.set_song(title=f"t{i}")
+
+    assert len(doc.history) <= UNDO_MAX_DEPTH, (
+        "undo eviction stayed disabled after the failed add_oneshot"
+    )
+
+
 def test_resizing_a_pattern_keeps_what_fits_and_restores_what_did_not():
     doc = _song()
     uid = doc.patterns[0].uid
@@ -207,6 +235,31 @@ def test_the_sample_table_takes_add_replace_and_remove():
     assert "kick" not in doc.samples
     doc.undo()
     assert "kick" in doc.samples
+
+
+def test_undo_of_a_sample_edit_does_not_alias_the_undo_stacks_own_array():
+    """the 2026-09-14 audit, finding sirens-03: ``_apply_sample`` installed
+    the array with plain ``np.ascontiguousarray`` and no ``.copy()``, unlike
+    every sibling ``_apply_*`` that takes an array from an ``Edit``
+    (``_apply_pattern_cells``, ``_apply_channels``). ``SampleEdit`` hands
+    ``_apply_sample`` its own stored ``before``/``after`` array directly, and
+    ``ascontiguousarray`` is a no-op once that array is already contiguous
+    float32 -- which ``SampleEdit.__post_init__`` guarantees -- so the live
+    document and the undo record became the same numpy object. Reproduced
+    against the unfixed code: after ``undo()``, ``doc.samples["kick"] is
+    edit.before`` was ``True``, and mutating the live sample in place moved
+    the undo stack's own array with it.
+    """
+    doc = _song()
+    doc.set_sample("kick", np.array([0.1, 0.2, 0.3], dtype=np.float32))
+    doc.set_sample("kick", np.array([0.4, 0.5, 0.6], dtype=np.float32))
+    edit = doc.history.top
+    doc.undo()
+
+    assert doc.samples["kick"] is not edit.before
+    before_copy = edit.before.copy()
+    doc.samples["kick"][0] = 999.0
+    assert np.array_equal(edit.before, before_copy), "in-place edit corrupted history"
 
 
 def test_the_song_scalars_only_record_what_moved():

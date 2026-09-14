@@ -1140,6 +1140,37 @@ def test_pose_saves_refuse_by_name_while_editing_the_skeleton(svc, monkeypatch):
     ) == 3
 
 
+def test_apply_pose_refuses_while_editing_the_skeleton(svc, monkeypatch):
+    """The 2026-09-14 audit's poser-03: New pose and the three Apply buttons
+    (the library's own, the asset's own, and a shipped preset's) stayed live
+    during a skeleton edit and reposed the mesh the skeleton editor still
+    assumes is at rest -- ``enter_skeleton_edit`` resets the armature to rest
+    on the way in, and nothing brings it back until the drafted skeleton
+    lands or the edit is cancelled."""
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    state = poser_mode.ensure(ctx)
+    state.poses = [
+        {"id": "lib1", "name": "Lib", "bones": {}, "root_translation": [0.0, 0.0, 0.0]}
+    ]
+    state.asset_poses = [
+        {"id": "asset1", "name": "Asset", "bones": {}, "root_translation": [0.0, 0.0, 0.0]}
+    ]
+    state.presets = [{"name": "Preset"}]
+
+    poser_mode.new_pose(ctx)
+    poser_mode.apply_pose(ctx, "lib1")
+    poser_mode.apply_asset_pose(ctx, "asset1")
+    poser_mode.apply_preset(ctx, state.presets[0])
+
+    assert viewer.editor.mode == "skeleton", "none of the four doors left skeleton editing"
+    assert viewer.editor.current is None, "nothing was applied onto the editor"
+    assert ctx.confirms.asked == [], "refused before ever reaching the guard's confirm"
+    assert (
+        sum("before changing the pose" in msg for msg, _level in ctx.toasts) == 4
+    ), "all four doors must say why, not just the first"
+
+
 def test_rerig_of_a_custom_skeleton_always_confirms_even_with_a_clean_editor(svc, monkeypatch):
     """The generic ``guard`` only asks about an unsaved *pose*; a custom
     skeleton's own shape needs its own warning even over a clean editor."""
@@ -1182,6 +1213,35 @@ def test_skeleton_state_resets_on_open_and_close_but_not_on_template_switch(svc,
     poser_mode.close_asset(ctx)
     assert state.skeleton_editing is False
     assert state.skeleton_error is None
+
+
+def test_close_asset_confirm_names_the_skeleton_draft_not_the_pose(svc, monkeypatch):
+    """The 2026-09-14 audit's poser-04: ``PoseEditor.has_unsaved_edits()``
+    folds a posed armature (``dirty``/``moved``) and an open skeleton draft
+    (``draft_dirty``) into one flag, and :func:`poser_mode.guard` named the
+    confirm "pose changes" either way -- so closing (or opening a different)
+    asset while only the skeleton draft was dirty warned about discarding a
+    pose that had not, in fact, been touched."""
+    ctx, viewer, _job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    poser_mode.enter_skeleton_edit(ctx)
+    viewer.editor.skel_add_child(viewer.editor.draft_root)
+    assert viewer.editor.draft_dirty is True
+    assert viewer.editor.dirty is False, "only the skeleton draft is dirty here, not the pose"
+
+    poser_mode.close_asset(ctx)
+
+    assert len(ctx.confirms.asked) == 1
+    message = ctx.confirms.asked[0].message
+    assert "skeleton changes" in message
+    assert "pose changes" not in message
+
+    # open_asset's own confirm goes through the same guard() -- the finding
+    # names both doors, and the fix has to live where both of them read it.
+    poser_mode.open_asset(ctx, {"id": "some-other-job"})
+    assert len(ctx.confirms.asked) == 2
+    message = ctx.confirms.asked[1].message
+    assert "skeleton changes" in message
+    assert "pose changes" not in message
 
 
 def test_land_rerig_ends_the_skeleton_editing_session_and_announces_a_custom_skeleton(

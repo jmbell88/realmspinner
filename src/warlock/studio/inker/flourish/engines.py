@@ -119,8 +119,18 @@ class Animation:
 '''
 
 
+def _gdscript_string(text: str) -> str:
+    """Escape ``text`` for a GDScript double-quoted string literal. The
+    2026-09-14 audit (inker-10) found the effect name spliced into the
+    Godot snippet's ``"..."`` literals with no escaping at all: a quote or
+    backslash in the name (nothing stops a user naming an effect ``Bob's
+    "big" swing``) closed the literal early and broke the pasted script."""
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
 def _godot(i: dict[str, Any]) -> str:
     ident = _ident(i["name"])
+    name = _gdscript_string(i["name"])
     fw, fh = i["frame_width"], i["frame_height"]
     ox, oy = fw / 2 - i["origin"][0], fh / 2 - i["origin"][1]
     columns = i["columns"]
@@ -129,9 +139,9 @@ var {ident} := SpriteFrames.new()
 
 func _ready() -> void:
     var sheet: Texture2D = load("res://{i["image"]}")
-    {ident}.add_animation("{i["name"]}")
-    {ident}.set_animation_speed("{i["name"]}", {i["fps"]})
-    {ident}.set_animation_loop("{i["name"]}", {"true" if i["loop"] else "false"})
+    {ident}.add_animation("{name}")
+    {ident}.set_animation_speed("{name}", {i["fps"]})
+    {ident}.set_animation_loop("{name}", {"true" if i["loop"] else "false"})
     # The sheet wraps into more rows once one row would cross the atlas width
     # ceiling (the 2026-09-07 audit, inker-07) -- {columns} is the per-tag
     # export's own row-wrap, not always every frame in one row.
@@ -139,10 +149,10 @@ func _ready() -> void:
         var atlas := AtlasTexture.new()
         atlas.atlas = sheet
         atlas.region = Rect2((n % {columns}) * {fw}, (n / {columns}) * {fh}, {fw}, {fh})
-        {ident}.add_frame("{i["name"]}", atlas)
+        {ident}.add_frame("{name}", atlas)
     $AnimatedSprite2D.sprite_frames = {ident}
     $AnimatedSprite2D.offset = Vector2({ox}, {oy})
-    $AnimatedSprite2D.play("{i["name"]}")
+    $AnimatedSprite2D.play("{name}")
 '''
 
 

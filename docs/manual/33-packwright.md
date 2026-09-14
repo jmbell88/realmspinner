@@ -24,6 +24,12 @@ named as the problem it is — those are the marks of a damaged or hostile file,
 recent document that refuses to open also drops off the Resume list, so a moved or corrupted file
 does not sit there failing every time you look at it.
 
+There is a fourth ceiling, and it is not only about opening a file: every source a pack holds, added
+one at a time or read back from a document, counts toward a combined total of 8192×8192 pixels
+(about 67 million) decoded at once. Adding a source that would push the pack's sources past that
+total is refused by name, telling you to split the atlas into several packs — an ordinary add can hit
+this exactly as a hostile file can.
+
 ## Sources
 
 Five ways in.

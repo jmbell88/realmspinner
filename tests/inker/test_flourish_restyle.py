@@ -260,6 +260,66 @@ def test_the_restyle_door_queues_polls_interpolates_and_lands(tmp_path, monkeypa
     assert ctx.toasts[-1][1] == "success"
 
 
+class _NoRunCtx(_Ctx):
+    """Like ``_Ctx`` but ``submit`` records the task and never runs it, so a
+    test can see what ``submit_restyle`` did *before* handing work to the
+    task runner."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self.submitted: list = []
+
+    def submit(self, key, fn, *args, **kwargs):
+        if key in self._busy:
+            return False
+        self._busy.add(key)
+        self.submitted.append((key, fn, args, kwargs))
+        return True
+
+
+def test_submit_restyle_does_not_encode_png_on_the_frame_thread(tmp_path, monkeypatch):
+    """The 2026-09-14 audit (inker-05): ``submit_restyle`` used to composite
+    *and* PNG-encode every anchor frame on the frame thread, before the task
+    was even submitted -- ~51 ms per anchor at 1024^2, so 100-300 ms per
+    press of a button that is supposed to only queue a job. The encode does
+    not need the document (only the already-composited plane), so it belongs
+    inside the submitted task, not ahead of it."""
+    ctx = _NoRunCtx(tmp_path)
+    tab = inker_state.InkerDoc(doc=inker.Document.blank(32, 32))
+    ctx.state.inker.docs.append(tab)
+    ctx.state.inker.active_uid = tab.uid
+    rec = dataclasses.replace(presets.load("sword_impact"), width=32, height=32, supersample=2)
+    tab.doc.insert_flourish(B.bake(rec))
+
+    calls: list = []
+    real_png_bytes = inker_flourish._png_bytes
+
+    def fake_png_bytes(plane):
+        calls.append(plane)
+        return real_png_bytes(plane)
+
+    monkeypatch.setattr(inker_flourish, "_png_bytes", fake_png_bytes)
+
+    from warlock.service import jobs as svc_jobs
+
+    monkeypatch.setattr(
+        svc_jobs, "create_job", lambda svc, **kwargs: {"id": f"job{len(calls)}"}
+    )
+
+    assert inker_mode.flourish_restyle(
+        ctx, tab, phase="sparks", subject="painted sparks", strength=0.6, anchors=3
+    )
+    # The task was submitted, but nothing has run it yet: the encoder must
+    # not have been touched on the frame thread that called submit_restyle.
+    assert len(ctx.submitted) == 1
+    assert calls == []
+
+    # Running the submitted task is where the encode belongs.
+    _key, fn, args, kwargs = ctx.submitted[0]
+    fn(*args, **kwargs)
+    assert len(calls) == 3  # one per anchor frame
+
+
 def test_a_failed_job_ends_the_restyle_with_a_warning(tmp_path):
     ctx, tab, group = _scene(tmp_path)
     state = ctx.state.inker

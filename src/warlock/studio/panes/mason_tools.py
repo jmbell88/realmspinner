@@ -145,6 +145,17 @@ def _world_boxes(ctx: Any, doc: md.MasonDoc, uids: list[int]) -> dict[int, tuple
 
 
 def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
+    """Move every ``(uid, delta)`` pair, as **one** undo step.
+
+    The 2026-09-14 audit's mason-02: this used to push one ``TransformEdit``
+    per node with no ``mark``/``collapse_since`` around the loop, so Align,
+    Distribute and Drop selection to ground each cost as many Ctrl+Z presses
+    as nodes moved -- docs/manual/31-mason.md promises "Each of these lands as
+    a single undo step", and every other multi-node mutator in
+    ``mason_mode.py`` (``group_selected``, ``duplicate_selected``...) already
+    folds the same way. This is the one call site all three buttons share.
+    """
+    mark = doc.mark()
     for uid, delta in deltas.items():
         node = doc.node(uid)
         if node is None:
@@ -152,6 +163,7 @@ def _apply_deltas(doc: md.MasonDoc, deltas: dict[int, Any]) -> None:
         was = node.trs()
         translation = np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8")
         doc.set_transform(uid, translation=translation, was=was)
+    doc.collapse_since(mark)
 
 
 #: Transient widget state for the align/array rows -- which axis, which mode,
@@ -207,6 +219,23 @@ def _placement(ctx: Any, state: Any, tab: Any) -> None:
     _array(ctx, state, doc)
 
 
+def _over_max_placed(doc: md.MasonDoc, added: int) -> int | None:
+    """The document's node count after adding ``added`` more, or ``None`` when
+    that stays within :data:`scene.MAX_PLACED`.
+
+    The 2026-09-14 audit's mason-01: an array count someone typed an extra
+    zero into used to run straight through -- ``array_linear``/``array_radial``
+    building every copy and ``_spawn_array`` calling ``copy_subtree`` on each
+    one (150,000 copies measured at 1.18 s) -- before ``MasonDoc.add_nodes``
+    ever got a chance to refuse, by which point the copies already existed and
+    the refusal there just meant the work was wasted rather than avoided.
+    Checked here first, with the same cheap structural count ``add_nodes``
+    itself refuses on, so the button can toast and build nothing at all.
+    """
+    total = len(doc.all_nodes()) + added
+    return total if total > scene.MAX_PLACED else None
+
+
 def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     """Duplicate the one selected node along a line or around a circle,
     through ``mason.ops.array_linear``/``array_radial`` -- the arithmetic that
@@ -226,24 +255,44 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
 
     width = widgets.grid_width(1)
     if widgets.disabled_button("Array (linear)##masonarraylinear", one, (width, 0)) and node:
-        trs_list = mops.array_linear(_PENDING["count"], _PENDING["offset"], base_trs=node.trs())
-        _spawn_array(doc, node, trs_list[1:])
+        over = _over_max_placed(doc, _PENDING["count"] - 1)
+        if over is not None:
+            ctx.toast(
+                f"That array would bring this scene to {over} nodes, past "
+                f"the {scene.MAX_PLACED} limit -- refusing rather than "
+                "building it.",
+                "error",
+            )
+        else:
+            trs_list = mops.array_linear(
+                _PENDING["count"], _PENDING["offset"], base_trs=node.trs()
+            )
+            _spawn_array(doc, node, trs_list[1:])
 
     widgets.field_label("degrees")
     _, degrees = controls.input_float("##masonarraydegrees", float(_PENDING["degrees"]), 5.0)
     _PENDING["degrees"] = degrees
 
     if widgets.disabled_button("Array (radial)##masonarrayradial", one, (width, 0)) and node:
-        centre = node.translation
-        trs_list = mops.array_radial(
-            _PENDING["count"],
-            centre=centre,
-            axis=(0.0, 1.0, 0.0),
-            degrees=_PENDING["degrees"],
-            base_trs=node.trs(),
-        )
-        _spawn_array(doc, node, trs_list[1:])
-    del ctx, state
+        over = _over_max_placed(doc, _PENDING["count"] - 1)
+        if over is not None:
+            ctx.toast(
+                f"That array would bring this scene to {over} nodes, past "
+                f"the {scene.MAX_PLACED} limit -- refusing rather than "
+                "building it.",
+                "error",
+            )
+        else:
+            centre = node.translation
+            trs_list = mops.array_radial(
+                _PENDING["count"],
+                centre=centre,
+                axis=(0.0, 1.0, 0.0),
+                degrees=_PENDING["degrees"],
+                base_trs=node.trs(),
+            )
+            _spawn_array(doc, node, trs_list[1:])
+    del state
 
 
 def _spawn_array(doc: md.MasonDoc, node: nd.Node, trs_list: list[Any]) -> None:

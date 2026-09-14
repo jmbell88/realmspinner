@@ -1531,7 +1531,15 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    only if overrides turn out to be common: place a few dozen retinted copies of
    one asset and see whether it matters before changing how the renderer binds
    materials.
-7. **F7. The jump clip's knee bends the wrong way.** Found 2026-09-12 running
+7. ~~**F7. The jump clip's knee bends the wrong way.**~~ Built 2026-09-14 (the
+   2026-09-14 audit, finding docs-05): `shin.L`/`shin.R` flipped to `+0.6428` in
+   `jump crouch` and `+0.5299` in `jump land`, pinned as data by
+   `tests/test_clip_library_poses.py::test_jump_crouch_and_land_bend_the_knee_forward_not_backward`.
+   Not re-rendered: no Blender on the fixing machine, so the visual confirmation
+   the entry asked for is still owed on the next Troupe run of a humanoid jump.
+   `jump launch`/`rise`/`fall`/`apex` still carry opposite-signed thigh and shin
+   and were deliberately left alone, since nobody has judged them backward.
+   The original entry follows. Found 2026-09-12 running
    a real human-authored mesh (Quaternius's CC0 "Superhero Male") through
    *Send to Troupe* for P4 — the first time this template has been judged on
    art rather than CesiumMan. `src/warlock/templates/clips/humanoid.json`'s
@@ -1564,8 +1572,13 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    static frame cannot settle "is this backward" on its own; needs the actual
    sheet played back (Troupe's own preview, or a GIF of the yaw-90 walk
    frames in sequence) before concluding anything.
-9. **F9. `clay_op` crashes instead of refusing when a value inside `params` has
-   the wrong type.** Found 2026-09-13 while authoring Clay assistant run B's rows,
+9. ~~**F9. `clay_op` crashes instead of refusing when a value inside `params` has
+   the wrong type.**~~ Built 2026-09-14 (the 2026-09-14 audit, finding docs-06):
+   `agent_clay._op_params_type_refusal` refuses an undeclared key or a value that
+   is not a single number by `field="params"` before `clay_ops.run` sees it; the
+   three calls below are
+   `tests/test_agent_clay_door_types.py::test_clay_op_refuses_a_wrong_typed_param_value_instead_of_crashing`.
+   The original entry follows. Found 2026-09-13 while authoring Clay assistant run B's rows,
    through the real `agent_clay.call` door: `mirror-x` with `{"axis": 0}` answers
    "failed unexpectedly; see the log", and `mirror-copy` with `{"axis": "x"}`
    leaks a raw "could not convert string to float". It reproduced again on
@@ -1921,12 +1934,27 @@ modules, move out of the pure package; T5 conversation loop, `llama_client`,
 and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
-guess; T10 swap to the fine-tune (after P53). **Still owed from T0–T4:** the
-branch was to refresh `screenshots/` and run `/exercise-mode` on a workspace
-before merging. It was merged on 2026-09-14 at the user's request without
-either, so both are owed now, against master: T0 moved the status readouts
-into the menu bar and added the bottom pane, and nothing in the suite checks
-the screenshots.
+guess; T10 swap to the fine-tune (after P53). The screenshot and `/exercise-mode`
+debt T0–T4 left behind does not wait on the card; it is P55.
 
 **Expected outcome:** Familiar answers in the bottom pane, previews Clay builds
 as a ghost, and runs the fine-tune. Strike this entry per tranche as each lands.
+
+## P55. Refresh `screenshots/` and exercise a workspace after the Familiar T0–T4 merge
+
+**Why it is yours:** judging whether a screenshot shows the right thing and
+whether an exercise pass's presses behaved is a human read of images, and
+nothing in the suite checks `screenshots/`. It was split out of P54 by the
+2026-09-14 audit (finding docs-08): it had been sitting inside an entry gated
+on T3's card while needing nothing from it. `feature/familiar` was to refresh
+`screenshots/` and run `/exercise-mode` on a workspace before merging, and it
+was merged into master on 2026-09-14 at the user's request without either. T0
+moved the status readouts into the menu bar and added the bottom pane, so every
+capture of a mode's frame is now stale.
+
+**Do:** on master, `uv run python scripts/screenshot_modes.py` and look at every
+capture's menu bar and bottom pane; then `/exercise-mode clay` (the workspace
+T2's ghost preview lives in) and read its press-by-press screenshots.
+
+**Expected outcome:** `screenshots/` matches the shipped frame, and an exercise
+pass over Clay either comes back clean or names what it found as open findings.

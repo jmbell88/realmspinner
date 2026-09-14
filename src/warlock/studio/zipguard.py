@@ -1,11 +1,20 @@
 """A zip reader that refuses a member claiming less than it unpacks to.
 
-**Why this exists, measured.** Four container doors -- ``inker/ora.py``,
-``clay/serialize.py``, ``packwright/wpack.py`` and ``plotter/wmap.py`` -- each
+**Why this exists, measured.** Six container doors -- ``inker/ora.py`` (.ora),
+``clay/serialize.py``, ``mason/serialize.py`` (.wscn),
+``packwright/wpack.py``, ``plotter/wmap.py`` and ``sirens/wsng.py`` -- each
 opened with the same precheck: sum ``info.file_size`` over the central
-directory and refuse an archive claiming more than :data:`MAX_DECOMPRESSED_BYTES`
-unpacked. That is the cheapest possible refusal and it is worth keeping, but it
-asks the *archive* how big it is, and an attacker writes the central directory.
+directory and refuse an archive claiming more than
+:data:`MAX_DECOMPRESSED_BYTES` unpacked. That is the cheapest possible
+refusal and it is worth keeping, but it asks the *archive* how big it is,
+and an attacker writes the central directory.
+``npyguard.py``'s ``read_npz`` opens a bounded zip too, one layer down, for
+the ``.npz`` blobs those six doors embed inside their own archives -- shell-08
+(the 2026-09-14 audit) found this docstring naming only the original four
+(Mason and Sirens gained their doors later and were never added here); the
+regression test derives the caller list from the tree by grep rather than
+repeating a second hand-written copy of it, so it cannot go stale the same
+way again.
 
 The gap is not theoretical. A member whose directory entry declares **10 bytes**
 and whose deflate stream actually inflates to 512 MiB passes the sum untouched:
@@ -22,10 +31,10 @@ than at the CRC. ``plotter/tmx.py``'s ``_decompress`` and ``inker/asein.py``'s
 ``_inflate`` are the same idea one layer down, on a raw deflate stream.
 
 **A subclass rather than a helper function**, which is the one design decision
-here worth stating. There are eighteen ``zf.read`` call sites across the four
+here worth stating. There are dozens of ``zf.read`` call sites across those six
 doors and there will be more; a ``bounded_read(zf, name)`` helper is a rule that
 holds only as long as every future call site remembers it, and "remembered at
-seventeen of eighteen sites" is indistinguishable from not having the rule.
+all but one site" is indistinguishable from not having the rule.
 Overriding ``read`` means the bound is a property of the *archive object* the
 door opened, so a new call site gets it by construction.
 

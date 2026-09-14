@@ -475,7 +475,9 @@ file, which opens as a still image with no timeline for any of them to live on, 
 message. What is still a message about user data even on an animated
 file: a note on a *slice* or on a *tileset*, a note on an individual *tile*, and Aseprite's custom
 **properties** — a typed key/value tree, which is a document format of its own inside the file. A
-reference layer opens hidden, which is what exporting from Aseprite would do with it.
+reference layer is an underlay and keeps the visibility it had in the file — showing if the file
+showed it — with only a warning that a flattened export leaves it out, the way exporting from
+Aseprite itself would.
 
 The full list of what comes across, what is only a message, and what a save back out to `.aseprite`
 drops in turn, is kept in `docs/COMPAT.md`.

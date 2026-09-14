@@ -1,4 +1,9 @@
-"""The one process in this project that is allowed to touch the network.
+"""The first of three processes in this project allowed to touch the network.
+
+The 2026-09-14 audit (pipelines-06): this opened as "the one process ... that
+is allowed" and stayed that way after ``pack_worker`` and ``update_worker``
+were added, both of which name themselves correctly ("the second"/"the
+third") against this one's now-false claim.
 
 ``python -m warlock.pipelines.fetch_worker``, spawned by
 ``service.downloads``, exactly as ``blender_worker`` is spawned by

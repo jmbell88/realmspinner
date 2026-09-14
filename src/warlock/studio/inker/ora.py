@@ -1443,6 +1443,20 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
         for frame, entry in zip(frames, payload["frames"], strict=False):
             table = entry.get("palette")
             if table:
+                # The 2026-09-14 audit (inker-11): the document's own palette
+                # is capped at ``MAX_COLOURS`` on every write path
+                # (``_doc_indexed.set_palette``'s ``ValueError``, from the
+                # 2026-09-13 audit's inker-04), but a per-frame override read
+                # here had no ceiling at all -- an untrusted file could name
+                # thousands of entries per frame with nothing to catch it.
+                # Refused the same way as the document table: a ``ValueError``
+                # here is caught by this function's own handler and falls
+                # back to the flat read, exactly like an oversized track or
+                # frame count above.
+                if len(table) > ixp.MAX_COLOURS:
+                    raise ValueError(
+                        f"a palette holds at most {ixp.MAX_COLOURS} colours"
+                    )
                 frame_palettes[frame.uid] = [
                     tuple(int(v) for v in colour[:4]) for colour in table
                 ]

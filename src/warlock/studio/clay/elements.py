@@ -190,10 +190,23 @@ def convert(mesh: Mesh, sel: ElementSel, target: str) -> ElementSel:
 
 
 def _rows_minus(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a`` with every row that also appears in ``b`` removed, row order kept.
+
+    The 2026-09-14 audit's clay-03: this used to broadcast ``a`` against ``b``
+    to a dense ``(len(a), len(b), 2)`` boolean array, so selecting every edge
+    of a large import and then Ctrl-drag subtracting a marquee over it tried
+    to allocate gigabytes on the frame thread. Both columns are already
+    canonicalised to ``lo <= hi`` (:func:`_pairs`), so each row folds into one
+    int64 key -- ``lo * scale + hi``, with ``scale`` past the largest vertex
+    index either side names -- and the subtraction becomes a single
+    ``np.isin`` over 1-D keys, with no array bigger than the inputs.
+    """
     if len(a) == 0 or len(b) == 0:
         return a
-    keep = ~(a[:, None, :] == b[None, :, :]).all(axis=2).any(axis=1)
-    return a[keep]
+    scale = int(max(a.max(), b.max())) + 1
+    a_keys = a[:, 0].astype(np.int64) * scale + a[:, 1].astype(np.int64)
+    b_keys = b[:, 0].astype(np.int64) * scale + b[:, 1].astype(np.int64)
+    return a[~np.isin(a_keys, b_keys)]
 
 
 def combine(a: ElementSel, b: ElementSel, how: How = "replace") -> ElementSel:

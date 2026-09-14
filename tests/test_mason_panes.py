@@ -398,3 +398,152 @@ def test_every_accelerator_a_mason_menu_advertises_is_one_handle_key_answers():
         f"Mason's menus advertise {wrong}, which mason_mode.handle_key does not "
         f"bind -- the menu is the only place a user reads that binding"
     )
+
+
+# --- arming a primitive/light/camera disarms a prefab -----------------------
+
+
+def test_arming_a_primitive_after_a_prefab_disarms_the_prefab():
+    """The 2026-09-14 audit's mason-03: arming a primitive, light or camera
+    used to set ``state.place_kind`` and leave ``state.place_prefab`` exactly
+    as a previous prefab arm left it, and ``mason_mode.place_armed`` checks
+    ``place_prefab`` first -- so the next click placed the old prefab while
+    the palette highlighted the newly-armed item and the HUD hint still
+    described the prefab.
+
+    This must fail against the unfixed call sites: ``place_prefab`` would
+    still read ``"Barrel"`` after arming a plain primitive.
+    """
+    from warlock.studio import mason_state
+    from warlock.studio.panes import mason_palette
+
+    state = mason_state.MasonState()
+    state.place_prefab = "Barrel"  # armed earlier from the Prefabs pane
+
+    mason_palette._arm_kind(state, "box")
+
+    assert state.place_kind == "box"
+    assert state.place_prefab == ""
+
+
+# --- the Move hint promises only what the tool does --------------------------
+
+
+def test_the_move_hint_does_not_promise_typed_entry_the_mode_lacks():
+    """The 2026-09-14 audit's mason-04: the Move hint said "type a number, or
+    X/Y/Z to lock an axis", which is Clay's ``clay/drag.py`` typed-entry and
+    keyboard axis-lock machinery -- never ported to Mason. ``mason_mode``'s
+    ``handle_key``/``_ctrl_key`` have no digit or X/Y/Z handling, so the hint
+    described a gesture that simply did nothing when a reader tried it.
+
+    This must fail against the unfixed hint, whose text names "type a
+    number" and "X/Y/Z".
+    """
+    from warlock.studio import mason_state
+    from warlock.studio.panes import mason_hud
+
+    state = mason_state.MasonState()
+    state.tool = "move"
+    line = mason_hud._hint(state)
+
+    assert "type a number" not in line.lower()
+    assert "x/y/z" not in line.lower()
+
+
+# --- one undo step per multi-node placement gesture --------------------------
+
+
+def test_align_on_three_nodes_undoes_in_one_step():
+    """The 2026-09-14 audit's mason-02: ``_apply_deltas`` (Align, Distribute
+    and Drop selection to ground's shared engine) used to push one
+    ``TransformEdit`` per moved node with no ``mark``/``collapse_since``
+    around the loop, so aligning three nodes cost three Ctrl+Z presses.
+    docs/manual/31-mason.md promises "Each of these lands as a single undo
+    step" and every other multi-node mutator in ``mason_mode.py``
+    (``group_selected``, ``duplicate_selected``...) already folds this way.
+
+    This must fail against the unfixed ``_apply_deltas``: three separate
+    ``TransformEdit`` pushes, so one ``undo()`` would restore only the last
+    node moved and leave the other two at their aligned position.
+    """
+    from warlock.studio.panes import mason_tools
+
+    a = nd.GroupNode(uid=nd.new_uid(), name="A")
+    b = nd.GroupNode(uid=nd.new_uid(), name="B")
+    c = nd.GroupNode(uid=nd.new_uid(), name="C")
+    doc = md.MasonDoc(roots=[a, b, c])
+
+    deltas = {
+        a.uid: [1.0, 0.0, 0.0],
+        b.uid: [0.0, 2.0, 0.0],
+        c.uid: [0.0, 0.0, 3.0],
+    }
+    mason_tools._apply_deltas(doc, deltas)
+
+    assert a.translation.tolist() == [1.0, 0.0, 0.0]
+    assert b.translation.tolist() == [0.0, 2.0, 0.0]
+    assert c.translation.tolist() == [0.0, 0.0, 3.0]
+    # One step for all three moves, not three -- ``len(history)`` is the
+    # stack's own step count (``UndoStack.__len__``); ``head`` is a global
+    # per-edit serial, not a per-stack count, and is the wrong thing to
+    # assert one-ness against.
+    assert len(doc.history) == 1
+
+    doc.undo()
+    assert a.translation.tolist() == [0.0, 0.0, 0.0]
+    assert b.translation.tolist() == [0.0, 0.0, 0.0]
+    assert c.translation.tolist() == [0.0, 0.0, 0.0]
+
+
+def test_drop_to_ground_context_menu_row_undoes_in_one_step(monkeypatch):
+    """The context menu's own "Drop to ground" row (``mason_menu._drop_to_ground``)
+    shares its arithmetic with the sidebar button but is a separate call
+    site, and the 2026-09-14 audit's mason-02 found it with the identical
+    per-node-push bug. Fails against the unfixed row the same way the sidebar
+    test above does: three pushes instead of one.
+    """
+    import numpy as np
+
+    from warlock.studio.panes import mason_menu
+
+    a = nd.GroupNode(uid=nd.new_uid(), name="A")
+    b = nd.GroupNode(uid=nd.new_uid(), name="B")
+    c = nd.GroupNode(uid=nd.new_uid(), name="C")
+    a.translation = np.array([0.0, 5.0, 0.0])
+    b.translation = np.array([0.0, 3.0, 0.0])
+    c.translation = np.array([0.0, 8.0, 0.0])
+    doc = md.MasonDoc(roots=[a, b, c])
+    doc.select([a.uid, b.uid, c.uid])
+
+    # world_bounds and mason_assets.ensure both need a real geometry source
+    # this test has no use for -- faked out so only the undo-folding under
+    # test is exercised, the same way ``FakeCtx`` stands in for ``Ctx`` above.
+    # Each box's own lo/hi is just the node's current translation, so
+    # drop_to_ground (ground plane at y=0, no terrain) computes a real,
+    # non-zero delta per node rather than a no-op that would tell this test
+    # nothing.
+    monkeypatch.setattr(
+        mason_menu, "mason_assets", type("_M", (), {"ensure": staticmethod(lambda ctx: None)})
+    )
+    monkeypatch.setattr(
+        mason_menu.mscene,
+        "world_bounds",
+        lambda doc, source, uids: (
+            np.asarray(doc.node(uids[0]).translation, dtype="f8"),
+            np.asarray(doc.node(uids[0]).translation, dtype="f8"),
+        ),
+    )
+
+    class _Tab:
+        pass
+
+    tab = _Tab()
+    tab.doc = doc
+    mason_menu._drop_to_ground(FakeCtx(), tab)
+
+    # One step for all three drops, not three.
+    assert len(doc.history) == 1
+    doc.undo()
+    assert a.translation.tolist() == [0.0, 5.0, 0.0]
+    assert b.translation.tolist() == [0.0, 3.0, 0.0]
+    assert c.translation.tolist() == [0.0, 8.0, 0.0]

@@ -298,6 +298,27 @@ def test_a_custom_property_value_is_typed_as_one_undo_step():
     )
 
 
+def test_editing_a_tile_objects_gid_field_folds_into_one_undo_step():
+    """The 2026-09-14 audit, plotter-01: ``_shape_fields``'s tile-gid field
+    called ``controls.input_int`` with neither ``commit=True`` nor
+    ``controls.fold_undo`` between it and ``doc.set_object``'s unconditional
+    ``history.push`` -- typing a tile id pushed one undo step per keystroke.
+    Its sibling custom-property fields in ``_value_editor`` already pass
+    ``commit=True`` for the same reason (see
+    ``test_a_custom_property_value_is_typed_as_one_undo_step`` above).
+    """
+    import inspect
+
+    from warlock.studio.panes import plotter_layers
+
+    source = inspect.getsource(plotter_layers._shape_fields)
+    after_gid_field = source.split('"##obj-gid"', 1)[1]
+    call_end = after_gid_field.index(")")
+    assert "commit=True" in after_gid_field[:call_end], (
+        "the tile object's gid field is not committed"
+    )
+
+
 @pytest.mark.parametrize("kind", ["class", "list"])
 def test_a_container_property_summarises_rather_than_showing_nothing(kind):
     """A class arriving from Tiled used to look like an empty string until the

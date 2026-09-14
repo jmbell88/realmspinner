@@ -127,6 +127,22 @@ def _library(ctx: Any, state: Any) -> None:
     del state
 
 
+def _arm_kind(state: Any, kind: str) -> None:
+    """Arm a primitive/light/camera placement, disarming any prefab.
+
+    The 2026-09-14 audit's mason-03: arming one of these three used to set
+    ``state.place_kind`` and leave ``state.place_prefab`` exactly as a
+    previous prefab arm left it, and ``mason_mode.place_armed`` checks
+    ``place_prefab`` *first* -- so the next click placed the old prefab while
+    the palette highlighted the newly-armed item and the HUD hint still
+    described the prefab. ``mason_prefabs.py``'s own arm already clears the
+    other side of this pair (``state.place_kind = ""`` the moment a prefab is
+    armed); this is that same clear, the other direction.
+    """
+    state.place_kind = kind
+    state.place_prefab = ""
+
+
 def _primitives(ctx: Any, state: Any) -> None:
     """The derived primitive grid -- ``clay_tools._add``'s grid, restated for
     an armed tool rather than an immediate placement."""
@@ -138,7 +154,7 @@ def _primitives(ctx: Any, state: Any) -> None:
         ]
         clicked = tool_palette.icon_grid(items, COLUMNS, state.place_kind, id_prefix="masonadd")
         if clicked:
-            state.place_kind = clicked
+            _arm_kind(state, clicked)
     del ctx
 
 
@@ -163,7 +179,7 @@ def _lights(ctx: Any, state: Any) -> None:
             f"{label}##masonlight{key}", (width, sp(28)), selected=state.place_kind == key,
             tooltip=tip,
         ):
-            state.place_kind = key
+            _arm_kind(state, key)
     del ctx
 
 
@@ -259,5 +275,5 @@ def _camera(ctx: Any, state: Any) -> None:
         selected=state.place_kind == "camera",
         tooltip="A view into the scene, exported alongside it",
     ):
-        state.place_kind = "camera"
+        _arm_kind(state, "camera")
     del ctx

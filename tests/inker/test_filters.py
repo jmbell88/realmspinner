@@ -101,6 +101,45 @@ def test_a_grey_pixel_stays_grey_however_far_saturation_is_pushed():
     assert tuple(out[0, 0])[:3] == (90, 90, 90)
 
 
+def test_hue_saturation_does_not_raise_under_errstate_on_pure_black_or_white_pixels():
+    """2026-09-14 audit, finding inker-04: the saturation divide used to be
+    ``np.divide(span, denominator, out=np.zeros_like(span),
+    where=denominator > 1e-6)`` -- the masked-lane pattern removed everywhere
+    else in this package (``composite.over``'s masked-lane fix, quoted beside
+    every other divide in this module) because ``where=`` does not promise the
+    masked lanes go unevaluated, and a SIMD lane could still run ``span / 0``
+    for a pure black or white pixel (``denominator`` is exactly zero there).
+
+    On this build's numpy that call neither raises under
+    ``np.errstate(all="raise")`` nor emits a RuntimeWarning for these small
+    arrays -- probed directly, not assumed -- so the masked-lane *pattern*
+    is pinned by source inspection instead of by provoking the failure, the
+    fallback the finding itself names. ``_hue_of`` beside it in the same file
+    is the model: a safe denominator built with ``np.where`` and no ``where=``
+    keyword on the divide at all.
+    """
+    import ast
+    import inspect
+
+    source = inspect.getsource(filters.hue_saturation)
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            assert not any(kw.arg == "where" for kw in node.keywords), (
+                "hue_saturation must not divide with a where= keyword -- "
+                "the 2026-09-14 audit's masked-lane pattern; use a safe "
+                "denominator built with np.where instead, as _hue_of does"
+            )
+
+    # And the ordinary behaviour still holds under the strictest setting,
+    # black and white both -- this is what the masked lanes must keep giving.
+    with np.errstate(all="raise"):
+        black = filters.hue_saturation(_flat((0, 0, 0, 255)), saturation=0.5)
+        white = filters.hue_saturation(_flat((255, 255, 255, 255)), saturation=0.5)
+    assert tuple(black[0, 0])[:3] == (0, 0, 0)
+    assert tuple(white[0, 0])[:3] == (255, 255, 255)
+
+
 def test_full_desaturation_leaves_equal_channels():
     out = filters.hue_saturation(_flat((200, 30, 60, 255)), saturation=-1.0)
     r, g, b = (int(c) for c in out[0, 0][:3])

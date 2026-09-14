@@ -101,6 +101,11 @@ def build(
     # the answer anyone actually means by "is it watertight". Falls back to the
     # raw numbers rather than raising: this module is advisory throughout.
     welded = _welded(trimesh, np, vertices, faces)
+    # The 2026-09-14 audit, pipelines-05: when ``_welded`` returns None (a
+    # degenerate bounding box, or a mesh that welds to nothing), the numbers
+    # below are the *unwelded* topology, not a welded one that happened to
+    # match it -- so the reason string must not claim welding ran.
+    weld_skipped = welded is None
     if welded is None:
         welded_watertight = watertight
         welded_components, welded_boundary_edges = components, boundary_edges
@@ -123,9 +128,12 @@ def build(
 
     triangles = int(len(faces))
     if not welded_watertight:
+        qualifier = (
+            "unwelded" if weld_skipped else "after welding vertices by position"
+        )
         reasons.append(
             f"not watertight: {welded_boundary_edges} boundary edge(s) in "
-            f"{welded_components} component(s), after welding vertices by position"
+            f"{welded_components} component(s), {qualifier}"
         )
     if nonmanifold_edges:
         reasons.append(f"{nonmanifold_edges} non-manifold edge(s)")

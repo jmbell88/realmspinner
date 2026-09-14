@@ -32,7 +32,7 @@ from test_cliptransfer import (
 )
 
 from warlock import clips as pure_clips
-from warlock import doctor, poselib, rigging
+from warlock import cliptransfer, doctor, poselib, rigging
 from warlock.doctor import Check
 from warlock.service import Conflict, Failed, Invalid, clip_import
 from warlock.service import clips as svc_clips
@@ -315,3 +315,55 @@ def test_import_is_not_written_when_the_render_check_refuses(svc, monkeypatch, t
         clip_import.import_into_library(svc, TEMPLATE, str(source), clip_name="brought_in")
 
     assert not poselib.clip_path(svc.config, TEMPLATE).is_file()
+
+
+def test_import_into_library_refuses_a_clip_library_the_read_door_could_never_load_back(
+    svc, monkeypatch, tmp_path
+):
+    """The 2026-09-14 audit, finding poser-01: ``service.clips.save`` gained a
+    check against ``rigging.MAX_CLIP_LIBRARY_BYTES`` on 2026-09-13 (finding
+    poser-02) because ``_check_shape`` bounds keys and segments but not bones
+    per pose or the serialized whole. ``import_into_library`` merges into the
+    exact same document shape through the exact same
+    ``_check_shape``/``_commit_locked`` pair, but was never given the same
+    size check -- so an imported animation with enough bones (a dense facial
+    or cloth rig baked in by the source file) can still write a library the
+    read door then refuses forever after, reverting the template to the
+    shipped clips with no error saying why.
+
+    ``cliptransfer.transfer`` is faked directly (as this module fakes
+    ``rigging.run_worker`` for the Blender step) to hand back one pose with
+    50,000 bones -- comfortably over the 4 MiB cap once serialized, the same
+    bone count ``test_clip_editing.py``'s sibling test for ``save`` uses.
+    """
+    _ok_blender(monkeypatch)
+    _fake_run_worker(monkeypatch, _canned_payload())
+    source = _write_source(tmp_path)
+
+    huge_bones = {f"bone{i}": [1.0, 0.0, 0.0, 0.0] for i in range(50_000)}
+
+    def _huge_transfer(sample, *, template, clip_name, frames, loop, root_motion):
+        name = clip_name or "brought_in"
+        return [
+            {
+                "clip": {
+                    "name": name,
+                    "keys": ["big", "big"],
+                    "segments": [1],
+                    "closed": False,
+                    "easing": "linear",
+                    "duration_ms": 1000,
+                },
+                "poses": {"big": {"bones": huge_bones}},
+                "report": {"map": "auto"},
+            }
+        ]
+
+    monkeypatch.setattr(cliptransfer, "transfer", _huge_transfer)
+
+    with pytest.raises(Conflict) as excinfo:
+        clip_import.import_into_library(svc, TEMPLATE, str(source), clip_name="brought_in")
+    assert excinfo.value.field == "poses"
+    assert not poselib.clip_path(svc.config, TEMPLATE).is_file(), (
+        "a refused import must not land on disk, even staged"
+    )

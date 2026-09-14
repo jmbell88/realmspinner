@@ -348,20 +348,33 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         _vary(ctx, job)
 
     if group is not None:
-        ready = group.finished and done
-        if widgets.disabled_button(
-            f"Keep##result-keep-{job_id}",
-            ready,
-            half,
-            reason=(
-                "Wait for every candidate to finish."
-                if not group.finished
-                else "This result did not finish."
-            ),
-        ):
-            from .panes import candidates_panel
+        # The 2026-09-14 audit, finding create-04: when every member of the
+        # group has failed, Keep's gate (``group.finished and done``) can
+        # never open on any card, and nothing here offered a way out of a
+        # group the library hides forever. Discard replaces Keep on every
+        # card in that state, the same swap ``candidates_panel._member``
+        # makes -- a button that can never enable is not a second choice
+        # beside it.
+        if group.all_failed:
+            if controls.button(f"Discard##result-discard-{job_id}", half):
+                from .panes import candidates_panel
 
-            candidates_panel.keep(ctx, group, job_id)
+                candidates_panel.discard(ctx, group)
+        else:
+            ready = group.finished and done
+            if widgets.disabled_button(
+                f"Keep##result-keep-{job_id}",
+                ready,
+                half,
+                reason=(
+                    "Wait for every candidate to finish."
+                    if not group.finished
+                    else "This result did not finish."
+                ),
+            ):
+                from .panes import candidates_panel
+
+                candidates_panel.keep(ctx, group, job_id)
         # No ``same_line()`` here (the 2026-09-07 audit, finding create-08):
         # five actions do not divide into rows of two, and pairing Keep with
         # Rerun was what pushed the *next* button -- Make 3D, the primary

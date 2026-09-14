@@ -99,7 +99,9 @@ instead. Selecting one shows it in the viewport exactly as selecting any other a
 attempt has finished, **Keep this one** settles the group: the one you kept and the ones you did not
 all become ordinary assets, and only then are you *asked* whether to delete the ones you did not keep.
 Nothing is ever deleted on your behalf, and declining leaves you with ordinary assets rather than
-hidden ones.
+hidden ones. When every attempt in a group fails there is nothing to keep, so the picker offers
+**Discard all** in the same place instead. It settles the group exactly as keeping one does — every
+attempt becomes an ordinary asset — and only then asks whether to delete them.
 
 Verdicts work on a candidate like any other mesh, so judging the group feeds the same findings pool.
 See [Review](38-review.md). The picker itself shows what has been graded so far: a candidate you have

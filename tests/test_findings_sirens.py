@@ -1104,3 +1104,56 @@ def test_audition_reason_names_the_state_that_is_actually_true():
 
     assert sirens_effects.audition_reason(False) == sirens_effects._BUSY_WHY
     assert sirens_effects.audition_reason(True) == sirens_audio.unavailable_reason()
+
+
+# --- the 2026-09-14 audit -------------------------------------------------
+
+
+def test_the_playhead_goes_dark_during_the_release_tail_after_the_last_row():
+    """Finding sirens-01. ``Sounding.mark_at``'s own docstring promises
+    ``None`` "before the first row and after the last", but the bisect that
+    answers it had no upper bound at all -- every offset past the final mark
+    still landed on index ``len(marks) - 1``, so the highlight on the last
+    row stayed lit through the whole release/decay tail once the song
+    stopped advancing rows, exactly the state the docstring says never
+    happens. Reproduced against the unfixed code (see the 2026-09-14 audit's
+    probe): a query far past the last mark's offset still answered with that
+    row rather than ``None``.
+    """
+    from warlock.studio.sirens_state import Sounding
+
+    marks = ((0, 0, 100, 0), (1000, 0, 100, 1), (2000, 0, 100, 2))
+    sounding = Sounding(marks=marks, anchor=0, wrap=None, generation=1)
+    rate = 100
+
+    # Inside the last row's own duration (the interval the row before it
+    # took): still lit.
+    assert sounding.mark_at(20.0, rate) == (0, 100, 2)
+    # Deep in the release tail, well past that duration: dark.
+    assert sounding.mark_at(100.0, rate) is None
+
+    # A looping (wrapped) buffer has no tail to go dark through -- it rolls
+    # straight back into row 0 -- so the new bound must not apply to it.
+    looped = Sounding(marks=marks, anchor=0, wrap=3000, generation=1)
+    assert looped.mark_at(100.0, rate) is not None
+
+
+def test_add_to_order_reason_names_busy_even_when_the_caret_is_on_an_effect():
+    """Finding sirens-04. ``add_to_order_reason`` checked the effect-column
+    case before ``editable``, so a song that was busy saving while the caret
+    happened to sit on an effect cell reported "pick a song pattern first"
+    -- a fix that does nothing, since the button stays disabled either way
+    until the save lands. Reproduced against the unfixed code: this same
+    call answered the effect sentence instead of the busy one.
+    """
+    from warlock.studio.panes import sirens_orders
+
+    with_pattern = _FakeOrderDoc([object()])
+    assert sirens_orders.add_to_order_reason("Coin", with_pattern, False) == (
+        sirens_orders._BUSY_WHY
+    )
+    # Idle again: the effect reason returns, as the pre-existing test above
+    # already pins.
+    assert sirens_orders.add_to_order_reason("Coin", with_pattern, True) != (
+        sirens_orders._BUSY_WHY
+    )

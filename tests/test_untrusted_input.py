@@ -376,6 +376,48 @@ def test_an_ora_animation_json_cannot_declare_unbounded_tracks(tmp_path):
     assert doc.anim is None or len(doc.anim.tracks) < n_tracks
 
 
+def test_read_animation_refuses_a_frame_palette_past_the_colour_ceiling(tmp_path):
+    """2026-09-14 audit, finding inker-11: ``_read_animation`` reads a
+    per-frame colour table override (``entry.get("palette")``) straight onto
+    ``frame_palettes`` with no ceiling at all -- unlike the document's own
+    palette, which every write path bounds at ``ixp.MAX_COLOURS`` (256; see
+    ``_doc_indexed.set_palette``'s ``ValueError``, from the 2026-09-13 audit's
+    inker-04). A tiny ``animation.json`` can still name a frame table of
+    arbitrary length.
+
+    Refused the same way every other oversized number in this member is: the
+    grid degrades to the flat read with a log line, never opening thousands of
+    entries for one frame.
+    """
+    from warlock.studio.inker import index_plane as ixp
+
+    n_colours = 100_000
+    animation = json.dumps(
+        {
+            "version": 1,
+            "frames": [{"duration_ms": 100, "palette": [[0, 0, 0, 255]] * n_colours}],
+            "tracks": [{}],
+            "cels": [],
+        }
+    )
+    path = tmp_path / "frame_palette.ora"
+    path.write_bytes(
+        _ora_deflated(
+            '<image w="64" h="64"><stack>'
+            '<layer name="Layer 1" x="0" y="0" opacity="1.000000"'
+            ' visibility="visible" composite-op="svg:src-over"/>'
+            "</stack></image>",
+            {"animation.json": animation.encode()},
+        )
+    )
+    assert path.stat().st_size < 4096
+
+    doc = ora.read_ora(path)
+    assert doc.anim is None or all(
+        len(table) <= ixp.MAX_COLOURS for table in getattr(doc.anim, "frame_palettes", {}).values()
+    )
+
+
 def test_an_aseprite_canvas_size_has_a_ceiling():
     """Both fields are u16 and were checked only for ``< 1``; 65535 squared is
     17 GB on the first drawable row."""

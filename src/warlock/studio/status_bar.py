@@ -1,11 +1,18 @@
-"""Compact application status shared by every workspace."""
+"""Compact application status shared by every workspace.
+
+Pure data only (:func:`items`, :func:`resource_item`) -- T0 of the Familiar
+programme moved the imgui drawing itself into ``menus.draw`` (the per-item
+row) and ``panes/bottom_pane.py`` (the one collapsed row at the foot of the
+window). This module's own ``draw`` and ``STATUS_H`` stopped being called
+the same day and sat here unreferenced until shell-04 (the 2026-09-14 audit)
+found them still claiming to be live -- with INVARIANTS, ``bottom_pane.py``'s
+docstring and ``test_editor_shell.py`` all already saying otherwise.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
-STATUS_H = 24.0
 
 
 @dataclass(frozen=True)
@@ -159,9 +166,10 @@ def resource_item(ctx: Any) -> StatusItem | None:
     drawn left to right with the tail elided, so putting the meter in it would
     make it the *first* thing dropped as the window narrows -- which is
     backwards for the one item that has to be readable while a generation is
-    being decided on. It is right-anchored in :func:`draw` instead, following
-    ``overlay.doctor_banner``'s rule: reserve the trailing item before
-    trimming the leading detail.
+    being decided on. ``menus.draw`` right-anchors it instead (the flat status
+    bar this module used to draw itself is gone -- see the module docstring),
+    following ``overlay.doctor_banner``'s rule: reserve the trailing item
+    before trimming the leading detail.
     """
     if not getattr(ctx.state, "show_resources", False):
         return None
@@ -170,75 +178,3 @@ def resource_item(ctx: Any) -> StatusItem | None:
         return None
     text = sampler.reading.text()
     return StatusItem("resources", text) if text else None
-
-
-def draw(ctx: Any) -> None:
-    """Draw a flat one-line status surface; excess secondary items elide."""
-
-    from imgui_bundle import imgui
-
-    from . import fonts, theme, tokens
-
-    pad_x = tokens.sp(tokens.SP_2)
-    # **The face is pushed before the padding is measured, and that ordering is
-    # the whole of the vertical centring.** The padding centres one line of
-    # text in ``STATUS_H``, so it has to be half of what is left over after
-    # *the line that will actually be drawn* -- and every item below is drawn
-    # at ``TEXT_SMALL``. Measured outside this block it was ``TEXT_BODY``'s
-    # line instead, which reserved too much above and left the remainder
-    # below: 5px over and 7px under at scale 1, and 10 over / 14 under at
-    # scale 2, because the error is half the gap between the two faces and
-    # both scale. The bar read as top-aligned, worse the larger the UI.
-    with fonts.small(imgui):
-        line = imgui.get_text_line_height()
-        imgui.push_style_var(
-            imgui.StyleVar_.window_padding.value,
-            (pad_x, max((tokens.sp(STATUS_H) - line) * 0.5, 0.0)),
-        )
-        imgui.push_style_color(
-            imgui.Col_.child_bg.value, imgui.ImVec4(*theme.rgba(theme.PANEL))
-        )
-        visible = imgui.begin_child("##global-status", (0, tokens.sp(STATUS_H)))
-        imgui.pop_style_color()
-        imgui.pop_style_var()
-        if visible:
-            room = imgui.get_content_region_avail().x
-            used = 0.0
-            rows = items(ctx)
-            meter = resource_item(ctx)
-            meter_w = imgui.calc_text_size(meter.text).x + pad_x if meter else 0.0
-            # **The reservation is conditional.** Room is taken for the meter
-            # only while the *first* left-hand item still fits beside it;
-            # below that the meter is dropped whole rather than truncated. A
-            # status bar reading "VRAM 9.2/32" and nothing about which
-            # workspace you are in would have the priority exactly backwards.
-            if meter and rows and meter_w + imgui.calc_text_size(rows[0].text).x > room:
-                meter, meter_w = None, 0.0
-            for index, item in enumerate(rows):
-                text = item.text if index == 0 else f"  |  {item.text}"
-                width = imgui.calc_text_size(text).x
-                if used + width + meter_w > room:
-                    break
-                if index:
-                    imgui.same_line(0.0, 0.0)
-                if item.warning:
-                    imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), text)
-                    if imgui.is_item_hovered():
-                        imgui.set_tooltip("Health checks need attention")
-                else:
-                    imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.MUTED)), text)
-                used += width
-            if meter:
-                imgui.same_line(room - meter_w + pad_x, 0.0)
-                imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.MUTED)), meter.text)
-                if imgui.is_item_hovered():
-                    imgui.set_tooltip(
-                        "What this machine has left right now. VRAM is read "
-                        "from the driver, so it counts every process -- a "
-                        "generation is refused when there is not enough of it "
-                        "free. The frame rate is the loop's own: it settles at "
-                        "12 while nothing on screen can change, which is the "
-                        "idle clamp doing its job rather than a stall. Turn it "
-                        "off in Settings."
-                    )
-        imgui.end_child()

@@ -95,6 +95,33 @@ def test_subtracting_edges_matches_whole_pairs_not_endpoints() -> None:
     assert el.combine(a, el.ElementSel(edges=[[9, 8]]), "subtract").same_as(a)
 
 
+def test_combine_subtract_of_large_edge_selections_does_not_allocate_quadratically() -> None:
+    """The 2026-09-14 audit's clay-03: ``_rows_minus`` broadcast ``a`` against
+    ``b`` to a dense ``(len(a), len(b), 2)`` array, so select-all-edges on a
+    large import followed by one Ctrl-drag subtract marquee allocated
+    gigabytes on the frame thread. 8,000 edges each side is a 128 MB bool
+    broadcast on the old code (measured ~190 MB peak); the fixed, key-based
+    version never gets near that. A wall-clock bound would be flaky under
+    load, so this checks the thing that actually matters -- peak traced
+    memory -- instead of timing it.
+    """
+    import tracemalloc
+
+    n = 8000
+    a = np.stack([np.arange(n, dtype="i4"), np.arange(n, dtype="i4") + n], axis=1)
+    b = np.stack([np.arange(n, dtype="i4"), np.arange(n, dtype="i4") + n + 1], axis=1)
+
+    tracemalloc.start()
+    try:
+        out = el._rows_minus(a, b)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 20_000_000, f"peak {peak / 1e6:.1f} MB -- looks like a dense broadcast again"
+    assert len(out) == n, "no row of a matches any row of b, so nothing should be dropped"
+
+
 def test_select_all_and_invert_are_per_mode() -> None:
     m = prim.box()
     assert len(el.select_all(m, "vertex").verts) == len(m.positions)

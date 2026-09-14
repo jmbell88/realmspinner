@@ -1409,6 +1409,19 @@ def dropped_by_aseprite(doc) -> list[str]:
         out.append("layer alpha lock")
     if any(not members for members in (getattr(doc, "groups", {}) or {}).values()):
         out.append("empty groups")
+    # The 2026-09-14 audit (inker-02): the writer stores every group's opacity
+    # byte as 255 on purpose (see the module docstring and docs/COMPAT.md's
+    # "Group opacity" row -- ``asein._group_tree`` hands every group back 1.0
+    # whatever byte is stored, so any other value would be unreadable), but
+    # nothing here ever checked for a group actually carrying one -- a group
+    # dimmed below full opacity saved silently with no warning that the dim
+    # was gone.
+    groups = (getattr(doc, "groups", {}) or {}).values()
+    if any(float(getattr(node, "opacity", 1.0)) != 1.0 for node in groups):
+        out.append(
+            "group opacity (written as full opacity; the format cannot store"
+            " any other value)"
+        )
     return out
 
 

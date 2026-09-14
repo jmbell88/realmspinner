@@ -27,7 +27,7 @@ A tileset is an image cut into tiles. Bring one in from the Tileset menu: a `.ts
 own slicing, and any other image is cut at the map's current tile size.
 
 You can also generate one. Create's **Tileset** asset type lands a finished sheet in the library
-that can be used as a tileset here, and its **Tile layout** decides what kind. *Materials* draws one
+that can be used as a tileset here, and its **Layout** decides what kind. *Materials* draws one
 seamless tile per surface you name, so the tiles genuinely repeat. *Terrain set* draws two surfaces
 and composites them into a complete forty-seven-case blob set, which arrives here with the
 [Terrain](#terrain) tool already working — it says what it is, so nothing is

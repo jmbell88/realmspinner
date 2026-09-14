@@ -14,7 +14,7 @@ import queue
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from imgui_bundle import imgui
 
@@ -1894,6 +1894,23 @@ def _export_folder(ctx: Any, ids: list[str]) -> None:
 # ``TaskRunner.shutdown`` already has a documented, bounded way to let one go.
 
 
+class _DestPlan(NamedTuple):
+    """One destination paired with the plan drawn *for that destination*.
+
+    shell-02, the 2026-09-14 audit: the browse task used to write
+    ``popup.dest`` and then ``popup.plan`` as two separate unlocked
+    assignments, and the frame thread reads both every frame in
+    ``_export_popup_body`` -- so a frame drawn between the two writes could
+    show a freshly picked destination beside the *previous* destination's
+    plan (which files exist, which get clobbered). Bundling them into one
+    object means the browse handler publishes both with a single attribute
+    assignment, which the GIL already makes atomic.
+    """
+
+    dest: Path
+    plan: svc_export.ExportPlan
+
+
 @dataclass
 class _ExportPopup:
     """The plan on screen, and the channel a press writes its answer to."""
@@ -1902,8 +1919,10 @@ class _ExportPopup:
     ids: list[str]
     names: list[str]
     as_zip: bool
-    dest: Path
-    plan: svc_export.ExportPlan
+    #: Written (as a whole, single assignment) by the task thread parked in
+    #: ``_run_export`` and read by the frame thread every frame. See
+    #: :class:`_DestPlan` for why this is one field and not two.
+    _dest_plan: _DestPlan
     #: "browse" | "replace" | "keep_both" | "cancel", written by the frame
     #: thread and read by the task thread parked in ``_run_export``. No
     #: default: a fresh queue is passed at construction so a stray second
@@ -1920,6 +1939,14 @@ class _ExportPopup:
     # ``dialogs.Confirm._open``'s one-shot, and here for the same reason:
     # ``imgui.open_popup`` must be called exactly once per appearance.
     _open: bool = False
+
+    @property
+    def dest(self) -> Path:
+        return self._dest_plan.dest
+
+    @property
+    def plan(self) -> svc_export.ExportPlan:
+        return self._dest_plan.plan
 
 
 def _run_export(
@@ -1947,8 +1974,7 @@ def _run_export(
         ids=ids,
         names=names,
         as_zip=as_zip,
-        dest=dest,
-        plan=svc_export.plan_export(job, dest),
+        _dest_plan=_DestPlan(dest, svc_export.plan_export(job, dest)),
         decisions=queue.Queue(),
     )
     ctx.state._library_export = popup
@@ -1965,8 +1991,8 @@ def _run_export(
                 )
                 if picked is not None:
                     dest = picked
-                    popup.dest = dest
-                    popup.plan = svc_export.plan_export(job, dest)
+                    # One assignment, not two -- see ``_DestPlan``.
+                    popup._dest_plan = _DestPlan(dest, svc_export.plan_export(job, dest))
                 continue
             break
         plan = popup.plan if decision == "replace" else svc_export.keep_both(popup.plan)

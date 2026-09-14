@@ -90,6 +90,20 @@ REFUSED = (
     "choose file",
     "reveal in explorer",
     "open log",
+    # Settings' two LoRA buttons (the 2026-09-14 audit, finding pipelines-04):
+    # every other native-picker button in the app opens it inside a task
+    # closure (``ctx.submit``/``self.submit``/``docmodes.start_save``), which
+    # ``install_stubs`` already neutralises by faking ``TaskRunner.submit`` --
+    # a swept check of every ``dialogs.open_file``/``save_file``/
+    # ``select_folder`` call site in ``src/warlock/studio`` found these are
+    # the only two that call the picker inline, on the frame thread, from the
+    # button handler itself. Matched by full stem rather than a broadened
+    # "import"/"train" prefix: those verbs are common on buttons that do not
+    # touch a picker at all (e.g. "Train from my library..." two lines below
+    # this one in Settings, which runs a library scan, not a dialog), and a
+    # broad match would refuse controls this pass exists to press.
+    "import a lora file...",
+    "train from a folder...",
 )
 
 #: How many frontier rounds the walk will run before giving up. A tab, a

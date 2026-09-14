@@ -409,11 +409,13 @@ def _derive_field(
 
     title, low, high, help_text = DERIVE_FIELDS[name]
     if high is None:
-        # ``extend_left``/``extend_right`` are the one pair that really is
-        # bounded by the sampler's own 240s pad (see ``_max_extend``); a
-        # repaint or loop is bounded by the *take's* length instead (muse-01).
+        # ``extend_left``/``extend_right`` are bounded by *both* the sampler's
+        # own 240s pad and the take's own length (muse-04, 2026-09-14 audit:
+        # the door refuses a single extension longer than the take it
+        # extends, regardless of the sampler ceiling) -- a repaint or loop is
+        # bounded by the take's length alone instead (muse-01).
         if name in ("extend_left", "extend_right"):
-            high = _max_extend()
+            high = _max_extend_for(parent_duration)
         elif task == "loop":
             high = parent_duration / 2.0
         else:
@@ -459,6 +461,26 @@ def _max_extend() -> float:
     from ...service._jobs_music import MAX_EXTEND_DURATION
 
     return MAX_EXTEND_DURATION
+
+
+def _max_extend_for(parent_duration: float) -> float:
+    """Each Extend slider's real ceiling, given the take it extends.
+
+    **muse-04 (2026-09-14 audit).** ``_max_extend()`` alone is the sampler's
+    240 s pad ceiling, but ``_jobs_music.derive_music_job`` refuses a single
+    extension longer than *the take being extended*, independently of that
+    ceiling ("a single extension cannot be longer than the take it extends --
+    extend twice to go further") -- the tensor the pads are sliced into is
+    allocated at the parent's own frame length, so a longer pad is silently
+    zero-filled downstream rather than raising there either. A take shorter
+    than four minutes could have its slider offer a number past its own
+    length that the door would then refuse, exactly the shape this audit's
+    sibling finding (the 2026-09-13 audit, muse-01, in the docstring above)
+    already fixed for repaint/loop. Pulled out as its own function, per that
+    finding's own note about ``derive_music_job``'s bound and this pane's
+    slider drifting apart, and so it is testable with no popup drawn.
+    """
+    return min(float(parent_duration), _max_extend())
 
 
 __all__ = [

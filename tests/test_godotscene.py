@@ -357,6 +357,23 @@ def test_a_path_in_the_glb_name_is_refused():
             scene_text(root_name="Hero", glb_file=bad, clips=[("idle", True)])
 
 
+def test_a_clip_name_containing_a_slash_is_refused_rather_than_corrupting_the_states_path():
+    """The 2026-09-14 audit (troupe-01): nothing upstream of this module
+    refuses a "/" in a clip name, and unquoted, it would split
+    ``states/{name}/node`` into more property-path segments than the writer
+    intended -- nesting the state under the wrong key while ``transitions``
+    still names it as one atomic string. Refused here instead of silently
+    writing a corrupt .tscn."""
+    with pytest.raises(ValueError, match="property-path segment"):
+        scene_text(
+            root_name="Hero",
+            glb_file="hero.glb",
+            clips=[("idle", True), ("attack/special", False)],
+        )
+    with pytest.raises(ValueError, match="property-path segment"):
+        godot_clip_name("attack/special", loop=False)
+
+
 def test_a_scene_without_idle_is_refused():
     with pytest.raises(ValueError, match="a character scene needs at least idle"):
         scene_text(root_name="Hero", glb_file="hero.glb", clips=[("walk", True), ("run", True)])

@@ -143,6 +143,17 @@ class Viewer(PoseOps):
         textures on the one GL context, and so does releasing the old one.
         """
         gpu = scenelib.GpuModel(self.ctx, model)
+        # create-05, the 2026-09-14 audit: a direction-strip preview in flight
+        # (``begin_sheet_strip``) holds a direct reference to the GpuModel
+        # that was current when it started. Only the explicit Clear path
+        # (``App._clear_viewport``) called ``cancel_sheet_strip()`` before
+        # this method released and replaced ``self.gpu`` -- but this method
+        # also fires from the Library timer whenever the user selects a
+        # different job, not just on an explicit Clear. Selecting another job
+        # mid-strip emptied the GpuModel the strip was drawing out from under
+        # it, so the remaining cells came back blank while the pane still
+        # thought the strip had finished normally.
+        self.cancel_sheet_strip()
         self._release_model()
         # Whatever parse was in flight is no longer wanted: this *is* the
         # viewport's content now. Without this, the blocking path -- entering

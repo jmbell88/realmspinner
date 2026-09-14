@@ -445,10 +445,16 @@ def resolve(
     """Every *drawable* node, with its inherited state, groups left out.
 
     Groups are not in the result -- see the module docstring -- and neither is
-    an expanded :class:`~.nodes.PrefabNode` itself (only what it expands to);
-    with ``expand_prefabs=False`` a :class:`~.nodes.PrefabNode` *is* the
-    result for that branch, since there is nothing under it in this
-    document's own tree to show instead.
+    an expanded :class:`~.nodes.PrefabNode` itself (only what it expands to).
+    This function always expands prefabs -- it calls :func:`walk` with
+    ``expand_prefabs=True`` hardcoded, and takes no parameter of its own to
+    change that. It is :func:`walk` itself that also answers
+    ``expand_prefabs=False``, for a caller that wants a
+    :class:`~.nodes.PrefabNode` instance to *be* the result for that branch --
+    an outliner, say, since the template's own nodes are not rows in this
+    document's tree. The 2026-09-14 audit's mason-06: this docstring used to
+    describe that mode as if ``resolve`` itself accepted it, and
+    ``resolve(doc, expand_prefabs=False)`` raises ``TypeError``.
 
     ``max_items`` refuses rather than truncates: a ``.wscn`` that resolves to
     more placed items than a frame budget allows is not a document this

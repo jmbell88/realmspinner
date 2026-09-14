@@ -147,27 +147,45 @@ _FIELD_ALIASES: dict[str, str] = {
 }
 
 
-def _mapped_field(raw_field: str | None, declared: frozenset[str]) -> str | None:
+def _mapped_field(raw_field: str | None, declared: frozenset[str], message: str = "") -> str | None:
     """*raw_field* (a :class:`ServiceError`'s own ``field``), translated to
     one of *declared* -- a tool's own schema properties -- or ``None``.
 
     Tried in order: the field itself, if the tool happens to declare it
     unchanged; its alias from :data:`_FIELD_ALIASES`, if that is declared
-    instead; ``"job_id"``, if the tool declares one (every mutating tool
-    here does) -- pointing at the id a caller can actually act on rather
-    than naming nothing; otherwise ``None``, the same "an honest refusal
-    that highlights no control" ``agent_clay.fail`` falls back to for its
-    own blanket ``except``.
+    instead; on a tool that declares both ``job_id`` and ``sheet_id``
+    (``character_sheet_preview``, ``character_export``), whichever of the
+    two *message* itself names; ``"job_id"`` or, failing that, ``"sheet_id"``,
+    if the tool declares one -- pointing at an id a caller can actually act
+    on rather than naming nothing; otherwise ``None``, the same "an honest
+    refusal that highlights no control" ``agent_clay.fail`` falls back to for
+    its own blanket ``except``.
+
+    The id fallback used to run only when *raw_field* was itself non-empty,
+    because an early ``if not raw_field: return None`` returned before ever
+    reaching it -- the 2026-09-14 audit (agents-06) found that every
+    ``check_job_id``/``check_sheet_id`` refusal (``NotFound("no such job")``,
+    ``NotFound("no such sheet")``, the commonest character-tool mistake)
+    raises with no ``field`` at all, so the documented fallback never ran for
+    exactly the refusal it exists for. It is tried whenever *raw_field* did
+    not resolve to a declared name, empty or not.
     """
-    if not raw_field:
-        return None
-    if raw_field in declared:
-        return raw_field
-    mapped = _FIELD_ALIASES.get(raw_field)
-    if mapped and mapped in declared:
-        return mapped
+    if raw_field:
+        if raw_field in declared:
+            return raw_field
+        mapped = _FIELD_ALIASES.get(raw_field)
+        if mapped and mapped in declared:
+            return mapped
+    if "job_id" in declared and "sheet_id" in declared:
+        lowered = message.lower()
+        if "sheet" in lowered:
+            return "sheet_id"
+        if "job" in lowered:
+            return "job_id"
     if "job_id" in declared:
         return "job_id"
+    if "sheet_id" in declared:
+        return "sheet_id"
     return None
 
 
@@ -767,7 +785,7 @@ def call(svc: Any, session: Session, name: str, arguments: dict) -> dict:
     try:
         return handler(svc, session, args)
     except ServiceError as error:
-        mapped = _mapped_field(error.field, allowed)
+        mapped = _mapped_field(error.field, allowed, error.message)
         if mapped:
             return fail(error.message, field=mapped)
         return fail(error.message)

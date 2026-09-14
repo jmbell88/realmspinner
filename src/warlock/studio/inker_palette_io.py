@@ -80,7 +80,11 @@ def import_palette(ctx: Any) -> None:
             return None
         return gpl.parse_any(_palette_text(path))
 
-    ctx.submit("inker-palette", run)
+    if not ctx.submit("inker-palette", run):
+        # ``submit`` refuses a key already in flight, and a second press
+        # while this picker was already up did nothing observable (the
+        # 2026-09-14 audit, inker-12).
+        ctx.toast("A file dialog is already open.", "info")
 
 
 def export_palette(ctx: Any) -> None:
@@ -96,9 +100,12 @@ def export_palette(ctx: Any) -> None:
 
     # A key of its own. It used to share ``inker-palette-export`` with
     # ``export_document_palette``, and ``tasks.submit`` refuses a duplicate key
-    # -- so whichever picker was already up made the other command do nothing at
-    # all, silently, because neither call site reads the bool it answers.
-    ctx.submit("inker-palette-export", run)
+    # -- so whichever picker was already up made the other command do nothing
+    # at all. Separate keys fixed the cross-command collision; a same-command
+    # double press still discarded the bool in silence until the 2026-09-14
+    # audit, inker-12, added the toast below.
+    if not ctx.submit("inker-palette-export", run):
+        ctx.toast("A file dialog is already open.", "info")
 
 
 # --- indexed colour -----------------------------------------------------------
@@ -241,7 +248,9 @@ def import_document_palette(ctx: Any) -> None:
             return None
         return gpl.parse_any(_palette_text(path))
 
-    ctx.submit(f"inker-index:{tab.uid}", run)
+    if not ctx.submit(f"inker-index:{tab.uid}", run):
+        # The 2026-09-14 audit, inker-12.
+        ctx.toast("A file dialog is already open.", "info")
 
 
 #: The ceiling on a palette read out of an image. The GIF colour table's own
@@ -292,7 +301,9 @@ def palette_from_image(ctx: Any) -> None:
             "distinct": distinct,
         }
 
-    ctx.submit(f"inker-palimg:{tab.uid}", run)
+    if not ctx.submit(f"inker-palimg:{tab.uid}", run):
+        # The 2026-09-14 audit, inker-12.
+        ctx.toast("A file dialog is already open.", "info")
 
 
 def export_document_palette(ctx: Any) -> None:
@@ -313,8 +324,11 @@ def export_document_palette(ctx: Any) -> None:
         return str(path)
 
     # Not ``inker-palette-export``: see the sibling above for why sharing it
-    # made one of the two commands inert whenever the other was open.
-    ctx.submit("inker-palette-export-doc", run)
+    # made one of the two commands inert whenever the other was open. A
+    # same-command double press still wants its own toast -- the 2026-09-14
+    # audit, inker-12.
+    if not ctx.submit("inker-palette-export-doc", run):
+        ctx.toast("A file dialog is already open.", "info")
 
 
 #: One swatch of an exported palette strip, in real pixels. Bigger than the one
@@ -380,5 +394,7 @@ def export_palette_image(ctx: Any) -> None:
 
     # The palette-export keys' rule: one key per command, because ``submit``
     # refuses a duplicate and a shared key makes whichever picker is already up
-    # silently swallow the other command.
-    ctx.submit("inker-palette-export-image", run)
+    # silently swallow the other command. A same-command double press wants
+    # the same toast the siblings above give -- the 2026-09-14 audit, inker-12.
+    if not ctx.submit("inker-palette-export-image", run):
+        ctx.toast("A file dialog is already open.", "info")

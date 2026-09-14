@@ -142,6 +142,24 @@ def _validate_clip_name(name: str) -> None:
         raise ValueError("clip name must not be empty")
     if _UNSAFE_NAME_CHARS.search(name):
         raise ValueError(f"clip name {name!r} contains a char that breaks a StringName literal")
+    # The 2026-09-14 audit (troupe-01) found that a clip name containing "/"
+    # -- refused nowhere upstream (service.clips._check_shape and
+    # rigging.parse_clip_library only refuse direction-suffix collisions,
+    # duplicates and empty names) -- is embedded verbatim as an unquoted
+    # Godot property-path segment in ``states/{name}/node`` and
+    # ``states/{name}/position``. A "/" there splits the key into more path
+    # segments than the writer intended, nesting the state under the wrong
+    # sub-property while ``transitions`` still names it as one atomic string,
+    # silently corrupting the .tscn. Reusing ``_INVALID_NODE_NAME_CHARS``
+    # (Godot 4's own banned ``Node.name`` characters, which include "/")
+    # refuses every character that can break a property-path segment, not
+    # just the one this finding named.
+    bad = sorted(_INVALID_NODE_NAME_CHARS.intersection(name))
+    if bad:
+        raise ValueError(
+            f"clip name {name!r} contains {''.join(bad)!r}, which would break a "
+            "Godot property-path segment (states/{name}/node)"
+        )
 
 
 def _strip_trailing_junk(text: str) -> str:

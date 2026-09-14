@@ -1,5 +1,19 @@
 # Pixel-art profile: the comparison, 2026-08-06
 
+> **Retired unrun, and read this first.**
+> [`2026-08-17-taxonomy-retirement.md`](2026-08-17-taxonomy-retirement.md) deleted
+> `guidance.PRESETS` eleven days after this was written and before the run below
+> was ever taken. **This pre-registration cannot be executed as written**: there
+> is no `pixel_sprite` preset left for question 1 to name an arm for — shipped
+> sprite sheets now pin `sdxl_cfg` directly
+> (`service.tilesheets.TILE_SHEET_BASE_MODEL`), not a preset this comparison
+> would have changed. Nothing below is wrong, and question 2's decision rule for
+> `pipelines.pixel.GRID_RESIDUAL_MAX` — a constant that survived the retirement —
+> is still a good example of the form; it simply describes a preset shape that no
+> longer exists. A pixel-profile comparison worth taking now would be
+> pre-registered afresh against the current recipe shape, not resurrecting
+> question 1 against a preset that is gone.
+
 **Status: procedure written, run not yet taken.** Everything below the "What
 will be run" heading is a pre-registration -- the decision rules were written
 *before* any image was generated, which is the only thing that makes the answer

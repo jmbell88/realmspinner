@@ -97,7 +97,10 @@ def test_a_newer_family_version_is_refused_by_name():
         ({"animations": {"walk": 0}}, "animations"),
         ({"animations": {}}, "animations"),
         ({"directions": 5}, "directions"),
-        ({"logical_size": 100}, "logical_size"),
+        # 300 is off the ladder *and* outside LOGICAL_SIZE_RANGE (8-256) --
+        # unlike 100, which is off the ladder but inside the range the
+        # pipeline actually renders (see agents-01 below).
+        ({"logical_size": 300}, "logical_size"),
         ({"colors": 7}, "colors"),
         ({"outline": "glow"}, "outline"),
         ({"reduce_mode": "lanczos"}, "reduce_mode"),
@@ -119,7 +122,7 @@ def test_every_refusal_names_the_control_it_came_from(payload, field):
     [
         {"appearance": {"bulk": 4.0}},
         {"colors": 7},
-        {"logical_size": 100},
+        {"logical_size": 300},
         {"elevation": 120.0},
     ],
 )
@@ -129,6 +132,25 @@ def test_an_out_of_range_value_is_never_quietly_clamped(payload):
     snaps back on save is the same failure in nicer clothes."""
     with pytest.raises(CharacterError):
         Recipe.from_dict({"family": "ogre", **payload})
+
+
+def test_character_create_accepts_an_off_ladder_size_its_own_schema_calls_legal():
+    """The 2026-09-14 audit (agents-01): ``agent_character``'s
+    ``character_create`` schema and description promise any whole size in
+    ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` (8-256px), "off [the ladder]
+    resized nearest-neighbour" -- but the value used to go straight into
+    ``Recipe.from_dict``, which refused anything not exactly on
+    ``charsheet.SIZES``. 100 is off that ladder but squarely inside the range
+    ``charsheet.plan``/``service.troupe._check_options`` already render
+    correctly (since master's 8b091e98), so it must be accepted, not
+    refused."""
+    assert 100 not in recipelib.LOGICAL_SIZES
+    r = Recipe.from_dict({"family": "ogre", "logical_size": 100})
+    assert r.logical_size == 100
+
+
+def test_the_logical_size_range_matches_charsheets_custom_size_floor_and_ceiling():
+    assert recipelib.LOGICAL_SIZE_RANGE == (charsheet.MIN_FRAME_SIZE, charsheet.MAX_FRAME_SIZE)
 
 
 def test_a_recipe_carries_no_archetype_of_its_own():

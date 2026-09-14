@@ -290,6 +290,29 @@ def test_a_group_reports_when_it_is_still_running():
     assert candidates_mod.pending(settled).finished is True
 
 
+def test_a_group_whose_every_member_failed_reports_all_failed():
+    """The 2026-09-14 audit, finding create-04: ``finished`` alone is true of
+    an all-errored group too, so the Keep gate (finished and member done)
+    never finds a ``done`` member to open on -- ``all_failed`` is the
+    question both pickers ask instead, to offer Discard in Keep's place."""
+    failed = [_row("a0", "g", 0, status="error"), _row("a1", "g", 1, status="cancelled")]
+    group = candidates_mod.pending(failed)
+    assert group.finished is True
+    assert group.all_failed is True
+
+
+def test_a_group_with_one_done_member_is_not_all_failed():
+    mixed = [_row("a0", "g", 0, status="done"), _row("a1", "g", 1, status="error")]
+    assert candidates_mod.pending(mixed).all_failed is False
+
+
+def test_an_unfinished_group_is_not_all_failed_even_with_no_done_member_yet():
+    running = [_row("a0", "g", 0, status="running"), _row("a1", "g", 1, status="error")]
+    group = candidates_mod.pending(running)
+    assert group.finished is False
+    assert group.all_failed is False
+
+
 def test_the_losers_of_a_group_are_everything_but_the_named_one():
     group = candidates_mod.pending([_row("a0", "g", 0), _row("a1", "g", 1)])
     assert group.losers("a0") == ["a1"]
@@ -371,6 +394,51 @@ def test_keeping_from_the_picker_settles_the_group_and_only_then_asks(svc):
         f"delete:{result['ids'][1]}",
         f"delete:{result['ids'][2]}",
     ]
+
+
+def test_a_candidate_group_whose_every_member_fails_can_be_dismissed(svc):
+    """The 2026-09-14 audit, finding create-04: when every candidate errors,
+    ``Group.finished`` is true but the Keep gate (finished and a ``done``
+    member) never opens, neither picker offers a dismiss, and
+    ``state.Filters.matches`` hides every row carrying ``candidate_group`` --
+    the group would sit invisible in the tray forever. ``discard`` clears it
+    through the same ``keep_candidate`` door ``keep`` uses, called on an
+    arbitrary member.
+
+    **Reopened the same day**: a first version of this fix trashed every
+    member outright once the group settled. ``docs/manual/23-generating-
+    meshes.md`` promises, for this exact picker, "only then are you *asked*
+    whether to delete the ones you did not keep. Nothing is ever deleted on
+    your behalf" -- an undoable trash is still a deletion on the user's
+    behalf, so this now pins ``keep``'s own settle-then-ask shape: nothing
+    is submitted for deletion until the confirm's ``on_confirm`` actually
+    runs, and declining it must be possible (the rows stay ordinary assets).
+    """
+    from warlock.studio.panes import candidates_panel
+
+    source = _reference(svc)
+    result = svc_jobs.promote_candidates(svc, source, count=3)
+    for job_id in result["ids"]:
+        svc.store.set_status(job_id, "error")
+    ctx = _Ctx(svc)
+    ctx.jobs = [svc.store.get(i) for i in result["ids"]]
+    group = candidates_mod.pending(ctx.jobs)
+    assert group.all_failed is True
+
+    candidates_panel.discard(ctx, group)
+
+    # Settled immediately -- the group is gone and every member is an
+    # ordinary, visible asset -- but nothing is deleted yet.
+    assert svc.store.candidate_jobs(result["group"]) == []
+    assert ctx.invalidated is True
+    assert ctx.submitted == []
+    assert all(svc.store.get(i) is not None for i in result["ids"])
+    assert len(ctx.confirms.asked) == 1
+
+    # Only the confirm's on_confirm actually deletes, and it reaches every
+    # member -- Discard has no winner to spare the way keep() spares one.
+    ctx.confirms.asked[0].on_confirm()
+    assert {key for key, *_ in ctx.submitted} == {f"delete:{i}" for i in result["ids"]}
 
 
 def test_selecting_a_candidate_moves_the_selection_and_nothing_else(svc):

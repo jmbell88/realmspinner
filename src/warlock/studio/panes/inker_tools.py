@@ -1100,9 +1100,12 @@ def _presets(ctx: Any, state: Any) -> None:
 def _has_options(tool: str) -> bool:
     """Whether this tool has anything of its own to reset.
 
-    The move and eyedropper tools have no options at all, and a Reset button
-    that clears nothing is a control that says the panel is confused about
-    which tool is selected.
+    Move is the one tool with no options at all -- the eyedropper is
+    listed below alongside fill, wand and text, so a Reset button on it
+    still clears something. A Reset button that clears nothing is a control
+    that says the panel is confused about which tool is selected; this
+    docstring itself said eyedropper had no options too, until the
+    2026-09-14 audit, inker-14, found the code disagreed with it.
     """
     return tool in PAINT_TOOLS or tool in SHAPE_TOOLS or tool in (
         "fill",

@@ -23,14 +23,15 @@ status line, and then the whole rest of the screen for what you were working on.
 
 Above everything else, on a fresh install, is an offer of a **guided tour** — a title, one line
 saying how long it takes, a **Start** button carrying the tour's name, and **Not now**. There are
-five tours: *Around the app*, which walks the rail and the five stages of Create; *Drawing in
-Inker*, which makes a canvas, a stroke, a layer and a frame; *Writing a tune in Sirens*, which
-goes from an empty song to an exported WAV; *Making a sound effect*, a shorter Sirens tour for a
-blip rather than a tune; and *Generating a track in Muse*, which needs the ACE-Step weights and
-ends with the track opened in Sirens. None of the first three needs a GPU or any downloaded
-weights, which is deliberate: a tour a fresh install cannot finish is worse than none. The Sirens
-tunes tour adds a second half of that rule — no step of it waits on hearing anything, so a machine with no sound
-device can finish it too.
+five tours, offered in this order: *Around the app*, which walks the rail and the five stages of
+Create; *Drawing in Inker*, which makes a canvas, a stroke, a layer and a frame; *Generating a
+track in Muse*, which needs the ACE-Step weights and ends with the track opened in Sirens; *Writing
+a tune in Sirens*, which goes from an empty song to an exported WAV; and *Making a sound effect*, a
+shorter Sirens tour for a blip rather than a tune. Every one of them needs no GPU and no downloaded
+weights except *Generating a track in Muse*, which is deliberate: a tour a fresh install cannot
+finish is worse than none, and Muse says so at the door rather than after a click that would refuse.
+Both Sirens tours add a second half of that rule — no step of either one waits on hearing anything,
+so a machine with no sound device can finish them too.
 
 **The tour points and waits. It never clicks anything for you.** A step highlights one control,
 says what it is for, and either advances on **Next** or waits until you have actually done the

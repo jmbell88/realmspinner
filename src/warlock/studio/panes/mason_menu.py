@@ -96,6 +96,13 @@ def _drop_to_ground(ctx: Any, tab: Any) -> None:
         if box is not None:
             boxes[uid] = box
     deltas = mops.drop_to_ground(boxes, terrain=doc.terrain)
+    # The 2026-09-14 audit's mason-02: this pushed one TransformEdit per node
+    # with no mark/collapse_since, so dropping several selected nodes to the
+    # ground cost one Ctrl+Z per node -- docs/manual/31-mason.md promises "Each
+    # of these lands as a single undo step", the same fix mason_tools.py's
+    # sidebar row (which shares this arithmetic) makes in its own
+    # ``_apply_deltas``.
+    mark = doc.mark()
     for uid, delta in deltas.items():
         node = doc.node(uid)
         if node is None:
@@ -103,3 +110,4 @@ def _drop_to_ground(ctx: Any, tab: Any) -> None:
         was = node.trs()
         translation = np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8")
         doc.set_transform(uid, translation=translation, was=was)
+    doc.collapse_since(mark)

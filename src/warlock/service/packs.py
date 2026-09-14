@@ -335,6 +335,13 @@ def install(
             timeout=timeout,
         )
         invalidate_caches()
+        # Recorded here too, and not only on the path below: the 2026-09-14
+        # audit (service-02) found this fast path returned "already": True
+        # having probed the pack for real but never called _record_selected,
+        # so a pack whose first Install landed on an already-satisfied
+        # metadata match (a dev checkout, a repeat click) was invisible to
+        # packs_to_restore() forever -- the M02 incident, reached a second way.
+        _record_selected(svc, [pack.key for pack in chosen])
         return {"ok": True, "collected": [], "installed": [], "already": True}
     spec: dict[str, Any] = {
         "pack_dir": str(cache_dir(svc)),

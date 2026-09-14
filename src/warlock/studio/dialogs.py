@@ -269,6 +269,23 @@ def _escape_pressed() -> bool:
     return imgui.is_key_pressed(imgui.Key.escape)
 
 
+def _confirm_cancelled_by_key(*, escape: bool, enter: bool, body_had_focus: bool) -> bool:
+    """Whether this frame's Escape/Enter should cancel a :class:`Confirm`.
+
+    A pure decision so it is testable with no imgui context at all (shell-01,
+    the 2026-09-14 audit). Escape always cancels; Enter does not when a body
+    widget already had focus coming into the frame -- Prune's "Keep the
+    newest" count is a body ``input_int``, and before this, pressing Enter to
+    commit that number instead closed the whole dialog as cancelled and
+    pruned nothing, silently. ``body_had_focus`` has to be sampled *before*
+    the body draws: imgui's ``InputInt`` clears its own active id the instant
+    it handles Enter, so asking ``is_any_item_active()`` after the body has
+    already run would always see no active item and treat the keystroke as a
+    plain cancel anyway.
+    """
+    return escape or (enter and not body_had_focus)
+
+
 class ConfirmQueue:
     """A queue of yes/no questions, drawn one modal at a time.
 
@@ -338,6 +355,10 @@ class ConfirmQueue:
         confirm = self.pending
         if confirm is None:
             return
+        # Sampled before this popup draws any widget of its own -- see
+        # ``_confirm_cancelled_by_key`` for why it has to be "before", not
+        # "after" the body runs.
+        body_had_focus = imgui.is_any_item_active()
         appearing = not confirm._open
         if appearing:
             imgui.open_popup(confirm.title)
@@ -418,7 +439,9 @@ class ConfirmQueue:
         # ``nav_enable_keyboard`` (for the focus drawing), but the app's
         # keyboard focus is ``focus.py``'s ring and not imgui's, so which
         # widget nav thinks is focused must not decide a modal's answer.
-        if _escape_pressed() or _enter_pressed():
+        if _confirm_cancelled_by_key(
+            escape=_escape_pressed(), enter=_enter_pressed(), body_had_focus=body_had_focus
+        ):
             cancelled = True
         if confirmed:
             self._answered()

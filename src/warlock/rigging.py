@@ -196,6 +196,18 @@ def _parse_template(raw: dict[str, Any]) -> Template:
     root_parent = next(b["parent"] for b in bones if b["name"] == raw["root"])
     if root_parent is not None:
         raise ValueError(f"root {raw['root']!r} must be parentless")
+    # The 2026-09-14 audit, finding poser-02: everything above checks each
+    # bone's own parent resolves and that there is one root, but never that
+    # walking those parent links from every bone actually reaches that root --
+    # a schema-valid file naming a disconnected parent cycle would pass all
+    # of it and only fail later, uncaught, wherever a consumer walks the
+    # chain (``_build_armature`` parents bones in one pass with no cycle
+    # check of its own). Caught here, at load, so a malformed template costs
+    # only that template.
+    try:
+        _check_acyclic({b["name"]: {"parent": b["parent"]} for b in bones}, field="bones")
+    except RigError as exc:
+        raise ValueError(str(exc)) from exc
     return Template(
         key=raw["key"],
         label=raw["label"],
@@ -1485,6 +1497,32 @@ def _parse_limb_preset(raw: dict[str, Any]) -> dict[str, Any]:
     roots = [b for b in bones if b["parent"] is None]
     if len(roots) != 1:
         raise ValueError("a limb preset needs exactly one bone with parent None")
+    # The 2026-09-14 audit, finding poser-02: nothing above checked that the
+    # parent graph is actually a tree reachable from that one root, and
+    # ``attach_limb``'s ``_attach_one`` walks ``preset_data["bones"]`` in file
+    # order assuming each bone's parent was already grafted -- ``real_parent
+    # = ... name_map[b["parent"]]`` -- so a schema-valid preset listing a
+    # child before its parent throws an uncaught KeyError on the frame thread
+    # (Poser's ``_skeleton_call`` catches only RigError) instead of being
+    # skipped at load like every other malformed preset. Refusing
+    # out-of-order bones here is what guarantees ``_attach_one``'s name_map
+    # already holds a bone's parent by the time it is needed, and it also
+    # rules out any cycle: a bone in a cycle can never be preceded by its own
+    # parent. ``_check_acyclic`` is added too, for the same reachable-from-
+    # root guarantee ``_parse_template`` now gets, rather than relying on the
+    # order check alone to prove it by construction.
+    seen: set[str] = set()
+    for b in bones:
+        if b["parent"] is not None and b["parent"] not in seen:
+            raise ValueError(
+                f"bone {b['name']!r} is listed before its parent {b['parent']!r}; "
+                "a limb preset must list a parent before its children"
+            )
+        seen.add(b["name"])
+    try:
+        _check_acyclic({b["name"]: {"parent": b["parent"]} for b in bones}, field="bones")
+    except RigError as exc:
+        raise ValueError(str(exc)) from exc
     return {
         "key": key,
         "label": str(raw["label"]),

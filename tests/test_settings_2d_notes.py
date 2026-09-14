@@ -442,10 +442,52 @@ def test_every_mesh_setting_that_evidence_exists_for_shows_it():
 
 
 def test_every_field_reads_as_its_key():
-    # FIELD_LABELS emptied with the taxonomy (it carried art_style); every
-    # surviving field's on-screen name is its key with the underscores out.
+    # FIELD_LABELS emptied with the taxonomy (it carried art_style); none of
+    # the five fields the pane's own combos read this table for --
+    # ``guidance.form_fields()`` -- is one of the eleven sweep-only axes the
+    # 2026-09-14 audit (finding docs-07) restored labels for below, so this
+    # narrower set still reads as its bare key with the underscores out.
     for field in guidance.form_fields():
         assert settings_2d.field_label(field) == field.replace("_", " ")
+
+
+def test_sweep_add_axis_combo_shows_the_manuals_human_readable_axis_names():
+    """The 2026-09-14 audit, finding docs-07: chapter 38 ("What you can
+    vary") names these eleven axes in prose -- "Style strength",
+    "IP-Adapter scale", "Reference prep", "Background removal" and the rest
+    -- but ``FIELD_LABELS`` was emptied at the taxonomy retirement and never
+    regained them, so the Add-axis combo (``review_panes.py``'s "what to
+    vary", built from ``sweeps.axis_params()`` through
+    ``settings_2d.field_label``) drew the bare keys instead: "lora weight",
+    "ip scale", "control scale", "control end", "reference prep",
+    "bg removal", "size m". Every name here is the manual's own string,
+    verbatim, so the combo and the chapter that documents it cannot drift
+    the way the ``art_style`` label already once did.
+    """
+    from warlock.service import sweeps as sweeps_mod
+
+    manual_names = {
+        "lora_weight": "Style strength",
+        "negative_prompt": "Negative prompt",
+        "ip_scale": "IP-Adapter scale",
+        "control_scale": "ControlNet scale",
+        "control_end": "ControlNet end",
+        "reference_prep": "Reference prep",
+        "bg_removal": "Background removal",
+        "resolution": "Resolution",
+        "profile": "Profile",
+        "custom_triangles": "Custom triangles",
+        "size_m": "Size in metres",
+    }
+    assert manual_names.keys() <= set(sweeps_mod.axis_params())
+    for field, name in manual_names.items():
+        assert settings_2d.field_label(field) == name
+    # The six ``trellis_*`` engine flags are deliberately untouched: the
+    # manual describes them narratively rather than naming each one as a
+    # combo label, so there is no single manual string to hold them to.
+    for field in sweeps_mod.axis_params():
+        if field.startswith("trellis_"):
+            assert settings_2d.field_label(field) == field.replace("_", " ")
 
 
 # --- which styles the picker offers ------------------------------------------
@@ -503,6 +545,36 @@ def test_the_filter_note_names_what_is_listed_and_defers_when_nothing_fits():
 def test_the_filter_note_is_silent_when_the_whole_list_is_offered():
     ctx = _synth_ctx({"a": ["one", "two"]}, [("one", "One"), ("two", "Two")])
     assert settings_2d.lora_filter_note(ctx, {"base_model": "a"}) is None
+
+
+def test_lora_options_follows_the_resolved_tier_under_automatic_routing():
+    """The 2026-09-14 audit, finding create-03: ``lora_options`` used to read
+    the raw, possibly stale ``form["base_model"]`` instead of the resolved
+    recipe -- ``negative_prompt_note``'s own fix (2026-09-06, create2-04) and
+    ``img2img_note``'s (2026-09-05, create-04) already resolve first for the
+    same reason. Here the stale value is "flux_klein_distilled" (fits only
+    ``pixelklein``), left behind by an earlier Advanced pick, while Automatic
+    routing on ``quality="quality"`` resolves ``image_quality`` -- rank 30,
+    beating ``image_flux2``'s rank 25 -- to ``sdxl_cfg`` (fits the SDXL LoRA
+    set) regardless of that stale value, exactly as
+    ``test_negative_prompt_note_follows_the_resolved_tier`` demonstrates for
+    the negative-prompt note. Before the fix the picker offered
+    ``pixelklein``, a style ``generation.validate_request`` then refuses at
+    submit because it does not fit ``sdxl_cfg``.
+    """
+    ctx = _ctx_resolving()
+    form = {
+        "asset_type": "image",
+        "generation_type": "image",
+        "prompt": "a wooden crate",
+        "model_mode": "auto",
+        "quality": "quality",
+        "base_model": "flux_klein_distilled",
+        "style_lora": "",
+    }
+    keys = {key for key, _ in settings_2d.lora_options(ctx, form)}
+    assert keys == {"render3d", "redmond3d", "ps1", "pixelxl"}
+    assert "pixelklein" not in keys
 
 
 def test_every_note_stays_inside_the_default_atlas_range():

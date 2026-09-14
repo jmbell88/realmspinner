@@ -58,6 +58,7 @@ BUSY = "The document is busy -- a save, an export or playback is still running."
 RENDERING = "A render of this effect is still running."
 NO_CONFLICTS = "No cells of this effect are flagged."
 NO_SELECTION = "Select the pixels to use as a texture first."
+NO_TEXTURE_SLOT = "This layer has no texture parameter to take one."
 TEXTURE_PENDING = "A texture is already being generated."
 #: The words around the user's own, for a texture the pixel model paints.
 TEXTURE_PROMPT_TEMPLATE = (
@@ -426,8 +427,32 @@ def snippet_text(tab: Any, tag_name: str, engine: str) -> str:
 # -- textures --------------------------------------------------------------------------------
 
 
+def _texture_target(state: Any, tab: Any, group: int | None) -> Any:
+    """The recipe layer 'Use selection as texture' would write into: the
+    inspector's active layer if the current recipe still carries it, else
+    the stack's last layer -- ``_assign_texture``'s own resolution, read
+    ahead of time so a caller can refuse before anything is committed. None
+    with no group, no recipe, or a recipe with no layers at all."""
+    if group is None:
+        return None
+    recipe = current_recipe(state, tab, group)
+    if recipe is None or not recipe.layers:
+        return None
+    uid = state.flourish_layer.get(group)
+    return next((each for each in recipe.layers if each.uid == uid), recipe.layers[-1])
+
+
+def _has_texture_slot(state: Any, tab: Any, group: int | None) -> bool:
+    from .inker.flourish import prims
+
+    target = _texture_target(state, tab, group)
+    return target is not None and "texture" in prims.params_of(target.kind)
+
+
 def can_texture_selection(state: Any, tab: Any) -> bool:
-    return has_effect(state, tab) and getattr(tab.doc, "mask", None) is not None
+    if not has_effect(state, tab) or getattr(tab.doc, "mask", None) is None:
+        return False
+    return _has_texture_slot(state, tab, active_group(state, tab))
 
 
 def texture_selection_reason(state: Any, tab: Any) -> str:
@@ -435,6 +460,13 @@ def texture_selection_reason(state: Any, tab: Any) -> str:
         return "Nothing is open."
     if not has_effect(state, tab):
         return NO_EFFECT
+    # The 2026-09-14 audit (inker-06): this used to say only NO_SELECTION,
+    # so a glow layer -- no ``texture`` parameter at all -- let the button
+    # through and ``texture_from_selection`` committed an asset nothing in
+    # the document would ever reference. Check the slot before the selection:
+    # a selection cannot fix a layer that has nowhere to put the result.
+    if not _has_texture_slot(state, tab, active_group(state, tab)):
+        return NO_TEXTURE_SLOT
     return "" if getattr(tab.doc, "mask", None) is not None else NO_SELECTION
 
 
@@ -448,9 +480,19 @@ def texture_generate_reason(state: Any, tab: Any) -> str:
 
 def texture_from_selection(ctx: Any, state: Any, tab: Any) -> str | None:
     """The selection's pixels become a texture of the active effect, and the
-    inspector's layer takes it if it has a ``texture`` parameter. One step."""
+    inspector's layer takes it if it has a ``texture`` parameter. One step.
+
+    Refuses with nothing pushed when the target layer has no texture slot at
+    all (the 2026-09-14 audit, inker-06): committing the asset first and
+    discovering only afterwards that no layer would take it left an
+    invisible, permanent undo step behind -- an asset with nothing in the
+    document ever pointing at it.
+    """
     group = active_group(state, tab)
     if group is None:
+        return None
+    if not _has_texture_slot(state, tab, group):
+        state.say(NO_TEXTURE_SLOT)
         return None
     cutout = tab.doc.selection_cutout()
     if cutout is None or not cutout[..., 3].any():
@@ -860,10 +902,16 @@ def submit_restyle(
     frames = keyframes.anchor_frames(first, last, anchors)
     track_uids = [uid for uid in held.tracks.values()]
     uids = sheetout.frame_uids(tab.doc)
-    pictures: dict[int, bytes] = {}
+    # Composite here, on the frame thread, because ``flatten_subset`` reads
+    # ``Document.frame_stack`` directly and the document must not move while
+    # the task runs. The PNG encode does not need the document at all, so it
+    # moves into ``run`` below -- the 2026-09-14 audit (inker-05) found this
+    # loop encoding every anchor on the frame thread, ~51 ms per anchor at
+    # 1024^2 and 100-300 ms per press, none of it needing to block a frame.
+    planes: dict[int, np.ndarray] = {}
     for index in frames:
         plane = sheetout.flatten_subset(tab.doc, uids[index], track_uids)
-        pictures[index] = _png_bytes(plane)
+        planes[index] = np.ascontiguousarray(plane, dtype=np.uint8).copy()
     prompt = RESTYLE_PROMPT_TEMPLATE.format(subject=subject.strip() or "painted magical effect")
     pending = {
         "tab_uid": tab.uid,
@@ -882,7 +930,8 @@ def submit_restyle(
         from ..service import jobs as svc_jobs
 
         ids: dict[int, str] = {}
-        for index, png in pictures.items():
+        for index, plane in planes.items():
+            png = _png_bytes(plane)
             result = svc_jobs.create_job(
                 ctx.svc,
                 kind="text",

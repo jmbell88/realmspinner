@@ -380,12 +380,16 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
         # did not would leave a map painting the wrong lattice, one
         # Ctrl+Z away from a state nobody asked for.
         #
-        # No door has set ``projection`` since the ground generator was
-        # deleted on 2026-08-18 -- the new-map dialog owns the lattice
-        # now -- so this arm is currently reached only from tests. Kept
-        # for ``set_projection``'s own reason: it is the correct shape
-        # for a door that carries a lattice with its art, and re-adding
-        # it later would mean re-deriving the one-undo-step argument.
+        # The 2026-09-14 audit, plotter-04: an earlier version of this
+        # comment claimed no production door could reach this arm any more.
+        # That stopped being accurate once ``use_as_tileset`` learned to set
+        # ``projection`` on an unpainted map whose lattice disagrees with a
+        # recorded sheet's (``_sheet_or_tileset``'s own
+        # ``out["projection"] = recorded_lattice`` arm) -- a real user path,
+        # not a test fixture. Kept for ``set_projection``'s own reason
+        # regardless: it is the correct shape for a door that carries a
+        # lattice with its art, and re-adding it later would mean
+        # re-deriving the one-undo-step argument.
         tab.doc.set_projection(want, adding=tileset, source=result.get("source", ""))
     else:
         tab.doc.add_tileset(tileset, source=result.get("source", ""))

@@ -303,6 +303,27 @@ def mirror_report(tab: Any) -> tuple[int, int, np.ndarray, tuple[int, int, int, 
 # --- the verbs --------------------------------------------------------------
 
 
+class _Refused:
+    """``_framed``'s sentinel for "the engine raised and this already
+    toasted the refusal."
+
+    Falsy like a plain ``False``, so every caller that only ever asks
+    ``if _framed(...):`` sees no change at all. It exists for the callers
+    that toast their *own* sentence when the engine merely declined to do
+    anything (``mirror_to``, ``mirror_run``): before this, both branches of
+    ``_framed`` collapsed to the same ``False``, so a refusal was followed by
+    a second, contradictory "already matches" toast for the one press (the
+    2026-09-14 audit, inker-07). ``is _REFUSED`` is how such a caller tells
+    the two apart.
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
+
+_REFUSED = _Refused()
+
+
 def _framed(ctx: Any, verb: str, work: Any) -> bool:
     """Run one engine call and frame its refusal as a sentence, the
     ``_run_range_verb`` rule: the engine names what is wrong with the
@@ -311,7 +332,7 @@ def _framed(ctx: Any, verb: str, work: Any) -> bool:
         return bool(work())
     except ValueError as exc:
         ctx.toast(f"{verb} was not applied: {exc}.", "warn")
-        return False
+        return _REFUSED  # type: ignore[return-value]
 
 
 # -- merging a re-render ------------------------------------------------------
@@ -467,7 +488,10 @@ def propagate(ctx: Any, tab: Any) -> bool:
     if done:
         remark(tab)
         ctx.toast(f"Sent the correction to {len(frames)} cell(s).", "success")
-    return done
+    # ``bool(done)`` rather than ``done``: ``_framed`` can now hand back the
+    # ``_REFUSED`` sentinel, which is falsy but is not the ``False`` literal,
+    # and ``inker_ops.run`` tells "ran" from "refused" by ``is not False``.
+    return bool(done)
 
 
 def replace_colour(ctx: Any, tab: Any) -> bool:
@@ -490,7 +514,7 @@ def replace_colour(ctx: Any, tab: Any) -> bool:
     )
     if done:
         remark(tab)
-    return done
+    return bool(done)  # see ``propagate``'s comment on ``_REFUSED``
 
 
 def shift(ctx: Any, tab: Any) -> bool:
@@ -509,7 +533,7 @@ def shift(ctx: Any, tab: Any) -> bool:
     )
     if done:
         remark(tab)
-    return done
+    return bool(done)  # see ``propagate``'s comment on ``_REFUSED``
 
 
 def mirror_to(ctx: Any, tab: Any) -> bool:
@@ -524,9 +548,14 @@ def mirror_to(ctx: Any, tab: Any) -> bool:
         "The mirror",
         lambda: doc.mirror_to(track_uid, doc.anim.current, target, fraction),
     )
+    if done is _REFUSED:
+        # ``_framed`` already toasted the refusal (the engine raised); saying
+        # "already matches" too would stack a second, contradictory toast on
+        # this one press (the 2026-09-14 audit, inker-07).
+        return False
     if not done:
         ctx.toast("The mirror already matches outside the face.", "info")
-    return done
+    return bool(done)
 
 
 def mirror_run(ctx: Any, tab: Any) -> bool:
@@ -539,6 +568,13 @@ def mirror_run(ctx: Any, tab: Any) -> bool:
     done = _framed(
         ctx, "The mirror", lambda: doc.mirror_run(track_uid, here[0], fraction)
     )
+    if done is _REFUSED:
+        # Same shape as ``mirror_to`` above: ``_framed`` already toasted the
+        # refusal, so the "already matches" sentence below would stack a
+        # second, contradictory toast on this one press. Widened into
+        # inker-07 alongside ``mirror_to`` on 2026-09-14 once this sibling was
+        # found to carry the identical bug.
+        return False
     if not done:
         ctx.toast("Every cell of that run already matches its mirror outside the face.", "info")
-    return done
+    return bool(done)

@@ -83,7 +83,11 @@ def toolbar(ctx: Any) -> None:
         return
     job = ctx.job()
     # Every continuation below wraps rather than running off the edge. This
-    # toolbar carries up to ten controls and is drawn over the *viewport*, so
+    # toolbar carries up to twelve controls (the 2026-09-14 audit's docs-11:
+    # this comment said ten, counting only the calls that go through the
+    # local ``_wrap`` closure below -- it missed "Open in Inker", which draws
+    # first and needs no wrap of its own, and the front-yaw control drawn by
+    # ``_front_yaw``, which wraps itself) and is drawn over the *viewport*, so
     # its width is whatever the side panes have left -- narrow the window, or
     # widen the inspector, and a bare same_line() chain puts the last few
     # buttons past the content edge where imgui clips them away and they cannot

@@ -206,7 +206,13 @@ def test_a_cancelled_generate_is_reported_as_cancelled_not_as_a_failure():
         raise JobCancelled
 
     msgs = _run([_req()], _StubPipe(on_generate=_raise))
-    assert msgs[-1] == {"kind": "error", "error": "cancelled", "cancelled": True}
+    last = msgs[-1]
+    assert last["error"] == "cancelled"
+    assert last["cancelled"] is True
+    # The 2026-09-14 audit (pipelines-01): a cancel must still carry the
+    # vitals, or ``t2i_client._publish`` reads the missing ``loaded`` key as
+    # False and the parent believes a still-resident checkpoint unloaded.
+    assert last["loaded"] is True
 
 
 def test_a_failing_generate_is_a_response_and_the_loop_survives_it():
@@ -221,6 +227,10 @@ def test_a_failing_generate_is_a_response_and_the_loop_survives_it():
     first, second = msgs[1], msgs[-1]
     assert first["kind"] == "error" and first["cancelled"] is False
     assert "checkpoint is missing" in first["error"]
+    # The 2026-09-14 audit (pipelines-01): the checkpoint really is still
+    # resident after a failed generate, and the error response must say so --
+    # a missing ``loaded`` key here is what made admission miscount it.
+    assert first["loaded"] is True
     # The child must not have died with the job: the whole reason it is
     # persistent is that the next request finds the pipe still loaded.
     assert second["kind"] == "done"
@@ -230,6 +240,42 @@ def test_an_unknown_op_is_refused_by_name_rather_than_ignored():
     msgs = _run([{"op": "enhance"}], _StubPipe())
     assert msgs[-1]["kind"] == "error"
     assert "enhance" in msgs[-1]["error"]
+
+
+def test_a_cancelled_or_failed_generate_response_still_carries_the_vitals():
+    """The regression for the 2026-09-14 audit's pipelines-01.
+
+    Every response ``_Server.handle`` can produce -- a cancelled generate, a
+    failing one, and even an unknown op -- must carry ``_vitals()``'s
+    ``loaded`` key, merged at ``handle``'s chokepoint rather than by each
+    handler remembering to. Before this fix, only the ``done`` responses did:
+    ``t2i_client._publish`` sets ``self._loaded = bool(msg.get("loaded"))`` on
+    every reply before re-raising, so a missing key on an error response read
+    as False and told the parent a still-resident checkpoint had unloaded.
+    """
+    from warlock.pipelines.text2image import JobCancelled
+
+    def _cancel(prompt, output_path, **kw):
+        raise JobCancelled
+
+    cancelled = _run([_req()], _StubPipe(on_generate=_cancel))[-1]
+    assert cancelled["kind"] == "error" and cancelled["cancelled"] is True
+    assert cancelled["loaded"] is True
+
+    def _boom(prompt, output_path, **kw):
+        raise RuntimeError("checkpoint is missing")
+
+    failed = _run([_req()], _StubPipe(on_generate=_boom))[-1]
+    assert failed["kind"] == "error" and failed["cancelled"] is False
+    assert failed["loaded"] is True
+
+    # The unknown-op branch never touches ``self._t2i`` at all -- a fresh
+    # server with no pipe built yet must report ``loaded: False``, not omit
+    # the key.
+    server = worker._Server("sdxl_cfg", "C:/models", None)
+    unknown = server.handle({"op": "enhance"}, lambda _msg: None)
+    assert unknown["kind"] == "error"
+    assert unknown["loaded"] is False
 
 
 def test_an_unreadable_line_does_not_stall_the_ops_behind_it():

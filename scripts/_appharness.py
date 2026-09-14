@@ -21,6 +21,7 @@ machine into the pictures.
 
 from __future__ import annotations
 
+import ast
 import atexit
 import os
 import shutil
@@ -30,22 +31,61 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-#: Every root that resolves under ``_home()`` and can be aimed elsewhere by its
-#: own variable (``config.py``'s ``_env_path`` calls). They are **cleared**
-#: rather than repointed when this module makes a throwaway home: clearing lets
-#: each one derive under the new home the way ``config`` already knows how,
-#: where repointing would be this module restating five defaults it does not
-#: own. ``WARLOCK_EXPORT_DIR`` and ``WARLOCK_T2I_DIR`` are deliberately absent
-#: -- they default to ``PROJECT_ROOT``, not to home, so a throwaway home has no
-#: opinion about them.
-_ROOTS_UNDER_HOME = (
-    "WARLOCK_DATA_DIR",
-    "WARLOCK_DB",
-    "WARLOCK_BENCH_DIR",
-    "WARLOCK_EVIDENCE_DIR",
-    "WARLOCK_PALETTE_DIR",
-    "WARLOCK_T2I_ROOT",
-)
+_CONFIG_PY = Path(__file__).resolve().parent.parent / "src" / "warlock" / "config.py"
+
+
+def _roots_under_home() -> tuple[str, ...]:
+    """Every ``WARLOCK_*`` var whose default in ``config.py`` resolves under
+    ``_home()``. -> the env var names, in source order.
+
+    Read from ``config.py``'s own source with ``ast`` rather than hand-listed,
+    because a hand list is exactly what the 2026-09-14 audit (pipelines-03)
+    found stale: this module cleared six of the ten roots ``config.py``
+    resolved under home, and ``WARLOCK_TRELLIS_MODELS``, ``WARLOCK_TRELLIS_
+    RUNTIME``, ``WARLOCK_FAMILIAR_RUNTIME`` and ``WARLOCK_FAMILIAR_MODELS`` --
+    all four added to ``config.py`` after this list was written by hand --
+    leaked the real machine's paths into a throwaway home's captures. Reading
+    the source instead means a fifth one enrols itself the moment it is
+    written, the way ``config.SETTINGS`` already keeps its own pairing honest
+    (see that table's docstring).
+
+    A call counts when it has the shape ``_env_path("WARLOCK_X", <expr
+    containing a call to _home()>)`` -- found by walking each argument's own
+    subtree for a call to a function named ``_home``, not by matching text, so
+    a reformatted multi-line call (``trellis_models_dir``'s, for one) is still
+    found. Matching the *name* ``_home`` rather than any ``.home()`` call is
+    what leaves ``WARLOCK_HOME`` itself out: its default is ``Path.home()``,
+    the real interpreter, not this module's helper -- clearing the one
+    variable that *makes* the throwaway home would defeat it. It is also what
+    leaves ``WARLOCK_EXPORT_DIR``, ``WARLOCK_T2I_DIR`` and ``WARLOCK_GLTFPACK``
+    out: each defaults to ``PROJECT_ROOT``, so a throwaway home has no opinion
+    about them, same as this module has always said.
+    """
+    tree = ast.parse(_CONFIG_PY.read_text(encoding="utf-8"))
+    roots: list[str] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id != "_env_path" or len(node.args) < 2:
+            continue
+        name_arg, default_arg = node.args[0], node.args[1]
+        if not (isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str)):
+            continue
+        calls_home = any(
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id == "_home"
+            for inner in ast.walk(default_arg)
+        )
+        if calls_home:
+            roots.append(name_arg.value)
+    return tuple(roots)
+
+
+#: Cleared rather than repointed when this module makes a throwaway home:
+#: clearing lets each one derive under the new home the way ``config`` already
+#: knows how, where repointing would be this module restating its defaults.
+_ROOTS_UNDER_HOME = _roots_under_home()
 
 #: Set this to run against the real library on purpose -- photographing your own
 #: work, or reproducing a report that only happens with certain weights present.

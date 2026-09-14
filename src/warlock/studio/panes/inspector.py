@@ -1425,6 +1425,19 @@ def record_verdict(ctx: Any, job_id: str, grade: int, tags: tuple[str, ...] = ()
     return True
 
 
+def mark_graded(ctx: Any, job_id: str) -> None:
+    """Tell :func:`is_graded`'s memo a verdict for this job now exists.
+
+    A public door onto the same cache :func:`record_verdict` writes above,
+    for the host that isn't this one: Review mode's own ``record`` files a
+    verdict straight through ``verdicts.record_verdict`` and never touched
+    this dict, so :func:`is_graded` kept answering "ungraded" for a mesh
+    Review had just graded until the inspector happened to reopen it and
+    re-query the store (shell-05, the 2026-09-14 audit).
+    """
+    ctx.state.inspector_graded[job_id] = True
+
+
 def is_graded(ctx: Any, job_id: str) -> bool:
     """Whether a person has already filed a verdict on this mesh. Memoised.
 

@@ -74,9 +74,11 @@ and it still turns off spring motion along with everything else that moves.
 
 ## Models
 
-Every model the app knows about — the reconstruction engine, image models, style LoRAs, the
-conditioning adapters, and the matting, pose and measurement models — as a table of four columns: **Model**, **Size**,
-**Description** and **Actions**. A tick beside the name means the weights are on disk; a hollow mark
+Every model the app knows about, under the same headings **Settings → Models** groups it by — the
+reconstruction engine, Familiar, image models, style LoRAs, the conditioning adapters, the
+measurement models (matting, pose and the mesh-quality metric), and the music models (generation and
+stem separation) — as a table of four columns: **Model**, **Size**, **Description** and **Actions**.
+A tick beside the name means the weights are on disk; a hollow mark
 with a checkbox means they are not, and **Install** fetches them. It is the same information the
 startup diagnostics report, in a place you can look at without opening the log. Tick several rows
 and *Download selected* fetches them together; four of the image models share one set of SDXL 1.0
@@ -355,7 +357,8 @@ sprite sheet on its own. It is off on a fresh install and nothing listens until 
 on. Doing so writes a key into `mcp.token` in your Warlock home and opens a local named pipe: there
 is no port, no firewall prompt, and nothing off your machine can reach it. Warlock runs exactly one
 language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
-already running on this computer connects to *it*. While one is attached the menu bar's status group
+already running on this computer connects inward to Warlock itself, never to Familiar and never the
+other way round. While one is attached the menu bar's status group
 says so. What it may touch is a two-part
 rule: in Clay it works in a tab it opens for itself and cannot address any other document, so
 nothing you have open is at risk; against your character Library it may read any row but can only

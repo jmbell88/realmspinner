@@ -122,7 +122,8 @@ way you placed an asset.
 
 Those three are **instances**, not copies. Select the original, change it — scale it, retint it — and
 all three change with it, immediately, with no step to apply and nothing to get out of step. An
-instance holds nothing of its own but a position.
+instance carries its own transform — position, rotation and scale — and nothing else: move, rotate or
+resize one without touching the others, and everything else about it still follows the template.
 
 When you want *one* of them to differ, select it and choose **Unpack instance**. It becomes a real
 copy of the template's contents, editable like anything else, and the link is gone. That is the

@@ -574,6 +574,32 @@ def _number(value: Any, default: float) -> float:
     return number if np.isfinite(number) else default
 
 
+def _factor(raw: Any, n: int, default: tuple[float, ...]) -> tuple[float, ...]:
+    """One fixed-length material factor off a material's JSON, or the glTF default.
+
+    create-01, the 2026-09-14 audit: ``material()`` read ``baseColorFactor``
+    and ``emissiveFactor`` with a bare ``tuple(pbr.get(...))`` -- the one
+    numeric field in this loader with no shape or numeric-ness check at all,
+    unlike a node's TRS (:func:`_trs`, which refuses) or a camera/light field
+    (:func:`_number`, which falls back). A wrong-length or non-numeric factor
+    loaded the file cleanly and only crashed several frames later, in
+    ``GpuMaterial.bind``/``Renderer._draw_model``, when it was written into a
+    vec4/vec3 GL uniform -- taking down the whole frame loop with no refusal
+    at load time to say why. A material factor is cosmetic like a
+    camera/light field, not structural like a node's TRS: losing it costs a
+    wrong-looking material, not a corrupt mesh, so this falls back to the
+    spec default rather than refusing the file, ``_number``'s trade rather
+    than ``_trs``'s.
+    """
+    try:
+        arr = np.asarray(raw, dtype="f8")
+    except (TypeError, ValueError):
+        return default
+    if arr.shape != (n,) or not np.all(np.isfinite(arr)):
+        return default
+    return tuple(float(x) for x in arr)
+
+
 def _trs(
     node: dict, name: str, key: str, n: int, default: tuple[float, ...] | None = None
 ) -> np.ndarray:
@@ -985,10 +1011,14 @@ class _Reader:
         pbr = mat.get("pbrMetallicRoughness", {})
         out = Material(
             name=mat.get("name", ""),
-            base_color_factor=tuple(pbr.get("baseColorFactor", (1.0, 1.0, 1.0, 1.0))),
+            base_color_factor=_factor(
+                pbr.get("baseColorFactor", (1.0, 1.0, 1.0, 1.0)), 4, (1.0, 1.0, 1.0, 1.0)
+            ),
             metallic_factor=float(pbr.get("metallicFactor", 1.0)),
             roughness_factor=float(pbr.get("roughnessFactor", 1.0)),
-            emissive_factor=tuple(mat.get("emissiveFactor", (0.0, 0.0, 0.0))),
+            emissive_factor=_factor(
+                mat.get("emissiveFactor", (0.0, 0.0, 0.0)), 3, (0.0, 0.0, 0.0)
+            ),
             double_sided=bool(mat.get("doubleSided", False)),
             alpha_mode=mat.get("alphaMode", "OPAQUE"),
             alpha_cutoff=float(mat.get("alphaCutoff", 0.5)),

@@ -33,9 +33,13 @@ tries to (re)connect lazily, on the call that needs it, rather than at
 start-up, and a call made while nothing answers gets an `isError` result
 naming the same Settings toggle this process has always named on stderr --
 never a crash, since the bridge itself is still alive and useful for
-discovery. There is still exactly one case that is fatal at start-up: no
-snapshot and no reachable Studio, in which case there is nothing to serve
-at all and the old exit(1) behaviour stands.
+discovery. There are exactly two cases fatal at start-up, both `exit(1)`
+after a reason on stderr: no snapshot and no reachable Studio, in which case
+there is nothing to serve at all; and a reachable Studio whose `hello` names
+an RPC version this bridge does not understand (`_hello` returning `None`)
+-- unlike "nothing was listening", that is a real disagreement no snapshot
+can paper over, so `main` refuses to fall back to one (the 2026-09-14 audit,
+agents-08, found this second case undocumented here).
 """
 
 from __future__ import annotations

@@ -1203,6 +1203,53 @@ def _params_shape_refusal(params: dict, defaults: dict, field: str, subject: str
     return fail(" ".join(messages), field=field, recovery="fix_arguments")
 
 
+def _op_params_type_refusal(op: Any, params: dict, field: str = "params") -> dict | None:
+    """Every value of ``clay_op``'s ``params`` held to **the parameter
+    ``clay_ops`` itself declares** for that name -- a name in ``op.params``,
+    and (for one it does declare) a single finite number, the only shape any
+    ``clay_ops.Param`` ever stores (``Param``'s own docstring: ``boolean``
+    and ``choices`` are widget kinds over the same float, a checkbox writing
+    0.0/1.0 and a combo writing its index).
+
+    Mirrors :func:`_params_shape_refusal`'s rule for ``clay_add_primitive``,
+    but keyed on ``Op.params`` rather than a generator's own defaults --
+    that is the registry ``clay_op`` actually dispatches into.
+
+    Before this (2026-09-14 audit, docs-06 / TODO F9), a bad value in
+    ``params`` reached ``clay_ops.run`` and crashed instead of refusing:
+    ``mirror-x`` -- which declares no params at all, its axis closed over
+    rather than passed -- given ``{"axis": 0}`` sailed past ``run``'s own
+    clamp loop (empty, since ``op.params`` is empty) and into
+    ``op.run(ctx, doc, **values)``, where the caller's ``axis`` collided
+    with the one already bound in the closure: ``TypeError: mirror() got
+    multiple values for argument 'axis'``, surfaced as "failed unexpectedly;
+    see the log." ``mirror-copy`` (whose ``axis`` *is* declared, a
+    ``choices`` param stored as an index) given ``{"axis": "x"}`` reached
+    ``run``'s ``float(values[param.name])`` and leaked ``ValueError: could
+    not convert string to float: 'x'`` verbatim (``call``'s own
+    ``except ValueError`` forwards a bare message, unlike the generic
+    backstop). A list anywhere in ``params`` raised ``TypeError`` at that
+    same ``float()`` call. All three reproduced against ``git show
+    HEAD:src/warlock/studio/agent_clay.py`` before this fix.
+    """
+    declared = {param.name: param for param in op.params}
+    messages = []
+    for key in sorted(params):
+        if key not in declared:
+            messages.append(f"{field}.{key} is not a parameter of {op.name!r}.")
+            continue
+        try:
+            value = float(params[key])
+        except (TypeError, ValueError):
+            messages.append(f"{field}.{key} must be a single number for op {op.name!r}.")
+            continue
+        if not math.isfinite(value):
+            messages.append(f"{field}.{key} must be finite for op {op.name!r}.")
+    if not messages:
+        return None
+    return fail(" ".join(messages), field=field, recovery="fix_arguments")
+
+
 def _repaint(doc: Any, uids: Iterable[int], index: int) -> None:
     """Rewrite every face of each object in *uids* to material *index*.
 
@@ -2697,7 +2744,15 @@ def _clay_analyze_output_schema() -> dict:
                             "maxItems": 2,
                         },
                         "distance": {"anyOf": [{"type": "null"}, {"type": "number"}]},
-                        "intersects": {"type": "boolean"},
+                        # null -- unknown, not "no" -- once a pair clears
+                        # MAX_TRIANGLE_PAIRS and the full narrow phase never
+                        # runs (analyze.py's own PairAnalysis.intersects
+                        # docstring); widened alongside distance's own
+                        # anyOf when _h_analyze started emitting it
+                        # (2026-09-14 audit, clay-01 follow-up: this was
+                        # still declared a bare boolean after analyze.py's
+                        # clay-01 fix started returning None here).
+                        "intersects": {"anyOf": [{"type": "null"}, {"type": "boolean"}]},
                         "contact": {"type": "boolean"},
                         "overlap": {"anyOf": [{"type": "null"}, overlap_schema]},
                         "exact": {"type": "boolean"},
@@ -4248,6 +4303,12 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
         # named cleanly the way every other bad-shaped argument in this file
         # already is.
         return fail("params must be an object.", field="params")
+    # Every value held to what ``op.params`` itself declares, before it ever
+    # reaches ``clay_ops.run`` -- see :func:`_op_params_type_refusal` for the
+    # three crashes (2026-09-14 audit, docs-06) this closes.
+    failure = _op_params_type_refusal(op, params)
+    if failure:
+        return failure
     proxy = _OpCtx(state=getattr(ctx, "state", None))
     # Snapshotted by identity, before the op runs -- ``Mesh`` is ``eq=False``
     # and every op is ``Mesh -> Mesh`` (``document.py``'s own rule, the same
@@ -5756,12 +5817,28 @@ def _h_reference_get(ctx: Any, session: Session, args: dict) -> dict:
         "view": ref.view,
         "source": ref.source,
     }
+    png = agent_refs.bounded_png(ref.png)
+    # ``bounded_png``'s own docstring: "This function does not refuse on the
+    # caller's behalf -- whoever calls it is responsible for checking the
+    # length of what comes back". `_h_render`'s `_over_frame_budget` already
+    # does this after every `bounded_png` call it makes; this handler did
+    # not (2026-09-14 audit, agents-09), latent at today's constants
+    # (`MAX_IMAGE_RESULT` base64-encodes to well under `MAX_FRAME` minus
+    # `RENDER_FRAME_RESERVE`) but not proof against a stored reference dense
+    # enough to still be over budget after halving once. Same formula as
+    # `_over_frame_budget`: base64 costs 4 bytes for every 3 of input,
+    # rounded up.
+    b64_len = ((len(png) + 2) // 3) * 4
+    if b64_len > _protocol().MAX_FRAME - RENDER_FRAME_RESERVE:
+        return fail(
+            "This reference is too large to send back in one reply frame; see the log."
+        )
     # Deliberately not `_json` -- this reply carries a picture, the same
     # image-carrying exclusion `clay_render` is answered with (see `_json`'s
     # own docstring): an image block has no JSON to duplicate, so `meta`
     # exists only as text here, never a second time as `structuredContent`.
     # This is the second, not the only, place that rule applies.
-    return ok(text(json.dumps(meta)), image_png(agent_refs.bounded_png(ref.png)))
+    return ok(text(json.dumps(meta)), image_png(png))
 
 
 def _h_reference_remove(ctx: Any, session: Session, args: dict) -> dict:

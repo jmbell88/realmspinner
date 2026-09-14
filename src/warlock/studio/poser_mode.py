@@ -888,6 +888,8 @@ def apply_asset_pose(ctx: Any, pose_id: str) -> None:
     record = state.find_asset_pose(pose_id)
     if record is None or viewer is None or not viewer.pose_mode:
         return
+    if _refuse_while_skeleton_editing(ctx, state):
+        return
 
     def proceed() -> None:
         viewer.reset_all(dirty=False)
@@ -1550,6 +1552,8 @@ def apply_pose(ctx: Any, pose_id: str) -> None:
     viewer = viewer_of(ctx)
     if record is None or viewer is None or not viewer.pose_mode:
         return
+    if _refuse_while_skeleton_editing(ctx, state):
+        return
 
     def proceed() -> None:
         # Reset first, the apply_preset order: set_pose writes only the bones
@@ -1568,18 +1572,43 @@ def apply_pose(ctx: Any, pose_id: str) -> None:
 def apply_preset(ctx: Any, preset: dict[str, Any]) -> None:
     """Load a shipped preset, behind the guard. Presets are read-only;
     apply-then-Save-as is the promotion path into the library."""
+    state = ensure(ctx)
     viewer = viewer_of(ctx)
     if viewer is None or not viewer.pose_mode:
+        return
+    if _refuse_while_skeleton_editing(ctx, state):
         return
     guard(ctx, "apply a preset", lambda: viewer.apply_preset(preset))
 
 
 def new_pose(ctx: Any) -> None:
     """Back to rest with nothing being edited, behind the guard."""
+    state = ensure(ctx)
     viewer = viewer_of(ctx)
     if viewer is None or not viewer.pose_mode:
         return
+    if _refuse_while_skeleton_editing(ctx, state):
+        return
     guard(ctx, "start a new pose", lambda: viewer.reset_all(dirty=False))
+
+
+def _refuse_while_skeleton_editing(ctx: Any, state: PoserState) -> bool:
+    """Refuse New pose and the three Apply buttons while a skeleton edit is
+    open. -> whether the call was refused.
+
+    The 2026-09-14 audit's poser-03: these four doors stayed live during a
+    skeleton edit and reposed the mesh the skeleton editor still assumes is
+    at rest (``enter_skeleton_edit`` resets the armature to rest on the way
+    in, and nothing brings it back until :func:`apply_skeleton` lands or
+    :func:`cancel_skeleton_edit` gives up). ``import_clip``'s own refusal
+    (P6, 2026-09-13) is the precedent: a disabled button only stops a mouse,
+    so the door itself has to say no for whatever else can reach it -- a
+    keyboard shortcut, an agent's own call.
+    """
+    if not state.skeleton_editing:
+        return False
+    ctx.toast("Apply or cancel the skeleton edit before changing the pose.", "info")
+    return True
 
 
 # --- saving ------------------------------------------------------------------
@@ -1769,6 +1798,31 @@ def delete(ctx: Any, pose_id: str) -> None:
 # --- the guard ---------------------------------------------------------------
 
 
+def _dirty_draft_noun(viewer: Any) -> str:
+    """Which draft the confirm should name, or "pose" with nothing bound.
+
+    The 2026-09-14 audit's poser-04: ``PoseEditor.has_unsaved_edits()`` folds
+    a posed armature (``dirty``/``moved``) and an open skeleton draft
+    (``draft_dirty``) into one flag, and :func:`guard` said "Unsaved pose
+    changes" for both -- so closing or opening an asset with only a skeleton
+    draft dirty warned about discarding a "pose" that was not, in fact,
+    posed differently from what is saved. Named after whichever draft is
+    actually dirty, both when both are (in practice ``enter_skeleton_mode``
+    resets the pose to rest on the way in, so the two are not normally dirty
+    together, but the wording should not lie if that ever changes).
+    """
+    if viewer is None or not viewer.pose_mode:
+        return "pose"
+    editor = viewer.editor
+    pose_dirty = bool(getattr(editor, "dirty", False) or getattr(editor, "moved", False))
+    skeleton_dirty = bool(getattr(editor, "draft_dirty", False))
+    if pose_dirty and skeleton_dirty:
+        return "pose and skeleton"
+    if skeleton_dirty:
+        return "skeleton"
+    return "pose"
+
+
 def guard(ctx: Any, verb: str, proceed: Any) -> bool:
     """Ask before discarding unsaved Poser edits. -> whether it went ahead now.
 
@@ -1781,7 +1835,8 @@ def guard(ctx: Any, verb: str, proceed: Any) -> bool:
     """
     from . import docmodes
 
-    return docmodes.viewer_guard(ctx, viewer_of(ctx), "pose", verb, proceed)
+    viewer = viewer_of(ctx)
+    return docmodes.viewer_guard(ctx, viewer, _dirty_draft_noun(viewer), verb, proceed)
 
 
 # --- keys and task results ---------------------------------------------------

@@ -909,7 +909,7 @@ def export_godot(
     other export and every re-render of it derives from, and Godot's own loop
     heuristic (``godotscene``'s docstring) reads a ``"-loop"`` suffix as
     licence to loop an animation, which is a rename this app's own copy must
-    never carry. ``godotscene.rename_animations`` runs on a copy of the bytes
+    never carry. ``glbio.rename_animations`` runs on a copy of the bytes
     instead, and only the copy lands in the export folder.
 
     Refuses in ``animated.glb``'s own words for an unrigged mesh or a

@@ -282,6 +282,23 @@ def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeyp
         ser.read_wblk(data)
 
 
+def test_read_wblk_refuses_a_document_declaring_too_many_materials(monkeypatch) -> None:
+    """The 2026-09-14 audit's clay-06: read_wblk bounded the objects array
+    (``MAX_OBJECTS``, the test above) but not the materials array, so a
+    compact hand-edited or crash-recovered ``.wblk`` naming far more
+    materials than any document Clay writes -- cheap in bytes, since each
+    entry is a few characters of JSON -- could stall the load in the
+    ``_material_from`` loop with nothing to refuse it up front. ``_doc()``
+    already carries 3 materials, so lowering the ceiling to 2 crosses it
+    without building a document with materials genuinely in the thousands.
+    """
+    monkeypatch.setattr(ser, "MAX_DECLARED_MATERIALS", 2)
+    data = ser.wblk_bytes(_doc())  # three materials
+
+    with pytest.raises(ValueError, match="3 materials, past the 2"):
+        ser.read_wblk(data)
+
+
 def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monkeypatch) -> None:
     """The triangle half of clay-04: unlike the object count, a triangle count
     is not knowable without reading a mesh, so it is checked as the loop over
@@ -603,6 +620,24 @@ def test_textures_round_trip_pixel_for_pixel() -> None:
     assert out.materials[0].base_color == image
     assert out.materials[0].normal == _tex(7)
     assert out.materials[0].metallic_roughness is None
+
+
+def test_read_wblk_refuses_a_document_declaring_too_many_textures(monkeypatch) -> None:
+    """The texture twin of clay-06 above: ``read_wblk`` bounded the objects
+    array and (now) the materials array but not how many textures a scene
+    names, so the same stall was reachable through ``_read_textures``
+    instead -- a scene can name far more texture entries than the archive
+    actually carries distinct PNGs for, and each entry is cheap to declare.
+    """
+    monkeypatch.setattr(ser, "MAX_DECLARED_TEXTURES", 0)
+    doc = bd.ClayDoc(
+        objects=[bd.Obj(uid=bd.new_uid(), name="P", mesh=bp.plane())],
+        materials=[gltf.Material(name="m", base_color=_tex())],
+    )
+    data = ser.wblk_bytes(doc)  # one texture
+
+    with pytest.raises(ValueError, match="1 textures, past the 0"):
+        ser.read_wblk(data)
 
 
 def test_a_shared_texture_is_written_once() -> None:

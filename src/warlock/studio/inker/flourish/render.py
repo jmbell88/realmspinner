@@ -45,9 +45,14 @@ class FrameCtx:
     fps: int
     direction: float = 0.0  # degrees; rotates every vector a primitive emits
     #: Set by ``render`` before each primitive runs: the layer's position in
-    #: the stack. **Seeds come from this, never from ``Layer.uid``** -- uids
-    #: are reissued on every load, and a recipe file must render the same
-    #: bytes each time it is opened.
+    #: the stack. **Seeds come from this, never from ``Layer.uid``** -- a
+    #: uid is not reissued on load (the 2026-09-14 audit, inker-09: this
+    #: comment and INVARIANTS both said otherwise; ``recipe.from_dict`` keeps
+    #: whatever uid the file carries), only on a *second* insert of the same
+    #: preset (``presets.load`` calls ``recipe.bump_uids`` so two copies of
+    #: one preset cannot collide) -- and a recipe file must render the same
+    #: bytes each time it is opened either way, so the seed cannot depend on
+    #: a uid at all.
     layer_index: int = 0
     #: Asset id -> straight uint8 RGBA texture. Resolved by the document; the
     #: engine only reads. Empty on a recipe that stamps nothing.

@@ -726,6 +726,46 @@ def test_a_gradient_fills_only_the_selection():
     assert _at(doc, 12, 1) == RED
 
 
+def test_gradient_fill_does_not_raise_under_errstate_where_coverage_and_backdrop_are_both_transparent():  # noqa: E501
+    """2026-09-14 audit, finding inker-08: ``Document.gradient``'s ``share``
+    divide used to be ``np.divide(src_a, out_a, out=np.zeros_like(src_a),
+    where=out_a > 0.0)`` -- the same masked-lane pattern ``composite.over``
+    removed for its own reason (``where=`` does not promise the masked lanes
+    go unevaluated, so a SIMD lane with ``out_a == 0`` still ran 0/0 under
+    ``np.errstate(all="raise")``). A ramp with both stops fully transparent,
+    over a blank (also transparent) layer, is exactly the case where
+    ``out_a`` is zero everywhere in the box.
+
+    Probed directly against this build's numpy: that expression neither
+    raises nor warns at the array sizes this test can reach, so -- as the
+    finding itself allows -- the masked-lane *pattern* is pinned by source
+    inspection rather than by provoking the failure, on top of the ordinary
+    behavioural check.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from warlock.studio.inker._doc_paint import PaintOps
+
+    source = textwrap.dedent(inspect.getsource(PaintOps.gradient))
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            assert not any(kw.arg == "where" for kw in node.keywords), (
+                "Document.gradient must not divide with a where= keyword -- "
+                "the 2026-09-14 audit's masked-lane pattern; use a safe "
+                "denominator built with np.where instead, as "
+                "composite.over/paint_colour do"
+            )
+
+    doc = inker.Document.blank(8, 8)
+    with np.errstate(all="raise"):
+        doc.gradient((0, 0), (7, 0), (0, 0, 0, 0), (0, 0, 0, 0))
+    assert _at(doc, 0, 0)[3] == 0
+    assert _at(doc, 7, 0)[3] == 0
+
+
 # --- free transform ---------------------------------------------------------
 
 

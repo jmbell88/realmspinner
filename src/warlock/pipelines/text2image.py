@@ -1001,6 +1001,27 @@ class Text2Image:
                 "tile cannot be combined with sheet or tilesheet; "
                 "a contact sheet's edges must not wrap"
             )
+        if tile and self.spec.family != models.FAMILY_SDXL:
+            # The 2026-09-14 audit found this refusal running after
+            # ``self.load`` had already paid for a full checkpoint load
+            # (pipelines-07), though it depends on nothing ``load`` produces
+            # -- ``self.spec`` is set in ``__init__``. Moved up beside its
+            # sibling declarative check, above, for the same reason that one
+            # runs before ``load``: a caller who mis-set both ``tile`` and the
+            # family should not pay for a load ``_generate`` was always going
+            # to refuse anyway.
+            #
+            # Refused rather than degraded. Circular padding is a property
+            # of Conv2d, and a DiT has none -- so patching what a Flux pipe
+            # does have (its VAE) would produce an image whose latent
+            # never wrapped and whose decode did, which is a tile that
+            # looks seamless in a thumbnail and seams in a material.
+            # service.jobs.create_job refuses this at the door; this is the
+            # other half.
+            raise RuntimeError(
+                f"{self.spec.label} cannot generate a seamless tile; "
+                f"it is not an SDXL-family checkpoint"
+            )
         self.load(on_state)
         assert self._pipe is not None
         # load()/download() have no interruption point of their own; check
@@ -1021,18 +1042,6 @@ class Text2Image:
         # VRAM for the life of the process.
         stack = contextlib.ExitStack()
         try:
-            if tile and self.spec.family != models.FAMILY_SDXL:
-                # Refused rather than degraded. Circular padding is a property
-                # of Conv2d, and a DiT has none -- so patching what a Flux pipe
-                # does have (its VAE) would produce an image whose latent
-                # never wrapped and whose decode did, which is a tile that
-                # looks seamless in a thumbnail and seams in a material.
-                # service.jobs.create_job refuses this at the door; this is the
-                # other half.
-                raise RuntimeError(
-                    f"{self.spec.label} cannot generate a seamless tile; "
-                    f"it is not an SDXL-family checkpoint"
-                )
             if tile:
                 # The VAE decoder as well as the UNet: a seamless latent
                 # decoded through zero-padded convolutions grows a visible

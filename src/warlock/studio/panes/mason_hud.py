@@ -50,7 +50,11 @@ def _hint(state: Any) -> str:
         return f"Click in the viewport to place {kind} -- Esc to cancel"
     label = {
         "select": "Click to select -- Shift extends, Ctrl toggles",
-        "move": "Drag to move the selection -- type a number, or X/Y/Z to lock an axis",
+        # The 2026-09-14 audit's mason-04: this used to promise typed-value
+        # entry and a keyboard X/Y/Z axis lock mid-drag, Clay's own
+        # ``clay/drag.py`` machinery, which was never ported to Mason -- so
+        # the hint described a gesture that simply did nothing when tried.
+        "move": "Drag to move the selection",
         "rotate": "Drag to rotate the selection about its pivot",
         "scale": "Drag to scale the selection about its pivot",
         "sculpt": "Drag on the ground to sculpt -- Alt+drag still orbits",

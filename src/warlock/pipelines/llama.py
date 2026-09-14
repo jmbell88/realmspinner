@@ -317,6 +317,26 @@ class LlamaServer:
                     "remove and reinstall before starting Familiar."
                 )
 
+    def _check_vram(self) -> None:
+        """Refuse to spawn ``-ngl 999`` without VRAM headroom.
+
+        The 2026-09-14 audit (service-01) found ``vram.familiar_admission``
+        called from nowhere in ``src/`` -- every other model door is admitted
+        at the door before it can overcommit the card (the 2026-08-03 crash
+        class), but this one went straight to ``subprocess.Popen`` because
+        Familiar starts off a chat message rather than a queued job with a
+        params dict for ``service.validation.check_vram`` to price. Reads
+        ``live_memory()``, not ``device_memory()``, per
+        ``familiar_admission``'s own docstring: a chat message has no stale
+        published reading from a text2image child to fall back on, only
+        whatever NVML reports right now.
+        """
+        if not vram.familiar_admission(vram.live_memory()):
+            raise RuntimeError(
+                "not enough VRAM headroom to start Familiar right now -- "
+                "close whatever else is using the card and try again"
+            )
+
     async def ensure_started(self, *, expected_card_sha: str | None = None) -> None:
         async with self._lock:
             self._reap_if_dead()
@@ -336,6 +356,7 @@ class LlamaServer:
             weights = self._resolve_weights()
             if not weights.is_file():
                 raise RuntimeError(f"Familiar weights not found at {weights}")
+            self._check_vram()
             if _port_in_use(self._port):
                 await self._reclaim_port()
             log.info("starting llama-server on port %d", self._port)

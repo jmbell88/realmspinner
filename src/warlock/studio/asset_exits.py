@@ -423,7 +423,14 @@ def _plotter_add(ctx: Any, job: Any) -> Exit | None:
     def door(ctx: Any, job: Any) -> None:
         plotter_mode.use_as_tileset(ctx, job)
 
-    if "input.png" in _files(job):
+    # The 2026-09-14 audit, finding create-02: this checked only
+    # ``"input.png" in files``, and a finished *mesh* carries its
+    # reference's ``input.png`` in its own files too (the promotion path in
+    # ``_jobs_create.py`` copies it across) -- so every finished mesh was
+    # offered a live "Add to Plotter as a tileset" door that acted on the
+    # mesh's reference photo. The near-miss branch below already gates on
+    # ``_NEAR_MISS_IMAGE_STAGES``; the ready branch needs the same gate.
+    if job.get("stage") in _NEAR_MISS_IMAGE_STAGES and "input.png" in _files(job):
         return Exit("plotter", label, hint, "", "", door)
 
     # The near miss is scoped to a reference-shaped row (A2's own wording:
@@ -473,7 +480,11 @@ def _packwright_add(ctx: Any, job: Any) -> Exit | None:
     def door(ctx: Any, job: Any) -> None:
         packwright_mode.add_job_source(ctx, job)
 
-    if "input.png" in _files(job):
+    # The 2026-09-14 audit, finding create-02: same fix as ``_plotter_add``
+    # above -- gate the ready branch on the job being image-shaped too, not
+    # on carrying "input.png" alone, since a finished mesh carries that file
+    # in its own directory as well.
+    if job.get("stage") in _NEAR_MISS_IMAGE_STAGES and "input.png" in _files(job):
         return Exit("packwright", label, hint, "", "", door)
 
     # The 2026-09-13 audit, finding create-08: same fix as ``_plotter_add``

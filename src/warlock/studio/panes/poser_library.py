@@ -16,6 +16,14 @@ from .. import controls, icons, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
 
+# The 2026-09-14 audit's poser-03: a skeleton draft holds the armature at
+# rest for the whole of a skeleton-editing session (enter_skeleton_edit resets
+# it on the way in), so New pose and every Apply button here would repose the
+# mesh out from under the editor still assuming that rest -- greyed with this
+# reason, and poser_mode's own doors refuse by name for whatever still
+# reaches them past a disabled button (a keyboard shortcut, an agent's call).
+_SKELETON_EDIT_REASON = "Apply or cancel the skeleton edit before changing the pose."
+
 
 def draw(ctx: Any) -> None:
     state = poser_mode.ensure(ctx)
@@ -61,7 +69,12 @@ def draw(ctx: Any) -> None:
             poser_mode.set_template(ctx, chosen)
 
     imgui.dummy((0, sp(tokens.SP_1)))
-    if controls.button("New pose", (-1, 0)):
+    if controls.button(
+        "New pose",
+        (-1, 0),
+        enabled=not state.skeleton_editing,
+        reason=_SKELETON_EDIT_REASON,
+    ):
         poser_mode.new_pose(ctx)
 
     if state.job_id:
@@ -212,7 +225,9 @@ def _asset_poses(ctx: Any, state: Any) -> None:
         else:
             imgui.text(name)
         widgets.same_line_or_wrap(widgets.button_width("Apply"))
-        if controls.small_button("Apply"):
+        if controls.small_button(
+            "Apply", enabled=not state.skeleton_editing, reason=_SKELETON_EDIT_REASON
+        ):
             poser_mode.apply_asset_pose(ctx, pose_id)
         widgets.same_line_or_wrap(widgets.button_width("Delete"))
         if controls.small_button("Delete"):
@@ -252,7 +267,9 @@ def _library(ctx: Any, state: Any) -> None:
         # so the only way to remove a pose from the shared library was to
         # rename it shorter first.
         widgets.same_line_or_wrap(widgets.button_width("Apply"))
-        if controls.small_button("Apply"):
+        if controls.small_button(
+            "Apply", enabled=not state.skeleton_editing, reason=_SKELETON_EDIT_REASON
+        ):
             poser_mode.apply_pose(ctx, pose_id)
         widgets.same_line_or_wrap(widgets.button_width("Rename"))
         if controls.small_button("Rename"):
@@ -287,7 +304,12 @@ def _presets(ctx: Any, state: Any) -> None:
                 selected = name
                 ctx.state.preview["poser_preset"] = name
             imgui.table_next_column()
-            if controls.small_button("Apply", role=controls.ButtonRole.GHOST):
+            if controls.small_button(
+                "Apply",
+                role=controls.ButtonRole.GHOST,
+                enabled=not state.skeleton_editing,
+                reason=_SKELETON_EDIT_REASON,
+            ):
                 poser_mode.apply_preset(ctx, preset)
                 selected = name
                 ctx.state.preview["poser_preset"] = name

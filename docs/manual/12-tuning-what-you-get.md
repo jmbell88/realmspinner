@@ -89,7 +89,7 @@ before concluding anything about the words.
 ## Mesh-side settings
 
 **Mesh resolution** sets the reconstruction's geometry resolution. **Size** sets the real-world scale
-in metres, where zero means "keep whatever the reference implied". **Background removal** chooses the
+in metres, where zero means "keep whatever the reference implied". **Background** chooses the
 matting method. **Normalise the reference** recentres and rescales the subject before upload.
 
 **Triangle budget** exists but currently offers only one tier, so you will usually not see it. The

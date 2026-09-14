@@ -222,10 +222,12 @@ def movement_min_frames(name: str) -> int:
 
     A function rather than a dict lookup, now that a layout may name a
     movement :data:`MOVEMENT_MIN_FRAMES` (built from the closed
-    :data:`ANIMATIONS` table) has never heard of. ``MOVEMENT_MIN_FRAMES``
-    itself is kept for the callers that still index it directly
-    (``characters/recipe.py``, ``service/troupe.py``) until they are
-    migrated to this function instead.
+    :data:`ANIMATIONS` table) has never heard of. ``characters/recipe.py``
+    and ``service/troupe.py`` both already call this function rather than
+    indexing the dict directly -- the 2026-09-14 audit (troupe-04) found this
+    docstring still claiming otherwise. ``MOVEMENT_MIN_FRAMES`` itself is
+    kept only because it is part of this module's exported surface
+    (``__all__``); nothing in ``src/`` indexes it directly any more.
     """
     return 1
 

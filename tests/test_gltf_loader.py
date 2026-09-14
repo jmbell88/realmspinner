@@ -186,6 +186,44 @@ def test_material_factors_survive_the_load(skinned_glb):
     assert prim.material.double_sided is True
 
 
+def test_a_malformed_base_color_factor_is_defaulted_rather_than_crashing_the_render_loop():
+    """create-01, the 2026-09-14 audit: ``material()`` read baseColorFactor
+    and emissiveFactor with a bare ``tuple(pbr.get(...))`` and no shape or
+    numeric check, unlike every other numeric field this loader validates
+    (see ``_trs`` for a node's TRS). A GLB whose factor has the wrong element
+    count, or a non-numeric entry, used to load cleanly and then crash on the
+    very next render when ``GpuMaterial.bind`` wrote it into a vec4/vec3 GL
+    uniform. It must now fall back to the glTF default instead, the same
+    trade a malformed camera/light field already gets.
+    """
+    positions = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype="<f4")
+    binary = positions.tobytes()
+    doc = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+        "materials": [
+            {
+                "pbrMetallicRoughness": {
+                    # two elements, not four -- the wrong shape a hostile or
+                    # buggy exporter can still produce.
+                    "baseColorFactor": [1.0, 2.0],
+                },
+                # non-numeric, the other shape this field can go wrong.
+                "emissiveFactor": "red",
+            }
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(binary)}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+    }
+    material = gltf.load(_glb(doc, binary)).meshes[0][0].material
+    assert material.base_color_factor == pytest.approx((1.0, 1.0, 1.0, 1.0))
+    assert material.emissive_factor == pytest.approx((0.0, 0.0, 0.0))
+
+
 # --- skins ------------------------------------------------------------------
 
 

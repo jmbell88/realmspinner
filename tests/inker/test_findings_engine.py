@@ -342,6 +342,23 @@ def test_a_lossy_aseprite_write_is_reported_rather_than_called_a_save():
     assert "layer alpha lock" in lost
 
 
+def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
+    """2026-09-14 audit, finding inker-02: the writer stores every group's
+    opacity byte as 255 (``aseout.py``'s ``_layer_chunk``, and docs/COMPAT.md's
+    "Group opacity" row), so a group dimmed below full opacity must show up
+    here or the save loses it with no warning at all."""
+    from warlock.studio.inker import aseout
+
+    doc = Document.blank(4, 4)
+    doc.stack[0].pixels[:, :] = (255, 0, 0, 255)
+    node = doc.group_layers([0])
+    assert node is not None
+    assert doc.set_group_props(node.uid, opacity=0.5)
+
+    lost = aseout.dropped_by_aseprite(doc)
+    assert any("group opacity" in item for item in lost)
+
+
 def test_a_fractional_wheel_notch_does_not_leave_the_zoom_lattice():
     """A 0.3 notch took the view to 101.5% and carried that fraction forever."""
     from warlock.studio.inker_state import PaintView, zoom_step

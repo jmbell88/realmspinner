@@ -300,8 +300,6 @@ class FlourishOps:
         self.commit_floating()
         anim = self._require_anim()
         edits: list[Any] = []
-        edits += self._flourish_ensure_frames(baked.frame_count, baked.fps)
-        frame_uids = [frame.uid for frame in anim.frames[: baked.frame_count]]
         size = self.size
         offset = state.offset
         box = (0, 0, size[0], size[1])
@@ -314,11 +312,20 @@ class FlourishOps:
         # Every target that would raise must be found before the loop below
         # writes anything: a raise partway through leaves earlier cels
         # already mutated and no undo step pushed to cover them (finding #1).
+        # This must also run **before** the grid grows (the 2026-09-14 audit,
+        # inker-01): ``_flourish_ensure_frames`` used to run first, so a
+        # refused regenerate left real blank frames appended to the document
+        # with nothing in ``edits`` to cover them -- the raise unwinds before
+        # ``self.history.push`` below ever runs. A frame the grid does not
+        # have yet cannot hold a cel, linked or not, so validating against
+        # only the frames that already exist is exactly the would-be grid's
+        # answer for every index this loop can actually raise on.
+        existing_frame_uids = [frame.uid for frame in anim.frames[: baked.frame_count]]
         for key, _name in _layer_keys(baked):
             track_uid = tracks.get(key)
             if track_uid is None or track_uid not in present:
                 continue
-            for frame_uid in frame_uids:
+            for frame_uid in existing_frame_uids:
                 if anim.cels.get((track_uid, frame_uid)) is not None and anim.is_linked(
                     track_uid, frame_uid
                 ):
@@ -326,6 +333,9 @@ class FlourishOps:
                         "unlink this effect's cels before regenerating: a linked cel "
                         "cannot take two different renders"
                     )
+
+        edits += self._flourish_ensure_frames(baked.frame_count, baked.fps)
+        frame_uids = [frame.uid for frame in anim.frames[: baked.frame_count]]
 
         for key, name in _layer_keys(baked):
             track_uid = tracks.get(key)

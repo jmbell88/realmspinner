@@ -88,6 +88,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -980,6 +981,7 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
     writes a file.
     """
     from ..service.errors import ServiceError
+    from .panes import inspector
 
     state = ensure(ctx)
     unit = current(state)
@@ -1000,6 +1002,11 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
     # disagree with the row it is drawing.
     unit["verdict"] = result["verdict"]
     unit["tags"] = tags
+    # shell-05 (the 2026-09-14 audit): the inspector's own ``is_graded`` memo
+    # is a separate cache from this module's state, and a verdict recorded
+    # here never touched it -- so another host kept saying "ungraded" for a
+    # mesh this pass had just graded.
+    inspector.mark_graded(ctx, unit["job_id"])
     _recount(state)
     refresh_findings(ctx)
     # Said *before* the advance, and about the unit that is about to leave the
@@ -1929,8 +1936,18 @@ def model_path(unit: dict[str, Any]) -> Path:
 #: finished sweep unit was generated from does not move -- and a miss is
 #: re-asked no more than once a second, so a picture that lands late still
 #: appears without the frame loop polling the disk sixty times for it.
-_REFERENCE_CACHE: dict[str, tuple[Path | None, float]] = {}
+#:
+#: An ``OrderedDict`` rather than a plain ``dict`` (shell-06, the 2026-09-14
+#: audit): this is keyed by unit dir and kept for the life of the process, so
+#: a long session that reviews many sweep runs grew it without bound. Moving
+#: the touched key to the end on every hit and evicting from the front past
+#: :data:`_REFERENCE_CACHE_MAX` makes it a plain LRU.
+_REFERENCE_CACHE: OrderedDict[str, tuple[Path | None, float]] = OrderedDict()
 _REFERENCE_RETRY = 1.0
+#: Comfortably above any one sweep's unit count, so ordinary review work never
+#: evicts an entry it is still using -- this bounds session-long growth, not
+#: the working set of a single pass.
+_REFERENCE_CACHE_MAX = 4096
 
 
 def reference_path(unit: dict[str, Any]) -> Path | None:
@@ -1939,6 +1956,7 @@ def reference_path(unit: dict[str, Any]) -> Path | None:
     found = _REFERENCE_CACHE.get(key)
     now = time.monotonic()
     if found is not None and (found[0] is not None or now - found[1] < _REFERENCE_RETRY):
+        _REFERENCE_CACHE.move_to_end(key)
         return found[0]
     answer: Path | None = None
     for name in verdicts_mod.IMAGE_NAMES:
@@ -1947,6 +1965,9 @@ def reference_path(unit: dict[str, Any]) -> Path | None:
             answer = path
             break
     _REFERENCE_CACHE[key] = (answer, now)
+    _REFERENCE_CACHE.move_to_end(key)
+    if len(_REFERENCE_CACHE) > _REFERENCE_CACHE_MAX:
+        _REFERENCE_CACHE.popitem(last=False)
     return answer
 
 

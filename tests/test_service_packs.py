@@ -170,6 +170,29 @@ def test_an_already_installed_pack_is_still_probed_for_real(
     assert spec["wheels"] == []  # nothing pending means nothing to download
 
 
+def test_installing_an_already_satisfied_pack_is_still_recorded_as_selected(
+    manifest_at, svc, monkeypatch
+):
+    """service-02, the 2026-09-14 audit: the "nothing pending" fast path above
+    probed the pack for real but returned before ``_record_selected`` ever
+    ran, so a pack whose first Install landed here (a dev checkout, a repeat
+    click) was invisible to ``packs_to_restore`` forever -- the M02 incident
+    reached through the one door that used to skip its own remedy."""
+    manifest_at(wheel("bpy-5.2.0-cp313-cp313-win_amd64.whl", 10))
+    monkeypatch.setattr(svc_packs, "installed_versions", lambda: {"bpy": "5.2.0"})
+    _stub(
+        monkeypatch,
+        """
+        import json, sys
+        spec = json.loads(sys.stdin.read())
+        open(spec["result_path"], "w").write(json.dumps({"ok": True}))
+        """,
+    )
+    result = svc_packs.install(svc, ["rig"])
+    assert result["already"] is True
+    assert svc_packs.selected_packs(svc) == ["rig"]
+
+
 def test_an_already_installed_pack_that_fails_its_probe_is_not_waved_through(
     manifest_at, svc, monkeypatch
 ):

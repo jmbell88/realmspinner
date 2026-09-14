@@ -177,7 +177,11 @@ def effect_height_px(socket: Socket, theme: Theme, *, logical: int) -> int:
     0.35 on every shipped fire theme -- so "how big" stays a species decision
     and "how much room is there" stays the archetype's.
     """
-    rise = float((theme.effect_params or {}).get("rise", 0.35) or 0.35)
+    # ``.get(key, default)`` alone, not ``... or default``: the 2026-09-14
+    # audit (troupe-02) found the ``or`` form replacing an author's explicit
+    # 0.0 with the default, because ``0.0 or default`` evaluates to
+    # ``default`` in Python.
+    rise = float((theme.effect_params or {}).get("rise", 0.35))
     return max(2, int(round(float(socket.reach) * float(logical) * rise)))
 
 
@@ -219,7 +223,10 @@ def flame_recipe(
     # pixels lost for a much less obvious reason.
     height = max(2, min(int(height_px), cell // 2))
     width = max(2, int(round(height * _FLAME_ASPECT)))
-    scroll = min(10.0, max(0.0, float(params.get("rate", 24.0) or 24.0) / _RATE_TO_SCROLL))
+    # ``.get(key, default)`` alone -- see the same note in
+    # ``effect_height_px`` (troupe-02): ``0.0 or default`` would silently
+    # replace an author's explicit zero rate with the default.
+    scroll = min(10.0, max(0.0, float(params.get("rate", 24.0)) / _RATE_TO_SCROLL))
     layer = flourish_recipe.Layer(
         # A literal uid, not ``new_uid()``: a recipe built here is rendered and
         # thrown away, never merged into an Inker stack, and a counter read

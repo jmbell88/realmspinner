@@ -154,6 +154,35 @@ def test_apply_with_no_tab_open_mints_exactly_one_document():
     assert any(o.uid == added.uid for o in state.docs[0].doc.objects)
 
 
+def test_apply_refuses_when_the_previewed_tab_was_closed_not_never_opened():
+    """The 2026-09-14 audit (agents-07): a real, previously-open tab always
+    arrives here with its own non-empty uid -- the falsy ``tab_uid`` case
+    above (`test_apply_with_no_tab_open_mints_exactly_one_document`) is only
+    ever "there was never a tab to preview against". Before this fix,
+    ``apply`` treated *any* missing tab -- a falsy uid, or a real uid the
+    user has since closed -- as the "never opened" case and minted a fresh
+    document instead of refusing, contradicting this module's own docstring
+    ("the tab is gone and was not empty to begin with" is a refusal, not the
+    no-tab exception)."""
+    doc = _seeded_doc()
+    ctx = _FakeCtx(doc)
+    scratch, diff, kept_uid, added_uid = _preview_that_adds_and_moves(doc)
+    closed_uid = ctx.tab.uid
+
+    state = clay_mode.ensure(ctx)
+    assert state.close(closed_uid)  # the user closed the tab the preview was shown against
+
+    result = familiar.apply(ctx, closed_uid, diff, scratch)
+
+    assert result["ok"] is False
+    assert "preview again" in result["message"]
+    # No document was minted to stand in for the closed one, and the base
+    # document (already removed from state.docs by close()) was never
+    # touched by the transplant either.
+    assert len(state.docs) == 0
+    assert not any(o.uid == added_uid for o in doc.objects)
+
+
 def test_discard_leaves_the_document_byte_identical():
     doc = _seeded_doc()
     before_bytes = serialize.wblk_bytes(doc)

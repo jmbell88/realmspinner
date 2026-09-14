@@ -310,6 +310,17 @@ def test_an_overlong_material_line_is_refused(svc):
     assert excinfo.value.field == "prompt_items"
 
 
+def test_an_overlong_material_line_refusal_names_which_line(svc):
+    """The 2026-09-14 audit, plotter-03: ``check_prompt``'s own refusal names
+    only ``prompt_items``, which every line in a materials sheet shares -- a
+    user with twenty lines typed could not tell which one was too long. The
+    line number is 1-based, matching what the user counts in the text box."""
+    with pytest.raises(Invalid) as excinfo:
+        _materials(svc, prompt_items=("moss", "x" * 5000, "sand"))
+    assert excinfo.value.field == "prompt_items"
+    assert "line 2" in str(excinfo.value)
+
+
 @pytest.mark.parametrize("variants", [0, -1, 5, 64])
 def test_a_variant_count_off_the_menu_is_refused_and_says_what_it_was(svc, variants):
     with pytest.raises(Invalid) as excinfo:

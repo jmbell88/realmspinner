@@ -52,6 +52,84 @@ def test_the_refusal_list_is_not_empty_and_names_the_two_hazards(driver):
     assert not driver.refused("Export sheet")
 
 
+def test_exercise_mode_refuses_every_control_that_opens_a_native_file_dialog(driver):
+    """The 2026-09-14 audit, finding pipelines-04, closed by shell-09.
+
+    Every native-picker call in the tree now runs inside a ``def run():``
+    closure that ``ctx.submit``/``self.submit``/``docmodes.start_save`` hands
+    to a task thread -- ``install_stubs`` already neutralises every one of
+    those by faking ``TaskRunner.submit``, so pressing the button never
+    reaches ``dialogs.open_file`` at all during a run. Settings' "Import a
+    LoRA file..." and "Train from a folder..." used to be the only two calls
+    in the tree that called ``dialogs.open_file``/``select_folder`` straight
+    from the button handler, on the frame thread, matching no REFUSED stem --
+    so an unattended exercise pass parked on a real OS file dialog forever.
+    shell-09 (the 2026-09-14 audit) moved both into ``def run(): ...``
+    closures submitted under the "preview" key, the same shape
+    "Train from my library..." beside them already used.
+
+    Swept rather than asserted by name alone, and AST-depth-counted rather
+    than text-counted so a properly wrapped call (nested two ``def``s deep,
+    inside a closure) does not re-trip this the way a plain substring count
+    would: counting every *inline* (frame-thread) ``dialogs.open_file``/
+    ``select_folder``/``save_file`` call left in ``app_settings.py`` catches
+    a new one added later and not wrapped or added to REFUSED, the same way
+    this pair was missed the first time.
+    """
+    from test_app_settings_pickers import _inline_picker_calls
+
+    from warlock.studio.panes import app_settings
+
+    source = Path(app_settings.__file__).read_text(encoding="utf-8")
+    calls = _inline_picker_calls(source)
+    assert calls == [], (
+        f"app_settings.py now calls a native picker inline (on the frame "
+        f"thread, outside any ``def run(): ...`` closure) {len(calls)} "
+        f"time(s): {calls} -- wrap each new one in a closure submitted "
+        "through ctx.submit, the way its neighbours in this file already are"
+    )
+    # REFUSED still names both buttons. Harmless now that neither opens a
+    # picker inline -- the driver would press them safely either way, since
+    # ``install_stubs`` fakes ``TaskRunner.submit`` -- so left in place
+    # rather than removed for a cosmetic tidy-up.
+    assert driver.refused("Import a LoRA file...")
+    assert driver.refused("Train from a folder...")
+    # Not a rubber stamp: a label with similar wording that does *not* touch a
+    # picker (a library scan, not a dialog -- app_settings.py says so at its
+    # own call site) must stay pressable, or the driver would silently skip
+    # coverage of a control this pass exists to test.
+    assert not driver.refused("Train from my library...")
+
+
+def test_isolate_home_clears_every_env_var_config_resolves_under_home():
+    """The 2026-09-14 audit, finding pipelines-03.
+
+    ``_appharness._ROOTS_UNDER_HOME`` used to be a hand-written six-entry
+    tuple. ``config.py`` grew four more ``_env_path(name, _home() / ...)``
+    roots after it was written -- ``WARLOCK_TRELLIS_MODELS``,
+    ``WARLOCK_TRELLIS_RUNTIME``, ``WARLOCK_FAMILIAR_RUNTIME`` and
+    ``WARLOCK_FAMILIAR_MODELS`` -- and none of the four was ever added, so a
+    harness run left them pointed at the developer's real ``~/.warlock`` and
+    leaked those paths into screenshot/exercise captures.
+
+    The expected set is scanned here with a regex over ``config.py``'s own
+    source, independent of ``_appharness``'s own ``ast``-based walk -- a bug
+    shared between the two implementations would otherwise cancel out and
+    this test would pass for the wrong reason.
+    """
+    import re
+
+    from warlock import config as config_mod
+
+    harness = _load("_appharness")
+    source = Path(config_mod.__file__).read_text(encoding="utf-8")
+    expected = set(
+        re.findall(r'_env_path\(\s*"(WARLOCK_[A-Z0-9_]+)"\s*,\s*_home\(\)', source)
+    )
+    assert expected, "the regex found nothing -- it has gone stale against config.py"
+    assert set(harness._ROOTS_UNDER_HOME) == expected
+
+
 def test_delta_names_only_the_components_that_moved(driver):
     before = ("inker", "", None, "brush", 4, (), 0, False, ())
     after = ("inker", "", None, "bucket", 4, (), 0, False, ())

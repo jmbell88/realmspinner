@@ -69,6 +69,20 @@ def test_decode_refuses_junk_bytes() -> None:
         p.decode(b"\xff\xfe\x00\x01")  # not valid UTF-8
 
 
+def test_decode_refuses_deeply_nested_json_instead_of_raising_recursion_error() -> None:
+    """The 2026-09-14 audit (agents-02): a deeply nested JSON array, well
+    under MAX_FRAME, is otherwise well-formed -- but json.loads's C scanner
+    recurses one Python stack frame per nesting level, so decode()'s own
+    `except (UnicodeDecodeError, json.JSONDecodeError)` let a RecursionError
+    straight through, contradicting this function's own docstring promise
+    of "raises ValueError on anything unusable"."""
+    depth = 20000
+    nested = (b"[" * depth) + (b"]" * depth) + b"\n"
+    assert len(nested) < p.MAX_FRAME
+    with pytest.raises(ValueError):
+        p.decode(nested)
+
+
 # --- content helpers -----------------------------------------------------------
 
 
@@ -515,6 +529,25 @@ def test_a_batch_before_any_era_is_decided_is_refused() -> None:
     assert reply["error"]["code"] == -32600
 
 
+def test_bridge_dispatch_refuses_deeply_nested_json_without_crashing() -> None:
+    """The 2026-09-14 audit (agents-02): bridge_dispatch's own top-level
+    `json.loads(raw.decode("utf-8"))` -- a second parse site, distinct from
+    `decode()` -- caught only `(UnicodeDecodeError, json.JSONDecodeError)`,
+    so a deeply nested JSON frame well under MAX_FRAME raised RecursionError
+    straight out of this function and, uncaught by bridge.py's run loop's
+    own `except (EOFError, KeyboardInterrupt)`, killed `warlock mcp`. It
+    must instead answer an ordinary JSON-RPC -32700 parse error, the same
+    as any other unparseable frame."""
+    depth = 20000
+    nested = (b"[" * depth) + (b"]" * depth)
+    assert len(nested) < p.MAX_FRAME
+    state = p.BridgeEra()
+    state.era = "modern"
+    reply_bytes = p.bridge_dispatch(nested, state, catalogue=_catalogue(), call_tool=_ok_call_tool)
+    reply = json.loads(reply_bytes)
+    assert reply["error"]["code"] == -32700
+
+
 # --- modern era ------------------------------------------------------------------
 
 
@@ -565,6 +598,28 @@ def test_modern_unsupported_version_is_minus_32022_with_data() -> None:
     )
     assert reply["error"]["code"] == -32022
     assert reply["error"]["data"] == {"supported": list(p.MODERN), "requested": "1999-01-01"}
+
+
+def test_bridge_dispatch_never_replies_to_a_modern_notification_with_a_bad_protocol_version() -> (
+    None
+):
+    """The 2026-09-14 audit (agents-05): the modern-era branch checked
+    `meta_version not in MODERN` before checking `has_id`, so a notification
+    (no "id") carrying an unsupported protocol version got an error reply
+    anyway -- the one thing JSON-RPC 2.0 forbids for a notification, and the
+    opposite of what every other branch in this dispatcher does (has_id is
+    checked first everywhere else)."""
+    state = p.BridgeEra()
+    state.era = "modern"
+    raw = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/whatever",
+            "params": {"_meta": {p.MODERN_META_KEY: "1999-01-01"}},
+        }
+    ).encode("utf-8")
+    reply_bytes = p.bridge_dispatch(raw, state, catalogue=_catalogue(), call_tool=_ok_call_tool)
+    assert reply_bytes is None
 
 
 def test_modern_ping_and_logging_set_level_are_minus_32601() -> None:
@@ -726,6 +781,33 @@ def test_a_call_tool_that_raises_becomes_is_error_never_a_transport_error() -> N
     assert "error" not in reply
     assert reply["result"]["isError"] is True
     assert "thickness" in reply["result"]["content"][0]["text"]
+
+
+def test_bridge_dispatch_refuses_a_malformed_tool_result_body_without_crashing() -> None:
+    """The 2026-09-14 audit (agents-03): in the modern era, `meta` is not
+    `None`, so `splice_tool_result` calls `_merge_body`, which raises
+    ValueError when `call_tool`'s reply body is not a JSON object -- and
+    that call sat outside `_dispatch_tools_call`'s own try, so a malformed
+    body killed the bridge instead of becoming the same kind of isError
+    reply an exploding `call_tool` already gets (see
+    `test_a_call_tool_that_raises_becomes_is_error_never_a_transport_error`
+    just above). Legacy era can't pin this: with `meta=None`,
+    `splice_tool_result` never calls `_merge_body` at all."""
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "server/discover"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "t", "arguments": {}, **_modern_meta()},
+        },
+        state,
+        call_tool=lambda n, a: b"not-a-json-object",
+    )
+    assert "error" not in reply
+    assert reply["result"]["isError"] is True
+    assert "malformed tool result" in reply["result"]["content"][0]["text"]
 
 
 def test_unknown_tool_call_args_still_get_the_usual_minus_32602s() -> None:

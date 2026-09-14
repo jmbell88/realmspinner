@@ -279,6 +279,21 @@ def test_the_species_scales_the_budget_and_the_archetype_sets_it():
     )
 
 
+def test_an_explicit_zero_rise_is_not_replaced_by_the_default():
+    """``.get("rise", 0.35) or 0.35`` evaluates to ``0.35`` even when the
+    theme explicitly asks for ``0.0`` -- Python's ``or`` treats ``0.0`` as
+    falsy. The 2026-09-14 audit (troupe-02) found this silently overriding an
+    author's explicit zero rise with the stock 0.35, instead of collapsing
+    the effect to its 2px floor."""
+    from dataclasses import replace
+
+    from warlock.characters.family import Socket
+
+    socket = Socket("a", "b", reach=10.0)
+    theme = replace(_theme(), effect_params={"rise": 0.0})
+    assert effects.effect_height_px(socket, theme, logical=64) == 2
+
+
 def test_a_flame_is_never_zero_pixels_tall():
     from warlock.characters.family import Socket
 

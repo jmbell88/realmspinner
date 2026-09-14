@@ -291,6 +291,33 @@ def test_bevel_refuses_before_it_walks_the_whole_mesh_past_a_size_ceiling() -> N
         ob.bevel_edges(m, el.ElementSel(edges=[edge]), width=0.1)
 
 
+def test_bevel_edges_refuses_a_uv_mesh_past_the_uv_corner_ceiling() -> None:
+    """The 2026-09-14 audit's clay-05: MAX_BEVELED_CORNERS was tuned on a mesh
+    with no UVs. bevel_edges's per-corner UV lerp (``replace``/``one`` above)
+    roughly doubles the real per-corner cost, so a UV-bearing mesh at the
+    plain ceiling measured 1.62s against 0.81s without UVs (probes
+    clay-mesh-04..07) -- comfortably past the "well under a second" bar every
+    other Clay op ceiling holds to. A mesh sized between half and all of
+    MAX_BEVELED_CORNERS must refuse once it carries UVs and must not when it
+    does not, which is the only way to prove the ceiling actually halves
+    rather than just reusing the old message with new numbers.
+    """
+    n = 600  # 4 * n * n = 1,440,000 corners: over half, under all, of MAX_BEVELED_CORNERS
+    m = _grid(n, n)
+    assert ob.MAX_BEVELED_CORNERS // 2 < len(m.loops) < ob.MAX_BEVELED_CORNERS
+
+    ob._refuse_size(m)  # no UVs: still comfortably inside the plain ceiling
+
+    uv_mesh = _uvd(m)
+    with pytest.raises(el.OpError, match="past the"):
+        ob._refuse_size(uv_mesh)
+
+    a = adj.adjacency(m)
+    edge = a.edge_verts[a.edge_uses == 2][0]
+    with pytest.raises(el.OpError, match="past the"):
+        ob.bevel_edges(uv_mesh, el.ElementSel(edges=[edge]), width=0.1)
+
+
 def test_bevel_refuses_a_boundary_edge_and_an_empty_selection() -> None:
     m = _grid(2, 1)
     boundary = adj.check_manifold(m).boundary_edges[0]

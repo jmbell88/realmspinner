@@ -239,3 +239,48 @@ def test_clearing_does_nothing_outside_a_viewport_mode(app):
 
     assert fake.viewer.has_model
     assert fake.viewer.strips_cancelled == 0
+
+
+# --- the real Viewer: adopt_model against a strip in flight ------------------
+
+
+def _a_model() -> Any:
+    """A real ``gltf.Model``, built the way the Clay viewport builds one --
+    the same helper ``test_viewer_embed_textures.py`` uses, duplicated here
+    rather than imported since that file is a sibling test module, not a
+    library this one may depend on."""
+    from warlock.studio.clay import document as bd
+    from warlock.studio.clay import primitives as bp
+
+    doc = bd.ClayDoc()
+    doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
+    return bd.to_model(doc)
+
+
+def test_adopting_a_different_model_mid_strip_cancels_the_strip_instead_of_finishing_it_blank(
+    gl, tmp_path
+):
+    """create-05, the 2026-09-14 audit: ``begin_sheet_strip`` holds a direct
+    reference to the ``GpuModel`` that was current when it started. Only the
+    explicit Clear path (``App._clear_viewport``, exercised above through the
+    fake) called ``cancel_sheet_strip()`` before dropping the mesh --
+    ``Viewer.adopt_model`` released and replaced ``self.gpu`` without it, and
+    ``adopt_model`` is also what the Library selection timer calls on every
+    ordinary job switch, not just on an explicit Clear. Selecting another job
+    mid-strip emptied the GpuModel the strip was drawing from out under it, so
+    the remaining cells came back blank while the pane still believed the
+    strip had finished normally.
+    """
+    from warlock.studio.viewer_embed import Viewer
+
+    viewer = Viewer(gl)
+    try:
+        viewer.adopt_model(_a_model(), tmp_path / "first.glb")
+        assert viewer.begin_sheet_strip([0.0, 90.0], elevation=0.0, flat=True)
+        assert viewer.stripping
+
+        viewer.adopt_model(_a_model(), tmp_path / "second.glb")
+
+        assert not viewer.stripping
+    finally:
+        viewer.release()

@@ -181,10 +181,36 @@ def draw(ctx: Any) -> None:
 
 
 # What a field is *called* on screen, where that is not its key with the
-# underscores taken out. Empty since the taxonomy retirement (it carried
-# ``art_style``); the helper stays because the sweep-axis forms and Review's
-# base-capture labels still route every field name through it.
-FIELD_LABELS: dict[str, str] = {}
+# underscores taken out. Emptied at the taxonomy retirement (it carried
+# ``art_style``) and stayed empty until the 2026-09-14 audit, finding
+# docs-07: the sweep's own manual chapter (``docs/manual/38-review.md``,
+# "What you can vary") names eleven of its axes in prose -- "Style
+# strength", "IP-Adapter scale", "Reference prep", "Background removal" and
+# the rest -- while the Add-axis combo (``review_panes.py``'s "what to
+# vary", built from ``sweeps.axis_params()`` through this table) drew the
+# bare keys with underscores swapped for spaces: "lora weight", "ip scale",
+# "bg removal". None of these eleven are in ``guidance.form_fields()`` (the
+# five the pane's own combos read this table for -- ``platform``,
+# ``base_model``, ``style_lora``, ``ip_adapter``, ``control`` -- none of
+# which the manual names), so restoring them widens no combo this table
+# already served correctly. The six ``trellis_*`` engine flags stay out on
+# purpose: the manual describes them narratively ("band width, texture
+# resolution, the two guidance strengths...") rather than naming each as a
+# combo label the way it does the other eleven, so there is no single
+# manual string to restore one to.
+FIELD_LABELS: dict[str, str] = {
+    "lora_weight": "Style strength",
+    "negative_prompt": "Negative prompt",
+    "ip_scale": "IP-Adapter scale",
+    "control_scale": "ControlNet scale",
+    "control_end": "ControlNet end",
+    "reference_prep": "Reference prep",
+    "bg_removal": "Background removal",
+    "resolution": "Resolution",
+    "profile": "Profile",
+    "custom_triangles": "Custom triangles",
+    "size_m": "Size in metres",
+}
 
 
 def field_label(field: str) -> str:
@@ -1649,6 +1675,29 @@ def _lora_labels(ctx: Any, keys: list[str]) -> str:
     return ", ".join(labels or keys)
 
 
+def _lora_base(ctx: Any, form: dict[str, Any]) -> str:
+    """The base model the Style LoRA picker should judge fit against.
+
+    The 2026-09-14 audit, finding create-03: ``lora_note``/``lora_options``
+    (and ``lora_filter_note``) used to read the raw, possibly stale
+    ``form["base_model"]`` directly -- under Automatic routing that field is
+    not what actually runs (``_model``'s Automatic branch never writes it),
+    so the picker could label a selection fitted for a base that
+    ``generation.validate_request`` then refuses at submit with a
+    ``CompatibilityIssue(field='style_lora')``. Resolve the recipe first,
+    exactly as ``img2img_note`` and ``negative_prompt_note`` (2026-09-05 and
+    2026-09-06 audits) already do for the same shape of staleness, and fall
+    back to the raw base only when nothing resolves -- a picked base with
+    missing weights under Advanced, or a caller (this file's own note tests
+    included) that supplies only a bare ``base_model`` with no ``ctx.svc`` to
+    resolve against at all.
+    """
+    resolved = _resolved_recipe(ctx, form)
+    if resolved is not None:
+        return resolved.base_model
+    return form.get("base_model") or ""
+
+
 def lora_note(ctx: Any, form: dict[str, Any]) -> str | None:
     """Why the style LoRA picker is inert here, or None when it is live.
 
@@ -1659,7 +1708,7 @@ def lora_note(ctx: Any, form: dict[str, Any]) -> str | None:
     rather than generating without it.
     """
     bases = ctx.guidance.get("lora_bases") or []
-    if (form.get("base_model") or "") in bases:
+    if _lora_base(ctx, form) in bases:
         return None
     return (
         "No style LoRA in the registry is fitted to this model's architecture. "
@@ -1679,7 +1728,7 @@ def lora_options(ctx: Any, form: dict[str, Any]) -> list[tuple[str, str]]:
     another door. The marking mirrors what main.py puts on a base whose weights
     are missing.
     """
-    fitting = (ctx.guidance.get("loras_by_base") or {}).get(form.get("base_model") or "") or []
+    fitting = (ctx.guidance.get("loras_by_base") or {}).get(_lora_base(ctx, form)) or []
     options: list[tuple[str, str]] = []
     for key, label in ctx.style_loras or []:
         if key in fitting:
@@ -1698,7 +1747,7 @@ def lora_filter_note(ctx: Any, form: dict[str, Any]) -> str | None:
     one sentence comes to say both things under a disabled combo.
     """
     by_base = ctx.guidance.get("loras_by_base") or {}
-    fitting = by_base.get(form.get("base_model") or "") or []
+    fitting = by_base.get(_lora_base(ctx, form)) or []
     if not fitting:
         # lora_note owns this case; saying it twice is the fold above.
         return None

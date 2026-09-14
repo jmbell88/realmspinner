@@ -52,6 +52,23 @@ A source checkout is the one case where these files still arrive by hand, into
 directory is gitignored and the developer downloads the same archive from the
 same place.
 
+## Familiar's runtime, which is also downloaded and not redistributed
+
+Same shape as the reconstruction engine above, and added when Familiar did:
+`Settings → Models` fetches llama.cpp's own Windows CUDA build (split across
+two release zips — the server binaries, and the CUDA redistributable apart
+from them) from llama.cpp's GitHub release, verifies the SHA-256
+`src/warlock/models.py` pins, and unpacks both under
+`~/.warlock/engine/llama/`. `docs/MODELS.md` carries the exact build tag, the
+pinned revision and the download commands. Warlock does not redistribute any
+of it.
+
+| Component | Files | Upstream | Licence |
+|---|---|---|---|
+| llama.cpp | `llama-server.exe` and the DLLs it links | <https://github.com/ggml-org/llama.cpp> | MIT |
+| ggml (llama.cpp's own build, distinct from trellis.cpp's) | `ggml.dll`, `ggml-base.dll`, `ggml-cpu.dll`, `ggml-cuda.dll` | <https://github.com/ggml-org/ggml> | MIT |
+| NVIDIA CUDA runtime | `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` | NVIDIA CUDA Toolkit 12.4 redistributables | NVIDIA CUDA Toolkit EULA — redistribution permitted under the "Attachment A" redistributable list |
+
 ## Bundled Python runtime
 
 The installer packs a CPython 3.13 runtime from
@@ -128,6 +145,7 @@ their publishers, and two of them restrict commercial use of what you generate.
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
+| Gemma 4 E2B GGUF (Unsloth's Q8_0 requantization, a testing pin) | Unsloth, requantizing Google's `google/gemma-4-E2B-it` | Hugging Face | Apache-2.0 | Permitted — pending the human licence review noted in [`docs/MODELS.md`](docs/MODELS.md) for the Clay-assistant fine-tune that later replaces this pin |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 
 The application surfaces this per model where the registry carries it. Of the

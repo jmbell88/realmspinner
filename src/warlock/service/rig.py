@@ -66,6 +66,25 @@ def create_rig(svc: WarlockService, job_id: str, *, template: str | None = None)
         raise Invalid("cannot rig a rig job; rig its source mesh")
     if source["status"] != "done" or not (svc.job_dir(job_id) / "model.glb").exists():
         raise Invalid("job has no finished mesh to rig")
+    # The 2026-09-14 audit (service-03): this door minted a fresh rig job with
+    # no check at all -- only troupe.send_to_troupe and the agent wrapper
+    # called rig_in_flight, so Library's "Rig this mesh" and Poser's "Re-rig"
+    # (different ctx.submit keys, rig:<id> vs poser-asset-rerig:<id>) could
+    # both queue one for the same mesh. Both finalize_rig into the same
+    # job_dir, and history showed two "done" rigs for one served result. Moved
+    # into the door itself so every caller is covered, not just the two that
+    # remembered to ask first -- send_to_troupe and the agent wrapper still
+    # call it too, which is harmless double-checking.
+    if rig_in_flight(svc, job_id) is not None:
+        # send_to_troupe's own sentence, verbatim (troupe.py:981) -- one
+        # wording for "there is already a rig job for this mesh" wherever it
+        # is met, mirroring create_rig's own Blender refusal below. Unlike
+        # that door's comment, this one carries ``job_id``: this is the
+        # direct door (Library's "Rig this mesh", Poser's "Re-rig", and the
+        # agent's own character_rig, which already checks first and so never
+        # reaches this line) rather than the sheet reservation's own door,
+        # which draws no job_id control to ring.
+        raise Conflict("a rig for this mesh is already running", field="job_id")
     params = {"source_job": job_id, "template": valid_template(template, svc.config.rig_template)}
     # After every other refusal, and still before the row is written: this UI
     # hides the Rig button when ``rig_templates``' own probe says bpy is

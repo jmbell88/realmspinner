@@ -11,6 +11,8 @@ of the instance, a hand-edited prefab cycle that never returns.
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -444,3 +446,22 @@ def test_a_path_crosses_a_prefab_boundary_carrying_both_halves_of_the_ancestry()
         template_leaf.uid,
     )
     assert leaf.owner == instance.uid
+
+
+def test_resolve_docstring_claim_about_expand_prefabs_matches_its_actual_signature():
+    """The 2026-09-14 audit's mason-06: ``resolve``'s own docstring used to
+    describe an ``expand_prefabs=False`` mode as if ``resolve`` itself
+    accepted it -- it does not; ``resolve`` hardcodes ``expand_prefabs=True``
+    in its own ``walk`` call, and that mode belongs to :func:`scene.walk`
+    alone. This must fail against the unfixed docstring, which names
+    ``expand_prefabs=False`` without ``walk`` anywhere near it.
+    """
+    assert "expand_prefabs" not in inspect.signature(scene.resolve).parameters
+    with pytest.raises(TypeError):
+        scene.resolve(doc.MasonDoc(), expand_prefabs=False)  # type: ignore[call-arg]
+
+    docstring = inspect.getdoc(scene.resolve) or ""
+    if "expand_prefabs=False" in docstring:
+        # Any mention of the parameter this function does not have must say
+        # the mode belongs to walk(), not to resolve() itself.
+        assert "walk" in docstring

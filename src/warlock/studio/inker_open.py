@@ -40,7 +40,11 @@ def ask_open(ctx: Any) -> None:
         path = dialogs.open_file("Open image", inker_mode.OPEN_FILTER)
         return None if path is None else _load(path)
 
-    ctx.submit("inker-open", run)
+    if not ctx.submit("inker-open", run):
+        # ``submit`` refuses a key already in flight, and a second Ctrl+O
+        # while the picker from the first is still up used to do nothing at
+        # all (the 2026-09-14 audit, inker-12).
+        ctx.toast("A file dialog is already open.", "info")
 
 
 def open_path(ctx: Any, path: Path) -> None:
@@ -64,7 +68,11 @@ def open_path(ctx: Any, path: Path) -> None:
     if path.suffix.lower() not in inker_mode.OPENABLE:
         ctx.toast("Inker opens images and .ora files.", "error")
         return
-    ctx.submit(f"inker-open:{abs(hash(str(path)))}", _load, path)
+    if not ctx.submit(f"inker-open:{abs(hash(str(path)))}", _load, path):
+        # Same key as a decode already running for this path -- a second
+        # click on the same recent-file row or a repeated drop of the same
+        # file used to be silent (the 2026-09-14 audit, inker-12).
+        ctx.toast("That file is already opening.", "info")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -98,7 +106,11 @@ def open_pixels(ctx: Any, pixels: Any, *, title: str = "Untitled") -> None:
 
         return {"doc": inker.Document.from_pixels(array, name="Atlas"), "title": title}
 
-    ctx.submit(f"inker-open:pixels:{title}", run)
+    if not ctx.submit(f"inker-open:pixels:{title}", run):
+        # Same key as a copy already in flight for this title (Duplicate
+        # Sprite or New Sprite From Selection pressed twice) -- silent before
+        # the 2026-09-14 audit, inker-12.
+        ctx.toast("That is already opening.", "info")
 
 
 def ask_import_sheet(ctx: Any) -> None:
@@ -124,7 +136,10 @@ def ask_import_sheet(ctx: Any) -> None:
         atlas = pixelguard.decode_rgba(path, Path(path).name)
         return {"atlas": atlas, "title": Path(path).stem, "suggest": _suggest_grid(atlas)}
 
-    ctx.submit("inker-sheetin", run)
+    if not ctx.submit("inker-sheetin", run):
+        # The 2026-09-14 audit, inker-12: a second press while this picker
+        # was already up did nothing observable.
+        ctx.toast("A file dialog is already open.", "info")
 
 
 def _suggest_grid(atlas: Any) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]] | None:
@@ -214,16 +229,22 @@ def ask_import_aseprite(ctx: Any) -> None:
         path = dialogs.open_file("Import Aseprite file", inker_mode.ASEPRITE_FILTER)
         return None if path is None else _load_aseprite(Path(path))
 
-    ctx.submit("inker-open:aseprite", run)
+    if not ctx.submit("inker-open:aseprite", run):
+        # The 2026-09-14 audit, inker-12: same as ``ask_open`` above.
+        ctx.toast("A file dialog is already open.", "info")
 
 
 def import_aseprite_path(ctx: Any, path: Path) -> None:
     """The same import for a path already in hand -- a drop onto the window."""
     inker_mode.ensure(ctx)
     set_mode(ctx.state, "inker")
-    ctx.submit(
+    if not ctx.submit(
         f"inker-open:aseprite:{abs(hash(str(path)))}", _load_aseprite, Path(path)
-    )
+    ):
+        # ``open_path``'s wording: this is a known path, not a picker, so a
+        # repeated drop of the same file used to be silent (the 2026-09-14
+        # audit, inker-12, widened to this sibling on 2026-09-14).
+        ctx.toast("That file is already opening.", "info")
 
 
 def _load_aseprite(path: Path) -> dict[str, Any]:
@@ -334,14 +355,17 @@ def open_sprite_draft(ctx: Any, job_id: str, draft_id: str, candidate: str) -> N
     """
     inker_mode.ensure(ctx)
     set_mode(ctx.state, "inker")
-    ctx.submit(
+    if not ctx.submit(
         f"inker-open:sprite:{draft_id}:{candidate}",
         _load_sprite_draft,
         ctx.svc,
         job_id,
         draft_id,
         candidate,
-    )
+    ):
+        # No picker here, a decode of a known candidate -- the 2026-09-14
+        # audit, inker-12, widened to this sibling on 2026-09-14.
+        ctx.toast("That is already opening.", "info")
 
 
 def _load_sprite_draft(
@@ -387,14 +411,17 @@ def open_rendered_sheet(
     """
     inker_mode.ensure(ctx)
     set_mode(ctx.state, "inker")
-    ctx.submit(
+    if not ctx.submit(
         f"inker-open:sheet:{sheet_id}:{'pixel' if pixel else 'render'}",
         _load_rendered_sheet,
         ctx.svc,
         job_id,
         sheet_id,
         pixel,
-    )
+    ):
+        # No picker here, a decode of a known sheet -- the 2026-09-14 audit,
+        # inker-12, widened to this sibling on 2026-09-14.
+        ctx.toast("That is already opening.", "info")
 
 
 def open_pixel_artifact(
@@ -446,7 +473,10 @@ def open_pixel_artifact(
     # The ``inker-open`` prefix is what makes ``on_task_done`` adopt this with
     # no routing change; the ``pixel:`` segment stops it colliding with
     # ``open_job_reference``'s key for a different document of the same job.
-    ctx.submit(f"inker-open:pixel:{job_id}:{name}", run)
+    if not ctx.submit(f"inker-open:pixel:{job_id}:{name}", run):
+        # No picker here, a derive-and-decode of a known artifact -- the
+        # 2026-09-14 audit, inker-12, widened to this sibling on 2026-09-14.
+        ctx.toast("That is already opening.", "info")
 
 
 def sheet_grid(record: dict[str, Any]) -> tuple[tuple[int, int], int]:

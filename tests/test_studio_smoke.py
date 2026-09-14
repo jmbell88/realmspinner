@@ -1757,7 +1757,23 @@ def test_the_2d_pane_builds_with_a_reference_chosen(app_ctx, imgui_ctx):
 def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, imgui_ctx):
     """Disabled with a reason, not hidden: the form holds a style picked under
     another base, and hiding the control would make that selection vanish with
-    no explanation of why the submit is now refused."""
+    no explanation of why the submit is now refused.
+
+    The 2026-09-14 audit, finding create-03: ``lora_note``/``lora_options``
+    now resolve the recipe rather than trusting a raw ``form["base_model"]``
+    -- the same fix already shipped for ``negative_prompt_note`` and
+    ``img2img_note``. A form that pokes ``base_model`` alone, with
+    ``model_mode`` left at its default ``"auto"``, is not "an explicit
+    Advanced pick of this base" at all; it is exactly the stale-Automatic
+    shape create-03 exists to stop the pane trusting, and what Automatic
+    actually resolves to on the machine running the suite (whichever SDXL
+    checkpoint happens to be installed there) rather than the ``base_model``
+    typed here. Setting ``model_mode``/``model_override`` alongside
+    ``base_model`` is what the Model combo itself does on a real pick
+    (``settings_2d._model``'s ``picked != before`` branch), and it is what
+    makes this test assert something about *this* base rather than about
+    whatever Automatic resolves to on whoever's machine runs it.
+    """
     from warlock.studio.panes import settings_2d
 
     form = app_ctx.state.form_2d
@@ -1765,11 +1781,14 @@ def test_a_non_sdxl_base_disables_the_style_lora_control_and_says_why(app_ctx, i
     from warlock import models
 
     form["base_model"] = "sdxl_cfg"
+    form["model_mode"] = "advanced"
+    form["model_override"] = "sdxl_cfg"
     form["style_lora"] = "render3d"
     assert settings_2d.lora_note(app_ctx, form) is None
     assert not settings_2d.validate(form)
 
     form["base_model"] = "flux_klein"
+    form["model_override"] = "flux_klein"
     note = settings_2d.lora_note(app_ctx, form)
     if note is not None:
         # No adapter in the registry fits this architecture: the whole control

@@ -675,8 +675,8 @@ def _agents(ctx: Any) -> None:
                 "running on this machine -- build in Clay and make characters "
                 "for you. Warlock runs exactly one pinned model, Familiar, on "
                 "loopback, and still makes no network egress; an agent that "
-                "is already running connects to it, "
-                "never the other way round."
+                "is already running connects inward to Warlock itself, never "
+                "to Familiar and never the other way round."
             ),
             helper="Takes effect at once -- no restart.",
         )
@@ -1419,43 +1419,75 @@ def _loras(ctx: Any) -> None:
             ctx.toast(f"Removed {row.label}.")
 
     imgui.dummy((0, sp(tokens.SP_1)))
-    if widgets.disabled_button("Import a LoRA file...", not busy, reason=_LORA_BUSY_REASON):
-        picked = dialogs.open_file("Import a style LoRA", ["*.safetensors"])
-        if picked is not None:
-            ctx.state.preview["lora_import"] = {
-                "source": str(picked),
-                "label": picked.stem[: lora_train.MAX_LABEL],
-                "trigger_text": "",
-                "tuned_weight": models.DEFAULT_LORA_WEIGHT,
-                "family": models.FAMILY_SDXL,
-                "commercial": False,
+    # The 2026-09-14 audit, shell-09: these two used to call
+    # ``dialogs.open_file``/``select_folder`` straight from the button
+    # handler, on the frame thread. A native picker is modal to the OS, so
+    # that blocked ``App.frame`` for as long as the dialog stayed open -- no
+    # repaint, a "not responding" window -- which is exactly the convention
+    # every other picker site under ``studio/`` (including the library scan
+    # two lines below, and ``ctx.save_artifact`` in ``app_ctx.py``) avoids by
+    # opening the picker inside a ``def run(): ...`` closure on a task
+    # thread. Both now share the "preview" key with the library scan below:
+    # all three write into ``ctx.state.preview`` and only one of them may be
+    # filling that dict at a time, so one busy flag covers every case.
+    picker_busy = ctx.busy("preview")
+    picker_enabled = not busy and not picker_busy
+    picker_reason = (
+        _LORA_BUSY_REASON
+        if busy
+        else "Another LoRA action is already open." if picker_busy else ""
+    )
+    if widgets.disabled_button(
+        "Import a LoRA file...", picker_enabled, reason=picker_reason
+    ):
+
+        def run() -> dict[str, Any] | None:
+            picked = dialogs.open_file("Import a style LoRA", ["*.safetensors"])
+            if picked is None:
+                return None
+            return {
+                "lora_import": {
+                    "source": str(picked),
+                    "label": picked.stem[: lora_train.MAX_LABEL],
+                    "trigger_text": "",
+                    "tuned_weight": models.DEFAULT_LORA_WEIGHT,
+                    "family": models.FAMILY_SDXL,
+                    "commercial": False,
+                }
             }
+
+        if not ctx.submit("preview", run):
+            ctx.toast("A file dialog is already open.", "info")
     imgui.same_line()
-    if widgets.disabled_button("Train from a folder...", not busy, reason=_LORA_BUSY_REASON):
-        folder = dialogs.select_folder("Pick a folder of images in the style")
-        if folder is not None:
-            ctx.state.preview["lora_train"] = {
-                "folder": str(folder),
-                "label": folder.name[: lora_train.MAX_LABEL],
-                "trigger": f"{folder.name} style"[: lora_train.MAX_TRIGGER],
-                "steps": lora_train.DEFAULT_STEPS,
+    if widgets.disabled_button(
+        "Train from a folder...", picker_enabled, reason=picker_reason
+    ):
+
+        def run() -> dict[str, Any] | None:
+            folder = dialogs.select_folder("Pick a folder of images in the style")
+            if folder is None:
+                return None
+            return {
+                "lora_train": {
+                    "folder": str(folder),
+                    "label": folder.name[: lora_train.MAX_LABEL],
+                    "trigger": f"{folder.name} style"[: lora_train.MAX_TRIGGER],
+                    "steps": lora_train.DEFAULT_STEPS,
+                }
             }
+
+        if not ctx.submit("preview", run):
+            ctx.toast("A file dialog is already open.", "info")
     imgui.same_line()
     # A scan, not a dialog: it reads the whole job history plus a
     # perceptual-hash pass over every candidate, which is real disk and CPU
     # work -- the frame loop never blocks for it. Submitted under the
     # generic "preview" key ``main._on_task_done`` already merges into
-    # ``ctx.state.preview`` -- the same landing spot the folder button
-    # writes to directly -- so the library button fills the same form
-    # without this pane needing its own task-result handler.
+    # ``ctx.state.preview`` -- the same landing spot the two pickers above
+    # write to -- so the library button fills the same form without this
+    # pane needing its own task-result handler.
     if widgets.disabled_button(
-        "Train from my library...",
-        not busy and not ctx.busy("preview"),
-        reason=(
-            _LORA_BUSY_REASON
-            if busy
-            else "Already scanning your library." if ctx.busy("preview") else ""
-        ),
+        "Train from my library...", picker_enabled, reason=picker_reason
     ):
         ctx.submit("preview", _library_training_preview, ctx.svc)
     _lora_import_form(ctx)

@@ -58,7 +58,8 @@ expensive would stall the frame it ran on for a fact-finding read, which is a
 worse trade than telling the caller to narrow the selection.
 :data:`MAX_TRIANGLE_PAIRS` does not refuse: past it, a pair's distance is
 answered from a nearest-neighbour query over the raw vertices instead of the
-full narrow phase, marked ``exact=False``, because a whole-document call is
+full narrow phase, marked ``exact=False``, and ``intersects`` is reported as
+``None`` (unknown) rather than guessed, because a whole-document call is
 still worth answering approximately rather than not at all. See
 ``docs/INVARIANTS.md``'s accepted-stall list for why that approximate path
 still exists rather than a fourth refusal: a big analysis is a deliberate
@@ -89,6 +90,7 @@ from ..viewer import math3d as m3
 from .adjacency import adjacency as mesh_adjacency
 from .adjacency import cached_triangulation, check_manifold
 from .elements import OpError
+from .mesh import face_count
 
 __all__ = [
     "MAX_ANALYZE_OBJECTS",
@@ -118,9 +120,14 @@ already gives the grid-binned triangle search real work to do."""
 MAX_TRIANGLE_PAIRS = 500_000
 """Past this many candidate triangle pairs for one object pair (after the
 grid-binning narrow phase, not before it), the exact vertex/edge distance
-search is skipped in favour of a nearest-neighbour query over the two
-objects' raw vertices -- cheaper, and honestly reported as ``exact=False``
-rather than silently taking the frame-stalling long way."""
+search -- and the SAT intersection test alongside it -- is skipped in favour
+of a nearest-neighbour query over the two objects' raw vertices -- cheaper,
+and honestly reported as ``exact=False``. ``intersects`` is reported as
+``None`` (unknown) on this path rather than ``False``: the 2026-09-14 audit's
+clay-01 found two heavily-overlapping 20,000-face spheres reading as
+``intersects=False`` here, indistinguishable from an honest "checked and
+clear" -- ``exact=False`` was documented as covering ``distance`` only, so a
+caller had no way to tell "not checked" from "checked and found nothing."""
 
 MAX_OVERLAP_BOOLEANS = 16
 """The most ``manifold3d`` intersections one :func:`analyze` call may run.
@@ -139,6 +146,21 @@ _VERTEX_SAMPLE_CAP = 2000
 :data:`MAX_TRIANGLE_PAIRS`, or when the grid found no candidate at all) reads
 from each side. A resampled subsequence, not a random one, so the same two
 meshes give the same answer on every call."""
+
+_MAX_CELLS_PER_TRIANGLE_AXIS = 64
+"""A ceiling on how many grid cells one triangle's own AABB may span along
+any axis in :func:`_grid_candidates`, enforced by growing the shared cell
+size (never shrinking it, and never per-triangle) rather than bounding the
+registration loop itself. The 2026-09-14 audit's clay-02 found nothing
+bounded this: one large, thin triangle (an 80 m floor plate at the default
+0.05 m cell) registered into millions of cells in the pure-Python loop below
+-- 14 triangles took 2.35 s, a 160 m floor 10.6 s -- with none of
+MAX_ANALYZE_OBJECTS / MAX_ANALYZE_TRIANGLES / MAX_TRIANGLE_PAIRS bounding it,
+because the blow-up happens before any of them are even checked. Growing the
+cell keeps :func:`_grid_candidates` exact for "candidate" -- the module
+docstring's "for any cell size" proof holds for a *larger* cell just as well,
+so this can only add candidates, never drop a pair whose boxes truly
+overlap."""
 
 
 @dataclass(frozen=True)
@@ -189,11 +211,16 @@ class PairAnalysis:
     ``distance`` is ``0.0`` whenever ``intersects`` is true. ``overlap`` is
     ``None`` unless both objects are closed and ``intersects`` is true and
     the boolean budget had room left.
+
+    ``intersects`` is ``None`` -- unknown, not "no" -- when the pair cleared
+    :data:`MAX_TRIANGLE_PAIRS` and the SAT test was skipped along with the
+    exact distance search (see that constant's docstring: the 2026-09-14
+    audit's clay-01). Every other path answers ``True``/``False`` for real.
     """
 
     uids: tuple[int, int]
     distance: float | None
-    intersects: bool
+    intersects: bool | None
     contact: bool
     overlap: OverlapInfo | None
     exact: bool
@@ -440,6 +467,18 @@ def _grid_candidates(
     """
     if len(tri_a) == 0 or len(tri_b) == 0:
         return np.zeros(0, dtype="i8"), np.zeros(0, dtype="i8")
+
+    # See _MAX_CELLS_PER_TRIANGLE_AXIS: grow (never shrink) the cell so no
+    # single triangle's own AABB can register into more than roughly
+    # (K + 1)^3 cells, however small *cell* (derived from *near*) is.
+    max_extent = float(
+        max(
+            (tri_a.max(axis=1) - tri_a.min(axis=1)).max(),
+            (tri_b.max(axis=1) - tri_b.min(axis=1)).max(),
+        )
+    )
+    if max_extent > 0.0:
+        cell = max(cell, max_extent / _MAX_CELLS_PER_TRIANGLE_AXIS)
 
     if len(tri_b) <= len(tri_a):
         small, large, swapped = tri_b, tri_a, False
@@ -763,13 +802,18 @@ def _pair_analysis(
     ia, ib = _grid_candidates(tri_a, tri_b, cell)
 
     if len(ia) > MAX_TRIANGLE_PAIRS:
+        # 2026-09-14 audit, clay-01: this used to hard-code intersects=False
+        # here, so two heavily-overlapping 20,000-face meshes read as "not
+        # touching" -- indistinguishable from an honest SAT "no". The SAT
+        # test itself is skipped on this path (not just the exact distance
+        # search), so the honest answer is "unknown", not "no".
         distance = _vertex_sampled_distance(geom_a.world_pos, geom_b.world_pos)
         contact = distance is not None and distance <= contact_tol
         return (
             PairAnalysis(
                 uids=(uid_a, uid_b),
                 distance=distance,
-                intersects=False,
+                intersects=None,
                 contact=contact,
                 overlap=None,
                 exact=False,
@@ -877,12 +921,14 @@ def analyze(
             "the selection with uids."
         )
 
-    geoms: dict[int, _Geom] = {}
-    total_tris = 0
-    for obj in objs:
-        geom = _geometry(obj)
-        geoms[obj.uid] = geom
-        total_tris += len(geom.tris)
+    # 2026-09-14 audit, clay-04: this used to sum len(geom.tris) after
+    # _geometry(obj) -- via cached_triangulation -- had already triangulated
+    # every object, so a call this refuses still paid the O(n^2) ear-clip
+    # cost on every concave mesh first. An n-cornered face always
+    # triangulates into n - 2 triangles (mesh.triangulate's own docstring),
+    # the same trick ops_boolean._refuse_complexity uses, so the total this
+    # call would face is knowable from mesh.loops and face_count alone.
+    total_tris = sum(len(obj.mesh.loops) - 2 * face_count(obj.mesh) for obj in objs)
     if total_tris > MAX_ANALYZE_TRIANGLES:
         raise OpError(
             f"This analysis would need {total_tris:,} triangles at once, "
@@ -890,6 +936,7 @@ def analyze(
             "the selection with uids."
         )
 
+    geoms: dict[int, _Geom] = {obj.uid: _geometry(obj) for obj in objs}
     object_rows = [_object_analysis(obj, geoms[obj.uid], contact_tol, symmetry_tol) for obj in objs]
     closed_by_uid = {row.uid: row.closed for row in object_rows}
 

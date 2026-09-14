@@ -252,7 +252,11 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
         # "walk_front" now provokes the direction-suffix refusal instead.
         "animations": {"animations": {"walk_front": 4}},
         "directions": {"directions": 3},
-        "logical_size": {"logical_size": 17},
+        # 300 is off the ladder *and* outside the 2026-09-14 agents-01 widening
+        # (Recipe now also accepts any whole size in LOGICAL_SIZE_RANGE,
+        # 8-256px, to match the pipeline it feeds) -- 17 used to provoke this
+        # refusal but is now a legal in-range custom size and no longer does.
+        "logical_size": {"logical_size": 300},
         "colors": {"colors": 7},
         "appearance": {"appearance": {"not-a-channel": 1.0}},
         "name": {"name": "x" * 500},

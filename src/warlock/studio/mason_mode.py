@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -930,6 +931,24 @@ def edit_asset_in_mason(ctx: Any, job: Any) -> None:
 # --- scene stats ------------------------------------------------------------------
 
 
+#: A memo for :func:`scene_stats`, keyed on the document itself rather than
+#: ``id(doc)``: the 2026-09-14 audit's mason-05 found ``mason_bridge._facts``
+#: and ``mason_hud.stats_overlay`` each calling this every frame with no memo
+#: of its own, each running its own ``scene.resolve(doc, include_hidden=True)``
+#: -- about triple the resolve cost at ``PLACED_WARN_THRESHOLD`` once
+#: ``MasonView.resolved()``'s own per-(id(doc), doc.rev) memo is counted in.
+#: This function cannot simply share that cache -- it needs
+#: ``include_hidden=True`` and the view's memo never keeps a hidden node --
+#: so it keeps its own, small, keyed the same shape: the document's own
+#: ``rev``. A ``WeakKeyDictionary`` rather than a plain dict keyed by
+#: ``id(doc)``: scenes open and close all session, and an id-keyed dict would
+#: either leak one entry per closed document forever or, worse, let a fresh
+#: document that happened to reuse a freed id read a stale answer.
+_STATS_CACHE: weakref.WeakKeyDictionary[Any, tuple[int, dict[str, Any]]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
 def scene_stats(ctx: Any, tab: Any) -> dict[str, Any]:
     """How big a scene is, against the engine's own constant -- never a number
     typed in a pane."""
@@ -938,16 +957,21 @@ def scene_stats(ctx: Any, tab: Any) -> dict[str, Any]:
     if tab is None:
         return {"placed": 0, "warn": False, "threshold": msc.PLACED_WARN_THRESHOLD, "missing": 0}
     doc = tab.doc
+    cached = _STATS_CACHE.get(doc)
+    if cached is not None and cached[0] == doc.rev:
+        return cached[1]
     try:
         placed = len(msc.resolve(doc, include_hidden=True))
     except ValueError:
         placed = 0
-    return {
+    stats = {
         "placed": placed,
         "warn": placed >= msc.PLACED_WARN_THRESHOLD,
         "threshold": msc.PLACED_WARN_THRESHOLD,
         "missing": len(doc.missing_refs()),
     }
+    _STATS_CACHE[doc] = (doc.rev, stats)
+    return stats
 
 
 # --- task results -----------------------------------------------------------------
@@ -1094,7 +1118,11 @@ def close_tab(ctx: Any, uid: str) -> None:
 # can never name two different tools for the same letter.
 TOOL_KEYS = {shortcut.lower(): key for key, _label, shortcut in mason_state.TOOLS}
 
-_MUTATING_CTRL = docmodes.WRITE_CHORDS | frozenset({"a", "i", "j", "m"})
+# The 2026-09-14 audit's mason-07: this used to also list "i" and "m", which
+# _ctrl_key has no arm for and shortcuts.py's Mason table never advertises --
+# dead entries that blocked nothing a user could actually trigger while a
+# save was in flight.
+_MUTATING_CTRL = docmodes.WRITE_CHORDS | frozenset({"a", "j"})
 _DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s"})
 
 

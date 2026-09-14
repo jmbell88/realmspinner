@@ -99,6 +99,30 @@ def test_the_snippet_text_is_the_engine_module_output():
     ast.parse(inker_flourish.snippet_text(tab, "hit", "pygame-ce"))
 
 
+def test_a_quote_in_the_effect_name_does_not_break_the_godot_snippet():
+    """The 2026-09-14 audit (inker-10): ``engines._godot`` spliced the effect
+    name straight into GDScript double-quoted string literals with no
+    escaping. Nothing stops a user naming an effect with a quote or a
+    backslash in it, and either one used to close a literal early and leave
+    the rest of the line as bare, unparseable GDScript."""
+    info = engines.describe(
+        name='Bob\'s "big" swing\\',
+        image="sheet.png",
+        frame_width=32,
+        frame_height=32,
+        frames=4,
+        fps=12,
+        loop=False,
+        origin=(16, 16),
+    )
+    text = engines.snippet("godot", info)
+    # Every animation name the script hands to Godot must be one closed,
+    # backslash-escaped string -- not the raw name breaking the literal.
+    assert '.add_animation("Bob\'s \\"big\\" swing\\\\")' in text
+    assert '.set_animation_speed("Bob\'s \\"big\\" swing\\\\", 12)' in text
+    assert '.play("Bob\'s \\"big\\" swing\\\\")' in text
+
+
 @pytest.fixture
 def ui(monkeypatch):
     with imgui_context(monkeypatch) as imgui:

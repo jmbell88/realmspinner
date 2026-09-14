@@ -1211,7 +1211,11 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
             "in the map. The three flip flags are stored in the high bits of "
             "the same number.",
         )
-        changed, value = controls.input_int("##obj-gid", tile_id, 1)
+        # commit=True (the 2026-09-14 audit, plotter-01): this field's own
+        # write is an undo step and had neither commit=True nor fold_undo, so
+        # typing a tile id pushed one undo step per keystroke; its sibling
+        # custom-property fields in ``_value_editor`` already commit=True.
+        changed, value = controls.input_int("##obj-gid", tile_id, 1, commit=True)
         _row_named(
             "Flip",
             "Across, down, and transposed. The three together make the quarter "

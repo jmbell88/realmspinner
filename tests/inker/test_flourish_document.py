@@ -339,6 +339,35 @@ def test_regenerate_with_a_linked_cel_raises_before_mutating_anything():
         assert np.array_equal(doc.anim.cels[(track_uid, doc.anim.frames[i].uid)].pixels, pixels)
 
 
+def test_apply_flourish_leaves_no_added_frames_when_it_refuses_a_linked_cel_after_growing_the_grid():  # noqa: E501
+    """The 2026-09-14 audit (inker-01): ``_flourish_ensure_frames`` used to
+    run *before* the linked-cel validation loop above, so on a recipe whose
+    phase grew, a refused regenerate still appended the new frames the
+    would-be grid needed -- real blank frames left in the document with
+    nothing in ``edits`` to cover them, because the raise unwinds before
+    ``self.history.push`` ever runs. The test above only covers a grid that
+    does not grow; this one covers the growing case the bug actually lived in."""
+    doc = inker.Document.blank(32, 32)
+    rec = _recipe()
+    group = doc.insert_flourish(B.bake(rec))
+    state = doc.flourish_state(group)
+    track_uid = next(iter(state.tracks.values()))
+    track_index = next(i for i, t in enumerate(doc.anim.tracks) if t.uid == track_uid)
+    assert doc.link_cel(0, track_index=track_index, frame_index=1)
+    assert doc.anim.is_linked(track_uid, doc.anim.frames[1].uid)
+
+    frame_count_before = len(doc.anim.frames)
+    head = doc.history.head
+    longer = dataclasses.replace(
+        rec, phases=(dataclasses.replace(rec.phases[0], frames=frame_count_before + 10),)
+    )
+    with pytest.raises(ValueError, match="unlink"):
+        doc.apply_flourish(group, B.bake(longer))
+
+    assert len(doc.anim.frames) == frame_count_before
+    assert doc.history.head == head
+
+
 def test_the_recipe_survives_an_ora_round_trip(tmp_path):
     doc = inker.Document.blank(40, 40)
     rec = _recipe(seed=5)
@@ -360,6 +389,36 @@ def test_the_recipe_survives_an_ora_round_trip(tmp_path):
     # And it still regenerates: the digests came back, so untouched cels take.
     counts = again.apply_flourish(guid, B.bake(_recipe(seed=7)))
     assert counts.conflicts == 1 and counts.taken >= 1
+
+
+def test_opening_a_flourish_document_preserves_its_layer_uids(tmp_path):
+    """The 2026-09-14 audit (inker-09): INVARIANTS and ``render.FrameCtx``'s
+    own comment both said a layer's uid is reissued on every load, when
+    ``_read_flourish`` calls ``recipe.from_dict`` directly and that keeps
+    whatever uid the file carries -- only a *second* insert of the same
+    preset reissues one (``presets.load`` -> ``recipe.bump_uids``). Pin the
+    real behaviour, and pin the comment against drifting back into the wrong
+    claim: a docstring assertion that fails against the old wording is the
+    only proof a doc-only finding has that it once failed."""
+    import inspect
+
+    from warlock.studio.inker.flourish import render as render_mod
+
+    doc = inker.Document.blank(40, 40)
+    rec = _recipe(seed=5)
+    group = doc.insert_flourish(B.bake(rec))
+    original_uids = [layer.uid for layer in doc.flourish_state(group).recipe.layers]
+    assert original_uids  # the preset actually has layers to lose uids from
+
+    path = tmp_path / "uid_puff.ora"
+    ora.write_ora(doc, path)
+    again = inker.Document.load(path)
+    (guid, state), = again.flourish.items()
+    assert [layer.uid for layer in state.recipe.layers] == original_uids
+
+    source = inspect.getsource(render_mod.FrameCtx)
+    assert "uids are reissued on every load" not in source
+    assert "uid is not reissued on load" in source
 
 
 def test_an_ordinary_document_writes_no_flourish_key(tmp_path):

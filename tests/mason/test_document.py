@@ -172,6 +172,28 @@ def test_add_nodes_of_none_pushes_nothing():
     assert len(d.history) == 0
 
 
+def test_add_nodes_refuses_before_building_past_max_placed_rather_than_after(monkeypatch):
+    """The 2026-09-14 audit's mason-01: an array op with a count someone typed
+    an extra zero into used to build every copy and attach it before anything
+    checked ``scene.MAX_PLACED`` -- the ceiling only ever fired downstream, in
+    ``scene.resolve()``, by which point the document already had the extra
+    nodes attached and every future resolve()/walk() refused for good. This
+    must fail against a version of ``add_nodes`` with no such check: nothing
+    would raise, and both the roots list and the history would grow.
+    """
+    from warlock.studio.mason import scene as sc
+
+    monkeypatch.setattr(sc, "MAX_PLACED", 5)
+    d = doc.MasonDoc()
+    d.add_nodes([nd.GroupNode(uid=nd.new_uid()) for _ in range(3)])
+    with pytest.raises(ValueError, match="MAX_PLACED"):
+        d.add_nodes([nd.GroupNode(uid=nd.new_uid()) for _ in range(3)])
+    # Refused before building: nothing from the refused call was attached,
+    # and it pushed no undo step either.
+    assert len(d.roots) == 3
+    assert len(d.history) == 1
+
+
 # --- set_transform / set_props -----------------------------------------------
 
 

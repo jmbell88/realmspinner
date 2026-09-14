@@ -76,6 +76,21 @@ def rerollable(job: dict[str, Any]) -> bool:
     if job.get("params", {}).get("built"):
         # No generator behind a built asset: nothing a new seed could change.
         return False
+    # Two kinds ``rerun_job`` refuses unconditionally, by name, whatever the
+    # mode -- so offering Reroll on either bought nothing but an error toast,
+    # which is exactly the promise this predicate's docstring makes and used
+    # to break (the 2026-09-14 audit, service-04 and service-05):
+    #
+    # * "separate" (a stem split) is deterministic and has no seed at all --
+    #   rerun_job's own message says so ("a stem split has no seed to
+    #   change..."). Rerolling it would write the identical four stems over
+    #   themselves.
+    # * "lora_train" mints a fresh row with no ``train/`` directory of
+    #   images beside it -- rerun_job copies only image dirs, ref.png and
+    #   source.wav, never a LoRA's training set -- so the reroll would queue
+    #   and then fail at dispatch with "this job has no training images".
+    if job.get("kind") in ("separate", "lora_train"):
+        return False
     # A hand-made reference has no generator behind it either.
     return not (job.get("kind") == "image" and job.get("stage") == "reference")
 

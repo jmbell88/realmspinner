@@ -145,7 +145,7 @@ class _Server:
 
     def op_load(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
         self.pipe().load(lambda text: emit({"kind": "state", "text": text}))
-        return {"kind": "done", **self._vitals()}
+        return {"kind": "done"}
 
     def op_generate(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
         from .text2image import JobCancelled
@@ -192,13 +192,12 @@ class _Server:
             "path": str(path),
             "prompt": t2i.last_prompt,
             "recipe": t2i.last_recipe,
-            **self._vitals(),
         }
 
     def op_trim(self, req: dict[str, Any], emit: Any) -> dict[str, Any]:
         if self._t2i is not None:
             self._t2i.trim()
-        return {"kind": "done", **self._vitals()}
+        return {"kind": "done"}
 
     def _vitals(self) -> dict[str, Any]:
         """The device readings the parent can no longer take for itself.
@@ -246,15 +245,25 @@ class _Server:
         op = str(req.get("op") or "")
         handler = self._OPS.get(op)
         if handler is None:
-            return {"kind": "error", "error": f"unknown op: {op!r}", "cancelled": False}
-        try:
-            return handler(self, req, emit)
-        except Exception as exc:  # noqa: BLE001 -- the whole point is to report it
-            return {
-                "kind": "error",
-                "error": f"{type(exc).__name__}: {exc}",
-                "cancelled": False,
-            }
+            resp = {"kind": "error", "error": f"unknown op: {op!r}", "cancelled": False}
+        else:
+            try:
+                resp = handler(self, req, emit)
+            except Exception as exc:  # noqa: BLE001 -- the whole point is to report it
+                resp = {
+                    "kind": "error",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "cancelled": False,
+                }
+        # The vitals ride on *every* answer, from here rather than from each
+        # handler's own return. They did not, and the 2026-09-14 audit
+        # (pipelines-01) found the omission on a cancel or a failed generate:
+        # ``t2i_client._publish`` sets ``self._loaded`` from ``msg.get("loaded")``
+        # unconditionally before re-raising, so a missing key read as False and
+        # the parent believed a still-resident checkpoint had unloaded --
+        # exactly the miscount ``music_worker`` was rewritten to close.
+        # Derived at the chokepoint so a future error path cannot forget.
+        return {**resp, **self._vitals()}
 
 
 def serve(server: _Server, stdin: Any, stdout: Any) -> int:

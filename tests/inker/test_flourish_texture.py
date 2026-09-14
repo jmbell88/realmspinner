@@ -114,7 +114,10 @@ def test_the_selection_becomes_a_texture_on_the_inspectors_layer(tmp_path):
     state = ctx.state.inker
     op = inker_ops.get("flourish_texture_selection")
     assert not op.enabled(state, tab)
-    assert inker_ops.reason_for(op, state, tab) == inker_flourish.NO_SELECTION
+    # No layer pointed at yet, so the target defaults to the stack's last
+    # layer (``glow``, no ``texture`` parameter) -- the slot check runs
+    # before the selection check (inker-06), so that is the reason given.
+    assert inker_ops.reason_for(op, state, tab) == inker_flourish.NO_TEXTURE_SLOT
     # Point the inspector at the sparks (a particles layer: it takes a texture).
     rec = tab.doc.flourish_state(group).recipe
     sparks = next(each for each in rec.layers if each.kind == "particles")
@@ -131,14 +134,26 @@ def test_the_selection_becomes_a_texture_on_the_inspectors_layer(tmp_path):
     assert pending.layer(sparks.uid).params["texture"] == "tex1"
 
 
-def test_a_layer_without_a_texture_slot_gets_the_asset_but_no_edit(tmp_path):
+def test_texture_from_selection_on_an_incompatible_layer_leaves_no_undo_step(tmp_path):
+    """The 2026-09-14 audit (inker-06): 'Use selection as texture' used to
+    call ``add_flourish_asset`` before checking whether the target layer
+    could take a texture at all -- a glow layer (no ``texture`` parameter)
+    got an asset committed as a permanent, invisible undo step with nothing
+    in the document ever referencing it. The control must grey out and the
+    door must refuse, with nothing pushed."""
     ctx, tab, group = _scene(tmp_path)
     state = ctx.state.inker
     rec = tab.doc.flourish_state(group).recipe
     glow = next(each for each in rec.layers if each.kind == "glow")
     state.flourish_layer[group] = glow.uid
     _select(tab.doc, 0, 0, 4, 4)
-    assert inker_flourish.texture_from_selection(ctx, state, tab) == "tex1"
+    op = inker_ops.get("flourish_texture_selection")
+    assert not op.enabled(state, tab)
+    assert inker_ops.reason_for(op, state, tab) == inker_flourish.NO_TEXTURE_SLOT
+    head = tab.doc.history.head
+    assert inker_flourish.texture_from_selection(ctx, state, tab) is None
+    assert tab.doc.flourish_state(group).assets == {}
+    assert tab.doc.history.head == head
     assert group not in state.flourish_pending
 
 

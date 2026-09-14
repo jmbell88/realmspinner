@@ -43,6 +43,7 @@ from ..undo import CompoundEdit, Edit, UndoStack
 from ..viewer import gltf
 from . import edits as ed
 from . import nodes as nd
+from . import scene as sc
 from .nodes import Node
 from .refs import Ref, ref_key
 from .terrain import Rect, Terrain
@@ -212,6 +213,26 @@ class MasonDoc:
         added = list(nodes)
         if not added:
             return []
+        # The 2026-09-14 audit's mason-01: an array op with a count someone
+        # typed an extra zero into (150,000 copies measured) used to build
+        # and attach every copy before anything checked scene.MAX_PLACED --
+        # the ceiling only ever fired downstream, in scene.resolve(), by
+        # which point the document already had the extra nodes attached and
+        # every future resolve()/walk() refused for good (the viewport
+        # drawing empty, scene_stats reporting placed: 0). Refused here,
+        # before a single node is attached, so every caller of add_nodes
+        # inherits the refusal rather than each needing to remember to ask
+        # for it. Counted with a plain structural walk (``all_nodes``, no
+        # prefab expansion) rather than ``scene.resolve()`` -- cheap, and a
+        # conservative over-count next to the real placed total, which is
+        # exactly the trade ``scene.walk``'s own ``max_items`` counting makes.
+        current = len(self.all_nodes())
+        if current + len(added) > sc.MAX_PLACED:
+            raise ValueError(
+                f"adding {len(added)} node(s) would bring this document to "
+                f"{current + len(added)} nodes, past the {sc.MAX_PLACED} "
+                "MAX_PLACED ceiling; refusing rather than building past it"
+            )
         made: list[Edit] = []
         for node in added:
             siblings = self.children_of(parent_uid)

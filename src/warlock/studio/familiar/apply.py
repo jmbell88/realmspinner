@@ -48,11 +48,30 @@ def apply(ctx: Any, tab_uid: str, diff: Any, scratch: Any) -> dict:
     regardless of which fact moved: preview again, against what is there now.
     """
     state = clay_mode.ensure(ctx)
-    tab = state.get(tab_uid) if tab_uid else None
 
-    if tab is None:
+    if not tab_uid:
+        # The 2026-09-14 audit (agents-07): this branch is the module
+        # docstring's second paragraph -- a preview that was never shown
+        # against a real tab at all (an agent's scratch run built from
+        # ``familiar.build``'s own throwaway clone) -- and it must stay
+        # reachable only through a *falsy* ``tab_uid``, the one signal a
+        # caller has for "there was nothing to preview against". A real,
+        # previously-open tab always arrives with its own non-empty uid, so
+        # collapsing this case with "the tab is gone" below (as a bare
+        # ``state.get(tab_uid) if tab_uid else None`` used to, treating both
+        # as `tab is None`) would silently mint a fresh document for a
+        # preview whose tab the user had since closed -- exactly the
+        # refusal this module's first paragraph promises.
         tab = clay_mode.new_document(ctx)
     else:
+        tab = state.get(tab_uid)
+        if tab is None:
+            # The previewed tab existed and is simply gone now (closed since
+            # the preview was computed) -- not the "never opened" case
+            # above. Refused with the same sentence every other refusal in
+            # this module uses, per the module docstring: the fix is always
+            # "preview again", regardless of which fact moved.
+            return {"ok": False, "message": "the document changed -- preview again"}
         refusal = _refusal(ctx, tab, diff)
         if refusal is not None:
             return {"ok": False, "message": refusal}

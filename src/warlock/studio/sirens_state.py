@@ -131,6 +131,25 @@ class Sounding:
         index = bisect.bisect_right(marks, (offset, _LAST, _LAST, _LAST)) - 1
         if index < 0:
             return None
+        # The 2026-09-14 audit, finding sirens-01: this docstring has always
+        # promised None "after the last" row, but the bisect above has no
+        # upper bound of its own -- it keeps landing on the final mark for
+        # every offset past it, so the last row's highlight stayed lit
+        # through the whole release/decay tail once the song stopped
+        # advancing rows. There is no next mark to bound the last one the way
+        # every earlier row is bounded by the one after it, so this reads the
+        # last row's own duration off the interval before it (rows are
+        # almost always uniform length within one order entry; a tempo
+        # change on the very last row is the one case this estimates rather
+        # than reads exactly off what the renderer did, and a highlight held
+        # one row too long is a smaller wrong than one that never goes dark).
+        # A wrapped (looping) buffer has no tail to go dark through -- it
+        # rolls straight back into row 0 -- so the bound applies only to a
+        # one-shot play-through.
+        if self.wrap is None and index == len(marks) - 1 and len(marks) >= 2:
+            duration = marks[-1][0] - marks[-2][0]
+            if duration > 0 and offset >= marks[-1][0] + duration:
+                return None
         _at, order_index, pattern, row = marks[index]
         return order_index, pattern, row
 

@@ -1506,7 +1506,19 @@ class PaintOps:
         src_a = clipped
         dst_a = before[..., 3].astype(np.float32) / 255.0
         out_a = src_a + dst_a * (1.0 - src_a)
-        share = np.divide(src_a, out_a, out=np.zeros_like(src_a), where=out_a > 0.0)
+        # The 2026-09-14 audit (inker-08): this was ``np.divide(src_a, out_a,
+        # out=np.zeros_like(src_a), where=out_a > 0.0)``, the masked-lane
+        # pattern ``composite.paint_colour`` removed for its own reason --
+        # ``where=`` does not promise the masked lanes go unevaluated, so a
+        # SIMD lane with ``out_a == 0`` (coverage and backdrop both
+        # transparent) still ran 0/0 and could raise under
+        # ``np.errstate(all="raise")``. Same fix, verbatim: divide by one
+        # there and select, bit-identical everywhere the old form defined a
+        # value.
+        shown = out_a > 0.0
+        share = np.empty_like(src_a)
+        np.divide(src_a, np.where(shown, out_a, 1.0), out=share)
+        share = np.where(shown, share, 0.0)
         out = np.empty(before.shape, dtype=np.float32)
         rgb = before[..., :3].astype(np.float32)
         out[..., :3] = rgb + (crop[..., :3] * 255.0 - rgb) * share[..., None]

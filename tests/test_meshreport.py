@@ -87,6 +87,25 @@ def test_the_watertight_reason_names_the_welded_numbers(tmp_path):
     assert "weld" in reason
 
 
+def test_watertight_reason_does_not_claim_welding_when_weld_was_skipped(tmp_path, monkeypatch):
+    """The 2026-09-14 audit, pipelines-05: ``_welded`` returns None on a
+    degenerate bounding box or a weld that raises, and ``build`` correctly
+    falls back to the *unwelded* topology numbers in that case -- but the
+    reason string still said "after welding vertices by position" regardless,
+    which claims a step that never ran. ``_welded`` is forced to return None
+    here the same way it would naturally on a degenerate mesh, so the test
+    does not depend on constructing one."""
+    monkeypatch.setattr(meshreport, "_welded", lambda *a, **k: None)
+    box = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    box.faces = box.faces[:-2]          # tear a real hole
+    box.remove_unreferenced_vertices()
+    report = meshreport.build(_write(tmp_path, box))
+
+    reason = next(r for r in report["reasons"] if "watertight" in r)
+    assert "after welding" not in reason
+    assert "unwelded" in reason
+
+
 def test_size_and_grounding_are_measured(tmp_path):
     box = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
     box.apply_translation((0.0, 1.0, 0.0))   # glTF is Y-up: min Y == 0

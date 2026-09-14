@@ -540,3 +540,45 @@ def test_loop_span_slider_is_bounded_by_half_the_takes_own_duration(frames, tmp_
     frames(build)
 
     assert seen["Joint to rewrite"] == (0.0, 250.0)
+
+
+def test_extend_sliders_are_bounded_by_the_takes_own_duration_when_shorter_than_the_sampler_ceiling(
+    frames, tmp_path, monkeypatch
+):
+    """The 2026-09-14 audit, finding muse-04.
+
+    ``_derive_field`` bounded ``extend_left``/``extend_right`` by
+    ``_max_extend()`` alone -- the sampler's 240 s pad ceiling -- but
+    ``derive_music_job`` separately refuses a single extension longer than
+    *the take being extended* ("a single extension cannot be longer than the
+    take it extends -- extend twice to go further"), because the pads are
+    sliced into a tensor allocated at the parent's own frame length. A 60 s
+    take's slider offering up to 240 s let the user drag to a value the door
+    would then refuse.
+
+    Fails against the unfixed code: with a 60 s take, both sliders' ``high``
+    came back 240.0 instead of 60.0.
+    """
+    short_take = _take("a")
+    short_take["params"] = {"duration": 60.0, "actual_duration": 60.0}
+    ctx = _ctx(tmp_path, [short_take])
+    muse_mode.open_derive(ctx, "a", "extend")
+
+    seen: dict[str, tuple[float, float]] = {}
+    from warlock.studio import widgets as widgets_module
+
+    real_slider = widgets_module.labeled_slider_float
+
+    def spy_slider(title, value, low, high, **kwargs):
+        seen[title] = (low, high)
+        return real_slider(title, value, low, high, **kwargs)
+
+    monkeypatch.setattr(muse_results.widgets, "labeled_slider_float", spy_slider)
+
+    def build() -> None:
+        muse_results.draw(ctx)
+
+    frames(build)
+
+    assert seen["Add before"] == (0.0, 60.0)
+    assert seen["Add after"] == (0.0, 60.0)

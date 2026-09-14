@@ -457,6 +457,21 @@ def test_a_refusal_names_a_property_the_tool_declares(tmp_path: Path) -> None:
         assert field in declared
 
 
+def test_a_bad_job_id_refusal_still_names_the_job_id_field(svc: Any) -> None:
+    """The 2026-09-14 audit (agents-06): ``_mapped_field``'s documented
+    "job_id, if the tool declares one" fallback never ran when the
+    ``ServiceError``'s own ``field`` was empty, because an early
+    ``if not raw_field: return None`` returned before the fallback was ever
+    tried -- and every ``check_job_id``/``check_sheet_id`` refusal (the
+    commonest character-tool mistake) raises exactly that shape
+    (``NotFound("no such job")``, no ``field``). A well-formed but
+    non-existent job id must still come back pointing at ``job_id``, not at
+    no control at all."""
+    result = ac.call(svc, ac.Session(), "character_rig", {"job_id": "0" * 12})
+    assert result["isError"]
+    assert result["structuredContent"]["field"] == "job_id"
+
+
 def test_an_agent_may_ask_for_a_custom_sprite_size(monkeypatch: pytest.MonkeyPatch) -> None:
     """40px is off ``charsheet.SIZES``' own preset ladder but inside
     ``service.troupe.TROUPE_CUSTOM_SIZE_RANGE`` -- master's 8b091e98 Send to

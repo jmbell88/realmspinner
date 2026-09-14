@@ -83,7 +83,14 @@ def decode(line: bytes) -> dict[str, Any]:
         raise ValueError(f"frame of {len(line)} bytes exceeds MAX_FRAME ({MAX_FRAME})")
     try:
         message = json.loads(line.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        # The 2026-09-14 audit (agents-02) found a deeply nested JSON frame,
+        # well under MAX_FRAME, raising RecursionError out of json.loads
+        # rather than the ValueError this function's own docstring promises
+        # "on anything unusable" -- json's C scanner recurses one Python
+        # frame per nesting level, so a payload with no other defect still
+        # blows the interpreter's recursion limit. Folded in here so every
+        # caller (bridge_dispatch included) inherits the fix once.
         raise ValueError(f"malformed JSON: {exc}") from exc
     if not isinstance(message, dict):
         raise ValueError(f"expected a JSON object, got {type(message).__name__}")
@@ -638,6 +645,14 @@ def _dispatch_one(
         return _error_bytes(msg_id, -32601, f"unknown method: {method}")
 
     # modern
+    if not has_id:
+        # The 2026-09-14 audit (agents-05): this has_id gate used to run
+        # *after* the protocol-version check below, so a notification (no
+        # "id") carrying a bad protocol version got a JSON-RPC error reply
+        # anyway -- JSON-RPC forbids ever replying to a notification, a rule
+        # every other branch in this dispatcher honours by checking has_id
+        # first. Checked here, before any other modern-era refusal can fire.
+        return None
     if meta_version not in MODERN:
         return _error_bytes(
             msg_id,
@@ -645,8 +660,6 @@ def _dispatch_one(
             "unsupported protocol version",
             data={"supported": list(MODERN), "requested": meta_version},
         )
-    if not has_id:
-        return None
     if _client_declares_tasks(params):
         state.tasks = True
     server_info_meta = {"serverInfo": {"name": server_name, "version": server_version}}
@@ -760,7 +773,20 @@ def _dispatch_tools_call(
         body = json.dumps(
             fail(f"{type(exc).__name__}: {exc}"), separators=(",", ":")
         ).encode("utf-8")
-    return splice_tool_result(msg_id, body, meta=meta)
+    try:
+        # The 2026-09-14 audit (agents-03): splice_tool_result used to sit
+        # outside this try, so a *malformed* tool result body -- not a
+        # raised exception, a body that is not a JSON object -- raised
+        # ValueError straight out of _merge_body and killed the bridge, the
+        # same way an unhandled `call_tool` exception used to before the
+        # backstop above existed. Folded into the same try so either failure
+        # becomes an isError reply instead of a dropped connection.
+        return splice_tool_result(msg_id, body, meta=meta)
+    except ValueError as exc:
+        fallback = json.dumps(
+            fail(f"malformed tool result: {exc}"), separators=(",", ":")
+        ).encode("utf-8")
+        return splice_tool_result(msg_id, fallback, meta=meta)
 
 
 def bridge_dispatch(
@@ -792,7 +818,13 @@ def bridge_dispatch(
     """
     try:
         parsed = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        # The 2026-09-14 audit (agents-02): this dispatcher's own parse is a
+        # second site with the same gap `decode()` had -- a deeply nested
+        # JSON frame well under MAX_FRAME raises RecursionError, which
+        # escaped uncaught here and out of bridge.py's run loop, killing
+        # `warlock mcp` entirely instead of answering a JSON-RPC parse
+        # error like any other malformed frame.
         return _error_bytes(None, -32700, f"parse error: {exc}") + b"\n"
 
     if isinstance(parsed, list):

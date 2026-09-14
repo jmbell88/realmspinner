@@ -171,7 +171,12 @@ def duplicate_selected(doc: Any) -> list[int]:
 
     taken = [obj.name for obj in doc.objects]
     copies = []
-    for uid in list(doc.selection):
+    # The 2026-09-14 audit's clay-07: this used to iterate ``doc.selection``
+    # directly, a plain ``set``, so a Ctrl+D on several objects produced
+    # copies in whatever order the set's hash buckets happened to land in
+    # rather than the order the objects actually sit in the outliner --
+    # sorting by ``doc.index_of`` restores the document's own order.
+    for uid in sorted(doc.selection, key=doc.index_of):
         copy = ops.duplicate(doc.by_uid(uid), bd.new_uid(), taken=taken)
         taken.append(copy.name)
         copies.append(copy)

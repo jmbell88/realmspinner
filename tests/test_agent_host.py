@@ -1451,6 +1451,38 @@ def test_call_task_mints_an_operation_and_returns_immediately_without_a_result()
     assert host._queue.qsize() == 1  # queued, not run
 
 
+def test_a_task_mode_warlock_status_call_answers_immediately_instead_of_queuing_behind_the_frame_thread() -> (  # noqa: E501
+    None
+):
+    """The 2026-09-14 audit (agents-04): a client that negotiated the MCP
+    Tasks extension has *every* tools/call routed through `_call_task`
+    (`protocol.bridge_dispatch`'s modern-era branch does not special-case
+    any one tool name), `warlock_status` included -- so before this fix,
+    `_call_task` queued it as an ordinary `agent_clay` frame job, which does
+    not know that name and answers "no such tool", even though `_call`
+    already answers it synchronously without ever touching the frame thread
+    (`test_warlock_status_answers_while_the_frame_thread_is_busy` above).
+    Proven here the same way
+    `test_call_task_mints_an_operation_and_returns_immediately_without_a_result`
+    proves the ordinary queuing case: never pump() at all, and the answer
+    must already be there."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    header = host._call_task(session, calls, agent_host.STATUS_TOOL, {})
+
+    assert header["status"] == "completed"
+    assert host._queue.qsize() == 0  # never queued onto the frame thread
+
+    reply = host._task_status(calls, header["operation_id"])
+    status_header, body = rpc.split_reply(reply)
+    assert status_header["status"] == "completed"
+    result = json.loads(body)
+    assert result.get("isError") is not True
+    assert "no such tool" not in json.dumps(result)
+
+
 def test_task_mode_call_is_exempt_from_call_timeout(monkeypatch) -> None:
     """Patch CALL_TIMEOUT tiny, wait well past it with nothing pumping,
     then pump late -- a task-mode call must still complete, because

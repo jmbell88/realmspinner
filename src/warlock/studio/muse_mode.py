@@ -82,8 +82,24 @@ def generate(ctx: Any) -> bool:
     refusal Muse can produce comes from ``create_music_job`` and carries the
     ``field=`` that puts the ring on the right control. A second copy of those
     bounds in the pane is the thing that drifts.
+
+    **muse-02 (2026-09-14 audit).** ``muse_brief._generate``'s draw call was
+    the *only* place that checked ``model_gate.missing`` -- so it greyed the
+    button correctly, but Ctrl+Enter (``handle_key``, below) and Sirens'
+    "Compose in Muse" (``compose_from_sirens``) both call into a submission
+    path that never asked, and landed at the service door's own refusal
+    instead: a ``music_model`` toast with no field to ring, rather than the
+    mode's own gate, which points at the Recipe panel /
+    Settings -> Models. Checked here, once, so every entry into a music job
+    -- the button, the keyboard, and the bridge -- inherits it rather than
+    each needing its own copy.
     """
     from ..service import jobs as svc_jobs
+    from .panes import model_gate
+
+    if model_gate.missing(ctx, svc_jobs.MUSIC_ROWS):
+        ctx.toast("The music model is not downloaded. See the Recipe panel.", "warn")
+        return False
 
     state = ensure(ctx)
     form = state.form
@@ -260,8 +276,22 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # a later region change, or a different take loaded in the
         # meantime, must not have a stale-but-internally-consistent answer
         # land on top of whatever is already current.
+        #
+        # **muse-01 (2026-09-14 audit).** This used to check only the region
+        # tuple, not the job id the key already carries (``precompute_loop``
+        # submits ``f"{CACHE_PREFIX}{one.job}"``) -- unlike the LOAD_PREFIX
+        # and FIND_PREFIX branches right above and below, which both check
+        # the job id. ``loop_memory`` persists a region per job, so two takes
+        # trimmed to the same ``(start, end, fade)`` in samples is not a rare
+        # coincidence: a cache still being computed for the take the user
+        # left would land on the take they switched to, and Play on B would
+        # sound A.
         one = player(ctx)
-        if one is not None and result is not None:
+        if (
+            one is not None
+            and result is not None
+            and key[len(muse_io.CACHE_PREFIX) :] == one.job
+        ):
             cache_key, buffer = result
             if muse_io.loop_cache_key(one) == cache_key:
                 one.loop_cache = buffer
@@ -845,7 +875,16 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     property of this hand-off and not of the brief (W1).
     """
     from ..service import jobs as svc_jobs
+    from .panes import model_gate
     from .sirens import wsng
+
+    # muse-02 (2026-09-14 audit): this door does not call ``generate``, so its
+    # own model_gate check does not cover it -- Sirens' "Compose in Muse" used
+    # to submit straight to ``create_music_job`` and get the door's own
+    # ``music_model`` refusal instead of the gate that names the Recipe panel.
+    if model_gate.missing(ctx, svc_jobs.MUSIC_ROWS):
+        ctx.toast("The music model is not downloaded. See the Recipe panel.", "warn")
+        return False
 
     state = ensure(ctx)
     strength = float(state.compose_strength)

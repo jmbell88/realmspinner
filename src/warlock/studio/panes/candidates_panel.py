@@ -71,7 +71,14 @@ def draw(ctx: Any) -> None:
     widgets.section("Candidates")
     manual_render.help_button(ctx, "candidates")
     if group.finished:
-        widgets.muted(f"{len(group.members)} meshes from one reference. Keep one.")
+        if group.all_failed:
+            # The 2026-09-14 audit, finding create-04: this caption used to
+            # say "Keep one" even when every attempt had failed, over a
+            # picker whose Keep button can never open for a single member --
+            # there is nothing to keep, and the caption said otherwise.
+            widgets.muted(f"None of the {len(group.members)} attempts finished. Discard them?")
+        else:
+            widgets.muted(f"{len(group.members)} meshes from one reference. Keep one.")
     else:
         widgets.muted(
             f"{group.done_count} of {len(group.members)} finished. "
@@ -182,21 +189,32 @@ def _member(
     # member has settled: keeping one dissolves the group, so a member still
     # queued would quietly become an asset nobody chose.
     if current:
-        ready = group.finished and member.get("status") == "done"
-        if widgets.disabled_button(
-            f"Keep this one##keep-{job_id}",
-            ready,
-            (-1, 0),
-            # Keeping one dissolves the group, so a member still queued would
-            # quietly become an asset nobody chose -- which is why the gate is
-            # about the *group* even though the button is on one candidate.
-            reason="The other attempts have not finished yet."
-            if not group.finished
-            else "This one did not finish, so there is nothing to keep.",
-        ):
-            keep(ctx, group, job_id)
-        if not ready and member.get("status") != "done":
-            widgets.hint_text("This one did not finish; keep another.")
+        # The 2026-09-14 audit, finding create-04: when every member has
+        # failed, Keep's gate (``group.finished and member done``) can never
+        # open -- no member is ever ``done`` -- and nothing offered a way out
+        # of a group ``Filters.matches`` hides from the library forever.
+        # Discard takes Keep's place here rather than sitting beside it: a
+        # button that can never become enabled is not a second option, it is
+        # dead weight next to the one that works.
+        if group.all_failed:
+            if controls.button(f"Discard all##discard-{group.group}", (-1, 0)):
+                discard(ctx, group)
+        else:
+            ready = group.finished and member.get("status") == "done"
+            if widgets.disabled_button(
+                f"Keep this one##keep-{job_id}",
+                ready,
+                (-1, 0),
+                # Keeping one dissolves the group, so a member still queued would
+                # quietly become an asset nobody chose -- which is why the gate is
+                # about the *group* even though the button is on one candidate.
+                reason="The other attempts have not finished yet."
+                if not group.finished
+                else "This one did not finish, so there is nothing to keep.",
+            ):
+                keep(ctx, group, job_id)
+            if not ready and member.get("status") != "done":
+                widgets.hint_text("This one did not finish; keep another.")
 
 
 def select(ctx: Any, job_id: str) -> None:
@@ -233,5 +251,56 @@ def keep(ctx: Any, group: Any, job_id: str) -> None:
             # *batch* spelling, so seven losers are one toast with one Undo
             # rather than seven of each.
             on_confirm=lambda: library.delete_assets(ctx, list(losers)),
+        )
+    )
+
+
+def discard(ctx: Any, group: Any) -> None:
+    """Dissolve an all-failed group, then *offer* to trash every member.
+
+    The 2026-09-14 audit, finding create-04: no door existed to clear a
+    group where every attempt errored or was cancelled, so ``N`` failed rows
+    sat hidden from the library forever (``Filters.matches`` hides any row
+    still carrying ``candidate_group``) with a picker that could never open
+    Keep for any of them. ``keep_candidate`` is still the only door that
+    clears ``candidate_group`` (through ``store.resolve_candidates``, one
+    statement for the whole group) -- called on an arbitrary member it
+    settles the group exactly as :func:`keep` does.
+
+    **Reopened the same day**: this used to trash every member outright, on
+    the reasoning that an undoable trash was gentle enough. It is not --
+    ``docs/manual/23-generating-meshes.md`` promises for this exact picker
+    that "only then are you *asked* whether to delete the ones you did not
+    keep. Nothing is ever deleted on your behalf", and an Undo toast is still
+    a deletion the user did not ask for. :func:`keep`'s shape is the fix
+    already proven for a mixed group -- settle first, *then* confirm -- so
+    Discard now takes it verbatim, offering every member rather than only
+    the losers because Discard has no winner to spare.
+    """
+    member_ids = [m["id"] for m in group.members]
+    if not member_ids:
+        return
+    try:
+        svc_jobs.keep_candidate(ctx.svc, member_ids[0])
+    except Exception as exc:
+        ctx.toast(f"That group could not be discarded: {exc}", "error", action="log")
+        return
+    ctx.cache.invalidate()
+    ctx.toast("None of the attempts finished. They are in the library now.")
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title=f"Delete all {len(member_ids)}?",
+            message=(
+                "These attempts are ordinary assets now, and none of them "
+                "finished. Deleting removes them and everything derived "
+                "from them."
+            ),
+            confirm_label="Delete",
+            cancel_label="Keep them",
+            # keep()'s own reasoning, applied to every member rather than
+            # only the losers: the library's one path that clears the
+            # selection and the tick set as well as the row, one toast and
+            # one Undo for the whole batch.
+            on_confirm=lambda: library.delete_assets(ctx, list(member_ids)),
         )
     )

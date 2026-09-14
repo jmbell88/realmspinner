@@ -37,6 +37,7 @@ __all__ = [
     "COLOR_CHOICES",
     "DEFAULT_RECIPE",
     "DIRECTION_CHOICES",
+    "LOGICAL_SIZE_RANGE",
     "LOGICAL_SIZES",
     "OUTLINE_MODES",
     "REDUCE_MODES",
@@ -57,6 +58,16 @@ VERSION = 1
 #: offering a size the renderer refuses -- the very drift this module's
 #: docstring warns the *other* three ladders about.
 LOGICAL_SIZES: tuple[int, ...] = charsheet.SIZES
+#: ``pipelines.charsheet.MIN_FRAME_SIZE``/``MAX_FRAME_SIZE``, restated for the
+#: same reason ``LOGICAL_SIZES`` is derived rather than hand-typed. Since
+#: master's 8b091e98, the render path underneath a character
+#: (``service.troupe._check_options`` and ``charsheet.plan`` itself) accepts
+#: any whole pixel size in this range, not only the preset ladder -- the
+#: 2026-09-14 audit (agents-01) found this module still refusing an
+#: off-ladder size that ``agent_character``'s own ``character_create`` schema
+#: advertised as legal, because this module's ``logical_size`` check had not
+#: been widened to match the pipeline it feeds.
+LOGICAL_SIZE_RANGE: tuple[int, int] = (charsheet.MIN_FRAME_SIZE, charsheet.MAX_FRAME_SIZE)
 #: ``service.troupe.TROUPE_COLOR_CHOICES``.
 COLOR_CHOICES: tuple[int, ...] = (8, 16, 32, 64)
 #: ``pipelines.pixelize.OUTLINE_MODES`` / ``REDUCE_MODES``.
@@ -99,6 +110,27 @@ def _on_ladder(value: int, ladder: tuple[int, ...], field_name: str, what: str) 
     if value not in ladder:
         raise CharacterError(f"{what} must be one of {list(ladder)}", field=field_name)
     return value
+
+
+def _on_ladder_or_in_range(
+    value: int,
+    ladder: tuple[int, ...],
+    value_range: tuple[int, int],
+    field_name: str,
+    what: str,
+) -> int:
+    """Like ``_on_ladder``, but a value inside ``value_range`` also passes even
+    off the ladder -- ``service.pixelopts._on_the_ladder``'s ``value_range``
+    restated here for the one field (``logical_size``) whose renderer accepts
+    more than the ladder (see ``LOGICAL_SIZE_RANGE``)."""
+    if value in ladder:
+        return value
+    lo, hi = value_range
+    if lo <= value <= hi:
+        return value
+    raise CharacterError(
+        f"{what} must be between {lo} and {hi}, or one of {list(ladder)}", field=field_name
+    )
 
 
 @dataclass(frozen=True)
@@ -204,9 +236,9 @@ class Recipe:
             _integer(raw.get("directions", 8), "directions", "directions"),
             DIRECTION_CHOICES, "directions", "directions",
         )
-        logical_size = _on_ladder(
+        logical_size = _on_ladder_or_in_range(
             _integer(raw.get("logical_size", 64), "logical_size", "logical size"),
-            LOGICAL_SIZES, "logical_size", "logical size",
+            LOGICAL_SIZES, LOGICAL_SIZE_RANGE, "logical_size", "logical size",
         )
         colors = _on_ladder(
             _integer(raw.get("colors", 32), "colors", "colours"),

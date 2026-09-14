@@ -791,20 +791,32 @@ class SongDoc:
         if len(self.oneshots) >= MAX_ONESHOTS:
             raise ValueError(f"a song holds {MAX_ONESHOTS} sound effects")
         depth = self.history.mark()
-        pattern = self.add_pattern(rows=rows, name=name or "Effect")
-        oneshot = OneShot(
-            uid=new_uid(),
-            name=name or f"effect{len(self.oneshots) + 1}",
-            pattern=pattern.uid,
-            tempo=self.tempo,
-            speed=self.speed,
-        )
-        index = len(self.oneshots)
-        self.history.push(E.OneShotAddEdit(oneshot=oneshot, index=index))
-        self._attach_oneshot(oneshot, index)
-        # The pattern and the effect that names it are one gesture: undoing the
-        # effect must not leave its pattern behind in the pattern list.
-        self.history.collapse_since(depth)
+        try:
+            pattern = self.add_pattern(rows=rows, name=name or "Effect")
+            oneshot = OneShot(
+                uid=new_uid(),
+                name=name or f"effect{len(self.oneshots) + 1}",
+                pattern=pattern.uid,
+                tempo=self.tempo,
+                speed=self.speed,
+            )
+            index = len(self.oneshots)
+            self.history.push(E.OneShotAddEdit(oneshot=oneshot, index=index))
+            self._attach_oneshot(oneshot, index)
+        finally:
+            # The 2026-09-14 audit, finding sirens-02: add_pattern's own
+            # MAX_PATTERNS check raises between mark() and collapse_since(),
+            # and undo.py defers eviction for as long as a gesture is open --
+            # so a song already full of patterns that then tried "add a sound
+            # effect" left the gesture open forever and disabled the undo
+            # budget for the rest of the session. collapse_since closes it
+            # whichever way this exits (folding nothing when add_pattern
+            # raised before pushing anything), so a raise here costs a
+            # session an effect, not its undo history. On the success path
+            # this is also the original fold: the pattern and the effect
+            # that names it are one gesture, so undoing the effect must not
+            # leave its pattern behind in the pattern list.
+            self.history.collapse_since(depth)
         return oneshot
 
     def remove_oneshot(self, uid: int) -> bool:
@@ -860,7 +872,18 @@ class SongDoc:
         if pcm is None:
             self.samples.pop(key, None)
         else:
-            self.samples[key] = np.ascontiguousarray(pcm, dtype=np.float32)
+            # ``.copy()``, the 2026-09-14 audit, finding sirens-03: every
+            # sibling ``_apply_*`` that installs an array from an ``Edit``
+            # (``_apply_pattern_cells``, ``_apply_channels``) copies it going
+            # in, because ``pcm`` here is ``SampleEdit.before``/``.after`` --
+            # the undo stack's own array, already made contiguous float32 by
+            # ``SampleEdit.__post_init__``. Without the copy,
+            # ``ascontiguousarray`` is a no-op on an array already in that
+            # dtype and layout, so the live document and the undo/redo record
+            # became the same numpy object: a later in-place edit of the live
+            # sample (anything indexing into ``doc.samples[key]``) silently
+            # rewrote history.
+            self.samples[key] = np.ascontiguousarray(pcm, dtype=np.float32).copy()
 
     # --- the song's scalars ---------------------------------------------------
 

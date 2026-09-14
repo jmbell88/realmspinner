@@ -433,9 +433,12 @@ SORT_LABELS: tuple[tuple[str, str], ...] = (
 def _sort_and_ramp(ctx: Any, state: Any, tab: Any, counts: list[int] | None) -> None:
     """Reorder the table, and fill the gap between two slots.
 
-    Neither pushes an undo step and neither moves a pixel -- order is
-    presentation in an indexed document, and a new swatch is a colour you *may*
-    paint with. The engine states the rule; this is only where it is reached.
+    Neither moves a *pixel* in palette-constrained RGB, where order is only
+    presentation. But in an indexed document a sort **is** an undo step:
+    ``sort_palette`` remaps every index plane to match the new order, which
+    is exactly what a Ctrl+Z has to restore -- this docstring used to say
+    indexed sorts were free too, which was wrong (the 2026-09-14 audit,
+    inker-13). The engine states the rule; this is only where it is reached.
     """
     doc = tab.doc
     selection = list(state.palette_slots)

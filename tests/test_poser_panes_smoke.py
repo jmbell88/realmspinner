@@ -280,6 +280,21 @@ def test_the_poser_panes_build_with_a_session_and_a_library(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: poser_library.draw(app_ctx))
     _frame(imgui_ctx, lambda: poser_controls.draw(app_ctx))
 
+    # And mid-skeleton-edit (the 2026-09-14 audit, poser-03): New pose and
+    # every Apply button must still draw -- greyed, not hidden -- rather than
+    # crash the pane now that they read ``state.skeleton_editing``.
+    state.job_id = "0123456789ab"
+    state.asset_rig = {
+        "bones": [{"name": "hips", "parent": None, "head": [0, 0, 0], "tail": [0, 1, 0]}],
+        "root": "hips",
+        "mirror_pairs": [],
+    }
+    state.asset_poses = [{"id": "0123456789ad", "name": "Sit", "bones": {}}]
+    viewer.editor.dirty = False  # enter_skeleton_edit refuses over an unsaved pose
+    poser_mode.enter_skeleton_edit(app_ctx)
+    assert state.skeleton_editing is True
+    _frame(imgui_ctx, lambda: poser_library.draw(app_ctx))
+
 
 def test_the_front_section_draws_bound_and_unbound(app_ctx, imgui_ctx):
     """The section only exists in an asset session, and both of its states

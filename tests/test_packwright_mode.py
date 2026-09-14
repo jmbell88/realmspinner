@@ -334,6 +334,33 @@ def test_a_sentence_names_both_halves_of_a_mixed_batch():
     assert "unchanged" in packwright_mode._added_sentence(0, 0)
 
 
+def test_a_batch_add_that_trips_the_document_ceiling_refuses_instead_of_raising(monkeypatch):
+    """The 2026-09-14 audit's packwright-01: ``PackDoc.add_source`` raises a
+    bare ``ValueError`` at a ceiling (an oversized sprite, here, patched down
+    so an ordinary test sprite trips it), and until this fix ``_add_sprites``
+    let that propagate out of the loop -- past ``on_task_done``, into
+    ``main.py``'s generic task-landing handler, which toasted "That did not
+    finish landing: packwright-add:..." and left the sprite that landed
+    *before* the trip with ``pack_dirty`` still unset."""
+    from warlock.studio.packwright import wpack
+
+    monkeypatch.setattr(wpack, "MAX_SOURCE_PIXELS", 10)
+    ctx = FakeCtx()
+    tab = _tab(ctx, sources=0)
+    tab.pack_dirty = False
+    small = _sprite("a", w=2, h=2)  # 4 pixels: under the patched ceiling
+    big = _sprite("b", w=8, h=6)  # 48 pixels: over it, raises at the door
+    never_reached = _sprite("c", w=2, h=2)
+
+    added, replaced = packwright_mode._add_sprites(ctx, tab, [small, big, never_reached])
+
+    assert (added, replaced) == (1, 0), "the batch stops at the sprite that tripped the ceiling"
+    assert [s.key for s in tab.doc.sources] == ["a"], "c was never reached"
+    assert tab.pack_dirty is True, "what landed before the ceiling is still dirty"
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"
+    assert "1 of 3" in ctx.toasts[-1][0]
+
+
 def test_a_failed_repack_marks_the_atlas_it_left_on_screen():
     """A failed pack keeps the last good atlas -- a picture beats a blank pane
     -- but nothing said it was the old one, so the preview drew it unmarked and

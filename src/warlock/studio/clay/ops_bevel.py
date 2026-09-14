@@ -313,6 +313,16 @@ _BISECTOR_EPS = 1e-9
 #: ops_dissolve.MAX_DISSOLVED_RING uses.
 MAX_BEVELED_CORNERS = 2_000_000
 
+#: MAX_BEVELED_CORNERS was measured on a mesh with no UVs. The 2026-09-14
+#: audit's clay-05 reproduced the same ceiling with UVs attached (probes
+#: clay-mesh-04..07) and measured 1.62s against 0.81s without -- the extra
+#: per-corner UV lerp in ``replace``/``one`` roughly doubles the cost, so the
+#: plain ceiling leaves a UV-bearing mesh at almost double the "well under a
+#: second" bar every other Clay op ceiling is held to. Halving the effective
+#: ceiling when a mesh carries UVs restores that margin without a second
+#: named constant to keep in sync with the first.
+_UV_CEILING_FACTOR = 2
+
 
 def _refuse_size(mesh: Mesh) -> None:
     """Refuse before the whole-mesh rewrite loops run, from the mesh's own size.
@@ -325,10 +335,13 @@ def _refuse_size(mesh: Mesh) -> None:
     ops_boolean._refuse_complexity.
     """
     grown = len(mesh.loops)
-    if grown > MAX_BEVELED_CORNERS:
+    # See _UV_CEILING_FACTOR: a UV-bearing mesh costs roughly double per
+    # corner, so it is held to half the plain ceiling.
+    ceiling = MAX_BEVELED_CORNERS if mesh.uv is None else MAX_BEVELED_CORNERS // _UV_CEILING_FACTOR
+    if grown > ceiling:
         raise OpError(
             f"Beveling on this object would walk {grown:,} corners, past the "
-            f"{MAX_BEVELED_CORNERS:,} Clay works with. Bevel a simpler mesh, "
+            f"{ceiling:,} Clay works with. Bevel a simpler mesh, "
             "or reduce its face count first."
         )
 

@@ -1709,12 +1709,29 @@ class AgentHost:
         ``status`` about it directly, so there is nothing for a second
         identical ``wait: false`` call to stand in for.
 
-        ``STATUS_TOOL`` is not special-cased here the way :meth:`_call`
-        special-cases it -- a client driving tasks asks the RPC v1 ``status``
-        op, not this tool, so there is no busy-frame-thread problem for
-        ``warlock_status`` to solve in task mode."""
+        ``STATUS_TOOL`` *is* special-cased here, the same way :meth:`_call`
+        special-cases it. The 2026-09-14 audit (agents-04) found this
+        docstring's old claim -- that a task-mode client only ever asks the
+        RPC v1 ``status`` op, never this tool, so there was nothing for
+        ``warlock_status`` to solve here -- did not hold for an MCP client:
+        ``protocol.bridge_dispatch`` routes *every* ``tools/call`` through
+        task mode once a connection has negotiated the Tasks extension
+        (see ``protocol.py``'s own modern-era branch), ``warlock_status``
+        included, so it reached this method and was queued as an ordinary
+        ``agent_clay`` frame job -- which does not recognise the name and
+        answers "no such tool", breaking the one tool built to answer while
+        the frame thread is busy for exactly the client most likely to hit
+        that busy window. Answered immediately below, with no job ever
+        queued; an operation is still minted so a caller that polls
+        ``tasks/get``/``status`` for the returned ``operation_id`` gets the
+        same answer back rather than ``not_found``."""
         op = calls.mint(name, arguments, task_mode=True)
         op.args = arguments
+        if name == STATUS_TOOL:
+            result = self._status(calls, arguments)
+            op.state, op.delivered, op.job = DONE, True, None
+            op.result = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            return {"operation_id": op.operation_id, "status": TASK_STATUS[DONE]}
         if name in agent_character.HANDLERS:
             job = self._queue_service_job_nowait(
                 lambda: agent_character.call(

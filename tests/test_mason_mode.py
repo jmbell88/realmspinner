@@ -186,6 +186,39 @@ def test_scene_stats_warn_flag_flips_at_the_threshold() -> None:
     assert stats["warn"] is True
 
 
+def test_scene_stats_resolves_once_per_revision(monkeypatch) -> None:
+    """The 2026-09-14 audit's mason-05: ``mason_bridge._facts`` and
+    ``mason_hud.stats_overlay`` each call ``scene_stats`` every frame with no
+    memo of its own, so two panes reading it in the same frame ran
+    ``scene.resolve(doc, include_hidden=True)`` twice over -- about triple the
+    resolve cost at ``PLACED_WARN_THRESHOLD`` once ``MasonView.resolved()``'s
+    own memo is counted in.
+
+    This must fail against the unfixed ``scene_stats``: calling it twice with
+    no edit between calls would run ``resolve`` twice, not once.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+
+    calls = []
+    real_resolve = msc.resolve
+
+    def counting_resolve(doc, **kwargs):
+        calls.append(1)
+        return real_resolve(doc, **kwargs)
+
+    monkeypatch.setattr(msc, "resolve", counting_resolve)
+
+    mason_mode.scene_stats(ctx, tab)
+    mason_mode.scene_stats(ctx, tab)
+    assert len(calls) == 1, "two same-revision calls should share one resolve"
+
+    # An edit bumps doc.rev, and the next call is entitled to a fresh resolve.
+    tab.doc.add_node(nd.GroupNode(uid=nd.new_uid()))
+    mason_mode.scene_stats(ctx, tab)
+    assert len(calls) == 2
+
+
 # --- keys ----------------------------------------------------------------------
 
 
@@ -195,6 +228,31 @@ def test_handle_key_answers_false_with_nothing_open() -> None:
 
     event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q, mod=0)
     assert mason_mode.handle_key(ctx, event) is False
+
+
+def test_mutating_ctrl_keys_are_all_actually_dispatched() -> None:
+    """The 2026-09-14 audit's mason-07: ``_MUTATING_CTRL`` used to also list
+    "i" and "m", which no arm of ``_ctrl_key`` dispatches and which
+    shortcuts.py's Mason table never advertises either -- gating a key
+    against writing-in-flight that nothing could ever actually press.
+
+    Source-level, ``test_every_accelerator_a_mason_menu_advertises_is_one_handle_key_answers``'s
+    own reason: what is in question is a literal set of key names, not a
+    press, and this must fail against the unfixed table -- "i" and "m" are
+    members with no matching ``elif name == "i"``/``elif name == "m"`` arm.
+    """
+    import inspect
+    import re
+
+    source = inspect.getsource(mason_mode._ctrl_key)
+    dispatched = set(re.findall(r'elif name == "([^"]+)"', source))
+    dispatched |= set(mason_mode.AXIS_VIEW_KEYS) | {"5"}
+
+    undispatched = mason_mode._MUTATING_CTRL - dispatched
+    assert not undispatched, (
+        f"_MUTATING_CTRL lists {sorted(undispatched)}, which _ctrl_key "
+        "dispatches nothing for"
+    )
 
 
 # --- placing --------------------------------------------------------------------

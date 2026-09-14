@@ -221,6 +221,42 @@ def _stage_rolled_wav(output: Any, seconds: float) -> None:
     tmp.replace(output)
 
 
+def _wav_duration_seconds(path: Any, fallback: float) -> float:
+    """A finished WAV's real length, in seconds. -> ``fallback`` if it cannot be read.
+
+    **muse-03 (2026-09-14 audit).** ``params["actual_duration"]`` used to be
+    the *requested* duration echoed back, which is wrong the one time it
+    matters: an audio2audio take's ``frame_length`` is sized off the
+    reference's own latents (``pipeline_ace_step.py``), not off ``duration``,
+    so the take rendered can run for minutes longer or shorter than what was
+    asked. The header alone answers this -- ``getnframes()``/``getframerate()``
+    cost nothing near the ~40 MB of frame data itself -- so this never reads
+    the samples.
+
+    Stdlib ``wave``, not ``soundfile``: ``_roll_wav`` above already reads
+    ``track.wav`` this way, and for the reason its own comment gives --
+    ``tests/test_queue.py`` pins that this module does not import ``studio``,
+    and reusing the pattern already in this file is cheaper than adding a
+    second one.
+
+    The fallback is the pre-fix behaviour, not a guess: a file that is
+    missing, mid-write, or not the 16-bit PCM this build writes must still
+    leave ``actual_duration`` at *something* rather than failing the whole
+    job over a figure that is metadata, not the artifact.
+    """
+    import wave as wave_mod
+
+    try:
+        with wave_mod.open(str(path)) as handle:
+            frames = handle.getnframes()
+            rate = handle.getframerate()
+    except (OSError, wave_mod.Error):
+        return fallback
+    if rate <= 0:
+        return fallback
+    return frames / float(rate)
+
+
 def _write_stems_sidecar(out_dir: Any, spec: Any, result: dict[str, Any], job_id: str) -> None:
     """``stems.json``, written **last**, as the completion gate.
 
@@ -319,7 +355,22 @@ class MusicOps:
             # What the worker *observed*, as opposed to what was asked for: the
             # duration the model actually rendered. In DERIVED_PARAMS, so a
             # rerun at a different duration does not inherit this one's.
-            params["actual_duration"] = float(params.get("duration", 60.0))
+            #
+            # **muse-03 (2026-09-14 audit).** This used to echo the requested
+            # ``duration`` back unchanged -- correct for every ordinary
+            # generate, but ``pipeline_ace_step.py``'s audio2audio path sizes
+            # ``frame_length`` off the *reference*'s own latents
+            # (``pipeline_ace_step.py:936-941``: ``ref_latents.shape[-1]``
+            # wins over the duration-derived figure whenever a reference was
+            # given), so an audio2audio take can render at the reference's
+            # length rather than the one asked for -- off by minutes on a take
+            # card that reads the request, not the file. Read from
+            # ``track.wav``'s own header instead: stdlib ``wave`` rather than
+            # ``soundfile``, matching ``_roll_wav`` a few lines up in this same
+            # file, and for its reason -- the queue may not import ``studio``.
+            params["actual_duration"] = await asyncio.to_thread(
+                _wav_duration_seconds, output, float(params.get("duration", 60.0))
+            )
             await asyncio.to_thread(self.store.set_params, job_id, params)
         finally:
             # Every path out, including a cancel and a raised generate: an

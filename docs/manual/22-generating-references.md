@@ -177,11 +177,13 @@ Three consequences are worth knowing. A **negative prompt** is only encoded when
 1.0, so it does nothing on the three four-step entries — pick one of the full-CFG models if you want
 it honoured. **Structure control** (see [Conditioning on an image](#conditioning-on-an-image)) is
 only offered on the SDXL models that run with real guidance, because a ControlNet at guidance 0
-fights the hint instead of following it. And **style LoRAs, conditioning and seamless tiles are
-SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker is
-disabled with a note saying so, and asking for a tile is refused rather than quietly producing one
-whose edges do not line up. The negative prompt does work on FLUX.2 — that is why the undistilled
-`klein-base` variant is the one that ships.
+fights the hint instead of following it. And **conditioning, seamless tiles, and every style LoRA but
+one are SDXL-only**: they are all built against SDXL's internals, so on FLUX.2 the Style LoRA picker
+is disabled with a note saying so, and asking for a tile is refused rather than quietly producing one
+whose edges do not line up. The one exception is **Pixel art (FLUX.2 klein)** below — the only adapter
+here trained against FLUX.2's own internals rather than SDXL's — which the picker offers exactly on
+the two FLUX.2 klein entries and nowhere else. The negative prompt does work on FLUX.2 — that is why
+the undistilled `klein-base` variant is the one that ships.
 
 Only one base model is resident on the card at a time — a 32 GB card holds the reconstruction engine
 plus a single image pipeline, not two — so switching between models between jobs costs a reload of
