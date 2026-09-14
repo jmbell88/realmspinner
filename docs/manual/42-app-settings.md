@@ -49,13 +49,13 @@ whatever that was — a workspace, the Library, even Settings itself. If that mo
 or a dependency pack this machine has not installed, it falls back to Home through the same refusal
 a greyed rail item already gives, rather than a second, differently-worded one.
 
-*System resources* puts a live reading of VRAM, RAM and CPU at the right end of
-the status line, in every mode. It is there because the app already forces the question on you: a
-generation is refused at the door when there is not enough VRAM free, and re-checked when it is
-about to run, and until now nothing on screen said what the number those refusals are about
-actually was. The VRAM figure is read from the driver, so it counts every process on the card and
-not just this one. It updates once a second, costs about a twentieth of a millisecond to take, and
-is the first thing dropped when the window gets too narrow to hold both it and the workspace name.
+*System resources* puts a live reading of VRAM, RAM and CPU in the menu bar's status group, in
+every mode. It is there because the app already forces the question on you: a generation is refused
+at the door when there is not enough VRAM free, and re-checked when it is about to run, and until
+now nothing on screen said what the number those refusals are about actually was. The VRAM figure
+is read from the driver, so it counts every process on the card and not just this one. It updates
+once a second, costs about a twentieth of a millisecond to take, and is the first thing dropped
+when the workspace's own menus leave the group no room.
 A card the driver does not report on simply leaves VRAM out rather than showing a placeholder.
 
 *Reduce motion* turns off every animation in the app at once — the mode transition, hover, the
@@ -353,9 +353,10 @@ when a saved layout has gone wrong.
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated
 sprite sheet on its own. It is off on a fresh install and nothing listens until you switch it
 on. Doing so writes a key into `mcp.token` in your Warlock home and opens a local named pipe: there
-is no port, no firewall prompt, and nothing off your machine can reach it. Warlock still runs no
-language model of its own and still connects to nothing — an agent already running on this computer
-connects to *it*. While one is attached the status bar says so. What it may touch is a two-part
+is no port, no firewall prompt, and nothing off your machine can reach it. Warlock runs exactly one
+language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
+already running on this computer connects to *it*. While one is attached the menu bar's status group
+says so. What it may touch is a two-part
 rule: in Clay it works in a tab it opens for itself and cannot address any other document, so
 nothing you have open is at risk; against your character Library it may read any row but can only
 add to it — a new mesh, rig or sprite sheet, or a copy in your export folder — never rewrite,
@@ -365,8 +366,8 @@ given and how to point one at the app.
 
 **Configuration.** *Effective configuration* lists every environment variable the app reads and what
 this process resolved it to, with the ones actually set by the environment first and named by their
-variable. It is the same table `warlock doctor` prints and the same one behind the status bar's
-Issues popup, and *Copy as text* puts it on the clipboard for a bug report. It is read-only:
+variable. It is the same table `warlock doctor` prints, and *Copy as text* puts it on the clipboard
+for a bug report. It is read-only:
 every entry is consumed at import time, so an editable version would have to say "restart to apply"
 under every field.
 

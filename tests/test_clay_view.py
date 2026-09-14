@@ -202,6 +202,84 @@ def test_a_redraw_at_the_same_size_forgets_nothing(view, monkeypatch) -> None:
     assert forgotten == []
 
 
+# --- the Familiar ghost preview ----------------------------------------------
+
+
+def test_the_ghost_frame_is_not_skipped_when_only_the_preview_changed(view) -> None:
+    """``doc.rev`` does not move for a Familiar preview -- nothing has
+    actually happened to the document yet -- so without ``_preview_rev`` in
+    ``draw``'s own skip key, the frame that brings up (or clears) a ghost
+    would be skipped as "nothing moved" and the preview would never appear
+    until something else forced a redraw."""
+    from warlock.studio.clay import document as bd_scratch
+    from warlock.studio.clay import scratch as clay_scratch
+
+    doc = _doc(count=1)
+    view.draw(doc, RECT, 0.0)
+    first_key = view._last_render_key
+
+    scratch = clay_scratch.clone(doc)
+    scratch.add_objects(
+        [bd_scratch.Obj(uid=bd_scratch.new_uid(), name="ghost", mesh=bp.box())]
+    )
+    diff = clay_scratch.diff(doc, scratch)
+    view.set_preview(diff, scratch)
+
+    view.draw(doc, RECT, 0.0)
+    assert view._last_render_key != first_key
+
+    second_key = view._last_render_key
+    view.clear_preview()
+    view.draw(doc, RECT, 0.0)
+    assert view._last_render_key != second_key
+
+
+def test_a_ghost_preview_draws_something_and_leaves_the_document_untouched(view) -> None:
+    from warlock.studio.clay import document as bd_scratch
+    from warlock.studio.clay import scratch as clay_scratch
+
+    doc = _doc(count=1)
+    before_rev = doc.rev
+    view.frame_selection(doc)
+    view.draw(doc, RECT, 0.0)
+
+    scratch = clay_scratch.clone(doc)
+    scratch.add_objects(
+        [bd_scratch.Obj(uid=bd_scratch.new_uid(), name="ghost", mesh=bp.box())]
+    )
+    diff = clay_scratch.diff(doc, scratch)
+    view.set_preview(diff, scratch)
+    view.draw(doc, RECT, 0.0)
+
+    assert doc.rev == before_rev  # a preview is not a document edit
+    assert view._ghost_cache  # the added object got a ghost overlay entry
+
+    view.clear_preview()
+    view.draw(doc, RECT, 0.0)
+    assert not view._ghost_cache
+
+
+def test_a_removed_object_is_filtered_from_the_composite_while_previewed(view) -> None:
+    from warlock.studio.clay import scratch as clay_scratch
+
+    doc = _doc(count=2)
+    removed_uid = doc.objects[0].uid
+    view.draw(doc, RECT, 0.0)
+    view.sync(doc)
+
+    scratch = clay_scratch.clone(doc)
+    scratch.remove_object(removed_uid)
+    diff = clay_scratch.diff(doc, scratch)
+    view.set_preview(diff, scratch)
+
+    composite = view._composite(doc)
+    drawn_uids = set(composite.uids) if composite is not None else set()
+    assert removed_uid not in drawn_uids
+
+    view.draw(doc, RECT, 0.0)
+    assert removed_uid in view._ghost_cache
+
+
 def test_release_forgets_the_texture_before_freeing_it(gl, monkeypatch) -> None:
     v = clay_view.ClayView(gl, _Ctx())
     order: list[str] = []

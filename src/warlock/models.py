@@ -607,6 +607,41 @@ class EngineModel:
         return download_text(self.fetch)
 
 
+@dataclass(frozen=True, slots=True)
+class FamiliarModel:
+    """One half of Familiar: the llama.cpp runtime, or the weights it loads.
+
+    Same shape as :class:`EngineModel` and for the same reason -- to a user
+    both halves are one thing that happens to arrive in two downloads, grouped
+    under one "Familiar" heading. ``runtime`` decides where the payload lands
+    (``config.familiar_runtime_dir`` or ``config.familiar_models_dir``); it is
+    a flag on the record rather than a second table, same as the engine's.
+    """
+
+    key: str
+    label: str
+    probe: tuple[str, ...]
+    fetch: tuple[Fetch, ...] = ()
+    description: str = ""
+    #: True for the runtime's own binaries, False for the weights it loads.
+    runtime: bool = False
+    #: sha256 by filename, for provenance beyond the archive/commit pin --
+    #: same convention as ``EngineModel.digests``.
+    digests: tuple[tuple[str, str], ...] = ()
+    #: Frozen prompt-card hashes this weights pin was validated against.
+    #: Empty for the base (non-fine-tuned) pin: T3 (``familiar/contract.py``)
+    #: is what will populate this once cards exist, and the spawn path in
+    #: ``pipelines/llama.py`` refuses to start when a caller-supplied expected
+    #: card sha doesn't match one of these -- for the base pin, with no cards
+    #: yet, any caller-supplied "expected" sha simply won't be in an empty
+    #: tuple, so a card check is exercised as a refusal until T3 lands.
+    card_shas: tuple[str, ...] = ()
+
+    @property
+    def download(self) -> str:
+        return download_text(self.fetch)
+
+
 def _table(*items):
     return {item.key: item for item in items}
 
@@ -719,6 +754,216 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
             "trellis-server.exe's own weights, quantised. This is the half of the "
             "app that makes geometry -- without it the Mesh stage has nothing to "
             "run, and every other model here is optional beside it."
+        ),
+    ),
+)
+
+
+# Familiar's runtime: llama-server.exe (CUDA build) plus the DLLs it needs.
+#
+# **Two registry rows, not one, and this is a fact about upstream rather than
+# a design choice.** llama.cpp publishes its CUDA Windows x64 build as *two*
+# separate GitHub release zips -- the server binaries, and a ``cudart-*`` zip
+# of the CUDA 12.4 redistributable DLLs, split apart (confirmed against every
+# release since at least 2025-07's b6000) so a machine that installs both a
+# CUDA-12 and a CUDA-13 build of llama.cpp does not fetch the same ~370 MB of
+# cudart twice. ``Fetch`` has no way to give one registry entry two
+# independent URL/sha256/filename triples -- ``fetch.plan``'s dedupe key is
+# ``(repo_id, destination)``, and two URL fetches sharing a destination (both
+# ``repo_id == ""`` by convention) collide into one ``Job`` whose ``_merge``
+# silently keeps only the first URL, which is exactly the class of bug
+# ``test_merging_two_records_keeps_the_pin`` exists to catch. So this is
+# genuinely two rows under one "Familiar" heading, exactly as the
+# reconstruction engine's runtime and weights are two rows under one
+# "Reconstruction engine" heading -- both land in ``familiar_runtime_dir`` via
+# ``EngineModel``/``FamiliarModel.runtime``. Measured against a real download
+# of both zips, 2026-09-13; digests are GitHub's own asset ``digest`` field.
+FAMILIAR_RUNTIME_VERSION = "b10948"
+FAMILIAR_RUNTIME_MAIN_ASSET = "llama-b10948-bin-win-cuda-12.4-x64.zip"
+FAMILIAR_RUNTIME_MAIN_URL = (
+    f"https://github.com/ggml-org/llama.cpp/releases/download/"
+    f"{FAMILIAR_RUNTIME_VERSION}/{FAMILIAR_RUNTIME_MAIN_ASSET}"
+)
+FAMILIAR_RUNTIME_MAIN_SHA256 = (
+    "9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35"
+)
+FAMILIAR_RUNTIME_CUDART_ASSET = "cudart-llama-bin-win-cuda-12.4-x64.zip"
+FAMILIAR_RUNTIME_CUDART_URL = (
+    f"https://github.com/ggml-org/llama.cpp/releases/download/"
+    f"{FAMILIAR_RUNTIME_VERSION}/{FAMILIAR_RUNTIME_CUDART_ASSET}"
+)
+FAMILIAR_RUNTIME_CUDART_SHA256 = (
+    "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+)
+# The files the *server* zip needs for a headless ``llama-server.exe --ngl
+# 999``: the server and its impl DLL, the shared llama/ggml/mtmd DLLs, every
+# ``ggml-cpu-*`` microarchitecture variant (ggml dispatches to one of these at
+# load time and the zip ships all of them), and libomp. The other ~20 members
+# of this zip (llama-cli, llama-bench, llama-quantize, the vision CLIs,
+# imatrix, …) are not needed for a headless server and are not fetched.
+FAMILIAR_RUNTIME_FILES = (
+    "ggml-base.dll",
+    "ggml-cpu-alderlake.dll",
+    "ggml-cpu-cannonlake.dll",
+    "ggml-cpu-cascadelake.dll",
+    "ggml-cpu-cooperlake.dll",
+    "ggml-cpu-haswell.dll",
+    "ggml-cpu-icelake.dll",
+    "ggml-cpu-ivybridge.dll",
+    "ggml-cpu-piledriver.dll",
+    "ggml-cpu-sandybridge.dll",
+    "ggml-cpu-sapphirerapids.dll",
+    "ggml-cpu-skylakex.dll",
+    "ggml-cpu-sse42.dll",
+    "ggml-cpu-x64.dll",
+    "ggml-cpu-zen4.dll",
+    "ggml-cuda.dll",
+    "ggml.dll",
+    "libomp.dll",
+    "llama-common.dll",
+    "llama-server-impl.dll",
+    "llama-server.exe",
+    "llama.dll",
+    "mtmd.dll",
+)
+FAMILIAR_RUNTIME_DIGESTS: tuple[tuple[str, str], ...] = (
+    ("ggml-base.dll", "c620cc207d35b98132babef1d54bb0b40a0b4aaa57a88ae760a9d63b4f1b1e40"),
+    ("ggml-cpu-alderlake.dll", "43ee15ba5bc731344ad4cd17366bd8c339b66b7ed0e0a6d2bd0b49390e25a585"),
+    ("ggml-cpu-cannonlake.dll", "59bc038391f2359b5c918fea2ee559b8d3b928a1f86c8c1c7664ca8cb1534f0d"),
+    (
+        "ggml-cpu-cascadelake.dll",
+        "609cc17bcd5a05bc2d657c31b21c11e34a28879e46815468200205fe0788caee",
+    ),
+    ("ggml-cpu-cooperlake.dll", "4cab0f63e4edbe3a009e5ac5f395fc22b3ba133cdfa4b137089205dcac6fea7f"),
+    ("ggml-cpu-haswell.dll", "ab836ee5436b8bc170d3bec0de188e072fd42be51478e03fb7a282780a842520"),
+    ("ggml-cpu-icelake.dll", "f3603ee9e5f9c6936a38da868b80d9125354237c258b635f17250901727c52cb"),
+    ("ggml-cpu-ivybridge.dll", "0b0b6ca2952c57648ecaf32d0434a79daae98764887eaa2f15b921d57a9f1533"),
+    ("ggml-cpu-piledriver.dll", "bf9e2859be65c510d387ff537efd7e29d20faef6aea7b0ab11ec8de9cd21ddeb"),
+    (
+        "ggml-cpu-sandybridge.dll",
+        "b92920b3dd01e79e48992ed37555b1a1df04a0187d432a0d80c3c15fc95e4223",
+    ),
+    (
+        "ggml-cpu-sapphirerapids.dll",
+        "6fa65d6bd5ae04b8072dcf1f97417e34d5fa4c6294ae6e1878f90664c7549d48",
+    ),
+    ("ggml-cpu-skylakex.dll", "74957f29e500d64bd4a196a49816e90d74bdec976da32216590ec8842ad3feba"),
+    ("ggml-cpu-sse42.dll", "b4b0c51e0daa5b9f299630f42cd32dd63afb87fe763a5b2f6f4c7a468ce315b5"),
+    ("ggml-cpu-x64.dll", "f9148af703464ce805db60799d2aecabebdcc7a61c9afe6af1b937157a44ad3a"),
+    ("ggml-cpu-zen4.dll", "afdd482813b92ec1ca13c0a6aec05c29ca62ccd003e7d0d7abaf9e10d0718402"),
+    ("ggml-cuda.dll", "bf684acacacdabd690f8ebe84b20f14bdf5d399f1bd254af1523fa9cea3af8e1"),
+    ("ggml.dll", "79dfe5c9fca26f6942c2b5044020aa003985e6d92bf8f6b0f3c80605d60a8f62"),
+    ("libomp.dll", "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"),
+    ("llama-common.dll", "495ad21cf1c0bffc2ebf76a68810bfd80390422bd721bed6ce8fa3f622a1c545"),
+    ("llama-server-impl.dll", "16e6567e6825572a896e91a7c0767c5095189bfa30adf0de26a6ebe630167a0f"),
+    ("llama-server.exe", "f0f897fe665bb59c55ecee74122d5a1e17be862a5d656e844d88769bc1797dc4"),
+    ("llama.dll", "fe2e2da05d76166ef7645f02eb4130d083a515a77039f826353b5fa7a00ca59d"),
+    ("mtmd.dll", "867ac24f65e036c4065943a374053c12318cfbdc5cd9dadb877f1bdb171d169d"),
+)
+# The three CUDA 12.4 redistributable DLLs from the second zip.
+FAMILIAR_RUNTIME_CUDART_FILES = (
+    "cublas64_12.dll",
+    "cublasLt64_12.dll",
+    "cudart64_12.dll",
+)
+FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
+    ("cublas64_12.dll", "e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c"),
+    ("cublasLt64_12.dll", "2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f"),
+    ("cudart64_12.dll", "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"),
+)
+
+# Familiar's weights: the base (non-fine-tuned) Gemma 4 E2B instruct model,
+# quantised. **A testing pin, stated as one**: this is Unsloth's own
+# requantization of stock ``google/gemma-4-E2B-it``, picked so Familiar has
+# something real to run before T10 swaps in the Clay-assistant fine-tune
+# (training/clay-assistant/) as the shipped pin. Q8_0, by user decision, not
+# a 4-bit quant.
+#
+# Revision is the repository's commit at pin time; sha256 is the file's own
+# LFS oid (the ``X-Linked-ETag`` HF's CDN reports for it), read from the Hub
+# API without downloading the 4.7 GB file. Unsloth publishes this repository
+# under Apache 2.0 (its own ``license`` tag), matching the base model's.
+FAMILIAR_GGUF_REPO = "unsloth/gemma-4-E2B-it-GGUF"
+FAMILIAR_GGUF_REVISION = "0314792d7f1f7e229411f620751375812bb9faf2"
+FAMILIAR_GGUF_FILE = "gemma-4-E2B-it-Q8_0.gguf"
+FAMILIAR_GGUF_SHA256 = (
+    "605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053"
+)
+
+FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
+    FamiliarModel(
+        "familiar_runtime",
+        "Familiar runtime",
+        FAMILIAR_RUNTIME_FILES,
+        fetch=(
+            Fetch(
+                "",
+                "familiar-runtime",
+                url=FAMILIAR_RUNTIME_MAIN_URL,
+                sha256=FAMILIAR_RUNTIME_MAIN_SHA256,
+                filename=FAMILIAR_RUNTIME_MAIN_ASSET,
+                extract=".",
+                size_gib=0.24,
+                unpack_gib=0.55,
+            ),
+        ),
+        runtime=True,
+        digests=FAMILIAR_RUNTIME_DIGESTS,
+        description=(
+            "llama-server.exe: the engine behind Familiar, Warlock's in-app "
+            "assistant.\n\n"
+            "One of two zips from one llama.cpp release -- this one is the "
+            "server binaries; 'Familiar runtime (CUDA)' beside it is the "
+            "separate CUDA 12.4 redistributable llama.cpp ships apart. Needs "
+            "an NVIDIA card; there is no CPU build fetched here."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_runtime_cudart",
+        "Familiar runtime (CUDA)",
+        FAMILIAR_RUNTIME_CUDART_FILES,
+        fetch=(
+            Fetch(
+                "",
+                "familiar-runtime-cudart",
+                url=FAMILIAR_RUNTIME_CUDART_URL,
+                sha256=FAMILIAR_RUNTIME_CUDART_SHA256,
+                filename=FAMILIAR_RUNTIME_CUDART_ASSET,
+                extract=".",
+                size_gib=0.37,
+                unpack_gib=0.55,
+            ),
+        ),
+        runtime=True,
+        digests=FAMILIAR_RUNTIME_CUDART_DIGESTS,
+        description=(
+            "The CUDA libraries llama-server.exe links against.\n\n"
+            "llama.cpp publishes them as their own zip, shared across its "
+            "CUDA-12 builds, rather than folding them into the server zip "
+            "above."
+        ),
+    ),
+    FamiliarModel(
+        "familiar_gguf",
+        "Familiar weights (Gemma 4 E2B)",
+        (FAMILIAR_GGUF_FILE,),
+        fetch=(
+            Fetch(
+                FAMILIAR_GGUF_REPO,
+                "familiar-gguf",
+                revision=FAMILIAR_GGUF_REVISION,
+                filenames=(FAMILIAR_GGUF_FILE,),
+                size_gib=4.70,
+            ),
+        ),
+        digests=((FAMILIAR_GGUF_FILE, FAMILIAR_GGUF_SHA256),),
+        description=(
+            "Familiar's own weights: a testing pin of the base Gemma 4 E2B "
+            "instruct model.\n\n"
+            "Unsloth's Q8_0 requantization -- no picker, no path override, "
+            "this exact file. Apache 2.0 licensed. T10's Clay-assistant "
+            "fine-tune (training/clay-assistant/) replaces this as the "
+            "shipped pin."
         ),
     ),
 )

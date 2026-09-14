@@ -673,9 +673,9 @@ def _agents(ctx: Any) -> None:
                 "Lets a program that speaks the Model Context Protocol -- "
                 "Claude Code, Codex, anything with an MCP client already "
                 "running on this machine -- build in Clay and make characters "
-                "for you. Warlock still runs no language model of its own "
-                "and reaches no endpoint; an agent that is already running "
-                "connects to it, "
+                "for you. Warlock runs exactly one pinned model, Familiar, on "
+                "loopback, and still makes no network egress; an agent that "
+                "is already running connects to it, "
                 "never the other way round."
             ),
             helper="Takes effect at once -- no restart.",

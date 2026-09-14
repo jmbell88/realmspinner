@@ -1,27 +1,28 @@
 # Troubleshooting
 
-Most things that go wrong here announce themselves: an amber issue count appears in the status bar,
-a compact summary appears across the top of the window, and the Issues popup names the check that
-failed. This chapter is the other half — what each of those means and what to do about it.
+Most things that go wrong here announce themselves: an amber issue count appears in the menu bar's
+status group, a compact summary appears across the top of the window, and **Settings → Health**
+names the check that failed. This chapter is the other half — what each of those means and what to
+do about it.
 
-The summary holds the issue count and the leading action on one line. **Review** opens Issues for
-the complete checks, copy actions and troubleshooting route. Separately, a toast for a failure with no message
-of its own carries an **Open log** button, so the log it tells you to read is one press away rather
-than inside the Issues popup.
+The summary holds the issue count and the leading action on one line. **Review** opens Settings →
+Health for the complete checks, copy actions and troubleshooting route. Separately, a toast for a
+failure with no message of its own carries an **Open log** button, so the log it tells you to read
+is one press away rather than inside Settings.
 
 **Dismiss** takes the banner off the screen without destroying what it said. Each of the three
 things that write a banner message writes it exactly once — the startup check sweep and the two
 worker checks — so clearing the list would leave a one-line count as the only surviving evidence.
-The text moves into the Issues popup under a **Dismissed** heading instead.
+The text moves into Settings → Health under a **Dismissed** heading instead.
 
 ## The issue count and Health
 
-The status bar along the foot of the window says **N issue(s)** in amber whenever a check has
-failed or an error has been recorded, and says nothing at all when everything passed — there is no
-green state to read, because a healthy install has nothing to report. Hovering it offers to open
-the health details.
+The menu bar's status group says **N issue(s)** in amber whenever a check has failed or an error
+has been recorded, and says nothing at all when everything passed — there is no green state to
+read, because a healthy install has nothing to report. It is a report rather than a control: hover
+it for a tooltip saying so, and go to **Settings → Health** for the list behind it.
 
-Clicking it opens Settings → Health, which holds:
+Settings → Health holds:
 
 - **Detail Log**, **Health Checks** and **Troubleshooting**, at the top of the page rather than
   under the list — they act on the whole page, not on any one check.
@@ -39,7 +40,7 @@ they cannot change without the disk changing — so having just installed someth
 about, nothing short of a restart would otherwise change its mind. This button re-runs everything.
 
 A first run that has downloaded nothing yet is better served by Home's own rows: a health row
-mirroring the status bar's count, and, separately, **Generation is not set up yet** — which opens
+mirroring the status group's count, and, separately, **Generation is not set up yet** — which opens
 the model list and its Download buttons rather than this read-only list.
 
 ## Out of memory

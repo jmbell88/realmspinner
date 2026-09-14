@@ -385,6 +385,28 @@ class Config:
     trellis_idle_timeout: float = field(
         default_factory=lambda: _env_float("WARLOCK_TRELLIS_IDLE", 600.0)
     )
+    # Familiar's own two directories, deliberately never reused from trellis'
+    # -- llama.cpp and trellis.cpp ship their own, differently built
+    # ``ggml*.dll`` (see fetch.py's ``familiar_runtime_dir``), so publishing
+    # one engine's binaries into the other's directory would silently mix DLL
+    # builds the moment both engines are installed.
+    familiar_runtime_dir: Path = field(
+        default_factory=lambda: _env_path(
+            "WARLOCK_FAMILIAR_RUNTIME", _home() / "engine" / "llama"
+        )
+    )
+    familiar_models_dir: Path = field(
+        default_factory=lambda: _env_path(
+            "WARLOCK_FAMILIAR_MODELS", _home() / "models" / "familiar"
+        )
+    )
+    familiar_port: int = field(
+        default_factory=lambda: _env_int("WARLOCK_FAMILIAR_PORT", 17972)
+    )
+    # Seconds of inactivity before the Familiar child is stopped to free VRAM.
+    familiar_idle_timeout: float = field(
+        default_factory=lambda: _env_float("WARLOCK_FAMILIAR_IDLE", 300.0)
+    )
     # Where every image model lives: models.BASE_MODELS[k].dir_name resolves
     # against this, and style LoRAs against its loras/ subdirectory. All
     # downloaded once by hand (see README) -- the app never downloads, and
@@ -677,6 +699,10 @@ SETTINGS: tuple[tuple[str, str], ...] = (
     ("trellis_max_tokens", "WARLOCK_TRELLIS_MAX_TOKENS"),
     ("trellis_decim", "WARLOCK_TRELLIS_DECIM"),
     ("trellis_atlas", "WARLOCK_TRELLIS_ATLAS"),
+    ("familiar_runtime_dir", "WARLOCK_FAMILIAR_RUNTIME"),
+    ("familiar_models_dir", "WARLOCK_FAMILIAR_MODELS"),
+    ("familiar_port", "WARLOCK_FAMILIAR_PORT"),
+    ("familiar_idle_timeout", "WARLOCK_FAMILIAR_IDLE"),
     ("gltfpack_exe", "WARLOCK_GLTFPACK"),
     ("mesh_profile", "WARLOCK_MESH_PROFILE"),
     ("mesh_retries", "WARLOCK_MESH_RETRIES"),

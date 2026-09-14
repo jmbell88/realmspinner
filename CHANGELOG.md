@@ -20,6 +20,38 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Familiar can now actually run.** Settings → Models grows a *Familiar*
+heading with three rows — the llama.cpp runtime split across two downloads the
+way upstream ships it, and a testing pin of the base Gemma 4 E2B model (the
+Clay-assistant fine-tune replaces it later) — and the app can spawn and stop
+`llama-server.exe` behind them: loopback only, offline, keyed by a file rather
+than a command-line argument nobody else's process can read. It never shares
+the card with a real job — a queued GPU job kills Familiar first and it comes
+back on your next message — and an idle Familiar is stopped the same way
+trellis-server is. There is still no chat UI; this is the engine underneath it
+starting to exist.
+
+**Groundwork for Familiar.** The plumbing an external agent already used to
+drive Clay over the pipe now works for Warlock's own built-in assistant too,
+with no pipe involved: Familiar keeps working while Settings' agent-server
+switch is off, and switching that pipe off never drops a call Familiar has
+in flight. Nothing user-visible yet — there is still nothing to install.
+
+**Familiar can now try an edit before committing to it.** Under the hood:
+Familiar runs an agent's Clay tool calls against a private scratch copy of
+the document first, and only writes them onto the one you're looking at when
+you say Apply — Discard leaves your document exactly as it was, byte for
+byte. Still nothing to see in the app yet; the preview itself draws next.
+
+**Status moves into the menu bar.** The status bar at the foot of the window is
+gone. Its readouts (workspace, document, tool, zoom, queue, health) now sit
+right-aligned in the top menu bar, which drops the lowest-priority ones first
+when a mode's menus need the room — the resource meter, then zoom, tool,
+document and queue — and never drops health. The foot of the window is now a
+single `✦ Familiar isn't installed — Install…` row, where Familiar, the
+built-in assistant, will live; there is nothing to install yet. Toasts, the
+progress card, the frame-rate meter and the tour card sit above that row.
+
 **The 2026-09-13 audit's first fixes.** A refused Inker op from the keyboard
 (Shift+H on a tile layer that does not divide the canvas) now toasts instead of
 ending the session. Repeat Last Export keeps a per-tag or per-layer split.

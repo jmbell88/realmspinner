@@ -74,3 +74,185 @@ def test_specs_builds_the_command_list_once_per_call(monkeypatch):
     menus.specs(ctx)
 
     assert calls == [1], f"palette.commands(ctx) ran {len(calls)} times, want 1"
+
+
+# --- T0, the Familiar programme: the menu bar's status group ---------------
+
+
+def test_status_items_drop_lowest_priority_first_when_the_menus_need_the_room():
+    """``fit_status_rows`` drops one key at a time off ``STATUS_DROP_ORDER``
+    (resources, then zoom, then tool, then document, then queue) until what
+    is left fits -- proven by an available width that only fits after three
+    of the five droppable rows are gone, and checking it is exactly those
+    three, in that order, rather than merely a count.
+    """
+    from warlock.studio import menus, status_bar
+
+    rows = [
+        status_bar.StatusItem("workspace", "Inker"),
+        status_bar.StatusItem("document", "Untitled"),
+        status_bar.StatusItem("tool", "Brush"),
+        status_bar.StatusItem("zoom", "100%"),
+        status_bar.StatusItem("resources", "RAM 1/8"),
+        status_bar.StatusItem("queue", "Queue 1 active"),
+        status_bar.StatusItem("health", "1 issue(s)", True),
+    ]
+
+    def measure(item):
+        return 10.0
+
+    # 7 rows * 10 = 70. Dropping resources (60), then zoom (50), then tool
+    # (40) is exactly enough to fit 40 -- document and queue must survive.
+    fitted = menus.fit_status_rows(rows, 40.0, measure)
+    assert {row.key for row in fitted} == {"workspace", "document", "queue", "health"}
+
+
+def test_health_is_never_dropped_from_the_menu_bar():
+    """However little room is left, ``health`` (and the leading ``workspace``
+    row) must survive -- ``STATUS_DROP_ORDER`` never names them, so the loop
+    that removes keys off it cannot touch them even once every droppable key
+    is gone.
+    """
+    from warlock.studio import menus, status_bar
+
+    rows = [
+        status_bar.StatusItem("workspace", "Inker"),
+        status_bar.StatusItem("document", "Untitled"),
+        status_bar.StatusItem("tool", "Brush"),
+        status_bar.StatusItem("zoom", "100%"),
+        status_bar.StatusItem("resources", "RAM 1/8"),
+        status_bar.StatusItem("queue", "Queue 1 active"),
+        status_bar.StatusItem("health", "1 issue(s)", True),
+    ]
+
+    fitted = menus.fit_status_rows(rows, 0.0, lambda item: 10.0)
+
+    assert "health" in {row.key for row in fitted}
+    assert "workspace" in {row.key for row in fitted}
+    for key in menus.STATUS_DROP_ORDER:
+        assert key not in {row.key for row in fitted}
+
+
+def test_status_items_render_right_aligned_in_the_menu_bar(monkeypatch):
+    """A real imgui frame: the status group's last item (``health``, since
+    it is never dropped) must land in the right half of a wide menu bar, and
+    the ``Familiar`` menu must have been drawn -- proving the group is placed
+    after every root and the reserved Familiar entry rather than immediately
+    following ``File``.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import menus
+
+    ctx = _ctx("home")
+    ctx.state.errors = ["boom"]  # forces a "health" row to exist
+
+    with imgui_context(monkeypatch) as imgui:
+        imgui.new_frame()
+        imgui.set_next_window_size((1600, 950))
+        imgui.begin("##host", None, imgui.WindowFlags_.menu_bar.value)
+        menus.draw(ctx)
+        rect_min = imgui.get_item_rect_min()
+        imgui.end()
+        imgui.render()
+
+    assert rect_min.x > 1600 * 0.55, rect_min.x
+
+
+def test_status_group_items_do_not_overlap(monkeypatch):
+    """Familiar T0 (ef853790): every status readout landed at the same x as
+    the one before it. ``_draw_status_group`` chained ``same_line(0.0, 0.0)``
+    calls after an initial absolute jump, which is how an ordinary window's
+    line-wrapping layout accumulates left-to-right -- but a menu bar runs its
+    own cursor bookkeeping, and there ``same_line(0.0, 0.0)`` kept landing
+    back at the first item's start instead of after the previous item, so
+    "Inker" and "Loaded 31.2/32 RAM..." printed on top of each other.
+
+    Wraps ``imgui.text_colored`` to record each drawn item's on-screen rect
+    and asserts none overlap the next, and that the last one ends near the
+    menu bar's right edge.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import menus
+
+    ctx = _ctx("home")
+    ctx.state.errors = ["boom"]  # forces a "health" row to exist
+
+    rects: list[tuple[float, float]] = []
+    with imgui_context(monkeypatch) as imgui:
+        original = imgui.text_colored
+
+        def recording_text_colored(color, text):
+            start = imgui.get_cursor_screen_pos().x
+            result = original(color, text)
+            rects.append((start, start + imgui.calc_text_size(text).x))
+            return result
+
+        monkeypatch.setattr(imgui, "text_colored", recording_text_colored)
+
+        imgui.new_frame()
+        imgui.set_next_window_size((1600, 950))
+        imgui.begin("##host", None, imgui.WindowFlags_.menu_bar.value)
+        menus.draw(ctx)
+        imgui.end()
+        imgui.render()
+
+    assert len(rects) >= 2, "expected at least two status readouts to be drawn"
+    for (_, prev_end), (next_start, _) in zip(rects, rects[1:]):  # noqa: B905 (offset pairing)
+        assert next_start >= prev_end, f"status items overlap: {rects}"
+    assert rects[-1][1] > 1600 * 0.9, rects
+
+
+def test_the_status_group_never_runs_past_the_menu_bar_edge(monkeypatch):
+    """Familiar T0 (ef853790): at 1100x700 the status group clipped at the
+    right edge ("RAM 23." cut off) instead of ``fit_status_rows`` dropping
+    ``resources`` first. ``_draw_status_group`` fit the group against
+    ``get_content_region_avail()`` -- the content-region right edge, which
+    already excludes the window's frame padding -- but then placed it against
+    ``get_window_width()``, the *full* window width. That disagreement let a
+    group the fit had approved land past where the fit thought the edge was.
+
+    A real host window at 1100x700 (the narrowest ``screenshot_modes.py``
+    size) with Inker's own roots drawn, at window position (0, 0) so screen
+    coordinates and window-local coordinates coincide -- proving the last
+    status item's rect never extends past the content region's own right
+    edge, not just "some" edge.
+    """
+    from _ui_context import imgui_context
+
+    from warlock.studio import inker_state, menus
+
+    ctx = _ctx("inker")
+    ctx.state.inker = inker_state.InkerState()
+    ctx.state.errors = ["boom"]  # forces a "health" row to exist
+
+    width = 1100.0
+    rects: list[tuple[float, float]] = []
+    with imgui_context(monkeypatch) as imgui:
+        original = imgui.text_colored
+
+        def recording_text_colored(color, text):
+            start = imgui.get_cursor_screen_pos().x
+            result = original(color, text)
+            rects.append((start, start + imgui.calc_text_size(text).x))
+            return result
+
+        monkeypatch.setattr(imgui, "text_colored", recording_text_colored)
+
+        imgui.new_frame()
+        imgui.set_next_window_pos((0, 0))
+        imgui.set_next_window_size((width, 700))
+        imgui.begin("##host", None, imgui.WindowFlags_.menu_bar.value)
+        menus.draw(ctx)
+        window_padding_x = imgui.get_style().window_padding.x
+        imgui.end()
+        imgui.render()
+
+    content_max_x = width - window_padding_x
+
+    assert rects, "expected at least one status readout to be drawn"
+    assert rects[-1][1] <= content_max_x, (
+        f"status group runs past the content region edge: last item ends at "
+        f"{rects[-1][1]}, content region ends at {content_max_x}"
+    )

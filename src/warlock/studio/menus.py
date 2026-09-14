@@ -275,6 +275,134 @@ def roots(rows: list[MenuSpec]) -> list[str]:
     return [name for name in ordered if name in present or name in ROOTS]
 
 
+#: Reserved room for a "Familiar" entry, drawn as an ordinary menu right of
+#: the workspace roots (T0: one disabled row, "Not installed", no wiring
+#: behind it yet). Unlike the status group below, this is never dropped for
+#: space -- it is drawn before the status group's available width is
+#: measured, the same way any other root would be.
+#:
+#: The mark is the literal ✦ (U+2726 BLACK FOUR POINTED STAR), not
+#: ``icons.SPARKLES``: neither Inter nor Lucide carries that codepoint, so a
+#: one-glyph subset of Noto Sans Symbols 2 is merged into every face
+#: alongside Lucide (:mod:`.fonts`) to draw it.
+FAMILIAR_LABEL = "✦ Familiar"
+
+#: Status keys the right-aligned menu-bar group drops, lowest priority first,
+#: when the roots and the Familiar menu leave it no room. ``health`` (and the
+#: leading ``workspace`` row) are deliberately absent from this tuple: they
+#: are never dropped, regardless of space.
+STATUS_DROP_ORDER: tuple[str, ...] = ("resources", "zoom", "tool", "document", "queue")
+
+
+def status_rows(ctx: Any) -> list[Any]:
+    """``status_bar.items(ctx)`` plus the resource meter, as one ordered list.
+
+    ``menus.py`` owns none of this data -- ``status_bar`` stays the single
+    account of what a status item is and says; this just folds its two
+    sources (the item list and the separately-anchored meter) into the one
+    sequence the menu bar's right-aligned group draws.
+    """
+
+    from . import status_bar
+
+    rows = list(status_bar.items(ctx))
+    meter = status_bar.resource_item(ctx)
+    if meter is not None:
+        rows.append(meter)
+    return rows
+
+
+def fit_status_rows(
+    rows: list[Any], available: float, measure: Callable[[Any], float]
+) -> list[Any]:
+    """*rows* trimmed to fit *available* width, dropping the lowest-priority
+    key in :data:`STATUS_DROP_ORDER` first, one key at a time, until what is
+    left fits (or the order is exhausted). Any row whose key is not in that
+    tuple -- ``health`` and ``workspace`` today -- is never removed here.
+    """
+
+    kept = list(rows)
+    for key in STATUS_DROP_ORDER:
+        if sum(measure(row) for row in kept) <= available:
+            break
+        kept = [row for row in kept if row.key != key]
+    return kept
+
+
+def _draw_status_group(ctx: Any) -> None:
+    """The right-aligned, non-clickable status readouts.
+
+    Drawn last in the menu bar, so ``imgui.get_content_region_avail()`` at
+    the top of this function already reflects every root and the Familiar
+    menu having been laid out -- which is how "measure the menu labels'
+    width first" is honoured without a second, hand-rolled measurement of
+    them: imgui's own left-to-right menu-bar layout already did it.
+    """
+
+    from imgui_bundle import imgui
+
+    from . import fonts, theme, tokens
+
+    # ``get_cursor_pos_x() + avail`` is the content-region right edge -- the
+    # same reference ``fit_status_rows`` below is measured against. Drawing
+    # against ``get_window_width()`` instead (as this used to) disagreed with
+    # it: the window's full width includes the frame padding/scrollbar
+    # reservation that ``get_content_region_avail`` already excludes, so the
+    # fit thought a group fit and the draw then placed it past the content
+    # edge -- clipped at the menu bar's right border ("RAM 23." cut off at
+    # 1100x700). One width, used by both, is what keeps them agreeing.
+    cursor_start = imgui.get_cursor_pos_x()
+    avail = imgui.get_content_region_avail().x
+    right_edge = cursor_start + avail
+    rows = status_rows(ctx)
+    if not rows or avail <= 0:
+        return
+    pad_x = tokens.sp(tokens.SP_2)
+    with fonts.small(imgui):
+
+        def _text(index: int, item: Any) -> str:
+            return item.text if index == 0 else f"  |  {item.text}"
+
+        # Measured with the separator every row but the first is drawn with,
+        # so the fit never passes a group that then overflows into the menus.
+        def measure(item: Any) -> float:
+            return imgui.calc_text_size(f"  |  {item.text}").x
+
+        fitted = fit_status_rows(rows, max(avail - pad_x, 0.0), measure)
+        if not fitted:
+            return
+        texts = [_text(i, item) for i, item in enumerate(fitted)]
+        widths = [imgui.calc_text_size(text).x for text in texts]
+        total = sum(widths)
+        x = max(cursor_start, right_edge - total - pad_x)
+        # Each item gets its own absolute cursor position rather than a chain
+        # of same_line(0.0, 0.0) calls -- and set via ``set_cursor_pos_x``,
+        # not ``same_line``: a menu bar runs its own cursor bookkeeping, and
+        # ``same_line``'s ``offset_from_start_x`` is measured from a
+        # different origin there than ``get_cursor_pos_x``/
+        # ``get_content_region_avail`` read from (off by exactly the window's
+        # left padding, empirically) -- so a ``same_line(x)`` computed from
+        # those two lands ``window_padding.x`` further right than intended,
+        # which is what let a group the fit had approved clip past the
+        # content edge anyway even once the items stopped overlapping.
+        # ``set_cursor_pos_x`` writes into the same coordinate space
+        # ``get_cursor_pos_x`` reads, so the two stay in agreement.
+        y = imgui.get_cursor_pos_y()
+        cursor = x
+        offsets = []
+        for width in widths:
+            offsets.append(cursor)
+            cursor += width
+        for item, text, item_x in zip(fitted, texts, offsets, strict=True):
+            imgui.set_cursor_pos((item_x, y))
+            if item.warning:
+                imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), text)
+                if imgui.is_item_hovered():
+                    imgui.set_tooltip("Health checks need attention")
+            else:
+                imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.MUTED)), text)
+
+
 def draw(ctx: Any, layout: Any = None) -> None:
     """Render the 26 dp global menu bar in the host window."""
 
@@ -312,5 +440,17 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     clicked = hit[0] if isinstance(hit, tuple) else hit
                     if clicked and row.enabled:
                         row.callback()
+        # Reserved, never dropped: T0 of the Familiar programme wires no
+        # model behind this yet, so its one row stays disabled.
+        with controls.menu(FAMILIAR_LABEL) as familiar_open:
+            if familiar_open:
+                controls.menu_item(
+                    "Not installed##menu/familiar-not-installed",
+                    "",
+                    False,
+                    False,
+                    reason="Familiar isn't installed yet.",
+                )
+        _draw_status_group(ctx)
     finally:
         imgui.end_menu_bar()

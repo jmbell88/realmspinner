@@ -66,6 +66,7 @@ inside the runtime tree the installer copies).
 |---|---|---|---|
 | Inter (PUA-stripped) | <https://github.com/rsms/inter> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-inter.txt` |
 | Lucide icons | <https://github.com/lucide-icons/lucide> | ISC | `src/warlock/studio/resources/fonts/LICENSE-lucide.txt` |
+| Familiar sigil (U+2726 subset of Noto Sans Symbols 2) | <https://github.com/notofonts/symbols> | SIL Open Font License 1.1 | `src/warlock/studio/resources/fonts/LICENSE-familiar-sigil.txt` |
 
 ## Vendored source
 
@@ -130,17 +131,18 @@ their publishers, and two of them restrict commercial use of what you generate.
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
 
 The application surfaces this per model where the registry carries it. Of the
-ten registry dataclasses in `warlock.models` (one per `_table()`-built
+eleven registry dataclasses in `warlock.models` (one per `_table()`-built
 registry — `BaseModel`, `StyleLora`, `IPAdapter`, `ControlNet`, `EngineModel`,
-`MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`),
-three declare a `license` field — `BaseModel`, `MusicModel` and
-`SeparationModel` — and only for those does `service/downloads.py`'s `rows()`
-put a licence in the row, so only those show a licence line in the model
-picker and the download confirmation. `StyleLora`, `IPAdapter`, `ControlNet`,
-`EngineModel`, `MetricModel`, `PoseModel` and `MattingModel` carry no
-`license` field, so no licence line is shown for those entries in-app —
-including TRELLIS.2-4B (`EngineModel`) and BiRefNet (`MattingModel`), both MIT
-per the table above but shown there by hand, not read from the registry.
+`MetricModel`, `PoseModel`, `MusicModel`, `SeparationModel`, `MattingModel`,
+`FamiliarModel`), three declare a `license` field — `BaseModel`, `MusicModel`
+and `SeparationModel` — and only for those does `service/downloads.py`'s
+`rows()` put a licence in the row, so only those show a licence line in the
+model picker and the download confirmation. `StyleLora`, `IPAdapter`,
+`ControlNet`, `EngineModel`, `MetricModel`, `PoseModel`, `MattingModel` and
+`FamiliarModel` carry no `license` field, so no licence line is shown for
+those entries in-app — including TRELLIS.2-4B (`EngineModel`), BiRefNet
+(`MattingModel`), llama.cpp and Gemma 4 E2B (`FamiliarModel`), all shown by
+hand in the tables above but not read from the registry.
 Of those seven fieldless classes, [`docs/MODELS.md`](docs/MODELS.md) writes a
 row by hand for two -- TRELLIS.2-4B (`EngineModel`) and BiRefNet
 (`MattingModel`), both MIT. For the other five -- `StyleLora`, `IPAdapter`,

@@ -569,6 +569,7 @@ def test_the_spawn_scan_still_sees_the_call_sites_it_is_guarding():
     """
     spawning = {rel for rel, tree in _scanned_modules() if _spawn_sites(tree)}
     expected = {
+        "pipelines/llama.py",
         "pipelines/matting.py",
         "pipelines/music_client.py",
         "pipelines/t2i_client.py",

@@ -253,6 +253,10 @@ def test_run_checks_returns_every_check(tmp_path):
         + len(model_registry.POSE_MODELS)
         + len(model_registry.MUSIC_MODELS)
         + len(model_registry.SEPARATION_MODELS)
+        # Familiar's own three rows (2026-09-13): runtime, runtime (CUDA),
+        # weights -- built from ``FAMILIAR_MODELS`` unlike the engine's two,
+        # which doctor still builds by hand.
+        + len(model_registry.FAMILIAR_MODELS)
     )
     assert len(run_checks(_config(tmp_path))) == expected
 

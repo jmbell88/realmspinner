@@ -76,6 +76,17 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
+FAMILIAR_GIB = 6.5
+"""llama-server.exe resident with the base Gemma 4 E2B Q8_0 pin, ``-ngl 999``.
+
+**A guess, stated as one, until measured on real hardware.** The Q8_0 file is
+4.70 GiB on disk; this adds a rough allowance (~1.8 GiB) for KV cache at
+``--ctx-size 16384`` and activation buffers. Familiar is always stopped
+before a GPU job runs (see ``Worker.before_gpu_job``), so this number never
+actually has to share the card with anything else -- it exists for
+``familiar_admission`` alone, the door Familiar's own spawn stands at.
+"""
+
 TRELLIS_RES_MULT: dict[int, float] = {512: 0.85, 1024: 1.0, 1536: 1.5}
 """Reconstruction resolution scales the trellis footprint.
 
@@ -601,6 +612,23 @@ def live_memory() -> DeviceMemory | None:
         free_gib=info.free / _GIB,
         name=name,
     )
+
+
+def familiar_admission(device: DeviceMemory | None) -> bool:
+    """Whether there is room to start Familiar's child right now.
+
+    Called from ``pipelines/llama.py`` before ``ensure_started`` spawns
+    ``llama-server.exe`` -- the same door shape as ``service.validation``'s
+    admission checks, but standing over ``live_memory()`` rather than a job's
+    declared params, because Familiar is not a queued job with a params dict
+    to estimate: it starts off a chat message. ``device`` is the caller's
+    ``live_memory()`` reading (or None off NVIDIA, in which case there is
+    nothing to admit against and this refuses) so the check is easy to drive
+    from a test without a real card.
+    """
+    if device is None:
+        return False
+    return device.free_gib >= FAMILIAR_GIB + HEADROOM_GIB
 
 
 def _nvml() -> tuple[Any, Any, str] | None:

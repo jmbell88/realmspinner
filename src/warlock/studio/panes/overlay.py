@@ -330,11 +330,13 @@ def fps_meter(ctx: Any, meter: Any) -> None:
     else:
         colour = theme.ERR
 
+    from . import bottom_pane
+
     viewport = imgui.get_main_viewport()
     imgui.set_next_window_pos(
         (
             viewport.work_pos.x + sp(16),
-            viewport.work_pos.y + viewport.work_size.y - sp(16),
+            viewport.work_pos.y + viewport.work_size.y - sp(16) - sp(bottom_pane.height(ctx)),
         ),
         imgui.Cond_.always.value,
         (0.0, 1.0),
@@ -405,6 +407,8 @@ def progress_card(ctx: Any, eta: Any) -> None:
     elapsed = max(time.time() - float(started), 0.0) if started else 0.0
     cold = bool(snapshot.get("cold"))
 
+    from . import bottom_pane
+
     viewport = imgui.get_main_viewport()
     # The rise is the departure read backwards: it comes up out of the bottom
     # edge and goes back down into it, which is where a bottom-anchored surface
@@ -413,7 +417,11 @@ def progress_card(ctx: Any, eta: Any) -> None:
     imgui.set_next_window_pos(
         (
             viewport.work_pos.x + viewport.work_size.x * 0.5,
-            viewport.work_pos.y + viewport.work_size.y - sp(18) + sp(14) * (1.0 - present),
+            viewport.work_pos.y
+            + viewport.work_size.y
+            - sp(18)
+            + sp(14) * (1.0 - present)
+            - sp(bottom_pane.height(ctx)),
         ),
         imgui.Cond_.always.value,
         (0.5, 1.0),

@@ -721,7 +721,8 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # One sampler for the app, because the CPU figure is a delta between
         # calls: two owners sharing a baseline would each eat the other's
         # interval. Ticked from ``_tick`` at one second, drawn by
-        # ``status_bar.draw``.
+        # ``menus._draw_status_group`` (the meter reads it via
+        # ``status_bar.resource_item``).
         self.resources = resources.Sampler()
         # Set by _draw_viewport_image, read one frame later by _events. The
         # host window is fullscreen, so io.want_capture_mouse is always true
@@ -3974,9 +3975,10 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         from imgui_bundle import imgui
 
         from . import layout as layout_mod
-        from . import menus, modes, rail, status_bar, tokens
+        from . import menus, modes, rail, tokens
         from .panes import (
             app_settings,
+            bottom_pane,
             inspector,
             landing,
             library,
@@ -4161,7 +4163,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # the next item also consumes the parent's item spacing. Reserve both
         # so the shared status line is never clipped at the host's lower edge,
         # especially when that spacing is doubled by UI scale.
-        status_reserve = tokens.sp(status_bar.STATUS_H) + imgui.get_style().item_spacing.y
+        status_reserve = tokens.sp(bottom_pane.height(ctx)) + imgui.get_style().item_spacing.y
         imgui.begin_child("##content", (0, -status_reserve))
         from .panes import overlay
 
@@ -4263,7 +4265,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
                     )
 
         imgui.end_child()
-        guard.run("shell/status", status_bar.draw, ctx, title="The status bar")
+        guard.run("shell/status", bottom_pane.draw, ctx, title="The bottom pane")
         imgui.end_group()
         imgui.end()
         self._overlays(viewport)
@@ -4953,12 +4955,15 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
                 self.eta,
                 title="The progress card",
             )
+        from .panes import bottom_pane
+
         over(
             "overlay/toasts",
             widgets.toasts,
             ctx.state,
             (viewport.work_size.x, viewport.work_size.y),
             on_action=self._toast_action,
+            bottom_offset=tokens.sp(bottom_pane.height(ctx)),
             title="Notifications",
         )
         # The first-run question owns the screen before any workflow modal.

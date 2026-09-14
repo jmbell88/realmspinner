@@ -92,9 +92,10 @@ There used to be a **Library** line here too, counting assets and disk. It went 
 grid of those same assets: a count of the thing you are looking at is not news, and the Library is
 one click away in the rail.
 
-The Setup line is a different destination from the amber issue count in the status bar, which opens
-the read-only Issues popup: the status bar answers "what is wrong right now", and this line answers
-"how do I start". It exists because a fresh install reaches Home with no weights downloaded, presses
+The Setup line is a different destination from the amber issue count in the menu bar's status
+group, which points at **Settings → Health**: the status group answers "what is wrong right now",
+and this line answers "how do I start". It exists because a fresh install reaches Home with no
+weights downloaded, presses
 New 2D, and is refused at the door with a download command in the message. That refusal is correct,
 but Home offered every way to start work and no way to find out first whether this install could do
 any of them. Health itself is not repeated here — the rail's badge and the startup banner own that
@@ -129,7 +130,7 @@ failing silently. A recent list that keeps offering a moved file is worse than a
 
 If a startup check failed fatally, or the GPU worker died, the message appears in red under the
 title as well as in the banner across the top of every mode. Dismissing the banner does not destroy
-the text: it moves into the Issues popup under a **Dismissed** heading, which is the only copy
+the text: it moves into **Settings → Health** under a **Dismissed** heading, which is the only copy
 there is.
 
 See [Troubleshooting](43-troubleshooting.md) for what the individual checks mean.

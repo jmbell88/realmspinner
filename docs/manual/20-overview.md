@@ -155,7 +155,7 @@ Once you are in the workspace, the window is three columns:
   job you have ever run, with its filters. The divider between them can be dragged; the sidebar's
   own width is not draggable, only chosen from the three named sizes in Settings.
 
-Above the columns is the menu bar and below them is the status bar, and both are described next.
+Above the columns is the menu bar and below them is the bottom pane, and both are described next.
 
 ## What is the same in every workspace
 
@@ -208,21 +208,29 @@ same reason the palette gives — and a row with a keyboard binding prints it on
 **Workspace** is the one to know about: it holds all fourteen modes, so it is a third way — beside
 the rail and the palette — to change what the window is showing.
 
-## The status bar
+## The status group
 
-One line along the foot of the window, also in every mode. Left to right: the workspace you are in,
-then the open document and whether it has unsaved changes — plus the current tool and zoom in any
-workspace that has them (Inker, Plotter and Packwright zoom; Inker and Plotter have tools) — then
-the queue when anything is running or waiting, then an amber **N issue(s)** when a startup
+A right-aligned group at the far end of the same bar carries the app's status readouts: the
+workspace you are in, the open document and whether it has unsaved changes, the current tool and
+zoom in any workspace that has them (Inker, Plotter and Packwright zoom; Inker and Plotter have
+tools), the queue when anything is running or waiting, and an amber **N issue(s)** when a startup
 check has failed. That figure is a report rather than a control — for the list behind it, go to
-**Settings → Health**, which is also where you look when nothing is failing and there is no
-count on the bar at all.
-There is no green "all well" state, because a healthy install has nothing to report.
+**Settings → Health**, which is also where you look when nothing is failing and there is no count
+in the group at all. There is no green "all well" state, because a healthy install has nothing to
+report. When the menus a workspace needs leave the group no room, items drop lowest-priority-first
+— the resource meter, then zoom, then tool, then document, then queue — but the health figure
+never drops, whatever the window's width. Every item in the group is a readout, not a button: none
+of it is clickable.
 
-When the window is too narrow to hold all of it, items drop from the *right* end, so the answer to
-"where am I" is the last thing to go. The one item anchored to the right instead is the optional
-system-resource meter — see [App settings](42-app-settings.md#appearance) — which is
-reserved before the rest is trimmed, because it is read while a generation is being decided on.
+Beside the status group, and likewise never dropped, sits **✦ Familiar** — reserved room for the
+Familiar assistant this manual does not otherwise describe yet.
+
+## The bottom pane
+
+One row along the foot of the window, in every mode, where the per-item status line used to live.
+Today it carries a single line: **✦ Familiar isn't installed — Install…**. The per-item readouts
+that used to sit here (workspace, document, tool, zoom, queue, health) moved to the menu bar's own
+right-aligned group, described above.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).

@@ -1443,6 +1443,11 @@ def test_every_claim_is_something_present_would_have_looked_at(tmp_path):
                 # disk report, the sweeps and ``verify_all``, all of which
                 # reason about weights.
                 or path.is_relative_to(cfg.trellis_runtime_dir)
+                # Familiar's own two roots, never the trellis ones: llama.cpp
+                # and trellis.cpp ship their own, differently built
+                # ``ggml*.dll`` (see ``fetch.familiar_dir``'s docstring).
+                or path.is_relative_to(cfg.familiar_runtime_dir)
+                or path.is_relative_to(cfg.familiar_models_dir)
             ), entry.row_key
 
 

@@ -84,6 +84,10 @@ def test_registry_walk_finds_the_ten_classes_the_finding_named():
         "MusicModel",
         "SeparationModel",
         "MattingModel",
+        # Familiar's own registry, added 2026-09-13 alongside the
+        # reconstruction engine's ``EngineModel`` -- same shape, no
+        # ``license`` field either, so it joins the no-license set below.
+        "FamiliarModel",
     }
 
 

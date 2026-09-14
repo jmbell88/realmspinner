@@ -21,6 +21,11 @@ PANES = Path(__file__).resolve().parents[2] / "src/warlock/studio/panes"
 # they draw under the pane that owns them.
 NO_HELP_BUTTON = {
     "__init__",  # not a pane
+    # T0 of the Familiar programme: one collapsed row saying Familiar
+    # isn't installed yet, replacing the old status bar. No heading, and the
+    # per-item status readouts it used to carry moved into the top menu bar
+    # (``menus.py``'s own status group, likewise not a pane with a (?)).
+    "bottom_pane",
     "inker_canvas",  # the canvas itself; its tools are inker-tools
     # The three pieces T7 split off the canvas on 2026-09-04. Not panes: they
     # are the canvas's own drag, slice and multi-click-gesture halves, drawn
