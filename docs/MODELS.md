@@ -110,8 +110,8 @@ curl -L -o $HOME/.warlock/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip `
 ```
 
 **The weights row is a testing pin, stated as one.** It is Unsloth's own Q8_0 requantization of
-the stock `google/gemma-4-E2B-it` instruct model — not the Clay-assistant fine-tune
-(`training/clay-assistant/`), which a later tranche (T10) swaps in as the shipped pin. There is no
+the stock `google/gemma-4-E2B-it` instruct model — not `familiar_v1.0`, the fine-tune trained in
+`training/clay-assistant/`, which a later tranche (T10) swaps in as the shipped pin. There is no
 picker and no path override: this exact file, or nothing.
 
 ```powershell
@@ -123,8 +123,18 @@ uvx hf download unsloth/gemma-4-E2B-it-GGUF --revision 0314792d7f1f7e229411f6207
 Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
 the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. The
 weights repository (`unsloth/gemma-4-E2B-it-GGUF`) is published under Apache 2.0, matching the base
-`google/gemma-4-E2B-it` model it requantizes — see `TODO.md` for the outstanding human review of
-whether that licence still holds once the Clay-assistant fine-tune replaces this pin.
+`google/gemma-4-E2B-it` model it requantizes.
+
+**`familiar_v1.0` is reviewed and clear to ship (TODO.md P53, decided 2026-09-14).** The base
+model's real terms are Google's own Gemma Terms of Use, not the Apache-2.0 tag Hugging Face shows
+for it — a base-model licence tag is not automatically the same promise once weights are retrained
+on new data, which is exactly what this review checked. Gemma's terms permit fine-tuning and
+redistributing derivative weights, provided the derivative doesn't lead its name with
+"Gemma"/"Google" (`familiar_v1.0` doesn't), Google's own attribution travels with the distributed
+weights, and use stays within the Gemma Acceptable Use Policy. So unlike every other row on this
+page, `familiar_v1.0` is *Warlock's own* download row rather than a pointer at a third party's Hub
+repo — and it ships openly, under this project's own GPL-3.0-or-later, the same as the rest of
+Warlock Studio. The notice text is in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
 
 ## Licences, and what you may do with the output
 
@@ -144,7 +154,8 @@ restricted ones; this table is the same information in full.
 | **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
 | **llama.cpp** (Familiar's runtime) | MIT | Yes |
-| **Gemma 4 E2B** (Familiar's weights, testing pin) | Apache-2.0 | Yes — pending the human licence review for the fine-tune that replaces this pin (see TODO.md) |
+| **Gemma 4 E2B** (Familiar's weights, testing pin) | Apache-2.0 | Yes |
+| **`familiar_v1.0`** (Familiar's fine-tuned weights, ships when T10 replaces the testing pin above) | Google's Gemma Terms of Use (not Apache-2.0) | Yes — reviewed 2026-09-14 (TODO.md P53); ships openly under this project's own GPL-3.0-or-later |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

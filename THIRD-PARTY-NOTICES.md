@@ -145,8 +145,26 @@ their publishers, and two of them restrict commercial use of what you generate.
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
-| Gemma 4 E2B GGUF (Unsloth's Q8_0 requantization, a testing pin) | Unsloth, requantizing Google's `google/gemma-4-E2B-it` | Hugging Face | Apache-2.0 | Permitted — pending the human licence review noted in [`docs/MODELS.md`](docs/MODELS.md) for the Clay-assistant fine-tune that later replaces this pin |
+| Gemma 4 E2B GGUF (Unsloth's Q8_0 requantization, a testing pin) | Unsloth, requantizing Google's `google/gemma-4-E2B-it` | Hugging Face | Apache-2.0 | Permitted |
+| `familiar_v1.0` (fine-tuned on `google/gemma-4-E2B-it`, trained in `training/clay-assistant/`; ships when T10 replaces the testing pin above) | Warlock Studio (this project), fine-tuning Google's `google/gemma-4-E2B-it` | Warlock's own download row, not a third-party Hub repo | Google's Gemma Terms of Use, carried forward; the derivative itself ships under this project's own GPL-3.0-or-later | Permitted — reviewed 2026-09-14, see below |
 | Hybrid Demucs (`hdemucs_high_trained.pt`) | Meta / torchaudio | `download.pytorch.org`, **not** Hugging Face | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — Meta states the trained weights are for scientific purposes only; see [`docs/MODELS.md`](docs/MODELS.md) |
+
+**`familiar_v1.0` is the one row above that is a Warlock-trained derivative, not a pass-through
+fetch, so its licence needs its own paragraph (TODO.md P53, decided 2026-09-14).** Gemma ships
+under Google's own [Gemma Terms of Use](https://ai.google.dev/gemma/terms), a distinct document
+from the Apache-2.0 tag Hugging Face shows on `google/gemma-4-E2B-it` and on Unsloth's requant of
+it above — that tag is not, by itself, a promise that holds once the weights are retrained on new
+data, which is what this review actually checked. Gemma's terms permit fine-tuning and
+redistributing derivative weights, on three conditions: the derivative's name may not lead with
+"Gemma" or "Google" (`familiar_v1.0` doesn't), Google's own copyright/attribution notice travels
+with the distributed weights (carried by this file), and use stays within the [Gemma Acceptable
+Use Policy](https://ai.google.dev/gemma/terms#3.2-additional). All three are satisfied, so Warlock
+hosts `familiar_v1.0` under its own download row rather than pointing at a third party's Hub repo
+— and, by the same choice the rest of this project makes, ships it openly rather than as a closed
+derivative: the fine-tune itself is licensed under Warlock Studio's own GPL-3.0-or-later
+([`LICENSE`](LICENSE)), on top of the Gemma terms it carries forward. Trained in
+`training/clay-assistant/`; the weights row ships once T10 (`TODO.md` P54) replaces the testing
+pin above with it.
 
 The application surfaces this per model where the registry carries it. Of the
 eleven registry dataclasses in `warlock.models` (one per `_table()`-built

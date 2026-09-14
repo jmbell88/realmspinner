@@ -1636,6 +1636,20 @@ them.
 
 ## Closed records (kept so nobody re-derives them)
 
+- **P53, licence review for redistributing the Clay-assistant fine-tune.**
+  Closed 2026-09-14 (the user's decision): not blocked. Google's actual Gemma
+  Terms of Use -- distinct from the Apache-2.0 tag Hugging Face shows on
+  `google/gemma-4-E2B-it` and its requants -- permit fine-tuning and
+  redistributing derivative weights, provided the derivative's name doesn't
+  lead with "Gemma"/"Google", Google's own attribution ships alongside the
+  weights, and use stays within the Gemma Acceptable Use Policy. The shipped
+  fine-tune is named `familiar_v1.0`, satisfying the naming condition, and it
+  ships openly under Warlock Studio's own GPL-3.0-or-later rather than as a
+  closed derivative. Recorded in `docs/MODELS.md`'s Familiar section (prose
+  and the master licence table) and in `THIRD-PARTY-NOTICES.md`'s Model
+  weights table and its own explanatory paragraph. T10 (P54) may proceed with
+  the `familiar_v1.0` pin.
+
 - **P49, decide whether `clay_render` gives an agent a lit picture.** Closed
   2026-09-14 as already built: Clay agent round two's T3 (`d1e7f1e0`) gave
   `clay_render` a `shading` enum (`unlit`, `lit`, `wireframe`, `wire_overlay`,
@@ -1915,34 +1929,6 @@ soften the figures in `INSTALL.md` to approximate ones ("about 170 MB",
 **Expected outcome:** `INSTALL.md` states figures that are either re-measured
 per release or honestly approximate. Strike this out then.
 
-## P53. Licence review for redistributing the Clay-assistant fine-tune
-
-**Why it is yours:** it is a legal judgment about a model this project trained
-and would ship, not a technical question. T4 (2026-09-13) pinned Familiar's
-weights row to a *testing* pin -- Unsloth's Q8_0 requantization of the stock
-`google/gemma-4-E2B-it` instruct model, itself Apache-2.0 -- specifically so
-Familiar has something real to run before this item is resolved. T10 swaps
-that testing pin for the Clay-assistant fine-tune
-(`training/clay-assistant/`, trained on top of the same base model), and that
-fine-tune is what actually needs the review: whether Warlock may redistribute
-a derivative of a Google-published model under Warlock's own download row
-(rather than pointing at a third party's Hub repo the way every other entry in
-`models.py` does), what licence terms the derivative carries forward, and
-whether attribution or a licence file has to ship beside it.
-
-**Do:** read `google/gemma-4-E2B-it`'s actual licence terms (not just its HF
-`license` tag, which the T4 pin's testing repo and the base model both state
-as Apache-2.0 -- confirm that holds for a fine-tuned derivative too, since a
-base-model licence tag is not always the same promise once weights are
-retrained on new data) and decide whether Warlock hosting and distributing the
-fine-tuned GGUF is clear to do, needs an attribution notice
-(`THIRD-PARTY-NOTICES.md`), or is blocked.
-
-**Expected outcome:** a decision recorded in `docs/MODELS.md`'s Familiar
-section and `THIRD-PARTY-NOTICES.md`, and T10 either proceeds with the
-fine-tune pin or stays on the testing pin with the reason written down. Strike
-this out then.
-
 ## P54. Familiar tranches T5–T10 — fully specified, T3 built on run A's card
 
 **Why it waited (history):** T3 freezes the prompt card of the model being integrated,
@@ -1988,7 +1974,8 @@ after a confirmed close, and T5 registers `threads.drop`.
 and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
-guess; T10 swap to the fine-tune (after P53). The screenshot and `/exercise-mode`
+guess; T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
+*Closed records*). The screenshot and `/exercise-mode`
 debt T0–T4 left behind does not wait on the card; it is P56.
 
 **Owed by T5 specifically (2026-09-14 review):** `llama_client` must call
@@ -2006,7 +1993,8 @@ also read the key file rather than argv, and surface `ensure_started`'s
 T5 ships a chat loop against the *testing* pin, note that run A's measurement
 put base Gemma 4 E2B at 0 % door acceptance on Clay builds (the fine-tune: 74 %),
 so a Clay skill on the testing pin fails every build a user asks for -- gate
-the Clay skill on the fine-tune pin, or land P53/T10 first. `PARALLEL_SLOTS = 2`
+the Clay skill on the fine-tune pin, or land T10 first (P53 is cleared).
+`PARALLEL_SLOTS = 2`
 and `CTX_SIZE = 16384` are fixed in `pipelines/llama.py`; the per-tab-threads
 idea above has to be reconciled with two slots sharing one context before T5
 inherits the numbers.
