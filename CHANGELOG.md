@@ -18,6 +18,120 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.47 — 2026-09-14
+
+- **A GLB with a malformed material colour no longer takes the window down.**
+  The viewer's glTF reader shape-checked every numeric field except
+  `baseColorFactor` and `emissiveFactor`, so a hand-made or imported file whose
+  colour had the wrong number of entries loaded fine and then crashed the frame
+  loop the moment the renderer wrote it into a shader uniform. A malformed
+  factor now falls back to the glTF default, the way every other cosmetic field
+  already did. Found by the 2026-09-14 audit, along with everything below.
+
+- **Importing a very large clip into Poser can no longer leave a template
+  unopenable.** The clip importer committed the merged library without the 4 MB
+  size check the clip editor's own Save gained a day earlier, so an import could
+  write a library the reader then refused on every open — and the template
+  quietly reverted to its shipped clips. It refuses at import now. Skeleton
+  templates and limb presets are also checked for a real parent tree when they
+  load, so a malformed preset is skipped instead of raising on the frame thread,
+  and the jump clip's crouch and landing poses bend the knee forward.
+
+- **Familiar asks the card for room before it starts.** `llama-server` was the
+  one model this app launched without a VRAM check, which is the overcommit that
+  crashed the driver in August; it is now admitted at the door like every other
+  model. And a cancelled or failed image generation no longer makes the app
+  believe the SDXL checkpoint unloaded while it was still on the card.
+
+- **Two surfaces can no longer rig one mesh twice.** Library's *Rig this mesh*
+  and Poser's *Re-rig* each queued a rig without checking the other, and both
+  finished into the same folder; the rig door itself now refuses a second one.
+  Installing a dependency pack that was already present now also records it for
+  *Restore packs*, and Library stops offering Reroll on stem splits and LoRA
+  training runs, which could never be rerolled.
+
+- **Mason's array tool stops building scenes it cannot open.** A count past the
+  100,000-item ceiling was built in full and left a scene that drew empty for
+  good; it is refused before anything is built. Align, Distribute and Drop to
+  ground are one undo step each, as the manual always said, arming a primitive
+  after a prefab no longer places the prefab, and the stats readouts share one
+  scene resolve per edit instead of paying for it twice a frame.
+
+- **Create stops offering exits that act on the wrong image.** A finished mesh
+  was offered *Add to Plotter* and *Add to Packwright*, which would have used
+  its reference photo; the Style LoRA picker judged fit against a stale base
+  model under Automatic routing; a mesh candidate group whose every attempt
+  failed had no way out of hiding (it now offers **Discard all**, and still asks
+  before deleting anything); and the sweep's axis names read as the manual
+  prints them.
+
+- **Clay's analyze, subtract and file loads have ceilings where they stalled.**
+  Two overlapping meshes past the pair cap were reported as not intersecting
+  without being tested — they now read as unknown; one large flat triangle could
+  stall `analyze` for ten seconds; a subtract marquee over a big edge selection
+  allocated gigabytes on the frame thread; a UV-bearing mesh bevelled at twice
+  the budget; and a `.wblk` could declare unbounded materials and textures.
+
+- **Inker keeps a refused Flourish regenerate from leaving blank frames, and
+  saves say when Aseprite will lose a group's opacity.** A regenerate refused
+  for a linked cel had already grown the frame grid; restyling no longer encodes
+  PNGs on the frame thread; *Use selection as texture* is greyed on an effect
+  with no texture slot; a quote in an effect name no longer breaks the Godot
+  snippet; and an `.ora` frame palette is capped like the document's.
+
+- **The agent bridge survives malformed input.** A deeply nested JSON frame or a
+  malformed tool result no longer kills `warlock mcp`, a notification is never
+  answered, `warlock_status` works for clients that negotiated tasks, a
+  `character_create` size between 8 and 256 is accepted as its schema says, and
+  a bad job id refusal names the field it is about. `clay_op` refuses a
+  wrong-typed parameter instead of failing unexpectedly.
+
+- **Godot scene export refuses a clip name that would corrupt the scene.** A `/`
+  in a clip name split its state path in the `.tscn`; it is refused by name now,
+  and an effect theme's explicit zero rise is no longer replaced by the default.
+
+- **Muse plays the take you selected.** A loop computed for one take could land
+  on another trimmed to the same region, so Play sounded the wrong take;
+  Ctrl+Enter and Sirens' *Compose in Muse* now stop at the missing-model gate
+  instead of the door; an audio-to-audio take's card shows the length that was
+  actually rendered; and Extend's sliders stop offering more than the take is
+  long.
+
+- **Sirens' playhead goes dark after the last row, and undo stays healthy.**
+  Adding a one-shot at the pattern ceiling left an open undo gesture that turned
+  off history trimming for the session; undoing a sample edit handed the live
+  sample the undo stack's own array; and the order list's disabled reason names
+  a save in progress before the effect column.
+
+- **Poser stops reposing a mesh you are editing the skeleton of.** New pose and
+  the three Apply buttons stayed live during a skeleton edit and moved the mesh
+  the editor assumes is at rest; they are greyed and refused now, and closing an
+  asset with only a skeleton draft unsaved warns about skeleton changes rather
+  than pose changes. In Packwright, a multi-file add that hits a document
+  ceiling part-way keeps what landed, marks the atlas for repacking, and says
+  how many made it in instead of a generic failure.
+
+- **Plotter and mesh reports say what actually happened.** Typing a tile
+  object's id is one undo step instead of one per keystroke, an overlong
+  material line's refusal says which line, and a mesh report no longer claims
+  vertices were welded when the weld was skipped.
+
+- **The manual, the notices and SECURITY.md caught up with the app.** The
+  third-party notices now list llama.cpp and Gemma 4 E2B where they said they
+  did; SECURITY.md names Familiar's loopback listener; and a dozen chapter
+  sentences that disagreed with the panes were corrected — prefab instances
+  carry their own rotation and scale, an imported Aseprite reference layer keeps
+  its visibility, agents connect to Warlock and not to Familiar, and control
+  names match their labels.
+
+- **Library, Review and Settings stop losing a keystroke or a frame.** Pressing
+  Enter to commit Prune's "Keep the newest" count used to cancel the whole
+  dialog and prune nothing; the export dialog could show a new destination
+  beside the old plan while browsing; a verdict recorded in Review now reaches
+  the inspector's "graded" mark everywhere; Review's reference cache is bounded;
+  and Settings' *Import a LoRA file...* and *Train from a folder...* open their
+  file picker off the frame thread, so the window keeps drawing while it is up.
+
 ## 0.0.46 — 2026-09-12
 
 **Familiar can now actually run.** Settings → Models grows a *Familiar*
