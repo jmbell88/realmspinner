@@ -20,6 +20,20 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **The jump, fall and death clips bend their knees forward.** The same
+  forward-kinematics pass that fixed the walk and the jump's crouch measured
+  every leg in the humanoid library and found seven more poses with thigh and
+  shin rotations inverted together. The jump's rise, apex and fall, both fall
+  keys and three death keys bent a knee backward by 14° to 110°, and the
+  deaths' ankles sank up to 0.6 of the character's height into the ground.
+  The bird's fall had the same fault. Each is now a sign flip on thigh and
+  shin, the deaths' root drop is re-solved so the folded body lands on the
+  ground line, and a rendered sheet confirms it. Two tests read the pose
+  numbers: no knee in the humanoid or bird library bends backward past 15°,
+  and no jump, fall or death pose puts an ankle or toe below the ground. As
+  with the walk, a sheet already rendered keeps the old motion until it is
+  rendered again, and a saved copy of the clip library in Poser keeps it
+  until **Revert to shipped clips**.
 - **Familiar has the prompt card it will run, and can find things in the
   Manual — nothing user-visible yet.** The card the Clay assistant's run A
   was trained on is frozen into the app byte for byte, because the ablation

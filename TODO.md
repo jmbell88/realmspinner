@@ -1606,7 +1606,21 @@ measured on 2026-09-14, F6 closed on the numbers and F5's decision moved to P57.
    to `clay_op`'s declared `Param`s, refusing by field; the regression tests are
    the two calls above plus a list value, each asserting a refusal rather than
    an unexpected failure.
-10. **F10. Seven provisional humanoid poses bend the knee backward.** Found
+10. ~~**F10. Seven provisional humanoid poses bend the knee backward.**~~ Built
+    2026-09-14. Every backward knee was the F7 mistake again: thigh and shin
+    signs inverted together, so the fix is a sign flip on both, with no new
+    magnitudes invented. It covers `jump rise`/`apex`/`fall` (legacy, still not
+    provisional), `fall a`/`fall b`, the three deaths, and the bird library's
+    `fall a`/`fall b` (shin −40°), which the same rule caught. The deaths' root
+    z was re-solved (−0.055/−0.147/−0.174 from −0.3/−0.6/−0.9) because a
+    forward fold raises the feet, and `death stagger` gained a −20° foot key
+    for a toe at −0.026. Pinned by
+    `tests/test_clip_library_poses.py::test_no_authored_knee_bends_backward_past_fifteen_degrees`
+    (humanoid and bird; the quadruped's hock is excluded by design) and
+    `::test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground` (scoped
+    to jump/fall/death, see F11). Rendered through the real character route
+    (a `human`, side view): crouch and land bend forward, fall is airborne,
+    death ends on the ground line. The original entry follows. Found
     2026-09-14 by the forward-kinematics pass that settled F7 and F8, which
     measured the signed knee bend of every leg in the humanoid library (hip →
     knee → ankle in the side plane; positive is a real knee). A straight
@@ -1623,6 +1637,18 @@ measured on 2026-09-14, F6 closed on the numbers and F5's decision moved to P57.
     fails on the current data today, which is why it was not added alone.
     Needs a rendered sheet per clip to judge, which `render_check.py`-style
     rigging of any shipped species or the Superhero Male now gives in minutes.
+11. **F11. Six humanoid stride and attack poses push a toe through the
+    ground.** Found 2026-09-14 by the planar forward kinematics that closed
+    F10: `run contact A`/`run contact B`, `attack strike`/`attack follow` and
+    `attack_02 strike`/`attack_02 follow` put a toe 0.014–0.016 of character
+    height below z=0. That is about one pixel at 64 px, so nothing has seen it
+    on a sheet. These are stride and weapon poses under F8's contact rule,
+    not F10's knee rule, so they were left alone rather than re-authored
+    blind. **Do:** tilt the planted foot (a small negative `foot` X) or raise
+    root z until the toe clears, then widen
+    `test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground` from
+    jump/fall/death to every humanoid pose. It fails on these six today, which
+    is why it was scoped down.
 
 **What is left on that machine is not code**: whether the resets stop once a
 retry can outlast them (F1 and F2 together should turn "never finishes" into

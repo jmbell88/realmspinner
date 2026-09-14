@@ -55,6 +55,142 @@ def test_jump_crouch_and_land_flex_the_hip_forward_and_the_knee_back_with_the_fo
             )
 
 
+@pytest.mark.parametrize("library", ["humanoid", "bird"])
+def test_no_authored_knee_bends_backward_past_fifteen_degrees(library):
+    """TODO.md's F10. The forward-kinematics pass that settled F7 and F8 also
+    measured the signed knee bend of every leg in the humanoid library:
+    ``jump rise`` (L -40, R -14), ``jump apex`` (L -56, R -34), ``jump fall``
+    (L -22, R -44), ``fall a``/``fall b`` (-90 on the lifted leg) and the three
+    deaths (-70/-100/-110) all bent the knee backward -- a positive shin X
+    should fold the heel toward the buttock, and these went negative instead.
+    A straight planted leg reads a few degrees either side of zero (a walk's
+    swing leg, an attack's stance) and that is fine; -15 is the line between
+    "nearly straight" and "reverse-jointed".
+
+    Only "humanoid" and "bird" are parametrized here: quadruped's
+    ``rear_lower`` is a hock, not a knee, and bends the opposite way of every
+    other joint by design (its rest pose is already bent), so it would fail a
+    rule that does not apply to it; blob has no legs at all."""
+    library_data = rigging.clip_library(library)
+    poses = library_data["poses"]
+    checked = 0
+    for pose in poses.values():
+        bones = pose["bones"]
+        for side in ("L", "R"):
+            shin_key = f"shin.{side}"
+            if shin_key not in bones:
+                continue
+            shin = _angle(bones[shin_key])
+            assert shin >= -15.0, (
+                f"{library} {pose['name']!r} bends shin.{side} backward ({shin:+.0f} deg)"
+            )
+            checked += 1
+    assert checked > 0
+
+
+def _rest_offset(bone: dict) -> tuple[float, float]:
+    """A bone's rest-frame (head -> tail) offset, Y/Z only -- the plane a
+    pure-X pose quaternion rotates within (see this module's docstring)."""
+    head, tail = bone["head"], bone["tail"]
+    return tail[1] - head[1], tail[2] - head[2]
+
+
+def _rotate_yz(y: float, z: float, degrees: float) -> tuple[float, float]:
+    """Standard rotation about +X by ``degrees``, acting on a (Y, Z) offset."""
+    t = math.radians(degrees)
+    c, s = math.cos(t), math.sin(t)
+    return y * c - z * s, y * s + z * c
+
+
+def _leg_ground_heights(
+    template_bones: dict[str, dict], pose_bones: dict, side: str, root_dz: float
+) -> tuple[float, float]:
+    """Planar FK for one leg: hips -> thigh -> shin -> foot, world Z only.
+
+    Every rotation involved is pure-X (see this module's docstring), so world
+    orientation is just the running sum of each ancestor's own angle -- no
+    matrix needed. ``hips`` is folded in only when it too is pure-X (a walk's
+    turn keys it about Z instead, which this ignores, per this test's brief).
+    Verified before trusting it against two known points: the rest pose's toe
+    lands at z=0, and the already-correct "jump crouch" pins an ankle z of
+    ~0.064 (docstring above, F7).
+    """
+    thigh_b = template_bones[f"thigh.{side}"]
+    shin_b = template_bones[f"shin.{side}"]
+    foot_b = template_bones[f"foot.{side}"]
+
+    hips_q = pose_bones.get("hips", [0.0, 0.0, 0.0, 1.0])
+    hips_angle = _angle(hips_q) if hips_q[1] == 0.0 and hips_q[2] == 0.0 else 0.0
+
+    cum_thigh = hips_angle + _angle(pose_bones.get(f"thigh.{side}", [0.0, 0.0, 0.0, 1.0]))
+    cum_shin = cum_thigh + _angle(pose_bones.get(f"shin.{side}", [0.0, 0.0, 0.0, 1.0]))
+    cum_foot = cum_shin + _angle(pose_bones.get(f"foot.{side}", [0.0, 0.0, 0.0, 1.0]))
+
+    y, z = 0.0, thigh_b["head"][2] + root_dz
+
+    dy, dz = _rest_offset(thigh_b)
+    ry, rz = _rotate_yz(dy, dz, cum_thigh)
+    y, z = y + ry, z + rz
+
+    dy, dz = _rest_offset(shin_b)
+    ry, rz = _rotate_yz(dy, dz, cum_shin)
+    y, z = y + ry, z + rz
+    ankle_z = z
+
+    dy, dz = _rest_offset(foot_b)
+    ry, rz = _rotate_yz(dy, dz, cum_foot)
+    y, z = y + ry, z + rz
+    toe_z = z
+
+    return ankle_z, toe_z
+
+
+def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
+    """TODO.md's F10. The same forward-kinematics pass found the three death
+    poses' ankles below the ground plane (z=0) on top of their backward
+    knees, and "death stagger" -- already knee-forward -- left its toe at
+    z~-0.026 because nothing rotated the foot to follow the folded leg back
+    up. This is scoped to the "jump"/"fall"/"death" clips, the ones F10 is
+    about: "walk"/"run"/"attack" plant a foot mid-stride by a different,
+    already-tested contract (F8's contact/passing rule) and are not this
+    finding's concern.
+
+    Sanity-checked before trusting it: the rest pose (no keys at all) puts
+    the toe exactly at z=0, and "jump crouch" -- already fixed under F7 --
+    lands its ankle at z~0.064, matching this module's docstring.
+    """
+    template = rigging.get_template("humanoid")
+    template_bones = {b["name"]: b for b in template.bones}
+    library_data = rigging.clip_library("humanoid")
+    poses = library_data["poses"]
+
+    # Sanity check: rest pose, no keys, toe on the ground.
+    rest_ankle_z, rest_toe_z = _leg_ground_heights(template_bones, {}, "L", 0.0)
+    assert abs(rest_toe_z) < 1e-6, f"rest toe should be at z=0, got {rest_toe_z}"
+
+    in_scope_pose_names = {
+        key
+        for clip in library_data["clips"]
+        if clip["name"] in ("jump", "fall", "death")
+        for key in clip["keys"]
+    }
+    checked = 0
+    for pose in poses.values():
+        if pose["name"] not in in_scope_pose_names:
+            continue
+        bones = pose["bones"]
+        root_dz = pose.get("root_translation", [0.0, 0.0, 0.0])[2]
+        for side in ("L", "R"):
+            if f"thigh.{side}" not in bones and f"shin.{side}" not in bones:
+                continue
+            ankle_z, toe_z = _leg_ground_heights(template_bones, bones, side, root_dz)
+            name = pose["name"]
+            assert ankle_z >= -0.01, f"{name!r} ankle.{side} is below ground (z={ankle_z:+.4f})"
+            assert toe_z >= -0.01, f"{name!r} toe.{side} is below ground (z={toe_z:+.4f})"
+            checked += 1
+    assert checked > 0
+
+
 @pytest.mark.parametrize(
     ("library", "clip_name"),
     [("humanoid", "walk"), ("humanoid", "run"), ("bird", "walk"), ("bird", "run")],
