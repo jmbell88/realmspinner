@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-OUT = Path(__file__).resolve().parent / "mechanical.jsonl"
+OUT_PATH = Path(__file__).resolve().parent / "mechanical.jsonl"
 
 Call = dict[str, Any]
 
@@ -2094,10 +2094,10 @@ def main() -> None:
                 }
             )
     records.sort(key=lambda r: r["id"])
-    with OUT.open("w", encoding="utf-8") as fh:
+    with OUT_PATH.open("w", encoding="utf-8") as fh:
         for r in records:
             fh.write(json.dumps(r, sort_keys=True) + "\n")
-    print(f"wrote {len(records)} records ({len(BUILDS)} base builds) -> {OUT}")
+    print(f"wrote {len(records)} records ({len(BUILDS)} base builds) -> {OUT_PATH}")
 
 
 if __name__ == "__main__":

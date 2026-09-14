@@ -1564,6 +1564,22 @@ F5 and F6 came out of the Mason programme (open questions 2 and 3) and are open.
    static frame cannot settle "is this backward" on its own; needs the actual
    sheet played back (Troupe's own preview, or a GIF of the yaw-90 walk
    frames in sequence) before concluding anything.
+9. **F9. `clay_op` crashes instead of refusing when a value inside `params` has
+   the wrong type.** Found 2026-09-13 while authoring Clay assistant run B's rows,
+   through the real `agent_clay.call` door: `mirror-x` with `{"axis": 0}` answers
+   "failed unexpectedly; see the log", and `mirror-copy` with `{"axis": "x"}`
+   leaks a raw "could not convert string to float". It reproduced again on
+   2026-09-14 in run B's eval as `TypeError: float() argument must be a string
+   or a real number, not 'list'`, raised at `clay_ops.run`'s clamp
+   (`float(values[param.name])`, `clay_ops.py` ~285, via `agent_clay._h_op`):
+   the door checks `params` keys, not value types, so a trained model's
+   near-miss reads as a crash rather than a refusal it can learn from.
+   `clay_add_primitive` already solved the same class for scalar-only params
+   (`agent_clay.py` refuses "`params.base must be a single number`", the fix
+   for run A's `pyramid` list-`base` crash), so the fix is that check extended
+   to `clay_op`'s declared `Param`s, refusing by field; the regression tests are
+   the two calls above plus a list value, each asserting a refusal rather than
+   an unexpected failure.
 
 **What is left on that machine is not code**: whether the resets stop once a
 retry can outlast them (F1 and F2 together should turn "never finishes" into
@@ -1576,6 +1592,14 @@ them.
 ---
 
 ## Closed records (kept so nobody re-derives them)
+
+- **P55, finish Clay assistant run B.** Closed 2026-09-14: run B is written up as
+  a negative result and run A stays the candidate
+  (`docs/measurements/2026-09-14-clay-assistant-run-B.md`). Trained, merged and
+  exported at Q8_0, then scored at t0.2 n3: 168.0/232 against run A's 185.0, builds
+  125.0 vs 140.7 of 174 with non-overlapping samples, edits and queries flat. The card
+  and dataset changed together, so the cause is unseparated; an ablation run (B's
+  data with A's card, or the reverse) was left unscheduled on purpose.
 
 - **P32, re-examine the `trellis_tex_res = 512` pin.** Closed 2026-09-12: the
   pin stays

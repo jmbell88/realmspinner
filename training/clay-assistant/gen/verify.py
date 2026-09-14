@@ -57,6 +57,28 @@ def _refusal_text(result: dict[str, Any]) -> str:
     return "refused (no message on the result)"
 
 
+def refusal_reason(result: dict[str, Any]) -> str:
+    """The door's own refusal sentence for *result*, a top-level
+    ``clay_batch`` result. ``result``'s own ``content[0].text`` (what
+    :func:`_refusal_text` returns) is the *whole batch result* re-serialised
+    as JSON -- ``{"completed": N, "stopped_at": N, ..., "results": [...]}`` --
+    because ``clay_batch``'s own refusal message is just its structured
+    payload dumped as text; that is unreadable as a grouping key and useless
+    in an eval report. The entry actually named by
+    ``structuredContent["stopped_at"]`` inside ``structuredContent["results"]``
+    is itself a full tool result with its own ``content[0].text``, and *that*
+    is the door's real sentence (e.g. "no object named 'q_Tail 01'.").
+    Falls back to :func:`_refusal_text` when there is no ``stopped_at`` to
+    look up -- a non-batch result, or one with no ``structuredContent``.
+    """
+    structured = result.get("structuredContent") or {}
+    stopped_at = structured.get("stopped_at")
+    results = structured.get("results") or []
+    if isinstance(stopped_at, int) and 0 <= stopped_at < len(results):
+        return _refusal_text(results[stopped_at])
+    return _refusal_text(result)
+
+
 def _run_batch(ctx: Any, session: Any, calls: list[dict]) -> dict:
     return agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
 
@@ -161,13 +183,7 @@ def check(replay: Replay, *, allow_below_ground: bool = False) -> list[str]:
     if replay.main_result.get("isError"):
         structured = replay.main_result.get("structuredContent") or {}
         stopped_at = structured.get("stopped_at")
-        results = structured.get("results") or []
-        detail = (
-            _refusal_text(results[stopped_at])
-            if isinstance(stopped_at, int) and 0 <= stopped_at < len(results)
-            else _refusal_text(replay.main_result)
-        )
-        reasons.append(f"batch stopped at entry {stopped_at}: {detail}")
+        reasons.append(f"batch stopped at entry {stopped_at}: {refusal_reason(replay.main_result)}")
 
     # Rule 2: nothing was built at all.
     doc = replay.doc
@@ -215,9 +231,7 @@ def check(replay: Replay, *, allow_below_ground: bool = False) -> list[str]:
         if size is not None:
             for i, s in enumerate(size):
                 if s <= MIN_COMPONENT:
-                    reasons.append(
-                        f"{name!r} has a near-zero size component (size[{i}]={s})"
-                    )
+                    reasons.append(f"{name!r} has a near-zero size component (size[{i}]={s})")
         if not allow_below_ground:
             reasons.extend(_ground_reasons_for(row))
 

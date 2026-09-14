@@ -1,0 +1,116 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "bracket_web",
+   "params": {
+    "size": [
+     0.18,
+     0.02,
+     0.12
+    ]
+   },
+   "translation": [
+    0,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "notch",
+   "params": {
+    "size": [
+     0.06,
+     0.04,
+     0.06
+    ]
+   },
+   "translation": [
+    0.06,
+    0.01,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "bracket_web"
+    },
+    {
+     "$ref": "notch"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_0",
+   "params": {
+    "height": 0.03,
+    "radius": 0.014,
+    "segments": 16
+   },
+   "rotation": [
+    90,
+    0,
+    0
+   ],
+   "translation": [
+    0.09,
+    0.015,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_1",
+   "params": {
+    "height": 0.03,
+    "radius": 0.014,
+    "segments": 16
+   },
+   "rotation": [
+    90,
+    0,
+    0
+   ],
+   "translation": [
+    -0.09,
+    0.015,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.28,
+    0.29,
+    0.31
+   ],
+   "metallic": 0.8,
+   "name": "Dark Steel",
+   "roughness": 0.5,
+   "uids": [
+    {
+     "$ref": "bracket_web"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

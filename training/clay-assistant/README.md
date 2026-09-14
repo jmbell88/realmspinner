@@ -139,14 +139,48 @@ clay_batch call..."), then thirteen tools (`clay_batch`, `clay_scene`,
 `clay_material`, `clay_boolean`, `clay_select`, `clay_op`, `clay_delete`,
 `clay_rename`, `clay_diagnose`) with their schemas kept **verbatim** (the
 generator/op enums are what the model has to get right) and their
-descriptions truncated to one sentence.
+descriptions reduced by `gen/convert._summary()` to their first sentence
+plus every sentence beginning `Known generators:`, `Known ops:` or `Parts,`
+-- the three catalogue enumerations naming a generator's own param names
+(`clay_add_primitive`/`clay_set_params`), an op's own param names and bounds
+(`clay_op`), and a figure preset's own part names (`clay_add_figure`).
+
+**The third sentence is not in this tree's card.** The `Parts, ...` sentence comes from a
+figure part catalogue in `agent_clay.tools()`'s `clay_add_figure` description. Run B
+trained with that catalogue, came out negative
+(`docs/measurements/2026-09-14-clay-assistant-run-B.md`), and the catalogue was held
+back from master on 2026-09-14, so `_summary()` finds no `Parts,` sentence to keep. The
+tracked `dataset/manifest.json` still pins the card run B actually trained on
+(`tools_sha` `cfa30687...`, kept verbatim at
+`docs/measurements/data/clay-assistant/run-B/card.txt`). This tree's card does not hash
+to it, so `build.py` refuses to regenerate `dataset/` until `--force`, which is the
+refusal doing its job.
+
+That third clause is a 2026-09-13 fix, not the original design: the prior
+`_first_sentence` kept the opening line only and trusted the schema's own
+enums to carry the rest, which is true for a plain string enum (a
+generator's or op's *name*) but not for what a generator's or an op's own
+*params* are called (`params` is one open `{string: number}` object in the
+wire schema; the value shape varies per key and is never itself an enum),
+or for what a figure preset's own part names are (never an argument at
+all). Run A's own refusals (2026-09-13, Q8_0, 232 val+corpus rows) are
+exactly the gaps this left: 15 `no object named '...'` refusals (nine of
+them in the `creatures` family, guessing a generated figure's own part
+names -- `hound_Beak`, `t_Shank.R`, `s_Tail 01`), 7 unknown-param refusals
+for a generator (e.g. `depth` on a cylinder), and `clay_op` given `axis`
+outside `params` among 6 other refusals naming an op's own arguments.
+`clay_set_params` repeats `clay_add_primitive`'s own "Known generators: ..."
+sentence verbatim (both are built from the same
+`agent_clay._generator_catalog()`); `_summary()` keeps it only the first
+time it is printed, saving 959 chars.
 
 Built fresh from the live registry every time, never hand-copied: a new
-generator or op changes this card, and therefore `tools_sha()`
-(`sha256` of the card), on the next `build.py` run. `build.py` refuses to
-regenerate `dataset/` against a changed `tools_sha` unless `--force` is
-passed, so a registry change forces a deliberate regeneration instead of a
-dataset that silently no longer matches what it claims to teach.
+generator, op or figure preset changes this card, and therefore
+`tools_sha()` (`sha256` of the card), on the next `build.py` run. `build.py`
+refuses to regenerate `dataset/` against a changed `tools_sha` unless
+`--force` is passed, so a registry change forces a deliberate regeneration
+instead of a dataset that silently no longer matches what it claims to
+teach.
 
 ## Running `build.py`
 
@@ -240,14 +274,87 @@ default material with no refusal and no diagnose finding -- only the gallery sho
 
 ## Training and evaluating (Phase 2 and 3)
 
-`train/train_a.py` is run A's recipe, run with Unsloth Studio's own Python
-(`~/.unsloth/studio/unsloth_studio/Scripts/python.exe`, not the project env): bf16 LoRA,
-responses-only loss, the Gemma 4 template, assistant turns as fenced JSON. It saves the
-adapter; `train/merge.py` merges it into the local base offline (Unsloth's own merge
-re-checks the hub); `train/export_gguf.py` writes BF16/Q8_0/Q4_K_M GGUFs with the llama.cpp
-checkout Studio installed. `eval/run_val.py --tag <name> --corpus` generates on the val
-rows and the five held-out subjects through a running `llama-server --jinja` and scores
-every reply through the real door; results go to `out/<run>/eval-<tag>.json`. Run A's
-numbers and the decision they support are in
-`docs/measurements/2026-09-12-clay-assistant-run-A.md`.
+`train/train_a.py` is run A's recipe, run by name with Unsloth Studio's own Python
+(`~/.unsloth/studio/unsloth_studio/Scripts/python.exe train/train_a.py run-B`, not the
+project env; default `run-A`, output under `out/<run>/`): bf16 LoRA, responses-only loss,
+the Gemma 4 template, assistant turns as fenced JSON. `CONFIG` itself is not a per-run
+knob -- run B keeps run A's recipe exactly so the comparison isolates the dataset and the
+card. It saves the adapter; `train/merge.py run-B` merges it into the local base offline
+(Unsloth's own merge re-checks the hub); `train/export_gguf.py run-B [quant ...]` writes a
+BF16 GGUF plus `Q8_0`, the only quant it allows (Q8_0 is the floor, 2026-09-13) with
+the llama.cpp checkout Studio installed. Run A's numbers and the decision they support are
+in `docs/measurements/2026-09-12-clay-assistant-run-A.md`.
+
+### `eval/run_val.py`
+
+Against a running `llama-server --jinja`, generates on the val rows (and, with `--corpus`,
+the five held-out subjects) and scores every reply through the real door; results go to
+`out/<run>/eval-<tag>.json`.
+
+```powershell
+uv run python training/clay-assistant/eval/run_val.py --tag A-q8-t0 --corpus
+uv run python training/clay-assistant/eval/run_val.py --tag A-q4-t0.2-n3 --corpus `
+    --temperature 0.2 --top-k 40 --top-p 0.9 --samples 3
+uv run python training/clay-assistant/eval/run_val.py --tag A-q8-t0-card `
+    --card training/clay-assistant/out/run-A/card.txt --ids training/clay-assistant/out/run-A/val-ids.txt
+```
+
+**Tag convention:** `<run>-<quant>-t<temp>[-nN]`, e.g. `A-q8-t0` (run A, Q8_0, greedy),
+`A-q4-t0.2-n3` (run A, Q4_K_M, temperature 0.2, 3 samples per row). Greedy is
+`--temperature 0 --top-k 1`.
+
+* `--temperature`/`--top-k`/`--top-p`/`--max-tokens` override the sampler (defaults are the
+  script's own `SETTINGS`); `--samples N` (default 1) generates N replies per row, each with
+  its own `seed` (sample *i*'s request seed is always `--seed BASE + i`, the same across
+  rows, so a temperature > 0 run is reproducible) -- generation runs every (row, sample)
+  pair through the thread pool in parallel, scoring stays serial (the door is one
+  process-global `agent_clay`/`clay_mode` state, never meant to be shared).
+* `--ids FILE` restricts the val rows to the ids listed in *FILE* (one per line, in that
+  order) -- `--corpus` rows are still appended after them, and an id in *FILE* missing from
+  `val.jsonl` is a refusal, not a silent skip.
+* `--card FILE` reads the system prompt verbatim from *FILE* instead of the live
+  `convert.compact_tools()` -- needed once the live tool card has drifted from the one a
+  given run actually trained on. Run A's exact card is checked in at
+  `docs/measurements/data/clay-assistant/run-A/card.txt` (sha256 `70697ece...`) and run
+  B's at `docs/measurements/data/clay-assistant/run-B/card.txt` (sha256 `cfa30687...`).
+* Each row's output carries `samples` (one entry per generation, with that sample's own
+  `reply`/`finish`/`tokens`/`outcome`/`detail`/`sub_calls`) and `accepted_k` (how many
+  samples were accepted), plus the pre-`--samples` top-level keys copied from the first
+  sample so an older reader still works unchanged. The written file's own `settings` key
+  records every flag above, the card's source path (or `"live"`) and its sha256, and the row
+  count, so an `eval-*.json` is self-describing without its invocation.
+* Refusal detail comes from `verify.refusal_reason` -- the door's own one-sentence refusal
+  (e.g. "no object named 'leg_2'."), not the whole batch result serialised as JSON, which is
+  what the older `verify._refusal_text` returns and what the tracked run-A `eval-A-q8.json`/
+  `eval-A-q4.json` files still carry as `detail`.
+
+### `eval/compare.py`
+
+Compares two `eval-*.json` files row for row, restricted to the ids they have in common:
+an outcome transition matrix (rows = the first file's outcome, columns = the second's), a
+per-family accepted count and delta, the ids that flipped between accepted and not, and
+(with `--reasons`) grouped non-accepted reason counts on both sides via `reason_key` (which
+folds a quoted name to `'...'` and a number to `N` so two refusals differing only in which
+object or coordinate is named land in the same bucket).
+
+```powershell
+uv run python training/clay-assistant/eval/compare.py out/run-A/eval-A-q8.json out/run-A/eval-A-q4.json --reasons
+```
+
+Handles the older, pre-`--samples` eval shape too (a bare `outcome`/`detail` per row, no
+`samples` key, `detail` sometimes the truncated batch-result JSON blob) -- the two tracked
+`docs/measurements/data/clay-assistant/run-A/eval-A-q8.json`/`eval-A-q4.json` files are that
+shape, and are what `tests/test_scaffold.py`'s own compare regression test checks against.
+
+### `eval/render_corpus.py`
+
+Renders the five `corpus-1`..`corpus-5` rows of an `eval-*.json` to
+`<slug>.calls.json`/`<slug>.png` (chair, bracket, telescope, colonnade, serpent -- see
+`baseline/subjects.txt`), replaying the first sample's reply through the real door and
+`gen/render.py`'s gallery view even when the batch refused partway through: a partial scene
+is still worth seeing.
+
+```powershell
+uv run python training/clay-assistant/eval/render_corpus.py out/run-A/eval-A-q8.json out/run-A/gallery
+```
 

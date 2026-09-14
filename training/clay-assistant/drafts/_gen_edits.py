@@ -37,7 +37,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-OUT = Path(__file__).resolve().parent / "edits.jsonl"
+OUT_PATH = Path(__file__).resolve().parent / "edits.jsonl"
 
 Call = dict[str, Any]
 
@@ -3742,10 +3742,10 @@ ALL_SPECS = [
 def main() -> None:
     for spec in ALL_SPECS:
         spec()
-    with OUT.open("w", encoding="utf-8") as fh:
+    with OUT_PATH.open("w", encoding="utf-8") as fh:
         for rec in _records:
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
-    print(f"wrote {len(_records)} records to {OUT}")
+    print(f"wrote {len(_records)} records to {OUT_PATH}")
 
 
 if __name__ == "__main__":

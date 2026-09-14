@@ -1,8 +1,12 @@
 {
-  "accepted": 2159,
+  "accepted": 2561,
   "by_family": {
     "architecture": {
       "accepted": 300,
+      "rejected": 0
+    },
+    "composition": {
+      "accepted": 100,
       "rejected": 0
     },
     "containers": {
@@ -17,8 +21,16 @@
       "accepted": 400,
       "rejected": 0
     },
+    "figures": {
+      "accepted": 150,
+      "rejected": 0
+    },
     "furniture": {
       "accepted": 350,
+      "rejected": 0
+    },
+    "grounding": {
+      "accepted": 152,
       "rejected": 0
     },
     "mechanical": {
@@ -36,11 +48,11 @@
   },
   "by_kind": {
     "build": {
-      "accepted": 1650,
+      "accepted": 2002,
       "rejected": 0
     },
     "edit": {
-      "accepted": 400,
+      "accepted": 450,
       "rejected": 0
     },
     "query": {
@@ -52,7 +64,7 @@
   "rejected": 0,
   "rejection_reasons": {},
   "seed": 0,
-  "tools_sha": "70697ece5bec5781b1f04703745bed2b2f2c56a9a664a04eef831c7aa9838aab",
-  "train": 1932,
-  "val": 227
+  "tools_sha": "cfa3068767ab6fc0c48bc4ef94f224cc3315fac596a830bf23507c240206f760",
+  "train": 2299,
+  "val": 262
 }

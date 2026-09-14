@@ -1,0 +1,131 @@
+[
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Base1",
+   "params": {
+    "height": 0.3,
+    "radius": 1.6,
+    "segments": 32
+   },
+   "translation": [
+    0.0,
+    0.15,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Base2",
+   "params": {
+    "height": 0.3,
+    "radius": 1.2,
+    "segments": 32
+   },
+   "translation": [
+    1.15,
+    0.45,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Base3",
+   "params": {
+    "height": 0.3,
+    "radius": 0.8,
+    "segments": 32
+   },
+   "translation": [
+    0.0,
+    0.75,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.5,
+    0.5,
+    0.52
+   ],
+   "name": "Base Stone",
+   "roughness": 0.6,
+   "uids": [
+    {
+     "$ref": "Base1"
+    },
+    {
+     "$ref": "Base2"
+    },
+    {
+     "$ref": "Base3"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "Column",
+   "params": {
+    "height": 2.7,
+    "radius": 0.3,
+    "segments": 20
+   },
+   "translation": [
+    1.15,
+    2.4,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.5,
+    0.5,
+    0.52
+   ],
+   "name": "Column Stone",
+   "roughness": 0.6,
+   "uids": [
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "array-radial",
+   "params": {
+    "angle": 360.0,
+    "axis": 1.0,
+    "count": 8.0
+   }
+  },
+  "name": "clay_op"
+ }
+]

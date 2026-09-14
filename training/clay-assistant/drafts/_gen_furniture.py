@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-OUT = Path(__file__).resolve().parent / "furniture.jsonl"
+OUT_PATH = Path(__file__).resolve().parent / "furniture.jsonl"
 
 # --- tiny call-builders, matching agent_clay's compact tool card -----------
 
@@ -3045,10 +3045,10 @@ instantiate(
 
 
 def main() -> None:
-    OUT.write_text(
+    OUT_PATH.write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in RECORDS) + "\n", encoding="utf-8"
     )
-    print(f"wrote {len(RECORDS)} records to {OUT}")
+    print(f"wrote {len(RECORDS)} records to {OUT_PATH}")
 
 
 if __name__ == "__main__":

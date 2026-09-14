@@ -68,31 +68,107 @@ convention, not the app's."""
 
 _SENTENCE_RE = re.compile(r".+?\.(?=\s|$)", re.S)
 
+_ENUMERATION_PREFIXES = ("Known generators:", "Known ops:", "Parts,")
+"""The three catalogue sentences run A's own refusals show a fine-tune is
+scored on (measured on 232 val+corpus rows, Q8_0): ``clay_add_primitive``/
+``clay_set_params``'s "Known generators: cylinder [radius, height,
+segments] ..." (7 refusals for an unknown generator param, e.g. ``depth`` on
+a cylinder), ``clay_op``'s "Known ops: array-radial [count, angle, axis]
+..." (``clay_op`` given ``axis`` outside ``params`` among 6 other refusals),
+and ``clay_add_figure``'s "Parts, each prefixed by name_prefix: humanoid:
+Hips, Spine, ..." (15 ``no object named '...'`` refusals, nine of them
+creatures-family guesses at a generated figure's own part names --
+``hound_Beak``, ``t_Shank.R``, ``s_Tail 01``). ``_first_sentence`` kept only
+each description's opening line and trusted the schema's own enums to carry
+the rest, which is true for a plain string enum (a generator's *name*, an
+op's *name*) but not for what a generator's own params are called, what an
+op's own params are called or bounded to, or what a figure preset's own
+part names are -- none of that is expressible as a JSON Schema enum here,
+because a generator's ``params``/an op's ``params`` is one open
+``{string: number}`` object (the value shape varies per key) and a figure's
+parts are never an argument at all. These sentences are the only place any
+of that is written down."""
 
-def _first_sentence(text: str) -> str:
-    """*text*, truncated to its first sentence -- descriptions in
-    ``agent_clay.tools()`` are full paragraphs meant for a client with an
-    unbounded context; the compact card keeps only the summary line and
-    trusts the schema's own enums to carry the rest."""
-    match = _SENTENCE_RE.match(text.strip())
-    return match.group(0) if match else text.strip()
+
+def _sentences(text: str) -> list[str]:
+    """*text*, split into whole sentences -- the same one-period-plus-
+    whitespace-or-end rule ``_first_sentence`` used to apply to the first
+    sentence only, walked to the end of the string instead of stopping
+    there. A catalogue sentence's own periods (a generator's ``segments=32``
+    default, a part name like ``Shoulder.L``) are never followed by
+    whitespace, so they never end a sentence early here -- only the period
+    that actually closes the sentence, followed by a space or the string's
+    end, does."""
+    stripped = text.strip()
+    sentences: list[str] = []
+    pos = 0
+    while pos < len(stripped):
+        match = _SENTENCE_RE.match(stripped[pos:])
+        if not match:
+            sentences.append(stripped[pos:])
+            break
+        sentences.append(match.group(0))
+        pos += match.end()
+        while pos < len(stripped) and stripped[pos].isspace():
+            pos += 1
+    return sentences
+
+
+def _summary(text: str, *, seen: set[str]) -> str:
+    """*text*'s first sentence, plus every later sentence beginning
+    ``Known generators:``, ``Known ops:`` or ``Parts,`` -- the enumerations
+    the model is scored on (see ``_ENUMERATION_PREFIXES``). *seen* is the
+    card's own running set of catalogue sentences already printed: dropped
+    (a bare first sentence keeps the shorter summary) rather than fenced
+    against here, so ``clay_set_params``'s "Known generators: ..." -- word
+    for word ``clay_add_primitive``'s own, both built from the same
+    :func:`agent_clay._generator_catalog` -- is not printed twice. Measured:
+    959 of those chars, once. Anything else in ``_ENUMERATION_PREFIXES`` is
+    unique per tool in ``KEEP_TOOLS`` today (``clay_op``'s ops, ``clay_add_
+    figure``'s parts), so this dedupe currently only ever fires once, but it
+    is a running set rather than a hand-picked "skip clay_set_params" rule
+    because the next generator or op added to a second tool's description
+    should not have to earn its own special case here."""
+    sentences = _sentences(text)
+    if not sentences:
+        return text.strip()
+    keep = [sentences[0]]
+    for sentence in sentences[1:]:
+        if not sentence.startswith(_ENUMERATION_PREFIXES):
+            continue
+        if sentence in seen:
+            continue
+        seen.add(sentence)
+        keep.append(sentence)
+    return " ".join(keep)
 
 
 def compact_tools() -> str:
     """The system-prompt tool card every training row shares. Built fresh
     from ``agent_clay.tools()``/``instructions()`` on every call -- never
     cached at import time -- so it can never drift from what the live
-    registries actually publish."""
+    registries actually publish.
+
+    Each tool's own summary keeps its first sentence plus its catalogue
+    sentences (:func:`_summary`) rather than the first sentence alone: run A
+    (2026-09-13, Q8_0, 232 val+corpus rows) showed exactly the refusals that
+    dropping them causes -- 15 ``no object named '...'`` (a figure preset's
+    part names, nine of them in ``creatures``), 7 unknown params for a
+    generator (e.g. ``depth`` on a cylinder), and ``clay_op`` given ``axis``
+    outside ``params`` among 6 other refusals naming an op's own arguments.
+    See ``README.md``'s "The compact tool card" section for the fix's own
+    accounting."""
     tool_map = {t.name: t for t in agent_clay.tools()}
     instructions = agent_clay.instructions()
     paragraphs = instructions.split("\n\n")
 
     lines = [paragraphs[0], "", paragraphs[1], "", BEHAVIOUR_PARAGRAPH, "", "Tools:"]
+    seen: set[str] = set()
     for name in KEEP_TOOLS:
         tool = tool_map[name]
-        sentence = _first_sentence(tool.description)
+        summary = _summary(tool.description, seen=seen)
         schema_json = json.dumps(tool.schema, sort_keys=True, separators=(",", ":"))
-        lines.append(f"- {name}: {sentence}")
+        lines.append(f"- {name}: {summary}")
         lines.append(f"  schema: {schema_json}")
     return "\n".join(lines)
 

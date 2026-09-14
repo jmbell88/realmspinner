@@ -10,16 +10,22 @@ each reply the only way that matters: parse the fenced JSON, fold it into one
 one, and apply ``verify.check``. A ``query`` row scores on "answered in prose with no tool
 call and no fence".
 
-Reports per kind and per family: parse rate, door acceptance, check-clean rate, and mean
-sub-call count. Writes ``out/<run>/eval-<tag>.json`` with every row's outcome so a later
-comparison can be made row for row. Loss is not reported here on purpose: it says nothing
-about whether the batch is accepted.
+Reports per kind and per family: parse rate, door acceptance (first-sample and, with
+``--samples`` > 1, the per-sample mean), check-clean rate, and mean sub-call count. Writes
+``out/<run>/eval-<tag>.json`` with every row's outcome (and, per sample, every sample's own
+outcome) so a later comparison (``compare.py``) can be made row for row. Loss is not
+reported here on purpose: it says nothing about whether the batch is accepted.
+
+Tag convention: ``<run>-<quant>-t<temp>[-nN]``, e.g. ``A-q8-t0`` (run A, Q8_0, greedy),
+``A-q4-t0.2-n3`` (run A, Q4_K_M, temperature 0.2, 3 samples per row). Greedy is
+``--temperature 0 --top-k 1``.
 """
 
 from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import pathlib
 import re
@@ -33,16 +39,37 @@ ROOT = PKG.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(PKG))
+# So ``import compare``/``from compare import ...`` works both when this file is run as a
+# script (where Python would already put HERE on sys.path[0] on its own) and when it is
+# imported from a test -- an import does not get that automatic insertion.
+sys.path.insert(0, str(HERE))
+
+from compare import reason_key  # noqa: E402
 
 FENCE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.S)
 SETTINGS = {"temperature": 1.0, "top_k": 64, "top_p": 0.95, "max_tokens": 4096}
 
 
-def _chat(url: str, system: str, user: str, timeout: float) -> dict:
+def _chat(
+    url: str,
+    system: str,
+    user: str,
+    timeout: float,
+    *,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+    max_tokens: int,
+    seed: int,
+) -> dict:
     body = {
         "model": "x",
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        **SETTINGS,
+        "temperature": temperature,
+        "top_k": top_k,
+        "top_p": top_p,
+        "max_tokens": max_tokens,
+        "seed": seed,
     }
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
@@ -72,29 +99,49 @@ def _user_turn(record: dict) -> str:
     return record["prompt"]
 
 
-def _score(record: dict, reply: str) -> dict:
-    from gen import verify
-
+def parse_calls(reply: str) -> tuple[list[dict] | None, str | None]:
+    """Parse *reply* the way the training convention expects: a ```json``` fence whose body
+    is ``{"calls": [...]}}``. Returns ``(calls, None)`` on success or ``(None, detail)``
+    naming which of the three failure modes hit -- no fence, bad JSON, or no ``calls`` list --
+    factored out of ``_score`` so ``render_corpus.py`` can parse a first sample's reply
+    without re-deriving :data:`FENCE` or duplicating these checks.
+    """
     m = FENCE.search(reply)
-    if record["kind"] == "query":
-        ok = m is None and reply.strip() != ""
-        return {"outcome": "accepted" if ok else "fenced or empty", "sub_calls": 0}
     if m is None:
-        return {"outcome": "no parse", "detail": "no fenced json"}
+        return None, "no fenced json"
     try:
         obj = json.loads(m.group(1))
     except json.JSONDecodeError as exc:
-        return {"outcome": "no parse", "detail": f"json: {exc}"[:200]}
+        return None, f"json: {exc}"[:200]
     calls = obj.get("calls") if isinstance(obj, dict) else None
     if not isinstance(calls, list) or not calls:
-        return {"outcome": "no parse", "detail": "no calls list"}
+        return None, "no calls list"
+    return calls, None
+
+
+def _score(record: dict, reply: str) -> dict:
+    from gen import verify
+
+    if record["kind"] == "query":
+        ok = FENCE.search(reply) is None and reply.strip() != ""
+        return {"outcome": "accepted" if ok else "fenced or empty", "sub_calls": 0}
+    calls, detail = parse_calls(reply)
+    if calls is None:
+        return {"outcome": "no parse", "detail": detail}
     replay = verify.replay(calls, prior=record.get("prior"))
     if replay.main_result.get("isError"):
-        return {
+        structured = replay.main_result.get("structuredContent") or {}
+        stopped_at = structured.get("stopped_at")
+        result = {
             "outcome": "refused",
-            "detail": verify._refusal_text(replay.main_result)[:300],
+            # Untruncated is fine up to ~500 chars: refusal_reason is already the door's own
+            # one-sentence message, not the whole batch result _refusal_text used to return.
+            "detail": verify.refusal_reason(replay.main_result)[:500],
             "sub_calls": len(calls),
         }
+        if stopped_at is not None:
+            result["stopped_at"] = stopped_at
+        return result
     reasons = verify.check(replay, allow_below_ground=bool(record.get("allow_below_ground")))
     if reasons:
         return {
@@ -119,6 +166,28 @@ def _corpus_records() -> list[dict]:
     ]
 
 
+def _load_val(pkg: pathlib.Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (pkg / "dataset" / "val.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _select_by_ids(records: list[dict], ids_file: pathlib.Path) -> list[dict]:
+    """*records*, restricted to the ids named in *ids_file* (one per line), in that file's
+    own order -- so a rerun against a fixed subset (a smoke test, a diff against a prior
+    tag) draws exactly the same rows in the same order every time."""
+    wanted = [
+        line.strip() for line in ids_file.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    by_id = {r["id"]: r for r in records}
+    missing = [i for i in wanted if i not in by_id]
+    if missing:
+        raise SystemExit(f"--ids names ids not in val.jsonl: {missing}")
+    return [by_id[i] for i in wanted]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default="http://127.0.0.1:8081/v1/chat/completions")
@@ -128,57 +197,122 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="first N val rows only (smoke test)")
     ap.add_argument("--workers", type=int, default=4, help="parallel requests (server slots)")
     ap.add_argument("--timeout", type=float, default=600.0)
+    ap.add_argument("--temperature", type=float, default=SETTINGS["temperature"])
+    ap.add_argument("--top-k", type=int, default=SETTINGS["top_k"])
+    ap.add_argument("--top-p", type=float, default=SETTINGS["top_p"])
+    ap.add_argument("--max-tokens", type=int, default=SETTINGS["max_tokens"])
+    ap.add_argument("--samples", type=int, default=1, help="generations per row")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="request seed for sample i of any row is BASE+i (reproducible temp>0 runs)",
+    )
+    ap.add_argument(
+        "--ids", type=pathlib.Path, default=None, help="one id per line; restricts val rows"
+    )
+    ap.add_argument(
+        "--card",
+        type=pathlib.Path,
+        default=None,
+        help="system prompt read verbatim from this file instead of the live compact_tools()",
+    )
     args = ap.parse_args()
 
     from gen import convert
 
-    system = convert.compact_tools()
-    records = [
-        json.loads(line)
-        for line in (PKG / "dataset" / "val.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    if args.card:
+        system = args.card.read_bytes().decode("utf-8")
+        card_source = str(args.card)
+    else:
+        system = convert.compact_tools()
+        card_source = "live"
+    card_sha256 = hashlib.sha256(system.encode("utf-8")).hexdigest()
+
+    val_records = _load_val(PKG)
+    records = _select_by_ids(val_records, args.ids) if args.ids else val_records
     if args.limit:
         records = records[: args.limit]
     if args.corpus:
         records += _corpus_records()
 
-    # Generation is parallel (the server has slots); scoring is serial, because the door
-    # is one process-global agent_clay/clay_mode state and was never meant to be shared.
+    # Generation is parallel over every (row, sample) pair (the server has slots); scoring
+    # stays serial, because the door is one process-global agent_clay/clay_mode state and
+    # was never meant to be shared.
     t0 = time.time()
     users = {r["id"]: _user_turn(r) for r in records}
+    pairs = [(r, s) for r in records for s in range(args.samples)]
 
-    def gen(r: dict) -> tuple[str, dict]:
-        return r["id"], _chat(args.url, system, users[r["id"]], args.timeout)
+    def gen(pair: tuple[dict, int]) -> tuple[tuple[str, int], dict]:
+        r, s = pair
+        reply = _chat(
+            args.url,
+            system,
+            users[r["id"]],
+            args.timeout,
+            temperature=args.temperature,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            max_tokens=args.max_tokens,
+            seed=args.seed + s,
+        )
+        return (r["id"], s), reply
 
-    replies: dict[str, dict] = {}
+    replies: dict[tuple[str, int], dict] = {}
     with cf.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for rid, reply in pool.map(gen, records):
-            replies[rid] = reply
-            print(f"  generated {len(replies)}/{len(records)}", end="\r", flush=True)
+        for key, reply in pool.map(gen, pairs):
+            replies[key] = reply
+            print(f"  generated {len(replies)}/{len(pairs)}", end="\r", flush=True)
     gen_s = time.time() - t0
 
     rows = []
     for r in records:
-        reply = replies[r["id"]]
-        score = _score(r, reply["content"])
-        rows.append(
-            {
-                "id": r["id"],
-                "family": r["family"],
-                "kind": r["kind"],
-                "prompt": r["prompt"],
-                "reply": reply["content"],
-                "finish": reply["finish"],
-                "completion_tokens": reply["completion_tokens"],
-                **score,
-            }
-        )
+        samples = []
+        for s in range(args.samples):
+            reply = replies[(r["id"], s)]
+            score = _score(r, reply["content"])
+            samples.append(
+                {
+                    "reply": reply["content"],
+                    "finish": reply["finish"],
+                    "tokens": reply["completion_tokens"],
+                    **score,
+                }
+            )
+        first = samples[0]
+        accepted_k = sum(1 for sm in samples if sm["outcome"] == "accepted")
+        row = {
+            "id": r["id"],
+            "family": r["family"],
+            "kind": r["kind"],
+            "prompt": r["prompt"],
+            "samples": samples,
+            "accepted_k": accepted_k,
+            # Top-level keys kept identical to the pre-``--samples`` shape, copied from the
+            # first sample, so a reader that has never heard of "samples" still works.
+            "reply": first["reply"],
+            "finish": first["finish"],
+            "completion_tokens": first["tokens"],
+            "outcome": first["outcome"],
+        }
+        for key in ("detail", "sub_calls", "objects", "stopped_at"):
+            if key in first:
+                row[key] = first[key]
+        rows.append(row)
 
     def rate(sub: list[dict], outcome: str) -> str:
         n = len(sub)
         k = sum(1 for x in sub if x["outcome"] == outcome)
         return f"{k}/{n}"
+
+    def mean_rate(sub: list[dict], outcome: str) -> str:
+        """Pass@1 averaged over ``args.samples`` -- the same "k/n" shape as :func:`rate`,
+        but ``k`` is the mean count of samples reaching *outcome* per row rather than only
+        the first sample's."""
+        n = len(sub)
+        total_k = sum(1 for row in sub for sm in row["samples"] if sm["outcome"] == outcome)
+        mean_k = total_k / args.samples if args.samples else 0.0
+        return f"{mean_k:.1f}/{n}"
 
     print(f"\ngenerated {len(rows)} replies in {gen_s:.0f}s")
     groups = {"all": rows}
@@ -188,6 +322,7 @@ def main() -> int:
     summary = {}
     for name, sub in groups.items():
         acc = rate(sub, "accepted")
+        acc_mean = mean_rate(sub, "accepted")
         parse_fail = rate(sub, "no parse")
         refused = rate(sub, "refused")
         failed = rate(sub, "built, failed check")
@@ -195,28 +330,45 @@ def main() -> int:
         mean_calls = sum(calls) / len(calls) if calls else 0.0
         summary[name] = {
             "accepted": acc,
+            "accepted_mean": acc_mean,
             "no_parse": parse_fail,
             "refused": refused,
             "failed_check": failed,
             "mean_sub_calls": round(mean_calls, 1),
         }
         print(
-            f"{name:<22} accepted {acc:>8}  no-parse {parse_fail:>8}  refused {refused:>8}  "
-            f"failed-check {failed:>8}  calls {mean_calls:.1f}"
+            f"{name:<22} accepted {acc:>8}  mean {acc_mean:>10}  no-parse {parse_fail:>8}  "
+            f"refused {refused:>8}  failed-check {failed:>8}  calls {mean_calls:.1f}"
         )
     refusals: dict[str, int] = {}
-    for x in rows:
-        if x["outcome"] in ("refused", "built, failed check", "no parse"):
-            key = (x.get("detail") or "")[:80]
-            refusals[key] = refusals.get(key, 0) + 1
+    for row in rows:
+        for sample in row["samples"]:
+            if sample["outcome"] in ("refused", "built, failed check", "no parse"):
+                key = reason_key(sample.get("detail") or "")
+                refusals[key] = refusals.get(key, 0) + 1
     print("top reasons:")
     for key, n in sorted(refusals.items(), key=lambda kv: -kv[1])[:10]:
         print(f"  {n:>3}  {key}")
 
     out = PKG / "out" / args.run
     out.mkdir(parents=True, exist_ok=True)
+    settings = {
+        "temperature": args.temperature,
+        "top_k": args.top_k,
+        "top_p": args.top_p,
+        "max_tokens": args.max_tokens,
+        "samples": args.samples,
+        "seed": args.seed,
+        "card": card_source,
+        "card_sha256": card_sha256,
+        "ids": str(args.ids) if args.ids else None,
+        "rows": len(records),
+        "url": args.url,
+    }
     (out / f"eval-{args.tag}.json").write_text(
-        json.dumps({"tag": args.tag, "summary": summary, "rows": rows}, indent=1),
+        json.dumps(
+            {"tag": args.tag, "settings": settings, "summary": summary, "rows": rows}, indent=1
+        ),
         encoding="utf-8",
     )
     return 0

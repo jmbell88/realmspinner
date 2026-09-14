@@ -1,9 +1,17 @@
-"""Run A: LoRA fine-tune of Gemma 4 E2B-it on the verified Clay-assistant dataset.
+"""LoRA fine-tune of Gemma 4 E2B-it on the verified Clay-assistant dataset, run by name
+(``python train_a.py run-B`` writes to ``out/run-B/``; default ``run-A``).
 
 Driven with Unsloth's own library from the Unsloth Studio environment
 (``~/.unsloth/studio/unsloth_studio/Scripts/python.exe``) rather than through the Studio
 GUI, because the GUI could not be driven from this session; the recipe is the one the
 Studio would have run (LoRA on bf16 weights, responses-only loss, the Gemma 4 template).
+Run B deliberately keeps run A's exact ``CONFIG`` -- the comparison it exists to make is
+the dataset and the card, not the recipe -- so nothing below is a per-run knob except
+which directory the output lands in.
+
+Importable with no ``unsloth`` installed: every training import lives inside ``main()``,
+so ``python -c "import ast; ast.parse(...)"`` and a bare module import both succeed on any
+Python, including the project's own env that never installs Unsloth.
 
 Choices, each with its reason:
 
@@ -21,7 +29,7 @@ Choices, each with its reason:
   ``eval/run_val.py``, run after export, because loss says nothing about whether a batch
   is accepted.
 
-Outputs under ``training/clay-assistant/out/run-A/`` (gitignored): the LoRA adapter,
+Outputs under ``training/clay-assistant/out/<run>/`` (gitignored): the LoRA adapter,
 the merged 16-bit model, ``trainer_state.json``, and ``config.json`` with every value
 below. GGUF export is a separate step (``export_gguf.py``) so an export failure cannot
 cost the run.
@@ -37,14 +45,24 @@ import time
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("UNSLOTH_RETURN_LOGITS", "0")
+# Run B died at the epoch-1 eval twice (step 144/432, 2026-09-13), the second time with the
+# GPU to itself: unset, Unsloth's fused cross entropy sizes its chunks from
+# ``torch.cuda.mem_get_info`` free memory, and after an epoch of ~4.3k-token rows the caching
+# allocator had reserved ~29 of 32 GB, so free read zero and it raised "No or negligible GPU
+# memory available". Emptying the cache before eval did not cure it in a reproduction; a
+# fixed budget did (eval passed with 0.00 GiB free). 4 is the cap the unset path already
+# takes on this card (min(free/2, 4)), so chunking -- never the loss value -- is unchanged.
+# Read when unsloth_zoo is imported, so it must be set here, before main() imports it.
+os.environ.setdefault("UNSLOTH_CE_LOSS_TARGET_GB", "4")
 
 HERE = pathlib.Path(__file__).resolve().parent
 PKG = HERE.parent
 DATASET = PKG / "dataset"
-OUT = PKG / "out" / "run-A"
-OUT.mkdir(parents=True, exist_ok=True)
+RUN = sys.argv[1] if len(sys.argv) > 1 else "run-A"
+OUT = PKG / "out" / RUN
 
 CONFIG = {
+    "run": RUN,
     "base_model": "unsloth/gemma-4-E2B-it",
     "max_seq_length": 8192,
     "load_in_4bit": False,
@@ -99,6 +117,7 @@ def main() -> int:
     from datasets import Dataset
     from trl import SFTConfig, SFTTrainer
 
+    OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     model, tokenizer = FastModel.from_pretrained(
         model_name=CONFIG["base_model"],

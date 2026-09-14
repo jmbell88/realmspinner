@@ -1,0 +1,170 @@
+[
+ {
+  "arguments": {
+   "generator": "cone",
+   "name": "head",
+   "params": {
+    "height": 0.12,
+    "radius": 0.14,
+    "segments": 16
+   },
+   "translation": [
+    0.0,
+    0.189,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "chest",
+   "params": {
+    "height": 0.34,
+    "radius": 0.11,
+    "segments": 16
+   },
+   "translation": [
+    0.0,
+    0.345,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "tail",
+   "params": {
+    "height": 0.28,
+    "radius": 0.085,
+    "segments": 16
+   },
+   "translation": [
+    0.0,
+    0.56,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_a",
+   "params": {
+    "radius": 0.03,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.14,
+    0.114,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_b",
+   "params": {
+    "radius": 0.03,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    -0.14,
+    0.114,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_c",
+   "params": {
+    "radius": 0.03,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    0.14,
+    0.38500000000000006,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "uv_sphere",
+   "name": "leg_d",
+   "params": {
+    "radius": 0.03,
+    "rings": 6,
+    "segments": 10
+   },
+   "translation": [
+    -0.14,
+    0.38500000000000006,
+    -0.02
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.3,
+    0.4,
+    0.22
+   ],
+   "name": "Scales",
+   "roughness": 0.4,
+   "uids": [
+    {
+     "$ref": "head"
+    },
+    {
+     "$ref": "chest"
+    },
+    {
+     "$ref": "tail"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.2,
+    0.32,
+    0.2
+   ],
+   "name": "Scales",
+   "roughness": 0.6,
+   "uids": [
+    {
+     "$ref": "leg_a"
+    },
+    {
+     "$ref": "leg_b"
+    },
+    {
+     "$ref": "leg_c"
+    },
+    {
+     "$ref": "leg_d"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

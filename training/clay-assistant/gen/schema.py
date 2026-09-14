@@ -23,6 +23,9 @@ FAMILIES: tuple[str, ...] = (
     "creatures",
     "edits",
     "queries",
+    "grounding",
+    "figures",
+    "composition",
 )
 """The eight families the plan's target-count table names, in
 ``drafts/<family>.jsonl`` filename order. ``build.py --only`` checks a name

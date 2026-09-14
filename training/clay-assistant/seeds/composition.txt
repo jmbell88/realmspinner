@@ -1,0 +1,56 @@
+# composition seed prompts for the Clay assistant training corpus, 2026-09-13
+#
+# One subject per line: `class | prompt`. Blank lines and `#` lines are
+# ignored. Parsed by scripts/campaign_props.read_corpus. class is one of
+# easy | medium | hard, meaning difficulty of *construction* exactly as
+# defined in docs/measurements/corpora/clay-agent-v1.txt's header.
+#
+# This family targets three arrangement shapes the corpus renders failed on
+# during run A's held-out evaluation: a ring of repeated posts placed inside
+# a base sized the same as the ring instead of visibly larger than it, and a
+# telescope stand whose leg naming fell apart mid-build. `_gen_composition.py`
+# is the deterministic generator; this file only records the base-build
+# subjects for reference (`_gen_composition.py` is authoritative -- see its
+# own docstring for the actual seeded builds and phrasings).
+#
+# Held-out rule: this family must never build one of the five
+# clay-agent-v1.txt subjects (a wooden chair, a mechanical bracket, a brass
+# telescope on a tripod, a circular colonnade of eight fluted columns on a
+# stepped round base, a serpentine creature) or a close paraphrase. In
+# particular: no ring of columns takes a count of eight; the words "fluted",
+# "colonnade", "telescope" and the phrases "round base", "three-legged
+# tripod" never appear anywhere in this file or in `_gen_composition.py`.
+#
+# Ring kind (array-radial on one seed, base always visibly larger than the
+# ring, N in 3..14 excluding 8):
+medium | a ring of standing stones on a wide earthen mound
+medium | a ring of four square wooden posts on a round platform
+medium | five stone bollards arranged in a ring on a broad plaza floor
+medium | a circular stake fence of six posts around a wide mound
+medium | seven garden lamp posts arranged in a ring around a plaza
+medium | nine stone pillars in a ring, capped with a ring beam, on a broad base
+medium | ten square pillars in a ring under a circular lintel, on a wide platform
+medium | twelve bronze bollards arranged in a ring on a broad plaza floor
+medium | thirteen slender columns in a ring under a thin ring beam, on a broad platform
+medium | fourteen garden candles arranged in a ring on a wide tray
+#
+# Tripod / splayed-leg kind (per-leg rotation computed so each foot lands at
+# ground level and each top meets the part it holds up; no telescopes):
+medium | a slim camera stand on three splayed metal legs
+medium | a wrought-iron plant stand on three splayed legs
+medium | a campfire cooking stand on three splayed iron legs
+medium | a small stool with four splayed wooden legs
+medium | a three-legged easel stand holding a canvas panel
+medium | a side table on four splayed wooden legs
+medium | a reading lamp on three splayed metal legs
+#
+# Stack kind (each upper part's height computed from the part beneath it,
+# nothing floating, nothing interpenetrating):
+easy | a stone bowl resting on a pedestal
+easy | a lamp mounted on a tall post
+easy | a birdbath with a basin on a turned stem
+easy | a turned vase standing on a low plinth
+easy | a stack of three wooden crates
+easy | a globe resting on a stand
+easy | a sundial mounted on a stone pedestal
+easy | two barrels stacked one on the other
