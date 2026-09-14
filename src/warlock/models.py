@@ -629,13 +629,19 @@ class FamiliarModel:
     #: same convention as ``EngineModel.digests``.
     digests: tuple[tuple[str, str], ...] = ()
     #: Frozen prompt-card hashes this weights pin was validated against.
-    #: Empty for the base (non-fine-tuned) pin: T3 (``familiar/contract.py``)
-    #: is what will populate this once cards exist, and the spawn path in
-    #: ``pipelines/llama.py`` refuses to start when a caller-supplied expected
-    #: card sha doesn't match one of these -- for the base pin, with no cards
-    #: yet, any caller-supplied "expected" sha simply won't be in an empty
-    #: tuple, so a card check is exercised as a refusal until T3 lands.
+    #: Empty for the base (non-fine-tuned) pin: T3 (``studio/familiar/cards/``
+    #: plus ``contract.card_sha``) has landed and hashes the frozen card
+    #: files, but the testing pin still carries no cards of its own, so
+    #: ``contract.card_sha("clay")`` is never in this empty tuple and the
+    #: spawn path in ``pipelines/llama.py`` refuses it -- which is what keeps
+    #: the Clay skill off the base model.
     card_shas: tuple[str, ...] = ()
+    #: The name llama-server reports for this weights file (its ``--alias``).
+    #: Empty means no alias is passed, so llama-server falls back to whatever
+    #: ``general.name`` the GGUF itself carries. A pin that is not ours must
+    #: never be served under our model's name, so only T10's row
+    #: (``FAMILIAR_V1_NAME``) sets this.
+    served_name: str = ""
 
     @property
     def download(self) -> str:
@@ -889,6 +895,14 @@ FAMILIAR_GGUF_FILE = "gemma-4-E2B-it-Q8_0.gguf"
 FAMILIAR_GGUF_SHA256 = (
     "605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053"
 )
+
+# The name of the Warlock-trained fine-tune (training/clay-assistant run A),
+# as llama-server should report it once it is actually served. T10 sets this
+# as the ``familiar_gguf`` row's ``served_name`` when run A's weights replace
+# the testing pin. The weights file carries the same name in its own GGUF
+# ``general.name``: run A's Unsloth export said "Merged 16bit", and the file is
+# re-labelled with the tensors untouched, so the alias and the file agree.
+FAMILIAR_V1_NAME = "familiar_v1.0"
 
 FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
     FamiliarModel(

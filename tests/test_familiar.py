@@ -60,6 +60,27 @@ def test_the_spawn_path_loads_only_the_pinned_row_file(tmp_path):
     assert weights_arg.endswith(models.FAMILIAR_GGUF_FILE)
 
 
+def test_a_row_served_name_reaches_llama_server_as_its_alias(tmp_path):
+    srv = _srv(tmp_path, served_name=lambda: models.FAMILIAR_V1_NAME)
+    argv = srv._argv(tmp_path / "key.txt")
+    assert "--alias" in argv
+    assert argv[argv.index("--alias") + 1] == models.FAMILIAR_V1_NAME
+
+
+def test_the_testing_pin_is_never_served_as_familiar_v1(tmp_path):
+    # The testing row itself must not carry T10's name...
+    assert models.FAMILIAR_MODELS["familiar_gguf"].served_name != models.FAMILIAR_V1_NAME
+    # ...and the argv built from that real row must pass no --alias at all,
+    # so llama-server falls back to whatever general.name the GGUF carries
+    # rather than reporting our model's name for weights that are not ours.
+    srv = _srv(
+        tmp_path,
+        served_name=lambda: models.FAMILIAR_MODELS["familiar_gguf"].served_name,
+    )
+    argv = srv._argv(tmp_path / "key.txt")
+    assert "--alias" not in argv
+
+
 @pytest.mark.asyncio
 async def test_a_weights_file_whose_manifest_does_not_verify_refuses_to_start(
     tmp_path, monkeypatch

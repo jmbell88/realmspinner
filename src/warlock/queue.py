@@ -1005,6 +1005,7 @@ class Worker(
             log_path=config.data_dir / "familiar.log",
             idle_timeout=config.familiar_idle_timeout,
             expected_card_shas=lambda: models.FAMILIAR_MODELS["familiar_gguf"].card_shas,
+            served_name=lambda: models.FAMILIAR_MODELS["familiar_gguf"].served_name,
         )
 
     async def before_gpu_job(self, job: dict[str, Any]) -> None:

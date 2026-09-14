@@ -77,9 +77,11 @@ class LlamaServer:
         log_path: Path | None = None,
         idle_timeout: float = 300.0,
         expected_card_shas: Callable[[], tuple[str, ...]] | None = None,
+        served_name: str | Callable[[], str] = "",
     ) -> None:
         self._exe = exe
         self._weights_path = weights_path
+        self._served_name = served_name
         self._port = port
         self._key_dir = key_dir
         self._log_path = log_path
@@ -138,6 +140,9 @@ class LlamaServer:
     def _resolve_weights(self) -> Path:
         return self._weights_path() if callable(self._weights_path) else self._weights_path
 
+    def _resolve_served_name(self) -> str:
+        return self._served_name() if callable(self._served_name) else self._served_name
+
     # --- the API key file -----------------------------------------------
 
     def _write_key_file(self) -> Path:
@@ -177,7 +182,7 @@ class LlamaServer:
     # --- argv --------------------------------------------------------------
 
     def _argv(self, key_path: Path) -> list[str]:
-        return [
+        argv = [
             str(self._resolve_exe()),
             "-m", str(self._resolve_weights()),
             "--host", "127.0.0.1",
@@ -190,6 +195,13 @@ class LlamaServer:
             "--parallel", str(PARALLEL_SLOTS),
             "--ctx-size", str(CTX_SIZE),
         ]
+        # Only when the pinned row names itself: a served_name of "" (every
+        # pin except T10's fine-tune) must leave llama-server to report
+        # whatever general.name the GGUF carries, never our model's name.
+        name = self._resolve_served_name()
+        if name:
+            argv += ["--alias", name]
+        return argv
 
     # --- spawn ---------------------------------------------------------
 
