@@ -145,14 +145,48 @@ def thread_key(ctx: Any) -> tuple[str, str]:
 # --- submission ----------------------------------------------------------
 
 
+def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
+    """The compact scene for *tab_uid*, or ``None`` with no tab open.
+
+    Read on the frame thread, exactly like ``submit_build`` always did --
+    ``agent_clay.call`` walks the live ``ClayDoc``, and that read must
+    happen against *this* frame's document, not whatever it is by the time
+    a worker thread gets around to it. Factored out (T6) so
+    :func:`submit_chat`'s routed path captures the same scene a router
+    decision of "build" needs, without a second copy of this read.
+    """
+    if not tab_uid:
+        return None
+    from . import agent_clay
+    from .familiar import contract
+
+    session = agent_clay.Session(tab_uid=tab_uid)
+    scene_result = agent_clay.call(ctx, session, "clay_scene", {})
+    structured = (
+        scene_result.get("structuredContent") if isinstance(scene_result, dict) else None
+    )
+    return contract.compact_scene(structured or {})
+
+
 def submit_chat(ctx: Any, prompt: str) -> bool:
-    """Send *prompt* as a plain chat message. -> whether it was accepted.
+    """Send *prompt* through Familiar's router. -> whether it was accepted.
 
     Refused (returns ``False``, no toast -- the disabled Send button already
     said why) when *prompt* is blank or a chat is already in flight. Appends
     the user's own turn to the thread immediately, before the network call
     even starts, so it appears in the transcript the same frame it was sent
     rather than only once a reply lands.
+
+    T6: this now submits ``service.familiar.ask`` (route, then answer)
+    rather than ``chat_reply`` directly -- Send no longer means "always
+    plain chat"; the router decides. In Clay, with a tab open, the scene is
+    captured up front (:func:`_capture_scene`) the same way :func:`submit_build`
+    always has, so a message the router sends to ``clay_build``/``clay_edit``
+    has a scene to build against without a second frame-thread round trip
+    once the route comes back. The explicit **Build** button stays wired to
+    :func:`submit_build` directly -- a press that already means "build"
+    should not pay for a routing decision only to be told what it already
+    knew.
     """
     prompt = prompt.strip()
     if not prompt or ctx.busy(CHAT_KEY):
@@ -163,12 +197,17 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
     history = ctx.familiar_threads.get(key)[:-1]
 
+    mode = str(getattr(ctx.state, "mode", ""))
+    tab_uid = _active_tab_uid(ctx)
+    scene = _capture_scene(ctx, tab_uid) if mode == "clay" else None
+
     from ..service import familiar as svc_familiar
 
-    def run() -> str:
-        return svc_familiar.chat_reply(ctx.svc, prompt, history)
+    def run() -> Any:
+        return svc_familiar.ask(ctx.svc, prompt, mode=mode, history=history, scene=scene)
 
-    if not ctx.submit(CHAT_KEY, run, tag={"thread_key": key}):
+    tag = {"thread_key": key, "tab_uid": tab_uid, "scene_captured": scene is not None}
+    if not ctx.submit(CHAT_KEY, run, tag=tag):
         return False
     ui = ensure(ctx)
     ui.thinking = "chat"
@@ -184,24 +223,16 @@ def submit_build(ctx: Any, prompt: str) -> bool:
     a Build button drawn only in Clay, against the active tab, should never
     reach this with either untrue, but the check is repeated here rather
     than trusted to the caller because this is also the door a test drives
-    directly. The scene is read and compacted here, on the frame thread,
-    before the submit -- ``agent_clay.call`` walks the live ``ClayDoc``, and
-    that read must happen against *this* frame's document, not whatever it
-    is by the time a worker thread gets around to it.
+    directly. Router-free by design (T6 brief): this is the explicit,
+    always-build action, unlike Send's routed path in :func:`submit_chat`.
     """
     prompt = prompt.strip()
     tab_uid = _active_tab_uid(ctx)
     if not prompt or not tab_uid or ctx.busy(BUILD_KEY):
         return False
-    from . import agent_clay
-    from .familiar import contract, threads
+    scene = _capture_scene(ctx, tab_uid)
 
-    session = agent_clay.Session(tab_uid=tab_uid)
-    scene_result = agent_clay.call(ctx, session, "clay_scene", {})
-    structured = (
-        scene_result.get("structuredContent") if isinstance(scene_result, dict) else None
-    )
-    scene = contract.compact_scene(structured or {})
+    from .familiar import threads
 
     key = thread_key(ctx)
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
@@ -243,13 +274,27 @@ def on_task_done(ctx: Any, done: Any) -> None:
         if done.ok:
             ui.reason = None
             ui.message = None
-            reply = done.result if isinstance(done.result, str) else str(done.result)
+            result = done.result
+            from ..service.familiar import Answer
+
+            if isinstance(result, Answer) and result.calls is not None:
+                # The router sent this one to Clay -- land it exactly like
+                # an explicit Build's own result, calls and all.
+                _run_build_preview(ctx, ui, tag.get("tab_uid", ""), result.calls)
+                return
+            if isinstance(result, Answer):
+                text, citations = result.text, result.citations
+            else:
+                # Defensive, not exercised by a real ``ask`` call: a bare
+                # string result is still treated as an uncited chat reply
+                # rather than crashing on ``.text``.
+                text, citations = (result if isinstance(result, str) else str(result)), ()
             thread = tag.get("thread_key")
             threads_obj = getattr(ctx, "familiar_threads", None)
-            if thread is not None and threads_obj is not None:
+            if thread is not None and threads_obj is not None and text is not None:
                 from .familiar import threads
 
-                threads_obj.append(thread, threads.Turn("familiar", reply))
+                threads_obj.append(thread, threads.Turn("familiar", text, citations))
         else:
             ui.reason, ui.message = _reason_and_message(done)
         return
@@ -353,6 +398,19 @@ def discard_preview(ctx: Any) -> None:
 # --- drawing -----------------------------------------------------------
 
 
+def follow_citation(ctx: Any, citation: Any) -> None:
+    """Open the Manual at *citation*'s own chapter/section.
+
+    The click action behind a transcript's ``[n]`` link -- factored out of
+    :func:`draw_expanded` so a headless test can drive it directly, the same
+    reason :func:`submit_chat`/:func:`submit_build` are functions a button's
+    ``if`` just calls rather than inline imgui-handler bodies.
+    """
+    from .manual import render as manual_render
+
+    manual_render.open_at(ctx, (citation.chapter, citation.anchor))
+
+
 def draw_expanded(ctx: Any) -> None:
     """The pane's body once expanded: the thread transcript, the input line,
     Send, and -- in Clay, with a tab open -- Build, plus Apply/Discard once a
@@ -368,9 +426,20 @@ def draw_expanded(ctx: Any) -> None:
     turns = ctx.familiar_threads.get(key) if getattr(ctx, "familiar_threads", None) else ()
 
     imgui.begin_child("##familiar-transcript", (0, 60), imgui.ChildFlags_.borders.value)
-    for turn in turns[-20:]:
+    for turn_idx, turn in enumerate(turns[-20:]):
         prefix = "You: " if turn.role == "user" else "Familiar: "
         imgui.text_wrapped(prefix + turn.text)
+        # A Manual answer's own [n] markers, each a small link back to the
+        # section it came from -- ``cited`` already guarantees every one of
+        # these actually appeared in the reply, so there is no dead link to
+        # guard against here, only ids: turn_idx keeps two different turns'
+        # citation buttons from colliding once imgui hashes the label.
+        for cite_idx, citation in enumerate(turn.citations):
+            if cite_idx:
+                imgui.same_line()
+            label = f"[{citation.n}] {citation.title_path}##familiar-cite-{turn_idx}-{cite_idx}"
+            if controls.small_button(label):
+                follow_citation(ctx, citation)
     imgui.end_child()
 
     if ui.message:

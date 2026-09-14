@@ -19,6 +19,8 @@ from warlock.service import familiar as svc_familiar
 from warlock.studio import clay_mode, docmodes, familiar_ui
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import primitives as bp
+from warlock.studio.familiar import retrieval
+from warlock.studio.state import ManualState
 from warlock.studio.tasks import Done
 
 
@@ -48,7 +50,9 @@ class _FakeCtx:
         doc = doc if doc is not None else bd.ClayDoc()
         tab = clay_mode.ClayTab(doc=doc)
         clay_state = clay_mode.ClayState(docs=[tab], active_uid=tab.uid)
-        self.state = SimpleNamespace(clay=clay_state, mode=mode, familiar=None, preview={})
+        self.state = SimpleNamespace(
+            clay=clay_state, mode=mode, familiar=None, preview={}, manual=ManualState()
+        )
         self.settings = SimpleNamespace()
         self.svc = SimpleNamespace(worker=SimpleNamespace(familiar=object()))
         self.familiar_threads = _FakeThreads()
@@ -86,12 +90,17 @@ def test_sending_submits_to_the_task_runner_rather_than_blocking_the_frame(monke
     """``submit_chat`` must hand the network call to ``ctx.submit`` as a
     closure, never call it inline -- proven here by making the service door
     explode if it *is* called inline, then only calling the captured closure
-    afterwards."""
+    afterwards.
 
-    def exploding_chat_reply(*_args, **_kwargs):
-        raise AssertionError("chat_reply must not run on the frame thread")
+    T6: Send now routes through ``service.familiar.ask`` rather than
+    ``chat_reply`` directly (the router decides which skill answers), so
+    this patches ``ask`` -- patching the now-bypassed ``chat_reply`` here
+    would prove nothing about what ``submit_chat`` actually calls."""
 
-    monkeypatch.setattr(svc_familiar, "chat_reply", exploding_chat_reply)
+    def exploding_ask(*_args, **_kwargs):
+        raise AssertionError("ask must not run on the frame thread")
+
+    monkeypatch.setattr(svc_familiar, "ask", exploding_ask)
     ctx = _FakeCtx(mode="home")
 
     accepted = familiar_ui.submit_chat(ctx, "hello")
@@ -268,3 +277,75 @@ def test_discard_clears_the_ghost_without_touching_the_document():
     assert doc.objects == []
     assert familiar_ui.ensure(ctx).preview_calls is None
     assert ctx.clay_view.cleared == 1
+
+
+# --- T6: Send routes through the router --------------------------------
+
+
+def _fake_citation() -> retrieval.Citation:
+    return retrieval.Citation(
+        n=1, chapter="12-plotter", anchor="exporting",
+        title_path="12 Plotter > Exporting", text="Export via File > Export > Tiled.",
+    )
+
+
+def test_send_routes_through_ask_and_a_cited_answer_lands_with_its_citations(monkeypatch):
+    """A Manual answer routed by ``ask`` must land in the thread with its own
+    citations attached -- not just its text -- so the pane can draw the
+    ``[n]`` links :func:`familiar_ui.follow_citation` opens."""
+    citation = _fake_citation()
+    answer = svc_familiar.Answer(
+        skill="manual", text="Use File > Export > Tiled [1].", citations=(citation,)
+    )
+    monkeypatch.setattr(svc_familiar, "ask", lambda *a, **k: answer)
+    ctx = _FakeCtx(mode="home")
+
+    accepted = familiar_ui.submit_chat(ctx, "how do I export a map?")
+
+    assert accepted is True
+    fn, _args, _kwargs, tag = ctx._pending[familiar_ui.CHAT_KEY]
+    result = fn()  # simulating the worker thread running the submitted closure
+    done = Done(key=familiar_ui.CHAT_KEY, result=result, tag=tag)
+
+    familiar_ui.on_task_done(ctx, done)
+
+    turns = ctx.familiar_threads.get(tag["thread_key"])
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == answer.text
+    assert turns[-1].citations == (citation,)
+
+
+def test_a_routed_build_in_clay_lands_as_a_ghost_preview():
+    """A router decision of ``clay_build``, reached through Send rather than
+    the explicit Build button, must land exactly the same way an explicit
+    Build's result does: a ghost preview, not a plain chat line."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    answer = svc_familiar.Answer(skill="clay_build", text=None, calls=calls)
+    done = Done(
+        key=familiar_ui.CHAT_KEY,
+        result=answer,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls == calls
+    assert ctx.clay_view.previewed is not None
+
+
+def test_following_a_citation_opens_the_manual_at_its_section():
+    """The click action behind a transcript's ``[n]`` link must raise the
+    Manual overlay at exactly that citation's chapter/section -- driven
+    headlessly through :func:`familiar_ui.follow_citation`, the function a
+    real button press in :func:`familiar_ui.draw_expanded` just calls."""
+    ctx = _FakeCtx(mode="home")
+    citation = _fake_citation()
+
+    familiar_ui.follow_citation(ctx, citation)
+
+    assert ctx.state.manual.open is True
+    assert ctx.state.manual.chapter == citation.chapter
+    assert ctx.state.manual.pending_anchor == citation.anchor

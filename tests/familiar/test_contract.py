@@ -290,3 +290,109 @@ def test_the_frozen_cards_are_exempt_from_line_ending_conversion():
     ]
     for card in cards:
         assert any(fnmatch.fnmatch(card, p) for p in patterns), card
+
+
+# ---------------------------------------------------------------------------
+# T6: the router card, and the Manual answer's message-building/citation
+# helpers. Fails on the pre-T6 tree because ``contract.CARDS`` has no
+# "router" key at all (``load_card``/``card_sha`` raise ``KeyError`` on the
+# ``CARDS[skill]`` lookup), and ``build_router_messages``/``build_manual_
+# messages``/``cited`` do not exist yet.
+# ---------------------------------------------------------------------------
+
+
+def test_the_router_card_is_frozen_and_exempt_from_line_ending_conversion():
+    """T6's router card must exist on disk, hash without error, and be
+    covered by the same ``-text`` exemption every frozen card needs (see
+    ``test_the_frozen_cards_are_exempt_from_line_ending_conversion`` above,
+    which already walks every ``CARDS`` entry -- this pins the router's own
+    membership explicitly, by name, so a future rename of ``CARDS["router"]``
+    still has a test naming exactly what broke)."""
+    import fnmatch
+
+    assert "router" in contract.CARDS
+    card_path = Path(contract.__file__).resolve().parent / "cards" / contract.CARDS["router"]
+    assert card_path.is_file()
+    assert contract.card_sha("router") == hashlib.sha256(card_path.read_bytes()).hexdigest()
+
+    patterns = _unset_text_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+    rel = "src/warlock/studio/familiar/cards/" + contract.CARDS["router"]
+    assert any(fnmatch.fnmatch(rel, p) for p in patterns), rel
+
+
+def _citation(n: int, *, chapter: str = "07-clay", anchor: str | None = None):
+    from warlock.studio.familiar import retrieval
+
+    return retrieval.Citation(
+        n=n, chapter=chapter, anchor=anchor, title_path=f"07 Clay > Section {n}", text=f"text {n}"
+    )
+
+
+def test_cited_keeps_only_citations_the_reply_actually_names():
+    """A reply naming ``[1]`` and ``[3]`` but not ``[2]`` must keep exactly
+    those two, in the order the markers appear in the reply -- not source
+    order -- and never repeat one a reply cites twice."""
+    citations = [_citation(1), _citation(2), _citation(3)]
+    reply = "Export via glTF [3]. It uses the same pipeline [1] as before [1]."
+
+    result = contract.cited(reply, citations)
+
+    assert [c.n for c in result] == [3, 1]
+
+
+def test_cited_ignores_a_citation_number_that_was_never_retrieved():
+    """``[9]`` with only three citations retrieved must be dropped rather
+    than raising or producing a citation object with fabricated content --
+    a dead link is worse than no link at all."""
+    citations = [_citation(1), _citation(2), _citation(3)]
+    reply = "See [9] for details, or just [2]."
+
+    result = contract.cited(reply, citations)
+
+    assert [c.n for c in result] == [2]
+
+
+def test_manual_messages_number_every_excerpt_with_its_section():
+    """Every citation must appear in the user turn as ``[n] <title path>``
+    followed by its own text, so the model's own ``[n]`` markers in the
+    reply can only ever mean one of these numbered sections."""
+    citations = [_citation(1, chapter="07-clay"), _citation(2, chapter="13-troupe")]
+
+    messages = contract.build_manual_messages("how do I export?", citations)
+
+    assert messages[0] == {"role": "system", "content": contract.MANUAL_SYSTEM}
+    user = messages[1]["content"]
+    assert "[1] 07 Clay > Section 1" in user
+    assert "text 1" in user
+    assert "[2] 07 Clay > Section 2" in user
+    assert "text 2" in user
+    assert "how do I export?" in user
+    # The prompt itself comes last, after every excerpt.
+    assert user.index("how do I export?") > user.index("text 2")
+
+
+def test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget():
+    """``retrieval.Index.search``'s own default ``budget_tokens`` (2500),
+    plus the system prompt, plus ``SAMPLING["manual"]["max_tokens"]`` (768),
+    inflated by :data:`contract.WORD_TOKEN_SAFETY` to cover a whitespace
+    word undercounting real BPE tokens, must still fit inside one
+    llama-server slot (``contract.TRAINED_WINDOW``) -- the real constraint a
+    Manual turn runs under."""
+    import inspect
+
+    from warlock.studio.familiar import retrieval
+
+    budget_tokens = inspect.signature(retrieval.Index.search).parameters["budget_tokens"].default
+    system_words = len(contract.MANUAL_SYSTEM.split())
+    # A generous stand-in for the excerpts' own title-path overhead and a
+    # real user question, on top of the retrieval budget itself.
+    overhead_words = 200
+
+    est_input_tokens = (budget_tokens + system_words + overhead_words) * contract.WORD_TOKEN_SAFETY
+    total = est_input_tokens + contract.SAMPLING["manual"]["max_tokens"]
+
+    assert total <= contract.TRAINED_WINDOW, (
+        f"manual prompt estimated at {est_input_tokens:.0f} tokens plus a "
+        f"{contract.SAMPLING['manual']['max_tokens']}-token reply is {total:.0f} -- "
+        f"over the {contract.TRAINED_WINDOW}-token slot"
+    )

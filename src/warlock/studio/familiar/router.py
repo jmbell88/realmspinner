@@ -12,9 +12,14 @@ slot 0 is reserved for the router's own short, constrained generation
 skill's generation, so a long-running skill reply never blocks the next
 message's routing decision behind it in the same slot's queue.
 
-**No frozen router card yet.** T6 adds the card (the system prompt and
-few-shot content that actually drives the model to emit one of
-:data:`SKILLS`); this module only defines the schema and parses the result.
+**The frozen router card** (the system prompt and few-shot content that
+actually drives the model to emit one of :data:`SKILLS`) is T6's
+``contract.CARDS["router"]`` -- ``cards/router-1.txt`` -- built via
+:func:`~.contract.build_router_messages`. This module only defines the
+schema and parses the result; it stays free of ``contract``'s own frozen-card
+machinery (hashing, sampling, message-building) the same way it stays free
+of httpx, so a training script or a future router-only test never has to
+pull either in.
 """
 
 from __future__ import annotations

@@ -20,6 +20,22 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar decides what a message is for, and answers questions about
+  Warlock from the Manual with links to the sections it used.** Every Send
+  first goes to a short, frozen router prompt on the server's second slot,
+  constrained by a JSON schema to name one skill, so it cannot drift into
+  prose. A how-do-I question is answered only from the Manual sections the
+  offline index retrieved. The reply cites them as [n], and each [n] becomes
+  a button that opens the Manual at that section. A number the model makes
+  up beyond what it was given is dropped, never shown as a dead link. A
+  question the index finds nothing for gets "The Manual doesn't cover that."
+  without asking the model at all, because a base model's own idea of
+  Warlock is exactly what the Manual is there to replace. In Clay, a message
+  the router calls a build takes the same path as **Build**, with the same
+  refusal until the trained model is installed. Skills not built yet
+  (characters, Create, navigation) are answered as plain chat. A refusal
+  while routing, such as a GPU job holding the card, is shown, not
+  swallowed.
 - **Familiar answers.** The ✦ Familiar row at the bottom of the window opens
   into a conversation: type, press Send or Enter, and the reply arrives
   without the frame waiting on it. Each mode keeps its own thread, each Clay

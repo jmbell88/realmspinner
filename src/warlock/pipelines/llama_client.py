@@ -8,21 +8,36 @@ training script that never touches the network. ``pipelines/`` already
 depends on httpx (``trellis.py``, this module's own sibling), so this is
 where a real HTTP call to the child belongs.
 
-Two request shapes, chosen by whether *skill* names a frozen card
-(``contract.CARDS``):
+Two request shapes, chosen by whether *skill* is one of
+:data:`contract.SIZED_SKILLS` -- **not** whether it has a frozen card
+(``contract.CARDS``). T6 added a second frozen card, the router's, whose
+reply is a fixed handful of tokens with no trained window to overrun; keying
+sizing on ``CARDS`` membership would pay for a ``/tokenize`` round trip
+before every routing decision for no reason.
 
-* **Plain chat** (``skill=None``): the caller already sized ``sampling``
-  (``contract.SAMPLING["chat"]``), so :func:`chat` sends it unchanged.
-* **A skill with a card** (``skill="clay"``): run A was trained on an
-  8,192-token window per slot (``contract.TRAINED_WINDOW``), and a flat
-  ``max_tokens`` can overrun it once the prompt itself is long -- the largest
-  recorded val prompt is ~4,931 tokens against a flat 4,096-token reply
-  budget. :func:`chat` tokenizes the rendered prompt with llama-server's own
+* **Plain chat, or a card with no trained window to fit** (``skill=None`` or
+  ``skill`` not in ``SIZED_SKILLS``): the caller already sized ``sampling``
+  (e.g. ``contract.SAMPLING["chat"]``/``["router"]``), so :func:`chat` sends
+  ``max_tokens`` unchanged.
+* **A sized skill** (``skill="clay"``): run A was trained on an 8,192-token
+  window per slot (``contract.TRAINED_WINDOW``), and a flat ``max_tokens``
+  can overrun it once the prompt itself is long -- the largest recorded val
+  prompt is ~4,931 tokens against a flat 4,096-token reply budget.
+  :func:`chat` tokenizes the rendered prompt with llama-server's own
   ``/tokenize`` endpoint first, then asks :func:`contract.output_budget` for
   the reply budget that actually fits what is left of the window, letting its
   ``ValueError`` (too little room for a real reply) propagate rather than
   silently truncating -- a refusal a caller can show, not a reply cut off
   mid-JSON.
+
+**Constrained decoding (T6).** *response_format* is forwarded to the server
+verbatim -- the router's own request sends
+``{"type": "json_schema", "json_schema": {"schema": router.ROUTE_SCHEMA}}``,
+which is llama.cpp's OpenAI-compatible ``response_format`` shape. Both
+``response_format`` and ``json_schema`` are present in the installed
+``b10948`` build's own ``llama-server-impl.dll`` (checked 2026-09-14,
+``grep -a -c``: 2 and 3 occurrences respectively; ``/apply-template`` is not,
+see below), so this build accepts it.
 
 **Why ``/tokenize`` on the concatenated message text, not ``/apply-template``
 then ``/tokenize``.** llama.cpp's server has carried ``/tokenize`` since the
@@ -121,18 +136,28 @@ async def chat(
     sampling: dict[str, float | int],
     skill: str | None = None,
     expected_card_sha: str | None = None,
+    response_format: dict[str, Any] | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> str:
     """Send *messages* to *server*'s chat-completions endpoint on *slot*,
     return the reply text.
 
     *sampling* is the caller's own ``contract.SAMPLING[...]`` row; its
-    ``max_tokens`` is used verbatim for plain chat and re-sized by
-    :func:`contract.output_budget` when *skill* names a frozen card. *server*
-    is anything shaped like ``pipelines.llama.LlamaServer`` (an
-    ``ensure_started``/``touch``/``key_path``/``base_url``, duck-typed so a
-    test can hand in a lighter fake). *transport* is for tests
-    (``httpx.MockTransport``); production callers never pass it.
+    ``max_tokens`` is used verbatim except for a skill in
+    :data:`contract.SIZED_SKILLS`, re-sized by :func:`contract.output_budget`
+    off a real ``/tokenize`` count (T6: keyed on ``SIZED_SKILLS``, not
+    ``contract.CARDS`` membership -- the router card is frozen too, but its
+    reply is a fixed handful of tokens with no trained window to overrun, so
+    paying for a ``/tokenize`` round trip before every routing decision
+    would slow down the one request that most wants to feel instant).
+    *response_format* (T6) is forwarded to the server verbatim when given --
+    the router's own constrained-decoding schema (see ``studio.familiar.
+    router.ROUTE_SCHEMA``); every other caller omits it and gets llama-
+    server's default free-text decoding. *server* is anything shaped like
+    ``pipelines.llama.LlamaServer`` (an ``ensure_started``/``touch``/
+    ``key_path``/``base_url``, duck-typed so a test can hand in a lighter
+    fake). *transport* is for tests (``httpx.MockTransport``); production
+    callers never pass it.
     """
     await server.ensure_started(expected_card_sha=expected_card_sha)
     server.touch()
@@ -141,7 +166,7 @@ async def chat(
         base_url=server.base_url, timeout=CHAT_TIMEOUT, transport=transport
     ) as client:
         max_tokens = sampling["max_tokens"]
-        if skill is not None and skill in contract.CARDS:
+        if skill is not None and skill in contract.SIZED_SKILLS:
             prompt_text = "\n\n".join(m["content"] for m in messages)
             n_tokens = await _tokenize(client, headers, prompt_text)
             # Propagates ValueError as-is: a prompt that leaves no room for a
@@ -159,6 +184,8 @@ async def chat(
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         r = await client.post("/v1/chat/completions", json=payload, headers=headers)
         if r.status_code != 200:
             raise RuntimeError(f"llama-server {r.status_code}: {r.text[:500]}")

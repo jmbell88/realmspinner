@@ -37,10 +37,16 @@ ThreadKey = tuple[str, str]
 
 @dataclass(frozen=True)
 class Turn:
-    """One line of a thread: who said it, and what."""
+    """One line of a thread: who said it, what, and (T6) which Manual
+    sections it cited."""
 
     role: str  # "user" | "familiar"
     text: str
+    #: The ``retrieval.Citation`` rows a Manual answer actually named (see
+    #: ``contract.cited``) -- always empty for a user turn, a plain-chat
+    #: reply, or a routed build. Defaulted so every pre-T6 ``Turn(role,
+    #: text)`` call site keeps working unchanged.
+    citations: tuple = ()
 
 
 class Threads:

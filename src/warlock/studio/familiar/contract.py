@@ -35,12 +35,31 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-CARDS: dict[str, str] = {"clay": "clay-1.txt"}
+if TYPE_CHECKING:
+    # Only for the type hints on build_manual_messages/cited below -- a
+    # runtime import here would be harmless (retrieval.py is as pure as
+    # this module) but pointless, since neither function does anything
+    # with a Citation beyond duck-typed attribute access.
+    from collections.abc import Sequence
+
+    from . import retrieval
+
+CARDS: dict[str, str] = {"clay": "clay-1.txt", "router": "router-1.txt"}
 """Skill name -> the frozen card file beside this module, under ``cards/``.
-One entry today (Clay); a future skill card is a second row here, not a
-second convention."""
+Two entries: Clay's own trained card, and T6's router card. The router card
+is frozen for a different reason than Clay's -- not because a fine-tune was
+trained against its exact bytes, but because the few-shot examples it gives
+each skill are exactly what a routing decision is supposed to be stable
+against; a card that drifted between runs would make "why did this route
+differently today" impossible to answer. See :data:`SAMPLING`'s ``"router"``
+row and :func:`build_router_messages` for how it is actually used -- unlike
+Clay, the router never gates on a trained weights pin (:func:`~.service.
+familiar.ask` passes ``expected_card_sha=None`` for it), because
+``card_shas`` records what a *fine-tune* was validated against, and the
+router card is prompt-engineered against whatever instruct model is running,
+never trained on."""
 
 _CARDS_DIR = Path(__file__).resolve().parent / "cards"
 
@@ -78,6 +97,21 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # dated measurement document should replace this comment before the
     # number is trusted for anything beyond "a reasonable default".
     "chat": {"temperature": 0.7, "top_k": 64, "top_p": 0.95, "max_tokens": 1024},
+    # Greedy and starved on purpose: the router answers one enum value
+    # (:data:`~.router.SKILLS`) through ``response_format``'s constrained
+    # decoding, so there is nothing for temperature/top-k/top-p to usefully
+    # vary and no reason to let the model ramble past the JSON object.
+    # 16 tokens is generous for `{"skill":"clay_build"}` (12 tokens at most,
+    # counting the longest skill name) with room to spare.
+    "router": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 16},
+    # Unmeasured, same caveat as "chat" above: base Gemma has no eval corpus
+    # for citation-style answers yet. 768 tokens is well past what a few
+    # sentences with inline [n] markers needs -- see
+    # ``tests/familiar/test_contract.py::
+    # test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget`` for the
+    # arithmetic that keeps this, plus the retrieval budget, under one
+    # llama-server slot.
+    "manual": {"temperature": 0.3, "top_k": 64, "top_p": 0.95, "max_tokens": 768},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
 ``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
@@ -85,6 +119,17 @@ pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178,
 Google's stock Gemma recommendation, what run A was first scored at) were
 both beaten by t0.2/top-k 64/top-p 0.95 sampled three times a row (185.0,
 versus t1.0's own 177.7 over the same three samples)."""
+
+#: Skills whose reply must be *sized*, via ``/tokenize`` plus
+#: :func:`output_budget`, against a trained context window --
+#: :data:`CARDS` membership is not the right key for this: the router card
+#: is in ``CARDS`` too (it is frozen), but the router's reply is a fixed
+#: twelve-token JSON object with no trained window to overrun, and paying
+#: for a ``/tokenize`` round trip before every routing decision would slow
+#: down the one request Familiar's design wants to feel instant. Only a
+#: fine-tune has a trained window that a flat ``max_tokens`` can overrun --
+#: today, only Clay.
+SIZED_SKILLS: frozenset[str] = frozenset({"clay"})
 
 CHAT_SYSTEM = (
     "You are Familiar, Warlock Studio's offline assistant. You run entirely "
@@ -132,6 +177,89 @@ def build_chat_messages(prompt: str, history: tuple[Any, ...] = ()) -> list[dict
         messages.append({"role": role_map.get(turn.role, turn.role), "content": turn.text})
     messages.append({"role": "user", "content": prompt})
     return messages
+
+
+def build_router_messages(prompt: str, mode: str) -> list[dict[str, str]]:
+    """One ``[system, user]`` turn for the router: :data:`CARDS`'s
+    ``"router"`` card as the system message, *mode* folded into the user
+    turn alongside *prompt* -- "make a chair" means something different sent
+    from Clay than sent from Home, and the card's own few-shot lines have
+    nothing else to disambiguate that with."""
+    return [
+        {"role": "system", "content": load_card("router")},
+        {"role": "user", "content": f"[mode: {mode}] {prompt}"},
+    ]
+
+
+MANUAL_SYSTEM = (
+    "Answer the user's question using only the numbered excerpts below, "
+    "each drawn from Warlock Studio's own Manual. Cite every claim you make "
+    "with the excerpt's own [n] marker. If the excerpts do not answer the "
+    "question, say plainly that the Manual does not cover it rather than "
+    "guessing or answering from anything else. Be brief."
+)
+"""The system prompt for a retrieval-grounded Manual answer -- unlike
+:data:`CHAT_SYSTEM`, this is not "answer from what you know", it is "answer
+only from what you were just handed", because :func:`~.service.familiar.
+cited` can only ever point a reader at a section :func:`build_manual_messages`
+actually gave the model; anything else in the reply would be an uncited
+claim with no [n] a citation link could ever attach to."""
+
+
+def build_manual_messages(
+    prompt: str, citations: Sequence[retrieval.Citation]
+) -> list[dict[str, str]]:
+    """One ``[system, user]`` turn for a Manual answer: :data:`MANUAL_SYSTEM`
+    as the system message, every one of *citations* (``retrieval.Citation``)
+    rendered ``"[n] <title path>\\n<text>"`` and joined, then *prompt*, as
+    the user message -- so the model sees each excerpt numbered exactly the
+    way :func:`~.service.familiar.cited` (and the pane's own citation links)
+    expect a ``[n]`` marker in the reply to mean."""
+    excerpts = "\n\n".join(f"[{c.n}] {c.title_path}\n{c.text}" for c in citations)
+    return [
+        {"role": "system", "content": MANUAL_SYSTEM},
+        {"role": "user", "content": excerpts + "\n\n" + prompt},
+    ]
+
+
+#: How many real (BPE) tokens a whitespace-counted word can hide -- both
+#: :data:`SAMPLING`'s manual arithmetic and ``retrieval.Index.search``'s own
+#: ``budget_tokens`` count *whitespace* tokens (``retrieval._whitespace_
+#: token_count``), which undercounts a real tokenizer's output (a word often
+#: splits into more than one subword piece). Undercounting here is the same
+#: unsafe direction ``llama_client.TEMPLATE_MARGIN_TOKENS``'s own docstring
+#: warns about, so a slot-fit check must inflate the word count rather than
+#: trust it directly. 1.5x is a generous ceiling for English prose, not a
+#: measurement -- there is no fine-tune or eval corpus for Manual answers
+#: yet to measure a real ratio from.
+WORD_TOKEN_SAFETY = 1.5
+
+
+_CITATION_MARKER = re.compile(r"\[(\d+)\]")
+
+
+def cited(
+    reply: str, citations: Sequence[retrieval.Citation]
+) -> tuple[retrieval.Citation, ...]:
+    """The subsequence of *citations* whose ``[n]`` marker actually appears
+    in *reply*, in first-appearance order, each number kept only once.
+
+    A marker naming a number outside ``1..len(citations)`` -- the model
+    inventing a source it was never handed -- is silently skipped rather
+    than raised: a citation link must never point at a section
+    :func:`build_manual_messages` did not actually retrieve, and a dead
+    link is worse than a missing one.
+    """
+    by_n = {c.n: c for c in citations}
+    seen: set[int] = set()
+    result = []
+    for match in _CITATION_MARKER.finditer(reply):
+        n = int(match.group(1))
+        if n in seen or n not in by_n:
+            continue
+        seen.add(n)
+        result.append(by_n[n])
+    return tuple(result)
 
 
 # ---------------------------------------------------------------------------

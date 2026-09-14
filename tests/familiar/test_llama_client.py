@@ -179,3 +179,68 @@ async def test_requests_go_to_the_skill_slot(tmp_path):
     completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
     body = json.loads(completion.content)
     assert body["id_slot"] == 1
+
+
+async def test_a_response_format_is_forwarded_to_the_server(tmp_path):
+    """T6's router constrains the model's output via ``response_format`` --
+    the completion payload must carry it verbatim when a caller passes one,
+    and omit the key entirely when it does not (a caller with no schema to
+    enforce must get llama-server's ordinary free-text decoding, not an
+    explicit ``null`` it has to special-case)."""
+    server = _server(tmp_path)
+    handler, requests = _chat_handler()
+    transport = httpx.MockTransport(handler)
+    schema = {"type": "object", "properties": {"skill": {"enum": ["a", "b"]}}}
+
+    await llama_client.chat(
+        server,
+        [{"role": "user", "content": "hello"}],
+        slot=0,
+        sampling=contract.SAMPLING["router"],
+        response_format={"type": "json_schema", "json_schema": {"schema": schema}},
+        transport=transport,
+    )
+
+    completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+    body = json.loads(completion.content)
+    assert body["response_format"] == {"type": "json_schema", "json_schema": {"schema": schema}}
+
+    requests.clear()
+    await llama_client.chat(
+        server,
+        [{"role": "user", "content": "hello"}],
+        slot=1,
+        sampling=contract.SAMPLING["chat"],
+        transport=transport,
+    )
+    completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+    assert "response_format" not in json.loads(completion.content)
+
+
+async def test_a_router_request_is_not_sized_as_a_skill_reply(tmp_path):
+    """The router's card is frozen (``contract.CARDS["router"]``) but its
+    reply is a fixed handful of tokens with no trained window to overrun --
+    sizing must be keyed on ``contract.SIZED_SKILLS`` (today, just
+    ``"clay"``), not on ``CARDS`` membership. A ``skill="router"`` request
+    must use its flat ``SAMPLING["router"]["max_tokens"]`` verbatim and must
+    never hit ``/tokenize`` at all -- paying for that round trip before every
+    routing decision would slow down the one request Familiar most wants to
+    feel instant."""
+    server = _server(tmp_path)
+    handler, requests = _chat_handler(tokens=5000)  # would drastically resize a sized skill
+    transport = httpx.MockTransport(handler)
+    assert "router" in contract.CARDS  # the router card really is frozen
+
+    await llama_client.chat(
+        server,
+        [{"role": "system", "content": "router card"}, {"role": "user", "content": "hi"}],
+        slot=0,
+        sampling=contract.SAMPLING["router"],
+        skill="router",
+        transport=transport,
+    )
+
+    assert not any(r.url.path == "/tokenize" for r in requests)
+    completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+    body = json.loads(completion.content)
+    assert body["max_tokens"] == contract.SAMPLING["router"]["max_tokens"]

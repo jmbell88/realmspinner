@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 
 from warlock import models
 from warlock.service import familiar as svc_familiar
 from warlock.service.familiar import FamiliarRefusal
-from warlock.studio.familiar import contract
+from warlock.studio.familiar import contract, retrieval, router
 
 
 class _FakeSvc:
@@ -40,7 +41,7 @@ def test_the_lease_refusal_reaches_the_caller_as_a_lease_reason(monkeypatch):
     it verbatim rather than a generic "Familiar is busy" line."""
 
     async def fake_chat(server, messages, *, slot, sampling, skill=None,
-                         expected_card_sha=None, transport=None):
+                         expected_card_sha=None, response_format=None, transport=None):
         raise RuntimeError(
             "Familiar cannot start while a GPU job holds the card -- "
             "it will restart on your next message."
@@ -87,7 +88,7 @@ def test_plain_chat_starts_on_the_testing_pin(monkeypatch):
     seen = {}
 
     async def fake_chat(server, messages, *, slot, sampling, skill=None,
-                         expected_card_sha=None, transport=None):
+                         expected_card_sha=None, response_format=None, transport=None):
         seen["skill"] = skill
         seen["expected_card_sha"] = expected_card_sha
         seen["messages"] = messages
@@ -154,3 +155,188 @@ def test_an_unparseable_reply_is_a_parse_refusal(monkeypatch):
         svc_familiar.clay_build(_FakeSvc(), "build a box", {"objects": []})
 
     assert excinfo.value.reason == "parse"
+
+
+# ---------------------------------------------------------------------------
+# T6: ``ask`` -- the router, and the Manual answer path. ``svc_familiar.ask``
+# and ``svc_familiar._manual_index`` do not exist on the pre-T6 tree, so
+# every test below fails with an ``AttributeError`` before its first
+# assertion runs against the unmodified code.
+# ---------------------------------------------------------------------------
+
+
+def _fake_citation(n: int) -> retrieval.Citation:
+    return retrieval.Citation(
+        n=n,
+        chapter="12-plotter",
+        anchor="exporting",
+        title_path="12 Plotter > Exporting",
+        text="Export a map with File > Export > Tiled.",
+    )
+
+
+def test_a_manual_question_is_answered_from_retrieved_sections_with_their_citations(monkeypatch):
+    """A ``manual``-routed question must retrieve first, then send the
+    excerpts to the model, then keep only the citations the reply actually
+    names -- proven end to end: the fake router sends ``skill: manual``, the
+    fake index hands back one citation, the fake answer cites it, and the
+    second request's own messages must carry that citation's text."""
+    citation = _fake_citation(1)
+    calls: list[dict] = []
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        calls.append({"messages": messages, "skill": skill, "slot": slot})
+        if skill == "router":
+            return '{"skill": "manual"}'
+        return "Use File > Export > Tiled [1]."
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    fake_index = SimpleNamespace(search=lambda prompt, **kw: [citation])
+    monkeypatch.setattr(svc_familiar, "_manual_index", lambda: fake_index)
+
+    answer = svc_familiar.ask(_FakeSvc(), "how do I export a map?", mode="home", history=())
+
+    assert answer.skill == "manual"
+    assert answer.text == "Use File > Export > Tiled [1]."
+    assert answer.citations == (citation,)
+    assert len(calls) == 2
+    answer_request = calls[1]
+    assert citation.title_path in answer_request["messages"][1]["content"]
+    assert citation.text in answer_request["messages"][1]["content"]
+    assert answer_request["slot"] == router.SKILL_SLOT
+
+
+def test_a_manual_question_the_manual_does_not_cover_makes_no_answer_request(monkeypatch):
+    """No citations retrieved must mean no second model call at all -- an
+    honest "the Manual doesn't cover that" is cheaper and no less true than
+    an ungrounded chat answer the base model was never given the Manual to
+    write."""
+    calls: list[str | None] = []
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        calls.append(skill)
+        return '{"skill": "manual"}'
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    monkeypatch.setattr(
+        svc_familiar, "_manual_index", lambda: SimpleNamespace(search=lambda prompt, **kw: [])
+    )
+
+    answer = svc_familiar.ask(_FakeSvc(), "does Warlock support VR?", mode="home", history=())
+
+    assert answer.text == "The Manual doesn't cover that."
+    assert answer.citations == ()
+    assert calls == ["router"], "a router reply with no citations must not make an answer request"
+
+
+def test_the_router_runs_on_slot_zero_with_the_schema(monkeypatch):
+    """The routing request itself must run on ``router.ROUTER_SLOT``, with
+    ``response_format`` set to the router's own JSON schema and no card
+    gate -- the router is prompt-engineered, not trained, so it must work on
+    the base testing pin exactly like plain chat does."""
+    captured: dict = {}
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            captured.update(
+                slot=slot, sampling=sampling, response_format=response_format,
+                expected_card_sha=expected_card_sha,
+            )
+            return '{"skill": "other"}'
+        return "hi there"
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    svc_familiar.ask(_FakeSvc(), "hello", mode="home", history=())
+
+    assert captured["slot"] == router.ROUTER_SLOT
+    assert captured["sampling"] == contract.SAMPLING["router"]
+    assert captured["response_format"] == {
+        "type": "json_schema", "json_schema": {"schema": router.ROUTE_SCHEMA}
+    }
+    assert captured["expected_card_sha"] is None
+
+
+def test_an_unbuilt_skill_falls_back_to_chat_and_still_reports_the_route(monkeypatch):
+    """character/create/navigate/other have no built skill yet (T7/T8) -- the
+    router's own decision must still land in ``Answer.skill`` even though
+    ``chat_reply`` is what actually answered, so a caller can tell "the
+    router picked X and nothing handles X yet" from "the router picked
+    other"."""
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "character"}'
+        return "sure, here's how to make a character"
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(_FakeSvc(), "make me a goblin", mode="home", history=())
+
+    assert answer.skill == "character"
+    assert answer.text == "sure, here's how to make a character"
+    assert answer.calls is None
+
+
+def test_a_build_routed_in_clay_on_the_testing_pin_is_refused_by_the_card_gate(monkeypatch):
+    """Routed to ``clay_build``, in Clay, with a scene -- ``ask`` must
+    delegate to the real ``clay_build``, card gate included, not answer as
+    chat just because it went through the router first."""
+    assert models.FAMILIAR_MODELS["familiar_gguf"].card_shas == ()
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "clay_build"}'
+        raise AssertionError("clay_build must refuse before any request on the testing pin")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.ask(_FakeSvc(), "build a box", mode="clay", history=(), scene={"objects": []})
+
+    assert excinfo.value.reason == "card"
+
+
+def test_a_build_routed_outside_clay_is_answered_as_chat(monkeypatch):
+    """The router naming ``clay_build`` from a mode other than Clay (or with
+    no scene captured) must fall back to plain chat rather than reach
+    ``clay_build`` with nothing to build against."""
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "clay_build"}'
+        return "I can only build inside Clay."
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(_FakeSvc(), "build a box", mode="home", history=())
+
+    assert answer.skill == "clay_build"
+    assert answer.text == "I can only build inside Clay."
+    assert answer.calls is None
+
+
+def test_a_refusal_during_routing_is_not_swallowed(monkeypatch):
+    """A lease refusal raised while the *router itself* is answering must
+    reach the caller as a ``FamiliarRefusal`` -- routing is one more request
+    to the same door, not a special case that swallows what that door
+    raises."""
+
+    async def fake_chat(*args, **kwargs):
+        raise RuntimeError(
+            "Familiar cannot start while a GPU job holds the card -- "
+            "it will restart on your next message."
+        )
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.ask(_FakeSvc(), "hello", mode="home", history=())
+
+    assert excinfo.value.reason == "lease"

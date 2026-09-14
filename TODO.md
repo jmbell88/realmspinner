@@ -2015,7 +2015,26 @@ states~~ **Built 2026-09-14:**
 - The ghost path is covered only by a canned-call test. It needs T10's
   weights to run live.
 
-**Do, in order, from master:** T6 router and cited Manual answers; T7
+~~T6 router and cited Manual answers~~ **Built 2026-09-14:**
+- `cards/router-1.txt` is frozen, and it is prompt-engineered, not trained,
+  so it runs on any weights pin with `expected_card_sha=None`.
+- The router runs on slot 0 with `response_format` set to
+  `router.ROUTE_SCHEMA`, greedy, 16 tokens. The installed DLL carries both
+  `response_format` and `json_schema`.
+- Reply sizing is keyed on `contract.SIZED_SKILLS`, not `CARDS`, so routing
+  skips `/tokenize`.
+- `service.familiar.ask` routes. `manual` goes to BM25 retrieval, then an
+  answer from the excerpts, and `contract.cited` keeps only [n] numbers that
+  were retrieved. No hit means no model call.
+- `clay_build`/`clay_edit` in Clay with a scene goes to `clay_build`, card
+  gate included. Everything else goes to `chat_reply`, with `Answer.skill`
+  still naming the route.
+- Citations render as buttons that call `manual.render.open_at`.
+- Unmeasured: whether base Gemma routes correctly, and whether it cites at
+  all. Nothing has run this against a real server yet. T9's smoke test is
+  the first place it will, and a routing eval corpus does not exist.
+
+**Do, in order, from master:** T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
 guess; T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
