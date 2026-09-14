@@ -409,6 +409,7 @@ def draw(ctx: Any, layout: Any = None) -> None:
     from imgui_bundle import imgui
 
     from . import controls, tokens
+    from .panes import bottom_pane
 
     shape = specs(ctx, layout, evaluate=False)
     live: list[MenuSpec] | None = None
@@ -441,16 +442,31 @@ def draw(ctx: Any, layout: Any = None) -> None:
                     if clicked and row.enabled:
                         row.callback()
         # Reserved, never dropped: T0 of the Familiar programme wires no
-        # model behind this yet, so its one row stays disabled.
+        # model behind this yet, so its one row stays disabled -- its label
+        # still has to tell "not downloaded" from "downloaded but no
+        # conversation loop yet" apart, or a completed download reads as
+        # permanently broken.
         with controls.menu(FAMILIAR_LABEL) as familiar_open:
             if familiar_open:
-                controls.menu_item(
-                    "Not installed##menu/familiar-not-installed",
-                    "",
-                    False,
-                    False,
-                    reason="Familiar isn't installed yet.",
-                )
+                if bottom_pane.familiar_state(ctx.svc.config) == "idle":
+                    controls.menu_item(
+                        "Installed — not yet wired##menu/familiar-not-wired",
+                        "",
+                        False,
+                        False,
+                        reason=(
+                            "The conversation loop is a later tranche of the "
+                            "Familiar programme."
+                        ),
+                    )
+                else:
+                    controls.menu_item(
+                        "Not installed##menu/familiar-not-installed",
+                        "",
+                        False,
+                        False,
+                        reason="Familiar isn't installed yet.",
+                    )
         _draw_status_group(ctx)
     finally:
         imgui.end_menu_bar()

@@ -183,6 +183,62 @@ def test_apply_refuses_when_the_previewed_tab_was_closed_not_never_opened():
     assert not any(o.uid == added_uid for o in doc.objects)
 
 
+def test_apply_refuses_when_the_document_was_swapped_out_from_under_the_tab():
+    """A revert/reload/journal-recovery path can replace ``tab.doc`` with a
+    fresh ``ClayDoc`` whose head/selection/element_mode all happen to match
+    the base's own starting values -- invisible to the three value checks,
+    but not to identity, which is exactly why ``diff`` snapshots ``id(base)``."""
+    # Built through the constructor, not ``add_object`` -- ``add_object`` pushes
+    # an undoable edit (and ``head`` is a global edit *serial*, per undo.py's
+    # own docstring, so no later document can coincidentally reproduce an
+    # earlier head by counting). Constructing objects directly keeps this
+    # base at head 0, matching a brand-new document's own head -- exactly the
+    # coincidence a revert/reload could produce in the wild.
+    doc = bd.ClayDoc(objects=[
+        bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box()),
+        bd.Obj(uid=bd.new_uid(), name="b", mesh=bp.box()),
+    ])
+    ctx = _FakeCtx(doc)
+    scratch, diff, kept_uid, added_uid = _preview_that_adds_and_moves(doc)
+    assert diff.base_head == 0
+
+    # A fresh document that happens to match the base's own starting values
+    # (head, selection and element mode) -- invisible to the three value
+    # checks, which is exactly why this is the case ``id()`` exists to catch.
+    fresh = bd.ClayDoc()
+    assert fresh.history.head == diff.base_head
+    assert set(fresh.selection) == diff.base_selection
+    assert fresh.element_mode == diff.base_element_mode
+    ctx._tab.doc = fresh
+
+    result = familiar.apply(ctx, ctx.tab.uid, diff, scratch)
+
+    assert result["ok"] is False
+    assert "preview again" in result["message"]
+    assert not any(o.uid == added_uid for o in fresh.objects)
+
+
+def test_apply_refuses_against_a_tab_that_is_not_the_active_one():
+    """A tab that is open but not the one on screen must not silently receive
+    a transplant for a ghost the user was looking at on a different (active)
+    tab -- this refusal is the module's one deliberate exception to "every
+    refusal is the same sentence", per apply.py's module docstring."""
+    doc = _seeded_doc()
+    ctx = _FakeCtx(doc)
+    background_doc = _seeded_doc()
+    background_tab = clay_mode.ClayTab(doc=background_doc)
+    ctx.state.clay.docs.append(background_tab)
+    # ctx.state.clay.active_uid stays pointed at ctx.tab.uid (the first tab)
+
+    scratch, diff, kept_uid, added_uid = _preview_that_adds_and_moves(background_doc)
+
+    result = familiar.apply(ctx, background_tab.uid, diff, scratch)
+
+    assert result["ok"] is False
+    assert "not the one in front" in result["message"]
+    assert not any(o.uid == added_uid for o in background_doc.objects)
+
+
 def test_discard_leaves_the_document_byte_identical():
     doc = _seeded_doc()
     before_bytes = serialize.wblk_bytes(doc)

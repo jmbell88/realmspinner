@@ -1155,6 +1155,14 @@ class Worker(
         # stop() is the record.
         with contextlib.suppress(TrellisStopFailed):
             await asyncio.to_thread(self.trellis.stop)
+        # Familiar was only ever stopped by idle eviction or row deletion --
+        # a normal app exit reached neither, so ``stop()`` never ran and
+        # familiar-<port>.key / familiar-<port>.owner were left on disk. The
+        # winjob kill-on-close job reaps the child itself, but not those
+        # files, so the next ``ensure_started`` walked the orphaned
+        # llama-server reclaim path even though nothing had crashed.
+        with contextlib.suppress(RuntimeError):
+            await asyncio.to_thread(self.familiar.stop)
         # Shutdown used to stop trellis and leave SDXL loaded. Harmless when
         # the process exits immediately after -- but shutdown() is also reached
         # on paths that keep the interpreter alive, and the pipeline's several

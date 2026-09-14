@@ -228,9 +228,11 @@ Familiar assistant this manual does not otherwise describe yet.
 ## The bottom pane
 
 One row along the foot of the window, in every mode, where the per-item status line used to live.
-Today it carries a single line: **✦ Familiar isn't installed — Install…**. The per-item readouts
-that used to sit here (workspace, document, tool, zoom, queue, health) moved to the menu bar's own
-right-aligned group, described above.
+Today it carries a single line, whose text depends on whether Familiar's weights are downloaded:
+**✦ Familiar isn't installed —** beside an **Install…** button that opens Settings → Models, or once
+every row is present, **✦ Familiar is installed — the assistant arrives in a later release**. The
+per-item readouts that used to sit here (workspace, document, tool, zoom, queue, health) moved to the
+menu bar's own right-aligned group, described above.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).

@@ -20,6 +20,26 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar's scaffolding stops lying and stops leaking.** A review of the
+  assistant on 2026-09-14 found six defects in what T0–T4 shipped, none of
+  them reachable by a user yet because there is still no chat loop, all of
+  them fixed before one is built. The bottom pane and the ✦ menu said "isn't
+  installed" whatever Settings → Models had downloaded, and the "Install…"
+  was plain text; both now read the three rows' presence, and Install… is a
+  button that opens Settings on Models. A normal app exit never stopped the
+  llama-server child, so its key file and port claim were left behind and the
+  next start walked the orphan-reclaim path; shutdown stops it now. Idle
+  eviction counted from startup rather than last use, so the server gains a
+  `touch()` door T5's client must call per request. Closing a Clay tab left a
+  ghost preview's GL overlays drawn over whichever tab came next; closing any
+  tab clears it. Apply checked the undo head, selection and element mode but
+  not the document's identity or whether its tab was the one in front, so a
+  reverted or reloaded document, or a background tab, could take a transplant
+  meant for another; both refuse now. And a material removal that succeeded
+  on the scratch clone could be silently refused on the real document (whose
+  undo stack still holds a user of the slot), leaving the palette one entry
+  longer than previewed; the result now names the slots it kept.
+
 - **A GLB with a malformed material colour no longer takes the window down.**
   The viewer's glTF reader shape-checked every numeric field except
   `baseColorFactor` and `emissiveFactor`, so a hand-made or imported file whose

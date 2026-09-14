@@ -103,6 +103,14 @@ class LlamaServer:
         self._key_path: Path | None = None
         # Whether a queued GPU job currently holds the lease -- ensure_started
         # refuses while this is True, and only ``release_lease`` clears it.
+        # Read on the loop thread inside ``ensure_started`` (under ``_lock``,
+        # an asyncio lock) but written from a ``to_thread`` pool thread by
+        # ``stop_for_gpu_job``/``release_lease``. Safe with no lock of its
+        # own only because a Python bool assignment is atomic under the GIL,
+        # and the only ordering that matters is "set before stop()" --
+        # ``stop_for_gpu_job`` already sets ``_leased = True`` before it
+        # calls ``self.stop()``, so a concurrent ``ensure_started`` always
+        # sees the lease before the kill it would otherwise race.
         self._leased = False
 
     @property
@@ -525,3 +533,14 @@ class LlamaServer:
     def release_lease(self) -> None:
         """Give the card back: the next chat message may start Familiar again."""
         self._leased = False
+
+    def touch(self) -> None:
+        """Mark the server as just-used, resetting the idle-eviction clock.
+
+        ``last_used`` is otherwise only written at spawn and on the health
+        poll (construction, ``ensure_started``), so idle eviction counts
+        from *startup*, not last use -- a five-minute conversation would get
+        its server evicted mid-reply. No client exists yet (T5's
+        ``llama_client``); this is the door it must call once per request.
+        """
+        self.last_used = time.monotonic()

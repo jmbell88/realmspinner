@@ -10,6 +10,8 @@ than replaying any tool call.
 
 from __future__ import annotations
 
+import numpy as np
+
 from warlock.studio.clay import document as bd
 from warlock.studio.clay import primitives as bp
 from warlock.studio.clay import scratch as clay_scratch
@@ -178,6 +180,43 @@ def test_transplant_is_a_no_op_on_an_empty_diff():
     assert result.empty
     assert clay_scratch.transplant(doc, scratch, result) is False
     assert doc.history.head == before_head
+
+
+def test_transplant_surfaces_a_material_the_real_document_refused_to_drop():
+    """``remove_material``'s ``material_users`` also counts faces on objects
+    the *undo stack* still holds (for redo) -- and the scratch clone's own
+    stack starts empty (``clone``'s own comment), so a removal that succeeded
+    on the scratch can still be refused when replayed against the real
+    document, whose undo stack holds a deleted object that named the slot.
+    Before this fix the refusal was silently swallowed: the palette just
+    didn't shrink, with no signal on the result."""
+    from warlock.studio.clay import mesh as bm
+
+    doc = bd.ClayDoc()  # materials: [default] at index 0
+    extra = doc.add_material()  # index 1 -- the slot this test drops
+
+    box = bp.box()
+    painted = bm.Mesh(
+        positions=box.positions, loops=box.loops, starts=box.starts,
+        smooth=box.smooth, material=np.full_like(box.material, extra),
+    )
+    doomed = doc.add_object(bd.Obj(uid=bd.new_uid(), name="doomed", mesh=painted))
+    assert doc.remove_object(doomed.uid)  # gone from .objects, held by the undo stack
+
+    # Cloned *after* the delete -- the scratch's live objects never used slot
+    # 1 at all, and its own undo stack starts empty, so its removal succeeds
+    # cleanly while the real document's undo-held object still blocks it.
+    scratch = clay_scratch.clone(doc)
+    assert scratch.remove_material(extra)
+
+    result = clay_scratch.diff(doc, scratch)
+    assert result.materials_changed
+
+    changed = clay_scratch.transplant(doc, scratch, result)
+
+    assert changed
+    assert changed.kept_materials == [extra]
+    assert len(doc.materials) == 2  # the palette did not shrink
 
 
 def test_transplant_with_material_removal_keeps_face_indices_right():

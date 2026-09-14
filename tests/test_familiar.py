@@ -231,6 +231,62 @@ def test_deleting_familiar_rows_stops_the_child_first(tmp_path, monkeypatch):
     assert worker.familiar.stopped is True
 
 
+def test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted(tmp_path, monkeypatch):
+    """No client exists yet (T5's ``llama_client`` is unbuilt), so nothing
+    calls ``touch()`` -- this proves the door itself works: without it a
+    long-running conversation's server would be evicted mid-reply because
+    ``last_used`` is otherwise only written at spawn and on the health poll."""
+    from warlock.config import Config
+    from warlock.db import JobStore
+    from warlock.queue import Worker
+
+    config = Config(
+        data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe", trellis_models_dir=tmp_path / "models",
+        t2i_model_root=tmp_path / "t2i-models", familiar_idle_timeout=1.0,
+    )
+    store = JobStore(config.db_path)
+    worker = Worker(config, store)
+    worker.familiar._proc = type("P", (), {"poll": lambda self: None})()
+    worker.familiar.last_used = 0.0  # long ago -- would be evicted without touch()
+    stopped = []
+    monkeypatch.setattr(worker.familiar, "stop", lambda: stopped.append(True))
+    worker.familiar.touch()
+    asyncio.run(worker._maybe_evict_idle())
+    assert stopped == []
+
+
+def test_shutdown_stops_familiar_and_removes_its_key_and_owner_files(tmp_path, monkeypatch):
+    """A clean app exit used to stop trellis and unload SDXL but never touch
+    ``self.familiar`` -- only idle eviction or row deletion did. ``stop()`` is
+    what deletes ``familiar-<port>.key`` and ``familiar-<port>.owner``, so a
+    normal exit left both behind and the next ``ensure_started`` walked the
+    orphaned-llama-server reclaim path even though nothing had crashed."""
+    from warlock.config import Config
+    from warlock.db import JobStore
+    from warlock.queue import Worker
+
+    config = Config(
+        data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe", trellis_models_dir=tmp_path / "models",
+        t2i_model_root=tmp_path / "t2i-models",
+    )
+    store = JobStore(config.db_path)
+    worker = Worker(config, store)
+
+    stopped = []
+    monkeypatch.setattr(worker.familiar, "stop", lambda: stopped.append(True))
+    monkeypatch.setattr(worker.trellis, "stop", lambda: None)
+    monkeypatch.setattr(worker, "_unload_under_lease", lambda: None)
+    worker._task = None
+    worker.current_job_id = None
+    worker._text2image = None
+    worker._music_client = None
+
+    asyncio.run(worker.shutdown())
+    assert stopped == [True]
+
+
 def test_a_familiar_row_not_downloaded_is_pending_install_not_a_fault(tmp_path):
     from warlock.config import Config
 

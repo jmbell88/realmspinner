@@ -16,7 +16,17 @@ earned an affordance for a state it cannot reach.
 
 from __future__ import annotations
 
+import time
 from typing import Any
+
+#: Module-level ``(state, timestamp)`` cache for :func:`familiar_state` --
+#: the app polls it every frame from the frame thread, and re-stat'ing three
+#: ``FAMILIAR_MODELS`` rows every frame is wasted work for a value that only
+#: changes when a Settings -> Models download finishes. 2s mirrors the
+#: "cheap poll, not a push" allowance the Familiar programme's T0 plan gave
+#: this row; nothing invalidates it early, so a fresh download can take up to
+#: 2s to be reflected here.
+_familiar_state_cache: tuple[str, float] | None = None
 
 #: The one collapsed row's height, in design pixels -- the same figure
 #: ``status_bar.STATUS_H`` used to reserve. Kept as its own name because this
@@ -98,13 +108,43 @@ def height(ctx: Any) -> float:
     return COLLAPSED_H
 
 
+def familiar_state(config: Any) -> str:
+    """"missing" if a row from ``models.FAMILIAR_MODELS`` is absent from
+    disk, "idle" once every row is present.
+
+    Same idiom ``doctor._familiar_checks`` uses (``fetch.present`` over each
+    row) rather than a second presence test -- before this function existed
+    the bottom pane and the ✦ menu both hardcoded "isn't installed" even once
+    a real download had completed, because neither one asked.
+    """
+    global _familiar_state_cache
+    now = time.monotonic()
+    if _familiar_state_cache is not None and now - _familiar_state_cache[1] <= 2.0:
+        return _familiar_state_cache[0]
+
+    from ... import fetch, models
+
+    state = (
+        "idle"
+        if all(
+            fetch.present(config, "familiar", spec)
+            for spec in models.FAMILIAR_MODELS.values()
+        )
+        else "missing"
+    )
+    _familiar_state_cache = (state, now)
+    return state
+
+
 def draw(ctx: Any) -> None:
     """Draw the collapsed row: the one line T0 shows in place of the status
     items that moved to the menu bar."""
 
     from imgui_bundle import imgui
 
-    from .. import fonts, theme, tokens
+    from .. import controls, fonts, theme, tokens
+    from .. import state as state_mod
+    from . import app_settings
 
     pad_x = tokens.sp(tokens.SP_2)
     # Same vertical-centring ordering as the status bar this replaces: the
@@ -128,8 +168,19 @@ def draw(ctx: Any) -> None:
             # The literal ✦ -- see menus.FAMILIAR_LABEL's docstring; the
             # familiar-sigil face merged into every font (fonts.py) is what
             # draws U+2726.
-            imgui.text_colored(
-                imgui.ImVec4(*theme.rgba(theme.MUTED)),
-                "✦ Familiar isn't installed — Install…",
-            )
+            if familiar_state(ctx.svc.config) == "missing":
+                imgui.text_colored(
+                    imgui.ImVec4(*theme.rgba(theme.MUTED)),
+                    "✦ Familiar isn't installed —",
+                )
+                imgui.same_line()
+                if controls.small_button("Install…##bottom-pane/familiar-install"):
+                    state_mod.set_mode(ctx.state, "settings")
+                    ctx.state.preview[app_settings.CATEGORY_SLOT] = "models"
+            else:
+                imgui.text_colored(
+                    imgui.ImVec4(*theme.rgba(theme.MUTED)),
+                    "✦ Familiar is installed — the assistant arrives in a "
+                    "later release",
+                )
         imgui.end_child()

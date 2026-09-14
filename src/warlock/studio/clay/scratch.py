@@ -125,6 +125,14 @@ class PreviewDiff:
     the preview later, because by then the user may have kept editing, and
     ``apply`` needs to compare against what was true when the preview was
     shown, not against whatever is true now.
+
+    ``base_doc_id`` is ``id(base)``, not a value snapshot: a revert, reload or
+    journal-recovery path can replace a tab's document with a *fresh*
+    ``ClayDoc`` whose head/selection/element_mode all happen to coincide with
+    the base's own (a freshly-opened document is a common starting point on
+    both sides), which the three value checks alone would miss entirely.
+    Identity is the only thing that actually distinguishes "the same document,
+    edited" from "a different document that happens to match".
     """
 
     added: set[int] = field(default_factory=set)
@@ -138,6 +146,7 @@ class PreviewDiff:
     base_head: int = 0
     base_selection: set[int] = field(default_factory=set)
     base_element_mode: str = "object"
+    base_doc_id: int = 0
 
     @property
     def changed(self) -> set[int]:
@@ -211,13 +220,23 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         base_head=base.history.head,
         base_selection=set(base.selection),
         base_element_mode=base.element_mode,
+        base_doc_id=id(base),
     )
 
 
-def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> None:
-    """Materials before objects -- ``remove_material`` renumbers every face's
-    ``material`` index, so it has to run before a transplanted mesh's own
-    face indices are trusted to mean the same slot they meant in the scratch.
+def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> list[int]:
+    """Materials go last -- see the module docstring's "Objects transplant
+    before materials, not after" section for why. -> the indices
+    ``remove_material`` refused to drop.
+
+    A refusal here is not a bug in the transplant: ``remove_material``'s
+    ``material_users`` also counts faces on objects the *undo stack* still
+    holds (for redo), and the scratch clone's own stack starts empty (see
+    :func:`clone`'s own comment), so a removal that succeeded on the scratch
+    -- nothing there used the slot, undo history included -- can still be
+    refused when replayed against the real document, whose undo stack may
+    hold an object that named it. The caller surfaces these rather than
+    letting the palette silently fail to shrink.
     """
     shared = min(len(doc.materials), len(scratch.materials))
     for index in range(shared):
@@ -228,11 +247,32 @@ def _transplant_materials(doc: bd.ClayDoc, scratch: bd.ClayDoc) -> None:
     # Extra trailing entries on the *document* side that the scratch run
     # dropped -- removed highest index first, so an earlier removal cannot
     # renumber an index this loop has not visited yet.
+    kept: list[int] = []
     for index in range(len(doc.materials) - 1, shared - 1, -1):
-        doc.remove_material(index)
+        if not doc.remove_material(index):
+            kept.append(index)
+    return kept
 
 
-def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool:
+@dataclass
+class TransplantResult:
+    """What :func:`transplant` did, beyond the plain "did anything happen"
+    every existing caller already asserts as a truthy/``is False`` check.
+
+    ``__bool__`` is always ``True`` for an instance of this class -- the
+    empty-diff fast path returns bare ``False`` instead of one of these, so
+    every existing ``assert changed`` / ``assert clay_scratch.transplant(...)``
+    keeps passing unmodified, and only a caller that wants more reads
+    ``.kept_materials``.
+    """
+
+    kept_materials: list[int] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return True
+
+
+def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool | TransplantResult:
     """Apply a preview's changes to the real document, as **one** undo step.
 
     Never replays a tool call -- see the module docstring for why. Applies
@@ -285,12 +325,13 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             for index, uid in enumerate(wanted):
                 doc.move_object(uid, index)
 
+        kept_materials: list[int] = []
         if diff_.materials_changed:
-            _transplant_materials(doc, scratch)
+            kept_materials = _transplant_materials(doc, scratch)
     finally:
         doc.history.collapse_since(mark)
 
     top = doc.history.top
     if top is not None:
         top.label = "Familiar: agent preview applied"
-    return True
+    return TransplantResult(kept_materials=kept_materials)

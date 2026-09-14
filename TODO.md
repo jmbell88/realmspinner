@@ -1938,6 +1938,22 @@ smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
 guess; T10 swap to the fine-tune (after P53). The screenshot and `/exercise-mode`
 debt T0–T4 left behind does not wait on the card; it is P56.
 
+**Owed by T5 specifically (2026-09-14 review):** `llama_client` must call
+`LlamaServer.touch()` on every request, because the idle sweep reads
+`last_used` and nothing but the health poll writes it today -- without the
+touch a five-minute conversation has its server evicted mid-reply
+(`tests/test_familiar.py::test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted`
+is the door's test; the client's own test must show it calling it). It must
+also read the key file rather than argv, and surface `ensure_started`'s
+"cannot start while a GPU job holds the card" refusal as a pane state. Before
+T5 ships a chat loop against the *testing* pin, note that run A's measurement
+put base Gemma 4 E2B at 0 % door acceptance on Clay builds (the fine-tune: 74 %),
+so a Clay skill on the testing pin fails every build a user asks for -- gate
+the Clay skill on the fine-tune pin, or land P53/T10 first. `PARALLEL_SLOTS = 2`
+and `CTX_SIZE = 16384` are fixed in `pipelines/llama.py`; the per-tab-threads
+idea above has to be reconciled with two slots sharing one context before T5
+inherits the numbers.
+
 **Expected outcome:** Familiar answers in the bottom pane, previews Clay builds
 as a ghost, and runs the fine-tune. Strike this entry per tranche as each lands.
 

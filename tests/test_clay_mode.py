@@ -1282,6 +1282,30 @@ def test_a_document_being_saved_cannot_be_closed(svc) -> None:
     assert ctx.confirms.pending is None
 
 
+def test_closing_a_tab_clears_a_live_familiar_preview(svc) -> None:
+    """A Familiar ghost has no tab uid of its own (``ClayView._preview`` and
+    friends are view-global, not per-tab), so closing *any* tab -- not just
+    the active one -- is a potential staleness event for it: the 2026-09-14
+    audit found ``release`` only called ``clear_preview`` on the active-tab
+    branch, leaving a background-tab close free to outlive the preview it
+    was shown against."""
+    from types import SimpleNamespace
+
+    ctx = FakeCtx(svc)
+    tab = _tab(ctx)
+    clay_mode.ensure(ctx)
+    ctx.clay_view = SimpleNamespace(
+        cleared=0, grabbing=False, dragging=False, clear=lambda: None,
+    )
+    ctx.clay_view.clear_preview = lambda: setattr(
+        ctx.clay_view, "cleared", ctx.clay_view.cleared + 1
+    )
+
+    clay_mode.close_tab(ctx, tab.uid)
+
+    assert ctx.clay_view.cleared == 1
+
+
 def test_ctrl_w_closes_the_active_document(svc) -> None:
     ctx = FakeCtx(svc)
     _tab(ctx)

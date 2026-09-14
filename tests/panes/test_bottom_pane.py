@@ -89,3 +89,43 @@ def test_toasts_progress_and_tour_cards_sit_above_the_bottom_pane():
     # keyword existing on ``toasts`` with nothing supplying it.
     main_source = inspect.getsource(main_mod.App._overlays)
     assert "bottom_offset=" in main_source
+
+
+def _familiar_config(tmp_path):
+    from warlock.config import Config
+
+    return Config(
+        data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe", trellis_models_dir=tmp_path / "models",
+        t2i_model_root=tmp_path / "t2i-models",
+        familiar_runtime_dir=tmp_path / "engine" / "llama",
+        familiar_models_dir=tmp_path / "models" / "familiar",
+    )
+
+
+def test_familiar_state_is_missing_on_an_empty_home(tmp_path):
+    """A fresh WARLOCK_HOME has none of Familiar's three rows -- the pane and
+    the ✦ menu must both read this as "not installed", not silently pass an
+    AttributeError up from a bottom pane that used to hardcode the sentence."""
+    config = _familiar_config(tmp_path)
+    bottom_pane._familiar_state_cache = None
+    assert bottom_pane.familiar_state(config) == "missing"
+
+
+def test_familiar_state_is_idle_once_every_row_is_present(tmp_path):
+    """Once every ``models.FAMILIAR_MODELS`` row's files are on disk,
+    ``familiar_state`` must flip to "idle" -- the pane's install sentence and
+    the menu's disabled item both key off this, and before this test the pane
+    said "isn't installed" even after a real download completed."""
+    from warlock import models
+
+    config = _familiar_config(tmp_path)
+    for spec in models.FAMILIAR_MODELS.values():
+        base = config.familiar_runtime_dir if spec.runtime else config.familiar_models_dir
+        base.mkdir(parents=True, exist_ok=True)
+        for name in spec.probe:
+            (base / name).write_bytes(b"x")
+    # Bypass the module's 2s cache: an earlier "missing" read (this test's own
+    # sibling, or an app frame) can still be within the window here.
+    bottom_pane._familiar_state_cache = None
+    assert bottom_pane.familiar_state(config) == "idle"

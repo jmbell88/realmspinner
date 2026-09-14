@@ -698,6 +698,16 @@ def close_tab(ctx: Any, uid: str) -> None:
 
     def release(tab: ClayTab) -> None:
         view = getattr(ctx, "clay_view", None)
+        if view is not None:
+            # Not gated on "active tab" the way the rest of this function is:
+            # a Familiar ghost (``_preview``/``_preview_scratch``/``_ghost_cache``
+            # on ``ClayView``) has no tab identity of its own, so closing *any*
+            # tab is a potential staleness event for it -- the 2026-09-14 audit
+            # found a background-tab close left a stale preview's GL overlays
+            # drawn over whichever tab became active. ``clear_preview()`` is
+            # idempotent (a no-op when no preview is showing), so calling it on
+            # every close costs nothing.
+            view.clear_preview()
         if view is not None and tab.uid == state.active_uid:
             if getattr(view, "dragging", False):
                 # Before the clear, and against the document it was started on:
