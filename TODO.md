@@ -536,7 +536,7 @@ loop, and what the thing costs.
 numbers. `cpu_offload` and `overlapped_decode` stay class attributes on
 `music_worker._Server` until a measurement says they need to be knobs.
 
-**Expected outcome:** either the mode is what chapters 16 and 35 say it is, or
+**Expected outcome:** either the mode is what chapters 16 and 36 say it is, or
 the first defect only a listener could find — and two constants measured
 rather than guessed.
 
@@ -558,7 +558,7 @@ unmeasured constant beats a measured-sounding one**.
 **Stem separation** has never been run. Download it from Settings → Models and
 confirm the red non-commercial marker appears at the moment you agree. Split
 three or four takes (percussive, vocal, ambient) and listen to each stem for
-**bleed**; chapter 35 promises "a little", which a listener has to confirm or
+**bleed**; chapter 36 promises "a little", which a listener has to confirm or
 correct. Cancel a split mid-run: row cancelled, no child, the take reads as
 unsplit rather than partly split.
 
@@ -570,7 +570,7 @@ the third from an `extend` of a 240 s take — and publish
 minute for a four-minute take.
 
 **Expected outcome:** three measured constants, a verdict on the loop weights,
-and either a confirmation of chapter 35's bleed sentence or a better one.
+and either a confirmation of chapter 36's bleed sentence or a better one.
 
 ## P25. Decide: is a non-commercial stem model worth shipping at all
 
@@ -585,7 +585,7 @@ non-commercial entry beside SDXL-Turbo, and unlike Turbo it is optional.
 **If remove:** the surface is the `SeparationModel` table,
 `pipelines/separation_worker.py`, `separate_job`, the `separate` arms in
 `_q_music`/`_q_jobs`/`vram`/`validation`/`progress`, the four `files.MEDIA`
-keys, the tray button, and chapter 35's Stems section. The `url`/`sha256`
+keys, the tray button, and chapter 36's Stems section. The `url`/`sha256`
 transport in `models.Fetch` **stays** either way.
 
 ## P26. Decide whether the dependency packs ship, and wire them up if so
@@ -875,8 +875,9 @@ is still worse than it should be.
 4. **Decide it is fine.** A sidebar that scrolls is a sidebar that scrolls, and
     1280x800 is the floor rather than the common case.
 
-Whichever is taken, `scripts/exercise_mode.py inker` reports the clipped count,
-so the result is measurable rather than a matter of opinion about a screenshot.
+Whichever is taken, `scripts/exercise_mode.py --mode inker --out <dir>` reports
+the clipped count, so the result is measurable rather than a matter of opinion
+about a screenshot.
 
 **Re-measure before choosing.** The 2026-09-07 layout-share fix changed what an
 undragged column starts at: `layout.column` now passes `heights` only the
@@ -1935,12 +1936,12 @@ and the bottom pane's Familiar states; T6 router and cited Manual answers; T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
 guess; T10 swap to the fine-tune (after P53). The screenshot and `/exercise-mode`
-debt T0–T4 left behind does not wait on the card; it is P55.
+debt T0–T4 left behind does not wait on the card; it is P56.
 
 **Expected outcome:** Familiar answers in the bottom pane, previews Clay builds
 as a ghost, and runs the fine-tune. Strike this entry per tranche as each lands.
 
-## P55. Refresh `screenshots/` and exercise a workspace after the Familiar T0–T4 merge
+## P56. Refresh `screenshots/` and exercise a workspace after the Familiar T0–T4 merge
 
 **Why it is yours:** judging whether a screenshot shows the right thing and
 whether an exercise pass's presses behaved is a human read of images, and

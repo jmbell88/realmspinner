@@ -132,452 +132,449 @@ the release you are actually running.
   and Settings' *Import a LoRA file...* and *Train from a folder...* open their
   file picker off the frame thread, so the window keeps drawing while it is up.
 
+- **Familiar can now actually run.** Settings → Models grows a *Familiar*
+  heading with three rows — the llama.cpp runtime split across two downloads the
+  way upstream ships it, and a testing pin of the base Gemma 4 E2B model (the
+  Clay-assistant fine-tune replaces it later) — and the app can spawn and stop
+  `llama-server.exe` behind them: loopback only, offline, keyed by a file rather
+  than a command-line argument nobody else's process can read. It never shares
+  the card with a real job — a queued GPU job kills Familiar first and it comes
+  back on your next message — and an idle Familiar is stopped the same way
+  trellis-server is. There is still no chat UI; this is the engine underneath it
+  starting to exist.
+
+- **Groundwork for Familiar.** The plumbing an external agent already used to
+  drive Clay over the pipe now works for Warlock's own built-in assistant too,
+  with no pipe involved: Familiar keeps working while Settings' agent-server
+  switch is off, and switching that pipe off never drops a call Familiar has
+  in flight. Nothing user-visible yet — there is still nothing to install.
+
+- **Familiar can now try an edit before committing to it.** Under the hood:
+  Familiar runs an agent's Clay tool calls against a private scratch copy of
+  the document first, and only writes them onto the one you're looking at when
+  you say Apply — Discard leaves your document exactly as it was, byte for
+  byte. Still nothing to see in the app yet; the preview itself draws next.
+
+- **Status moves into the menu bar.** The status bar at the foot of the window is
+  gone. Its readouts (workspace, document, tool, zoom, queue, health) now sit
+  right-aligned in the top menu bar, which drops the lowest-priority ones first
+  when a mode's menus need the room — the resource meter, then zoom, tool,
+  document and queue — and never drops health. The foot of the window is now a
+  single `✦ Familiar isn't installed — Install…` row, where Familiar, the
+  built-in assistant, will live; there is nothing to install yet. Toasts, the
+  progress card, the frame-rate meter and the tour card sit above that row.
+
+- **The 2026-09-13 audit's first fixes.** A refused Inker op from the keyboard
+  (Shift+H on a tile layer that does not divide the canvas) now toasts instead of
+  ending the session. Repeat Last Export keeps a per-tag or per-layer split.
+  Regenerate in Flourish rewrites its tags. A palette past 256 colours is
+  refused rather than freezing Convert, and an animated `.aseprite` has a decoded
+  pixel budget. Quitting now warns during a library export or an update
+  download. Leaving Muse stops its audition, leaving Plotter mid-drag closes the
+  edit, and an unsent inspector rename survives a mode switch. Empty trash's
+  figure excludes the jobs it will keep. Placing a Clay primitive in an element
+  mode no longer steals the Properties selection, X-ray reaches faces behind a
+  surface, and Merge Objects has a size ceiling. Poser clears a stale Re-rig
+  picker when you open another asset, refuses a clip library too large to read
+  back, and measures joints from the mesh's own floor. Muse's Repaint and loop
+  sliders reach the whole take, and a one-sample crossfade is no longer
+  counted as a fix. Sprite, tile-sheet, pixel-sheet and LoRA jobs check the
+  image-generation pack at submit. "% on palette" weighs pixels, not colours.
+  Seventeen manual passages that described the wrong label, count or step are
+  corrected.
+
+- **Three stalls measured and removed.** Select Linked (L) in Clay took 11 s
+  on a 200k-vertex import made of long thin strips; it is now a SciPy
+  connected-components pass and returns the same selection in milliseconds.
+  Proportional editing's nearest-selected-vertex search is a KD-tree instead of
+  a brute-force broadcast, about 20 times faster at the old limit, and the limit
+  is now 300,000 mesh vertices rather than a selected-times-vertices product —
+  which had silently turned a 201-vertex selection on a 200k import into a hard
+  drag. Distances now agree with the old search to 1e-9 rather than bit for bit.
+  Flourish's textured particles and sprites no longer allocate a whole frame per
+  stamp: 400 textured particles fell from 1.9 s to about 30 ms a frame, with
+  identical pixels. The numbers are in
+  `docs/measurements/2026-09-13-native-batch-10-candidates.md`.
+
+- **The rest of the 2026-09-13 audit.** Mason's light, camera and terrain fields
+  undo as one step rather than one per keystroke, and a scene of deeply nested
+  prefabs is refused everywhere it is walked, not only on open. Plotter picks a
+  spawn point where its marker is drawn at any zoom, and refuses a malformed
+  text, layer, background or Wang colour when the file is read instead of
+  failing at export. Inker's Merge down and palette Remove say why they refused
+  instead of doing nothing. Sirens no longer re-encodes the whole song for a
+  preview it is about to refuse, and a song file naming one instrument twice is
+  refused rather than playing the wrong one. A Clay lathe, sweep or tube has a
+  length cap, a Packwright document has a total pixel budget, and the model
+  viewer charges skin-weight copies and refuses a texture that runs past its
+  buffer. After a rig job an image job is no longer refused for VRAM it has; a
+  failed TRELLIS restart is not recorded as applied; cancelling a sprite sheet
+  stops before the render. A malformed request document refuses instead of
+  crashing, a bare-string reference is no longer split into characters, a
+  zero-byte background-removal weight falls back to automatic, and a directory
+  left where a weight file belongs no longer counts as installed. Muse names the Music pack when it is
+  missing instead of reporting a child process that exited. Keep both on a
+  stale export plan refuses cleanly, Health no longer reports a lock it does not
+  hold, Numpad Enter advances the tour, and a running tile sheet shows greyed
+  Plotter and Packwright buttons rather than none.
+
+- **Poser can edit a rigged mesh's skeleton.** On an opened asset, Edit skeleton
+  enters a draft mode. You can move pivots, add a child bone or split one, delete
+  a pivot (its children move up to its parent) or a whole limb, rename bones, and
+  attach preset limbs (arm, leg, tail, wing, antenna), optionally mirrored.
+  Mirror edits moves a paired bone's partner too. Every change is one undo step,
+  and the draft survives a crash. Apply queues the ordinary rig job, which
+  rebuilds and reweights the mesh in Blender. `rig.json` records
+  `skeleton: "custom"` and keeps `template` naming the base it came from. The
+  cap is 64 bones, the viewer's joint limit. A new rig deletes pose bakes and
+  `animated.glb` made against the old one, which a joint adjustment used to leave
+  behind. Template clips skip bones a custom skeleton lacks, and Send to Troupe
+  says how many.
+
+- **Clay's grid is 100 m by default, with 1 m cells, and you can set its size.**
+  Overlays has a Size field (1–1000 m), and the setting is remembered along with
+  the grid toggle. F no longer shrinks the grid to the selection, and the camera's
+  far plane now reaches the grid's edge. Overlays also has a new God light: a
+  light straight down from 100 m overhead onto a ground plane under the grid (no
+  shadows). Position and scale fields carry X/Y/Z labels above each box, and
+  rotation, still a quaternion, carries X/Y/Z/W.
+
+- **Send to Troupe takes a custom sprite size.** Besides the 16–128 ladder, the
+  size can be any whole number from 8 to 256 px, in the send dialog and in
+  Troupe's own form. Sizes that don't divide 512 are resized with
+  nearest-neighbour, and both places say so.
+
+- **Settings and Home are tidier.** Settings → Health puts its actions first,
+  renamed Detail Log, Health Checks and Troubleshooting, and lists checks as a
+  Status / Check / Detail table. Settings' section rail and body are padded, a
+  hairline divides them, and the rail's (?) button is no longer clipped: every
+  help button was placed 4 dp too far right. Home's two columns are padded,
+  bordered and rounded.
+
+- **A re-rig no longer leaves a stale `animated.glb` stuck forever.** Applying a
+  skeleton edit deletes the animated export so it rebuilds against the new
+  skeleton, but a bake already running when the edit landed could still publish
+  a file built from the old skeleton, and because only the clip library was
+  fingerprinted, nothing ever asked for it again — the stamp still matched, so
+  it looked fresh for the life of the job. The animated export's freshness
+  stamp now records the rig it was baked from too, so the very next request
+  notices the mismatch and rebakes once.
+
+- **Poser hides clip import during a skeleton edit, the same as every other
+  clip control.** Import clip… stayed live and clickable while a skeleton
+  draft was open, even though the rest of the Clips section is hidden because
+  it all reads or writes the pose a draft holds at rest throughout. The button
+  now disables with "Apply or cancel the skeleton edit first." and the Import
+  report stays hidden too.
+
+- **An agent can take a character from a species name to rigged, animated
+  sprite sheets and engine exports.** The agent surface used to reach one Clay
+  tab and nothing else. Ten `character_*` tools now let it list species, clips
+  and Library assets, create a character from a prompt or a family, rig a mesh,
+  queue a sheet, poll jobs, preview a sheet as an image, export the animated GLB,
+  a Godot scene, frame folders or a sheet package, and cancel what it started. It
+  also gets a `warlock://character/vocabulary` resource, per-sheet sidecar and
+  atlas resources, and a `character_sheets_from_description` prompt. The scope
+  is additive: an agent reads any Library row by id but only adds rows and
+  derived files, never re-rigs, deletes, reruns, edits clips or touches an open
+  document, accepts no paths, and exports only into the configured folder, under
+  a name built from the asset's own ids, so an agent's export can never replace
+  one it did not make. It can cancel only jobs it started on the same connection,
+  including the sheet a rig it asked for queues afterwards. It still starts no model —
+  species come from the procedural family registry, and an import pin keeps
+  text-to-image and mesh reconstruction out of reach. So "swamp knight" builds a
+  knight and says the knight has no swamp look, rather than inventing one. There
+  are no named animation sets; the movements list is the set. A sheet's size
+  takes any whole pixel value in Troupe's 8–256 px custom range, not just the
+  preset ladder, matching the send dialog and Troupe's own form. Character calls run
+  on an agent-owned two-worker task lane, never the frame thread and never the
+  listener, and switching the server off shuts that lane down without waiting,
+  because a timed shutdown kills every tracked child process in the app. The
+  tool catalogue grows, so the Clay-assistant dataset's manifest hash will now
+  refuse; that dataset is regenerated under its own plan. TODO P43 records the
+  larger catalogue as a dated addendum.
+
+- **Sending a mesh to Troupe while its rig is still running no longer queues a
+  second rig.** The unrigged path minted a new rig row every time, and the later
+  rig overwrote the earlier one's `rig.glb` under whatever sheet was waiting on
+  it. It is refused now while a rig for that mesh is in flight.
+
+- **`resources/templates/list` answers under the key the MCP specification
+  names.** It returned `templates`, which no conforming client reads, instead of
+  `resourceTemplates`.
+
+- **A character named after a Windows device exports under its id.** A name like
+  `CON` or `COM1` made the sheet package write `CON.png`, which Windows treats as
+  a device rather than a file.
+
+- **Create no longer fills in a look the species does not have.** A prompt such
+  as "swamp knight" copied the swamp theme onto a knight, which offers only
+  natural and blackened, so the character was then refused on the look. The
+  prompt's action words also now understand hit, death, cast, fall and a second
+  attack.
+
+- **A character can hit, die, cast, fall and attack twice, not just the five
+  movements it has always had.** One table, `charsheet.ANIMATIONS`, owned both
+  the names a character could perform and their timing, so Troupe refused any
+  movement outside idle, walk, run, attack and jump, and `animated.glb` baked any
+  other clip at a guessed 100 ms a frame. Timing now lives in the clip library
+  itself (schema v3: a per-clip `duration_ms`, and a closed clip loops), and a
+  sheet may name any clip its rig's skeleton defines. Every shipped skeleton —
+  humanoid, quadruped, bird and blob — gains `attack_02`, `cast`, `fall`, `hit`
+  and `death`, each marked provisional: placeholder keyframes an animator's pass
+  still owes (TODO P8 lists them). Nothing stored changes meaning. A v2 library
+  reads with the old table's timing, and a sheet that uses only the original five
+  at their original timing still writes a version-2 layout, byte for byte what it
+  wrote before — `docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`
+  records the migration and why. A user's saved clip library still wins whole, so
+  it shows the new clips only after **Revert to shipped clips**.
+
+- **Troupe sheets can be HD and played at a chosen frame rate.**
+  **Style** switches between pixel art and HD, which keeps full colour and soft
+  edges and skips palette reduction entirely. At 256 px — the top of the custom
+  8–256 px range Send to Troupe already offers — five movements in eight
+  directions exactly fill the 8192 px atlas ceiling, and a sixth is refused on
+  the movement table. **Frame rate** is either Authored (each clip's own frame
+  time) or one rate for every movement, and a fixed rate rescales each
+  movement's default frame count so a walk keeps its real length. A default
+  pixel-art sheet's row carries no new key.
+
+- **An animated GLB now picks up clip edits instead of staying at whatever it was
+  first baked with.** `animated.glb` treated existence as freshness, so a clip
+  edited in Poser, or a clip newly shipped for its skeleton, never reached a file
+  that already existed. The bake now stamps the clip library's digest into the
+  file, captured before Blender starts so a save landing mid-bake cannot mark old
+  motion fresh, and a request whose digest differs rebuilds it.
+
+- **Export for Godot writes a scene beside the character.** The inspector's
+  **Export for Godot...** writes a folder holding a copy of the animated GLB whose
+  looping clips are named `-loop`, and a Godot 4 `.tscn` instancing it with an
+  AnimationTree: idle, walk and run blended on one axis, attack, attack_02, cast
+  and jump into fall, and hit and death reachable from every state. Godot's
+  importer both loops a `-loop` clip and renames it back to its plain name, read
+  from its own `resource_importer_scene.cpp`, so the state machine plays `idle`,
+  not `idle-loop`. The served `animated.glb` is never renamed. No Godot exists on
+  this machine; TODO P50 is the sitting that opens one.
+
+- **Export frames writes a sprite sheet out as folders an engine can read.**
+  Troupe's **Export frames...** writes one PNG per frame under clip and compass
+  folders — S is the character facing you, W its left profile, derived from the
+  camera arithmetic rather than a docstring that had the orbit direction backwards
+  — plus a `manifest.json` of frame size, loops, frame times and rates. The
+  folder lands whole or not at all.
+
+- **Poser can import a Mixamo or Rigify animation as a clip.** **Import clip**
+  reads an FBX or glTF in Blender, which only samples each bone's world rotation;
+  the conversion onto a Warlock skeleton is pure host maths, measuring the
+  source's facing from its legs rather than assuming it and correcting a T-pose
+  rest onto the A-pose. The result joins the working copy, never the file, until
+  **Save clips**, and never overwrites an existing pose name. Only humanoid maps
+  ship. TODO P51 is the sitting that judges a real Mixamo walk.
+
+- **Poser shows each clip's frame time and says which clips are placeholders.**
+  **Frame time (ms)** edits a clip's frame length in 10 ms steps beside the rate
+  it amounts to, and provisional clips carry a muted badge.
+
+- **Revert to shipped clips now works while there are unsaved edits.** Reverting
+  submitted under the save task's key without recording the edit it was asked
+  against, so the landing's "is this stale?" check saw unsaved edits and silently
+  discarded the reverted library — exactly the one situation Revert exists for.
+  `test_a_revert_asked_with_unsaved_edits_is_adopted_when_it_lands` pins it.
+
+- **A clip library that will not parse is refused, not shown as the shipped
+  clips.** A user's library that failed to parse was skipped with a log line, and
+  Poser then presented the shipped clips as the user's edited ones, so the next
+  Save overwrote the user's file. It is refused on the skeleton now.
+
+- **`clay_program` runs relative steps and checks its own work.** `move`, `turn`
+  and `scale_by` read an object's transform as it stands at that point in the
+  program, then set the composed value through `clay_transform`. They also work
+  on a group, and the program stays one undo step. `assert` evaluates a condition
+  at run time over facts about the scene: `lo`, `hi`, `size` and `center` of an
+  object on an axis, from the same box `clay_scene` reports; `count` for a
+  group and `exists` for a name; and `touches`, `grounded`, `floating` and
+  `volume`, from `clay_analyze`'s pure analysis. A false assert rolls the
+  whole program back and names its step path. An
+  unknown fact or id is refused at compile time. Ids appear in a condition as
+  bare names, and only as a fact's argument, so the no-eval guarantee holds.
+
+- **An agent can build a whole assembly in one call with `clay_program`.** A
+  program's steps compile to tool calls that run on the frame thread as a single
+  undo step labelled "Agent program". A program is all or nothing: if any call
+  refuses, everything rolls back, no step is pushed, the prior selection comes
+  back, and the result names where it stopped and nests the failing tool's reply.
+  A dry run executes and then undoes itself, so the scene and its dirty flag are
+  unchanged. With no document open, a dry run only compiles and never opens a
+  tab. A program must start in object mode and has a four-second deadline,
+  checked between calls, that rolls back and says to split it. A maximal program
+  is recorded as an accepted one-shot stall. `clay_batch`'s run loop is now
+  shared with it, and `clay_program` can't appear inside a batch. A new
+  transcript test walks the program grammar's uid-bearing keys, so object
+  schemas the gate couldn't see into are covered. The catalogue grew to about
+  52,500 characters, and the Clay-assistant manifest hash still refuses.
+
+- **Clay programs have a compiler, though no tool publishes it yet.**
+  `studio/agent_program.py` turns a program into a validated list of tool calls.
+  A program is variables plus steps: add, figure, mesh, transform, params,
+  material, delete, op, boolean, repeat, array, mirror, group, let and if. Its
+  numeric fields take expressions in a small parsed language with degree trig
+  and a dozen functions. It never uses `eval`, so an `__import__` string is
+  refused as a bad token. Each refusal names its exact path, for example
+  `steps[3].repeat.steps[1].add.translation[0]`. Limits cap steps, calls, repeat
+  size, nesting, booleans, variables and expression size. A boolean's survivor
+  stays addressable when every input is the program's own. A test checks every
+  emitted call against the real tools' schemas.
+
+- **A `clay_render` compare now scores the silhouette against the reference.**
+  The header gains `silhouette`: `iou`, both masks' aspect ratios and their
+  error, and whether the reference mask came from alpha or a flood fill. The
+  render mask is a private object-id pass at the compare size. Some cases have
+  nothing meaningful to measure: a flood fill that leaks, a mask covering more
+  than 98 % of the frame, or an empty subject. Those give `iou: null` with a
+  reason, and the picture still comes back. The mask maths moved out of
+  `bench.metrics.silhouette_iou` into mask-level functions it now delegates to.
+  A parity test holds the two paths together. Nothing runs inference.
+
+- **`clay_render` takes a `shading`: `unlit` (the default, unchanged), `lit`,
+  `wireframe`, `wire_overlay`, `xray` or `object_id`.** `lit` shows form that the
+  unlit albedo picture flattens. `object_id` paints each object one flat colour
+  and adds an `ids` table to the header, `[uid, "#rrggbb", pixels]`, where a zero
+  pixel count means that view can't see the object. Several views share one map
+  and sum their pixel counts. `object_id` is refused with `grid` or `compare`.
+  Two fixes came with it. A `compare` over 1,024 px is now refused rather than
+  silently clamped, as the tool's own description always promised. A compare
+  sheet now also goes through the reply-frame size check, which it used to skip.
+  The Trellis send-to-3D render is untouched.
+
+- **An agent can measure a Clay scene with `clay_analyze`.** For each object it
+  reports exact world bounds, area, volume (for closed meshes), connected
+  components, how the object meets the ground, and per-axis mirror symmetry. For
+  each nearby pair it reports distance, whether they intersect or touch, and how
+  much closed meshes overlap. A whole-document call also lists what is floating.
+  The bounds are exact, so under rotation they are tighter than `clay_scene`'s
+  conservative box. It is read-only and batchable, and unlike `clay_diagnose` it
+  reports facts rather than defects and never selects anything. Caps (64
+  objects, 200,000 triangles, 16 overlap booleans) refuse or truncate, and a
+  maximal call joins `clay_boolean` among the accepted stalls. A six-object
+  kitbash measured about 10 ms. The tool catalogue changes again, so the
+  Clay-assistant dataset's manifest hash still refuses.
+
+- **Clay can align, distribute, drop to ground and snap to grid.** Four new
+  object-mode rows act on the selection, and each gesture is one undo step. Align
+  lines objects up on their world bounds rather than their origins, so boxes of
+  different sizes share a visible centre. Distribute needs three or more objects
+  and leaves equal gaps between their edges. Drop to ground rests each object's
+  world-box bottom on y=0. Snap to grid rounds translations to a step. The box
+  maths is Mason's, reached through a lazy import rather than copied. Agents get
+  the rows through `clay_op`, whose options derive from the op list. The tool
+  catalogue changes, so the Clay-assistant dataset's manifest hash will now
+  refuse; that dataset is regenerated under its own plan, not here.
+
+- **A 2026-07-28 client that declares the MCP Tasks extension gets a task
+  handle instead of holding a thirty-second wait.** A client declaring
+  `io.modelcontextprotocol/tasks` has its `tools/call` answered at once with a
+  task. It polls `tasks/get` for `working`, `completed`, `failed` or
+  `cancelled`, and a slow boolean or export no longer hits `CALL_TIMEOUT`,
+  because a task-mode call is exempt from it. Where work runs is unchanged: the
+  frame thread, synchronously. `tasks/cancel` can only stop a call that has not
+  started. `tasks/update` is refused, since no tool asks for input mid-run, and
+  `tasks/list` is refused rather than answered with an empty list while tasks
+  exist. A client that does not declare the extension, and every
+  `initialize`-era client, keeps the ordinary synchronous result; the 2025-11-25
+  draft's experimental tasks are deliberately not implemented. Other rules: a
+  working task is never evicted from the remembered-call store, a finished
+  result is held until first fetched, task calls do not take part in retry
+  deduplication, and the transcript records a task once. The result nesting
+  follows the extension's prose, which gives no worked JSON example, so it is
+  the part most likely to need adjusting against a real client.
+
+- **An agent can read Clay's scene, last render and registries as MCP
+  resources, and start from four prompts.** Resources:
+  `warlock://clay/scene`, `warlock://clay/render/last`,
+  `warlock://clay/conventions` (the instructions text, for a 2026-07-28 client
+  that skips `server/discover`), `warlock://clay/generators` and
+  `warlock://clay/operations`. The last two are derived from the generator and
+  operation registries with their parameter metadata, never hand-listed. The
+  two per-session reads go through the frame queue like a tool call, carry
+  `cacheScope: "private"` and `ttlMs: 0`, and keep only the session's latest
+  render in memory. The static three ride in `mcp.catalogue.json`, so they
+  answer with the app closed. Prompts: `model_from_description`,
+  `model_from_reference`, `repair_mesh` and `prepare_for_export`; a test proves
+  every tool name their text mentions exists. A missing resource is -32002 to
+  an `initialize` client and -32602 to a 2026-07-28 one. The Clay-assistant
+  dataset is not regenerated for the larger catalogue.
+
+- **The app no longer speaks MCP at all; `warlock mcp` is the only MCP
+  server.** Once a real Claude Code client had passed all four live checks
+  through the new bridge (the tool list, a render, starting before the app, and
+  losing the app mid-boolean), the old path went: the app's own JSON-RPC
+  dispatcher, the zero-length frame it sent for a notification, and the
+  `WARLOCK_MCP_RELAY=1` escape hatch. A connection that opens with bare MCP now
+  gets `bad_request` and is closed. A test walks every `warlock.studio` module,
+  lazy imports included, and fails if one imports `warlock.mcp.protocol`, so MCP
+  revisions stay the bridge's business. Found while measuring the change: since
+  the catalogue-hash fix, every call rebuilt and hashed the whole tool catalogue,
+  0.42 ms each, which pushed the fifty-object `clay_scene` round trip to 6.7 ms
+  against a 6.1 ms allowance. A connection now reuses the hash it last served,
+  and the median is back to 5.9 ms.
+
+- **`warlock mcp` can start before the app, and losing the app mid-call
+  doesn't kill the bridge.** If the app is not running, the bridge answers
+  discovery and `tools/list` from `mcp.catalogue.json`, the tool list the app
+  saved when agents were last switched on. It connects on the first tool call,
+  and until the app is reachable that call is a refusal saying how to switch
+  agents on. Before this, the bridge exited and the client showed a dead server.
+  An app that closes mid-call, or a call that overruns the backstop, now gets
+  "may or may not have happened; re-read `clay_scene`", and nothing retries,
+  because a blind retry could build the same edit twice. The next call
+  reconnects, and a reconnect is a new document, which the agent instructions
+  now say. Found while probing the bridge against a live app: the RPC `call`
+  reply hashed the tool's *result* where the bridge expected the catalogue's
+  hash, so every ordinary call pushed `notifications/tools/list_changed`.
+  `test_two_ordinary_calls_over_a_real_subprocess_emit_no_spurious_list_changed`
+  fails against the old reply. The Clay-assistant dataset's manifest hash no
+  longer matches the instructions, and that is expected: the dataset is not
+  regenerated here.
+
+- **`warlock mcp` is the MCP server now, not a relay, and it speaks both
+  eras of the protocol.** It used to copy stdio bytes to the app and back, so
+  every MCP revision the app did not understand was refused inside the app.
+  The bridge now answers MCP itself: `initialize` for 2025-11-25, 2025-06-18,
+  2025-03-26 and 2024-11-05, and `server/discover` with per-request `_meta`
+  versions (-32022 for one it does not serve) for 2026-07-28. The app behind
+  it only runs tools, over the private RPC. A tool result is spliced into its
+  envelope as bytes and never re-parsed, so an 8 MB render costs no second
+  `json.loads`; the round trip measures inside the 2026-09-10 figures plus
+  0.5 ms. Two defects closed on the way. A 2025-03-26 batch array was advertised
+  and then refused as a parse error. And the relay read a stdin line with no
+  bound at all; a line over `MAX_FRAME` is now refused and the connection
+  carries on. `WARLOCK_MCP_RELAY=1` brings the old relay back if a client
+  misbehaves with the new server.
+
+- **A call refused because agents were switched off stops appearing in the
+  benchmark transcript as a call that ran.** Switching the agent toggle off
+  while a call waited in the frame queue answered it "switched off" without ever
+  running it — correctly — and then recorded it into `WARLOCK_AGENT_TRANSCRIPT`
+  as completed, so a replay would try to rebuild an edit that never happened. A
+  dropped job is now delivered and not recorded;
+  `test_a_switched_off_refusal_for_a_job_that_never_ran_is_absent_from_the_transcript`
+  failed against the old guard. Alongside it, and invisible to an agent today:
+  the Studio end of the pipe also answers a private, versioned RPC (a `hello`, a
+  `catalogue` and a `call`, replies spliced rather than re-parsed) and writes
+  `mcp.catalogue.json` into the Warlock home at start. It is groundwork for the
+  `warlock mcp` bridge serving MCP itself, both the 2026-07-28 revision and the
+  four older ones; nothing speaks it yet.
+
 ## 0.0.46 — 2026-09-12
 
-**Familiar can now actually run.** Settings → Models grows a *Familiar*
-heading with three rows — the llama.cpp runtime split across two downloads the
-way upstream ships it, and a testing pin of the base Gemma 4 E2B model (the
-Clay-assistant fine-tune replaces it later) — and the app can spawn and stop
-`llama-server.exe` behind them: loopback only, offline, keyed by a file rather
-than a command-line argument nobody else's process can read. It never shares
-the card with a real job — a queued GPU job kills Familiar first and it comes
-back on your next message — and an idle Familiar is stopped the same way
-trellis-server is. There is still no chat UI; this is the engine underneath it
-starting to exist.
-
-**Groundwork for Familiar.** The plumbing an external agent already used to
-drive Clay over the pipe now works for Warlock's own built-in assistant too,
-with no pipe involved: Familiar keeps working while Settings' agent-server
-switch is off, and switching that pipe off never drops a call Familiar has
-in flight. Nothing user-visible yet — there is still nothing to install.
-
-**Familiar can now try an edit before committing to it.** Under the hood:
-Familiar runs an agent's Clay tool calls against a private scratch copy of
-the document first, and only writes them onto the one you're looking at when
-you say Apply — Discard leaves your document exactly as it was, byte for
-byte. Still nothing to see in the app yet; the preview itself draws next.
-
-**Status moves into the menu bar.** The status bar at the foot of the window is
-gone. Its readouts (workspace, document, tool, zoom, queue, health) now sit
-right-aligned in the top menu bar, which drops the lowest-priority ones first
-when a mode's menus need the room — the resource meter, then zoom, tool,
-document and queue — and never drops health. The foot of the window is now a
-single `✦ Familiar isn't installed — Install…` row, where Familiar, the
-built-in assistant, will live; there is nothing to install yet. Toasts, the
-progress card, the frame-rate meter and the tour card sit above that row.
-
-**The 2026-09-13 audit's first fixes.** A refused Inker op from the keyboard
-(Shift+H on a tile layer that does not divide the canvas) now toasts instead of
-ending the session. Repeat Last Export keeps a per-tag or per-layer split.
-Regenerate in Flourish rewrites its tags. A palette past 256 colours is
-refused rather than freezing Convert, and an animated `.aseprite` has a decoded
-pixel budget. Quitting now warns during a library export or an update
-download. Leaving Muse stops its audition, leaving Plotter mid-drag closes the
-edit, and an unsent inspector rename survives a mode switch. Empty trash's
-figure excludes the jobs it will keep. Placing a Clay primitive in an element
-mode no longer steals the Properties selection, X-ray reaches faces behind a
-surface, and Merge Objects has a size ceiling. Poser clears a stale Re-rig
-picker when you open another asset, refuses a clip library too large to read
-back, and measures joints from the mesh's own floor. Muse's Repaint and loop
-sliders reach the whole take, and a one-sample crossfade is no longer
-counted as a fix. Sprite, tile-sheet, pixel-sheet and LoRA jobs check the
-image-generation pack at submit. "% on palette" weighs pixels, not colours.
-Seventeen manual passages that described the wrong label, count or step are
-corrected.
-
-**Three stalls measured and removed.** Select Linked (L) in Clay took 11 s
-on a 200k-vertex import made of long thin strips; it is now a SciPy
-connected-components pass and returns the same selection in milliseconds.
-Proportional editing's nearest-selected-vertex search is a KD-tree instead of
-a brute-force broadcast, about 20 times faster at the old limit, and the limit
-is now 300,000 mesh vertices rather than a selected-times-vertices product —
-which had silently turned a 201-vertex selection on a 200k import into a hard
-drag. Distances now agree with the old search to 1e-9 rather than bit for bit.
-Flourish's textured particles and sprites no longer allocate a whole frame per
-stamp: 400 textured particles fell from 1.9 s to about 30 ms a frame, with
-identical pixels. The numbers are in
-`docs/measurements/2026-09-13-native-batch-10-candidates.md`.
-
-**The rest of the 2026-09-13 audit.** Mason's light, camera and terrain fields
-undo as one step rather than one per keystroke, and a scene of deeply nested
-prefabs is refused everywhere it is walked, not only on open. Plotter picks a
-spawn point where its marker is drawn at any zoom, and refuses a malformed
-text, layer, background or Wang colour when the file is read instead of
-failing at export. Inker's Merge down and palette Remove say why they refused
-instead of doing nothing. Sirens no longer re-encodes the whole song for a
-preview it is about to refuse, and a song file naming one instrument twice is
-refused rather than playing the wrong one. A Clay lathe, sweep or tube has a
-length cap, a Packwright document has a total pixel budget, and the model
-viewer charges skin-weight copies and refuses a texture that runs past its
-buffer. After a rig job an image job is no longer refused for VRAM it has; a
-failed TRELLIS restart is not recorded as applied; cancelling a sprite sheet
-stops before the render. A malformed request document refuses instead of
-crashing, a bare-string reference is no longer split into characters, a
-zero-byte background-removal weight falls back to automatic, and a directory
-left where a weight file belongs no longer counts as installed. Muse names the Music pack when it is
-missing instead of reporting a child process that exited. Keep both on a
-stale export plan refuses cleanly, Health no longer reports a lock it does not
-hold, Numpad Enter advances the tour, and a running tile sheet shows greyed
-Plotter and Packwright buttons rather than none.
-
-**Poser can edit a rigged mesh's skeleton.** On an opened asset, Edit skeleton
-enters a draft mode. You can move pivots, add a child bone or split one, delete
-a pivot (its children move up to its parent) or a whole limb, rename bones, and
-attach preset limbs (arm, leg, tail, wing, antenna), optionally mirrored.
-Mirror edits moves a paired bone's partner too. Every change is one undo step,
-and the draft survives a crash. Apply queues the ordinary rig job, which
-rebuilds and reweights the mesh in Blender. `rig.json` records
-`skeleton: "custom"` and keeps `template` naming the base it came from. The
-cap is 64 bones, the viewer's joint limit. A new rig deletes pose bakes and
-`animated.glb` made against the old one, which a joint adjustment used to leave
-behind. Template clips skip bones a custom skeleton lacks, and Send to Troupe
-says how many.
-
-**Clay's grid is 100 m by default, with 1 m cells, and you can set its size.**
-Overlays has a Size field (1–1000 m), and the setting is remembered along with
-the grid toggle. F no longer shrinks the grid to the selection, and the camera's
-far plane now reaches the grid's edge. Overlays also has a new God light: a
-light straight down from 100 m overhead onto a ground plane under the grid (no
-shadows). Position and scale fields carry X/Y/Z labels above each box, and
-rotation, still a quaternion, carries X/Y/Z/W.
-
-**Send to Troupe takes a custom sprite size.** Besides the 16–128 ladder, the
-size can be any whole number from 8 to 256 px, in the send dialog and in
-Troupe's own form. Sizes that don't divide 512 are resized with
-nearest-neighbour, and both places say so.
-
-**Settings and Home are tidier.** Settings → Health puts its actions first,
-renamed Detail Log, Health Checks and Troubleshooting, and lists checks as a
-Status / Check / Detail table. Settings' section rail and body are padded, a
-hairline divides them, and the rail's (?) button is no longer clipped: every
-help button was placed 4 dp too far right. Home's two columns are padded,
-bordered and rounded.
-
-**A re-rig no longer leaves a stale `animated.glb` stuck forever.** Applying a
-skeleton edit deletes the animated export so it rebuilds against the new
-skeleton, but a bake already running when the edit landed could still publish
-a file built from the old skeleton, and because only the clip library was
-fingerprinted, nothing ever asked for it again — the stamp still matched, so
-it looked fresh for the life of the job. The animated export's freshness
-stamp now records the rig it was baked from too, so the very next request
-notices the mismatch and rebakes once.
-
-**Poser hides clip import during a skeleton edit, the same as every other
-clip control.** Import clip… stayed live and clickable while a skeleton
-draft was open, even though the rest of the Clips section is hidden because
-it all reads or writes the pose a draft holds at rest throughout. The button
-now disables with "Apply or cancel the skeleton edit first." and the Import
-report stays hidden too.
-
-**An agent can take a character from a species name to rigged, animated
-sprite sheets and engine exports.** The agent surface used to reach one Clay
-tab and nothing else. Ten `character_*` tools now let it list species, clips
-and Library assets, create a character from a prompt or a family, rig a mesh,
-queue a sheet, poll jobs, preview a sheet as an image, export the animated GLB,
-a Godot scene, frame folders or a sheet package, and cancel what it started. It
-also gets a `warlock://character/vocabulary` resource, per-sheet sidecar and
-atlas resources, and a `character_sheets_from_description` prompt. The scope
-is additive: an agent reads any Library row by id but only adds rows and
-derived files, never re-rigs, deletes, reruns, edits clips or touches an open
-document, accepts no paths, and exports only into the configured folder, under
-a name built from the asset's own ids, so an agent's export can never replace
-one it did not make. It can cancel only jobs it started on the same connection,
-including the sheet a rig it asked for queues afterwards. It still starts no model —
-species come from the procedural family registry, and an import pin keeps
-text-to-image and mesh reconstruction out of reach. So "swamp knight" builds a
-knight and says the knight has no swamp look, rather than inventing one. There
-are no named animation sets; the movements list is the set. A sheet's size
-takes any whole pixel value in Troupe's 8–256 px custom range, not just the
-preset ladder, matching the send dialog and Troupe's own form. Character calls run
-on an agent-owned two-worker task lane, never the frame thread and never the
-listener, and switching the server off shuts that lane down without waiting,
-because a timed shutdown kills every tracked child process in the app. The
-tool catalogue grows, so the Clay-assistant dataset's manifest hash will now
-refuse; that dataset is regenerated under its own plan. TODO P43 records the
-larger catalogue as a dated addendum.
-
-**Sending a mesh to Troupe while its rig is still running no longer queues a
-second rig.** The unrigged path minted a new rig row every time, and the later
-rig overwrote the earlier one's `rig.glb` under whatever sheet was waiting on
-it. It is refused now while a rig for that mesh is in flight.
-
-**`resources/templates/list` answers under the key the MCP specification
-names.** It returned `templates`, which no conforming client reads, instead of
-`resourceTemplates`.
-
-**A character named after a Windows device exports under its id.** A name like
-`CON` or `COM1` made the sheet package write `CON.png`, which Windows treats as
-a device rather than a file.
-
-**Create no longer fills in a look the species does not have.** A prompt such
-as "swamp knight" copied the swamp theme onto a knight, which offers only
-natural and blackened, so the character was then refused on the look. The
-prompt's action words also now understand hit, death, cast, fall and a second
-attack.
-
-**A character can hit, die, cast, fall and attack twice, not just the five
-movements it has always had.** One table, `charsheet.ANIMATIONS`, owned both
-the names a character could perform and their timing, so Troupe refused any
-movement outside idle, walk, run, attack and jump, and `animated.glb` baked any
-other clip at a guessed 100 ms a frame. Timing now lives in the clip library
-itself (schema v3: a per-clip `duration_ms`, and a closed clip loops), and a
-sheet may name any clip its rig's skeleton defines. Every shipped skeleton —
-humanoid, quadruped, bird and blob — gains `attack_02`, `cast`, `fall`, `hit`
-and `death`, each marked provisional: placeholder keyframes an animator's pass
-still owes (TODO P8 lists them). Nothing stored changes meaning. A v2 library
-reads with the old table's timing, and a sheet that uses only the original five
-at their original timing still writes a version-2 layout, byte for byte what it
-wrote before — `docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`
-records the migration and why. A user's saved clip library still wins whole, so
-it shows the new clips only after **Revert to shipped clips**.
-
-**Troupe sheets can be HD and played at a chosen frame rate.**
-**Style** switches between pixel art and HD, which keeps full colour and soft
-edges and skips palette reduction entirely. At 256 px — the top of the custom
-8–256 px range Send to Troupe already offers — five movements in eight
-directions exactly fill the 8192 px atlas ceiling, and a sixth is refused on
-the movement table. **Frame rate** is either Authored (each clip's own frame
-time) or one rate for every movement, and a fixed rate rescales each
-movement's default frame count so a walk keeps its real length. A default
-pixel-art sheet's row carries no new key.
-
-**An animated GLB now picks up clip edits instead of staying at whatever it was
-first baked with.** `animated.glb` treated existence as freshness, so a clip
-edited in Poser, or a clip newly shipped for its skeleton, never reached a file
-that already existed. The bake now stamps the clip library's digest into the
-file, captured before Blender starts so a save landing mid-bake cannot mark old
-motion fresh, and a request whose digest differs rebuilds it.
-
-**Export for Godot writes a scene beside the character.** The inspector's
-**Export for Godot...** writes a folder holding a copy of the animated GLB whose
-looping clips are named `-loop`, and a Godot 4 `.tscn` instancing it with an
-AnimationTree: idle, walk and run blended on one axis, attack, attack_02, cast
-and jump into fall, and hit and death reachable from every state. Godot's
-importer both loops a `-loop` clip and renames it back to its plain name, read
-from its own `resource_importer_scene.cpp`, so the state machine plays `idle`,
-not `idle-loop`. The served `animated.glb` is never renamed. No Godot exists on
-this machine; TODO P50 is the sitting that opens one.
-
-**Export frames writes a sprite sheet out as folders an engine can read.**
-Troupe's **Export frames...** writes one PNG per frame under clip and compass
-folders — S is the character facing you, W its left profile, derived from the
-camera arithmetic rather than a docstring that had the orbit direction backwards
-— plus a `manifest.json` of frame size, loops, frame times and rates. The
-folder lands whole or not at all.
-
-**Poser can import a Mixamo or Rigify animation as a clip.** **Import clip**
-reads an FBX or glTF in Blender, which only samples each bone's world rotation;
-the conversion onto a Warlock skeleton is pure host maths, measuring the
-source's facing from its legs rather than assuming it and correcting a T-pose
-rest onto the A-pose. The result joins the working copy, never the file, until
-**Save clips**, and never overwrites an existing pose name. Only humanoid maps
-ship. TODO P51 is the sitting that judges a real Mixamo walk.
-
-**Poser shows each clip's frame time and says which clips are placeholders.**
-**Frame time (ms)** edits a clip's frame length in 10 ms steps beside the rate
-it amounts to, and provisional clips carry a muted badge.
-
-**Revert to shipped clips now works while there are unsaved edits.** Reverting
-submitted under the save task's key without recording the edit it was asked
-against, so the landing's "is this stale?" check saw unsaved edits and silently
-discarded the reverted library — exactly the one situation Revert exists for.
-`test_a_revert_asked_with_unsaved_edits_is_adopted_when_it_lands` pins it.
-
-**A clip library that will not parse is refused, not shown as the shipped
-clips.** A user's library that failed to parse was skipped with a log line, and
-Poser then presented the shipped clips as the user's edited ones, so the next
-Save overwrote the user's file. It is refused on the skeleton now.
-
-**`clay_program` runs relative steps and checks its own work.** `move`, `turn`
-and `scale_by` read an object's transform as it stands at that point in the
-program, then set the composed value through `clay_transform`. They also work
-on a group, and the program stays one undo step. `assert` evaluates a condition
-at run time over facts about the scene:
-- `lo`, `hi`, `size` and `center` of an object on an axis, from the same box
-  `clay_scene` reports;
-- `count` for a group and `exists` for a name;
-- `touches`, `grounded`, `floating` and `volume`, from `clay_analyze`'s pure
-  analysis.
-
-A false assert rolls the whole program back and names its step path. An
-unknown fact or id is refused at compile time. Ids appear in a condition as
-bare names, and only as a fact's argument, so the no-eval guarantee holds.
-
-**An agent can build a whole assembly in one call with `clay_program`.** A
-program's steps compile to tool calls that run on the frame thread as a single
-undo step labelled "Agent program". A program is all or nothing: if any call
-refuses, everything rolls back, no step is pushed, the prior selection comes
-back, and the result names where it stopped and nests the failing tool's reply.
-A dry run executes and then undoes itself, so the scene and its dirty flag are
-unchanged. With no document open, a dry run only compiles and never opens a
-tab. A program must start in object mode and has a four-second deadline,
-checked between calls, that rolls back and says to split it. A maximal program
-is recorded as an accepted one-shot stall. `clay_batch`'s run loop is now
-shared with it, and `clay_program` can't appear inside a batch. A new
-transcript test walks the program grammar's uid-bearing keys, so object
-schemas the gate couldn't see into are covered. The catalogue grew to about
-52,500 characters, and the Clay-assistant manifest hash still refuses.
-
-**Clay programs have a compiler, though no tool publishes it yet.**
-`studio/agent_program.py` turns a program into a validated list of tool calls.
-A program is variables plus steps: add, figure, mesh, transform, params,
-material, delete, op, boolean, repeat, array, mirror, group, let and if. Its
-numeric fields take expressions in a small parsed language with degree trig
-and a dozen functions. It never uses `eval`, so an `__import__` string is
-refused as a bad token. Each refusal names its exact path, for example
-`steps[3].repeat.steps[1].add.translation[0]`. Limits cap steps, calls, repeat
-size, nesting, booleans, variables and expression size. A boolean's survivor
-stays addressable when every input is the program's own. A test checks every
-emitted call against the real tools' schemas.
-
-**A `clay_render` compare now scores the silhouette against the reference.**
-The header gains `silhouette`: `iou`, both masks' aspect ratios and their
-error, and whether the reference mask came from alpha or a flood fill. The
-render mask is a private object-id pass at the compare size. Some cases have
-nothing meaningful to measure: a flood fill that leaks, a mask covering more
-than 98 % of the frame, or an empty subject. Those give `iou: null` with a
-reason, and the picture still comes back. The mask maths moved out of
-`bench.metrics.silhouette_iou` into mask-level functions it now delegates to.
-A parity test holds the two paths together. Nothing runs inference.
-
-**`clay_render` takes a `shading`: `unlit` (the default, unchanged), `lit`,
-`wireframe`, `wire_overlay`, `xray` or `object_id`.** `lit` shows form that the
-unlit albedo picture flattens. `object_id` paints each object one flat colour
-and adds an `ids` table to the header, `[uid, "#rrggbb", pixels]`, where a zero
-pixel count means that view can't see the object. Several views share one map
-and sum their pixel counts. `object_id` is refused with `grid` or `compare`.
-Two fixes came with it. A `compare` over 1,024 px is now refused rather than
-silently clamped, as the tool's own description always promised. A compare
-sheet now also goes through the reply-frame size check, which it used to skip.
-The Trellis send-to-3D render is untouched.
-
-**An agent can measure a Clay scene with `clay_analyze`.** For each object it
-reports exact world bounds, area, volume (for closed meshes), connected
-components, how the object meets the ground, and per-axis mirror symmetry. For
-each nearby pair it reports distance, whether they intersect or touch, and how
-much closed meshes overlap. A whole-document call also lists what is floating.
-The bounds are exact, so under rotation they are tighter than `clay_scene`'s
-conservative box. It is read-only and batchable, and unlike `clay_diagnose` it
-reports facts rather than defects and never selects anything. Caps (64
-objects, 200,000 triangles, 16 overlap booleans) refuse or truncate, and a
-maximal call joins `clay_boolean` among the accepted stalls. A six-object
-kitbash measured about 10 ms. The tool catalogue changes again, so the
-Clay-assistant dataset's manifest hash still refuses.
-
-**Clay can align, distribute, drop to ground and snap to grid.** Four new
-object-mode rows act on the selection, and each gesture is one undo step. Align
-lines objects up on their world bounds rather than their origins, so boxes of
-different sizes share a visible centre. Distribute needs three or more objects
-and leaves equal gaps between their edges. Drop to ground rests each object's
-world-box bottom on y=0. Snap to grid rounds translations to a step. The box
-maths is Mason's, reached through a lazy import rather than copied. Agents get
-the rows through `clay_op`, whose options derive from the op list. The tool
-catalogue changes, so the Clay-assistant dataset's manifest hash will now
-refuse; that dataset is regenerated under its own plan, not here.
-
-**A 2026-07-28 client that declares the MCP Tasks extension gets a task
-handle instead of holding a thirty-second wait.** A client declaring
-`io.modelcontextprotocol/tasks` has its `tools/call` answered at once with a
-task. It polls `tasks/get` for `working`, `completed`, `failed` or
-`cancelled`, and a slow boolean or export no longer hits `CALL_TIMEOUT`,
-because a task-mode call is exempt from it. Where work runs is unchanged: the
-frame thread, synchronously. `tasks/cancel` can only stop a call that has not
-started. `tasks/update` is refused, since no tool asks for input mid-run, and
-`tasks/list` is refused rather than answered with an empty list while tasks
-exist. A client that does not declare the extension, and every
-`initialize`-era client, keeps the ordinary synchronous result; the 2025-11-25
-draft's experimental tasks are deliberately not implemented. Other rules: a
-working task is never evicted from the remembered-call store, a finished
-result is held until first fetched, task calls do not take part in retry
-deduplication, and the transcript records a task once. The result nesting
-follows the extension's prose, which gives no worked JSON example, so it is
-the part most likely to need adjusting against a real client.
-
-**An agent can read Clay's scene, last render and registries as MCP
-resources, and start from four prompts.** Resources:
-`warlock://clay/scene`, `warlock://clay/render/last`,
-`warlock://clay/conventions` (the instructions text, for a 2026-07-28 client
-that skips `server/discover`), `warlock://clay/generators` and
-`warlock://clay/operations`. The last two are derived from the generator and
-operation registries with their parameter metadata, never hand-listed. The
-two per-session reads go through the frame queue like a tool call, carry
-`cacheScope: "private"` and `ttlMs: 0`, and keep only the session's latest
-render in memory. The static three ride in `mcp.catalogue.json`, so they
-answer with the app closed. Prompts: `model_from_description`,
-`model_from_reference`, `repair_mesh` and `prepare_for_export`; a test proves
-every tool name their text mentions exists. A missing resource is -32002 to
-an `initialize` client and -32602 to a 2026-07-28 one. The Clay-assistant
-dataset is not regenerated for the larger catalogue.
-
-**The app no longer speaks MCP at all; `warlock mcp` is the only MCP
-server.** Once a real Claude Code client had passed all four live checks
-through the new bridge (the tool list, a render, starting before the app, and
-losing the app mid-boolean), the old path went: the app's own JSON-RPC
-dispatcher, the zero-length frame it sent for a notification, and the
-`WARLOCK_MCP_RELAY=1` escape hatch. A connection that opens with bare MCP now
-gets `bad_request` and is closed. A test walks every `warlock.studio` module,
-lazy imports included, and fails if one imports `warlock.mcp.protocol`, so MCP
-revisions stay the bridge's business. Found while measuring the change: since
-the catalogue-hash fix, every call rebuilt and hashed the whole tool catalogue,
-0.42 ms each, which pushed the fifty-object `clay_scene` round trip to 6.7 ms
-against a 6.1 ms allowance. A connection now reuses the hash it last served,
-and the median is back to 5.9 ms.
-
-**`warlock mcp` can start before the app, and losing the app mid-call
-doesn't kill the bridge.** If the app is not running, the bridge answers
-discovery and `tools/list` from `mcp.catalogue.json`, the tool list the app
-saved when agents were last switched on. It connects on the first tool call,
-and until the app is reachable that call is a refusal saying how to switch
-agents on. Before this, the bridge exited and the client showed a dead server.
-An app that closes mid-call, or a call that overruns the backstop, now gets
-"may or may not have happened; re-read `clay_scene`", and nothing retries,
-because a blind retry could build the same edit twice. The next call
-reconnects, and a reconnect is a new document, which the agent instructions
-now say. Found while probing the bridge against a live app: the RPC `call`
-reply hashed the tool's *result* where the bridge expected the catalogue's
-hash, so every ordinary call pushed `notifications/tools/list_changed`.
-`test_two_ordinary_calls_over_a_real_subprocess_emit_no_spurious_list_changed`
-fails against the old reply. The Clay-assistant dataset's manifest hash no
-longer matches the instructions, and that is expected: the dataset is not
-regenerated here.
-
-**`warlock mcp` is the MCP server now, not a relay, and it speaks both
-eras of the protocol.** It used to copy stdio bytes to the app and back, so
-every MCP revision the app did not understand was refused inside the app.
-The bridge now answers MCP itself: `initialize` for 2025-11-25, 2025-06-18,
-2025-03-26 and 2024-11-05, and `server/discover` with per-request `_meta`
-versions (-32022 for one it does not serve) for 2026-07-28. The app behind
-it only runs tools, over the private RPC. A tool result is spliced into its
-envelope as bytes and never re-parsed, so an 8 MB render costs no second
-`json.loads`; the round trip measures inside the 2026-09-10 figures plus
-0.5 ms. Two defects closed on the way. A 2025-03-26 batch array was advertised
-and then refused as a parse error. And the relay read a stdin line with no
-bound at all; a line over `MAX_FRAME` is now refused and the connection
-carries on. `WARLOCK_MCP_RELAY=1` brings the old relay back if a client
-misbehaves with the new server.
-
-**A call refused because agents were switched off stops appearing in the
-benchmark transcript as a call that ran.** Switching the agent toggle off
-while a call waited in the frame queue answered it "switched off" without ever
-running it — correctly — and then recorded it into `WARLOCK_AGENT_TRANSCRIPT`
-as completed, so a replay would try to rebuild an edit that never happened. A
-dropped job is now delivered and not recorded;
-`test_a_switched_off_refusal_for_a_job_that_never_ran_is_absent_from_the_transcript`
-failed against the old guard. Alongside it, and invisible to an agent today:
-the Studio end of the pipe also answers a private, versioned RPC (a `hello`, a
-`catalogue` and a `call`, replies spliced rather than re-parsed) and writes
-`mcp.catalogue.json` into the Warlock home at start. It is groundwork for the
-`warlock mcp` bridge serving MCP itself, both the 2026-07-28 revision and the
-four older ones; nothing speaks it yet.
-
-**An agent building in Clay over the pipe gets refusals it can act on where it
-used to get a crash.** Three defects, all found by one authoring session on
-2026-09-12 rather than by a test, and all in the surface an external agent
-drives: the tool call that crashed instead of refusing, the op that quietly did
-half of what it looked like it did, and the wrong colour nothing would tell you
-about. None of them is reachable from the app's own panels, so a person
-modelling by hand saw none of them — which is the argument for judging a
-machine surface by driving it, not by reading its tests.
+- **An agent building in Clay over the pipe gets refusals it can act on where it
+  used to get a crash.** Three defects, all found by one authoring session on
+  2026-09-12 rather than by a test, and all in the surface an external agent
+  drives: the tool call that crashed instead of refusing, the op that quietly did
+  half of what it looked like it did, and the wrong colour nothing would tell you
+  about. None of them is reachable from the app's own panels, so a person
+  modelling by hand saw none of them — which is the argument for judging a
+  machine surface by driving it, not by reading its tests.
 
 - **Asking for a shape with the wrong kind of number is refused by name
   instead of taking the call down.** A pyramid given three numbers for its

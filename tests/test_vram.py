@@ -565,7 +565,7 @@ def test_the_spawn_scan_still_sees_the_call_sites_it_is_guarding():
     That is the ``PUBLISHERS`` failure this codebase already names, and it is
     the specific risk of moving an enforcement from text to AST: a matcher
     typo turns the gate into a no-op that reports success. Pin the floor at
-    the eight live ``Popen`` sites as of 2026-09-12.
+    the nine live ``Popen`` sites as of 2026-09-14.
     """
     spawning = {rel for rel, tree in _scanned_modules() if _spawn_sites(tree)}
     expected = {

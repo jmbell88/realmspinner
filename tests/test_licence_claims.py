@@ -68,7 +68,7 @@ def _license_bearing_classes() -> set[str]:
     }
 
 
-def test_registry_walk_finds_the_ten_classes_the_finding_named():
+def test_registry_walk_finds_the_registry_classes_the_finding_named():
     # Pins the shape docs-03 was filed against, so a silent change in
     # models.py's registry count is visible here rather than only as a
     # confusing failure in the paragraph-matching test below.
@@ -124,7 +124,7 @@ def _between(text: str, start_marker: str, end_marker: str) -> str:
 
 
 def test_notices_paragraph_names_exactly_the_ten_registry_classes():
-    """The paragraph must enumerate all ten classes it is talking about.
+    """The paragraph must enumerate every registry class it is talking about.
 
     Catches the "on every entry" phrasing docs-03 flagged: a paragraph that
     never names which classes it means can claim anything about "every

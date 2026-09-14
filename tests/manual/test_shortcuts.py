@@ -1,8 +1,8 @@
-"""Chapter 16 and the Ctrl+/ sheet have to agree.
+"""Chapter 39 and the Ctrl+/ sheet have to agree.
 
 ``tests/manual/`` gates the manual's *structure* -- the chapter list, links,
 anchors, help-button parity, line length -- and nothing that reads a chapter's
-claims against the app. That gap is how chapter 16 came to open by telling the
+claims against the app. That gap is how chapter 39 came to open by telling the
 reader to press a **?** button in a top bar that chapter 1 says does not
 exist, and how the in-app sheet came to list "F1 -- Switch to the Manual"
 three waves after F1 stopped switching to anything.

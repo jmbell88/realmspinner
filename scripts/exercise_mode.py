@@ -28,11 +28,12 @@ Needs a real window -- it draws on screen. Must not run while ``pytest`` is
 running: several tests read module source, and ``src/`` must not move under
 them.
 
-Run against a throwaway home, all three variables, because ``WARLOCK_DATA_DIR``
-alone does not move the sqlite store::
+``scripts/_appharness.py`` makes its own throwaway home at import now, so there
+is nothing to set for that -- setting ``WARLOCK_HOME`` yourself turns that
+isolation off and points the run at whatever home it names, throwaway or not.
+``WARLOCK_UI_PROBE=1`` is still required: without it the census is empty::
 
-    WARLOCK_HOME=... WARLOCK_DATA_DIR=... WARLOCK_DB=... WARLOCK_UI_PROBE=1
-        uv run python scripts/exercise_mode.py --mode inker --out <dir>
+    WARLOCK_UI_PROBE=1 uv run python scripts/exercise_mode.py --mode inker --out <dir>
 """
 
 from __future__ import annotations
@@ -533,8 +534,8 @@ def exercise(
     # against (no weights downloaded into it) rather than of the mode under
     # test, and it is a full-width strip across the top of every pane -- so
     # leaving it up makes the baseline image disagree with every later one by
-    # its own height, and the pixel signal stops meaning anything. Its two
-    # buttons are global, not this mode's; the report says they were skipped.
+    # its own height, and the pixel signal stops meaning anything. Its one
+    # Dismiss button is global, not this mode's; the report says it was skipped.
     ctx.state.dismiss_errors()
     settle(app)
     base_image = shoot(app, out / "00-baseline.png")

@@ -232,7 +232,7 @@ def test_every_served_publish_commits_the_cancel_token(module, func, publish):
     itself was stale rather than merely incomplete: ``_sheet``,
     ``_sprite_synthesis``, ``_tile_sheet`` and ``_tile_set`` published without
     committing and were never in ``PUBLISHERS`` at all, so this scan never
-    looked at them. Six of these eight rows have shipped the bug this test
+    looked at them. Six of these nine rows have shipped the bug this test
     exists to catch; the list now names every publishing stage in the tree as
     of this audit, and the comment above it is why it stays a list instead of
     a scan of its own.
