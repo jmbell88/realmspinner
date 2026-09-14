@@ -265,3 +265,28 @@ async def test_the_clay_card_refuses_on_the_testing_pin(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="prompt card"):
         await srv.ensure_started(expected_card_sha=contract.card_sha("clay"))
     assert spawned == []
+
+
+def _unset_text_patterns(gitattributes: str) -> list[str]:
+    patterns = []
+    for line in gitattributes.splitlines():
+        parts = line.split()
+        if parts and not parts[0].startswith("#") and "-text" in parts[1:]:
+            patterns.append(parts[0])
+    return patterns
+
+
+def test_the_frozen_cards_are_exempt_from_line_ending_conversion():
+    """``* text=auto`` plus Git for Windows' default ``core.autocrlf=true``
+    writes a checked-out text file with CRLF, which changes a card's sha256
+    and the prompt the model is sent. So a fresh clone (CI included) would
+    fail the card-hash pin, or ship a card run A never trained on, unless the
+    cards are ``-text``."""
+    import fnmatch
+
+    patterns = _unset_text_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+    cards = ["src/warlock/studio/familiar/cards/" + name for name in contract.CARDS.values()] + [
+        "docs/measurements/data/clay-assistant/run-A/card.txt"
+    ]
+    for card in cards:
+        assert any(fnmatch.fnmatch(card, p) for p in patterns), card

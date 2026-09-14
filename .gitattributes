@@ -4,3 +4,9 @@
 # definition of the format and a .hex is LF, and line-ending normalisation on
 # checkout would make a test's verdict depend on the platform it ran on.
 tests/inker/fixtures/palettes/* -text
+
+# A frozen prompt card is hashed for its exact bytes: the card a model trained
+# on is identified by sha256, and a CRLF checkout (core.autocrlf=true, the Git
+# for Windows default) would change the hash and the prompt the model sees.
+src/warlock/studio/familiar/cards/* -text
+docs/measurements/data/clay-assistant/*/card.txt -text
