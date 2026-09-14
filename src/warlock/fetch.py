@@ -64,6 +64,7 @@ class Kind:
 
 KINDS: tuple[Kind, ...] = (
     Kind("engine", models.ENGINE_MODELS, "engine: ", "Reconstruction engine"),
+    Kind("familiar", models.FAMILIAR_MODELS, "familiar: ", "Familiar"),
     Kind("base", models.BASE_MODELS, "image model: ", "Image models"),
     Kind("lora", models.STYLE_LORAS, "style LoRA: ", "Style LoRAs"),
     Kind("adapter", models.IP_ADAPTERS, "IP-Adapter: ", "Conditioning"),
@@ -230,6 +231,22 @@ def engine_probe_dir(config: Config, spec: Any) -> Path:
     return config.trellis_models_dir
 
 
+def familiar_dir(config: Config, spec: Any) -> Path:
+    """Which of Familiar's two directories this entry's payload lands in.
+
+    Mirrors :func:`engine_dir` exactly, and is a separate function rather than
+    a shared one for the same reason ``config.familiar_runtime_dir`` is a
+    separate field from ``config.trellis_runtime_dir``: llama.cpp and
+    trellis.cpp ship their own, differently built ``ggml*.dll``, so the two
+    engines' binaries must never be able to land in the same directory even by
+    a future refactor that tried to generalise ``engine_dir`` across kinds.
+    Familiar also has no vendor-checkout fallback and no env-var exe override
+    -- unlike the reconstruction engine, there is exactly one place this ever
+    lives, so there is no separate "probe" directory either.
+    """
+    return config.familiar_runtime_dir if spec.runtime else config.familiar_models_dir
+
+
 def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     """Where ``one`` actually lands, as opposed to what its command string says.
 
@@ -242,6 +259,8 @@ def destination(config: Config, entry: Entry, one: models.Fetch) -> Path:
     spec = entry.spec
     if entry.kind == "engine":
         return engine_dir(config, spec)
+    if entry.kind == "familiar":
+        return familiar_dir(config, spec)
     is_base = entry.kind == "base"
     return models.fetch_dests(
         (one,),
@@ -640,6 +659,8 @@ def claims(config: Config, entry: Entry) -> tuple[Path, ...]:
     spec = entry.spec
     if entry.kind == "engine":
         return (engine_dir(config, spec),)
+    if entry.kind == "familiar":
+        return (familiar_dir(config, spec),)
     if entry.kind == "base":
         out = [base_model_dir(config, spec)]
         if spec.base_lora:
@@ -935,8 +956,9 @@ def suspect_files(config: Config, kind: str, spec: Any) -> list[str]:
     """
     out: list[str] = []
     root = config.t2i_model_root
-    if kind == "engine":
-        candidates = [engine_probe_dir(config, spec) / name for name in spec.probe]
+    if kind in ("engine", "familiar"):
+        base = engine_probe_dir(config, spec) if kind == "engine" else familiar_dir(config, spec)
+        candidates = [base / name for name in spec.probe]
         for path in candidates:
             try:
                 if _is_file(path) and path.stat().st_size == 0:
@@ -984,6 +1006,9 @@ def present(config: Config, kind: str, spec: Any) -> bool:
     root = config.t2i_model_root
     if kind == "engine":
         base = engine_probe_dir(config, spec)
+        return all((base / name).is_file() for name in spec.probe)
+    if kind == "familiar":
+        base = familiar_dir(config, spec)
         return all((base / name).is_file() for name in spec.probe)
     if kind == "base":
         return base_model_state(config, spec)[0]

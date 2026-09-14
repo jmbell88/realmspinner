@@ -77,6 +77,55 @@ Licences: the engine is MIT (trellis.cpp and ggml) over NVIDIA's redistributable
 and because you now fetch it from upstream rather than receiving it from us, Warlock redistributes
 none of it. The terms are in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) either way.
 
+## Familiar
+
+**Three rows, under their own *Familiar* heading in Settings → Models**, on the same shape as the
+reconstruction engine above: a runtime (split into two rows -- see below) and the weights it
+loads, in their own directories (`~/.warlock/engine/llama/`, `~/.warlock/models/familiar/`) —
+never the trellis ones, because llama.cpp and trellis.cpp ship their own, differently built
+`ggml*.dll`.
+
+| Row | What it is | Size |
+|---|---|---|
+| **Familiar runtime** | `llama-server.exe` (llama.cpp b10948, CUDA 12.4 Windows build) and the DLLs it links, minus the CUDA redistributable | ~0.24 GB down |
+| **Familiar runtime (CUDA)** | the CUDA 12.4 redistributable (`cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`) the runtime above links against | ~0.37 GB down |
+| **Familiar weights (Gemma 4 E2B)** | the model it serves, quantised | ~4.7 GB |
+
+**Two rows for the runtime, not one, and that is upstream's shape, not this app's.** llama.cpp
+publishes its CUDA Windows build as two separate release zips — the server binaries, and the CUDA
+redistributable apart from them, so a machine running both a CUDA-12 and a CUDA-13 build does not
+fetch the same ~370 MB of cudart twice. Warlock's `Fetch` record has no way to give one registry
+row two independent URL/SHA-256 pins, so this is genuinely two rows rather than one row hiding two
+downloads — both land in the same directory, pinned by SHA-256 the same way the reconstruction
+engine's binaries are:
+
+```powershell
+curl -L -o $HOME/.warlock/engine/llama/llama-b10948-bin-win-cuda-12.4-x64.zip `
+  https://github.com/ggml-org/llama.cpp/releases/download/b10948/llama-b10948-bin-win-cuda-12.4-x64.zip
+# then check its sha256 is 9839398baa5a74fcf2447168000b2a8c659e6ee0d944f7686bb72168a0bc1e35
+curl -L -o $HOME/.warlock/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip `
+  https://github.com/ggml-org/llama.cpp/releases/download/b10948/cudart-llama-bin-win-cuda-12.4-x64.zip
+# then check its sha256 is 8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6
+# then unpack both into $HOME/.warlock/engine/llama
+```
+
+**The weights row is a testing pin, stated as one.** It is Unsloth's own Q8_0 requantization of
+the stock `google/gemma-4-E2B-it` instruct model — not the Clay-assistant fine-tune
+(`training/clay-assistant/`), which a later tranche (T10) swaps in as the shipped pin. There is no
+picker and no path override: this exact file, or nothing.
+
+```powershell
+# Familiar weights (~4.7 GB) -> ~/.warlock/models/familiar/
+uvx hf download unsloth/gemma-4-E2B-it-GGUF --revision 0314792d7f1f7e229411f620751375812bb9faf2 `
+  --include "gemma-4-E2B-it-Q8_0.gguf" --local-dir $HOME/.warlock/models/familiar
+```
+
+Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
+the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. The
+weights repository (`unsloth/gemma-4-E2B-it-GGUF`) is published under Apache 2.0, matching the base
+`google/gemma-4-E2B-it` model it requantizes — see `TODO.md` for the outstanding human review of
+whether that licence still holds once the Clay-assistant fine-tune replaces this pin.
+
 ## Licences, and what you may do with the output
 
 **Read this before you sell anything you generated.** These weights are not part
@@ -94,6 +143,8 @@ restricted ones; this table is the same information in full.
 | **DreamShaper XL** | OpenRAIL++-M | Yes, subject to the use restrictions |
 | **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
+| **llama.cpp** (Familiar's runtime) | MIT | Yes |
+| **Gemma 4 E2B** (Familiar's weights, testing pin) | Apache-2.0 | Yes — pending the human licence review for the fine-tune that replaces this pin (see TODO.md) |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

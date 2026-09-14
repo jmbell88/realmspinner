@@ -132,6 +132,7 @@ def static_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
         _gltfpack_check(config),
         _warlockc_check(),
         _cuda_check(probe=probe_slow),
+        *_familiar_checks(config),
         *_t2i_checks(config),
         text2image_deps_check(probe=probe_slow),
         *_matting_checks(config, probe_slow=probe_slow),
@@ -533,6 +534,29 @@ def _gguf_check(config: Config) -> Check:
     return Check(
         "TRELLIS GGUF weights", ok, detail, fatal=False, pending_install=not ok
     )
+
+
+def _familiar_checks(config: Config) -> list[Check]:
+    """Familiar's two rows: never fatal, same as every downloadable weight.
+
+    Unlike ``trellis-server.exe``, Familiar has no vendor-checkout fallback
+    and no env-var override to probe -- ``fetch.present``/``fetch.familiar_dir``
+    is the one place it can ever be, so both rows go through the generic
+    ``_registry_row`` rather than a hand-built check like ``_exe_check``.
+    """
+    checks: list[Check] = []
+    for spec in models.FAMILIAR_MODELS.values():
+        ok = fetch.present(config, "familiar", spec)
+        base = fetch.familiar_dir(config, spec)
+        if ok:
+            detail = str(base)
+        else:
+            detail = (
+                f"not found at {base} -- download with:\n"
+                f"  {fetch.download_text(config, 'familiar', spec)}"
+            )
+        checks.append(_registry_row(config, "familiar", spec, ok, detail))
+    return checks
 
 
 def _birefnet_check(config: Config) -> Check:

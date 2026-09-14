@@ -50,6 +50,7 @@ from ._q_troupe import TroupeOps
 from .config import Config
 from .db import JobStore
 from .pipelines import pose2d, reference
+from .pipelines.llama import LlamaServer
 from .pipelines.trellis import TrellisServer, TrellisStopFailed
 from .progress import ProgressBus, TrellisProgressParser
 
@@ -991,6 +992,38 @@ class Worker(
         self.progress = ProgressBus()
         self._parser = TrellisProgressParser(self._emit_progress)
         self.trellis.on_line = self._parser.feed
+        # Familiar: never resolved eagerly against a fixed path, for the same
+        # reason ``self.trellis`` above resolves ``config.resolve_trellis_exe``
+        # rather than a Path -- a download that lands mid-session must be
+        # found on the very next spawn. ``card_shas`` reads the pinned row's
+        # own (currently empty) tuple; T3 will inject the real contract.
+        self.familiar = LlamaServer(
+            lambda: config.familiar_runtime_dir / "llama-server.exe",
+            lambda: config.familiar_models_dir / models.FAMILIAR_GGUF_FILE,
+            config.familiar_port,
+            key_dir=config.data_dir,
+            log_path=config.data_dir / "familiar.log",
+            idle_timeout=config.familiar_idle_timeout,
+            expected_card_shas=lambda: models.FAMILIAR_MODELS["familiar_gguf"].card_shas,
+        )
+
+    async def before_gpu_job(self, job: dict[str, Any]) -> None:
+        """Yield the card to a real GPU job before it is admitted.
+
+        Familiar never coexists with reconstruction or training: a queued job
+        that actually wants VRAM kills the child first, unconditionally,
+        rather than trusting ``_check_resources`` to account for it (a
+        resident Familiar is not credited there at all -- see
+        ``vram.familiar_admission``'s docstring). A rig job costs nothing here
+        because ``estimate_job_parts`` prices it at 0 GiB, so this is a no-op
+        for the one queued kind that never touches the GPU.
+        """
+        if vram.estimate_job_parts(job)[0] > 0:
+            await asyncio.to_thread(self.familiar.stop_for_gpu_job)
+
+    async def after_gpu_job(self, job: dict[str, Any]) -> None:
+        """Give the card back once the job (whatever its outcome) is done."""
+        self.familiar.release_lease()
 
     @property
     def alive(self) -> bool:
@@ -1245,6 +1278,13 @@ class Worker(
             # _check_resources still sees the VRAM it is holding.
             with contextlib.suppress(TrellisStopFailed):
                 await asyncio.to_thread(self.trellis.stop)
+        if (
+            self.familiar.running
+            and time.monotonic() - self.familiar.last_used > self.familiar.idle_timeout
+        ):
+            log.info("evicting idle llama-server (Familiar)")
+            with contextlib.suppress(RuntimeError):
+                await asyncio.to_thread(self.familiar.stop)
         # Inert in both modes since 2026-08-21: every t2i stage releases its
         # checkpoint in its own finally, coexist or exclusive, so ``loaded``
         # is never True by the time an idle tick runs. Kept as the backstop
@@ -1803,6 +1843,7 @@ class Worker(
         # ``__init__`` for why this is recorded here instead.
         trellis_used_before = self.trellis.last_used
         try:
+            await self.before_gpu_job(job)
             self._check_resources(job)
             admitted = True
             await self._generate(job)
@@ -1960,6 +2001,7 @@ class Worker(
                 # a stale _Cancel event, and a ProgressBus entry that never
                 # ended -- so every later job's trellis output was reported
                 # against the dead one, and prune/delete refused to touch it.
+                await self.after_gpu_job(job)
                 self.current_job_id = None
                 self._cancel = None
                 self._blender = None

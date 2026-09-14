@@ -353,9 +353,10 @@ when a saved layout has gone wrong.
 Protocol build in Clay for you, and take a character from a species name to a rigged, animated
 sprite sheet on its own. It is off on a fresh install and nothing listens until you switch it
 on. Doing so writes a key into `mcp.token` in your Warlock home and opens a local named pipe: there
-is no port, no firewall prompt, and nothing off your machine can reach it. Warlock still runs no
-language model of its own and still connects to nothing — an agent already running on this computer
-connects to *it*. While one is attached the menu bar's status group says so. What it may touch is a two-part
+is no port, no firewall prompt, and nothing off your machine can reach it. Warlock runs exactly one
+language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
+already running on this computer connects to *it*. While one is attached the menu bar's status group
+says so. What it may touch is a two-part
 rule: in Clay it works in a tab it opens for itself and cannot address any other document, so
 nothing you have open is at risk; against your character Library it may read any row but can only
 add to it — a new mesh, rig or sprite sheet, or a copy in your export folder — never rewrite,

@@ -726,6 +726,16 @@ async def _release_if_idle(worker: Any, *, stop_engine: bool = False) -> bool:
     if worker.current_job_id is not None:
         return False
     await worker.unload_text2image()
+    # Familiar holds its own directory the same way trellis-server holds
+    # ``trellis_runtime_dir`` -- a live child with an open handle on its own
+    # exe/DLLs, or the resident weights file, would make either directory's
+    # staged-rename fail with a sharing violation the moment a row under it
+    # is removed. Stopped unconditionally here (not gated on which rows are
+    # being removed, unlike ``stop_engine``): Familiar is cheap to restart --
+    # it comes back on the user's next chat message -- so there is no warm
+    # state worth preserving across an uninstall the way there is for trellis.
+    if worker.familiar.running:
+        await asyncio.to_thread(worker.familiar.stop)
     if stop_engine:
         # Every other caller of ``stop`` goes through ``to_thread`` for the
         # same reason: it blocks for up to ~25 s in the worst case (terminate,

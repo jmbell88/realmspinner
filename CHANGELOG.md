@@ -20,6 +20,17 @@ the release you are actually running.
 
 ## 0.0.46 — 2026-09-12
 
+**Familiar can now actually run.** Settings → Models grows a *Familiar*
+heading with three rows — the llama.cpp runtime split across two downloads the
+way upstream ships it, and a testing pin of the base Gemma 4 E2B model (the
+Clay-assistant fine-tune replaces it later) — and the app can spawn and stop
+`llama-server.exe` behind them: loopback only, offline, keyed by a file rather
+than a command-line argument nobody else's process can read. It never shares
+the card with a real job — a queued GPU job kills Familiar first and it comes
+back on your next message — and an idle Familiar is stopped the same way
+trellis-server is. There is still no chat UI; this is the engine underneath it
+starting to exist.
+
 **Groundwork for Familiar.** The plumbing an external agent already used to
 drive Clay over the pipe now works for Warlock's own built-in assistant too,
 with no pipe involved: Familiar keeps working while Settings' agent-server

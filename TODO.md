@@ -1701,8 +1701,9 @@ Decisions with arguments beside them, not backlog:
   server (`src/warlock/mcp/`, 2026-09-09) is the opposite arrow and is not a
   counter-example: an agent already running on the machine connects *in*, over
   a named pipe, and drives Clay and the character pipeline through the same
-  doors a pane does. Warlock ships no model, runs no inference, opens no
-  socket and reaches no endpoint; `HF_HUB_OFFLINE=1` is untouched. What was
+  doors a pane does. Warlock runs exactly one pinned model, Familiar, on
+  loopback, and still makes no network egress; the network exceptions stay
+  three. `HF_HUB_OFFLINE=1` is untouched. What was
   refused was the app acquiring an appetite for a service somewhere else, and
   it still has none. The character pipeline (2026-09-13) does not change this
   either: the agent surface starts no image model and no mesh model of its
@@ -1838,3 +1839,31 @@ soften the figures in `INSTALL.md` to approximate ones ("about 170 MB",
 
 **Expected outcome:** `INSTALL.md` states figures that are either re-measured
 per release or honestly approximate. Strike this out then.
+
+## P53. Licence review for redistributing the Clay-assistant fine-tune
+
+**Why it is yours:** it is a legal judgment about a model this project trained
+and would ship, not a technical question. T4 (2026-09-13) pinned Familiar's
+weights row to a *testing* pin -- Unsloth's Q8_0 requantization of the stock
+`google/gemma-4-E2B-it` instruct model, itself Apache-2.0 -- specifically so
+Familiar has something real to run before this item is resolved. T10 swaps
+that testing pin for the Clay-assistant fine-tune
+(`training/clay-assistant/`, trained on top of the same base model), and that
+fine-tune is what actually needs the review: whether Warlock may redistribute
+a derivative of a Google-published model under Warlock's own download row
+(rather than pointing at a third party's Hub repo the way every other entry in
+`models.py` does), what licence terms the derivative carries forward, and
+whether attribution or a licence file has to ship beside it.
+
+**Do:** read `google/gemma-4-E2B-it`'s actual licence terms (not just its HF
+`license` tag, which the T4 pin's testing repo and the base model both state
+as Apache-2.0 -- confirm that holds for a fine-tuned derivative too, since a
+base-model licence tag is not always the same promise once weights are
+retrained on new data) and decide whether Warlock hosting and distributing the
+fine-tuned GGUF is clear to do, needs an attribution notice
+(`THIRD-PARTY-NOTICES.md`), or is blocked.
+
+**Expected outcome:** a decision recorded in `docs/MODELS.md`'s Familiar
+section and `THIRD-PARTY-NOTICES.md`, and T10 either proceeds with the
+fine-tune pin or stays on the testing pin with the reason written down. Strike
+this out then.
