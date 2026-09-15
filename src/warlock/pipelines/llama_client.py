@@ -183,6 +183,15 @@ async def chat(
             "top_p": sampling["top_p"],
             "max_tokens": max_tokens,
             "stream": False,
+            # Thinking off, asked for on every request too. Gemma 4's chat
+            # template (the server runs --jinja) opens a reasoning channel by
+            # default; the first real-card run (2026-09-14) spent the router's
+            # whole budget on "Thinking Process: ..." in reasoning_content and
+            # returned content=''. This field alone did not hold on every
+            # prompt, so the real switch is llama.py's --reasoning off
+            # --reasoning-budget 0; this stays as the request's own statement
+            # of the same intent, for a server started some other way.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         if response_format is not None:
             payload["response_format"] = response_format

@@ -209,6 +209,17 @@ class LlamaServer:
             "-ngl", str(GPU_LAYERS),
             "--parallel", str(PARALLEL_SLOTS),
             "--ctx-size", str(CTX_SIZE),
+            # Thinking off, server-wide. Gemma 4's template opens a reasoning
+            # channel, and the request-level chat_template_kwargs
+            # enable_thinking=false did not hold: on the 2026-09-14 real-card
+            # probe, base Gemma still reasoned on "make a wooden barrel" and a
+            # character plan, spending the whole max_tokens in
+            # reasoning_content and returning content=''. With these two
+            # flags every probed request came back with no reasoning at all.
+            # Nothing Familiar sends wants the trace, and run A was trained on
+            # replies with no thinking block.
+            "--reasoning", "off",
+            "--reasoning-budget", "0",
         ]
         # Only when the pinned row names itself: a served_name of "" (every
         # pin except T10's fine-tune) must leave llama-server to report

@@ -20,6 +20,22 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar's routing and its schema-constrained replies work on a real
+  card, because the model is no longer allowed to think first.** The first
+  run on real hardware found every router, navigation, Create-draft and
+  character-plan reply empty. Base Gemma 4's chat template opens a reasoning
+  channel, and the reasoning used the whole reply budget before any answer
+  was written; plain chat only seemed fine because its budget was large
+  enough to outlast it. Asking per request to skip thinking did not hold on
+  every prompt, so the server now starts with reasoning off and a zero
+  reasoning budget. On the card, six router prompts then picked the skill a
+  person would, and the navigation, Create-draft and character-plan replies
+  each decoded. The router's reply budget goes from 16 to 32 tokens, because
+  `clay_build` needed exactly 16. The same run measured what Familiar
+  costs: 3.1 GiB resident and 3.2 GiB at peak with both slots busy, not the
+  6.5 GiB the admission check had guessed. The check now asks for 4.0 GiB,
+  and a GPU test holds the peak under it
+  (`docs/measurements/2026-09-14-familiar-base-vram.md`).
 - **Familiar's server is no longer stopped while it is still starting.** The
   first real run in the app died about three seconds after launch: the
   server was loading its weights and answering "not ready yet", and the

@@ -39,6 +39,16 @@ def test_llama_argv_is_loopback_offline_keyed_and_never_names_a_hub(tmp_path):
     assert not any(flag in ("-hf", "-hfr", "--hf-repo") for flag in argv)
 
 
+def test_llama_argv_turns_the_models_reasoning_off_on_the_server(tmp_path):
+    """Base Gemma 4 kept reasoning even with enable_thinking=false on the
+    request, and a reasoning channel eats the whole max_tokens of a
+    schema-constrained reply (content='' on the 2026-09-14 real-card run).
+    The server must be started with reasoning off and a zero budget."""
+    argv = _srv(tmp_path)._argv(tmp_path / "key.txt")
+    assert "--reasoning" in argv and argv[argv.index("--reasoning") + 1] == "off"
+    assert "--reasoning-budget" in argv and argv[argv.index("--reasoning-budget") + 1] == "0"
+
+
 def test_the_api_key_never_appears_on_the_command_line(tmp_path):
     srv = _srv(tmp_path)
     key_path = srv._write_key_file()

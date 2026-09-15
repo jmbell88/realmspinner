@@ -101,9 +101,10 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # (:data:`~.router.SKILLS`) through ``response_format``'s constrained
     # decoding, so there is nothing for temperature/top-k/top-p to usefully
     # vary and no reason to let the model ramble past the JSON object.
-    # 16 tokens is generous for `{"skill":"clay_build"}` (12 tokens at most,
-    # counting the longest skill name) with room to spare.
-    "router": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 16},
+    # 32, not the 16 first chosen: on the real card (2026-09-14) the model
+    # spelled `{"skill": "clay_build"}` with spacing in exactly 16 tokens and
+    # finish_reason 'length', so 16 left no margin for the longest names.
+    "router": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 32},
     # Unmeasured, same caveat as "chat" above: base Gemma has no eval corpus
     # for citation-style answers yet. 768 tokens is well past what a few
     # sentences with inline [n] markers needs -- see

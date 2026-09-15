@@ -2069,8 +2069,25 @@ reuses the draft door):**
 - Options come from `settings_character.options`, Create's cached read.
 - Unmeasured: whether base Gemma extracts a usable plan.
 
-**Do, in order, from master:** T9 GPU smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
-guess; T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
+~~T9 GPU smoke test plus a dated VRAM measurement~~ **Built 2026-09-14:**
+`tests/test_familiar_gpu.py`, 8 tests, green on the RTX 5090 on base Gemma
+(`docs/measurements/2026-09-14-familiar-base-vram.md`).
+- **Thinking:** the run found base Gemma 4's template reasoning ate every
+  constrained reply's budget (content `''`). The request-level
+  `enable_thinking=false` did not hold, so `llama.py` starts the server with
+  `--reasoning off --reasoning-budget 0`. The router budget went 16 → 32.
+- **VRAM:** measured at 3.09 GiB resident and 3.20 GiB peak, so
+  `vram.FAMILIAR_GIB` went 6.5 → 4.0 and the lane asserts it.
+- **Routing:** six router prompts and the three constrained doors all gave the
+  answer a person would. These are observations, not a score.
+- **Also found:** the app's startup-eviction bug (`9ee49968`).
+
+**Owed by T10 specifically:** re-run `tests/test_familiar_gpu.py` on
+familiar_v1.0 to confirm the VRAM figure, and re-score familiar_v1.0 with
+reasoning off. Its 74% and base Gemma's 0% were both scored by evals that
+left the template's thinking on.
+
+**Do, in order, from master:** T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
 *Closed records*). The screenshot and `/exercise-mode`
 debt T0–T4 left behind does not wait on the card; it is P56.
 

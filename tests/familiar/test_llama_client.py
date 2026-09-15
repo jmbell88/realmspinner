@@ -160,6 +160,28 @@ async def test_a_prompt_too_large_for_the_trained_window_is_refused_not_truncate
         )
 
 
+async def test_every_request_turns_the_models_thinking_off(tmp_path):
+    """Base Gemma 4's chat template opens a reasoning channel unless told not
+    to. On the first real-card run (2026-09-14) the router's 16-token budget
+    went entirely into reasoning_content and the reply's content was '', so
+    every schema-constrained call failed to decode. Every request, chat and
+    skill alike, must ask the template for no thinking."""
+    for sampling, skill in ((contract.SAMPLING["chat"], None), (contract.SAMPLING["router"], None)):
+        server = _server(tmp_path)
+        handler, requests = _chat_handler()
+        await llama_client.chat(
+            server,
+            [{"role": "user", "content": "hello"}],
+            slot=0,
+            sampling=sampling,
+            skill=skill,
+            transport=httpx.MockTransport(handler),
+        )
+        completion = next(r for r in requests if r.url.path == "/v1/chat/completions")
+        body = json.loads(completion.content)
+        assert body.get("chat_template_kwargs") == {"enable_thinking": False}
+
+
 async def test_requests_go_to_the_skill_slot(tmp_path):
     """``id_slot`` in the completion payload must be exactly the slot the
     caller passed -- Familiar's router (slot 0) and its routed skill (slot 1)

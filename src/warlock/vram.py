@@ -76,12 +76,17 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
-FAMILIAR_GIB = 6.5
+FAMILIAR_GIB = 4.0
 """llama-server.exe resident with the base Gemma 4 E2B Q8_0 pin, ``-ngl 999``.
 
-**A guess, stated as one, until measured on real hardware.** The Q8_0 file is
-4.70 GiB on disk; this adds a rough allowance (~1.8 GiB) for KV cache at
-``--ctx-size 16384`` and activation buffers. Familiar is always stopped
+**Measured** (``docs/measurements/2026-09-14-familiar-base-vram.md``,
+RTX 5090): 3.09 GiB resident once healthy and 3.20 GiB peak with both slots
+generating from ~5,500-token prompts, identical across three runs. This is
+that peak plus 0.8 GiB for a different driver or CUDA context and for
+familiar_v1.0 (same architecture and quant), which T10 re-confirms. It
+replaced a 6.5 GiB guess built from the 4.70 GiB file size. The file
+overstates the card cost, likely because E2B keeps its per-layer embeddings
+in host memory, which that document leaves unmeasured. Familiar is always stopped
 before a GPU job runs (see ``Worker.before_gpu_job``), so this number never
 actually has to share the card with anything else -- it exists for
 ``familiar_admission`` alone, the door Familiar's own spawn stands at.
