@@ -146,14 +146,20 @@ def _leg_ground_heights(
 
 
 def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
-    """TODO.md's F10. The same forward-kinematics pass found the three death
-    poses' ankles below the ground plane (z=0) on top of their backward
-    knees, and "death stagger" -- already knee-forward -- left its toe at
-    z~-0.026 because nothing rotated the foot to follow the folded leg back
-    up. This is scoped to the "jump"/"fall"/"death" clips, the ones F10 is
-    about: "walk"/"run"/"attack" plant a foot mid-stride by a different,
-    already-tested contract (F8's contact/passing rule) and are not this
-    finding's concern.
+    """TODO.md's F10 and F11. The forward-kinematics pass found the three
+    death poses' ankles below the ground plane (z=0) on top of their
+    backward knees, and "death stagger" -- already knee-forward -- left its
+    toe at z~-0.026 because nothing rotated the foot to follow the folded
+    leg back up (F10). The same pass, widened to the whole library, later
+    found six more: "run contact A", "run contact B", "attack strike",
+    "attack follow", "attack_02 strike" and "attack_02 follow" each pushed
+    the planted leg's toe 0.014-0.016 of character height below z=0 because
+    the foot bone was left flat (or absent) under a thigh/shin bend that
+    tips the toe down (F11). This now checks every pose in the humanoid
+    library, not a "jump"/"fall"/"death" subset -- a planted foot has to
+    clear the ground everywhere, including mid-stride and mid-swing, and
+    F8's contact/passing rule (checked separately, below) is about which
+    leg is behind, not about ground clearance.
 
     Sanity-checked before trusting it: the rest pose (no keys at all) puts
     the toe exactly at z=0, and "jump crouch" -- already fixed under F7 --
@@ -168,16 +174,8 @@ def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
     rest_ankle_z, rest_toe_z = _leg_ground_heights(template_bones, {}, "L", 0.0)
     assert abs(rest_toe_z) < 1e-6, f"rest toe should be at z=0, got {rest_toe_z}"
 
-    in_scope_pose_names = {
-        key
-        for clip in library_data["clips"]
-        if clip["name"] in ("jump", "fall", "death")
-        for key in clip["keys"]
-    }
     checked = 0
     for pose in poses.values():
-        if pose["name"] not in in_scope_pose_names:
-            continue
         bones = pose["bones"]
         root_dz = pose.get("root_translation", [0.0, 0.0, 0.0])[2]
         for side in ("L", "R"):

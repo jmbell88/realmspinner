@@ -17,10 +17,11 @@ version and every deleted plan (`git log --all --diff-filter=D`).
    actionable, not as a title. An entry earns this kind only by an explicit
    decision *not* to build it yet; it is not a parking space for work nobody
    got to.
-3. **Open findings** (the section at the end): code work a review or a real
-   run turned up and did not fix, numbered `F<N>` so it cannot be confused
-   with the `P<N>` entries above. Each is buildable and is struck out the day
-   it is built; the section is deleted when it is empty.
+3. **Open findings** (a section at the end, present only while one is open):
+   code work a review or a real run turned up and did not fix, numbered `F<N>`
+   so it cannot be confused with the `P<N>` entries above. Each is buildable
+   and is struck out the day it is built; the section is deleted when it is
+   empty.
 
 **The moment an item could be built, it is built and struck out rather than
 tracked.** A plan whose boxes disagree with the tree is worse than no plan, and
@@ -1115,34 +1116,6 @@ deleted.
 
 **Expected outcome:** one sentence either way.
 
-## P37. Audit the three other stages that rename onto a served name
-
-**Why it is yours:** it needs judgement about each stage's intent, not a rule
-that can be written down. Widening the publish/commit scan on 2026-09-07
-(finding service-01) turned up three further call sites that rename onto served
-names and are not in `PUBLISHERS`: `_deform_qa` (`_q_rig.py`), the
-model-promotion stage in `_q_generate.py`, and `_remesh` (`_q_mesh.py`). Only
-the comments beside each call distinguish a *completion marker* — which must
-commit the cancel token, or a late cancel deletes finished work — from an
-intermediate checkpoint a cancel may still legitimately unwind. That is why the
-table stayed hand-written rather than derived: a "last write wins" heuristic
-promotes the wrong call in some of these functions and misses the real one in
-others, which fails open, silently.
-
-**Where it stands.** `PUBLISHERS` in `tests/test_job_durability.py` now covers
-nine stages and all nine pass. ~~`_remesh` (`_q_mesh.py`)~~ **Closed 2026-09-08**
-(the 2026-09-08 audit, finding docs-05): it already carried the classifying
-comment and already committed after its `os.replace`, so only the missing
-`PUBLISHERS` row was real, and it is added. `_deform_qa` and the promotion stage
-are untouched, and nothing yet says whether they are correct.
-
-**Do:** read each of the two remaining, decide whether its rename is a completion marker
-or a checkpoint, and say which in a comment beside it. Add a `PUBLISHERS` row
-for every one that is a completion marker, and confirm it commits.
-
-**Expected outcome:** three stages classified, however many rows that adds, and
-no remaining rename onto a served name whose status is unstated.
-
 ## P38. Run a ten-minute Muse take on the target card, and confirm the ceiling is honest
 
 **Why it is yours:** a card and a stopwatch. `_jobs_music.MAX_DURATION` moved
@@ -1437,237 +1410,27 @@ on record rather than three stages of "not mine".
 
 ---
 
-## Open findings
-
-Code work a review or a real run turned up. Each is buildable and is struck out
-the day it is built; this section is deleted when it is empty. F1-F4 came out
-of the 2026-09-05 clean-machine install
-(`docs/measurements/2026-09-05-clean-machine-install.md`) — two installs, four
-app sessions, and her `warlock.log` read — and all four were built the same day.
-F5 and F6 came out of the Mason programme (open questions 2 and 3); both were
-measured on 2026-09-14, F6 closed on the numbers and F5's decision moved to P57.
-
-1. ~~**F1. A failed fetch discarded everything it downloaded.**~~ Built
-   2026-09-05. `fetch_one`'s unwind was `except BaseException:
-   rmtree(staging)`, and `huggingface_hub` keeps its resume bookkeeping in
-   `.cache/` *inside* `local_dir`, so a failure threw away the ability to
-   resume along with the bytes — one engine attempt ran eight minutes and
-   several GB and was discarded whole. The tree is now kept and keyed by a
-   `.warlock-resume.json` marker holding the entire spec; a later fetch resumes
-   only on an exact match, a terminal failure (digest mismatch, missing rename
-   source, no digest) still drops it, both sweeps spare a marked tree, and both
-   transports retry with backoff over the same tree. The destination is
-   untouched by any of it — nothing moves until the tree is whole and verified.
-   `docs/INVARIANTS.md` carries the reasoning; five tests in
-   `tests/test_fetch.py` carry the claims.
-2. ~~**F2. A socket error reached a non-developer verbatim.**~~ Built
-   2026-09-05. `download.describe_failure` translates by `winerror`/`errno`,
-   walking the `__cause__` chain because the transports bury the number, and
-   falls back on class name for `hf_xet`'s Rust errors which carry none.
-   Offline, reset, timeout, refused and DNS are five remedies where there was
-   one stringified exception; a sentence this project wrote itself is passed
-   through untouched; anything unrecognised names itself and points at the log.
-   The raw exception now goes to `warlock.log` beside the friendly one, because
-   this incident was diagnosed from a log and the translation must not have
-   made that harder. It lives in `download.py` rather than `fetch_worker.py` so
-   it can be imported without setting `HF_HUB_OFFLINE=0`.
-   `tests/test_fetch_messages.py`.
-3. ~~**F3. The health poll imported torch while pip was writing it.**~~ Built
-   2026-09-05. `vram.probe` and `doctor._cuda_check` caught `ImportError`
-   only, and a half-written torch raises from the DLL loader — `OSError
-   [WinError 126]`, then `PermissionError [WinError 32]` — so the whole health
-   task died, five tracebacks in twenty-one seconds. `probe` now falls back to
-   NVML on any import failure and the CUDA row reports "installed but will not
-   load" with the likely cause, non-fatal, since it clears on the next launch.
-   `tests/test_torch_import_failures.py`.
-4. ~~**F4. The pack gate at a mode's door was never written.**~~ Built
-   2026-09-05. `Pack.modes` was read in one place, a Settings label, so a base
-   install sent the user to Models to fetch ~23 GB that could not run without
-   `torch`. `model_gate.mode_gate` now answers packs-or-models for a mode and
-   **packs come first**, since weights with nothing to read them buy nothing;
-   the rail, its tooltip and `set_mode`'s refusal all read that one answer, and
-   the library escape applies to both halves so nobody is locked out of
-   finished work. `tests/test_pack_gate.py`.
-5. ~~**F5. A Mason scene has no VRAM admission control.**~~ Measured
-   2026-09-14 (`docs/measurements/2026-09-14-mason-scene-vram-and-retint-cost.md`)
-   and no longer buildable as written: what is left is a policy decision, now
-   **P57**. Sixty distinct textured assets cost 814 MiB (~12.7 MiB each,
-   linear to 240), the GPU-side `MasonView._cache` has no byte budget at all
-   (the 512 MiB budget is CPU-side geometry only), VRAM stays at a session's
-   high-water mark after release, and an allocation failure reaches only the
-   run loop's generic crash handler. The original entry follows. Sixty textured library
-   assets placed in one scene is real video memory, and `service.validation.check_vram`
-   guards the **queue** — the thing that runs jobs — not the studio. Mason's
-   asset cache has a byte budget and instancing means N placements of one asset
-   are one upload, so the cheap cases are already cheap; what has no answer is a
-   scene that genuinely wants more than the card has. `MAX_PLACED` (100,000) and
-   the 1,500-item warning are about what a *frame* can afford and say nothing
-   about texture memory. The failure mode is a driver-level allocation failure
-   with no refusal in front of it, which is the one shape of failure this app
-   otherwise always puts a sentence before. Wants a measurement first — what a
-   scene of sixty distinct textured assets actually costs on the target card —
-   and then a decision about whether the answer is a refusal, a warning, or
-   evicting the cache harder. The measurement is the part that needs a card.
-6. ~~**F6. A material override costs a second upload of identical geometry.**~~
-   Measured 2026-09-14 and deliberately **not built**
-   (`docs/measurements/2026-09-14-mason-scene-vram-and-retint-cost.md`): 36
-   retinted copies of one 50K-triangle asset are 36 uploads and ~509 MiB, but
-   the median frame is 1.236 ms against 1.231 ms untinted, because the draw
-   count is the placement count either way. The per-draw material uniform
-   (~35–45 lines over `mason_view.py`, `mason/scene.py` and `viewer/render.py`,
-   no shader change) is sketched there for the day overrides prove common.
-   The original entry follows. The
-   override is in the GPU cache key, so a retinted copy of a shared asset is a
-   second upload of the same triangles. That is also true on the way out —
-   glTF puts the material on the primitive rather than on the node, so the
-   exporter has the same cost and `mason/gltfout.py`'s docstring says so — but
-   the exporter's copy is written once and the renderer's is paid every frame.
-   The fix is a per-draw material uniform rather than a cache key, which is a
-   renderer change and was out of scope for the mode that found it. Worth doing
-   only if overrides turn out to be common: place a few dozen retinted copies of
-   one asset and see whether it matters before changing how the renderer binds
-   materials.
-7. ~~**F7. The jump clip's knee bends the wrong way.**~~ Built 2026-09-14 (the
-   2026-09-14 audit, finding docs-05): `shin.L`/`shin.R` flipped to `+0.6428` in
-   `jump crouch` and `+0.5299` in `jump land`, pinned as data by
-   `tests/test_clip_library_poses.py::test_jump_crouch_and_land_bend_the_knee_forward_not_backward`.
-   Not re-rendered: no Blender on the fixing machine, so the visual confirmation
-   the entry asked for is still owed on the next Troupe run of a humanoid jump.
-   `jump launch`/`rise`/`fall`/`apex` still carry opposite-signed thigh and shin
-   and were deliberately left alone, since nobody has judged them backward.
-   **Corrected the same day, after a render:** the shin flip was half the fix.
-   Rendering Quaternius's Superhero Male through `blender_worker` showed the
-   crouch floating face-down with its ankles at hip height, because the
-   shipped crouch had *every* leg bone's sign inverted and the "thigh and shin
-   share a sign" rule this entry reasoned from is true of a walk's swing leg
-   and false of any crouch (hip flexion is a negative thigh X, knee flexion a
-   positive shin X). `thigh` and `foot` are now negated too (`-0.4384`/`-0.2079`
-   crouch, `-0.3746`/`-0.1736` land): forward kinematics puts the ankle under the
-   hips at rest height and the foot within 4° of flat, and the re-render
-   squats with both feet on the ground. The test was replaced by
-   `tests/test_clip_library_poses.py::test_jump_crouch_and_land_flex_the_hip_forward_and_the_knee_back_with_the_foot_flat`.
-   The other jump poses are F10. The original entry follows. Found 2026-09-12 running
-   a real human-authored mesh (Quaternius's CC0 "Superhero Male") through
-   *Send to Troupe* for P4 — the first time this template has been judged on
-   art rather than CesiumMan. `src/warlock/templates/clips/humanoid.json`'s
-   pose data has a consistent rule across every other flexed pose: `thigh.L`/
-   `thigh.R` and `shin.L`/`shin.R` rotate in the **same sign** when a leg
-   bends (walk's "passing A" pose: `thigh.R +0.0698, shin.R +0.2924` — hip
-   flexes a little, knee bends more, which is a normal swing-through). `jump
-   crouch` (`thigh +0.4384, shin -0.6428`) and `jump land`
-   (`thigh +0.3746, shin -0.5299`) break that rule — shin rotates opposite in
-   sign to thigh, both bent hard. Given every other pose's convention, that
-   bends the knee backward rather than forward: confirmed visually on the
-   rendered sheet, the landing/crouch legs look reverse-jointed. Reproducible
-   on any humanoid character, not specific to the test mesh.
-
-   **Do:** flip the sign of `shin.L`/`shin.R` in `jump crouch` and `jump land`
-   (candidates: `+0.6428`/`+0.5299`, matching the walk/run poses' sign
-   agreement) and re-render the same character's jump clip to confirm the
-   knee now bends forward. Check `jump launch`/`rise`/`fall`/`apex` too —
-   they read as closer to straight-legged so the sign disagreement may not
-   bite there, but they were not checked with the same rigor this pass gave
-   crouch/land.
-8. ~~**F8. The walk clip may play backward left/right — unconfirmed.**~~ Built
-   2026-09-14, and it was real: not a yaw-mirroring bug (every yaw renders the
-   same bone data from an orbiting camera) but the clip itself. "walk contact
-   A" plants the left leg behind, and "walk passing A", the key after it,
-   lifted the *right* leg and planted the left under the hips, so forward
-   kinematics had the planted foot sliding forward 0.2 of a body height and
-   the swinging foot travelling back. Every pose was sane; the two passing
-   poses were each other's, and "run" had the same swap. The bone data of
-   `passing A` and `passing B` is exchanged in both clips (names and key order
-   kept, so `pipelines/sheet.py`'s "contact A, passing A, contact B, passing
-   B" stays true), pinned by
-   `tests/test_clip_library_poses.py::test_the_leg_behind_at_a_contact_is_the_leg_the_next_passing_pose_lifts`,
-   with the bird library's walk and run, which already obeyed the rule, as the
-   control. The original entry follows. Same run
-   as F7: side-view (yaw 90/270) walk frames looked, on a static contact
-   sheet, like the gait was reversed. Unlike F7 this is **not yet backed by
-   data** — `walk contact A/B` and `walk passing A/B`'s thigh/shin signs are
-   internally consistent with each other (unlike jump's), so if there is a
-   real bug here it is a different mechanism than F7's — a candidate is a
-   yaw-mirroring or leading-leg/screen-direction mismatch for opposite-facing
-   views, but this was not traced into code before the session ended. A
-   static frame cannot settle "is this backward" on its own; needs the actual
-   sheet played back (Troupe's own preview, or a GIF of the yaw-90 walk
-   frames in sequence) before concluding anything.
-9. ~~**F9. `clay_op` crashes instead of refusing when a value inside `params` has
-   the wrong type.**~~ Built 2026-09-14 (the 2026-09-14 audit, finding docs-06):
-   `agent_clay._op_params_type_refusal` refuses an undeclared key or a value that
-   is not a single number by `field="params"` before `clay_ops.run` sees it; the
-   three calls below are
-   `tests/test_agent_clay_door_types.py::test_clay_op_refuses_a_wrong_typed_param_value_instead_of_crashing`.
-   The original entry follows. Found 2026-09-13 while authoring Clay assistant run B's rows,
-   through the real `agent_clay.call` door: `mirror-x` with `{"axis": 0}` answers
-   "failed unexpectedly; see the log", and `mirror-copy` with `{"axis": "x"}`
-   leaks a raw "could not convert string to float". It reproduced again on
-   2026-09-14 in run B's eval as `TypeError: float() argument must be a string
-   or a real number, not 'list'`, raised at `clay_ops.run`'s clamp
-   (`float(values[param.name])`, `clay_ops.py` ~285, via `agent_clay._h_op`):
-   the door checks `params` keys, not value types, so a trained model's
-   near-miss reads as a crash rather than a refusal it can learn from.
-   `clay_add_primitive` already solved the same class for scalar-only params
-   (`agent_clay.py` refuses "`params.base must be a single number`", the fix
-   for run A's `pyramid` list-`base` crash), so the fix is that check extended
-   to `clay_op`'s declared `Param`s, refusing by field; the regression tests are
-   the two calls above plus a list value, each asserting a refusal rather than
-   an unexpected failure.
-10. ~~**F10. Seven provisional humanoid poses bend the knee backward.**~~ Built
-    2026-09-14. Every backward knee was the F7 mistake again: thigh and shin
-    signs inverted together, so the fix is a sign flip on both, with no new
-    magnitudes invented. It covers `jump rise`/`apex`/`fall` (legacy, still not
-    provisional), `fall a`/`fall b`, the three deaths, and the bird library's
-    `fall a`/`fall b` (shin −40°), which the same rule caught. The deaths' root
-    z was re-solved (−0.055/−0.147/−0.174 from −0.3/−0.6/−0.9) because a
-    forward fold raises the feet, and `death stagger` gained a −20° foot key
-    for a toe at −0.026. Pinned by
-    `tests/test_clip_library_poses.py::test_no_authored_knee_bends_backward_past_fifteen_degrees`
-    (humanoid and bird; the quadruped's hock is excluded by design) and
-    `::test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground` (scoped
-    to jump/fall/death, see F11). Rendered through the real character route
-    (a `human`, side view): crouch and land bend forward, fall is airborne,
-    death ends on the ground line. The original entry follows. Found
-    2026-09-14 by the forward-kinematics pass that settled F7 and F8, which
-    measured the signed knee bend of every leg in the humanoid library (hip →
-    knee → ankle in the side plane; positive is a real knee). A straight
-    planted leg reads a few degrees either side of zero and is fine; these do
-    not: `jump rise` (L −40°, R −14°), `jump apex` (L −56°, R −34°), `jump fall`
-    (L −22°, R −44°), `fall a`/`fall b` (−90° on the lifted leg), `death fall`
-    (−70°), `death crumple` (−100°) and `death down` (−110°), the three deaths
-    also with ankles below the ground plane. All are `"provisional": true`
-    placeholders in P8's sense, so no new angles were invented here: the
-    convention is now written down in `tests/test_clip_library_poses.py`'s
-    docstring (negative thigh X flexes the hip forward, positive shin X flexes
-    the knee), and **Do:** re-author those poses to it, then add a
-    library-wide "no knee bends backward past ~15°" check to that file — it
-    fails on the current data today, which is why it was not added alone.
-    Needs a rendered sheet per clip to judge, which `render_check.py`-style
-    rigging of any shipped species or the Superhero Male now gives in minutes.
-11. **F11. Six humanoid stride and attack poses push a toe through the
-    ground.** Found 2026-09-14 by the planar forward kinematics that closed
-    F10: `run contact A`/`run contact B`, `attack strike`/`attack follow` and
-    `attack_02 strike`/`attack_02 follow` put a toe 0.014–0.016 of character
-    height below z=0. That is about one pixel at 64 px, so nothing has seen it
-    on a sheet. These are stride and weapon poses under F8's contact rule,
-    not F10's knee rule, so they were left alone rather than re-authored
-    blind. **Do:** tilt the planted foot (a small negative `foot` X) or raise
-    root z until the toe clears, then widen
-    `test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground` from
-    jump/fall/death to every humanoid pose. It fails on these six today, which
-    is why it was scoped down.
-
-**What is left on that machine is not code**: whether the resets stop once a
-retry can outlast them (F1 and F2 together should turn "never finishes" into
-"finishes eventually"), and the still-unrun `HF_HUB_DISABLE_XET=1` experiment.
-Both belonged to P1 step 4, which is now closed (see Closed records) — that
-machine work is done; these two items were not re-run and are not tracked
-elsewhere, noted here only so they are not lost with the entry that named
-them.
-
----
-
 ## Closed records (kept so nobody re-derives them)
+
+- **Open findings F1–F11.** Closed 2026-09-15, and the section deleted as the
+  file's rule says: every entry was built, and git holds each one's text. The
+  last, F11, was six humanoid stride and attack poses (`run contact A`/`B`,
+  `attack strike`/`follow`, `attack_02 strike`/`follow`) putting a toe about
+  0.015 of character height below the ground. Each planted foot is tilted by
+  the smallest whole degree that clears it (2° to 10°), and
+  `tests/test_clip_library_poses.py::test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground`
+  now covers every humanoid pose. Still unrun on the 2026-09-05 clean machine
+  and tracked nowhere else: whether the download resets stop once a retry can
+  outlast them, and the `HF_HUB_DISABLE_XET=1` experiment.
+
+- **P37, audit the three other stages that rename onto a served name.** Closed
+  2026-09-15: all three classified, from the code. `_remesh` is a publisher
+  (its `PUBLISHERS` row came 2026-09-08). `_deform_qa` renames only after
+  `_rig` has committed, pinned by
+  `tests/test_job_durability.py::test_deform_qa_runs_after_the_rig_commits_the_cancel_token`.
+  `_generate`'s best-reference rename and best-mesh restore write only into
+  the job's own directory, so they are checkpoints a cancel may unwind. No new
+  row; each call carries its classification in a comment.
 
 - **P53, licence review for redistributing the Clay-assistant fine-tune.**
   Closed 2026-09-14 (the user's decision): not blocked. Google's actual Gemma

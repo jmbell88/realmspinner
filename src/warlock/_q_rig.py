@@ -307,6 +307,11 @@ class RigOps:
             # ``finally`` to discard.
             if self._cancel is not None and self._cancel.event.is_set():
                 return None
+            # Not the job's completion marker, so no commit here (classified
+            # 2026-09-15): ``_rig`` commits right after ``finalize_rig``,
+            # before it calls this, so a cancel landing now only skips the QA
+            # sheet and cannot un-commit the row.
+            # test_job_durability.py pins that ordering.
             await asyncio.to_thread(os.replace, png_tmp, png)
         finally:
             with contextlib.suppress(OSError):
@@ -323,7 +328,8 @@ class RigOps:
             pivot=(float(pivot[0]), float(pivot[1])) if pivot else None,
         )
         # Written last, so it is the completion marker the file rules key on --
-        # the same ordering rig.json has for rig.glb.
+        # the same ordering rig.json has for rig.glb. The QA sheet's marker,
+        # not the rig job's, which ``_rig`` has already committed.
         try:
             await asyncio.to_thread(
                 json_tmp.write_text,

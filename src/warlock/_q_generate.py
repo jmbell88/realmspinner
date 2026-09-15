@@ -455,6 +455,15 @@ class GenerateOps:
                         # A rename onto the served name, never a write into it,
                         # and the candidate is already a complete file in the
                         # same directory.
+                        #
+                        # A checkpoint, not a completion marker, so it commits
+                        # no cancel token (classified 2026-09-15, beside the
+                        # ``PUBLISHERS`` scan in test_job_durability.py): the
+                        # name is this job's own, so a cancel racing it can
+                        # only unwind this job's unfinished work through
+                        # ``_discard_artifacts``, never another job's served
+                        # artifact the way a cancelled re-rig or re-texture
+                        # could.
                         os.replace(winner, image_path)
                         best_report = reports[best]
                         if is_reference and best_report is not None:
@@ -898,6 +907,11 @@ class GenerateOps:
                     # the reason the staging linked out (C37); _stage_link's
                     # os.replace keeps each served name whole for concurrent
                     # readers, which is what staged_copy bought the copy path.
+                    #
+                    # A checkpoint for the reroll rename's reason: both names
+                    # are this job's own, so a cancel here is a legitimate
+                    # unwind. ``_remesh`` commits because its rename replaces a
+                    # *different*, already-finished job's mesh; this never does.
                     def _restore_pair() -> None:
                         queue_mod._stage_link(keep_source, source_glb)
                         queue_mod._stage_link(keep, glb_path)
@@ -939,6 +953,8 @@ class GenerateOps:
             # erasing the measured-good mesh while a half-processed attempt
             # sits on the served names. Best-effort and synchronous on purpose:
             # two link+replace ops, so a second cancel cannot skip it either.
+            # The restore above's exception-path twin, and a checkpoint for
+            # the same reason.
             if staged and best is not None and on_disk_seed != best["seed"]:
                 with contextlib.suppress(OSError):
                     queue_mod._stage_link(keep_source, source_glb)

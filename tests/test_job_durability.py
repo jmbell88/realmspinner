@@ -211,8 +211,23 @@ PUBLISHERS = [
     # return, so a cancel that lands after it commits") and already called
     # ``self._cancel.commit()`` right after its ``os.replace`` onto
     # ``model.glb`` -- only this row, the mechanical half, was undone.
-    # ``_deform_qa`` and the ``_q_generate.py`` promotion stage genuinely need
-    # the reasoning P37 describes and stay out of this list.
+    #
+    # P37, 2026-09-15, closed the other two. ``_deform_qa``'s renames
+    # (``_q_rig.py``) are an intermediate checkpoint, not a completion marker:
+    # ``_rig`` already calls ``self._cancel.commit()`` before it ever calls
+    # ``_deform_qa``, so they run in a post-commit QA tail where a cancel can
+    # only skip work, never un-commit a row -- see the classifying comments
+    # beside both of ``_deform_qa``'s renames, and
+    # ``test_deform_qa_runs_after_the_rig_commits_the_cancel_token`` below,
+    # which pins the ordering that makes that true. The ``_q_generate.py``
+    # promotion stage -- the reroll's ``os.replace(winner, image_path)`` and
+    # the best-mesh restore's two ``_stage_link`` calls -- are checkpoints
+    # too, for a different reason stated beside each: every name they rename
+    # onto lives in *that job's own* directory, so a cancel racing any of them
+    # can only discard that job's own half-finished work through
+    # ``_discard_artifacts``'s fallback branch, never a different job's served
+    # artifact. Neither site joins this list because neither is the point of
+    # no return ``_remesh``'s rename is.
     ("warlock._q_mesh", "_remesh", "os.replace"),
     ("warlock._q_rig", "_rig", "finalize_rig"),
     ("warlock._q_rig", "_sheet", "_publish_text"),
@@ -265,6 +280,41 @@ def test_every_served_publish_commits_the_cancel_token(module, func, publish):
         f"{module}.{func} publishes a served artifact and never commits the "
         "cancel token; a cancel in its tail records the row as cancelled with "
         "the artifact on disk"
+    )
+
+
+def test_deform_qa_runs_after_the_rig_commits_the_cancel_token():
+    """P37, 2026-09-15: the classification for ``_deform_qa`` only holds if
+    ``_rig`` really does call it after ``self._cancel.commit()``, not merely
+    beside it.
+
+    ``_deform_qa`` is deliberately outside ``PUBLISHERS`` -- its two renames
+    (the QA PNG onto ``png`` and the sidecar onto ``qa_json``) are an
+    intermediate checkpoint, not this job's completion marker, and need no
+    commit of their own -- but that reasoning is only true because ``_rig``
+    commits the token *before* it calls ``_deform_qa``. Reverse that order and
+    the QA renames would be exactly the unprotected completion-marker rename
+    the rest of this file's scan exists to catch: a cancel landing mid-QA
+    would record a rig that is already on disk (rig.glb/rig.json, published by
+    ``finalize_rig`` earlier in the same function) as "cancelled", and the
+    finally in ``queue.py`` would run ``_discard_artifacts`` over a row whose
+    real mesh is sitting there finished -- silently stalling
+    ``_maybe_queue_charsheet``, which is gated on ``status == "done"``, with a
+    perfectly good rig nobody points at (the exact failure ``_rig``'s own
+    comment above ``self._cancel.commit()`` describes).
+    """
+    from warlock import _q_rig
+
+    body = _function_source(_q_rig, "_rig")
+    commit_at = body.find("_cancel.commit()")
+    qa_at = body.find("_deform_qa(")
+    assert commit_at != -1, "_rig no longer commits the cancel token at all"
+    assert qa_at != -1, "_rig no longer calls _deform_qa"
+    assert commit_at < qa_at, (
+        "_rig calls _deform_qa before committing the cancel token; its QA "
+        "renames would then run under an uncommitted token, and a cancel "
+        "during the QA tail would record an already-published rig as "
+        "cancelled"
     )
 
 

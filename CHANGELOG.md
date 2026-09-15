@@ -20,6 +20,15 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **The run and attack clips keep the planted toe above the ground.** The
+  pass that fixed the jump, fall and death knees also found six run and attack
+  poses pushing a toe about 1.5% of the character's height below the ground.
+  That is about one pixel at 64 px, so no sheet showed it. The planted foot in
+  each is now tilted 2° to 10°, and nothing else about the stride or the swing
+  moved. The ground test now reads every humanoid pose, not just jump, fall
+  and death. A sheet already rendered keeps its old frames until it is
+  rendered again, and a clip library saved in Poser keeps them until **Revert
+  to shipped clips**.
 - **A hand-made `.aseprite` or `.glb` can no longer allocate past its ceiling on
   open.** The 2026-09-15 audit found two branches of the Aseprite decoder building
   full canvas planes without counting them: a linked cel drawn at its own offset,

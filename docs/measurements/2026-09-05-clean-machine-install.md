@@ -184,7 +184,8 @@ machine is now in exactly the state they need.
   remedies where there was one stringified exception), the health poll racing a
   pack install (any failed torch import falls back to NVML), and the pack gate
   that was never written (a mode's door asks for the pack first, then the
-  weights). `TODO.md`'s *Open findings* has what each one changed.
+  weights). The git history of `TODO.md`'s *Open findings* section, deleted
+  2026-09-15 once every finding was built, has what each one changed.
 - What is still owed from this machine is not code: a rerun that says whether a
   download now outlasts the resets, and the `HF_HUB_DISABLE_XET=1` experiment
   that no session in the log demonstrably had set.
