@@ -20,6 +20,20 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Ask Familiar for a character and it shows a plan before anything is
+  made.** The model turns the request into a species from the family
+  registry, plus any movements, directions, size or name you actually asked
+  for, constrained to what this build offers. The plan then goes through the
+  same recipe check Create uses, as a dry run that queues nothing. The pane
+  shows it as a card: species, theme, movements, directions, an estimate in
+  minutes, and any words it could not use. It has three buttons. **Create**
+  re-checks the recipe and queues the character through the same door
+  Create's own submit uses, so rig and sheet follow as usual. **Open in
+  Create** fills Create's character brief with the plan so you can change
+  it first. **Discard** drops it. A request the recipe refuses, such as a
+  look the species does not have, is answered with the recipe's own
+  sentence. A request naming no species this build knows is answered as
+  chat.
 - **Familiar can take you somewhere, and can draft a brief in Create for you
   to finish.** A message the router reads as "go there" asks the model to
   pick one destination from a list the app builds from the command palette:

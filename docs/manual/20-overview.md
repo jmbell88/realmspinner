@@ -247,9 +247,15 @@ shortcuts list or the workspace layout picker, whichever you asked for — and i
 stage, exactly where typing it yourself would have left you. It never presses **Generate** for you; you check the
 brief and do that yourself. Neither door goes anywhere or does anything you could not already reach by hand — a mode
 that is not ready yet says why, the same sentence its greyed rail item shows, and a request to draft in Create when
-Create itself is not ready says that instead of opening a form that could not generate anything. A skill the router
-recognises but this build does not act on yet (a character, specifically) still just answers in chat, honestly, rather
-than pretending nothing was asked. In **Clay**, with a document open, the expanded pane also offers **Build**:
+Create itself is not ready says that instead of opening a form that could not generate anything. Ask Familiar for a
+character — **"make me a goblin in the swamp"** — and instead of a brief it shows a plan: the species, the theme,
+whichever movements, direction count or name you actually asked for, and a time estimate, with **Create**, **Open in
+Create** and **Discard** underneath. **Create** queues the character exactly the way pressing Create's own Generate
+button would; **Open in Create** drops the same plan into Create's form instead, at the Reference stage, for you to
+adjust and generate yourself; **Discard** drops it. Nothing is queued until you press Create — proposing a plan never
+mints anything by itself, the same "look before you build" contract a Clay ghost keeps. A word the prompt used that
+the plan could not act on (a look the species does not offer, say) is named under the plan rather than silently
+dropped. In **Clay**, with a document open, the expanded pane also offers **Build**:
 describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
 **Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
 decides that is what you meant. Building needs the trained Clay model (`familiar_v1.0`); until that model replaces the

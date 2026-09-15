@@ -32,7 +32,7 @@ from typing import Any
 
 from .. import models
 from ..pipelines import llama, llama_client
-from ..studio.familiar import contract, doors, retrieval, router
+from ..studio.familiar import character_plan, contract, doors, retrieval, router
 from .errors import ServiceError
 
 #: The fixed vocabulary a :class:`FamiliarRefusal` names itself with. Every
@@ -215,9 +215,14 @@ class Answer:
     #: T8: what a routed ``navigate``/``create`` decided to *do*, for the
     #: caller (``studio/familiar_doors.py``, on the frame thread) to act out
     #: -- ``{"kind": "navigate", "target": <destination key>}`` or
-    #: ``{"kind": "draft", "asset_type": ..., "prompt": ...}``. ``None`` for
-    #: every other skill, including a navigate/create call that fell back to
-    #: chat because the model named nothing usable -- that case answers with
+    #: ``{"kind": "draft", "asset_type": ..., "prompt": ...}``. T7 adds a
+    #: third shape, ``{"kind": "character_plan", "prompt", "plan",
+    #: "overrides", "summary"}`` -- *not* acted out automatically the way a
+    #: navigate/draft is: the caller shows the plan and waits for a press
+    #: (``studio/familiar_ui.py``'s own plan card) before ever calling
+    #: :func:`create_planned_character`. ``None`` for every other skill,
+    #: including a navigate/create/character call that fell back to chat
+    #: because the model named nothing usable -- that case answers with
     #: *text* instead, exactly like an unbuilt skill does.
     action: dict[str, Any] | None = None
 
@@ -338,6 +343,111 @@ def _ask_create(
     )
 
 
+def _ask_character(
+    svc: Any, prompt: str, history: tuple[Any, ...], character_options: dict[str, Any]
+) -> Answer:
+    """A ``character`` route: propose a plan among *character_options*
+    (``{"families", "movements", "directions", "size_range"}`` -- see
+    ``character_plan.build_character_messages``'s own docstring), then run
+    it through :func:`~..service.characters.recipe_from_prompt` as a **dry
+    run that mints nothing**. T7's whole point: the plan is free to discard,
+    and only the user's own Create press (``studio/familiar_ui.py``'s
+    ``submit_character``) ever calls :func:`create_planned_character`.
+
+    Falls back to :func:`chat_reply` when the model names no species
+    *character_options* offers (:func:`~.character_plan.parse_plan` returned
+    ``None``) -- the same "don't act, just answer" contract
+    :func:`_ask_navigate`/:func:`_ask_create` already keep.
+
+    A refusal from ``recipe_from_prompt`` (a theme the species does not
+    paint, a movement that is not this skeleton's clip, ...) is deliberately
+    **not** re-raised as a :class:`FamiliarRefusal`: it is a conversational
+    answer with a sentence the user can act on (try another species, drop a
+    movement) exactly the way that door already answers a person typing into
+    Create's own form, not a Familiar-specific failure -- and unlike a
+    :class:`FamiliarRefusal` (Familiar itself could not answer), the model
+    answered fine here; it is the *plan* the recipe would not build.
+    """
+    from . import characters as svc_characters
+    from .errors import Invalid
+
+    reply = _call(
+        svc,
+        character_plan.build_character_messages(prompt, character_options),
+        skill=None,
+        sampling=contract.SAMPLING["character"],
+        expected_card_sha=None,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"schema": character_plan.character_schema(character_options)},
+        },
+    )
+    plan = character_plan.parse_plan(reply, character_options)
+    if plan is None:
+        return Answer(skill="character", text=chat_reply(svc, prompt, history))
+
+    overrides = character_plan.plan_overrides(plan)
+    try:
+        built = svc_characters.recipe_from_prompt(svc, prompt, overrides=overrides)
+    except Invalid as exc:
+        return Answer(skill="character", text=str(exc))
+
+    fam_label = next(
+        (f["label"] for f in character_options["families"] if f["key"] == plan["family"]),
+        plan["family"],
+    )
+    summary = {
+        "species": fam_label,
+        "theme": plan.get("theme"),
+        "movements": plan.get("movements", []),
+        "directions": plan.get("directions"),
+        "cells": built["cells"],
+        "estimate_minutes": built["estimate_minutes"],
+        "ignored": built["ignored"],
+    }
+    return Answer(
+        skill="character",
+        text=None,
+        action={
+            "kind": "character_plan",
+            "prompt": prompt,
+            "plan": plan,
+            "overrides": overrides,
+            "summary": summary,
+        },
+    )
+
+
+def create_planned_character(
+    svc: Any, prompt: str, overrides: dict[str, Any], name: str | None = None
+) -> dict[str, Any]:
+    """Mint the character T7's plan card proposed.
+
+    ``recipe_from_prompt`` is **re-run** rather than trusted from the plan's
+    own moment -- the world may have changed in between (a download that
+    finished, a species that no longer resolves the way it did when the
+    model last saw it) -- and only the fresh recipe it returns is handed to
+    :func:`~..service.characters.create_character`, the same door Create's
+    own submit calls (``panes/settings_character.py``'s ``submit``): a
+    character queued from a plan is queued exactly the way a person's own
+    Generate press would have queued it, comment or no comment from an
+    agent session in between.
+
+    Raises whatever either door raises (``service.errors.Invalid`` for a
+    refusal, e.g. "Rigging needs Blender, which is not installed.") --
+    unlike :class:`FamiliarRefusal`, this is a plain service call with
+    nothing Familiar-specific about the mint itself, so it carries no
+    ``reason`` vocabulary of its own; the caller (``studio/familiar_ui.py``)
+    shows it exactly like any other refused submit.
+    """
+    from . import characters as svc_characters
+
+    built = svc_characters.recipe_from_prompt(svc, prompt, overrides=overrides)
+    return svc_characters.create_character(
+        svc, built["recipe"], name=name, prompt=prompt, resolution=built["resolution"]
+    )
+
+
 def ask(
     svc: Any,
     prompt: str,
@@ -347,6 +457,7 @@ def ask(
     scene: dict[str, Any] | None = None,
     destinations: tuple[doors.Destination, ...] = (),
     asset_types: tuple[tuple[str, str], ...] = (),
+    character_options: dict[str, Any] | None = None,
 ) -> Answer:
     """Route *prompt* to a skill, then answer it.
 
@@ -374,6 +485,15 @@ def ask(
     every pre-T8 call site still passes) means "nothing to route to", so
     both fall back to plain chat exactly like an unbuilt skill does, rather
     than asking the model to choose among zero options.
+
+    T7: ``character`` is the same "empty means fall back" contract, but
+    *character_options* is handed in for a narrower reason than
+    *destinations*/*asset_types* -- what it is built from
+    (``service.characters.character_options``) is already service-layer
+    data, not studio machinery, so the caller (``studio/familiar_ui.py``)
+    only exists as the one place already computing it, cached, for Create's
+    own form (``panes/settings_character.options``); this module still never
+    reads a registry to build it fresh.
     """
     route_reply = _call(
         svc,
@@ -403,5 +523,8 @@ def ask(
 
     if skill == "create" and asset_types:
         return _ask_create(svc, prompt, history, asset_types)
+
+    if skill == "character" and character_options:
+        return _ask_character(svc, prompt, history, character_options)
 
     return Answer(skill=skill, text=chat_reply(svc, prompt, history))

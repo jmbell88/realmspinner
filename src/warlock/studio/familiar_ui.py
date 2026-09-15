@@ -35,6 +35,11 @@ from typing import Any
 #: which is exactly "disable Send/Build while busy" for free.
 CHAT_KEY = "familiar/chat"
 BUILD_KEY = "familiar/build"
+#: T7's Create press on a pending character plan. Its own key, not
+#: ``CHAT_KEY`` -- a plan sits waiting for a press with no chat in flight,
+#: and the two must be free to overlap the way any two independent
+#: ``ctx.submit`` keys already are.
+CHARACTER_KEY = "familiar/character"
 
 #: The bottom pane's expanded height, in design pixels, before
 #: ``bottom_pane.max_height``'s own window-relative clamp -- room for a short
@@ -82,6 +87,13 @@ class FamiliarUIState:
     preview_scratch: Any = None
     preview_diff: Any = None
     preview_tab_uid: str = ""
+    #: T7: a pending character plan -- ``service.familiar.Answer.action``'s
+    #: own ``"character_plan"`` shape, verbatim, or ``None`` with nothing
+    #: waiting on a press. Cleared by whichever of Create/Open in
+    #: Create/Discard the user presses; landing a *new* plan while one is
+    #: already pending simply replaces it -- the same "the document changed,
+    #: preview again" spirit ``_run_build_preview`` keeps, one plan at a time.
+    plan: dict[str, Any] | None = None
 
 
 def ensure(ctx: Any) -> FamiliarUIState:
@@ -168,6 +180,43 @@ def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     return contract.compact_scene(structured or {})
 
 
+def _character_options(ctx: Any) -> dict[str, Any]:
+    """The plan-shaped slice of ``service.characters.character_options`` for
+    :func:`~.familiar.character_plan.build_character_messages`/
+    ``character_schema`` -- species with their themes, every shipped
+    movement across every archetype's own skeleton, the direction ladder and
+    the custom-size range.
+
+    Read through ``settings_character.options`` -- Create's own frame-thread
+    cache, keyed on the palette directory's stamp
+    (``panes/settings_character.py``'s own docstring) -- rather than calling
+    ``service.characters.character_options`` fresh: it is the one place
+    already paying for this read every frame Create's own form is open, and
+    a second, uncached copy here would answer the same registries a frame
+    later for no reason. Computed on the frame thread, alongside
+    *destinations*/*asset_types* (T8's own precedent) rather than inside the
+    worker closure below: unlike those two this touches no ``ctx.state``
+    gate, but it does touch ``ctx.state.preview``'s own cache slot, which is
+    frame-thread state exactly like the Clay scene capture is.
+    """
+    from .. import rigging
+    from .panes import settings_character
+
+    raw = settings_character.options(ctx)
+    families = [
+        {"key": f["key"], "label": f["label"], "themes": [t["key"] for t in f["themes"]]}
+        for f in raw["families"]
+    ]
+    templates = {a["template"] for a in raw["archetypes"]}
+    movements = sorted({name for t in templates for name in rigging.shipped_clip_names(t)})
+    return {
+        "families": families,
+        "movements": movements,
+        "directions": list(raw["directions"]),
+        "size_range": tuple(raw["troupe"]["logical_size_range"]),
+    }
+
+
 def submit_chat(ctx: Any, prompt: str) -> bool:
     """Send *prompt* through Familiar's router. -> whether it was accepted.
 
@@ -210,6 +259,10 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
 
     destinations = familiar_doors.destinations(ctx)
     asset_types = create_assets.ASSET_TYPE_OPTIONS
+    # T7: same frame-thread treatment as the two lines above -- see
+    # ``_character_options``'s own docstring for why this one is cheap
+    # rather than studio-gated.
+    character_options = _character_options(ctx)
 
     from ..service import familiar as svc_familiar
 
@@ -222,6 +275,7 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
             scene=scene,
             destinations=tuple(destinations),
             asset_types=asset_types,
+            character_options=character_options,
         )
 
     tag = {"thread_key": key, "tab_uid": tab_uid, "scene_captured": scene is not None}
@@ -281,9 +335,10 @@ def _reason_and_message(done: Any) -> tuple[str | None, str]:
 
 
 def on_task_done(ctx: Any, done: Any) -> None:
-    """Called from the app for :data:`CHAT_KEY`/:data:`BUILD_KEY`, the same
-    way every other mode's ``on_task_done`` is called from ``main.
-    _on_task_done``."""
+    """Called from the app for :data:`CHAT_KEY`/:data:`BUILD_KEY`/
+    :data:`CHARACTER_KEY`, the same way every other mode's ``on_task_done``
+    is called from ``main._on_task_done`` (any ``"familiar/"``-prefixed key
+    reaches here)."""
     ui = ensure(ctx)
     tag = done.tag if isinstance(done.tag, dict) else {}
 
@@ -300,7 +355,19 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # an explicit Build's own result, calls and all.
                 _run_build_preview(ctx, ui, tag.get("tab_uid", ""), result.calls)
                 return
-            if isinstance(result, Answer) and result.action is not None:
+            if (
+                isinstance(result, Answer)
+                and result.action is not None
+                and result.action.get("kind") == "character_plan"
+            ):
+                # T7: a character plan waits for a press -- it is never acted
+                # out the way a navigate/draft is (see ``Answer.action``'s
+                # own docstring), just shown, so the plan card can draw
+                # itself from ``ui.plan`` instead of the transcript.
+                ui.plan = result.action
+                text = "Here's a plan -- create it, open it in Create, or discard."
+                citations = ()
+            elif isinstance(result, Answer) and result.action is not None:
                 # T8: a navigate/create route -- act it out here, on the
                 # frame thread (``familiar_doors`` reaches the palette,
                 # ``state.set_mode`` and Create's form, none of which a
@@ -335,6 +402,28 @@ def on_task_done(ctx: Any, done: Any) -> None:
         ui.reason = None
         ui.message = None
         _run_build_preview(ctx, ui, tag.get("tab_uid", ""), calls)
+        return
+
+    if done.key == CHARACTER_KEY:
+        if not done.ok:
+            # A plain ``service.errors.Invalid`` (Blender missing, a stale
+            # theme) has no ``.reason`` -- ``_reason_and_message`` already
+            # answers ``None`` for that, the same shape a non-Familiar
+            # refusal is shown in everywhere else.
+            ui.reason, ui.message = _reason_and_message(done)
+            return
+        ui.reason = None
+        ui.message = None
+        thread = tag.get("thread_key")
+        threads_obj = getattr(ctx, "familiar_threads", None)
+        text = "Character queued -- it will appear in the Library."
+        if thread is not None and threads_obj is not None:
+            from .familiar import threads
+
+            threads_obj.append(thread, threads.Turn("familiar", text))
+        toast = getattr(ctx, "toast", None)
+        if toast is not None:
+            toast(text)
         return
 
 
@@ -442,6 +531,106 @@ def discard_preview(ctx: Any) -> None:
     _clear_preview(ui)
 
 
+# --- T7: the character plan card ------------------------------------------
+
+
+def _character_fields(plan: dict[str, Any]) -> dict[str, Any]:
+    """*plan* (:func:`~.familiar.character_plan.parse_plan`'s own shape) ->
+    the Create form's own ``character_*`` field names -- the same subset
+    ``troupe_mode.vary_in_create`` writes for a recipe it is varying, built
+    only from whichever of *plan*'s fields are actually present (never
+    invents a theme, a camera or a name the plan itself does not carry).
+
+    ``movements`` is filtered against ``settings_character.MOVEMENTS`` (the
+    closed default trio Create's own action checkboxes offer), the same
+    filter ``vary_in_create`` applies to a recipe's ``animations`` keys --
+    Create's form has no control for a movement outside that ladder, so one
+    from the plan's own wider vocabulary (any shipped clip, not just the
+    default three) is silently absent from the brief rather than fed to a
+    checkbox that cannot show it; the plan itself still built the full list
+    into *its own* ``overrides``, for the Create button's own path.
+    """
+    from .panes import settings_character
+
+    fields: dict[str, Any] = {}
+    if "family" in plan:
+        fields["character_family"] = plan["family"]
+    if "theme" in plan:
+        fields["character_theme"] = plan["theme"]
+    if "movements" in plan:
+        wanted = set(plan["movements"])
+        fields["character_actions"] = ",".join(
+            name for name, _frames in settings_character.MOVEMENTS if name in wanted
+        )
+    if "size" in plan:
+        fields["character_pixel"] = str(int(plan["size"]))
+    if "name" in plan:
+        fields["character_name"] = plan["name"]
+    return fields
+
+
+def submit_character(ctx: Any) -> bool:
+    """Mint the pending plan's character. -> whether the press was taken.
+
+    Busy-guarded on :data:`CHARACTER_KEY` -- its own key, not :data:`CHAT_KEY`
+    -- and refused outright with no plan waiting. The plan is cleared the
+    moment the submit is *accepted*, not once it lands: the card should not
+    keep showing Create/Open/Discard against a request already in flight,
+    the same "clear on accept" rule :func:`draw_expanded` already applies to
+    the input line.
+    """
+    ui = ensure(ctx)
+    if ui.plan is None or ctx.busy(CHARACTER_KEY):
+        return False
+    action = ui.plan
+    plan = action["plan"]
+
+    from ..service import familiar as svc_familiar
+
+    def run() -> Any:
+        return svc_familiar.create_planned_character(
+            ctx.svc, action["prompt"], action["overrides"], plan.get("name")
+        )
+
+    tag = {"thread_key": thread_key(ctx)}
+    if not ctx.submit(CHARACTER_KEY, run, tag=tag):
+        return False
+    ui.plan = None
+    ui.reason = None
+    ui.message = None
+    return True
+
+
+def open_character_in_create(ctx: Any) -> None:
+    """Draft the pending plan's character into Create instead of minting it
+    -- :func:`~.familiar_doors.draft_in_create`'s own ``character_fields``
+    door, the one T8 built exactly for this caller. Clears the plan and
+    appends the door's own sentence to the transcript, the same landing
+    every other routed action already gets."""
+    ui = ensure(ctx)
+    if ui.plan is None:
+        return
+    action = ui.plan
+    from . import familiar_doors
+
+    text = familiar_doors.draft_in_create(
+        ctx, "character", action["prompt"], character_fields=_character_fields(action["plan"])
+    )
+    ui.plan = None
+    threads_obj = getattr(ctx, "familiar_threads", None)
+    if threads_obj is not None:
+        from .familiar import threads
+
+        threads_obj.append(thread_key(ctx), threads.Turn("familiar", text))
+
+
+def discard_character_plan(ctx: Any) -> None:
+    """Drop the pending plan, if any -- nothing was ever queued, so there is
+    nothing to undo, only the card to stop showing."""
+    ui = ensure(ctx)
+    ui.plan = None
+
+
 # --- drawing -----------------------------------------------------------
 
 
@@ -456,6 +645,46 @@ def follow_citation(ctx: Any, citation: Any) -> None:
     from .manual import render as manual_render
 
     manual_render.open_at(ctx, (citation.chapter, citation.anchor))
+
+
+def _draw_plan_card(ctx: Any, ui: FamiliarUIState) -> None:
+    """The pending plan: species, theme, movements, directions, an estimate,
+    and whatever the prompt named that the plan could not use -- then
+    Create/Open in Create/Discard. ``ui.message`` (a refused Create press)
+    is drawn by the caller, above the transcript, the same way every other
+    refusal already is -- this function only draws the plan's own summary
+    and its three buttons.
+    """
+    from imgui_bundle import imgui
+
+    from . import controls, widgets
+
+    action = ui.plan or {}
+    summary = action.get("summary") or {}
+
+    imgui.text_wrapped(str(summary.get("species") or ""))
+    if summary.get("theme"):
+        widgets.secondary(f"Theme: {summary['theme']}")
+    movements = summary.get("movements") or []
+    if movements:
+        widgets.secondary("Movements: " + ", ".join(movements))
+    if summary.get("directions"):
+        widgets.secondary(f"Directions: {summary['directions']}")
+    widgets.secondary(
+        f"~{summary.get('estimate_minutes', 0):.1f} min, {summary.get('cells', 0)} cells"
+    )
+    for item in summary.get("ignored") or ():
+        widgets.secondary(f"(not used: {item.get('text', '')})")
+
+    busy = ctx.busy(CHARACTER_KEY)
+    if controls.small_button("Create##familiar/character-create", enabled=not busy):
+        submit_character(ctx)
+    imgui.same_line()
+    if controls.small_button("Open in Create##familiar/character-open", enabled=not busy):
+        open_character_in_create(ctx)
+    imgui.same_line()
+    if controls.small_button("Discard##familiar/character-discard", enabled=not busy):
+        discard_character_plan(ctx)
 
 
 def draw_expanded(ctx: Any) -> None:
@@ -500,6 +729,14 @@ def draw_expanded(ctx: Any) -> None:
         imgui.same_line()
         if controls.small_button("Discard##familiar/discard"):
             discard_preview(ctx)
+        return
+
+    if ui.plan is not None:
+        # T7: a Clay preview (checked above) always wins the pane's one row
+        # of action buttons -- a build and a character plan cannot land in
+        # the same turn today, but if one ever did, the ghost already sitting
+        # in the viewport is the more urgent thing to resolve.
+        _draw_plan_card(ctx, ui)
         return
 
     imgui.set_next_item_width(-1.0)

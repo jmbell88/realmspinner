@@ -17,7 +17,9 @@ from types import SimpleNamespace
 import pytest
 
 from warlock import models
+from warlock.service import characters as svc_characters
 from warlock.service import familiar as svc_familiar
+from warlock.service.errors import Invalid
 from warlock.service.familiar import FamiliarRefusal
 from warlock.studio.familiar import contract, retrieval, router
 
@@ -261,10 +263,13 @@ def test_the_router_runs_on_slot_zero_with_the_schema(monkeypatch):
 
 
 def test_an_unbuilt_skill_falls_back_to_chat_and_still_reports_the_route(monkeypatch):
-    """character/create/navigate/other have no built skill yet (T7/T8) -- the
+    """character/create/navigate all need their own list/options handed in
+    by the caller (T7/T8) before ``ask`` will route to them at all -- with
+    none offered (this call's own default, empty/``None``), a route to any
+    of them falls back to plain chat exactly like ``other`` does, and the
     router's own decision must still land in ``Answer.skill`` even though
     ``chat_reply`` is what actually answered, so a caller can tell "the
-    router picked X and nothing handles X yet" from "the router picked
+    router picked X and nothing was offered for X" from "the router picked
     other"."""
 
     async def fake_chat(server, messages, *, slot, sampling, skill=None,
@@ -464,3 +469,153 @@ def test_a_refusal_while_choosing_a_destination_is_not_swallowed(monkeypatch):
         )
 
     assert excinfo.value.reason == "lease"
+
+
+# --- T7: the character route ------------------------------------------------
+
+
+def _character_options() -> dict:
+    return {
+        "families": [
+            {"key": "goblin", "label": "Goblin", "themes": ["swamp", "cave"]},
+        ],
+        "movements": ["idle", "walk", "run"],
+        "directions": [1, 4, 8, 16],
+        "size_range": (8, 256),
+    }
+
+
+def test_a_character_route_returns_a_plan_after_a_dry_run_and_mints_nothing(monkeypatch):
+    """A ``character`` route must ask ``recipe_from_prompt`` -- a dry run --
+    for the plan's own estimate, and must never reach ``create_character``:
+    T7's whole point is a plan sits waiting for a press, nothing is minted
+    by the chat turn that proposed it."""
+    calls: dict = {}
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "character"}'
+        return '{"family": "goblin", "theme": "swamp", "movements": ["walk"]}'
+
+    def fake_recipe_from_prompt(svc, prompt, *, overrides=None):
+        calls["overrides"] = overrides
+        return {
+            "recipe": {"family": "goblin"},
+            "resolution": {},
+            "ignored": [],
+            "cells": 24,
+            "estimate_minutes": 3.5,
+        }
+
+    def fake_create_character(*args, **kwargs):
+        raise AssertionError("a character plan must not mint anything")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    monkeypatch.setattr(svc_characters, "recipe_from_prompt", fake_recipe_from_prompt)
+    monkeypatch.setattr(svc_characters, "create_character", fake_create_character)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(),
+        "make me a goblin in the swamp",
+        mode="home",
+        history=(),
+        character_options=_character_options(),
+    )
+
+    assert answer.skill == "character"
+    assert answer.text is None
+    assert answer.action["kind"] == "character_plan"
+    assert answer.action["plan"]["family"] == "goblin"
+    assert calls["overrides"] == {
+        "family": "goblin", "theme": "swamp", "animations": {"walk": None},
+    }
+    assert answer.action["overrides"] == calls["overrides"]
+    assert answer.action["summary"]["species"] == "Goblin"
+    assert answer.action["summary"]["cells"] == 24
+    assert answer.action["summary"]["estimate_minutes"] == 3.5
+
+
+def test_a_character_route_the_recipe_refuses_answers_with_the_refusal_sentence(monkeypatch):
+    """A refusal out of ``recipe_from_prompt`` (an unbuilt theme, an
+    unknown clip, ...) must answer as ordinary chat text -- it is a
+    conversational answer the user can act on, not a
+    :class:`FamiliarRefusal`: Familiar itself answered fine; it is the plan
+    the recipe would not build."""
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "character"}'
+        return '{"family": "goblin"}'
+
+    def fake_recipe_from_prompt(svc, prompt, *, overrides=None):
+        raise Invalid("Goblin has no 'gilded' look; it offers swamp, cave.", field="theme")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    monkeypatch.setattr(svc_characters, "recipe_from_prompt", fake_recipe_from_prompt)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "make a gilded goblin", mode="home", history=(),
+        character_options=_character_options(),
+    )
+
+    assert answer.skill == "character"
+    assert answer.action is None
+    assert answer.text == "Goblin has no 'gilded' look; it offers swamp, cave."
+
+
+def test_a_character_route_with_no_usable_plan_falls_back_to_chat(monkeypatch):
+    """The model naming no species this build offers must fall back to a
+    plain chat reply -- the same "don't act, just answer" contract
+    ``_ask_navigate``/``_ask_create`` already keep."""
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "character"}'
+        if response_format is not None:
+            # The character request itself -- the model named no species.
+            return '{"family": "none"}'
+        return "Warlock builds goblins and knights -- which would you like?"
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "make me something cool", mode="home", history=(),
+        character_options=_character_options(),
+    )
+
+    assert answer.skill == "character"
+    assert answer.action is None
+    assert answer.text == "Warlock builds goblins and knights -- which would you like?"
+
+
+def test_creating_a_planned_character_re_runs_the_recipe_before_minting(monkeypatch):
+    """``create_planned_character`` must re-resolve the recipe rather than
+    trust the plan's own moment -- the world may have changed since (a
+    download finished, a species that no longer resolves the same way)."""
+    calls: list[str] = []
+
+    def fake_recipe_from_prompt(svc, prompt, *, overrides=None):
+        calls.append("recipe")
+        assert overrides == {"family": "goblin"}
+        return {"recipe": {"family": "goblin", "seed": 7}, "resolution": {"family": "goblin"}}
+
+    def fake_create_character(svc, recipe, *, name=None, prompt="", resolution=None):
+        calls.append("create")
+        assert calls == ["recipe", "create"], "the recipe must be re-run before minting"
+        assert recipe == {"family": "goblin", "seed": 7}
+        assert resolution == {"family": "goblin"}
+        assert name == "Grubnak"
+        return {"id": "abc123", "rig": "def456", "kind": "character"}
+
+    monkeypatch.setattr(svc_characters, "recipe_from_prompt", fake_recipe_from_prompt)
+    monkeypatch.setattr(svc_characters, "create_character", fake_create_character)
+
+    result = svc_familiar.create_planned_character(
+        _FakeSvc(), "make me a goblin", {"family": "goblin"}, "Grubnak"
+    )
+
+    assert result == {"id": "abc123", "rig": "def456", "kind": "character"}
+    assert calls == ["recipe", "create"]

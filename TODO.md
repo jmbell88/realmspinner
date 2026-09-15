@@ -2051,9 +2051,25 @@ reuses the draft door):**
   chat.
 - Unmeasured: whether base Gemma picks the right destination.
 
-**Do, in order, from master:** T7
-character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
-smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
+~~T7 character skill with a plan card~~ **Built 2026-09-14:**
+- `studio/familiar/character_plan.py` is pure: the schema over the offered
+  families/movements/directions/size range, `parse_plan` (drops what it
+  cannot use), and `plan_overrides`, a strict subset of
+  `service.characters._RECIPE_OVERRIDE_KEYS`.
+- `service.familiar._ask_character` does a constrained plan, then a
+  `recipe_from_prompt` dry run, and returns a `character_plan` action. An
+  `Invalid` from the recipe comes back as its own sentence. No usable plan
+  falls back to chat.
+- `create_planned_character` re-runs the recipe, then calls
+  `create_character`, Create's own door.
+- The pane's plan card offers Create (`familiar/character`, off the frame
+  thread), Open in Create (T8's `draft_in_create` with `character_fields`;
+  movements outside Create's three checkboxes stay only in the Create-button
+  path) and Discard.
+- Options come from `settings_character.options`, Create's cached read.
+- Unmeasured: whether base Gemma extracts a usable plan.
+
+**Do, in order, from master:** T9 GPU smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
 guess; T10 swap to the fine-tune (`familiar_v1.0`, cleared by P53, now in
 *Closed records*). The screenshot and `/exercise-mode`
 debt T0–T4 left behind does not wait on the card; it is P56.

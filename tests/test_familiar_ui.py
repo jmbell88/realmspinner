@@ -10,6 +10,7 @@ one app-level wire ``install`` adds to ``docmodes.TAB_CLOSED``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,7 +55,16 @@ class _FakeCtx:
             clay=clay_state, mode=mode, familiar=None, preview={}, manual=ManualState()
         )
         self.settings = SimpleNamespace()
-        self.svc = SimpleNamespace(worker=SimpleNamespace(familiar=object()))
+        # T7: ``config.palette_dir`` is all ``_character_options`` needs off
+        # ``svc`` -- ``settings_character.options``/``service.characters.
+        # character_options`` read every other registry in memory, and
+        # ``palettes.available``/``stamps.stamp_ns`` both already answer "no
+        # palettes" for a directory that is not there rather than raising.
+        self.svc = SimpleNamespace(
+            worker=SimpleNamespace(familiar=object()),
+            config=SimpleNamespace(palette_dir=Path("___familiar_ui_test_no_palette_dir___")),
+        )
+        self.toasts: list[str] = []
         self.familiar_threads = _FakeThreads()
         self._tab = tab
         self._pending: dict[str, tuple] = {}
@@ -81,6 +91,9 @@ class _FakeCtx:
 
     def finish(self, key) -> None:
         self._pending.pop(key, None)
+
+    def toast(self, message: str, level: str = "info") -> None:
+        self.toasts.append(message)
 
 
 # --- submitting never blocks the frame --------------------------------------
@@ -395,3 +408,111 @@ def test_following_a_citation_opens_the_manual_at_its_section():
     assert ctx.state.manual.open is True
     assert ctx.state.manual.chapter == citation.chapter
     assert ctx.state.manual.pending_anchor == citation.anchor
+
+
+# --- T7: the character plan card -------------------------------------------
+
+
+def _character_plan_action() -> dict:
+    return {
+        "kind": "character_plan",
+        "prompt": "make me a goblin in the swamp",
+        "plan": {"family": "goblin", "theme": "swamp", "movements": ["walk"]},
+        "overrides": {"family": "goblin", "theme": "swamp", "animations": {"walk": None}},
+        "summary": {
+            "species": "Goblin",
+            "theme": "swamp",
+            "movements": ["walk"],
+            "directions": None,
+            "cells": 24,
+            "estimate_minutes": 3.5,
+            "ignored": [],
+        },
+    }
+
+
+def test_a_character_plan_waits_for_a_press_before_anything_is_queued():
+    """A ``character_plan`` action must only ever populate ``ui.plan`` --
+    unlike navigate/draft it is never acted out by ``on_task_done`` itself,
+    and unlike a Clay build it never queues anything: nothing is submitted
+    until the user presses Create."""
+    ctx = _FakeCtx(mode="home")
+    action = _character_plan_action()
+    answer = svc_familiar.Answer(skill="character", text=None, action=action)
+    done = Done(key=familiar_ui.CHAT_KEY, result=answer, tag={"thread_key": ("home", "")})
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.plan == action
+    assert ctx._pending == {}, "a plan landing must never itself submit anything"
+    turns = ctx.familiar_threads.get(("home", ""))
+    assert turns[-1].role == "familiar"
+    assert "plan" in turns[-1].text.lower()
+
+
+def test_create_on_a_plan_submits_the_character_job_off_the_frame_thread(monkeypatch):
+    """Pressing Create must hand ``create_planned_character`` to ``ctx.submit``
+    as a closure -- proven by an exploding stand-in that only ever runs once
+    the captured closure is invoked -- and must clear the pending plan the
+    moment the submit is *accepted*, not once it lands."""
+    ctx = _FakeCtx(mode="home")
+    ui = familiar_ui.ensure(ctx)
+    ui.plan = _character_plan_action()
+
+    def exploding_create(*_args, **_kwargs):
+        raise AssertionError("create_planned_character must not run on the frame thread")
+
+    monkeypatch.setattr(svc_familiar, "create_planned_character", exploding_create)
+
+    accepted = familiar_ui.submit_character(ctx)
+
+    assert accepted is True
+    assert ui.plan is None
+    assert familiar_ui.CHARACTER_KEY in ctx._pending
+    fn, _args, _kwargs, _tag = ctx._pending[familiar_ui.CHARACTER_KEY]
+    with pytest.raises(AssertionError):
+        fn()  # only now -- simulating the worker thread -- does it run
+
+
+def test_open_in_create_drafts_the_character_brief_with_the_plan_fields(monkeypatch):
+    """Open in Create must call ``familiar_doors.draft_in_create`` with the
+    plan's own fields mapped onto Create's ``character_*`` form names, and
+    must clear the plan -- it drafts, it never mints."""
+    ctx = _FakeCtx(mode="home")
+    ui = familiar_ui.ensure(ctx)
+    ui.plan = _character_plan_action()
+
+    captured: dict = {}
+
+    def fake_draft(ctx_arg, asset_type, prompt, *, character_fields=None):
+        captured["asset_type"] = asset_type
+        captured["prompt"] = prompt
+        captured["character_fields"] = character_fields
+        return "Drafted in Create -- check the brief and press Generate."
+
+    from warlock.studio import familiar_doors
+
+    monkeypatch.setattr(familiar_doors, "draft_in_create", fake_draft)
+
+    familiar_ui.open_character_in_create(ctx)
+
+    assert ui.plan is None
+    assert captured["asset_type"] == "character"
+    assert captured["prompt"] == "make me a goblin in the swamp"
+    assert captured["character_fields"]["character_family"] == "goblin"
+    assert captured["character_fields"]["character_theme"] == "swamp"
+    turns = ctx.familiar_threads.get(familiar_ui.thread_key(ctx))
+    assert turns[-1].text == "Drafted in Create -- check the brief and press Generate."
+
+
+def test_discard_clears_the_plan():
+    """Discard must drop the pending plan -- nothing was ever queued, so
+    there is nothing to undo, only the card to stop showing."""
+    ctx = _FakeCtx(mode="home")
+    ui = familiar_ui.ensure(ctx)
+    ui.plan = _character_plan_action()
+
+    familiar_ui.discard_character_plan(ctx)
+
+    assert ui.plan is None

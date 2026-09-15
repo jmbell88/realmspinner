@@ -126,6 +126,14 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # submits this, so a slightly long reply costs latency, not a bad
     # generation.
     "create": {"temperature": 0.3, "top_k": 64, "top_p": 0.95, "max_tokens": 400},
+    # T7: greedy and starved, the same "nothing for sampling to vary" reason
+    # "router"/"navigate" already give -- constrained decoding to
+    # ``character_plan.character_schema``'s own enums/ranges (a species key,
+    # a handful of movement names, an int direction count, an int size, a
+    # short name). Unmeasured, same caveat as "create": no eval corpus for a
+    # character-plan turn exists yet. 200 tokens is generous for one JSON
+    # object shaped like that.
+    "character": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 200},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
 ``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
