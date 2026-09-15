@@ -260,12 +260,21 @@ class AssetSource:
         job_id, artifact = ref.job_id, ref.artifact
         task_key = f"{TASK_PREFIX}{job_id}:{artifact}"
 
-        def run() -> gltf.Model:
+        def run() -> list[gltf.Primitive]:
+            # The 2026-09-15 audit's mason-02: the GLB decode already ran here,
+            # on the task thread, but ``_bake_model`` -- a per-vertex matrix
+            # and normal transform, up to a 100 MB GLB -- used to run back in
+            # ``on_task``, on the frame thread that adopts the result. Baked
+            # here instead, so a big asset's bake costs a task-pool thread,
+            # never a dropped frame; a bake that raises is caught the same
+            # way a bad decode always was, by the task runner turning it into
+            # ``error`` for :meth:`on_task` rather than a frame-thread crash.
             from ..service.validation import MAX_MESH_BYTES
 
             path = self.ctx.svc.config.job_dir(job_id) / artifact
             data = sizeguard.within_ceiling(path, MAX_MESH_BYTES).read_bytes()
-            return gltf.load(data)
+            model = gltf.load(data)
+            return _bake_model(model)
 
         if self.ctx.submit(task_key, run, tag=key):
             self._pending.add(key)
@@ -290,14 +299,11 @@ class AssetSource:
             # module docstring's ``rev`` paragraph.
             self._rev += 1
             return True
-        try:
-            prims = _bake_model(result)
-        except Exception:
-            log.exception("mason: library asset failed to bake")
-            self.missing.add(tag)
-            self._rev += 1
-            return True
-        self._store(tag, prims)
+        # ``result`` is already baked -- see the 2026-09-15 audit's mason-02
+        # comment on ``_start_library.run``: the bake happened on the task
+        # thread, not here, so there is nothing left to do on this one but
+        # adopt it.
+        self._store(tag, result)
         self._rev += 1
         return True
 

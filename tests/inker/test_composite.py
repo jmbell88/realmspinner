@@ -151,6 +151,20 @@ def test_every_mode_the_kernel_knows_is_a_mode_that_exists():
     assert cp._MODE_REPLACE not in cp._MODE_IDS.values()
 
 
+def test_every_declared_blend_mode_has_a_kernel_id():
+    """The module comment above ``_MODE_IDS`` calls ``_MODE_IDS ⊇
+    BLEND_MODES`` load-bearing -- a mode in ``BLEND_MODES`` with no case here
+    composites as normal, silently, which is exactly the eleven-fold cliff
+    the 2026-08-16 measurement closed. But
+    ``test_every_mode_the_kernel_knows_is_a_mode_that_exists`` only ever
+    asserted the other direction (``_MODE_IDS <= BLEND_MODES``), so a menu
+    entry added without a kernel case would pass every test in this file.
+    The 2026-09-15 audit, finding inker-08: assert the equality the comment
+    already claims.
+    """
+    assert set(cp._MODE_IDS) == set(cp.BLEND_MODES)
+
+
 def test_hard_light_is_overlay_with_the_operands_swapped():
     """Not a coincidence to be preserved -- it is how both paths are written.
 

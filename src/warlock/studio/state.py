@@ -229,7 +229,7 @@ def default_form_2d() -> dict[str, Any]:
         "character_resolution_prompt": "",
     }
 
-def form_from_params(params: dict[str, Any]) -> dict[str, Any]:
+def form_from_params(params: dict[str, Any], *, stage: str = "") -> dict[str, Any]:
     """A 2D form filled from a finished job's params -- "another like this".
 
     Only keys the form already has, which is what keeps a derived value the
@@ -240,6 +240,14 @@ def form_from_params(params: dict[str, Any]) -> dict[str, Any]:
     where a strength saved as 0.6 can come back as an int 0 or 1, and the
     persisted-settings merge's ``type(value) is type(default)`` rule would
     silently drop exactly those fields.
+
+    ``stage`` is the job row's own ``stage`` column, not carried in ``params``
+    -- the 2026-09-15 audit, finding create-01/create-05: it is optional
+    because most callers only have ``params`` (a worker-recorded document, not
+    a job row), but a pre-registry job's ``asset_type`` can only be recovered
+    from its stage, and the caller that does have the row
+    (``library.copy_settings``) must pass it through or the answer falls back
+    to the default.
     """
     form = default_form_2d()
     for key, default in list(form.items()):
@@ -261,7 +269,7 @@ def form_from_params(params: dict[str, Any]) -> dict[str, Any]:
 
     _restore_sheet_block(form, params)
     form["asset_type"] = (
-        create_assets.asset_type_from_params(params) or form["asset_type"]
+        create_assets.asset_type_from_params(params, stage=stage) or form["asset_type"]
     )
     form["generation_type"] = form["asset_type"]
     create_assets.sync_legacy_fields(form)

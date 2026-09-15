@@ -68,9 +68,12 @@ _ROOT_CACHE: dict[Path, set[str]] = {}
 def _relative_targets(path: Path, node: ast.ImportFrom) -> list[Path]:
     """Every filesystem path one relative ``ImportFrom`` node may name.
 
-    ``from .. import clay_mode`` inside ``studio/familiar/apply.py`` climbs
-    one directory past ``familiar`` (``level - 1`` parents beyond the file's
-    own package) to ``studio``, then resolves ``clay_mode`` there. ``from
+    ``from .. import clay_mode`` inside the old ``studio/familiar/apply.py``
+    (folded into ``studio/familiar_preview.py``, at ``studio`` level, since
+    the 2026-09-14 T3 move) climbed one directory past ``familiar``
+    (``level - 1`` parents beyond the file's own package) to ``studio``, then
+    resolved ``clay_mode`` there -- still the worked example for what this
+    function does with any relative import at ``level > 0``. ``from
     .panes import clay_tools`` additionally has to try the *module* itself
     (``studio/panes``, in case ``clay_tools`` is merely an attribute imported
     off its ``__init__.py``) alongside the submodule guess (``studio/panes/
@@ -112,8 +115,8 @@ def _module_roots(path: Path, _stack: frozenset[Path] = frozenset()) -> set[str]
     and drops the whole raster editor out of this set -- silently, since a
     smaller ban list is still a passing test.
 
-    **Relative imports are resolved, not skipped.** ``familiar/apply.py``
-    does ``from .. import clay_mode`` and ``familiar/scratch_ctx.py`` does
+    **Relative imports are resolved, not skipped.** The old ``familiar/apply.py``
+    did ``from .. import clay_mode`` and the old ``familiar/scratch_ctx.py`` did
     ``from .. import agent_clay`` -- both ``node.level > 0``, and an earlier
     version of this helper only ever looked at ``node.level == 0`` (an
     absolute import), so neither line contributed anything to this file's

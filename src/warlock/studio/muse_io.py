@@ -264,6 +264,19 @@ def export_loop(ctx: Any, player: Any) -> None:
     """
     if not _has_region(ctx, player):
         return
+    # **muse-03 (2026-09-15 audit).** ``_has_region`` only checks the region
+    # in *seconds* -- a span under one sample at the take's rate (both grips
+    # dragged to within a float rounding error of each other) still has
+    # ``loop_end > loop_start`` there and passes. ``loop_cache_key`` quantises
+    # to samples and refuses a region that rounds to zero width, so ``make()``
+    # below returned ``None`` -- indistinguishable, to ``_save``, from the
+    # user cancelling the picker. The picker opened, asked where to save, and
+    # then wrote nothing with no word said about why. Checked here instead,
+    # before the picker ever opens, so the user gets the same kind of answer
+    # every other zero-length region in this module already gives.
+    if loop_cache_key(player) is None:
+        ctx.toast("That region is too short to export -- widen it.", "warn")
+        return
     rate = int(player.rate)
 
     def make() -> bytes | None:

@@ -20,6 +20,62 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **A hand-made `.aseprite` or `.glb` can no longer allocate past its ceiling on
+  open.** The 2026-09-15 audit found two branches of the Aseprite decoder building
+  full canvas planes without counting them: a linked cel drawn at its own offset,
+  and an empty tilemap layer in a one-frame file. A 398-byte file opened at six
+  times the decoded-pixel ceiling with no refusal. Both now count before they
+  allocate. The glTF loader's normalized positions and UVs are now charged to the
+  document's byte budget too, and converted once per accessor rather than once
+  per primitive that shares it.
+- **Reroll on a materials or terrain tile sheet makes new tiles.** Reroll changed
+  a top-level seed those sheets never read, so it spent a full generation per
+  tile and published the same tiles again. It now draws fresh per-material seeds
+  and a fresh terrain mask seed. In Muse, **How many** above 1 now gives distinct
+  takes for Extend, Repaint a section, Make it loop and Change the words or tags;
+  before, only Another like this varied. Something like this has no seed to
+  vary, so it queues one take.
+- **Upgrading in place removes the engine that installers before 0.0.42 bundled.**
+  The installer never deleted `vendor	rellis`, and Warlock would run that stale,
+  unpinned engine whenever the downloaded engine row was missing. The upgrade now
+  deletes it. This has not yet been watched on a real upgrade, which needs a clean
+  machine. The release gate now also checks `uv.lock`'s version, the fifth file of
+  a release.
+- **Dragging a pane in the layout editor no longer rearranges your other
+  columns.** The editor rebuilt every column's saved order from the built-in
+  order rather than the one on screen, so one drag or hide scrambled the rest.
+- **The Library's Details tab offers Mesh quality and "Was this any good?"
+  again.** Both were gated on being in Create's Mesh stage, which the Library can
+  never be, so grading a mesh was only possible from Create.
+- **Inker: a layer dragged onto a group lands on the side you dropped it,** not
+  under the group's top member. A pixel sheet's trim, bounds and centre no longer
+  lose an edge column when they are not aligned to the reduction grid, which had
+  clipped Packwright's packing and nine-slice stretching.
+- **Clay: switching tabs during a G, R or S drag settles the drag on the tab it
+  started on.** The tab left behind used to keep a transform no undo step
+  recorded. A Familiar build preview that arrives after you switch tabs no longer
+  shows its ghost over the tab now in front.
+- **Mason refuses a placement, duplicate or prefab unpack that would pass the
+  scene ceiling before building it.** Past the ceiling a scene could no longer be
+  drawn or exported. A library asset's bake also moved off the frame thread.
+- **Sirens: a note naming a deleted instrument is silent,** as the song format
+  promises, instead of playing on whatever that voice played last. The rendered
+  WAV cache is now bounded by bytes (256 MiB) as well as entries. Play after a
+  failed render reports the render error.
+- **Muse: a Cancel pressed after the last sampling step no longer publishes the
+  take.** Its WAV is discarded with the row. Exporting a loop region too short to
+  hold a sample now says so rather than writing nothing.
+- **About sixty smaller fixes from the same audit.** Among them: Plotter's text
+  object fields, Wang set name and outline colour are one undo step per edit, not
+  one per keystroke; Poser's Apply joint positions refuses while another rig is
+  running; Update key from pose clears the unsaved-pose dot; a pixel restyle or a
+  sprite-draft delete racing its own job refuses cleanly; a pack install's commit
+  phase is never force-killed on an unexpected error; a queue job whose setup
+  fails is recorded as an error instead of staying "running"; the palette gains
+  New Mason scene and gives Reroll its real reason; Mason's empty scene has a
+  working button; several counts in the manual, README and SECURITY.md were
+  corrected.
+
 - **Familiar's routing and its schema-constrained replies work on a real
   card, because the model is no longer allowed to think first.** The first
   run on real hardware found every router, navigation, Create-draft and

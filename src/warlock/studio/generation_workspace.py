@@ -387,10 +387,30 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     # reference the row already has, and the library card has always offered
     # "Try again" on exactly these rows; disabling it here with "not ready yet"
     # was both the wrong reason and the wrong answer.
-    can_rerun = done or status in _FAILED
-    if widgets.disabled_button(
-        f"Rerun##result-rerun-{job_id}", can_rerun, half, reason=not_ready
-    ):
+    #
+    # ``svc_jobs.rerollable``, not a local ``done or status in _FAILED``: the
+    # 2026-09-15 audit, finding create-02 -- the local spelling agreed with the
+    # service's on *when* a row is finished but not on *what kind of row*, so a
+    # finished ``lora_train``, ``separate``, built or hand-made-reference row
+    # was offered a Rerun button that pressed straight into an ``Invalid`` at
+    # dispatch.
+    #
+    # ``rerollable_reason`` is imported directly from its module rather than
+    # through the ``svc_jobs`` facade: this fix's file list does not include
+    # ``service/jobs.py``, and the facade is a re-export list a different
+    # change can extend without this one racing it.
+    from ..service._jobs_resubmit import rerollable_reason
+
+    can_rerun = svc_jobs.rerollable(job)
+    # ``rerollable``'s own status gate, restated: past it, ``rerollable_reason``'s
+    # own sentence is the honest reason a greyed row is greyed -- "not ready
+    # yet" was always wrong for a finished, built row. Still queued or
+    # running, ``not_ready`` is kept instead: it carries the actual failure
+    # detail for an error/cancelled row, which ``rerollable_reason``
+    # deliberately does not (it is a pure predicate's sentence, not a log
+    # line).
+    reason = rerollable_reason(job) if status in ("done", "error", "cancelled") else not_ready
+    if widgets.disabled_button(f"Rerun##result-rerun-{job_id}", can_rerun, half, reason=reason):
         ctx.submit(f"rerun:{job_id}", svc_jobs.rerun_job, ctx.svc, job_id, mode="reroll")
     imgui.same_line()
     is_reference = job.get("stage") == "reference" and "input.png" in (job.get("files") or [])

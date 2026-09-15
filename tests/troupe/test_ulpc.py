@@ -19,17 +19,28 @@ import pytest
 
 from warlock.studio.troupe import ulpc
 
+# Only the one regression test below needs it, to run this module inside a
+# module of its own with the example sheets made to look uninstalled.
+pytest_plugins = ["pytester"]
+
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 SHEETS = ("male_base_spritesheet.png", "female_base_spritesheet.png")
 
-pytestmark = pytest.mark.skipif(
-    not all((EXAMPLES / name).exists() for name in SHEETS),
-    reason="the ULPC reference sheets are not checked out",
-)
+_SHEETS_MISSING = not all((EXAMPLES / name).exists() for name in SHEETS)
 
 
 @pytest.fixture(scope="module")
 def arrays():
+    # The 2026-09-15 audit, finding troupe-01: a module-level ``pytestmark``
+    # skip used to gate every test below, including the three that read
+    # nothing but ``ulpc``'s own layout table -- so ``ulpc.py`` had zero
+    # executed coverage on a checkout without the unshipped (CC-BY-SA/GPL)
+    # example PNGs. The skip now lives on the one fixture that actually reads
+    # them, which only the tests parametrized or dependent on ``arrays`` pull
+    # in; the pure layout-table tests never request it and always run.
+    if _SHEETS_MISSING:
+        pytest.skip("the ULPC reference sheets are not checked out")
+
     from PIL import Image
 
     out = {}
@@ -175,3 +186,47 @@ def test_male_and_female_differ_in_almost_every_cell(arrays):
         ).any()
     )
     assert differing >= 300
+
+
+def test_the_pure_layout_table_tests_run_without_the_example_sheets_checked_out(
+    pytester,
+):
+    """The 2026-09-15 audit, finding troupe-01: a module-level ``pytestmark``
+    skip used to gate all 18 tests in this file, including the three above
+    that touch nothing but ``ulpc``'s own layout table -- so ``ulpc.py`` had
+    zero executed coverage on a checkout without the unshipped example PNGs.
+
+    Run for real, in a sub-pytest, rather than by calling the test functions
+    as plain Python: a raw call would skip nothing either way, fixed or not,
+    because ``pytestmark``/``pytest.skip`` only take effect inside pytest's
+    own collection and execution machinery. Pointing ``EXAMPLES`` at a
+    directory that holds neither sheet reproduces "not checked out" without
+    touching the real ``examples/`` tree.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    # Sliced above this very test's own ``def`` -- copying it whole would
+    # duplicate the ``EXAMPLES = ...`` needle inside this test's own source
+    # (quoted below as a plain string) and corrupt *that* copy instead.
+    marker = (
+        "\n\ndef "
+        "test_the_pure_layout_table_tests_run_without_the_example_sheets_checked_out("
+    )
+    assert source.count(marker) == 1
+    body = source[: source.index(marker)]
+
+    missing = pytester.path / "no-such-examples"
+    needle = 'EXAMPLES = Path(__file__).resolve().parents[2] / "examples"'
+    assert body.count(needle) == 1
+    patched = body.replace(needle, f"EXAMPLES = Path({str(missing)!r})")
+    pytester.makepyfile(test_ulpc_probe=patched)
+
+    result = pytester.runpytest("-v")
+
+    result.assert_outcomes(passed=3, skipped=15)
+    result.stdout.fnmatch_lines(
+        [
+            "*test_the_layout_table_totals_three_hundred_and_fifty_two_cells PASSED*",
+            "*test_the_table_is_the_published_full_layout PASSED*",
+            "*test_a_sheet_that_is_not_the_full_layout_is_refused PASSED*",
+        ]
+    )

@@ -902,6 +902,10 @@ def _layer_table(ctx: Any, doc: Any, layer: Any, editable: bool) -> None:
                 max_length=9,
                 hint="#RRGGBB",
             )
+            # One gesture, one step (the 2026-09-15 audit, plotter-03): typing
+            # a hex colour pushed one undo step per keystroke, unlike every
+            # other field in this table.
+            controls.fold_undo(doc.history)
             if color != (layer.color or ""):
                 doc.set_layer_props(layer.uid, color=color or None)
         elif isinstance(layer, ImageLayer):
@@ -1291,6 +1295,11 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
         "valign": valign,
         **flags,
     }
+    # One gesture, one step (the 2026-09-15 audit, plotter-01): Text, Font,
+    # Size and Colour write per keystroke with no fold, the same defect their
+    # siblings on this same panel were already fixed for (plotter-03 above,
+    # and the object gid field's own plotter-01 in the 2026-09-14 audit).
+    controls.fold_undo(doc.history)
     if any(getattr(shape, key) != value for key, value in values.items()):
         doc.set_object(layer.uid, obj.uid, shape=replace(shape, **values))
 

@@ -17,6 +17,7 @@ from imgui_bundle import imgui
 from .. import controls, icons, mason_assets, mason_mode, widgets
 from ..mason import ops as mops
 from ..mason import scene as mscene
+from .mason_outliner import groupish
 
 POPUP = "mason-context"
 
@@ -47,7 +48,13 @@ def _rows(ctx: Any, tab: Any) -> None:
         mason_mode.duplicate_selected(ctx)
     if controls.menu_item("Group", "G", False, selected)[0]:
         mason_mode.group_selected(ctx)
-    if controls.menu_item("Ungroup", "Shift+G", False, selected)[0]:
+    # The 2026-09-15 audit's mason-03: this used to enable for any selection
+    # (``selected``, the same flag every other row here gates on), while
+    # ``ungroup_selected`` itself just returns silently for a selection with
+    # no group in it -- an enabled row that does nothing when pressed. Now
+    # shares ``mason_outliner.groupish``, the predicate the outliner's own
+    # identical row was already gated on.
+    if controls.menu_item("Ungroup", "Shift+G", False, groupish(doc))[0]:
         mason_mode.ungroup_selected(ctx)
     controls.menu_separator()
     # Where the *first* prefab is made, and it has to be somewhere that exists

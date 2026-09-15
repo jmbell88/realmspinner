@@ -572,6 +572,23 @@ def _run_worker(
                 _kill_and_reap(proc)
                 raise Invalid("The pack install timed out.") from None
         except BaseException:
+            # The same phase check as the timeout branch above: only
+            # ``TimeoutExpired`` was taught to wait out the commit phase
+            # instead of force-killing (service-04, 2026-09-07), so any other
+            # exception here -- a callback (``on_progress``) raising, a bug in
+            # this loop -- still force-killed pip mid-write into the running
+            # app's own site-packages. Waiting it out costs nothing extra:
+            # the original exception is still re-raised once pip is done
+            # (the 2026-09-15 audit, finding service-03).
+            if last_phase == pack_worker.PHASE_COMMIT:
+                log.warning(
+                    "pack install raised an unexpected error during the "
+                    "commit phase; refusing to force-kill mid-install and "
+                    "waiting for it to finish on its own",
+                )
+                proc.wait()
+                winjob.untrack(proc.pid)
+                raise
             _kill_and_reap(proc)
             raise
 

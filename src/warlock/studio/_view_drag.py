@@ -381,20 +381,48 @@ class DragOps:
         if was == "orbit" and self._alt_click(doc):
             return True
         if was in ("gizmo", "keydrag"):
-            # A keyboard drag holds no handle, so there is no gizmo drag to end
-            # -- but everything after that is identical, which is the whole
-            # point of routing it through the same delta shapes.
-            gizmo = self.active_gizmo(doc) if was == "gizmo" else None
-            if gizmo is not None:
-                gizmo.end_drag()
-            if doc.element_mode != "object":
-                self._commit_element_drag(doc)
-            else:
-                self._commit_drag(doc)
-            self._clear_drag_input()
-            self._end_keyboard_drag()
+            self._settle_drag_tail(doc, was)
         elif was == "marquee":
             self._commit_marquee(doc)
+        return True
+
+    def _settle_drag_tail(self: ClayView, doc: Any, was: str) -> None:
+        """The commit shared by a real release (:meth:`_release_drag`) and a
+        settle with no release at all (:meth:`settle_drag`) -- pulled out
+        rather than duplicated so the two can never quietly disagree.
+
+        A keyboard drag holds no handle, so there is no gizmo drag to end --
+        but everything after that is identical, which is the whole point of
+        routing it through the same delta shapes.
+        """
+        gizmo = self.active_gizmo(doc) if was == "gizmo" else None
+        if gizmo is not None:
+            gizmo.end_drag()
+        if doc.element_mode != "object":
+            self._commit_element_drag(doc)
+        else:
+            self._commit_drag(doc)
+        self._clear_drag_input()
+        self._end_keyboard_drag()
+
+    def settle_drag(self: ClayView, doc: Any) -> bool:
+        """Commit a live transform drag right now, against *doc*. -> whether
+        one was live.
+
+        For the one case a release or an Esc cannot cover: nothing the user
+        did asked the drag to end, so there is no button-up and no key to
+        route through ``_release_drag``/``cancel_drag``. The 2026-09-15
+        audit's clay-01: switching the active Clay tab mid-drag left a live
+        G/R/S drag's TRS written onto the object with nothing to record it,
+        so the eventual mouse-up or Esc committed or cancelled against
+        whichever document had *become* active rather than the one the drag
+        began on. ``ClayState.activate``'s ``settle_drag`` hook calls this
+        against the tab being left, before ``active_uid`` moves.
+        """
+        if self._grab not in ("gizmo", "keydrag"):
+            return False
+        was, self._grab = self._grab, None
+        self._settle_drag_tail(doc, was)
         return True
 
     def _alt_click(self: ClayView, doc: Any) -> bool:

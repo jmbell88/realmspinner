@@ -346,15 +346,19 @@ def derive_popup(ctx: Any) -> None:
     for name in muse_mode.DERIVE_CONTROLS[task]:
         _derive_field(ctx, derive, name, task, parent_duration)
 
-    widgets.divider()
-    _, derive["count"] = widgets.labeled_slider_int(
-        "How many",
-        int(derive["count"]),
-        1,
-        _max_count(),
-        help_text="Several cheap candidates to choose between, as on the bar.",
-    )
-    widgets.field_error(ctx.state, "count")
+    # service-02 (2026-09-15 audit): audio2audio has no knob that varies with
+    # count -- see ``muse_mode.SINGLE_TAKE_TASKS`` -- so the slider is not
+    # offered rather than offered and then refused at the door every time.
+    if task not in muse_mode.SINGLE_TAKE_TASKS:
+        widgets.divider()
+        _, derive["count"] = widgets.labeled_slider_int(
+            "How many",
+            int(derive["count"]),
+            1,
+            _max_count(),
+            help_text="Several cheap candidates to choose between, as on the bar.",
+        )
+        widgets.field_error(ctx.state, "count")
 
     if controls.button("Queue it", role=controls.ButtonRole.PRIMARY) and muse_mode.derive(ctx):
         imgui.close_current_popup()

@@ -171,7 +171,20 @@ _VIEWPORT_WHY = "Only in the 2D and 3D panes, which are where the viewport is."
 
 
 def _selected(ctx: Any) -> Any:
-    return ctx.cache.get(ctx.state.selected)
+    """The library row ``ctx.state.selected`` names, or ``None``.
+
+    Tolerant of a ``ctx`` with no ``cache`` at all -- ``commands()`` now
+    calls this unconditionally while *building* the Reroll row's ``why``
+    (finding shell-09's fix), and an enumerator that only wants the
+    navigation-shaped rows -- ``familiar_doors.destinations``, which never
+    even looks at Reroll's ``why`` -- used to pay nothing for the library
+    cache and should still pay nothing for it. A ``ctx`` missing ``cache``
+    reads the same as one with an empty cache: nothing selected.
+    """
+    cache = getattr(ctx, "cache", None)
+    if cache is None:
+        return None
+    return cache.get(getattr(ctx.state, "selected", None))
 
 
 # --- the document modes, as one table ----------------------------------------
@@ -379,6 +392,7 @@ def commands(ctx: Any) -> list[Command]:
     merely *disabled*, which is the default and is what almost everything here
     wants.
     """
+    from ..service._jobs_resubmit import rerollable_reason as _reroll_why
     from .panes import library
 
     def reroll(ctx: Any) -> None:
@@ -423,6 +437,11 @@ def commands(ctx: Any) -> list[Command]:
         from . import clay_mode
 
         clay_mode.new_document(ctx)
+
+    def new_mason_scene(ctx: Any) -> None:
+        from . import mason_mode
+
+        mason_mode.new_document(ctx)
 
     def new_atlas(ctx: Any) -> None:
         from . import packwright_mode
@@ -546,6 +565,14 @@ def commands(ctx: Any) -> list[Command]:
         ),
         Command(key="new-drawing", label="New drawing", group="Actions", run=new_drawing),
         Command(key="new-clay", label="New Clay document", group="Actions", run=new_clay),
+        # The 2026-09-15 audit, finding shell-03: Mason is a document mode --
+        # it is in ``_DOC_MODES`` above, so Save/Export/Undo/Redo all work on
+        # it -- but its New had no command at all, which is the "reads as the
+        # mode not having one" failure the new-map comment below already names
+        # for a different mode.
+        Command(
+            key="new-mason-scene", label="New Mason scene", group="Actions", run=new_mason_scene
+        ),
         Command(key="new-atlas", label="New atlas", group="Actions", run=new_atlas),
         # The fourth of the four, missing since Plotter shipped: three of the
         # document modes could be started from here and the map editor could
@@ -558,7 +585,15 @@ def commands(ctx: Any) -> list[Command]:
             group="Actions",
             run=reroll,
             enabled=rerollable,
-            why="Select a finished asset in the library first.",
+            # The 2026-09-15 audit, finding shell-09: this was a fixed string,
+            # true only when nothing is selected -- a finished, non-rerollable
+            # asset (built, a stem split, a LoRA run, a hand-made reference)
+            # read the same "select a finished asset" sentence a fresh install
+            # with an empty library would, which is not why the row is grey.
+            # Computed from the *outer* ``ctx``, exactly as ``model_gate.mode_reason``
+            # is above -- ``why`` is a value fixed at list-build time, not a
+            # second callable alongside ``enabled``.
+            why=_reroll_why(_selected(ctx)),
         ),
         Command(
             key="delete",

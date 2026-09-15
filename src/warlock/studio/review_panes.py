@@ -91,6 +91,24 @@ def _delete_confirm_message(
     return message
 
 
+def _launch_sweep_reason(planned: int, *, submitting: bool, scanning: bool) -> str:
+    """Why "Launch sweep" is greyed, or "" while it is live.
+
+    shell-07 (2026-09-15 audit): the button greyed during a scan or a submit
+    with no ``reason=`` at all -- the same contract ``disabled_button``
+    already keeps for Rescan and Remove above it on this pane. Pulled out as
+    a free function, rather than built inline in the draw call, so it can be
+    checked without an imgui frame.
+    """
+    if scanning:
+        return "A scan is already running."
+    if submitting:
+        return "Already launching this sweep."
+    if planned <= 0:
+        return "Fill in the prompt and one axis."
+    return ""
+
+
 class ReviewPanes:
     """Review's drawing, mixed into :class:`~.main.App`.
 
@@ -672,7 +690,12 @@ class ReviewPanes:
             widgets.muted_wrapped(review_mode.preview_line(state, labels))
             widgets.muted(f"Roughly two minutes of GPU each - {planned * 2} minutes in all.")
         enabled = planned > 0 and not form.submitting and not state.scanning
-        if widgets.primary_button("Launch sweep", (-1, 0), enabled=enabled):
+        # shell-07 (2026-09-15 audit): this greyed with no ``reason=`` while a
+        # scan or a submit was already in flight, leaving a dead button with
+        # nothing to explain it -- the same contract ``disabled_button`` already
+        # keeps for Rescan and Remove above.
+        reason = _launch_sweep_reason(planned, submitting=form.submitting, scanning=state.scanning)
+        if widgets.primary_button("Launch sweep", (-1, 0), enabled=enabled, reason=reason):
             review_mode.launch(ctx)
 
     def _review_axis_values(self, row: dict[str, Any], spec: Any) -> None:

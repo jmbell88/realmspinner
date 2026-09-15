@@ -654,9 +654,13 @@ def _slice_options(ctx: Any, state: Any, tab: Any, entry: Any) -> None:
 
     changed, value = controls.checkbox(f"Pivot##slice{entry.uid}", key.pivot is not None)
     if changed:
-        # The centre of the slice when it is switched on, which is a defensible
-        # answer a user can then drag -- rather than the origin, which looks
-        # like the feature did nothing.
+        # Bottom-centre when it is switched on: the help marker below and the
+        # manual (chapter 28) both describe the pivot as the point that stays
+        # put as a character turns, which is the feet, not the slice's
+        # geometric centre -- the 2026-09-15 audit (inker-10) found this
+        # comment claiming "the centre of the slice" over code that had
+        # already been planting the feet; the code was right and the comment
+        # was not.
         doc.set_slice(
             entry.uid,
             pivot=None if not value else ((x1 - x0) / 2.0, float(y1 - y0)),

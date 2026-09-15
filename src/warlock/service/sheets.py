@@ -442,99 +442,111 @@ def create_pixel_sheet(
     check_sheet_id(sheet_id)
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    meta = rigging.read_sheet(job_dir, sheet_id)
-    if meta is None or not rigging.sheet_png_path(job_dir, sheet_id).exists():
-        raise NotFound("no such sheet")
 
-    # Through the shared checker, in the same sentences on the same fields as
-    # every other pixel path -- ``pixelopts``' whole reason. Two of its options
-    # are new here and one is deliberately absent: this path has no reduce mode
-    # to offer, because the reduction is ``pixelsheet.downscale``'s integer
-    # NEAREST stride and the worker's new branch leaves it already done.
-    # ``outline_default="none"`` and not the sprite path's ``inner``: the
-    # default request has to keep producing the bytes every restyled sheet
-    # already on disk claims.
-    options = _check_options(
-        svc,
-        {
-            "logical_size": logical_size,
-            "colors": colors,
-            "palette": palette,
-            "dither": dither,
-            "outline": outline,
-        },
-    )
-    logical_size = options["logical_size"]
-    try:
-        pixelsheet.check_restylable(meta, int(logical_size))
-    except pixelsheet.NotRestylable as exc:
-        raise invalid_from(
-            exc, "This sheet cannot be restyled as pixel art", field="logical_size"
-        ) from exc
+    # The 2026-09-15 audit, finding troupe-02: this door used to read the
+    # sheet and create the pixel_sheet row with no lock at all, unlike every
+    # sibling door in this module (``create_sheet``, ``delete_sheet``). A
+    # delete could land in the gap between the existence check and the row's
+    # creation -- the sheet's files gone, but the restyle already queued
+    # against a sheet_id ``_restyle_in_flight`` had no row yet to recognise --
+    # and the worker would hit a missing PNG minutes later instead of a clean
+    # refusal here. Held for the whole body, the same shape ``delete_sheet``
+    # uses: whichever door gets the lock first either finishes cleanly or
+    # leaves the other a fresh, correct answer to check against.
+    with svc.convert_lock(job_id, "sheets"):
+        meta = rigging.read_sheet(job_dir, sheet_id)
+        if meta is None or not rigging.sheet_png_path(job_dir, sheet_id).exists():
+            raise NotFound("no such sheet")
 
-    value = models.DEFAULT_IMG2IMG_STRENGTH if strength is None else float(strength)
-    if not models.IMG2IMG_STRENGTH_MIN <= value <= models.IMG2IMG_STRENGTH_MAX:
-        raise Invalid(
-            f"strength must be between {models.IMG2IMG_STRENGTH_MIN} "
-            f"and {models.IMG2IMG_STRENGTH_MAX}",
-            field="strength",
+        # Through the shared checker, in the same sentences on the same fields as
+        # every other pixel path -- ``pixelopts``' whole reason. Two of its options
+        # are new here and one is deliberately absent: this path has no reduce mode
+        # to offer, because the reduction is ``pixelsheet.downscale``'s integer
+        # NEAREST stride and the worker's new branch leaves it already done.
+        # ``outline_default="none"`` and not the sprite path's ``inner``: the
+        # default request has to keep producing the bytes every restyled sheet
+        # already on disk claims.
+        options = _check_options(
+            svc,
+            {
+                "logical_size": logical_size,
+                "colors": colors,
+                "palette": palette,
+                "dither": dither,
+                "outline": outline,
+            },
         )
-    if seed is not None:
-        check_seed("seed", seed)
+        logical_size = options["logical_size"]
+        try:
+            pixelsheet.check_restylable(meta, int(logical_size))
+        except pixelsheet.NotRestylable as exc:
+            raise invalid_from(
+                exc, "This sheet cannot be restyled as pixel art", field="logical_size"
+            ) from exc
 
-    # The restyle's identity is the pixel-art LoRA, so a base that adapter
-    # does not fit is refused here rather than queued: the worker would drop
-    # the style and ship a sheet that merely got smaller, which is a minute of
-    # GPU for a result the request did not mean. The base below is this
-    # function's own constant today, which makes this read like a guard on a
-    # pair of constants -- it is, and deliberately: params outlive today's UI,
-    # and the day base_model becomes a parameter this refusal is already at
-    # the door. Worded as guidance.normalize words the same pairing refusal,
-    # field naming the control the sentence mentions.
-    base_key = PIXEL_SHEET_BASE_MODEL
-    base = models.BASE_MODELS[base_key]
-    pixel_lora = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
-    if not models.lora_fits(base, pixel_lora):
-        fitting = sorted(
-            key
-            for key, loras in models.loras_by_base().items()
-            if models.PIXEL_SHEET_LORA in loras
-        )
-        raise Invalid(
-            f"base_model {base.key!r} is {base.family} and the pixel-sheet "
-            f"LoRA {pixel_lora.key!r} is fitted to {pixel_lora.family}; "
-            f"pick one of {fitting}",
-            field="base_model",
-        )
+        value = models.DEFAULT_IMG2IMG_STRENGTH if strength is None else float(strength)
+        if not models.IMG2IMG_STRENGTH_MIN <= value <= models.IMG2IMG_STRENGTH_MAX:
+            raise Invalid(
+                f"strength must be between {models.IMG2IMG_STRENGTH_MIN} "
+                f"and {models.IMG2IMG_STRENGTH_MAX}",
+                field="strength",
+            )
+        if seed is not None:
+            check_seed("seed", seed)
 
-    params = {
-        # Every one of these is an *input*: the restyle's own recipe is
-        # recorded in the pixel sidecar, not here, so nothing in this dict is
-        # derived. A rerun copies it, with one carve-out: ``sheet_id`` is on
-        # DERIVED_PARAMS for the *sheet* render kind's sake, so ``rerun_job``
-        # re-seeds it from the source row rather than letting the strip cost
-        # this kind its input.
-        "source_job": job_id,
-        "sheet_id": sheet_id,
-        # Normalised by the checker rather than by this function: the palette
-        # name is stripped there, and the worker re-resolves it against the
-        # filesystem exactly as written.
-        **options,
-        "strength": value,
-        "structure_lock": bool(structure_lock),
-        "seed": random_seed() if seed is None else int(seed),
-        "base_model": base_key,
-    }
-    # At the door, exactly as create_job does, and before the row exists: an
-    # img2img restyle wants SDXL plus a ControlNet, which is the shape of
-    # request a smaller card has to refuse. The presence half lives in
-    # ``_check_weights`` so ``rerun_job`` can hold the same door on the way
-    # back in.
-    _check_weights(svc)
-    check_vram(svc, "pixel_sheet", "model", params)
-    new_id = svc.store.create(
-        "pixel_sheet", source["prompt"], params, uuid.uuid4().hex[:12]
-    )
+        # The restyle's identity is the pixel-art LoRA, so a base that adapter
+        # does not fit is refused here rather than queued: the worker would drop
+        # the style and ship a sheet that merely got smaller, which is a minute of
+        # GPU for a result the request did not mean. The base below is this
+        # function's own constant today, which makes this read like a guard on a
+        # pair of constants -- it is, and deliberately: params outlive today's UI,
+        # and the day base_model becomes a parameter this refusal is already at
+        # the door. Worded as guidance.normalize words the same pairing refusal,
+        # field naming the control the sentence mentions.
+        base_key = PIXEL_SHEET_BASE_MODEL
+        base = models.BASE_MODELS[base_key]
+        pixel_lora = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
+        if not models.lora_fits(base, pixel_lora):
+            fitting = sorted(
+                key
+                for key, loras in models.loras_by_base().items()
+                if models.PIXEL_SHEET_LORA in loras
+            )
+            raise Invalid(
+                f"base_model {base.key!r} is {base.family} and the pixel-sheet "
+                f"LoRA {pixel_lora.key!r} is fitted to {pixel_lora.family}; "
+                f"pick one of {fitting}",
+                field="base_model",
+            )
+
+        params = {
+            # Every one of these is an *input*: the restyle's own recipe is
+            # recorded in the pixel sidecar, not here, so nothing in this dict is
+            # derived. A rerun copies it, with one carve-out: ``sheet_id`` is on
+            # DERIVED_PARAMS for the *sheet* render kind's sake, so ``rerun_job``
+            # re-seeds it from the source row rather than letting the strip cost
+            # this kind its input.
+            "source_job": job_id,
+            "sheet_id": sheet_id,
+            # Normalised by the checker rather than by this function: the palette
+            # name is stripped there, and the worker re-resolves it against the
+            # filesystem exactly as written.
+            **options,
+            "strength": value,
+            "structure_lock": bool(structure_lock),
+            "seed": random_seed() if seed is None else int(seed),
+            "base_model": base_key,
+        }
+        # At the door, exactly as create_job does, and before the row exists: an
+        # img2img restyle wants SDXL plus a ControlNet, which is the shape of
+        # request a smaller card has to refuse. The presence half lives in
+        # ``_check_weights`` so ``rerun_job`` can hold the same door on the way
+        # back in.
+        _check_weights(svc)
+        check_vram(svc, "pixel_sheet", "model", params)
+        new_id = svc.store.create(
+            "pixel_sheet", source["prompt"], params, uuid.uuid4().hex[:12]
+        )
     svc.wake_worker()
     return {"id": new_id, "source_job": job_id, "sheet_id": sheet_id}
 

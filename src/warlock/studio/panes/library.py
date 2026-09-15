@@ -1288,15 +1288,33 @@ def copy_settings(ctx: Any, job: Any) -> None:
     from .. import create_assets
     from ..state import form_from_params
 
-    form = form_from_params(job.get("params") or {})
+    params = job.get("params") or {}
+    stage = str(job.get("stage") or "")
+    # The stage is passed through so ``form_from_params`` can recover a
+    # pre-registry job's asset type from it (``create_assets.
+    # asset_type_from_params``) -- params alone never carries it.
+    form = form_from_params(params, stage=stage)
     # The output switch is restored from the *stage*, because that is where a
     # job's tile-ness lives -- params never carries it, so a form filled from
     # params alone would open in Object mode and quietly offer to make a mesh
     # of a texture. The whole job row is in hand here; form_from_params is not
     # given it, because it is the params allowlist and must stay one.
-    form["output"] = "tile" if job.get("stage") == "tile" else "reference"
-    params = job.get("params") or {}
-    if "asset_type" not in params:
+    form["output"] = "tile" if stage == "tile" else "reference"
+    # The 2026-09-15 audit, finding create-01: this used to overwrite
+    # ``form_from_params``' answer unconditionally whenever ``asset_type`` was
+    # missing from ``params`` -- which is every pre-registry job -- with
+    # ``legacy_asset_type(form)``. That helper only recognises ``form["output"]
+    # == "tile"`` (seamless material) or ``"sheet"``; it knows nothing of the
+    # ``tilesheet`` *stage*, which the line above never turns into ``"sheet"``.
+    # So a pre-registry tile-sheet job (kind ``tile_sheet``, stage
+    # ``"tilesheet"``) had its correct ``asset_type_from_params`` answer
+    # ("tileset") thrown away and replaced with the "3d_model" default,
+    # silently dropping every material, variant and layout field the copy
+    # exists to restore. Now the legacy fallback only runs when
+    # ``asset_type_from_params`` itself had no stage-based answer to give.
+    if "asset_type" not in params and not create_assets.asset_type_from_params(
+        params, stage=stage
+    ):
         form["asset_type"] = create_assets.legacy_asset_type(form)
     create_assets.sync_legacy_fields(form)
     from .. import create_stages

@@ -582,6 +582,27 @@ def _dispatch_one(
     instructions = catalogue.get("instructions")
 
     if method == "initialize":
+        # The 2026-09-15 audit (agents-03): `BridgeEra`'s own docstring
+        # promises the era is "locked for the connection's life" once
+        # decided, but this line set it to "legacy" unconditionally -- the
+        # `server/discover` branch just below guards its own write with
+        # `if state.era is None`, so a connection already locked to
+        # "modern" (by a prior `server/discover` or a modern `_meta`
+        # version) that then received a stray/late `initialize` was
+        # silently downgraded to "legacy" instead of staying locked. Refuse
+        # rather than downgrade: an already-modern connection gets the same
+        # -32600 "invalid request" a request arriving before any era is
+        # decided would get from the fallback below, not a guessed answer.
+        if state.era == "modern":
+            return (
+                _error_bytes(
+                    msg_id,
+                    -32600,
+                    "invalid request: this connection is already locked to the modern era",
+                )
+                if has_id
+                else None
+            )
         state.era = "legacy"
         version, reply = _legacy_initialize(
             msg_id,

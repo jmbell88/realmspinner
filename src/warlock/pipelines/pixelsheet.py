@@ -318,16 +318,24 @@ def pixel_sidecar(
         return None if value is None else (float(value) / factor)
 
     def reduced(rect: Any) -> dict[str, int] | None:
-        """A pixel rectangle at the smaller size. Floor the origin and ceil the
-        extent: a rectangle that rounded inward would clip a pixel off the thing
-        it exists to describe."""
+        """A pixel rectangle at the smaller size. Floor the origin and cover
+        every reduced cell the source rectangle touches: the 2026-09-15 audit
+        (inker-04) found the extent computed as ``ceil(w/f)`` on its own,
+        which is one cell short whenever the rect is not grid-aligned (x=2,
+        w=4, f=4 covers cells 0 and 1, but ``ceil(4/4)`` says 1) -- Packwright's
+        tight packing and nine-slice stretching clipped a real edge column on
+        every such trim. The extent has to be measured from the origin's own
+        cell (``ceil((x+w)/f) - floor(x/f)``), not from zero."""
         if not rect:
             return None
+        x, y = int(rect["x"]), int(rect["y"])
+        w, h = int(rect["w"]), int(rect["h"])
+        x0, y0 = x // factor, y // factor
         return {
-            "x": int(rect["x"]) // factor,
-            "y": int(rect["y"]) // factor,
-            "w": -(-int(rect["w"]) // factor),
-            "h": -(-int(rect["h"]) // factor),
+            "x": x0,
+            "y": y0,
+            "w": -(-(x + w) // factor) - x0,
+            "h": -(-(y + h) // factor) - y0,
         }
 
     cells = []

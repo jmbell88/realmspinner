@@ -122,6 +122,13 @@ judgement this entry is asking for. The mesh, the license, and the working
 import/rig/render chain are the hard part and are already proven — what's
 left is fixing what looking at it found.
 
+**2026-09-15:** that Next session list is done except its last step. F7 and F8
+are both built, F7 corrected after a render of this same Superhero Male that now
+squats with both feet on the ground (2026-09-14, `72a4107a` and `61c0c945`; the
+entries below say what changed). The other jump poses are F10. What this entry
+still owes is only the ramp-at-sprite-scale judgement on a fresh sheet of this
+mesh.
+
 ## P6. Open a Warlock-written `.aseprite` in real Aseprite
 
 **Why it is yours:** an app this repository does not have. A green test proves
@@ -1955,7 +1962,7 @@ soften the figures in `INSTALL.md` to approximate ones ("about 170 MB",
 **Expected outcome:** `INSTALL.md` states figures that are either re-measured
 per release or honestly approximate. Strike this out then.
 
-## P54. Familiar tranches T5–T10 — fully specified, T3 built on run A's card
+## P54. Familiar tranche T10 — the `familiar_v1.0` swap is the last one left (T3–T9 built)
 
 **Why it waited (history):** T3 freezes the prompt card of the model being integrated,
 and which card that is, is now a decision rather than a merge. Run B reached

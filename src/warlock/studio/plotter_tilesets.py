@@ -390,6 +390,26 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
         # regardless: it is the correct shape for a door that carries a
         # lattice with its art, and re-adding it later would mean
         # re-deriving the one-undo-step argument.
+        #
+        # Re-checked here rather than trusted (the 2026-09-15 audit,
+        # plotter-04): ``unpainted`` was read on the frame thread at *submit*
+        # time, before the decode round-tripped through a task. A paint
+        # stroke landed in that window used to reach this arm unchanged and
+        # reproject a map that already had tiles on it -- the exact hazard
+        # :class:`SheetLattice` exists to ask the user about, just arriving a
+        # frame late instead of never. Falls back to the same parked
+        # confirmation a painted map gets at submit time, rather than
+        # silently applying the stale answer.
+        if any(bool(layer.data.any()) for layer in tab.doc.tile_layers()):
+            state.sheet_import = (
+                tab.uid,
+                tileset.name,
+                result.get("source", ""),
+                tileset.pixels,
+                SheetLattice(want, tab.doc.projection),
+            )
+            state.sheet_import_open = False
+            return
         tab.doc.set_projection(want, adding=tileset, source=result.get("source", ""))
     else:
         tab.doc.add_tileset(tileset, source=result.get("source", ""))

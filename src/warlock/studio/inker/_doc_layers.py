@@ -1427,10 +1427,23 @@ class LayerOps:
                 for uid in gp.leaves_of(self.group_of, order, group_uid)
             ]
             if leaves:
-                # Landing at the top of the span keeps it contiguous whichever
-                # side the layer came from: an index above the span's top is
-                # adjacent to it, and one below it is inside it already.
-                to = max(leaves) if at_top else min(leaves)
+                # Landing adjacent to the span keeps it contiguous, but which
+                # numeric index is "adjacent" depends on which side the row
+                # starts from. Popping a row *below* the span shifts every
+                # leaf down by one, so the span's own top index becomes the
+                # slot directly above its post-pop position -- landing there
+                # is correct unbranched. Popping a row *above* the span
+                # leaves the leaves' positions untouched, so that same index
+                # would insert *inside* the span, under its top member, one
+                # short of adjacent; the 2026-09-15 audit (inker-03) found a
+                # row dragged from above a group landing there instead of at
+                # its top, and symmetrically for a row dragged from below a
+                # ``at_top=False`` drop.
+                top_leaf, bottom_leaf = max(leaves), min(leaves)
+                if at_top:
+                    to = top_leaf + 1 if index > top_leaf else top_leaf
+                else:
+                    to = bottom_leaf - 1 if index < bottom_leaf else bottom_leaf
         elif before is not None:
             # Going to the root, and the harder direction: a row taken out of
             # the *middle* of a span leaves that span in two halves, so it has

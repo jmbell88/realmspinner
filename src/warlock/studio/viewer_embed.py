@@ -182,6 +182,16 @@ class Viewer(PoseOps):
         self.adopt_model(self.parse_model(path), path)
 
     def clear(self) -> None:
+        # The 2026-09-15 audit, finding create-04: create-05 (2026-09-14) only
+        # taught ``adopt_model`` to cancel a strip in flight before releasing
+        # the GpuModel it draws from -- but ``poser_mode``, ``review_panes``,
+        # ``inker_mode`` and two ``main.py`` handlers call this method
+        # directly, not through ``App._clear_viewport`` (which cancels the
+        # strip itself first). Any of those firing mid-strip released the
+        # GpuModel the paused strip still held a direct reference to, so the
+        # strip resumed drawing its remaining cells blank instead of finishing
+        # or being cancelled. Cancelling here means every caller gets it.
+        self.cancel_sheet_strip()
         self._render_dirty = True
         self._release_model()
         self.exit_pose_mode()

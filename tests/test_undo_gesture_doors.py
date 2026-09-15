@@ -324,6 +324,17 @@ def test_a_picker_drag_over_a_free_colour_opens_no_gesture(monkeypatch, frames):
         # ``set_wang_colour`` -> ``_write_wangsets`` per report.
         (plotter_tileset_editor._wang_colours, '"##swatch"', "set_wang_colour("),
         (plotter_tileset_editor._wang_colours, '"Probability"', "set_wang_colour("),
+        # The 2026-09-15 audit: three more fields with no fold at all.
+        # plotter-03 -- the object layer's Outline colour, unlike every other
+        # field in the same table.
+        (plotter_layers._layer_table, '"##object-layer-color"', "doc.set_layer_props("),
+        # plotter-01 -- a text object's Text/Font/Size/Colour, already one
+        # compound ``doc.set_object`` call per changed frame but with no fold,
+        # so a typed label still pushed a step per keystroke.
+        (plotter_layers._shape_fields, '"##text-value"', "doc.set_object("),
+        # plotter-02 -- the Wang set's own name field, unlike the colour name
+        # beside it in the same editor.
+        (plotter_tileset_editor._wangset_row, '"##tswang-name"', "rename_wangset("),
     ],
     ids=[
         "group-opacity",
@@ -338,6 +349,9 @@ def test_a_picker_drag_over_a_free_colour_opens_no_gesture(monkeypatch, frames):
         "channel-pan",
         "wang-colour",
         "wang-probability",
+        "object-layer-outline-colour",
+        "text-object-fields",
+        "wangset-name",
     ],
 )
 def test_the_popup_doors_fold_between_the_field_and_the_write(func, field, write):
@@ -378,9 +392,15 @@ def test_the_sirens_name_fields_commit_on_release(pane, field_id):
     ``-1``-width field draws no label at all and "Name" was simply not on
     screen. What is pinned here is unchanged -- a typed name is one rename and
     not six undo steps.
+
+    ``controls.input_text``, not ``widgets.input_text`` (the 2026-09-15
+    audit, sirens-04): the latter has no ``enabled``, so both fields moved to
+    the one that does, to stop a rename typed mid-save from landing on a
+    document a save was already reading. The opener below follows that move
+    rather than pinning the pre-fix call.
     """
     source = inspect.getsource(pane)
-    opener = "widgets.input_text(" + chr(10) + "        " + field_id
+    opener = "controls.input_text(" + chr(10) + "        " + field_id
     field = source.split(opener, 1)[1].split(")", 1)[0]
     assert "commit=True" in field
 

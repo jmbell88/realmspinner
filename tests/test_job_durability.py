@@ -222,6 +222,17 @@ PUBLISHERS = [
     ("warlock._q_tilesheet", "_tile_sheet", "_publish_text"),
     ("warlock._q_tileset", "_tile_set", "_publish_text"),
     ("warlock._q_troupe", "_charsheet", "_publish_text"),
+    # muse-02 (the 2026-09-15 audit): ``_music`` and ``_separate`` publish and
+    # commit correctly -- ``client.generate`` writes ``track.wav`` before
+    # ``self._cancel.commit()``, and ``rigging.run_worker`` writes the stem
+    # WAVs before it -- but neither was ever a row here, so this scan never
+    # looked at either. ``_music``'s call is named by ``client.generate``, the
+    # write that actually lands the served ``track.wav``; ``_separate``'s by
+    # ``rigging.run_worker``, the call that produces the served stems (the
+    # sidecar ``_write_stems_sidecar`` writes after the commit is metadata
+    # about them, not the artifact itself -- see that function's docstring).
+    ("warlock._q_music", "_music", "client.generate"),
+    ("warlock._q_music", "_separate", "rigging.run_worker"),
 ]
 
 

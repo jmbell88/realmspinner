@@ -73,11 +73,26 @@ def snippet(engine: str, info: dict[str, Any]) -> str:
     return _RENDERERS[engine](info)
 
 
+def _comment_safe(text: str) -> str:
+    """A name safe to splice into a single-line ``#``/``//`` header comment.
+
+    The 2026-09-15 audit (inker-06) found every engine's header comment
+    spliced the raw effect name in with no sanitizing at all -- the
+    2026-09-14 audit's inker-10 escaped only Godot's quoted string literals,
+    so a newline in the name (nothing stops a user naming an effect that)
+    still closed the comment early and let the rest of the name splice live
+    code into the pasted snippet, in every engine including Godot's own
+    header. A comment has no quoting to get right, only one rule: no newline
+    may reach the line it is on.
+    """
+    return text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
 def _pygame(i: dict[str, Any]) -> str:
     ident = _ident(i["name"])
     head = f'{i["frames"]} frames of {i["frame_width"]}x{i["frame_height"]} at {i["fps"]} fps'
     columns = i["columns"]
-    return f'''# {i["name"]}: {head}
+    return f'''# {_comment_safe(i["name"])}: {head}
 import pygame
 
 class Animation:
@@ -134,7 +149,11 @@ def _godot(i: dict[str, Any]) -> str:
     fw, fh = i["frame_width"], i["frame_height"]
     ox, oy = fw / 2 - i["origin"][0], fh / 2 - i["origin"][1]
     columns = i["columns"]
-    return f'''# {i["name"]}: build SpriteFrames from the sheet at runtime (Godot 4)
+    # ``name``, not ``i["name"]``: the 2026-09-15 audit (inker-06) found this
+    # header spliced the *raw* name in while every string literal below it
+    # used the escaped one -- the already-GDScript-escaped value has no real
+    # newline left in it either, so it is safe here for the same reason.
+    return f'''# {name}: build SpriteFrames from the sheet at runtime (Godot 4)
 var {ident} := SpriteFrames.new()
 
 func _ready() -> void:
@@ -159,7 +178,8 @@ func _ready() -> void:
 def _unity(i: dict[str, Any]) -> str:
     grid = f'{i["frame_width"]}x{i["frame_height"]}'
     pivot = f'({i["origin"][0]}, {i["origin"][1]})'
-    return f'''// {i["name"]}: slice {i["image"]} in the Sprite Editor as a {grid} grid
+    name = _comment_safe(i["name"])
+    return f'''// {name}: slice {i["image"]} in the Sprite Editor as a {grid} grid
 // ({i["frames"]} cells, pivot at {pivot} px), then drive it from a script:
 using UnityEngine;
 
@@ -187,7 +207,7 @@ public class {_ident(i["name"], pascal=True)}Player : MonoBehaviour
 def _phaser(i: dict[str, Any]) -> str:
     ident = _ident(i["name"])
     fw, fh = i["frame_width"], i["frame_height"]
-    return f'''// {i["name"]}: Phaser 3
+    return f'''// {_comment_safe(i["name"])}: Phaser 3
 preload() {{
     this.load.spritesheet("{ident}", "{i["image"]}", {{ frameWidth: {fw}, frameHeight: {fh} }});
 }}

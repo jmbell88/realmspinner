@@ -192,8 +192,9 @@ overwritten and you can always go back.
 | **Change the words or tags** | The same piece to a different brief. Leave a field empty to keep this take's. It has to change *something* — for another take of the same brief, use *Another like this*. |
 | **Something like this** | A new piece using this take as a reference. **Closeness** is how near to stay; at the top of the range the model would take no sampling steps at all, which is refused. |
 
-Each of these takes a **How many** the way the brief does, for the same reason: several cheap
-candidates to choose between is the point.
+Every choice but **Something like this** takes a **How many** the way the brief does, for the same
+reason: several cheap candidates to choose between is the point. Something like this has no second
+seed for a count to vary, so every row would be the same generation; it queues one take at a time.
 
 **A derived take keeps its parent's seed.** That is what makes it a derivation of *that* take rather
 than a different piece filed underneath it; what varies is a second seed the derivation owns. So

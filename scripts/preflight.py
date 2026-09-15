@@ -88,11 +88,23 @@ def check_versions() -> bool:
             f"INSTALL.md names {len(set(named))} installer versions: {sorted(set(named))}",
         )
 
+    # The 2026-09-15 audit (pipelines-02): CLAUDE.md defines a release as five
+    # files, but this compared only four -- `uv.lock` pins its own copy of
+    # `warlock`'s version (a `[[package]] name = "warlock"` block, since it is
+    # an editable-installed member of its own lockfile), and nothing here ever
+    # read it. A release commit that bumped the other four and forgot `uv sync`
+    # would pass this gate with a stale lockfile.
+    uv_lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    locked = re.search(r'name = "warlock"\nversion = "([^"]+)"', uv_lock)
+    if locked is None:
+        return _fail("version lockstep", "no warlock package entry in uv.lock")
+
     versions = {
         "pyproject.toml": declared,
         "src/warlock/__init__.py": runtime.group(1),
         "CHANGELOG.md": heading.group(1),
         "INSTALL.md": named[0],
+        "uv.lock": locked.group(1),
     }
     if len(set(versions.values())) != 1:
         return _fail(

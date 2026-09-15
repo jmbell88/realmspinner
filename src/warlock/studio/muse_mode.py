@@ -155,6 +155,20 @@ DERIVE_CONTROLS: dict[str, tuple[str, ...]] = {
     "audio2audio": ("ref_audio_strength",),
 }
 
+#: Tasks the door refuses a count above 1 for -- read by ``muse_results`` to
+#: stop the popup's "How many" slider offering a number the door would only
+#: send back as a refusal.
+#:
+#: **service-02 (2026-09-15 audit).** Every other task varies each row through
+#: ``retake_random_generators`` (see ``_q_music._task_kwargs``'s comment), but
+#: audio2audio's upstream ``task`` becomes ``"audio2audio"`` inside
+#: ``__call__`` itself, which never touches that generator -- so with ``seed``
+#: inherited unchanged from the parent, nothing distinguishes one row of a
+#: count > 1 audio2audio derive from another. A set, not a bare string check
+#: at the one call site, so a second task that turns out to have no varying
+#: knob is a row here rather than a second ``if``.
+SINGLE_TAKE_TASKS: frozenset[str] = frozenset({"audio2audio"})
+
 
 def open_derive(ctx: Any, job_id: str, task: str) -> None:
     """Point the derive popup at one take. **Frame-thread only.**
@@ -959,6 +973,7 @@ __all__ = [
     "LOAD_PREFIX",
     "MuseState",
     "DERIVE_CONTROLS",
+    "SINGLE_TAKE_TASKS",
     "active",
     "close_derive",
     "compose_from_sirens",

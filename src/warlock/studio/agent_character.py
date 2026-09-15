@@ -1231,7 +1231,20 @@ def _normalise_export(fmt: str, result: Any) -> dict[str, Any]:
     ``{"png", "json", "dir"}``; ``export_godot``/``export_frames`` -> a
     ``Path`` to the staged directory ``export.staged_tree`` built."""
     if isinstance(result, Mapping) and "copied" in result:
-        return {"format": fmt, "dir": result["dir"], "copied": result["copied"]}
+        # The 2026-09-15 audit (agents-02): this branch used to drop
+        # ``degraded`` on the floor, so an agent reading ``character_export``
+        # for ``animated_glb`` was told a mesh whose normalize step actually
+        # failed had exported cleanly. Carry it through whenever the door
+        # reported one (even an empty list, so a caller can tell "checked,
+        # nothing degraded" from "this door predates the field").
+        payload: dict[str, Any] = {
+            "format": fmt,
+            "dir": result["dir"],
+            "copied": result["copied"],
+        }
+        if "degraded" in result:
+            payload["degraded"] = result["degraded"]
+        return payload
     if isinstance(result, Mapping):
         paths = [str(v) for k, v in result.items() if k != "dir"]
         return {"format": fmt, "dir": str(result["dir"]), "paths": paths}

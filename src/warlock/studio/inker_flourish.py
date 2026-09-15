@@ -136,6 +136,16 @@ def can_regenerate(state: Any, tab: Any) -> bool:
     return has_effect(state, tab) and not getattr(tab, "busy", False)
 
 
+def can_detach(state: Any, tab: Any) -> bool:
+    """``can_regenerate``'s shape, kept separate rather than reused directly:
+    Detach's op registration used to gate on bare ``has_effect``, the only one
+    of this family's predicates missing the ``not busy`` every sibling here
+    carries (the 2026-09-15 audit, finding inker-05) -- so the button stayed
+    live, and its handler had nothing else standing between a click and a
+    Detach landing on a document a save or an export was still writing."""
+    return has_effect(state, tab) and not getattr(tab, "busy", False)
+
+
 def regenerate_reason(state: Any, tab: Any) -> str:
     if tab is None:
         return "Nothing is open."
@@ -487,7 +497,17 @@ def _has_texture_slot(state: Any, tab: Any, group: int | None) -> bool:
 
 
 def can_texture_selection(state: Any, tab: Any) -> bool:
-    if not has_effect(state, tab) or getattr(tab.doc, "mask", None) is None:
+    # The 2026-09-15 audit, inker-05: this predicate never checked ``busy`` at
+    # all, unlike every sibling in this module (``can_regenerate``,
+    # ``can_prompt``, ``can_restyle``...), and neither did the handler it
+    # gates (``inker_mode.flourish_texture_selection``) -- so the button
+    # stayed clickable, and pressing it while a save or an export was writing
+    # the document pushed a pending recipe edit into ``state`` regardless.
+    if (
+        not has_effect(state, tab)
+        or getattr(tab, "busy", False)
+        or getattr(tab.doc, "mask", None) is None
+    ):
         return False
     return _has_texture_slot(state, tab, active_group(state, tab))
 
@@ -497,6 +517,13 @@ def texture_selection_reason(state: Any, tab: Any) -> str:
         return "Nothing is open."
     if not has_effect(state, tab):
         return NO_EFFECT
+    # Checked ahead of the slot/selection questions below, the same order
+    # ``regenerate_reason`` settles busy in -- so a disabled button always has
+    # a reason that matches ``can_texture_selection``'s own answer (the
+    # 2026-09-15 audit, inker-05: before this, a busy document disabled the
+    # button but this string stayed "", leaving the tooltip blank).
+    if getattr(tab, "busy", False):
+        return BUSY
     # The 2026-09-14 audit (inker-06): this used to say only NO_SELECTION,
     # so a glow layer -- no ``texture`` parameter at all -- let the button
     # through and ``texture_from_selection`` committed an asset nothing in

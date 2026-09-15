@@ -8,6 +8,7 @@ gives for being a function rather than an inlined expression.
 from __future__ import annotations
 
 import io
+import threading
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -289,10 +290,22 @@ def test_wav_duration_seconds_falls_back_for_a_file_it_cannot_read(tmp_path):
 
 
 class _FakeCancel:
-    """Just enough of the queue's cancel token for ``MusicOps._music``."""
+    """Just enough of the queue's cancel token for ``MusicOps._music``.
+
+    ``event`` used to be a bare ``object()`` -- fine as long as nothing but
+    ``commit()`` ever touched this fake, which stopped being true the moment
+    ``_music`` started checking ``self._cancel.event.is_set()`` after
+    ``client.generate`` returns (the 2026-09-15 audit, finding muse-01).
+    ``queue._Cancel.event`` is always a real ``threading.Event`` in
+    production; a bare ``object()`` was this fake behind the real contract,
+    not a shape production has to tolerate, so the fix is here rather than a
+    ``getattr``/``hasattr`` guard in ``_music`` for an event that can never
+    actually be missing ``.is_set()``. Unset by construction, matching every
+    test in this class that never asks for a cancel.
+    """
 
     def __init__(self) -> None:
-        self.event = object()
+        self.event = threading.Event()
         self.committed = False
 
     def commit(self) -> None:

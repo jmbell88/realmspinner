@@ -237,8 +237,13 @@ def _apply_row(doc: D.SongDoc, player: Player, cells: np.ndarray) -> None:
 
         if instrument != notes.EMPTY:
             found = _instrument_for(doc, instrument)
-            if found is not None:
-                voice.instrument = found
+            # A uid nothing answers to clears the voice rather than leaving it
+            # alone: ``remove_instrument``'s docstring promises "a pattern cell
+            # holding a uid nothing answers to plays silently", but leaving the
+            # voice's previous instrument in place meant a note naming a
+            # deleted instrument kept sounding on whichever one played there
+            # last (the 2026-09-15 audit, finding sirens-01).
+            voice.instrument = found
         if volume != notes.EMPTY:
             voice.column_volume = float(max(0, min(inst.MAX_VOLUME, volume)))
 

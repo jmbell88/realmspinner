@@ -154,6 +154,15 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
     except (ValueError, KeyError, TypeError) as exc:
         raise invalid_from(exc, "Those joint positions cannot be used") from exc
 
+    # The 2026-09-15 audit, finding poser-02: service-03 (the 2026-09-14
+    # audit) moved this check into ``create_rig`` on the claim that every
+    # caller was then covered, but this door and ``edit_skeleton``'s below
+    # mint a rig job of their own and never called it -- so the Joints pane's
+    # "Apply joint positions" (submit key ``joints:<id>``, unshared with
+    # ``create_rig``'s callers) could still queue a second rig for a mesh
+    # that already had one in flight.
+    if rig_in_flight(svc, job_id) is not None:
+        raise Conflict("a rig for this mesh is already running", field="job_id")
     # Same door as ``create_rig``'s, for the same reason: a re-rig queues a
     # fresh job that runs Blender exactly like the first one did.
     if not doctor.blender_check().ok:
@@ -203,6 +212,12 @@ def edit_skeleton(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
     except ValueError as exc:
         raise invalid_from(exc, "That skeleton cannot be used") from exc
 
+    # The 2026-09-15 audit, finding poser-02: the same missing check as
+    # ``adjust_joints``'s above, and for the same reason -- this door mints
+    # its own rig job and was never on service-03's "every caller is
+    # covered" list either.
+    if rig_in_flight(svc, job_id) is not None:
+        raise Conflict("a rig for this mesh is already running", field="job_id")
     # Same door as ``create_rig``'s and ``adjust_joints``'s, for the same
     # reason: this queues a fresh job that runs Blender exactly like they do.
     if not doctor.blender_check().ok:

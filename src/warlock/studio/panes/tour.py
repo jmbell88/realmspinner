@@ -253,10 +253,17 @@ def start(ctx: Any, key: str) -> None:
     ctx.state.tour.start(key)
 
 
-def stop(ctx: Any) -> None:
-    ctx.state.tour.stop()
+def _clear_card() -> None:
+    """The hole/focus bookkeeping a running tour leaves behind -- shared by
+    every way a tour can stop, so a fresh tour's first frame never veils
+    around a hole left by the last one."""
     _card_rect[0] = None
     _card_focused[0] = False
+
+
+def stop(ctx: Any) -> None:
+    ctx.state.tour.stop()
+    _clear_card()
 
 
 def advance(ctx: Any, delta: int = 1) -> None:
@@ -269,7 +276,13 @@ def advance(ctx: Any, delta: int = 1) -> None:
         return
     index = state.index + delta
     if index >= len(tour):
+        # The 2026-09-15 audit (tour-01): finishing by running off the end
+        # called `state.complete()` directly rather than going through
+        # `stop`'s cleanup, so `_card_rect`/`_card_focused` survived a
+        # completed tour -- the next tour started, its first frame veiled
+        # around a hole left by the one that just finished.
         state.complete()
+        _clear_card()
         _remember(ctx)
         return
     state.index = max(0, index)

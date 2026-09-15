@@ -127,6 +127,26 @@ def _task_kwargs(params: dict[str, Any], job_dir: Any) -> dict[str, Any]:
 
     out["src_audio_path"] = str(source)
 
+    # **service-02 (2026-09-15 audit).** This branch used to stop at
+    # ``src_audio_path`` and never forward ``retake_seed`` the way the
+    # ``retake`` branch above does -- but extend, repaint/loop and edit all
+    # draw their *own* entropy from ``retake_random_generators``
+    # (``pipeline_ace_step.__call__``'s ``add_retake_noise`` for the first
+    # two, ``flowedit_diffusion_process``'s ``random_generators=
+    # retake_random_generators``, "more diversity", for edit); only
+    # ``manual_seeds`` -- the take's own draw, deliberately inherited
+    # unchanged by ``derive_music_job`` -- was ever seeded. With no
+    # ``retake_seeds`` sent, ``set_seeds`` drew a fresh, unrecorded seed on
+    # every call, so a derive of these tasks with "How many" > 1 could not be
+    # told apart from a rerun of the same row, and neither could ever be
+    # reproduced. Forwarded once here rather than in each branch below,
+    # because all four reach this line and none of them is ``retake`` or
+    # ``audio2audio`` (the latter has no retake-noise path at all -- see
+    # ``derive_music_job``'s refusal for it).
+    retake_seed = params.get("retake_seed")
+    if retake_seed is not None:
+        out["retake_seeds"] = [int(retake_seed)]
+
     if task == "extend":
         # Upstream spells the pads as a *negative* repaint window: the head pad
         # runs from -left to 0 and the tail from duration to duration+right.
@@ -332,6 +352,24 @@ class MusicOps:
                     **extra,
                 )
             )
+            # **muse-01 (2026-09-15 audit).** ``cancel_event`` is checked once
+            # per sampling step inside the vendored sampler (WARLOCK 1/6,
+            # pipeline_ace_step.py) and nowhere else -- the vocoder decode and
+            # ``save_wav_file`` that follow the last step run with no check of
+            # their own, in either that module or ``music_worker.op_generate``,
+            # neither of which this fix may touch. A Cancel landing in that
+            # window used to reach ``self._cancel.commit()`` a few lines down
+            # unconditionally, publishing a take the user had already asked to
+            # stop. Checked here instead, before the loop roll-back and before
+            # the commit: raising leaves the token uncommitted, and the
+            # dispatch loop's own ``finally`` (``queue.py``) already discards
+            # an uncommitted cancelled job's artifacts -- see
+            # ``_q_jobs._discard_artifacts``'s ``"music"`` branch, amended the
+            # same audit to actually remove the track it can now find.
+            if self._cancel.event.is_set():
+                from .pipelines.music_client import MusicCancelled
+
+                raise MusicCancelled
             if params.get("task") == "loop":
                 # Roll the finished take back. The source was rolled by half
                 # its length at the door so that the joint sat in the middle,

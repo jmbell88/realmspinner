@@ -681,6 +681,22 @@ def transfer(
         raise ClipTransferError(
             f"frames must be 1-{MAX_CLIP_FRAMES}, not {frames}", field="frames"
         )
+    # The 2026-09-15 audit, finding poser-03: an explicit ``clip_name`` used
+    # to be handed to *every* sampled action unchanged, so a multi-action file
+    # produced several clips sharing one name -- ``import_into_library``'s own
+    # collision check then either raised "already exists" on the second one
+    # (misreporting a name clash the caller never asked for) or, with
+    # ``replace=True``, silently dropped every action but the last. An
+    # explicit name only ever makes sense for a single-action sample; refused
+    # here, before any of them are converted, rather than left for the door
+    # three calls up to misdiagnose.
+    if clip_name is not None and len(sample["actions"]) > 1:
+        raise ClipTransferError(
+            "clip_name names one clip, but this file sampled "
+            f"{len(sample['actions'])} actions -- name each action instead, "
+            "or drop clip_name and let the action names supply one each",
+            field="clip_name",
+        )
     try:
         rigging.get_template(template)
     except ValueError as exc:

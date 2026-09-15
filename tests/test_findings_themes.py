@@ -205,9 +205,14 @@ def test_the_reference_stage_validates_once_a_frame_not_twice():
     calls: list[int] = []
     original = settings_2d.validate
 
-    def counting(form):
+    def counting(form, ctx=None):
+        # The 2026-09-15 audit, finding create-03, gave ``validate`` an
+        # optional ``ctx`` so it can compare against the resolved recipe
+        # instead of a stale ``base_model`` under Automatic; ``problems_for``
+        # now calls it as ``validate(form, ctx)``, so this spy has to accept
+        # the same two positional arguments to keep wrapping it transparently.
         calls.append(1)
-        return original(form)
+        return original(form, ctx)
 
     form = default_form_2d()
     create_assets.sync_legacy_fields(form)

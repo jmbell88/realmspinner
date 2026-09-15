@@ -17,7 +17,7 @@ system and no network listener beyond `127.0.0.1`, so the realistic threat is
 **a malicious file**, not a malicious peer. In scope:
 
 - **Any file the app opens.** `.ora`, `.aseprite`, `.tmx`/`.tsx` and their JSON
-  spellings `.tmj`/`.tsj`, `.wmap`, `.wblk`, `.wpack`, `.wsng`, `.glb`, and
+  spellings `.tmj`/`.tsj`, `.wmap`, `.wblk`, `.wpack`, `.wscn`, `.wsng`, `.glb`, and
   every image format Pillow handles.
   These are files people download from asset sites, so a crafted one reaching
   code execution, a decompression bomb, or a write outside the chosen directory

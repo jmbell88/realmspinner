@@ -27,6 +27,7 @@ import io
 import json
 import struct
 import zipfile
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -135,6 +136,92 @@ def _aseprite_with_empty_layers(width: int, height: int, n_layers: int) -> bytes
         struct.pack("<IHHHH", 16 + len(chunks), 0xF1FA, min(n_layers, 0xFFFF), 100, 0)
         + struct.pack("<I", n_layers)
         + chunks
+    )
+    head = bytearray(128)
+    struct.pack_into("<IHHHHHI", head, 0, 128 + len(frame), 0xA5E0, 1, width, height, 32, 0)
+    return bytes(head) + frame
+
+
+def _aseprite_with_moved_linked_cels(width: int, height: int, n_moved: int) -> bytes:
+    """A one-layer, RGBA .aseprite whose frame 0 holds a real cel and whose
+    next *n_moved* frames each link back to it from a different (x, y) --
+    Aseprite never writes this, but somebody else's file is not bound by
+    that, and ``_build_cels``'s "a linked cel drawn at its own offset was
+    unlinked" branch has to build a full canvas-sized plane for each one via
+    ``_place``, exactly as an ordinary cel does."""
+
+    def layer_chunk() -> bytes:
+        payload = struct.pack("<HHHHHH", 1, 0, 0, 0, 0, 0) + bytes([255]) + b"\0\0\0\0\0"
+        return struct.pack("<IH", len(payload) + 6, 0x2004) + payload
+
+    def cel_chunk(x: int, y: int, data: bytes | None, *, link: int | None = None) -> bytes:
+        header = struct.pack(
+            "<HhhBHh5s", 0, x, y, 255, 1 if link is not None else 0, 0, b"\0" * 5
+        )
+        if link is not None:
+            payload = header + struct.pack("<H", link)
+        else:
+            payload = header + struct.pack("<HH", width, height) + data
+        return struct.pack("<IH", len(payload) + 6, 0x2005) + payload
+
+    def wrap_frame(chunks: list[bytes]) -> bytes:
+        body = b"".join(chunks)
+        return struct.pack("<IHHHHI", len(body) + 16, 0xF1FA, len(chunks), 100, 0, 0) + body
+
+    pixels = bytes((1, 2, 3, 255)) * (width * height)
+    frame0 = wrap_frame([layer_chunk(), cel_chunk(0, 0, pixels)])
+    moved = [wrap_frame([cel_chunk(1, 0, None, link=0)]) for _ in range(n_moved)]
+    body = frame0 + b"".join(moved)
+
+    head = bytearray(128)
+    struct.pack_into(
+        "<IHHHHHI", head, 0, 128 + len(body), 0xA5E0, 1 + n_moved, width, height, 32, 0
+    )
+    return bytes(head) + body
+
+
+def _aseprite_with_empty_tilemap_layers(width: int, height: int, n_layers: int) -> bytes:
+    """A one-frame (still) Aseprite file naming *n_layers* **tilemap** layers,
+    none with a cel -- the tilemap sibling of ``_aseprite_with_empty_layers``,
+    one tile spanning the whole canvas so each layer's empty grid still
+    ``materialize``s a full-canvas RGBA plane with nothing in the file to say
+    how many of them there are."""
+    # One tile the size of the whole canvas, so grid_shape's 1x1 grid stays
+    # tiny while materialize still has to build a full-canvas RGBA plane.
+    blank = bytes(width * height * 4)
+    compressed = zlib.compress(blank)
+
+    def tileset_chunk(tileset_id: int) -> bytes:
+        payload = (
+            struct.pack("<IIIHHh", tileset_id, 2, 1, width, height, 1)
+            + b"\0" * 14
+            + struct.pack("<H", 0)
+            + struct.pack("<I", len(compressed))
+            + compressed
+        )
+        return struct.pack("<IH", len(payload) + 6, 0x2023) + payload
+
+    def tilemap_layer_chunk() -> bytes:
+        # flags=1 (visible), type=2 (tilemap), child_level/def_w/def_h/blend=0,
+        # opacity=255, reserved(3)+name_len=0 (5 bytes), then the tilemap
+        # layer's own trailing field: the tileset id it draws through.
+        payload = (
+            struct.pack("<HHHHHH", 1, 2, 0, 0, 0, 0)
+            + bytes([255])
+            + b"\0\0\0\0\0"
+            + struct.pack("<I", tileset_id_const)
+        )
+        return struct.pack("<IH", len(payload) + 6, 0x2004) + payload
+
+    tileset_id_const = 1
+    chunks = [tileset_chunk(tileset_id_const)] + [
+        tilemap_layer_chunk() for _ in range(n_layers)
+    ]
+    body = b"".join(chunks)
+    frame = (
+        struct.pack("<IHHHH", 16 + len(body), 0xF1FA, min(len(chunks), 0xFFFF), 100, 0)
+        + struct.pack("<I", len(chunks))
+        + body
     )
     head = bytearray(128)
     struct.pack_into("<IHHHHHI", head, 0, 128 + len(frame), 0xA5E0, 1, width, height, 32, 0)
@@ -454,6 +541,63 @@ def test_a_single_frame_aseprite_with_many_empty_layers_has_a_ceiling(monkeypatc
         return real(*args, **kwargs)
 
     monkeypatch.setattr(composite, "empty", counted)
+    with pytest.raises(ValueError, match="layers"):
+        asein.document_from_aseprite(data)
+    assert built < count
+
+
+def test_a_moved_linked_cel_is_charged_against_the_decoded_pixel_budget(monkeypatch):
+    """The 2026-09-11 audit's inker-05 fix charges ``decoded_pixels`` against
+    ``pixelguard.MAX_DECODE_PIXELS`` in ``_build_cels``'s first loop -- but
+    that loop skips every linked cel outright (``if cel.kind == _CEL_LINKED:
+    continue``), so the second loop's "a linked cel drawn at its own offset
+    was unlinked" branch, which builds a full canvas-sized plane via
+    ``_place`` exactly like an ordinary cel does, charged nothing at all.
+    The 2026-09-15 audit, finding inker-01: a file made mostly of moved-link
+    cels could allocate without limit, scaling with cel count and never
+    refused.
+    """
+    from warlock.studio import pixelguard
+
+    width = height = 8
+    # One real cel is allowed; the first moved-link cel on top of it is not.
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", width * height)
+    data = _aseprite_with_moved_linked_cels(width, height, 3)
+    assert len(data) < 1024
+    with pytest.raises(ValueError, match="decode to more pixels"):
+        asein.document_from_aseprite(data)
+
+
+def test_a_single_frame_aseprite_with_many_empty_tilemap_layers_has_a_ceiling(
+    monkeypatch,
+):
+    """The 2026-09-11 audit's inker-01 fix bounds the plain-``Layer.empty``
+    branch of the still-document loop against ``_layer_budget`` -- but left
+    the adjacent tilemap branch, right beside it, charging nothing before its
+    own full-canvas ``materialize`` call. The 2026-09-15 audit, finding
+    inker-02: the identical amplification through the one branch that fix
+    missed.
+    """
+    from warlock.studio.inker import asein as asein_module
+
+    width = height = 8
+    count = 5
+    # Budget for two full-canvas layers; the third must be refused.
+    monkeypatch.setattr(
+        "warlock.studio.pixelguard.MAX_DECODE_PIXELS", (width * height) * 2
+    )
+    data = _aseprite_with_empty_tilemap_layers(width, height, count)
+    assert len(data) < 1024
+
+    built = 0
+    real = asein_module.materialize
+
+    def counted(*args, **kwargs):
+        nonlocal built
+        built += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(asein_module, "materialize", counted)
     with pytest.raises(ValueError, match="layers"):
         asein.document_from_aseprite(data)
     assert built < count

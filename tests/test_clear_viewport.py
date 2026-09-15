@@ -284,3 +284,28 @@ def test_adopting_a_different_model_mid_strip_cancels_the_strip_instead_of_finis
         assert not viewer.stripping
     finally:
         viewer.release()
+
+
+def test_clearing_the_viewer_mid_strip_cancels_it_instead_of_finishing_it_blank(gl, tmp_path):
+    """create-04, the 2026-09-15 audit: create-05 (above) only taught
+    ``adopt_model`` to cancel a strip in flight before releasing the GpuModel
+    it draws from. ``Viewer.clear()`` released it too, with no such call --
+    and ``App._clear_viewport`` is not its only caller: ``poser_mode``,
+    ``review_panes``, ``inker_mode`` and two more ``main.py`` handlers call
+    ``clear()`` directly. Any of those firing mid-strip emptied the GpuModel
+    the paused strip still held a direct reference to, so the strip resumed
+    drawing its remaining cells blank instead of finishing or cancelling.
+    """
+    from warlock.studio.viewer_embed import Viewer
+
+    viewer = Viewer(gl)
+    try:
+        viewer.adopt_model(_a_model(), tmp_path / "first.glb")
+        assert viewer.begin_sheet_strip([0.0, 90.0], elevation=0.0, flat=True)
+        assert viewer.stripping
+
+        viewer.clear()
+
+        assert not viewer.stripping
+    finally:
+        viewer.release()

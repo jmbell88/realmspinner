@@ -420,8 +420,11 @@ def _theme(key: str, label: str, **hexes: str) -> Theme:
     """A palette over :data:`_HUMANOID_REGIONS`, keyword by region.
 
     Written as a helper rather than twelve dict literals so a missing region is
-    a ``TypeError`` at import rather than a black face at render time --
-    ``test_every_theme_paints_every_region`` makes the same claim over the
+    a ``TypeError`` at import rather than a black face at render time -- the
+    2026-09-15 audit, finding troupe-09: this used to cite
+    ``test_every_theme_paints_every_region``, which does not exist.
+    ``test_every_species_offers_a_look_and_every_look_paints_every_region``
+    (``tests/characters/test_recipe.py``) makes the same claim over the
     registry, but failing at import is the earlier and cheaper of the two.
     """
     effects = ()

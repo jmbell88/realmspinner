@@ -265,9 +265,9 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
     the option's own field, the same rule ``check_pixel_options`` already
     applies to ``outline``/``reduce_mode`` on a path that has neither. The row
     then carries ``"pixel_art": False`` and drops ``colors``/``palette``/
-    ``dither``/``outline`` outright, so ``_q_troupe`` never sees a value it
-    would apply. ``True`` writes no key at all, so a form that never touches
-    the switch mints the byte-identical row it always has.
+    ``dither``/``outline``/``reduce_mode`` outright, so ``_q_troupe`` never
+    sees a value it would apply. ``True`` writes no key at all, so a form
+    that never touches the switch mints the byte-identical row it always has.
 
     **Only a real bool, or absence, answers.** ``bool("false")`` is ``True``
     in Python, so ``entries.get("pixel_art")`` used to turn HD mode *on* by
@@ -317,7 +317,13 @@ def _check_options(svc: WarlockService, entries: dict[str, Any]) -> dict[str, An
         size_range=TROUPE_CUSTOM_SIZE_RANGE,
     )
     if not pixel_art:
-        for key in ("colors", "palette", "dither", "outline"):
+        # The 2026-09-15 audit, finding service-07: ``reduce_mode`` was left
+        # off this list, so an HD request still carried it onto the row --
+        # and ``_q_troupe``'s own HD branch (``if not pixel_art:``) never
+        # reads it, the atlas going straight through unquantised. Dead the
+        # same way ``pixelopts``' own ``allow_reduce_mode=False`` comment
+        # already names for ``_charsheet``'s path that has neither.
+        for key in ("colors", "palette", "dither", "outline", "reduce_mode"):
             options.pop(key, None)
         options["pixel_art"] = False
     return options

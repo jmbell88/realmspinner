@@ -634,6 +634,26 @@ def _opaque_source(pixels: np.ndarray, steps: int) -> tuple[np.ndarray, np.ndarr
     return colour, filled
 
 
+#: The most steps :func:`defringe` will run, independent of what asks --
+#: :data:`BLUR_MAX_RADIUS`'s and :data:`DESPECKLE_MAX`'s reason restated
+#: here: a stale settings entry or a caller passing a value past
+#: ``RANGES["fringe"]``'s slider top (``apply_named`` fills a parameter in
+#: from whatever the panel remembers per filter, same as those two) must not
+#: reach the unaffordable case by going round the slider. Each step is a
+#: full-image pass on the frame thread under a live preview, so nothing
+#: capped this before matched ``fringe`` to its own claimed span -- the
+#: 2026-09-15 audit (inker-07) measured 2048x2048 at 250s for a value of
+#: 3000, three orders of magnitude past the slider's top of 8.
+DEFRINGE_MAX = 8
+
+
+#: :data:`DEFRINGE_MAX`'s twin for :func:`matte_grow`, whose slider
+#: (``RANGES["grow"]``) is signed -- this bounds the magnitude in either
+#: direction, growing or shrinking. The 2026-09-15 audit (inker-07) found
+#: ``grow`` uncapped exactly like ``fringe``, same linear full-canvas cost.
+MATTE_GROW_MAX = 8
+
+
 def defringe(pixels: np.ndarray, *, fringe: float = 0.0) -> np.ndarray:
     """Semi-transparent pixels take the colour of the nearest opaque one.
 
@@ -650,7 +670,7 @@ def defringe(pixels: np.ndarray, *, fringe: float = 0.0) -> np.ndarray:
     out at 32.
     """
     out = pixels.copy()
-    steps = int(round(float(fringe)))
+    steps = min(int(round(float(fringe))), DEFRINGE_MAX)
     if steps <= 0:
         return out
     rim = (out[..., 3] > 0) & (out[..., 3] < 255)
@@ -677,7 +697,7 @@ def matte_grow(pixels: np.ndarray, *, grow: float = 0.0) -> np.ndarray:
     is monotonicity per sign, which is what the tests pin.
     """
     out = pixels.copy()
-    steps = int(round(float(grow)))
+    steps = max(-MATTE_GROW_MAX, min(MATTE_GROW_MAX, int(round(float(grow)))))
     if steps == 0:
         return out
     height, width = out.shape[:2]

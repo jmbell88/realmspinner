@@ -1695,10 +1695,13 @@ def mirror_quaternion(q: Sequence[float]) -> list[float]:
     rotation conjugates it: the components perpendicular to the normal flip
     sign and the one along it does not. So (x, y, z, w) -> (x, -y, -z, w).
 
-    Lives here rather than only in the browser because it is the kind of sign
-    convention that is wrong in a way you cannot see -- a mirrored arm that
-    rotates the wrong way about one axis still looks plausible in a static
-    pose. The JS copy in app.js must stay identical to this.
+    It is the kind of sign convention that is wrong in a way you cannot see --
+    a mirrored arm that rotates the wrong way about one axis still looks
+    plausible in a static pose. The 2026-09-15 audit, finding poser-05: this
+    docstring used to warn that a JS copy in ``app.js`` had to be kept
+    identical to this function; that browser-side copy is retired and no such
+    file exists in this tree any more, so the warning named a maintenance
+    burden that is no longer real.
     """
     x, y, z, w = (float(v) for v in q)
     return [x, -y, -z, w]

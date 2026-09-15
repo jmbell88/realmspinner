@@ -570,16 +570,25 @@ PLACEHOLDERS: dict[str, tuple[str, str, str]] = {
     ),
     "inker": (icons.PEN_TOOL, "No drawing open", "Ctrl+N starts one, Ctrl+O opens a file."),
     "clay": (icons.RULER, "Empty document", "Add a primitive to start blocking something out."),
-    # Mason's Stage A: the mode opens on an empty workspace and does nothing
-    # yet -- no engine, no document, no library round trip. The hint says what
-    # the mode is *for* rather than what to click, because nothing here is
-    # clickable: an ACTIONS entry would have to name a button wired to a stage
-    # that has not landed.
+    # shell-08 (the 2026-09-15 audit): the old entry here said "Empty scene"
+    # / "Stage A" -- a leftover from before Mason had a document at all -- and
+    # was never drawn, since ``mason_viewport`` reaches its empty state
+    # through ``centred_empty`` directly rather than through this table's
+    # dispatch in ``placeholder()``. Removing the entry outright (this
+    # session's first pass) fixed that half but broke this table's own gate,
+    # ``test_notifications.py``'s
+    # ``test_every_mode_that_draws_the_viewport_has_its_own_placeholder``,
+    # which requires every key in ``modes.WORK_MODES`` to carry one -- Mason
+    # included, same as Clay and every other engine. Repointed instead, to the
+    # same icon/title/hint ``mason_viewport`` actually draws for an empty
+    # scene, so the text here is at least true even though nothing dispatches
+    # through it yet; kept from drifting apart from that call site by
+    # ``test_audit_2026_09_15_shell_b.py``'s
+    # ``test_the_mason_placeholder_entry_matches_what_mason_viewport_draws``.
     "mason": (
         icons.BLOCKS,
-        "Empty scene",
-        "Mason will place library assets and primitives into a scene, "
-        "then light and export it.",
+        "Add something",
+        "Pick one from the Assets panel.",
     ),
     "poser": (
         icons.PERSON_STANDING,
@@ -641,6 +650,23 @@ def _clay_box(ctx: Any) -> None:
     clay_tools.add_primitive(ctx, tab.doc, next(iter(bp.GENERATORS)))
 
 
+def _mason_box(ctx: Any) -> None:
+    """Drop one primitive at its defaults into the open Mason scene.
+
+    shell-04 (2026-09-15 audit): ``mason_viewport`` asked ``action_for(ctx,
+    "mason")`` for the button under its "Add something" empty state, but
+    ``ACTIONS`` had no ``"mason"`` key, so the button never drew. Mirrors
+    ``_clay_box``: only ``mason_mode.place_primitive`` (a public entry point)
+    is called, and the generator name is read off the shared registry rather
+    than spelled here, so a rename in ``primitives.GENERATORS`` cannot leave
+    this button pointing at nothing.
+    """
+    from .. import mason_mode
+    from ..clay import primitives as bp
+
+    mason_mode.place_primitive(ctx, next(iter(bp.GENERATORS)))
+
+
 #: What the button under an empty viewport does, per :data:`PLACEHOLDERS` key.
 #:
 #: Resolved *at draw time* rather than stored beside the sentence, so the
@@ -657,6 +683,7 @@ ACTIONS: dict[str, tuple[str, Any]] = {
     "create/reference": ("Write a brief", _focus_brief),
     "create/pose": ("Go to Rig", lambda ctx: _go_stage(ctx, "rig")),
     "clay": ("Add a primitive", _clay_box),
+    "mason": ("Add a primitive", _mason_box),
     "inker": ("New drawing", lambda ctx: _inker_new(ctx)),
     "plotter": ("New map...", lambda ctx: _plotter_new(ctx)),
     "packwright": ("Add an image...", lambda ctx: _packwright_add(ctx)),

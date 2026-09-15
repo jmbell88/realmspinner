@@ -660,7 +660,13 @@ def open_job_reference(ctx: Any, job: Any, *, matte: bool = False) -> None:
         set_mode(ctx.state, "inker")
         return
     set_mode(ctx.state, "inker")
-    ctx.submit(f"inker-open:{job_id}", _load_job, ctx.svc, job_id, matte=matte)
+    if not ctx.submit(f"inker-open:{job_id}", _load_job, ctx.svc, job_id, matte=matte):
+        # No picker here, a decode of a known job -- the 2026-09-14 audit's
+        # inker-12 class (``ctx.submit``'s refusal discarded, so a second
+        # press while the first decode was still running did nothing a user
+        # could see) reached every other opener in this module except this
+        # one, found by the 2026-09-15 audit as inker-09.
+        ctx.toast("That is already opening.", "info")
 
 
 def _load_job(svc: Any, job_id: str, *, matte: bool = False) -> dict[str, Any]:

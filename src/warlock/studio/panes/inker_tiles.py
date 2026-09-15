@@ -101,10 +101,13 @@ def draw(ctx: Any) -> None:
     _files(ctx, state, tab, uid)
 
 
-#: Why every button here is out while the document is being written. The
-#: ``inker_bridge._busy_why`` sentence, said again rather than imported: this
-#: pane draws with no knowledge of playback, which is that function's other
-#: half.
+#: Why every button here is out while the document is being written. The same
+#: sentence ``inker_export.BUSY_WHY`` and ``clay_header._SAVING`` carry, said
+#: again rather than imported -- ``clay_menu``'s own comment on ``clay_ops.py``
+#: names all three copies. The 2026-09-15 audit (inker-11) deleted this
+#: constant's fourth copy, ``inker_bridge._busy_why``, which had gone dead
+#: (its docstring described six buttons the module's own head says stopped
+#: existing when the panel became four popups with nothing to draw them from).
 BUSY_WHY = "This document is being written; the buttons come back when it lands."
 
 

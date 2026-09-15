@@ -34,6 +34,10 @@ ROOTS = ("File", "Edit", "View", "Workspace", "Window", "Help")
 _COMMAND_PATHS: dict[str, tuple[str, ...]] = {
     "new-drawing": ("File",),
     "new-clay": ("File",),
+    # The 2026-09-15 audit, finding shell-03: Mason had no New at all, in the
+    # palette or here, though it is a document mode (Save/Export/Undo/Redo all
+    # work on it). Same shape as ``new-map``'s own comment below.
+    "new-mason-scene": ("File",),
     "new-map": ("File",),
     "new-atlas": ("File",),
     # The fifth, and missing for the same reason the palette's ``new-map`` was:

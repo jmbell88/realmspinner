@@ -1282,6 +1282,7 @@ def sheet_preview_png(
 
     from .. import rigging
     from ..pipelines import charsheet
+    from ..pipelines import sheet as sheetlib
 
     check_job_id(job_id)
     svc.require_job(job_id)
@@ -1331,6 +1332,24 @@ def sheet_preview_png(
         raise Invalid(
             "that sheet is not square, so it has no fixed frame size to crop", field="sheet_id"
         )
+    # The 2026-09-15 audit, finding troupe-03: everything below this point
+    # used to allocate a fresh ``Image.new`` sized from the sidecar's own
+    # ``frame_size``/``frames`` before any bound was applied -- ``max_side``
+    # only *downscaled* the finished composite, well after the allocation
+    # had already happened. A sidecar this function does not itself write
+    # (an agent names a job id it does not own; a corrupted or hand-edited
+    # file) claiming an enormous frame_size or frame count would try to
+    # allocate that many pixels regardless of what the caller asked for.
+    # Checked against charsheet's own ceilings first, the same ones
+    # ``charsheet.build`` refuses a *render* request against, so a preview
+    # can never demand more than a render could ever have produced.
+    if not charsheet.MIN_FRAME_SIZE <= frame_size <= charsheet.MAX_FRAME_SIZE:
+        raise Invalid(
+            f"that sheet's frame_size is {frame_size}, outside charsheet's "
+            f"{charsheet.MIN_FRAME_SIZE}-{charsheet.MAX_FRAME_SIZE} ceiling; "
+            "its sidecar is corrupted",
+            field="sheet_id",
+        )
 
     def _crop(image: Any, index: int) -> Any:
         cell = cell_by_index.get(index)
@@ -1339,25 +1358,43 @@ def sheet_preview_png(
         x, y = int(cell["x"]), int(cell["y"])
         return image.crop((x, y, x + frame_size, y + frame_size))
 
+    if movement is None:
+        frame_count = len(cell_by_index)
+    elif chosen_run is not None:
+        start, end = int(chosen_run["start"]), int(chosen_run["end"])
+        # Arithmetic only, never ``list(range(...))``, until the bound below
+        # has passed: a corrupted ``end`` is exactly the kind of value this
+        # check exists to catch, and materialising the list first would
+        # already have paid for the huge allocation this refuses.
+        frame_count = max(0, end - start + 1)
+        try:
+            sheetlib.check_atlas_size(frame_count * frame_size, frame_size)
+        except ValueError as exc:
+            raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
+        indices = list(range(start, end + 1))
+    else:
+        frame_count = int(movement_row.get("frames") or 0)
+        direction_keys = [str(d.get("key")) for d in (movement_row.get("directions") or [])]
+        runs_by_direction = {str(r.get("direction")): r for r in matching_runs}
+        ordered_runs = [runs_by_direction[k] for k in direction_keys if k in runs_by_direction]
+        try:
+            sheetlib.check_atlas_size(
+                frame_count * frame_size, frame_size * max(1, len(ordered_runs))
+            )
+        except ValueError as exc:
+            raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
+
     with Image.open(png_path) as opened:
         opened.load()
         atlas = opened.convert("RGBA")
     try:
         if movement is None:
             composed = atlas.copy()
-            frame_count = len(cell_by_index)
         elif chosen_run is not None:
-            start, end = int(chosen_run["start"]), int(chosen_run["end"])
-            indices = list(range(start, end + 1))
-            frame_count = len(indices)
             composed = Image.new("RGBA", (frame_count * frame_size, frame_size))
             for col, index in enumerate(indices):
                 composed.paste(_crop(atlas, index), (col * frame_size, 0))
         else:
-            frame_count = int(movement_row.get("frames") or 0)
-            direction_keys = [str(d.get("key")) for d in (movement_row.get("directions") or [])]
-            runs_by_direction = {str(r.get("direction")): r for r in matching_runs}
-            ordered_runs = [runs_by_direction[k] for k in direction_keys if k in runs_by_direction]
             composed = Image.new(
                 "RGBA", (frame_count * frame_size, frame_size * max(1, len(ordered_runs)))
             )

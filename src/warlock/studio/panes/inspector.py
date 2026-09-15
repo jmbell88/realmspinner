@@ -19,7 +19,7 @@ from ...service import derive as svc_derive
 from ...service import files as svc_files
 from ...service import jobs as svc_jobs
 from ...service import system as svc_system
-from .. import controls, create_stages, fonts, forms, quality, theme, verbs, widgets
+from .. import asset_open, controls, create_stages, fonts, forms, quality, theme, verbs, widgets
 from ..app_ctx import derive_key, pixel_prefs
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -354,7 +354,27 @@ def _details_tab(ctx: Any, job: Any) -> None:
     _pixel(ctx, job)
     sprite_panel.draw(ctx, job)
     _seam(ctx, job)
-    if create_stages.at(ctx.state, "mesh"):
+    # The 2026-09-15 audit's shell-02: this gated on ``create_stages.at(state,
+    # "mesh")``, which also requires ``state.mode == "create"`` -- but
+    # ``_details_tab`` is only ever reached from the *other* branch of
+    # ``draw``, the one taken when Create is not the mode at all (Create
+    # itself renders ``_stage_body`` and returns before the tab bar exists).
+    # So the section was dead in every host that has a Details tab, and never
+    # dead in the one place ``at`` would have said yes.
+    #
+    # Gated on the job's own stage instead -- but routed through
+    # ``asset_open.route`` rather than calling ``create_stages.stage_for``
+    # here directly: this pane's own sibling gate,
+    # ``tests/test_asset_open.py::test_one_module_decides_where_an_asset_opens``,
+    # bans a second copy of that ternary outside ``asset_open``/
+    # ``create_stages`` themselves, since a follow-up row (a retexture, a
+    # rig) answers "which stage shows this" differently from "where does this
+    # row open" the moment it holds none of its own artifacts. ``route``
+    # already falls back to ``stage_for`` for an ordinary asset, so a finished
+    # mesh still gets "Mesh quality" and "Was this any good?" wherever its
+    # Details tab is opened from, and a follow-up gets the stage its actual
+    # artifacts live on instead.
+    if asset_open.route(job).stage == "mesh":
         _quality(ctx, job)
         _verdict(ctx, job)
 

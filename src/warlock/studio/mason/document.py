@@ -186,11 +186,38 @@ class MasonDoc:
 
     # -- structure -------------------------------------------------------------
 
+    def _check_max_placed(self, adding: int) -> None:
+        """Refuse growing past :data:`sc.MAX_PLACED` **before** anything is
+        attached. The 2026-09-14 audit's mason-01 found this gap in what is
+        now :meth:`add_nodes` alone; the 2026-09-15 audit's mason-01 (left
+        open on two doors) found :meth:`add_node` -- every single placement,
+        looped by ``mason_mode.duplicate_selected`` -- and
+        :meth:`unpack_instance` -- which can attach a whole template subtree,
+        and ``define_prefab`` puts no ceiling on how big that template may be
+        -- still attaching unchecked. One shared check, called before every
+        attach point, so a future one cannot reopen the same hole a fourth
+        way. Counted with a plain structural walk (``all_nodes``), the same
+        conservative, prefab-blind count :meth:`add_nodes` already used.
+        """
+        current = len(self.all_nodes())
+        if current + adding > sc.MAX_PLACED:
+            raise ValueError(
+                f"adding {adding} node(s) would bring this document to "
+                f"{current + adding} nodes, past the {sc.MAX_PLACED} "
+                "MAX_PLACED ceiling; refusing rather than building past it"
+            )
+
     def add_node(
         self, node: Node, *, parent_uid: int | None = None, index: int | None = None
     ) -> Node:
         """Insert one node and record the step. Returns ``node``, so a caller
-        can place and keep hold of one in a single expression."""
+        can place and keep hold of one in a single expression.
+
+        ``node`` may itself carry a subtree (a duplicated group), so the
+        ceiling counts the whole thing being attached, not just ``node``
+        itself -- see :meth:`_check_max_placed`.
+        """
+        self._check_max_placed(len(list(nd.walk([node]))))
         siblings = self.children_of(parent_uid)
         at = len(siblings) if index is None else max(0, min(int(index), len(siblings)))
         self.history.push(ed.NodeAddEdit(parent_uid, at, node))
@@ -220,19 +247,10 @@ class MasonDoc:
         # which point the document already had the extra nodes attached and
         # every future resolve()/walk() refused for good (the viewport
         # drawing empty, scene_stats reporting placed: 0). Refused here,
-        # before a single node is attached, so every caller of add_nodes
-        # inherits the refusal rather than each needing to remember to ask
-        # for it. Counted with a plain structural walk (``all_nodes``, no
-        # prefab expansion) rather than ``scene.resolve()`` -- cheap, and a
-        # conservative over-count next to the real placed total, which is
-        # exactly the trade ``scene.walk``'s own ``max_items`` counting makes.
-        current = len(self.all_nodes())
-        if current + len(added) > sc.MAX_PLACED:
-            raise ValueError(
-                f"adding {len(added)} node(s) would bring this document to "
-                f"{current + len(added)} nodes, past the {sc.MAX_PLACED} "
-                "MAX_PLACED ceiling; refusing rather than building past it"
-            )
+        # before a single node is attached, via the shared
+        # :meth:`_check_max_placed` (the 2026-09-15 audit's mason-01 put
+        # ``add_node`` and ``unpack_instance`` behind the same door).
+        self._check_max_placed(len(added))
         made: list[Edit] = []
         for node in added:
             siblings = self.children_of(parent_uid)
@@ -512,6 +530,18 @@ class MasonDoc:
         if template is None:
             raise KeyError(f"no prefab named {instance.template!r}")
 
+        # The 2026-09-15 audit's mason-01: a template has no size ceiling of
+        # its own (``define_prefab`` never counted against MAX_PLACED,
+        # because a template is not part of ``roots`` -- see the module
+        # docstring), so unpacking one is where an oversized template first
+        # meets the scene tree it is about to be attached to. The instance
+        # being replaced is still in the tree at this point (it is removed
+        # below), so its own subtree size is subtracted out of the count --
+        # net growth, not the copy's raw size -- which is what lets
+        # replacing an instance one-for-one with a same-sized copy never
+        # refuse.
+        net_growth = len(list(nd.walk([template]))) - len(list(nd.walk([instance])))
+        self._check_max_placed(net_growth)
         copy = nd.copy_subtree(template, fresh_uids=True)
         copy.name = instance.name
         copy.translation = np.array(instance.translation, dtype="f8", copy=True)

@@ -234,6 +234,27 @@ class ClayState:
     drag_axis: str = ""
     ref: dict[str, Any] = field(default_factory=dict)
 
+    # A hook the app wires once a live ``ClayView`` exists (``clay_mode.
+    # ensure``), so a tab switch can settle a live G/R/S/gizmo drag against
+    # the document being *left* before ``active_uid`` moves out from under
+    # it. Called with the outgoing tab's uid, from :meth:`activate` only.
+    #
+    # The 2026-09-15 audit's clay-01: a live drag has already written TRS
+    # onto the object in place, and nothing records that until the drag's
+    # own commit or cancel runs -- which, with no hook, happened later
+    # (mouse-up, Esc) against whichever document *became* active rather than
+    # the one the drag began on. ``clay_mode.close_tab``'s ``release``
+    # already cancelled the drag first for the tab-*closing* case; this hook
+    # is the tab-*switching* half, needed because :meth:`activate` (unlike
+    # ``close_tab``) is reached from ``docmodes.tab_bar``'s click handler and
+    # ``cycle``'s Ctrl+Tab with no view in scope to cancel or commit against.
+    #
+    # A callable rather than a direct import of ``ClayView``: this class
+    # stays driveable with no window at all, which is the whole point of the
+    # split this module's own docstring describes -- ``None`` here is a
+    # ClayState under script or test control with nothing to settle.
+    settle_drag: Any = field(default=None, repr=False, compare=False)
+
     # The parameterised op whose popup is open, by name, and the values every
     # such op was last run with. Remembered per op rather than per invocation:
     # a user beveling six edges in turn wants the same width each time, and
@@ -306,6 +327,8 @@ class ClayState:
 
     def activate(self, uid: str) -> None:
         if uid != self.active_uid:
+            if self.settle_drag is not None:
+                self.settle_drag(self.active_uid)
             self.active_uid = uid
             self.clear_drag()
 

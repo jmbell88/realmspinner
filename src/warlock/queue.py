@@ -1246,6 +1246,14 @@ class Worker(
                 # silently -- next_queued or a DB hiccup would strand every
                 # future job in 'queued' forever with no error surfaced.
                 failures += 1
+                # commit_refused's assignment above is what this except
+                # interrupted, so it still holds whatever a *previous*
+                # iteration left it at. Left alone, an unrelated failure here
+                # (this iteration's own dispatch bug, not a CommitRefused)
+                # inherited a stale True and bought the next, unrelated job
+                # the same COMMIT_REFUSAL_BACKOFF pause (the 2026-09-15
+                # audit, finding service-06).
+                commit_refused = False
                 log.exception("worker loop iteration failed (%d in a row)", failures)
                 if failures >= LOOP_FAILURE_LIMIT:
                     # Catching everything and sleeping made a *persistent*
@@ -1813,32 +1821,6 @@ class Worker(
         if not claimed:
             # Cancelled or deleted between next_queued() and here.
             return False
-        self.current_job_id = job_id
-        self._cancel = _Cancel(job_id)
-        # A cold trellis server loads ~8 GB inside its first stage. Text jobs
-        # that hand off stop the server outright; the rest leave a warm server
-        # warm. A rig job never touches trellis, so it is never cold regardless
-        # of the server's state.
-        #
-        # The offload term is here as well as in _needs_handoff because an
-        # offloaded text job now *always* leaves trellis cold, whatever the flag
-        # says, and the progress bar's nominal timing should say so rather than
-        # promising a warm-server ETA it cannot meet. Conditioning is
-        # deliberately not a term: it only forces a handoff when trellis is
-        # already running, in which case the first disjunct is False and the
-        # job is cold either way -- and unlike the other two, whether cond
-        # exists is not knowable from the row without preparing it.
-        cold = job["kind"] in ("text", "image") and (
-            not self.trellis.running
-            or (
-                job["kind"] == "text"
-                and (
-                    self.config.vram_exclusive
-                    or vram.offloaded_base(job.get("params") or {})
-                )
-            )
-        )
-        self.progress.begin(job_id, job["kind"], cold=cold)
         error: str | None = None
         # Whether the job got past the door. Only work that *ran* may re-arm the
         # idle clock below -- see that ``finally`` for the loop this closes.
@@ -1852,6 +1834,38 @@ class Worker(
         # ``__init__`` for why this is recorded here instead.
         trellis_used_before = self.trellis.last_used
         try:
+            # current_job_id/_cancel and progress.begin used to run between
+            # claim() and this try:, so an exception raised computing `cold`
+            # or inside progress.begin left the row claimed as `running` and
+            # current_job_id stale until the next launch -- the finally below
+            # that clears both never ran because the job had not yet entered
+            # the try/finally (the 2026-09-15 audit, finding service-05).
+            self.current_job_id = job_id
+            self._cancel = _Cancel(job_id)
+            # A cold trellis server loads ~8 GB inside its first stage. Text jobs
+            # that hand off stop the server outright; the rest leave a warm server
+            # warm. A rig job never touches trellis, so it is never cold regardless
+            # of the server's state.
+            #
+            # The offload term is here as well as in _needs_handoff because an
+            # offloaded text job now *always* leaves trellis cold, whatever the flag
+            # says, and the progress bar's nominal timing should say so rather than
+            # promising a warm-server ETA it cannot meet. Conditioning is
+            # deliberately not a term: it only forces a handoff when trellis is
+            # already running, in which case the first disjunct is False and the
+            # job is cold either way -- and unlike the other two, whether cond
+            # exists is not knowable from the row without preparing it.
+            cold = job["kind"] in ("text", "image") and (
+                not self.trellis.running
+                or (
+                    job["kind"] == "text"
+                    and (
+                        self.config.vram_exclusive
+                        or vram.offloaded_base(job.get("params") or {})
+                    )
+                )
+            )
+            self.progress.begin(job_id, job["kind"], cold=cold)
             await self.before_gpu_job(job)
             self._check_resources(job)
             admitted = True

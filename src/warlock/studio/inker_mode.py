@@ -2381,7 +2381,12 @@ def flourish_detach(ctx: Any, tab: Any, **_: Any) -> bool:
 
     state = ensure(ctx)
     tab = tab or active(ctx)
-    if tab is None:
+    # ``flourish_regenerate``'s own guard, above. The 2026-09-15 audit
+    # (inker-05) found this handler had no busy check of its own and relied
+    # entirely on the op registry's ``enabled`` predicate, which was wrong
+    # too (bare ``has_effect``) -- so nothing stood between a click and a
+    # Detach landing on a document a save or an export was still writing.
+    if tab is None or tab.busy:
         return False
     group = inker_flourish.active_group(state, tab)
     if group is None:
@@ -2422,7 +2427,11 @@ def flourish_texture_selection(ctx: Any, tab: Any, **_: Any) -> bool:
 
     state = ensure(ctx)
     tab = tab or active(ctx)
-    if tab is None:
+    # ``flourish_regenerate``'s own guard, above -- missing here until the
+    # 2026-09-15 audit (inker-05), so the door had nothing stopping a
+    # selection from becoming a pending recipe edit while a save or an
+    # export was still writing the document.
+    if tab is None or tab.busy:
         return False
     return inker_flourish.texture_from_selection(ctx, state, tab) is not None
 

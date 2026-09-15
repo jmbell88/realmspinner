@@ -423,9 +423,15 @@ class LayerOps:
             raise KeyError(f"no image layer {uid}")
         wanted = frozen_rgba(pixels, "an image layer's picture")
         if layer.pixels is not None and np.array_equal(layer.pixels, wanted):
-            if str(source) != layer.source:
+            # The 2026-09-15 audit, plotter-05: this arm returned ``False``
+            # ("nothing changed") even when the source differed and
+            # ``set_layer_props`` below pushed a real ``LayerPropsEdit`` --
+            # a caller that gates a toast or a re-render on the return value
+            # saw no report for a step that had, in fact, just landed.
+            changed_source = str(source) != layer.source
+            if changed_source:
                 self.set_layer_props(uid, source=str(source))
-            return False
+            return changed_source
         # The pixels and the source travel as one compound step, the
         # ``merge_down`` rule: they arrive in one gesture, and two Ctrl+Z
         # presses would show the user a picture whose reference names the file

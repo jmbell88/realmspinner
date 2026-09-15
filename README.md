@@ -173,7 +173,7 @@ downloads on first run, and nothing is owed if you decline** — a first-run pan
 downloading with the combined size, and refuses up front if the disk cannot
 hold it. The same rows live in **Settings → Models** afterwards, where you can
 add or remove individual models; a removal tells you what it would actually
-free before you confirm, which matters because four of the registered recipes
+free before you confirm, which matters because five of the registered recipes
 share one 7 GB checkpoint.
 
 Nothing above is required to *run* Warlock, and since 2026-09-10 that includes

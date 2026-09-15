@@ -64,6 +64,7 @@ from under a long conversation.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -109,22 +110,48 @@ def _headers(server: Any) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
-def _check_size(response: httpx.Response) -> None:
-    if len(response.content) > MAX_RESPONSE_BYTES:
-        raise RuntimeError(
-            f"llama-server's reply was {len(response.content)} bytes, over the "
-            f"{MAX_RESPONSE_BYTES}-byte ceiling -- refusing to use it"
-        )
+async def _post_capped(
+    client: httpx.AsyncClient, path: str, headers: dict[str, str], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """POST *payload* to *path*, streamed, aborting past
+    :data:`MAX_RESPONSE_BYTES` instead of buffering the whole reply first.
+
+    The 2026-09-15 audit (pipelines-03): this module's own docstring already
+    claimed parity with ``trellis.generate``, which streams for exactly this
+    reason (MDL-13, a wedged or compromised local server exhausting the host
+    with an unbounded body). But both call sites here used ``client.post``,
+    which reads the entire response into ``response.content`` before either
+    of them ever looked at its length -- the ceiling was only ever checked
+    after the damage it exists to prevent had already happened.
+    """
+    received = bytearray()
+    async with client.stream("POST", path, json=payload, headers=headers) as r:
+        if r.status_code != 200:
+            # Bounded exactly like the success body below -- an error page
+            # from a wedged server is not exempt from the same risk.
+            error_bytes = bytearray()
+            async for chunk in r.aiter_bytes():
+                error_bytes.extend(chunk)
+                if len(error_bytes) >= 500:
+                    break
+            text = bytes(error_bytes).decode("utf-8", "replace")
+            raise RuntimeError(f"llama-server {r.status_code}: {text[:500]}")
+        async for chunk in r.aiter_bytes():
+            received.extend(chunk)
+            if len(received) > MAX_RESPONSE_BYTES:
+                raise RuntimeError(
+                    f"llama-server's reply was {len(received)} bytes, over the "
+                    f"{MAX_RESPONSE_BYTES}-byte ceiling, before it finished "
+                    "arriving -- refusing to use it"
+                )
+    return json.loads(bytes(received).decode("utf-8"))
 
 
 async def _tokenize(
     client: httpx.AsyncClient, headers: dict[str, str], text: str
 ) -> int:
-    r = await client.post("/tokenize", json={"content": text}, headers=headers)
-    if r.status_code != 200:
-        raise RuntimeError(f"llama-server {r.status_code}: {r.text[:500]}")
-    _check_size(r)
-    tokens = r.json().get("tokens", [])
+    body = await _post_capped(client, "/tokenize", headers, {"content": text})
+    tokens = body.get("tokens", [])
     return len(tokens)
 
 
@@ -195,11 +222,7 @@ async def chat(
         }
         if response_format is not None:
             payload["response_format"] = response_format
-        r = await client.post("/v1/chat/completions", json=payload, headers=headers)
-        if r.status_code != 200:
-            raise RuntimeError(f"llama-server {r.status_code}: {r.text[:500]}")
-        _check_size(r)
-        body = r.json()
+        body = await _post_capped(client, "/v1/chat/completions", headers, payload)
         server.touch()
         try:
             return body["choices"][0]["message"]["content"]

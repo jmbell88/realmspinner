@@ -62,6 +62,14 @@ Type: filesandordirs; Name: "{app}\src"
 ; this one's -- files nothing will ever install, pinned by a manifest that no
 ; longer names them. packs.json is replaced in place by [Files].
 Type: filesandordirs; Name: "{app}\packs"
+; The 2026-09-15 audit (pipelines-01): build.ps1 stopped staging vendor\trellis
+; on 2026-09-10 -- the engine is a Settings -> Models download now -- but this
+; list was never told, so an in-place upgrade from <=0.0.41 left the old 838 MB
+; engine sitting in {app}\vendor\trellis forever. Worse than dead weight:
+; Config.resolve_trellis_exe() falls back to exactly that path, so the stale,
+; unpinned engine from the previous release keeps being *used* on every
+; upgraded install that never explicitly downloads engine:trellis_runtime.
+Type: filesandordirs; Name: "{app}\vendor\trellis"
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

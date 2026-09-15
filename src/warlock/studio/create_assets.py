@@ -191,7 +191,14 @@ def asset_type_from_params(params: Any, *, stage: str = "") -> str:
         return ASSET_TYPES.get(key, ASSET_TYPES[DEFAULT_ASSET_TYPE]).key
     if stage == "tile":
         return "seamless_material"
-    if stage in ("tilesheet", "tile_sheet"):
+    # The 2026-09-15 audit, finding create-05: ``"tile_sheet"`` here was the
+    # *kind* a tile-sheet job is stored under (``svc.store.create("tile_sheet",
+    # ...)``, see ``service/tilesheets.py``), never its ``stage`` -- the row's
+    # stage is written as ``stage="tilesheet"`` two lines above that call. No
+    # caller passed ``stage`` in either spelling, so both branches were dead;
+    # now that ``form_from_params`` wires the job's real stage through, only
+    # the spelling a job row can actually carry may match.
+    if stage == "tilesheet":
         return "tileset"
     # The sprite block's layout and the sheet block's projection used to pick
     # between two sprite keys and three tileset keys. They are fields in their

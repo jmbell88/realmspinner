@@ -167,6 +167,19 @@ def manifest_json(doc: D.SongDoc) -> str:
 _WAV_CACHE: dict[int, tuple[np.ndarray, bytes]] = {}
 _WAV_CACHE_MAX = 2 * D.MAX_SAMPLES
 
+#: Priced the way ``undo.py`` prices an array: by ``nbytes`` of what is
+#: actually held, not by how many entries there are. **The count cap above
+#: was the only bound**, and a sample's ``pcm`` plus its encoded WAV can run
+#: to ~173 MB each (``document.MAX_SAMPLES``-sized imports at a high sample
+#: rate), so the worst case at 128 entries was ~22 GB resident at once -- the
+#: 2026-09-15 audit, finding sirens-03. This budget evicts long before the
+#: count cap would.
+_WAV_CACHE_BUDGET = 256 * 1024 * 1024
+
+
+def _wav_cache_cost(pcm: np.ndarray, data: bytes) -> int:
+    return int(pcm.nbytes) + len(data)
+
 
 def _wav_of(pcm: np.ndarray) -> bytes:
     """A sample's WAV bytes, encoded once per array.
@@ -184,9 +197,18 @@ def _wav_of(pcm: np.ndarray) -> bytes:
     if hit is not None and hit[0] is pcm:
         return hit[1]
     data = wavout.wav_bytes(pcm, synth.SAMPLE_RATE)
-    if len(_WAV_CACHE) >= _WAV_CACHE_MAX:
-        _WAV_CACHE.pop(next(iter(_WAV_CACHE)))
     _WAV_CACHE[id(pcm)] = (pcm, data)
+    # Bytes evicted first, then the count cap as a backstop for many small
+    # entries the budget would otherwise never trim. The entry just inserted
+    # is never the one popped by the byte loop -- ``> 1`` leaves it in place
+    # even alone over budget, since one held sample is unavoidable and holding
+    # zero is not a cache.
+    while len(_WAV_CACHE) > 1 and sum(
+        _wav_cache_cost(*entry) for entry in _WAV_CACHE.values()
+    ) > _WAV_CACHE_BUDGET:
+        _WAV_CACHE.pop(next(iter(_WAV_CACHE)))
+    while len(_WAV_CACHE) > _WAV_CACHE_MAX:
+        _WAV_CACHE.pop(next(iter(_WAV_CACHE)))
     return data
 
 
@@ -416,8 +438,11 @@ def _patterns_from(
         if not D.MIN_ROWS <= rows <= D.MAX_ROWS:
             raise ValueError(f"{member} has {rows} rows, which this build does not play")
         # Clipped rather than trusted: every column has a range, and a
-        # hand-edited array can hold anything an ``int16`` can. A note of 9000
-        # would index past the end of the frequency table at render time.
+        # hand-edited array can hold anything an ``int16`` can. There is no
+        # frequency table -- ``notes.frequency`` computes pitch from the note
+        # number by a continuous formula -- but a note of 9000 would still
+        # hand that formula an exponent far outside any playable register at
+        # render time (the 2026-09-15 audit, finding sirens-06).
         grid = np.ascontiguousarray(cells, dtype=np.int16).copy()
         #
         # One basic-index slice per column, deliberately: ``grid[:, :, [a, b]]``

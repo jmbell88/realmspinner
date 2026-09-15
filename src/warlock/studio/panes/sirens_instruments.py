@@ -141,10 +141,14 @@ def draw(ctx: Any) -> None:
     # would land past the content region and simply not be drawn.
     widgets.field_label("Name")
     imgui.set_next_item_width(-1)
-    name = widgets.input_text(
-        "##sirens-inst-name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
+    # ``controls.input_text``, not ``widgets.input_text``: the latter has no
+    # ``enabled``, so this field stayed live and kept pushing undo steps while
+    # ``tab.busy`` -- a rename typed mid-save landed on the document a save
+    # was in the middle of reading (the 2026-09-15 audit, finding sirens-04).
+    changed, name = controls.input_text(
+        "##sirens-inst-name", selected.name, enabled=editable, commit=True
     )
-    if name != selected.name and doc.update_instrument(selected.uid, name=name):
+    if changed and doc.update_instrument(selected.uid, name=str(name)[: inst.MAX_NAME_LEN]):
         sirens_mode.request_rerender(ctx, tab)
     # ``controls.combo`` takes (key, label) pairs and answers with a key, so a
     # fifth voice kind added to the engine reaches this list without an index

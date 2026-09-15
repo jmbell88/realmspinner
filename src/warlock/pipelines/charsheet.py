@@ -822,9 +822,12 @@ def animation_block(
     tags -- and the fps was the one thing the renderer knew and the importer
     could not guess.
 
-    ``repeat: 1`` on the one-shots is the same spelling Inker's exporter uses
-    for a play-once tag, so the two writers produce one format rather than two
-    dialects of it.
+    ``repeat: 1`` on the one-shots is charsheet's own explicit spelling for a
+    play-once tag. The 2026-09-15 audit, finding troupe-06: this used to claim
+    it was Inker's own spelling too, but Inker's exporter omits ``repeat``
+    entirely for a one-shot rather than writing ``1`` -- the two spellings
+    (an explicit ``1`` and an absent key) are simply equivalent at playback,
+    not identical on the wire.
 
     Carries a top-level ``"fps"`` only when the layout has one -- a legacy
     layout, and any v3 layout that never named a global rate, states no

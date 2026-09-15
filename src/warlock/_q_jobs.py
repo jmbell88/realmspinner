@@ -26,7 +26,7 @@ import logging
 import shutil
 from typing import TYPE_CHECKING, Any
 
-from . import followups, rigging
+from . import followups, models, rigging
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -472,8 +472,31 @@ class JobOps:
             if not rigging.is_valid_id(source):
                 return
             stems = self.config.job_dir(source) / "stems"
+            # **muse-04 (2026-09-15 audit).** This used to hand-list the four
+            # stem names -- correct only because ``SEPARATION_MODELS`` has one
+            # entry today and it happens to carry the default ``sources``
+            # tuple. ``models.SeparationModel.sources`` is the same tuple that
+            # names these files on disk in the first place (its own docstring:
+            # "the model's constructor argument, the stem filenames on disk
+            # and what ``files.MEDIA`` has to allow"), so a second model with
+            # a different stem set would have left this list silently
+            # deleting the wrong four names -- some of its actual stems
+            # surviving a cancel, some of another model's names deleted for
+            # nothing. Falls back to the table's own default when the row
+            # names a model this build no longer has, matching every other
+            # "unknown model" branch in this file's siblings (``_music``'s
+            # rule, restated).
+            spec_model = models.SEPARATION_MODELS.get(
+                str(params.get("separation_model") or models.DEFAULT_SEPARATION)
+            )
+            # The table's own default when the row names a model this build no
+            # longer has -- the pre-fix literal, kept as the fallback rather
+            # than the general case.
+            sources = spec_model.sources if spec_model is not None else (
+                "drums", "bass", "other", "vocals"
+            )
             paths = [stems / "stems.json"] + [
-                stems / f"{name}.wav" for name in ("drums", "bass", "other", "vocals")
+                stems / f"{name}.wav" for name in sources
             ]
             for path in paths:
                 with contextlib.suppress(OSError):
@@ -604,18 +627,27 @@ class JobOps:
             with contextlib.suppress(OSError):
                 shutil.rmtree(job_dir / "materials")
         elif job["kind"] == "music":
-            # **Nothing.** Its own arm all the same, because the fall-through
-            # ``else`` below is a list of five *mesh* filenames -- harmless
-            # against a music row today, and precisely the branch that would
-            # eat a ``source.wav`` the day somebody added one to that list.
+            # **muse-01 (2026-09-15 audit).** This used to delete nothing at
+            # all, on the claim that ``_music`` "commits the cancel token the
+            # moment the file lands, so a row that reaches this function has
+            # no track at all" -- true of the vendored sampler's per-step
+            # checks, but the vocoder decode and the WAV write that follow the
+            # *last* step ran with no check of their own, so a Cancel landing
+            # in that window used to reach ``self._cancel.commit()``
+            # unconditionally with a finished ``track.wav`` already on disk.
+            # ``_music`` now checks the event before it commits (``_q_music.
+            # py``) and raises instead, so a row can genuinely reach here with
+            # a fully rendered take sitting uncommitted -- and it is this
+            # run's own by construction, one fresh job directory per take, so
+            # deleting it destroys nothing another job produced.
             #
-            # ``track.wav`` is not deleted because it cannot be half-written
-            # here: ``_music`` commits the cancel token the moment the file
-            # lands, so a row that reaches this function has no track at all.
-            # ``source.wav`` is not deleted because it is an *input* the door
+            # ``source.wav`` is still not deleted: it is an *input* the door
             # wrote before the row existed -- ``tile_sheet``'s ``ref.png``
             # argument, verbatim -- and it goes with the directory when the job
             # is pruned, which is where an input belongs.
+            job_dir = self.config.job_dir(job["id"])
+            with contextlib.suppress(OSError):
+                (job_dir / "track.wav").unlink(missing_ok=True)
             return
         elif job["kind"] == "lora_train":
             # The trainer writes adapter weights into its own directory as it

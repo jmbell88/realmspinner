@@ -622,9 +622,13 @@ def pack(
     Returns each cell's alpha bounding box, measured here because every frame
     is already open and decoded at this point.
 
-    A missing or wrong-sized frame raises rather than silently leaving a hole:
-    a sheet with an invisible gap in it looks like a modelling problem, and the
-    user would go looking in the wrong place.
+    A missing frame raises rather than silently leaving a hole: a sheet with
+    an invisible gap in it looks like a modelling problem, and the user would
+    go looking in the wrong place. The 2026-09-15 audit, finding troupe-07:
+    this used to also claim a wrong-sized frame raises, but one is instead
+    resized (``Image.LANCZOS``) to the cell's own size below, exactly the
+    tolerance a slightly mismatched renderer output should get instead of a
+    refusal.
 
     ``only`` packs a *subset* of the plan's cells and leaves the rest
     transparent -- a re-render of one animation, which is composited onto the

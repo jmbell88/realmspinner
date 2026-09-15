@@ -248,22 +248,43 @@ class MatchResult:
     sorted) -- fingers, twist bones, end-effectors: real and expected on most
     imports, and reported so the user can see nothing was silently dropped by
     mistake.
+
+    ``duplicate_source_names`` is every *normalized* source-bone spelling that
+    more than one raw source bone name collapsed onto, mapped to all of those
+    raw names (original spelling, in skeleton order) -- e.g. two bones a
+    hand-edited export renamed to differ only by the prefix ``strip`` eats.
+    The 2026-09-15 audit, finding poser-04: ``_resolve`` used to keep the
+    first such name with a bare ``setdefault`` and drop the rest with nothing
+    in this result, so a colliding duplicate vanished from the match with no
+    record anywhere that it had ever been there.
     """
 
     clip_map: ClipMap
     resolved: dict[str, tuple[str, ...]]
     left_at_rest: tuple[str, ...]
     ignored: tuple[str, ...]
+    duplicate_source_names: MappingProxyType[str, tuple[str, ...]]
 
 
 def _resolve(
     clip_map: ClipMap, source_bones: list[str]
-) -> tuple[dict[str, tuple[str, ...]], list[str], set[str], dict[str, str]]:
+) -> tuple[dict[str, tuple[str, ...]], list[str], set[str], dict[str, str], dict[str, list[str]]]:
     """One candidate's chains against one skeleton -- the shared half of
     scoring a candidate and building the winner's :class:`MatchResult`."""
     by_normal: dict[str, str] = {}
+    # The 2026-09-15 audit, finding poser-04: a plain ``setdefault`` here kept
+    # only the first source bone for a normalized name and threw the rest
+    # away with nothing recorded -- a second bone that stripped down to the
+    # same name (e.g. a hand-renamed duplicate) simply vanished from the
+    # match. Every name after the first for a given normalized spelling is
+    # now also kept, in ``duplicates``, so :func:`match` can report it.
+    duplicates: dict[str, list[str]] = {}
     for name in source_bones:
-        by_normal.setdefault(normalise(name, clip_map), name)
+        norm = normalise(name, clip_map)
+        if norm in by_normal:
+            duplicates.setdefault(norm, [by_normal[norm]]).append(name)
+        else:
+            by_normal[norm] = name
     resolved: dict[str, tuple[str, ...]] = {}
     left_at_rest: list[str] = []
     referenced: set[str] = set()
@@ -274,7 +295,7 @@ def _resolve(
             resolved[target] = tuple(actual_chain)  # type: ignore[arg-type]
         else:
             left_at_rest.append(target)
-    return resolved, left_at_rest, referenced, by_normal
+    return resolved, left_at_rest, referenced, by_normal, duplicates
 
 
 def match(
@@ -315,10 +336,13 @@ def match(
 
     actual = list(source_bones)
 
-    best: tuple[int, ClipMap, dict[str, tuple[str, ...]], list[str], set[str]] | None = None
+    best: (
+        tuple[int, ClipMap, dict[str, tuple[str, ...]], list[str], set[str], dict[str, list[str]]]
+        | None
+    ) = None
     closest: tuple[int, ClipMap, list[str]] | None = None
     for clip_map in candidates:
-        resolved, left_at_rest, referenced, by_normal = _resolve(clip_map, actual)
+        resolved, left_at_rest, referenced, by_normal, duplicates = _resolve(clip_map, actual)
         missing_required = [
             src
             for t in clip_map.required
@@ -332,7 +356,7 @@ def match(
             continue
         score = len(resolved)
         if best is None or score > best[0]:
-            best = (score, clip_map, resolved, left_at_rest, referenced)
+            best = (score, clip_map, resolved, left_at_rest, referenced, duplicates)
 
     if best is None:
         assert closest is not None  # candidates is non-empty, so one was scored
@@ -342,11 +366,14 @@ def match(
             f"(closest is {clip_map.label}, missing {', '.join(missing_required)})"
         )
 
-    _, clip_map, resolved, left_at_rest, referenced = best
+    _, clip_map, resolved, left_at_rest, referenced, duplicates = best
     ignored = sorted(name for name in actual if normalise(name, clip_map) not in referenced)
     return MatchResult(
         clip_map=clip_map,
         resolved=resolved,
         left_at_rest=tuple(left_at_rest),
         ignored=tuple(ignored),
+        duplicate_source_names=MappingProxyType(
+            {norm: tuple(names) for norm, names in duplicates.items()}
+        ),
     )

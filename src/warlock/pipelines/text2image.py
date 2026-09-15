@@ -390,7 +390,11 @@ class Text2Image:
         # already is the guard.
         if self.spec.base_lora is not None:
             path = self._lora_dir / self.spec.base_lora
-            if not path.exists():
+            # is_file, not exists -- the 2026-09-15 audit (pipelines-04): a
+            # directory left where this LoRA belongs (a partial/broken unpack)
+            # read as "present" here even though the three sibling checks
+            # fixed by pipelines-06 (2026-09-11) were already is_file().
+            if not path.is_file():
                 raise RuntimeError(
                     f"{self.spec.label} requires {self.spec.base_lora}, missing at "
                     f"{path}. Download once with:\n  {self._download_hint()}"
@@ -422,7 +426,10 @@ class Text2Image:
             return
         spec = models.STYLE_LORAS[key]
         path = self._lora_dir / spec.filename
-        if not path.exists():
+        # is_file, not exists -- see _load_loras above and the 2026-09-15
+        # audit (pipelines-04): the same directory-shaped-corruption gap
+        # pipelines-06 (2026-09-11) fixed for the three sibling checks.
+        if not path.is_file():
             raise RuntimeError(
                 f"The style LoRA {spec.label!r} is not downloaded, so this job "
                 f"cannot use it. Expected at {path}. "

@@ -21,6 +21,14 @@ from warlock.studio import troupe
 ENGINE = Path(troupe.__file__).parent
 PACKAGE = "warlock.studio.troupe"
 
+# The 2026-09-15 audit, finding troupe-04: ``_modules()`` below globs only
+# ``ENGINE`` (``studio/troupe/*.py``), so ``studio/troupe_state.py`` -- a
+# sibling, not a member of the package -- had no pin at all. Named on its
+# own rather than folded into ``_modules()``'s glob, per the orchestrator's
+# call for this batch: widening what the existing pin's glob matches would
+# also silently adopt whatever else later lands beside it in ``studio/``.
+STATE_MODULE = ENGINE.parent / "troupe_state.py"
+
 OUTWARD_IMPORTS: set[tuple[str, str]] = set()
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
@@ -117,3 +125,17 @@ def test_the_shipped_layout_table_is_part_of_the_package():
 
 def test_every_module_imports():
     from warlock.studio.troupe import qa, spec, ulpc  # noqa: F401
+
+
+def test_troupe_state_stays_headless():
+    """troupe-04: ``studio/troupe_state.py`` is Troupe's session state, split
+    out of the controller precisely so a pane can read it without pulling in
+    the half that talks to ``service`` and the task runner (see its own
+    docstring) -- a promise this suite never actually checked."""
+    assert STATE_MODULE.is_file()
+    roots = {name.split(".")[0] for name in _outward(STATE_MODULE)}
+    assert not (roots & BANNED_ROOTS), f"{STATE_MODULE.name} imports {roots & BANNED_ROOTS}"
+    for name in _outward(STATE_MODULE):
+        assert "warlock.service" not in name, f"{STATE_MODULE.name} imports {name}"
+        assert not name.startswith("warlock.queue"), f"{STATE_MODULE.name} imports {name}"
+        assert not name.startswith("warlock._q"), f"{STATE_MODULE.name} imports {name}"

@@ -259,10 +259,20 @@ KNOWN_CREATURES: dict[str, Creature] = {
     "naga": _c("humanoid", "lizardfolk"),
     "troglodyte": _c("humanoid", "lizardfolk", "goblin"),
     "sahuagin": _c("humanoid", "lizardfolk"),
-    "imp": _c("winged", "goblin"),
-    "gargoyle": _c("winged", "ogre"),
-    "angel": _c("winged", "human"),
-    "harpy": _c("winged", "goblin"),
+    # No ``kin`` on any of these four: the 2026-09-15 audit, finding
+    # troupe-08, found each one naming a humanoid species that ``_offer_for``
+    # can never reach, because the registry already ships "winged" species
+    # (dragon, wyvern, bat, bird, raven, griffin) and ``_plan_for`` therefore
+    # never falls through to humanoid for a "winged" creature -- the pool it
+    # builds the offer from is winged-only, and none of the dropped names
+    # were ever winged. Dropped rather than repointed: nothing here records
+    # which winged species (if any) product intends as "nearest" for an imp
+    # or a gargoyle, and a guess would be exactly the kind of specific,
+    # unreviewed claim this field exists to make deliberate.
+    "imp": _c("winged"),
+    "gargoyle": _c("winged"),
+    "angel": _c("winged"),
+    "harpy": _c("winged"),
     # -- quadruped ----------------------------------------------------------
     "wolf": _c("quadruped"),
     "dire wolf": _c("quadruped"),

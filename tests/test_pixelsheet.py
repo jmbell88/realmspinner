@@ -315,6 +315,41 @@ def test_the_sidecar_scales_every_rectangle_by_the_reduction():
     assert doc["restyle"] == {"strength": 0.45, "seed": 7}
 
 
+def test_reduced_trim_covers_every_cell_a_non_grid_aligned_source_rect_touches():
+    """``reduced()`` computed its extent as ``ceil(w/f)`` alone, which is only
+    the right covering-cell count when the rect's *origin* also happens to be
+    grid-aligned. A trim of x=2, w=4 at a reduction factor of 4 spans reduced
+    cells 0 and 1 (``ceil((2+4)/4) - floor(2/4) == 2``), but the un-branched
+    ``ceil(w/f)`` said 1 -- Packwright's tight packing and nine-slice
+    stretching clipped a real edge column on every non-grid-aligned trim,
+    ``bounds`` or ``center``. The 2026-09-15 audit, finding inker-04.
+    """
+    meta = _meta(
+        frame_size=4,
+        columns=1,
+        rows=1,
+        cells=[
+            {
+                "index": 0, "row": 0, "column": 0, "x": 0, "y": 0, "w": 4, "h": 4,
+                "pose": None, "pose_name": "rest", "yaw": 0.0, "frame": 0,
+                "pivot_x": 0.0, "pivot_y": 0.0,
+                "trim": {"x": 2, "y": 0, "w": 4, "h": 1},
+            },
+        ],
+    )
+
+    doc = pixelsheet.pixel_sidecar(
+        meta,
+        image="abc.pixel.png",
+        logical_size=1,
+        palette=["#000000"],
+        recipe={},
+        created=1.0,
+    )
+
+    assert doc["cells"][0]["trim"] == {"x": 0, "y": 0, "w": 2, "h": 1}
+
+
 def test_the_sidecar_carries_the_render_grids_own_version():
     doc = pixelsheet.pixel_sidecar(
         _meta(), image="a.png", logical_size=32, palette=[], recipe={}, created=0.0

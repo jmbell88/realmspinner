@@ -1533,7 +1533,20 @@ def _build_cels(
         # image, so this is a file no version of it writes -- but sharing the
         # object would draw the pixels in the wrong place, so the link is what
         # gives way rather than the picture.
+        #
+        # The 2026-09-15 audit (inker-01): this loop's ``_place`` builds a
+        # full canvas-sized plane exactly as the first loop's does, but only
+        # the first loop charged ``decoded_pixels`` against
+        # ``pixelguard.MAX_DECODE_PIXELS`` -- every linked cel skipped that
+        # loop entirely (``if cel.kind == _CEL_LINKED: continue``), so a file
+        # made mostly of moved-link cels amplified without ever being counted.
         warn("a linked cel drawn at its own offset was unlinked to keep it there")
+        decoded_pixels += canvas_pixels
+        if decoded_pixels > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                "this .aseprite's frames decode to more pixels than this"
+                f" build will open ({pixelguard.MAX_DECODE_PIXELS} total)"
+            )
         plane, clipped = _place(tight[source_key], size, (cel.x, cel.y))
         if clipped:
             warn("a cel reaching past the canvas was cropped to it")
@@ -1916,7 +1929,19 @@ def document_from_aseprite(
                 if row.tileset is not None:
                     # A tilemap layer with no cel at all -- the same shape
                     # ``add_tilemap_layer`` builds for a brand-new one, not a
-                    # plain empty ``Layer``.
+                    # plain empty ``Layer``. The 2026-09-15 audit (inker-02):
+                    # ``materialize`` below builds a full RGBA canvas exactly
+                    # like the plain-layer branch's ``Layer.empty`` does, but
+                    # this branch charged nothing against ``allowed_empty`` --
+                    # the inker-01 amplification through the one branch that
+                    # fix missed.
+                    empty_layers += 1
+                    if empty_layers > allowed_empty:
+                        raise ValueError(
+                            f"this drawing holds more than the {allowed_empty} "
+                            f"empty layers of {width}x{height} this build will"
+                            " open"
+                        )
                     slot = _tileset_slot_for(row, tileset_slots)
                     grid_h, grid_w = grid_shape(
                         (width, height), slot.tileset.tile_w, slot.tileset.tile_h

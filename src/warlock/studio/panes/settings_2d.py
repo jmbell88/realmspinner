@@ -2201,7 +2201,7 @@ def problems_for(ctx: Any, form: dict[str, Any]) -> list[widgets.Problem]:
     cache = ctx.state.problems_cache
     if cache is not None and cache[0] == key:
         return cache[1]
-    problems = validate(form)
+    problems = validate(form, ctx)
     if _is_character(form):
         # Appended here rather than inside ``validate`` because they need a
         # ``ctx``: whether Blender exists is a fact about this install, and the
@@ -2459,7 +2459,7 @@ def _enter_pressed() -> bool:
     return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(imgui.Key.keypad_enter)
 
 
-def validate(form: dict[str, Any]) -> list[widgets.Problem]:
+def validate(form: dict[str, Any], ctx: Any = None) -> list[widgets.Problem]:
     """What would be refused, said before the button is pressed.
 
     A summary rather than a refusal on submit: the API checks all of this too,
@@ -2470,6 +2470,19 @@ def validate(form: dict[str, Any]) -> list[widgets.Problem]:
     unchanged). The field is what lets the *keyboard* doors -- Ctrl+Enter and
     the palette, which call :func:`generate` directly and never draw that block
     -- put the ring on the control the button path would have pointed at.
+
+    ``ctx`` is optional and new (the 2026-09-15 audit, finding create-03): the
+    ControlNet/img2img/style-LoRA checks below compare against
+    ``form["base_model"]``, which is correct under Advanced but stale under
+    Automatic -- ``_model()``'s switch-to-Automatic branch moves the *notes*
+    to the resolved recipe and leaves ``base_model`` holding whatever was
+    last picked under Advanced. Without this, a mismatch with what Automatic
+    actually loads passed validation here and only surfaced as a toast
+    refusal after the round trip through the queue door. Every caller with a
+    ``ctx`` (``problems_for``, ``generate``) now passes it; callers that
+    cannot (tests exercising the form in isolation) keep the pre-fix
+    raw-``base_model`` reading, which is exactly right under Advanced and the
+    same approximation as before under Automatic.
     """
     problems: list[widgets.Problem] = []
     asset_key = form.get("asset_type")
@@ -2505,6 +2518,13 @@ def validate(form: dict[str, Any]) -> list[widgets.Problem]:
     # with the pair split.
     pinned = tileset or _is_character(form)
     base = form.get("base_model")
+    if ctx is not None and str(form.get("model_mode") or "auto") == "auto":
+        # See the docstring: under Automatic, the resolved recipe's base is
+        # what will actually load, not the stale ``form["base_model"]`` an
+        # earlier Advanced pick left behind.
+        resolved = _resolved_recipe(ctx, form)
+        if resolved is not None:
+            base = resolved.base_model
     style = form.get("style_lora")
     # A tile set's fixed recipe does not read either selection. It validates
     # its pinned pair at its own service door.
@@ -3014,7 +3034,7 @@ def generate(ctx: Any, form: dict[str, Any]) -> None:
         # that draw would submit the species of the *previous* prompt for
         # anyone who typed and pressed in one motion.
         settings_character.sync_from_prompt(form)
-    problems = validate(form)
+    problems = validate(form, ctx)
     if character:
         problems = [*problems, *settings_character.problems(ctx, form)]
     # The install-shaped refusal, folded in behind the form-shaped ones: it is

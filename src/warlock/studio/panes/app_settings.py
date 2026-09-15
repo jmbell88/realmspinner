@@ -1554,7 +1554,12 @@ def _lora_import_form(ctx: Any) -> None:
     form = ctx.state.preview.get("lora_import")
     if not form:
         return
-    widgets.busy(f"Importing {Path(form['source']).name}")
+    # shell-05 (2026-09-15 audit): this drew "Importing ..." the instant the
+    # picker returned a source file, before Add style was ever pressed --
+    # gated on the submit key so it only claims to be importing once the
+    # import is actually running.
+    if ctx.busy("lora:import"):
+        widgets.busy(f"Importing {Path(form['source']).name}")
     # ``on_edit``: this form read the recorded refusal and never cleared it, so
     # a ring could only be dismissed by a *successful* submit.
     with forms.Form(

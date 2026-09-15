@@ -247,11 +247,15 @@ def _fields(state: Any, tab: Any, selected: Any, editable: bool) -> None:
     # drawn.
     widgets.field_label("Name")
     imgui.set_next_item_width(-1)
-    name = widgets.input_text(
-        "##sirens-fx-name", selected.name, max_length=inst.MAX_NAME_LEN, commit=True
+    # ``controls.input_text``, not ``widgets.input_text``: the latter has no
+    # ``enabled``, so this field stayed live and kept pushing undo steps while
+    # ``tab.busy`` -- a rename typed mid-save landed on the document a save
+    # was in the middle of reading (the 2026-09-15 audit, finding sirens-04).
+    changed, name = controls.input_text(
+        "##sirens-fx-name", selected.name, enabled=editable, commit=True
     )
-    if name != selected.name:
-        doc.update_oneshot(selected.uid, name=name)
+    if changed:
+        doc.update_oneshot(selected.uid, name=str(name)[: inst.MAX_NAME_LEN])
 
     # Through ``widgets.labeled_slider_int`` rather than a bare
     # ``controls.slider_int`` (the 2026-09-07 audit): the same -1-width rule

@@ -649,6 +649,10 @@ class _Reader:
         # and friends -- shared the same way, and for the same reason (H01):
         # see ``_typed``.
         self._typed_cache: dict[Any, np.ndarray] = {}
+        # ``decoded()``'s normalized-integer conversion, by accessor index --
+        # shared the same way and for the same reason as ``_typed_cache``
+        # (H01, clay-02, 2026-09-15): see ``decoded``.
+        self._normalized_cache: dict[int, np.ndarray] = {}
         # Running total this document has allocated, against MAX_TOTAL_BYTES.
         self._spent = 0
 
@@ -818,11 +822,32 @@ class _Reader:
         raw = self.accessor(index)
         if not acc.get("normalized") or raw.dtype.kind not in "iu":
             return raw
+        # clay-02 (2026-09-15 audit): this conversion used to run unconditionally
+        # on every call, ahead of ``_typed_cache`` -- so a POSITION or UV accessor
+        # shared by several primitives (H01's ordinary case, an instanced mesh)
+        # paid for a fresh ``.astype`` plus divide *per primitive* instead of
+        # once per accessor, and neither allocation was charged against
+        # MAX_TOTAL_BYTES at all, despite the module docstring's "every
+        # ``.astype`` is charged". Cached here, by accessor index, the same way
+        # ``accessor()`` already caches the raw read one line up -- a second
+        # call for the same index is a dict lookup, not a second allocation.
+        cached = self._normalized_cache.get(index)
+        if cached is not None:
+            return cached
         info = np.iinfo(raw.dtype)
+        converted = self._astype(raw, "f4")
         if raw.dtype.kind == "u":
-            return raw.astype("f4") / float(info.max)
-        # Signed: the spec's own formula, which clamps -128 and -32768 to -1.
-        return np.maximum(raw.astype("f4") / float(info.max), -1.0)
+            out = converted / float(info.max)
+        else:
+            # Signed: the spec's own formula, which clamps -128 and -32768 to -1.
+            out = np.maximum(converted / float(info.max), -1.0)
+        # The division (and, for signed, the ``maximum`` on top of it) builds a
+        # second same-size array beyond the one ``_astype`` just charged --
+        # the same doubling create-05 (2026-09-13) found and charged in the
+        # WEIGHTS_0 path below.
+        self._charge(out.nbytes)
+        self._normalized_cache[index] = out
+        return out
 
     def _check_buffer(self, view: dict) -> None:
         """Refuse a view that points at a buffer we do not have.
@@ -1203,6 +1228,14 @@ class _Reader:
         return decoded
 
     def skin(self, skin: dict) -> Skin:
+        # The 2026-09-15 audit, finding clay-03: ``skin["joints"]`` indexed
+        # straight into the JSON with no check, so a skin entry missing the
+        # required ``joints`` array (glTF requires it, but ``check_glb`` at
+        # the import door is structural-only, same gap create-09 and clay-04
+        # were found through) raised a bare ``KeyError`` instead of this
+        # loader's own named refusal every sibling boundary raises.
+        if "joints" not in skin:
+            raise ValueError("a skin with no \"joints\" array is not supported")
         joints = list(skin["joints"])
         # Bounds-checked the same way ``node()`` checks ``node.mesh``/
         # ``node.skin`` against the file's own declared counts: the

@@ -245,8 +245,8 @@ KEYS = tuple(key for key, _label, _icon, _purpose in MODES)
 #: One line saying what each mode is *for*, keyed by mode -- derived from
 #: ``MODES``' own fourth field, not hand-copied, so the two cannot drift.
 #:
-#: The rail is the primary navigation and eight of its thirteen labels --
-#: Inker, Clay, Poser, Troupe, Plotter, Packwright, Muse, Sirens -- are
+#: The rail is the primary navigation and nine of its fourteen labels --
+#: Inker, Clay, Mason, Poser, Troupe, Plotter, Packwright, Muse, Sirens -- are
 #: invented names. A new user hovering one used to get a word and an icon,
 #: because ``rail._item`` suppresses its accessible-name tooltip once the
 #: label is legible (correctly: a tooltip repeating a word already on screen

@@ -255,18 +255,7 @@ def play(ctx: Any, tab: SongTab | None = None) -> bool:
     is the one outcome that makes them doubt what they heard.
     """
     tab = tab or active(ctx)
-    if tab is None:
-        return False
-    if not sirens_audio.available():
-        ctx.toast(sirens_audio.unavailable_reason(), "warn")
-        return False
-    if tab.rendering or tab.render_dirty:
-        # Stale, whether or not an older buffer exists: the transport reads
-        # "Rendering..." and the old bar must not play under it.
-        ctx.toast("Still rendering your latest edits -- try again in a moment.", "info")
-        return False
-    if tab.pcm is None:
-        ctx.toast("There is nothing in the order list to play yet.", "error")
+    if tab is None or not _playable(ctx, tab):
         return False
     state = ensure(ctx)
     state.play_request += 1
@@ -409,12 +398,21 @@ def play_pattern(ctx: Any, tab: SongTab | None = None) -> bool:
 
 
 def _playable(ctx: Any, tab: SongTab) -> bool:
-    """The three refusals :func:`play` and :func:`play_from_caret` share."""
+    """The four refusals :func:`play` and :func:`play_from_caret` share."""
     if not sirens_audio.available():
         ctx.toast(sirens_audio.unavailable_reason(), "warn")
         return False
     if tab.rendering or tab.render_dirty:
         ctx.toast("Still rendering your latest edits -- try again in a moment.", "info")
+        return False
+    if tab.render_error:
+        # Checked before the empty-order-list message below: a render that
+        # failed leaves ``pcm`` at ``None`` too, so the generic "nothing to
+        # play" toast reported an empty order list on a song that had one and
+        # had tried and failed to render it, while the transport pane read the
+        # real error right beside it -- the two disagreeing about why nothing
+        # was about to play (the 2026-09-15 audit, finding sirens-02).
+        ctx.toast(tab.render_error, "error")
         return False
     if tab.pcm is None:
         ctx.toast("There is nothing in the order list to play yet.", "error")

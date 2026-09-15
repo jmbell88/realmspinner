@@ -32,20 +32,6 @@ from . import inker_colors
 from . import inker_flourish as inker_flourish_pane
 
 
-def _busy_why(tab: Any) -> str:
-    """Why every button on this panel is out, when one of them is.
-
-    ``tab.busy`` is deliberately one question with two answers behind it -- a
-    save is encoding off-thread, or playback is running -- and a user reading
-    "Saving..." while the clip is looping would go and look for a save. So the
-    sentence separates them here, once, and the panel's six buttons share it:
-    the ``_VIEWPORT_WHY`` pattern.
-    """
-    if getattr(tab, "playing", False):
-        return "Playback is running. Stop it to edit the document."
-    return "This document is being written; the buttons come back when it lands."
-
-
 def popups(ctx: Any) -> None:
     """Every dialog this module owns, drawn in the caller's window.
 

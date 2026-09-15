@@ -942,7 +942,11 @@ def _t2i_checks(config: Config) -> list[Check]:
                 f"  {fetch.download_text(config, 'base', spec)}"
             )
         checks.append(_registry_row(config, "base", spec, ok, detail))
-    for lora in models.STYLE_LORAS.values():
+    # A snapshot, not the live table: imports mutate models.STYLE_LORAS from
+    # another thread, and iterating it directly here risked "dictionary
+    # changed size during iteration" mid-loop (the 2026-09-15 audit, finding
+    # service-04). style_loras_snapshot() exists for exactly this.
+    for lora in models.style_loras_snapshot().values():
         path = config.t2i_model_root / "loras" / lora.filename
         ok = fetch.present(config, "lora", lora)
         detail = (

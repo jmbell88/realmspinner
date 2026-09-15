@@ -128,7 +128,10 @@ def test_adopting_a_library_parse_moves_rev() -> None:
 
     assert source.primitives(ref) == []
     task_key = f"{mason_assets.TASK_PREFIX}job1:model.glb"
-    done = _Done(task_key, ctx.tag_for(task_key), result=model)
+    # ``result`` is what ``_start_library.run`` now hands back -- already
+    # baked, per the 2026-09-15 audit's mason-02 (baking moved off the frame
+    # thread onto the task thread).
+    done = _Done(task_key, ctx.tag_for(task_key), result=mason_assets._bake_model(model))
     claimed = mason_assets.on_task_done(ctx, done)
     assert claimed is True
     assert source.rev == before + 1
@@ -221,7 +224,7 @@ def test_baking_folds_a_node_translation_into_the_positions() -> None:
 
     source.primitives(ref)
     task_key = f"{mason_assets.TASK_PREFIX}job4:model.glb"
-    done = _Done(task_key, ctx.tag_for(task_key), result=model)
+    done = _Done(task_key, ctx.tag_for(task_key), result=mason_assets._bake_model(model))
     mason_assets.on_task_done(ctx, done)
 
     prims = source.primitives(ref)
@@ -231,6 +234,69 @@ def test_baking_folds_a_node_translation_into_the_positions() -> None:
     # docstring's "baking" section -- Mason never re-applies a per-node
     # transform on top of what this cache hands back.
     np.testing.assert_allclose(prims[0].positions[0], [5.0, 0.0, 0.0])
+
+
+def test_mason_library_asset_bake_runs_on_the_task_thread_not_on_landing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The 2026-09-15 audit's mason-02: ``_bake_model`` -- a per-vertex
+    matrix and normal transform, up to a 100 MB GLB -- used to run inside
+    ``AssetSource.on_task``, which ``on_task_done`` calls from the frame
+    thread that adopts a finished parse (see the module docstring's
+    "adopted later, off on_task_done, on the frame that the task lands").
+    Moved into the ``run()`` closure ``ctx.submit`` hands to the task pool,
+    so the bake's cost lands on a task-pool thread, never a dropped frame.
+
+    Proven with a spy on ``_bake_model``: it must already have run by the
+    time ``ctx.run(task_key)`` -- standing in for the task pool actually
+    running the submitted function -- returns, and ``on_task_done``
+    (standing in for the frame-thread landing) must call it zero more times.
+    Against the unfixed code the first assertion fails: ``run()`` only
+    parsed the GLB, so ``calls`` is still empty until ``on_task_done`` bakes
+    it on "landing".
+    """
+    calls: list[Any] = []
+    real_bake = mason_assets._bake_model
+
+    def spy_bake(model: Any) -> list[gltf.Primitive]:
+        calls.append(model)
+        return real_bake(model)
+
+    monkeypatch.setattr(mason_assets, "_bake_model", spy_bake)
+
+    node = gltf.Node(mesh=0)
+    prim = gltf.Primitive(
+        positions=np.zeros((3, 3), dtype="f4"),
+        indices=np.array([0, 1, 2], dtype="u4"),
+    )
+    model = gltf.Model([node], [0], [[prim]], [])
+    monkeypatch.setattr(mason_assets.gltf, "load", lambda data: model)
+
+    class _FakePath:
+        def read_bytes(self) -> bytes:
+            return b""
+
+    monkeypatch.setattr(
+        mason_assets.sizeguard, "within_ceiling", lambda path, ceiling: _FakePath()
+    )
+
+    job_dir = tmp_path / "job5"
+    job_dir.mkdir()
+    (job_dir / "model.glb").write_bytes(b"")
+
+    ctx = _Ctx(tmp_path)
+    source = mason_assets.ensure(ctx)
+    ref = mason_refs.LibraryRef(job_id="job5", artifact="model.glb")
+    assert source.primitives(ref) == []
+
+    task_key = f"{mason_assets.TASK_PREFIX}job5:model.glb"
+    result, error = ctx.run(task_key)  # stands in for the task pool running run()
+    assert error is None
+    assert len(calls) == 1  # baked already, on the "task thread"
+
+    done = _Done(task_key, ctx.tag_for(task_key), result=result, error=error)
+    mason_assets.on_task_done(ctx, done)  # stands in for the frame-thread landing
+    assert len(calls) == 1  # landing did not bake again
 
 
 def test_on_task_done_ignores_a_key_that_is_not_ours() -> None:

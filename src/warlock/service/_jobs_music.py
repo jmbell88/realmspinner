@@ -624,6 +624,24 @@ def derive_music_job(
         block["edit_n_max"] = float(edit_n_max)
 
     else:  # audio2audio
+        # **service-02 (2026-09-15 audit).** Every other task in this family
+        # draws its variation from ``retake_random_generators`` -- see
+        # ``_q_music._task_kwargs``'s comment -- but audio2audio's upstream
+        # ``task`` is reassigned to ``"audio2audio"`` inside ``__call__``
+        # itself (``if audio2audio_enable and ref_audio_input is not None``),
+        # which is *not* one of the three names ``add_retake_noise`` checks
+        # for, so the sampler never touches ``retake_random_generators`` on
+        # this path. With ``seed`` inherited unchanged from the parent, a
+        # count > 1 audio2audio derive has no knob left that could make any
+        # of its rows differ: it queues N generations of the same request and
+        # returns one take N times. Refused at the door, by name, rather than
+        # silently degraded to N identical files.
+        if count > 1:
+            raise Invalid(
+                "an audio2audio derivation has no seed that count can vary --"
+                " ask for one take at a time",
+                field="count",
+            )
         # The step count is the *parent's*, because a derivation inherits its
         # recipe; the reference door checks its own.
         block["ref_audio_strength"] = _check_ref_strength(

@@ -18,15 +18,17 @@ import _pure_packages as pp
 
 def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     """A tmp package whose only path to a window is two relative hops away
-    (mirroring ``familiar/scratch_ctx.py`` -> ``agent_clay`` -> ``clay_view``)
-    must not come back in :func:`_pure_packages.pure_packages`.
+    (mirroring the old ``familiar/scratch_ctx.py`` -> ``agent_clay`` ->
+    ``clay_view`` chain) must not come back in
+    :func:`_pure_packages.pure_packages`.
 
     This is a from-scratch reproduction rather than a read of the real
     ``studio/familiar/`` package on purpose: this fix is what moves
-    ``apply.py``/``scratch_ctx.py`` out of ``familiar`` entirely, so a test
-    that depended on their being there would stop meaning anything the day
-    the move landed. The tmp tree keeps the claim -- "a relative import
-    chain into a window is not invisible" -- true independent of that move.
+    ``apply.py``/``scratch_ctx.py`` out of ``familiar`` entirely -- folded
+    into ``studio/familiar_preview.py`` -- so a test that depended on their
+    being there would stop meaning anything the day the move landed. The
+    tmp tree keeps the claim -- "a relative import chain into a window is
+    not invisible" -- true independent of that move.
     """
     studio = tmp_path / "warlock" / "studio"
     studio.mkdir(parents=True)
@@ -41,8 +43,9 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     (studio / "bridge.py").write_text("from .gl_leaf import Thing\n", encoding="utf-8")
 
     # The package under test: reaches ``bridge`` (and so the window) only
-    # through ``from .. import bridge`` -- the same shape as the real
-    # ``familiar/scratch_ctx.py``'s ``from .. import agent_clay``.
+    # through ``from .. import bridge`` -- the same shape as the old
+    # ``familiar/scratch_ctx.py``'s ``from .. import agent_clay``, before it
+    # was folded into ``studio/familiar_preview.py``.
     pkg = studio / "ghost"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")

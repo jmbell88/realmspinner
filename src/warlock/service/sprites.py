@@ -700,11 +700,45 @@ def sprite_draft_png(
     return path
 
 
+def _synthesis_in_flight(svc: WarlockService, draft_id: str) -> bool:
+    """Is a ``sprite_synthesis`` row publishing *draft_id* still queued or
+    running.
+
+    The 2026-09-15 audit, finding troupe-05: the worker writes this draft's
+    two candidate PNGs first and its sidecar last (``_q_sprite.py``'s own
+    completion-marker comment), and ``delete_sprite_draft`` used to take no
+    lock and check nothing -- so a delete landing between the first PNG and
+    the sidecar saw ``any(p.exists())`` true off that one PNG, unlinked it,
+    and let the worker's still-running loop write the *other* candidate and
+    the sidecar right back afterwards. The result is a draft
+    ``list_sprite_drafts`` never shows (one candidate missing) whose files
+    ``delete_sprite_draft`` can never reach again, because its own id is
+    already spent -- exactly the orphan ``sheets._restyle_in_flight`` exists
+    to prevent for the sibling pixel-sheet door.
+    """
+    for j in svc.store.active_jobs():
+        if j["kind"] != "sprite_synthesis":
+            continue
+        if (j.get("params") or {}).get("draft_id") == draft_id:
+            return True
+    return False
+
+
 def delete_sprite_draft(
     svc: WarlockService, job_id: str, draft_id: str
 ) -> dict[str, Any]:
     check_job_id(job_id)
     check_sprite_draft_id(draft_id)
-    if not rigging.delete_sprite_draft(svc.job_dir(job_id), draft_id):
-        raise NotFound("no such sprite draft")
+    # Same per-asset hold ``create_sprite_synthesis`` takes when it counts and
+    # mints a draft, so a synthesis cannot be queued -- or caught mid-publish
+    # -- in the gap between the in-flight check below and the unlink.
+    with svc.convert_lock(job_id, "sprite_drafts"):
+        if _synthesis_in_flight(svc, draft_id):
+            raise Conflict(
+                "this sprite draft is still being generated; wait for it to"
+                " finish before deleting it",
+                field="draft_id",
+            )
+        if not rigging.delete_sprite_draft(svc.job_dir(job_id), draft_id):
+            raise NotFound("no such sprite draft")
     return {"deleted": draft_id}

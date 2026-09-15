@@ -40,6 +40,17 @@ from . import download
 
 CHUNK = 1 << 20
 
+#: Byte ceiling on the two small JSON documents ``_get_json`` reads (the
+#: release feed and ``update-manifest.json``). The 2026-09-15 audit
+#: (pipelines-05): before this, ``_get_json`` handed ``response.read()`` no
+#: limit at all, so a compromised or misconfigured feed host answering either
+#: GET with an unbounded body would have this process buffer all of it before
+#: ``json.loads`` ever got a chance to reject it -- the same host-exhaustion
+#: shape ``trellis.py``'s ``MAX_GLB_BYTES``/``MAX_ERROR_BYTES`` and
+#: ``llama_client.py``'s ``MAX_RESPONSE_BYTES`` already guard against. Both
+#: real documents are a few KB; 1 MB is generous headroom, not a measurement.
+MAX_MANIFEST_BYTES = 1 << 20
+
 #: The asset a release has to carry for this app to offer it. Named here
 #: because ``scripts/make_update_manifest.py`` writes it and this reads it, and
 #: a release whose two halves disagree offers nothing at all.
@@ -87,7 +98,17 @@ def _get_json(url: str, *, timeout: float = CHECK_TIMEOUT) -> Any:
     # agent today, which is exactly the reason to spell it once for all three
     # workers rather than per host.
     with download.open_url(url, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        # Chunked read with a ceiling, not response.read() -- see
+        # MAX_MANIFEST_BYTES above (pipelines-05, 2026-09-15 audit).
+        body = bytearray()
+        while chunk := response.read(CHUNK):
+            body.extend(chunk)
+            if len(body) > MAX_MANIFEST_BYTES:
+                raise ValueError(
+                    f"{url} answered with more than {MAX_MANIFEST_BYTES} bytes; "
+                    "refusing to buffer the rest"
+                )
+        return json.loads(bytes(body).decode("utf-8"))
 
 
 def _asset(assets: Any, name: str) -> dict[str, Any] | None:

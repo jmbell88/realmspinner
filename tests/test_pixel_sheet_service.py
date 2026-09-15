@@ -8,6 +8,7 @@ request, not a place in the queue and a minute of GPU.
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 from PIL import Image
@@ -228,3 +229,67 @@ def test_a_restyle_whose_checkpoint_is_missing_is_refused(svc, monkeypatch):
     with pytest.raises(Invalid) as exc:
         svc_sheets.create_pixel_sheet(svc, job_id, sheet_id)
     assert exc.value.field == "base_model"
+
+
+def test_deleting_a_sheet_racing_a_pixel_sheet_request_refuses_cleanly_or_serializes(
+    svc, monkeypatch
+):
+    """The 2026-09-15 audit, finding troupe-02: ``create_pixel_sheet`` checked
+    the sheet and created its ``pixel_sheet`` row with no lock at all, unlike
+    every sibling door in this module. A delete landing in the gap between
+    the check and the row's creation left a restyle queued against a sheet
+    already gone from disk, for the worker to hit as a missing PNG minutes
+    later rather than a refusal here.
+
+    Forced with real threads and one hook, the way ``test_files.py``'s own
+    backup race is: the create is paused right before it would touch VRAM
+    admission (the last check before ``svc.store.create``), a concurrent
+    delete is let run, and only then does the create resume. The one outcome
+    this door must never produce is both halves succeeding -- a created
+    row *and* a deleted sheet.
+    """
+    job_id, sheet_id = _sheet_on_disk(svc)
+
+    real_check_vram = svc_sheets.check_vram
+    a_checked = threading.Event()
+    b_done = threading.Event()
+
+    def fake_check_vram(*args, **kwargs):
+        a_checked.set()
+        b_done.wait(2)
+        return real_check_vram(*args, **kwargs)
+
+    monkeypatch.setattr(svc_sheets, "check_vram", fake_check_vram)
+
+    results: dict[str, object] = {}
+
+    def run_create():
+        try:
+            results["create"] = svc_sheets.create_pixel_sheet(svc, job_id, sheet_id)
+        except BaseException as exc:  # noqa: BLE001 - surfaced via `results`
+            results["create"] = exc
+
+    def run_delete():
+        a_checked.wait(2)
+        try:
+            results["delete"] = svc_sheets.delete_sheet(svc, job_id, sheet_id)
+        except BaseException as exc:  # noqa: BLE001 - surfaced via `results`
+            results["delete"] = exc
+        finally:
+            b_done.set()
+
+    t_create = threading.Thread(target=run_create)
+    t_delete = threading.Thread(target=run_delete)
+    t_create.start()
+    t_delete.start()
+    t_create.join(5)
+    t_delete.join(5)
+
+    create_result = results.get("create")
+    sheet_gone = not rigging.sheet_path(svc.job_dir(job_id), sheet_id).exists()
+    create_succeeded = isinstance(create_result, dict)
+
+    assert not (create_succeeded and sheet_gone), (
+        "orphaned pixel_sheet row created against a deleted sheet: "
+        f"create={create_result!r} delete={results.get('delete')!r}"
+    )

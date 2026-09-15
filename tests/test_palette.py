@@ -220,6 +220,30 @@ def test_reroll_is_refused_for_a_hand_made_reference():
     assert command.enabled(ctx) is True
 
 
+def test_reroll_why_names_the_real_reason_when_a_finished_asset_is_selected():
+    """The 2026-09-15 audit, finding shell-09: ``why`` was the fixed string
+    "Select a finished asset in the library first.", which is true when
+    nothing is selected and false -- and unhelpful -- when a *finished,
+    non-rerollable* asset is. A hand-made reference is finished, selected and
+    still refused (the case ``test_reroll_is_refused_for_a_hand_made_reference``
+    above already proves), so its ``why`` must say something a "select an
+    asset" sentence cannot be true of at the same time.
+    """
+    hand_made = _job("j1", kind="image", stage="reference")
+    ctx = _ctx(jobs=[hand_made], selected="j1")
+    command = next(c for c in palette.commands(ctx) if c.key == "reroll")
+    assert command.enabled(ctx) is False
+    assert command.why
+    assert "select" not in command.why.lower()
+    assert "hand" in command.why.lower()
+
+    # And the empty-selection case is unchanged: that sentence is the one
+    # place "select a finished asset" is actually the reason.
+    empty_ctx = _ctx()
+    empty_command = next(c for c in palette.commands(empty_ctx) if c.key == "reroll")
+    assert "select" in empty_command.why.lower()
+
+
 def test_every_command_key_is_unique():
     keys = [c.key for c in palette.commands(_ctx())]
     assert len(keys) == len(set(keys))
@@ -361,6 +385,42 @@ def test_the_document_dispatch_covers_every_document_mode():
         # why its label names two files rather than one.
         "mason",
     }
+
+
+#: Every ``_DOC_MODES`` entry that starts from a blank document, and the
+#: palette key its New command lives under. Poser is the deliberate hole --
+#: it has a Save, an Export and an Undo/Redo, exactly like these six, but a
+#: pose document begins by rigging a character already in the library, not
+#: from a New button, so it is not in this table and must not gain a "New
+#: pose" entry by the same reasoning this test applies to the other six.
+_NEW_DOCUMENT_COMMANDS = {
+    "inker": "new-drawing",
+    "clay": "new-clay",
+    "mason": "new-mason-scene",
+    "plotter": "new-map",
+    "packwright": "new-atlas",
+    "sirens": "new-song",
+}
+
+
+def test_every_document_mode_with_a_new_document_has_a_palette_command():
+    """The 2026-09-15 audit, finding shell-03: Mason is in ``_DOC_MODES`` --
+    Save, Export and Undo/Redo all work on it -- but had no New command at
+    all, which reads as the mode not having one (the same failure Plotter's
+    own missing "New map" was, the comment above ``new-map`` already names).
+    """
+    keys = {command.key for command in palette.commands(_ctx())}
+    for mode, key in _NEW_DOCUMENT_COMMANDS.items():
+        assert mode in palette._DOC_MODES, f"{mode} fell out of _DOC_MODES"
+        assert key in keys, f"{mode} has no {key!r} palette command"
+
+    # And the menu path, or the command exists but only Ctrl+K can reach it --
+    # the exact hole this table's own precedent (shell-06, "reroll") was cut
+    # for.
+    from warlock.studio import menus
+
+    for key in _NEW_DOCUMENT_COMMANDS.values():
+        assert key in menus._COMMAND_PATHS, f"{key!r} has no menu path"
 
 
 def test_the_shortcuts_command_sets_a_flag_rather_than_opening_a_popup():

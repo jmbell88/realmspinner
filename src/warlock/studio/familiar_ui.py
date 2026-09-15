@@ -465,11 +465,20 @@ def _run_build_preview(ctx: Any, ui: FamiliarUIState, tab_uid: str, calls: list[
 
     state = clay_mode.ensure(ctx)
     tab = state.get(tab_uid) if tab_uid else None
-    if tab is None:
-        # The tab this build was requested against closed while Familiar was
-        # thinking -- the same "preview again" sentence every other
-        # familiar_preview refusal uses, for the same reason: there is
-        # nothing left to preview against.
+    if tab is None or tab_uid != state.active_uid:
+        # The tab this build was requested against closed, or the user
+        # switched to another tab, while Familiar was thinking -- the same
+        # "preview again" sentence every other familiar_preview refusal uses,
+        # for the same reason: there is nothing left to preview against.
+        #
+        # The 2026-09-15 audit's agents-01: this used to check only that the
+        # tab still existed, not that it was still the one on screen. ``set_
+        # preview``/``_ghost_draws`` carry no document identity of their own
+        # on the shared ``clay_view``, so a build that landed after a tab
+        # switch painted the ghost over whichever tab was now in front --
+        # Apply already refused a stale base at that point, but the display
+        # never did. Landing now refuses the same way Apply always has,
+        # rather than showing a ghost for a document nobody is looking at.
         ui.message = "the document changed -- preview again"
         ui.reason = None
         return

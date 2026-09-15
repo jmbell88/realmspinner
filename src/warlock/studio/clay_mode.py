@@ -89,7 +89,34 @@ def ensure(ctx: Any) -> ClayState:
         stored = settings.get("clay") if callable(getattr(settings, "get", None)) else None
         _restore_view(state, stored.get("view") if isinstance(stored, dict) else None)
         ctx.state.clay = state
+    if state.settle_drag is None:
+        # Wired here rather than at construction: a fresh ``ClayState`` has
+        # no ``ctx`` to close over above, and the closure only ever captures
+        # ``ctx`` itself (not ``ctx.clay_view``), so it resolves the view at
+        # call time -- sound whether or not one exists yet the first time
+        # this runs. See ``ClayState.settle_drag``'s own docstring (clay-01,
+        # 2026-09-15 audit).
+        state.settle_drag = lambda old_uid: _settle_drag_on_tab_switch(ctx, state, old_uid)
     return state
+
+
+def _settle_drag_on_tab_switch(ctx: Any, state: ClayState, old_uid: str) -> None:
+    """``ClayState.settle_drag``'s real body: commit a live transform drag
+    against the tab being left, *before* ``activate`` moves ``active_uid``.
+
+    Mirrors ``close_tab``'s ``release``, which already calls
+    ``view.cancel_drag`` for the tab-closing case; this is deliberately a
+    *commit* rather than a cancel, because switching tabs does not discard
+    the document the way closing one does -- the drag stays on the tab it
+    was made on and the user can Ctrl+Z it like anything else when they
+    switch back, rather than losing it silently.
+    """
+    view = getattr(ctx, "clay_view", None)
+    if view is None or not getattr(view, "dragging", False):
+        return
+    tab = state.get(old_uid)
+    if tab is not None:
+        view.settle_drag(tab.doc)
 
 
 def _restore_view(state: ClayState, stored: Any) -> None:

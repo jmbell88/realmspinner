@@ -95,6 +95,34 @@ def rerollable(job: dict[str, Any]) -> bool:
     return not (job.get("kind") == "image" and job.get("stage") == "reference")
 
 
+def rerollable_reason(job: dict[str, Any] | None) -> str:
+    """Why :func:`rerollable` said no, as a sentence a greyed control can show.
+
+    Beside ``rerollable`` rather than folded into it, and mirroring its gate
+    exactly rather than restating it loosely: the 2026-09-15 audit, finding
+    shell-09, found the palette's Reroll command showing "Select a finished
+    asset..." even when a *finished, non-rerollable* asset was selected --
+    true when nothing is selected, and false and unhelpful for a built asset,
+    a stem split, a LoRA run or a hand-made reference. Returns "" when
+    ``rerollable`` would say yes, since that string is only ever shown beside
+    a disabled control.
+    """
+    if job is None:
+        return "Select a finished asset in the library first."
+    if job.get("status") not in ("done", "error", "cancelled"):
+        return "This asset is not finished yet."
+    if job.get("params", {}).get("built"):
+        return "This asset was built, not generated; there is no seed to change."
+    kind = job.get("kind")
+    if kind == "separate":
+        return "A stem split has no seed to change."
+    if kind == "lora_train":
+        return "A LoRA training run has no seed to reroll."
+    if job.get("kind") == "image" and job.get("stage") == "reference":
+        return "This reference was made by hand; there is nothing to reroll."
+    return ""
+
+
 def rerun_job(
     svc: WarlockService,
     job_id: str,
@@ -289,6 +317,41 @@ def rerun_job(
         # a cancelled reroll made ``_discard_artifacts`` delete the original
         # job's published trio, and a finished one silently overwrote it.
         params["draft_id"] = rigging.new_id()
+    if kind == "tile_sheet":
+        # Reroll only: remesh is refused for this kind by name, above.
+        #
+        # The worker draws each material -- and, for a terrain set, the
+        # boundary mask -- from the seeds baked into ``params["sheet"]`` at
+        # the door (``tilesheets.create_tile_sheet``, via
+        # ``asset_workflows.collection_cells``/``tileatlas.material_seeds``),
+        # never from the top-level ``params["seed"]`` this function just
+        # rerolled. Left alone, those nested seeds were copied through
+        # unchanged like any other params key, so "give me another" minted a
+        # new row with a new top-level seed that nothing read, spent N full
+        # generations, and republished byte-identical tiles (the 2026-09-15
+        # audit, service-01). Re-derived here exactly as the door derives
+        # them, from the fresh top-level seed, so a reroll's tiles actually
+        # differ from the sheet it rerolls.
+        from ..pipelines import tileatlas
+
+        source_sheet = source["params"].get("sheet")
+        if isinstance(source_sheet, dict):
+            sheet = dict(source_sheet)
+            materials = sheet.get("materials")
+            if isinstance(materials, list) and materials:
+                seeds = tileatlas.material_seeds(fresh, len(materials))
+                sheet["materials"] = [
+                    {**entry, "seed": int(cell_seed)} if isinstance(entry, dict) else entry
+                    for entry, cell_seed in zip(materials, seeds, strict=True)
+                ]
+            mask = sheet.get("mask")
+            if isinstance(mask, dict):
+                # The door writes the mask's seed as the sheet's own request
+                # seed (``tilesheets.create_tile_sheet``: ``"seed": sheet_seed``),
+                # so the reroll follows the same rule rather than drawing a
+                # third, unrelated seed nothing else agrees with.
+                sheet["mask"] = {**mask, "seed": fresh}
+            params["sheet"] = sheet
 
     if params.get("source_job"):
         # Every one of the seven kinds that carries ``params["source_job"]``

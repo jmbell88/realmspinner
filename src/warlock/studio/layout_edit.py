@@ -202,8 +202,20 @@ def draw(app: Any, ctx: Any, viewport: Any) -> None:
     if toggled:
         # Immediate, like a drag's own commit: there is no separate "done"
         # gesture in this editor, so a hide toggle with no drag afterward
-        # must not be lost when the panel closes.
-        _persist(app, ctx, edit, {c.id: [s.id for s in c.live(ctx)] for c in columns.values()})
+        # must not be lost when the panel closes. Built from
+        # ``skeletons.ordered`` for the same reason ``_commit`` is (the
+        # 2026-09-15 audit's shell-01): ``column.live(ctx)`` is the built-in
+        # order, and writing that back would reset every column's saved
+        # arrangement to it on a plain hide-badge press.
+        _persist(
+            app,
+            ctx,
+            edit,
+            {
+                c.id: [s.id for s in skeletons.ordered(ctx, library, ctx.state.mode, c)]
+                for c in columns.values()
+            },
+        )
     _banner(
         ctx,
         "Drag a pane onto another to reorder it, or press the eye to hide "
@@ -234,12 +246,23 @@ def _commit(app: Any, ctx: Any, columns: Any, edit: EditState, mouse: Any) -> No
     """Land a drag: work out the column and index, and record the arrangement."""
 
     from . import layout as layout_mod
+    from . import skeletons
 
+    library = getattr(app, "layouts", None)
     rects = layout_mod.FRAME_PANES
     for column in columns.values():
+        # The 2026-09-15 audit's shell-01: this used to build ``live`` and
+        # ``arrangement`` from ``column.live(ctx)``, the skeleton's built-in
+        # declaration order -- not ``skeletons.ordered``, the order the
+        # workspace actually drew this frame (reconciled against the saved
+        # layout, hidden slots dropped). ``rects`` was recorded in the drawn
+        # order, so a mismatch between ``live``'s order and the rects made
+        # the drop index land wrong, and writing every *other* column back
+        # from ``live(ctx)`` too silently reset each one's saved arrangement
+        # to the built-in order on every drag or hide-badge press.
         live = [
             (slot.id, rects[slot.id])
-            for slot in column.live(ctx)
+            for slot in skeletons.ordered(ctx, library, ctx.state.mode, column)
             if slot.id in rects
         ]
         if not live:
@@ -253,7 +276,7 @@ def _commit(app: Any, ctx: Any, columns: Any, edit: EditState, mouse: Any) -> No
         arrangement = {
             other.id: [
                 slot.id
-                for slot in other.live(ctx)
+                for slot in skeletons.ordered(ctx, library, ctx.state.mode, other)
             ]
             for other in columns.values()
         }

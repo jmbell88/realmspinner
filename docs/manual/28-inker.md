@@ -168,9 +168,9 @@ Two things come with it. **Roll the seam to the middle**, under Tiled in the sam
 active layer half a canvas in both directions, which puts the wrap seam where you can paint over it
 — press it twice on even dimensions and you are exactly back where you started, so it is a way of
 looking rather than an edit you have to undo. And **seam ×N** appears in the status bar under the
-canvas: how hard the join is against the picture's own grain, worse axis first, turning amber above
-3.5, where it stops reading as texture and starts reading as an edge. It is measured on the whole
-document and only recomputed when you change something.
+canvas: how hard the join is against the picture's own worst interior join, worse axis first,
+turning amber above 1.0, where it stops reading as texture and starts reading as an edge. It is
+measured on the whole document and only recomputed when you change something.
 
 Three things deliberately do not. **Smudge** falls back to stopping at the edge, because its pickup
 trails the brush and "the pixels it just passed over" has no answer when the brush is in two places

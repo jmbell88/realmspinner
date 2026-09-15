@@ -711,7 +711,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # The decode landing: the sheet parks on the state until the popup's
         # tile-size answer turns it into sprites, or a cancel drops it.
         if isinstance(result, dict):
-            if state.tileset_import is not None and state.tileset_import_open:
+            if state.tileset_import is not None:
                 # **Refused rather than adopted.** The 2026-09-08 audit
                 # (finding packwright-01): a second tile-sheet landing while
                 # an earlier one's popup was already open used to overwrite
@@ -726,6 +726,15 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # sheet; a second sheet does not get to jump the queue and
                 # answer it for them -- they finish or cancel the open popup
                 # and press Add a tile set again.
+                #
+                # Guarded on ``tileset_import is not None`` alone, not also
+                # ``and tileset_import_open`` (the 2026-09-15 audit,
+                # packwright-02): ``tileset_import_open`` is set only by the
+                # pane's own draw, so two landings inside one poll batch --
+                # both processed before a frame is ever drawn -- both saw it
+                # still ``False`` and the second one swapped the first's
+                # parked pixels out from under it with neither popup ever
+                # having been on screen.
                 ctx.toast(
                     "Another tile set is already waiting on the tile-size "
                     "popup -- confirm or cancel it first."

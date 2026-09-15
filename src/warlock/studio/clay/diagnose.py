@@ -27,6 +27,7 @@ it. That is the same doctrine ``widgets.quality_badge`` is written under.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -170,9 +171,18 @@ class SceneFinding:
     uids: tuple[int, ...]
 
 
-_COPY_SUFFIX = 4
-"""The length of ``ops.next_name``'s ``.001`` suffix, counted once here rather
-than spelled as a magic 4 twice below."""
+_COPY_RE = re.compile(r"\.\d{3,}$")
+"""``ops.next_name`` always counts up in 3-digit steps (``.001``, ..., ``.999``,
+``.1000``, ``.10000``, ...), never resetting the width, so a copy suffix is
+three digits *or more* -- ``\\d{3,}`` -- not the fixed four-character slice
+this replaced. The 2026-09-15 audit's clay-04 found the fixed slice checking
+only the character exactly four from the end for a literal ``.``: true for
+``Box.001`` but false for ``Box.1000`` (four from the end is ``1``, not
+``.``) and every wider suffix after it, so a family duplicated past 999
+copies silently stopped being read as one -- ``Box.1000`` came back as its
+own family, named after itself, rather than joining ``Box``. Anchored at the
+end (``$``) rather than searched, so a name that merely contains a
+dot-digits run earlier (an imported ``Box.001.glb``) is untouched."""
 
 
 def _family(name: str) -> str:
@@ -185,9 +195,7 @@ def _family(name: str) -> str:
     out of its family, which is exactly the reader's own signal that it is no
     longer one of a set. A hint is all this finding claims to be.
     """
-    if len(name) > _COPY_SUFFIX and name[-_COPY_SUFFIX] == "." and name[-3:].isdigit():
-        return name[:-_COPY_SUFFIX]
-    return name
+    return _COPY_RE.sub("", name)
 
 
 def scene_findings(objects: Sequence[Any]) -> list[SceneFinding]:

@@ -219,7 +219,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
     widgets.divider()
     if controls.menu_item("Group", "G", False)[0]:
         mason_mode.group_selected(ctx)
-    if controls.menu_item("Ungroup", "Shift+G", False, _groupish(doc))[0]:
+    if controls.menu_item("Ungroup", "Shift+G", False, groupish(doc))[0]:
         mason_mode.ungroup_selected(ctx)
     if controls.menu_item(f"{icons.COPY} Make prefab", "", False, len(doc.selection) == 1)[0]:
         # The 2026-09-12 audit's docs-03: see ``mason_menu.py``'s identical row.
@@ -232,11 +232,20 @@ def _context_menu(ctx: Any, state: Any, doc: Any, node: Any) -> None:
     imgui.end_popup()
 
 
-def _groupish(doc: Any) -> bool:
+def groupish(doc: Any) -> bool:
     """Whether anything selected is a group with children -- what Ungroup can
     act on. Asked of the *document* rather than of the clicked row, because
     Ungroup (like Group) works on the selection and the context menu has already
-    made the clicked row part of it."""
+    made the clicked row part of it.
+
+    **Not prefixed private** -- the 2026-09-15 audit's mason-03 found the
+    viewport context menu (``mason_menu.py``) enabling its own "Ungroup" row
+    for any selection at all, gated on nothing, while this row was already
+    gated on this exact predicate; the handler both rows call
+    (``mason_mode.ungroup_selected``) just returns silently for a selection
+    with no group in it. One predicate, imported rather than a second copy
+    that could drift from this one the same way the menu row already had.
+    """
     from ..mason import nodes as nd
 
     return any(

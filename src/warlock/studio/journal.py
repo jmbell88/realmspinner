@@ -726,6 +726,14 @@ def snapshot(ctx: Any) -> list[Recovered]:
     ``None`` and ``[]`` are different answers, deliberately: "not looked yet"
     and "looked, found nothing". A falsy test here would rescan every frame,
     which is the bug above with extra steps.
+
+    Runs on the frame thread, on purpose (the 2026-09-15 audit's shell-06):
+    the ordering against this session's own autosaves is the point, not an
+    oversight to move behind a task. ``recoverable``'s glob and its per-file
+    sidecar reads are uncapped, so this one-shot cost is bounded only by how
+    many documents a previous session actually left crash-journalled in
+    :func:`directory` -- ordinary autosave hygiene, not this function's own
+    behaviour, is what keeps that count small.
     """
     if ctx.state.recovery is None:
         # Providers before the directory, not after: a copy whose kind nothing

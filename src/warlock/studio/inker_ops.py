@@ -3150,7 +3150,11 @@ register(
         _mode("flourish_detach"),
         menu="Flourish",
         separator_before=True,
-        enabled=_fl_pred("has_effect"),
+        # Not the bare ``has_effect`` this used to read -- the 2026-09-15
+        # audit (inker-05) found it was the one predicate in this family with
+        # no ``not busy``, so the button stayed live through a save or an
+        # export. ``can_detach`` is ``has_effect`` with that added back.
+        enabled=_fl_pred("can_detach"),
         reason=_fl_reason("regenerate_reason"),
         hint=(
             "Forgets the recipe and leaves the layers as ordinary layers. The "

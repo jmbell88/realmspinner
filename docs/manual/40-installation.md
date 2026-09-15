@@ -249,9 +249,11 @@ uvx hf download Limbicnation/pixel-art-lora --revision 0ac8e5c3400af68228811edc3
 Rename-Item $HOME/.warlock/models/loras/pytorch_lora_weights.safetensors pixel-art-klein.safetensors
 ```
 
-The SDXL 1.0 weights serve three entries in the model list — the Hyper-SD one above, and a full-CFG
-one that runs the same checkpoint at 30 steps with real classifier-free guidance, and a pixel-art
-one that runs it at 8 steps under an LCM adapter. Downloading them once gets you all three.
+The SDXL 1.0 weights serve five entries in the model list — the Hyper-SD one above, a full-CFG
+one that runs the same checkpoint at 30 steps with real classifier-free guidance, that same full-CFG
+recipe again with PAG's two training-free sampling upgrades on top, a pixel-art one that runs it at
+8 steps under an LCM adapter, and Lightning, a second 4-step distillation for comparison with
+Hyper-SD. Downloading them once gets you all five.
 
 ### Optional conditioning models
 

@@ -278,7 +278,8 @@ class PoserState:
 
     # -- the skeleton editor (P6, 2026-09-13) ----------------------------------
     #
-    # Asset-session state, exactly like ``job_id``'s own block above: reset in
+    # ``skeleton_editing`` and ``skeleton_error`` below are asset-session
+    # state, exactly like ``job_id``'s own block above: reset in
     # :func:`open_asset`, :func:`close_asset` and :func:`_land_rerig`, never in
     # :func:`_reset_for_template` -- a skeleton switch can happen mid-edit
     # (:func:`set_template` is refused nowhere near this), but only a fresh
@@ -287,6 +288,16 @@ class PoserState:
     # replacing it: the pane needs to branch on this with no viewer at hand in
     # some draws (the empty-viewport paths in ``poser_viewport``), and a plain
     # bool answers that with no editor reference required.
+    #
+    # That reset guarantee stops here: it does not reach the rest of this
+    # section. ``limb_preset``/``limb_side``/``limb_mirror`` below are cleared
+    # by ``open_asset`` and ``close_asset`` only, not by ``_land_rerig`` (a
+    # landed re-rig has no reason to blank a form the user may still be
+    # filling in), and ``skeleton_rename``/``skeleton_rename_for`` are cleared
+    # by none of the three -- they are re-seeded on a selection change instead
+    # (see their own docstring below). The 2026-09-15 audit, finding
+    # poser-06: this comment used to read as a blanket claim over the whole
+    # section, which was never true for the rename buffer.
     skeleton_editing: bool = False
     #: {"field": str | None, "message": str} from the last refused
     #: :func:`apply_skeleton`, or None. Its own field rather than the app-wide
@@ -2463,6 +2474,16 @@ def capture_key(ctx: Any) -> None:
         pose["root_translation"] = [float(v) for v in root]
     else:
         pose.pop("root_translation", None)
+    # The 2026-09-15 audit, finding poser-01: every sibling mutator that folds
+    # the armature's live edit into stored data (``apply_key`` above is the
+    # clearest example) clears ``dirty``/``moved`` once the edit has somewhere
+    # safe to live -- this one wrote the pose into the key and left both set,
+    # so ``has_unsaved_edits()`` kept reporting the just-saved pose as an
+    # unsaved edit: the pending dot stayed lit and the next guarded action
+    # (selecting another key, closing the asset) asked to discard a change
+    # that was already captured.
+    editor.dirty = False
+    editor.moved.clear()
     _touch(ctx)
 
 

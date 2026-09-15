@@ -989,6 +989,10 @@ def _wangset_row(ctx: Any, state: Any, tab: Any, index: int, sets: Any) -> None:
         name = widgets.input_text(
             "##tswang-name", sets[at].name, max_length=64, hint="set name"
         )
+        # One gesture, one step (the 2026-09-15 audit, plotter-02): typing a
+        # set name pushed one undo step per keystroke, the same defect the
+        # colour name beside it was already fixed for.
+        controls.fold_undo(tab.doc.history)
         if name != sets[at].name:
             rename_wangset(tab, index, at, name)
 

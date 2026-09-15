@@ -232,7 +232,14 @@ class _Session:
         call -- this process never exits over a lost or timed-out call.
         """
         if not self._ensure_connected():
-            result = protocol.fail(NOT_ACCEPTING_MESSAGE, recovery="read_scene")
+            # The 2026-09-15 audit (agents-05): this call never reached
+            # Studio at all -- there is no scene state to have gone stale,
+            # so "read_scene" (this vocabulary's "your picture of what
+            # happened is stale, go get a fresh one") was actively
+            # misleading. agent_host's own refusal for the same "nothing
+            # ran" state (`rpc.fail("Warlock's agent server was switched
+            # off.")`) carries no recovery at all; match it here.
+            result = protocol.fail(NOT_ACCEPTING_MESSAGE)
             return json.dumps(result, separators=(",", ":")).encode("utf-8")
 
         request = rpc.encode_request("call", tool=name, args=arguments)

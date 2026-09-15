@@ -223,14 +223,20 @@ class MasonView(FrameOps):
         self._cache: dict[tuple[Any, ...], _Entry] = {}
         # The ground's own upload, outside the ref-keyed cache because terrain
         # geometry does not come from a ``GeometrySource`` and so has no ref to
-        # be keyed on: ``(heights_array, GpuModel, model)``, valid only while
-        # the pinned array *is* ``doc.terrain.heights``. Identity and not
-        # ``id()``, ``terrain.terrain_mesh``'s own memo rule and for its reason:
-        # an id is an address CPython may hand to a different array once the old
-        # one is collected, so an id-keyed check can validate against the wrong
-        # object. Every brush rebinds the array rather than writing into it,
-        # which is what makes the identity check a sound invalidation signal.
-        self._terrain: tuple[Any, Any, Any] | None = None
+        # be keyed on: ``(heights_array, override, model, GpuModel)``, valid
+        # only while the pinned array *is* ``doc.terrain.heights``. Identity
+        # and not ``id()``, ``terrain.terrain_mesh``'s own memo rule and for
+        # its reason: an id is an address CPython may hand to a different
+        # array once the old one is collected, so an id-keyed check can
+        # validate against the wrong object. Every brush rebinds the array
+        # rather than writing into it, which is what makes the identity check
+        # a sound invalidation signal.
+        #
+        # The 2026-09-15 audit's mason-04: this was annotated as a 3-tuple
+        # while :meth:`sync_terrain` has always stored all four of
+        # ``(terrain.heights, override, model, gpu)`` -- the annotation had
+        # drifted from what is actually assigned a few lines down.
+        self._terrain: tuple[Any, Any, Any, Any] | None = None
         # What the terrain GPU state was built from, so a rebuild is counted
         # the way a ref's is.
         self.terrain_rebuilds = 0

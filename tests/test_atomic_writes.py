@@ -274,3 +274,40 @@ def test_staged_set_gives_every_call_its_own_temp_name(tmp_path, monkeypatch) ->
     # have overwritten the inner call's temp file (or vice versa), and the
     # final content would not be traceable to either call cleanly.
     assert dest.read_bytes() == b"first writer"
+
+
+def test_staged_set_cleans_up_its_temp_when_a_write_partway_through_the_set_fails(
+    tmp_path, monkeypatch
+) -> None:
+    """The 2026-09-15 audit, packwright-01: ``staged_set`` appended a target's
+    ``(tmp, target)`` pair to its cleanup list only *after* ``tmp.write_bytes``
+    returned. A mid-write failure -- a full disk, a yanked drive -- on any file
+    but the first left that call's own temp off the list the ``finally`` walks,
+    so it was never unlinked: a dotfile temp sat beside the export folder for
+    good, exactly the leak this module's own docstring says nothing else
+    sweeps.
+
+    The second target's ``write_bytes`` is left to actually create its temp
+    file on disk before raising, standing in for a write that fails after some
+    bytes have already landed rather than one that never opens the file at
+    all -- the shape a real full-disk failure takes.
+    """
+    from warlock.studio import atomic
+
+    first = tmp_path / "one.bin"
+    second = tmp_path / "two.bin"
+    real_write_bytes = Path.write_bytes
+
+    def _fails_partway(self: Path, data: bytes):
+        if self.name.startswith(f".{second.name}."):
+            real_write_bytes(self, data)
+            raise OSError("disk full")
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", _fails_partway)
+    with pytest.raises(OSError):
+        atomic.staged_set({first: b"one", second: b"two"})
+
+    leftovers = [entry.name for entry in tmp_path.iterdir() if entry.name.endswith(".tmp")]
+    assert leftovers == [], f"a staging temp was left behind uncleaned: {leftovers}"
+    assert not first.exists() and not second.exists(), "neither destination was published"

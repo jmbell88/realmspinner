@@ -105,8 +105,14 @@ def staged_set(files: Mapping[Path, bytes]) -> None:
             target = Path(target)
             target.parent.mkdir(parents=True, exist_ok=True)
             tmp = target.with_name(_tmp_name(target.name))
-            tmp.write_bytes(blob)
+            # Registered before the write, not after (the 2026-09-15 audit,
+            # packwright-01): a mid-write failure -- a full disk, a yanked
+            # drive -- used to leave this temp off the cleanup list entirely,
+            # so the ``finally`` below never unlinked it and a dotfile temp
+            # sat beside the export folder for good, exactly the leak this
+            # module's own docstring says nothing sweeps.
             staged.append((tmp, target))
+            tmp.write_bytes(blob)
         for tmp, target in staged:
             os.replace(tmp, target)
     finally:

@@ -987,10 +987,11 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
 # tokenizer vocabularies, and the fp16 weight files only.
 _SDXL_FILES = ("*.json", "*.txt", "*fp16.safetensors")
 
-# Written once and referenced by four entries rather than repeated, because it
-# genuinely *is* one download: sdxl, sdxl_cfg, pixel and lightning are four
-# recipes over the same weights. Identity here is what makes the dedupe in
-# warlock.fetch obvious rather than a coincidence of equal strings.
+# Written once and referenced by five entries rather than repeated, because it
+# genuinely *is* one download: sdxl, sdxl_cfg, sdxl_cfg_pag, pixel and
+# lightning are five recipes over the same weights. Identity here is what
+# makes the dedupe in warlock.fetch obvious rather than a coincidence of
+# equal strings.
 _SDXL_BASE_1_0 = Fetch(
     "stabilityai/stable-diffusion-xl-base-1.0",
     "sdxl-base-1.0",
