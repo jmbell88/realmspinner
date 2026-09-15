@@ -2,7 +2,11 @@
 (``python train_a.py run-B`` writes to ``out/run-B/``; default ``run-A``). An optional
 argv[2] points at a different dataset dir than the checked-in ``dataset/`` -- an
 ablation arm's ``out/run-Cx/data``, built by ``make_arm.py`` (``python train_a.py run-C1
-out/run-C1/data``); default is ``dataset/`` as before.
+out/run-C1/data``); default is ``dataset/`` as before. An optional argv[3] overrides
+``CONFIG["seed"]`` -- run A has been trained exactly once, so a same-data/same-card
+repeat under a different seed is the only way to tell its 185.0 tier-one score apart
+from a lucky draw (``python train_a.py run-A2 out/run-A2/data 4207``); default is 3407,
+run A's own seed, unchanged for every other run.
 
 Driven with Unsloth's own library from the Unsloth Studio environment
 (``~/.unsloth/studio/unsloth_studio/Scripts/python.exe``) rather than through the Studio
@@ -85,6 +89,7 @@ def _resolve_dataset_dir(value: str | None) -> pathlib.Path:
 
 
 DATASET = _resolve_dataset_dir(sys.argv[2] if len(sys.argv) > 2 else None)
+SEED = int(sys.argv[3]) if len(sys.argv) > 3 else 3407
 
 CONFIG = {
     "run": RUN,
@@ -104,7 +109,7 @@ CONFIG = {
     "lr_scheduler": "cosine",
     "optim": "adamw_8bit",
     "weight_decay": 0.01,
-    "seed": 3407,
+    "seed": SEED,
     "chat_template": "gemma-4",
     "loss": "responses only (<|turn>model)",
     "assistant_turn": "content (fenced json) only; tool_calls dropped",
