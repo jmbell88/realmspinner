@@ -1,0 +1,145 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Step1",
+   "params": {
+    "size": [
+     2.3,
+     0.3,
+     1.1
+    ]
+   },
+   "translation": [
+    0.0,
+    0.15,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Step2",
+   "params": {
+    "size": [
+     1.71,
+     0.3,
+     0.7
+    ]
+   },
+   "translation": [
+    0.0,
+    0.45,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Step3",
+   "params": {
+    "size": [
+     1.12,
+     0.3,
+     0.35
+    ]
+   },
+   "translation": [
+    0.0,
+    0.75,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "Column",
+   "params": {
+    "size": [
+     0.35,
+     2.04,
+     0.35
+    ]
+   },
+   "translation": [
+    1.025,
+    1.02,
+    0.0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.47,
+    0.46,
+    0.44
+   ],
+   "name": "Column Stone",
+   "roughness": 0.85,
+   "uids": [
+    {
+     "$ref": "Step1"
+    },
+    {
+     "$ref": "Step2"
+    },
+    {
+     "$ref": "Step3"
+    },
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_material"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "mirror-copy",
+   "params": {
+    "axis": 0.0,
+    "offset": 0.0
+   }
+  },
+  "name": "clay_op"
+ },
+ {
+  "arguments": {
+   "uids": [
+    {
+     "$ref": "Column"
+    }
+   ]
+  },
+  "name": "clay_select"
+ },
+ {
+  "arguments": {
+   "name": "array-radial",
+   "params": {
+    "angle": 360.0,
+    "axis": 1.0,
+    "count": 8.0
+   }
+  },
+  "name": "clay_op"
+ }
+]

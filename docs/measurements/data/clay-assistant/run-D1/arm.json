@@ -1,0 +1,27 @@
+{
+  "built_card": "D:\\Projects\\Warlock\\training\\clay-assistant\\out\\run-B\\card.txt",
+  "built_card_sha256": "cfa3068767ab6fc0c48bc4ef94f224cc3315fac596a830bf23507c240206f760",
+  "card": "D:\\Projects\\Warlock\\training\\clay-assistant\\out\\run-B\\card.txt",
+  "card_sha256": "cfa3068767ab6fc0c48bc4ef94f224cc3315fac596a830bf23507c240206f760",
+  "differing_records": {
+    "train": 0,
+    "val": 0
+  },
+  "dropped_families": [
+    "composition",
+    "grounding"
+  ],
+  "expect_rev": null,
+  "source_dataset": "D:\\Projects\\Warlock\\training\\clay-assistant\\dataset",
+  "source_manifest_sha256": "fecc1b75c09088bc7053e0b2b55b493dda9c4e1361b6be179f06c85e69add5ea",
+  "splits": {
+    "train": {
+      "after": 2068,
+      "before": 2299
+    },
+    "val": {
+      "after": 241,
+      "before": 262
+    }
+  }
+}

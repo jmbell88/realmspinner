@@ -1,0 +1,117 @@
+[
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_a",
+   "params": {
+    "height": 0.4,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "translation": [
+    0.13,
+    0.2,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_b",
+   "params": {
+    "height": 0.4,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "translation": [
+    -0.13,
+    0.2,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_c",
+   "params": {
+    "height": 0.4,
+    "radius": 0.02,
+    "segments": 12
+   },
+   "translation": [
+    0,
+    0.2,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "tube",
+   "params": {
+    "height": 0.6,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    0,
+    0.4,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "objective",
+   "params": {
+    "height": 0.04,
+    "radius": 0.06,
+    "segments": 12
+   },
+   "translation": [
+    0,
+    0.62,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.55,
+    0.42,
+    0.16
+   ],
+   "metallic": 0.7,
+   "name": "Brass",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "leg_a"
+    },
+    {
+     "$ref": "leg_b"
+    },
+    {
+     "$ref": "leg_c"
+    },
+    {
+     "$ref": "tube"
+    },
+    {
+     "$ref": "objective"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

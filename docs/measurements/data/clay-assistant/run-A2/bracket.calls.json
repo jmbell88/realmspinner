@@ -1,0 +1,171 @@
+[
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "web",
+   "params": {
+    "size": [
+     0.15,
+     0.015,
+     0.03
+    ]
+   },
+   "translation": [
+    0,
+    0.0075,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_0",
+   "params": {
+    "height": 0.045,
+    "radius": 0.01
+   },
+   "translation": [
+    -0.065,
+    0.0075,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_1",
+   "params": {
+    "height": 0.045,
+    "radius": 0.01
+   },
+   "translation": [
+    0.065,
+    0.0075,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_2",
+   "params": {
+    "height": 0.045,
+    "radius": 0.01
+   },
+   "translation": [
+    -0.065,
+    0.0075,
+    0.03
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "bolt_hole_3",
+   "params": {
+    "height": 0.045,
+    "radius": 0.01
+   },
+   "translation": [
+    0.065,
+    0.0075,
+    0.03
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "kind": "difference",
+   "uids": [
+    {
+     "$ref": "web"
+    },
+    {
+     "$ref": "bolt_hole_0"
+    },
+    {
+     "$ref": "bolt_hole_1"
+    },
+    {
+     "$ref": "bolt_hole_2"
+    },
+    {
+     "$ref": "bolt_hole_3"
+    }
+   ]
+  },
+  "name": "clay_boolean"
+ },
+ {
+  "arguments": {
+   "generator": "box",
+   "name": "gusset",
+   "params": {
+    "size": [
+     0.06,
+     0.06,
+     0.15
+    ]
+   },
+   "translation": [
+    0.075,
+    0.03,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "rotation": [
+    0,
+    0,
+    90
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    0.5
+   ],
+   "translation": [
+    0,
+    0.03,
+    0.03
+   ],
+   "uid": {
+    "$ref": "gusset"
+   }
+  },
+  "name": "clay_transform"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.28,
+    0.29,
+    0.31
+   ],
+   "metallic": 0.8,
+   "name": "Dark Steel",
+   "roughness": 0.5,
+   "uids": [
+    {
+     "$ref": "web"
+    },
+    {
+     "$ref": "gusset"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

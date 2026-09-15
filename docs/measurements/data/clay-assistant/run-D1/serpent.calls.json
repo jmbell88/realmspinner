@@ -1,0 +1,217 @@
+[
+ {
+  "arguments": {
+   "generator": "sweep",
+   "name": "body",
+   "params": {
+    "depth": 1.1,
+    "outline": [
+     [
+      -0.1,
+      0.0
+     ],
+     [
+      0.1,
+      0.0
+     ],
+     [
+      -0.1,
+      0.12
+     ],
+     [
+      -0.05,
+      0.24
+     ],
+     [
+      -0.0,
+      0.36
+     ],
+     [
+      -0.05,
+      0.54
+     ],
+     [
+      0.0,
+      0.72
+     ],
+     [
+      0.05,
+      0.84
+     ],
+     [
+      0.1,
+      0.96
+     ]
+    ],
+    "sections": 1,
+    "taper": 0.35,
+    "twist": 0
+   },
+   "translation": [
+    0,
+    0.54,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "capsule",
+   "name": "head",
+   "params": {
+    "height": 0.11,
+    "radius": 0.12,
+    "rings": 5,
+    "segments": 14
+   },
+   "translation": [
+    0.35,
+    0.54,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "capsule",
+   "name": "tail",
+   "params": {
+    "height": 0.11,
+    "radius": 0.12,
+    "rings": 5,
+    "segments": 14
+   },
+   "translation": [
+    -0.35,
+    0.54,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_0",
+   "params": {
+    "height": 0.14,
+    "radius": 0.02,
+    "segments": 8
+   },
+   "rotation": [
+    0.0,
+    0.0,
+    65.0
+   ],
+   "translation": [
+    0.14,
+    0.21,
+    0.18
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_1",
+   "params": {
+    "height": 0.14,
+    "radius": 0.02,
+    "segments": 8
+   },
+   "rotation": [
+    0.0,
+    0.0,
+    65.0
+   ],
+   "translation": [
+    -0.14,
+    0.21,
+    0.18
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_2",
+   "params": {
+    "height": 0.14,
+    "radius": 0.02,
+    "segments": 8
+   },
+   "rotation": [
+    0.0,
+    0.0,
+    65.0
+   ],
+   "translation": [
+    0.14,
+    0.21,
+    -0.18
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_3",
+   "params": {
+    "height": 0.14,
+    "radius": 0.02,
+    "segments": 8
+   },
+   "rotation": [
+    0.0,
+    0.0,
+    65.0
+   ],
+   "translation": [
+    -0.14,
+    0.21,
+    -0.18
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.3,
+    0.45,
+    0.3
+   ],
+   "name": "Scales",
+   "roughness": 0.5,
+   "uids": [
+    {
+     "$ref": "body"
+    },
+    {
+     "$ref": "head"
+    },
+    {
+     "$ref": "tail"
+    },
+    {
+     "$ref": "leg_0"
+    },
+    {
+     "$ref": "leg_1"
+    },
+    {
+     "$ref": "leg_2"
+    },
+    {
+     "$ref": "leg_3"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

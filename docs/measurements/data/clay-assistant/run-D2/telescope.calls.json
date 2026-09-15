@@ -1,0 +1,137 @@
+[
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_a",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    -0.1,
+    0.25,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_b",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    0.1,
+    0.25,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "leg_c",
+   "params": {
+    "height": 0.5,
+    "radius": 0.012,
+    "segments": 12
+   },
+   "translation": [
+    0,
+    0.25,
+    0.1
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "tripod_head",
+   "params": {
+    "height": 0.15,
+    "radius": 0.03,
+    "segments": 16
+   },
+   "translation": [
+    0,
+    0.525,
+    0.05
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "telescope_tube",
+   "params": {
+    "height": 0.68,
+    "radius": 0.02,
+    "segments": 16
+   },
+   "translation": [
+    0,
+    0.84,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "generator": "cylinder",
+   "name": "objective",
+   "params": {
+    "height": 0.112,
+    "radius": 0.01,
+    "segments": 12
+   },
+   "translation": [
+    0,
+    1.136,
+    0
+   ]
+  },
+  "name": "clay_add_primitive"
+ },
+ {
+  "arguments": {
+   "color": [
+    0.65,
+    0.55,
+    0.35
+   ],
+   "metallic": 0.8,
+   "name": "Brass",
+   "roughness": 0.35,
+   "uids": [
+    {
+     "$ref": "leg_a"
+    },
+    {
+     "$ref": "leg_b"
+    },
+    {
+     "$ref": "leg_c"
+    },
+    {
+     "$ref": "tripod_head"
+    },
+    {
+     "$ref": "telescope_tube"
+    },
+    {
+     "$ref": "objective"
+    }
+   ]
+  },
+  "name": "clay_material"
+ }
+]

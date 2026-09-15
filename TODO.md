@@ -1744,6 +1744,12 @@ Run A's card on run B's rows scored 169.0. Neither displaced run A. So no
 trained model yet does better on master's card than run A does on its own. T5–T8
 build on T3's contract.
 
+**2026-09-15, a v1.1 training attempt ran three arms (A2, D1, D2) and is now
+paused by the user's choice.** `familiar_v1.0` (run A) stays the shipped model;
+none of the three displaced it. Numbers, the failure-accounting recomputation
+and what each arm found are in
+`docs/measurements/2026-09-15-clay-assistant-v1.1.md`.
+
 **Where it stands (2026-09-13, `feature/familiar`):** T0 (menu-bar status, bottom
 pane), T1 (owner-counted agent lanes, in-app session), T2 (Clay scratch preview,
 ghost, one-step Apply) and T4 (llama.cpp `b10948` and Unsloth Gemma 4 E2B Q8_0
