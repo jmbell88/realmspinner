@@ -20,6 +20,18 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar can take you somewhere, and can draft a brief in Create for you
+  to finish.** A message the router reads as "go there" asks the model to
+  pick one destination from a list the app builds from the command palette:
+  every mode, the Manual, the keyboard shortcuts, the tours, the layout
+  picker, the trash and each Settings page. The model is constrained to
+  that list or "none". The move is the palette command itself, so a mode
+  that is not ready is not entered: the reply gives the palette's own reason
+  instead. A message read as "make me a …" becomes a draft in Create: the
+  asset type and a short prompt are filled into the brief, and you land on
+  the Reference stage. Familiar never presses Generate, and a Create that is
+  still waiting on packs or weights is left untouched with the reason given.
+  An answer the model cannot make usable falls back to plain chat.
 - **Familiar decides what a message is for, and answers questions about
   Warlock from the Manual with links to the sections it used.** Every Send
   first goes to a short, frozen router prompt on the server's second slot,

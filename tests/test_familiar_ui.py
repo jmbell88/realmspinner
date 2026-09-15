@@ -336,6 +336,52 @@ def test_a_routed_build_in_clay_lands_as_a_ghost_preview():
     assert ctx.clay_view.previewed is not None
 
 
+# --- T8: navigate/create routes land as an acted-out door -------------
+
+
+def test_a_navigate_answer_moves_the_app_and_says_so_in_the_thread():
+    """An ``Answer.action`` of kind "navigate" must be acted out on the
+    frame thread by ``on_task_done`` (never on the worker thread that
+    produced it) -- the mode actually switches, and the sentence
+    ``familiar_doors.navigate`` returns lands in the thread, not the
+    (``None``) ``Answer.text`` it arrived with."""
+    ctx = _FakeCtx(mode="home")
+    answer = svc_familiar.Answer(
+        skill="navigate", text=None, action={"kind": "navigate", "target": "go:clay"}
+    )
+    done = Done(key=familiar_ui.CHAT_KEY, result=answer, tag={"thread_key": ("home", "")})
+
+    familiar_ui.on_task_done(ctx, done)
+
+    assert ctx.state.mode == "clay"
+    turns = ctx.familiar_threads.get(("home", ""))
+    assert turns[-1].role == "familiar"
+    assert "Clay" in turns[-1].text
+
+
+def test_a_draft_answer_opens_create_with_the_brief_filled():
+    """An ``Answer.action`` of kind "draft" must fill Create's own form and
+    move the stage, never submit -- landed the same way a navigate action
+    is, through ``on_task_done`` on the frame thread."""
+    ctx = _FakeCtx(mode="home")
+    ctx.state.form_2d = {}
+    answer = svc_familiar.Answer(
+        skill="create",
+        text=None,
+        action={"kind": "draft", "asset_type": "image", "prompt": "a lantern"},
+    )
+    done = Done(key=familiar_ui.CHAT_KEY, result=answer, tag={"thread_key": ("home", "")})
+
+    familiar_ui.on_task_done(ctx, done)
+
+    assert ctx.state.mode == "create"
+    assert ctx.state.form_2d["asset_type"] == "image"
+    assert ctx.state.form_2d["prompt"] == "a lantern"
+    turns = ctx.familiar_threads.get(("home", ""))
+    assert turns[-1].role == "familiar"
+    assert "Generate" in turns[-1].text
+
+
 def test_following_a_citation_opens_the_manual_at_its_section():
     """The click action behind a transcript's ``[n]`` link must raise the
     Manual overlay at exactly that citation's chapter/section -- driven

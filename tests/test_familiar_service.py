@@ -340,3 +340,127 @@ def test_a_refusal_during_routing_is_not_swallowed(monkeypatch):
         svc_familiar.ask(_FakeSvc(), "hello", mode="home", history=())
 
     assert excinfo.value.reason == "lease"
+
+
+# ---------------------------------------------------------------------------
+# T8: ``navigate``/``create`` routes. ``ask`` takes no ``destinations``/
+# ``asset_types`` keyword on the pre-T8 tree, so every test below fails with
+# a ``TypeError`` before its first assertion runs against the unmodified
+# code.
+# ---------------------------------------------------------------------------
+
+
+def test_a_navigate_route_asks_for_a_target_among_the_offered_destinations(monkeypatch):
+    """The navigate request itself must run on the skill slot (never the
+    router's own slot 0 -- that already answered "navigate"), with
+    ``response_format`` constrained to exactly the offered destinations plus
+    "none"."""
+    from warlock.studio.familiar import doors as doors_mod
+
+    destinations = (
+        doors_mod.Destination(key="go:clay", label="Go to Clay"),
+        doors_mod.Destination(key="manual", label="Open the manual"),
+    )
+    captured: dict = {}
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "navigate"}'
+        captured.update(slot=slot, sampling=sampling, response_format=response_format)
+        return '{"target": "go:clay"}'
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "open clay", mode="home", history=(), destinations=destinations
+    )
+
+    assert answer.skill == "navigate"
+    assert answer.action == {"kind": "navigate", "target": "go:clay"}
+    assert answer.text is None
+    assert captured["slot"] == router.SKILL_SLOT
+    assert captured["sampling"] == contract.SAMPLING["navigate"]
+    assert captured["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"schema": doors_mod.navigate_schema(("go:clay", "manual"))},
+    }
+
+
+def test_a_navigate_route_with_no_usable_target_falls_back_to_chat(monkeypatch):
+    """The model answering "none" (or garbage) must fall back to a plain
+    chat reply -- the same "don't act, just answer" contract an unbuilt
+    skill already keeps."""
+    from warlock.studio.familiar import doors as doors_mod
+
+    destinations = (doors_mod.Destination(key="go:clay", label="Go to Clay"),)
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "navigate"}'
+        if response_format is not None:
+            # The navigate request itself -- the model found nothing to name.
+            return '{"target": "none"}'
+        return "I'm not sure where that is."
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "take me somewhere", mode="home", history=(), destinations=destinations
+    )
+
+    assert answer.skill == "navigate"
+    assert answer.action is None
+    assert answer.text == "I'm not sure where that is."
+
+
+def test_a_create_route_returns_a_draft_action_not_a_submission(monkeypatch):
+    """A ``create`` route must hand back an action for the caller to draft,
+    never anything that looks like a submission (no ``calls``, no queued
+    job) -- drafting and submitting are two different presses."""
+    asset_types = (("image", "Image"), ("3d_model", "3D Model"))
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "create"}'
+        return '{"asset_type": "image", "prompt": "a lantern"}'
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    answer = svc_familiar.ask(
+        _FakeSvc(), "make a lantern picture", mode="home", history=(), asset_types=asset_types
+    )
+
+    assert answer.skill == "create"
+    assert answer.action == {"kind": "draft", "asset_type": "image", "prompt": "a lantern"}
+    assert answer.calls is None
+    assert answer.text is None
+
+
+def test_a_refusal_while_choosing_a_destination_is_not_swallowed(monkeypatch):
+    """A lease refusal raised while the *navigate* request itself is
+    answering must reach the caller as a ``FamiliarRefusal``, the same
+    contract the router's own request already keeps."""
+    from warlock.studio.familiar import doors as doors_mod
+
+    destinations = (doors_mod.Destination(key="go:clay", label="Go to Clay"),)
+
+    async def fake_chat(server, messages, *, slot, sampling, skill=None,
+                         expected_card_sha=None, response_format=None, transport=None):
+        if skill == "router":
+            return '{"skill": "navigate"}'
+        raise RuntimeError(
+            "Familiar cannot start while a GPU job holds the card -- "
+            "it will restart on your next message."
+        )
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.ask(
+            _FakeSvc(), "open clay", mode="home", history=(), destinations=destinations
+        )
+
+    assert excinfo.value.reason == "lease"

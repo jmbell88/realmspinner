@@ -112,6 +112,20 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # arithmetic that keeps this, plus the retrieval budget, under one
     # llama-server slot.
     "manual": {"temperature": 0.3, "top_k": 64, "top_p": 0.95, "max_tokens": 768},
+    # T8: greedy and starved for the same reason "router" is -- constrained
+    # decoding to one of a short enum plus "none" (``doors.navigate_schema``),
+    # so there is nothing for sampling to vary and no reason to let the model
+    # ramble past the JSON object. 24 rather than "router"'s 16: a destination
+    # key can be longer than a skill name (``settings:appearance``, a
+    # ``tour:<key>``), so the ceiling is generous rather than measured.
+    "navigate": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 24},
+    # Unmeasured, same caveat as "manual" above: no eval corpus for a
+    # create-draft turn exists yet. 400 tokens is well past what one JSON
+    # object with a <=1000-char prompt field needs -- generous rather than
+    # tight, because a caller (``familiar_doors.draft_in_create``) never
+    # submits this, so a slightly long reply costs latency, not a bad
+    # generation.
+    "create": {"temperature": 0.3, "top_k": 64, "top_p": 0.95, "max_tokens": 400},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
 ``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured

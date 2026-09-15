@@ -201,10 +201,28 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     tab_uid = _active_tab_uid(ctx)
     scene = _capture_scene(ctx, tab_uid) if mode == "clay" else None
 
+    # T8: computed here, on the frame thread, for ``_capture_scene``'s own
+    # reason -- ``familiar_doors.destinations`` reads ``palette.commands``,
+    # which reads ``ctx.state`` (the mode gate, the active document), so the
+    # list the router is offered has to describe *this* frame, not whatever
+    # it is by the time a worker thread gets around to it.
+    from . import create_assets, familiar_doors
+
+    destinations = familiar_doors.destinations(ctx)
+    asset_types = create_assets.ASSET_TYPE_OPTIONS
+
     from ..service import familiar as svc_familiar
 
     def run() -> Any:
-        return svc_familiar.ask(ctx.svc, prompt, mode=mode, history=history, scene=scene)
+        return svc_familiar.ask(
+            ctx.svc,
+            prompt,
+            mode=mode,
+            history=history,
+            scene=scene,
+            destinations=tuple(destinations),
+            asset_types=asset_types,
+        )
 
     tag = {"thread_key": key, "tab_uid": tab_uid, "scene_captured": scene is not None}
     if not ctx.submit(CHAT_KEY, run, tag=tag):
@@ -282,7 +300,15 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # an explicit Build's own result, calls and all.
                 _run_build_preview(ctx, ui, tag.get("tab_uid", ""), result.calls)
                 return
-            if isinstance(result, Answer):
+            if isinstance(result, Answer) and result.action is not None:
+                # T8: a navigate/create route -- act it out here, on the
+                # frame thread (``familiar_doors`` reaches the palette,
+                # ``state.set_mode`` and Create's form, none of which a
+                # worker thread may touch), then say what happened (or why
+                # not) in the thread the same way every other reply does.
+                text = _run_door(ctx, result.action)
+                citations = ()
+            elif isinstance(result, Answer):
                 text, citations = result.text, result.citations
             else:
                 # Defensive, not exercised by a real ``ask`` call: a bare
@@ -310,6 +336,27 @@ def on_task_done(ctx: Any, done: Any) -> None:
         ui.message = None
         _run_build_preview(ctx, ui, tag.get("tab_uid", ""), calls)
         return
+
+
+def _run_door(ctx: Any, action: dict[str, Any]) -> str:
+    """T8: act out a routed ``navigate``/``create`` decision. -> the
+    sentence the transcript should show.
+
+    A shape neither of :func:`familiar_doors.navigate`/:func:`draft_in_create`
+    itself refuses (an ``action`` this build does not recognise -- there is
+    none today, but a future skill's own action kind must not crash the
+    frame loop reading a reply that landed) answers plainly rather than
+    raising."""
+    from . import familiar_doors
+
+    kind = action.get("kind")
+    if kind == "navigate":
+        return familiar_doors.navigate(ctx, str(action.get("target") or ""))
+    if kind == "draft":
+        return familiar_doors.draft_in_create(
+            ctx, str(action.get("asset_type") or ""), str(action.get("prompt") or "")
+        )
+    return "I'm not sure what to do with that."
 
 
 def _clear_preview(ui: FamiliarUIState) -> None:

@@ -235,22 +235,27 @@ Familiar** row that expands into a short conversation: a scrollback of what you 
 said, an input line, and **Send**. The per-item readouts that used to sit here (workspace, document,
 tool, zoom, queue, health) moved to the menu bar's own right-aligned group, described above.
 
-Familiar reads a sent message before answering it: a short router decision picks what the message is
-actually asking for — build something in Clay, edit what's already there, a question about Warlock
-itself, or just conversation — and answers accordingly, without you having to say which. A question
-about Warlock (**"how do I export a GLB"**, **"what does the band setting do"**) is answered from the
-Manual itself, with a small **[1]**, **[2]**… link under the reply for each section it actually used;
-clicking one opens the Manual at that section. If the Manual has nothing on the question, Familiar says
-so plainly rather than guessing. A skill the router recognises but this build does not act on yet
-(character, create, navigate) still just answers in chat, honestly, rather than pretending nothing was
-asked. In **Clay**, with a document open, the expanded pane also offers **Build**: describe what to
-add and Familiar proposes it as a translucent ghost over your document, with **Apply** and **Discard**
-beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
-decides that is what you meant. Building needs the trained Clay model (`familiar_v1.0`); until that
-model replaces the testing pin, a Clay build answers with a plain sentence saying so rather than a
-ghost, however it was asked for. Each document tab keeps its own conversation, the same way it keeps
-its own undo stack — closing a tab ends its thread, and every other mode without a document of its own
-shares one Studio-wide thread.
+Familiar reads a sent message before answering it: a short router decision picks what the message is actually asking
+for — build something in Clay, edit what's already there, a question about Warlock itself, or just conversation — and
+answers accordingly, without you having to say which. A question about Warlock (**"how do I export a GLB"**, **"what
+does the band setting do"**) is answered from the Manual itself, with a small **[1]**, **[2]**… link under the reply
+for each section it actually used; clicking one opens the Manual at that section. If the Manual has nothing on the
+question, Familiar says so plainly rather than guessing. Familiar can also take you somewhere — say "open Mason" or
+"take me to Settings" and it switches modes, opens the right Settings page, opens the Manual, a tour, the keyboard
+shortcuts list or the workspace layout picker, whichever you asked for — and it can draft a brief in **Create**: say
+"make me a reference image of a lantern" and it fills in the asset type and prompt and takes you to Create's Reference
+stage, exactly where typing it yourself would have left you. It never presses **Generate** for you; you check the
+brief and do that yourself. Neither door goes anywhere or does anything you could not already reach by hand — a mode
+that is not ready yet says why, the same sentence its greyed rail item shows, and a request to draft in Create when
+Create itself is not ready says that instead of opening a form that could not generate anything. A skill the router
+recognises but this build does not act on yet (a character, specifically) still just answers in chat, honestly, rather
+than pretending nothing was asked. In **Clay**, with a document open, the expanded pane also offers **Build**:
+describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
+**Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
+decides that is what you meant. Building needs the trained Clay model (`familiar_v1.0`); until that model replaces the
+testing pin, a Clay build answers with a plain sentence saying so rather than a ghost, however it was asked for. Each
+document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and
+every other mode without a document of its own shares one Studio-wide thread.
 
 The keyboard shortcut list is `Ctrl+/`, **Help → Keyboard shortcuts**, or **Keyboard shortcuts** in
 the command palette, and it is reproduced in [Keyboard shortcuts](39-shortcuts.md).

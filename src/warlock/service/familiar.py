@@ -32,7 +32,7 @@ from typing import Any
 
 from .. import models
 from ..pipelines import llama, llama_client
-from ..studio.familiar import contract, retrieval, router
+from ..studio.familiar import contract, doors, retrieval, router
 from .errors import ServiceError
 
 #: The fixed vocabulary a :class:`FamiliarRefusal` names itself with. Every
@@ -212,6 +212,14 @@ class Answer:
     text: str | None
     citations: tuple[retrieval.Citation, ...] = ()
     calls: list[dict] | None = None
+    #: T8: what a routed ``navigate``/``create`` decided to *do*, for the
+    #: caller (``studio/familiar_doors.py``, on the frame thread) to act out
+    #: -- ``{"kind": "navigate", "target": <destination key>}`` or
+    #: ``{"kind": "draft", "asset_type": ..., "prompt": ...}``. ``None`` for
+    #: every other skill, including a navigate/create call that fell back to
+    #: chat because the model named nothing usable -- that case answers with
+    #: *text* instead, exactly like an unbuilt skill does.
+    action: dict[str, Any] | None = None
 
 
 #: The retrieval index is expensive enough to build (~0.37s over 840 chunks,
@@ -263,6 +271,73 @@ def _ask_manual(svc: Any, prompt: str) -> Answer:
     return Answer(skill="manual", text=reply, citations=contract.cited(reply, citations))
 
 
+def _ask_navigate(
+    svc: Any, prompt: str, history: tuple[Any, ...], destinations: tuple[doors.Destination, ...]
+) -> Answer:
+    """A ``navigate`` route: ask which of *destinations* the message means,
+    then hand back an :attr:`Answer.action` for the caller to act out --
+    never an act itself, since this module never reaches the palette or
+    ``state`` (the offline/layering invariant: ``service/`` acts through
+    what a caller hands it, the acting half stays at studio level, see
+    ``studio/familiar_doors.py``'s own docstring).
+
+    Falls back to :func:`chat_reply` when the model names nothing usable
+    (``doors.parse_target`` returned ``None``) -- the same "don't act, just
+    answer" contract :func:`~.router.parse_route` already keeps for the
+    router itself.
+    """
+    keys = tuple(d.key for d in destinations)
+    reply = _call(
+        svc,
+        doors.build_navigate_messages(prompt, destinations),
+        skill=None,
+        sampling=contract.SAMPLING["navigate"],
+        expected_card_sha=None,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"schema": doors.navigate_schema(keys)},
+        },
+    )
+    target = doors.parse_target(reply, keys)
+    if target is None:
+        return Answer(skill="navigate", text=chat_reply(svc, prompt, history))
+    return Answer(skill="navigate", text=None, action={"kind": "navigate", "target": target})
+
+
+def _ask_create(
+    svc: Any, prompt: str, history: tuple[Any, ...], asset_types: tuple[tuple[str, str], ...]
+) -> Answer:
+    """A ``create`` route: ask for an asset type and a short prompt among
+    *asset_types* (``create_assets.ASSET_TYPE_OPTIONS``, handed in by the
+    caller -- see :func:`ask`'s own docstring for why this module never
+    imports ``create_assets`` itself), then hand back an :attr:`Answer.action`
+    for the caller to draft, never submit.
+
+    Falls back to :func:`chat_reply` when the model's reply cannot be
+    trusted as a draft (``doors.parse_draft`` returned ``None``), the same
+    contract :func:`_ask_navigate` keeps for a routed navigation."""
+    reply = _call(
+        svc,
+        doors.build_create_messages(prompt, asset_types),
+        skill=None,
+        sampling=contract.SAMPLING["create"],
+        expected_card_sha=None,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"schema": doors.create_schema(asset_types)},
+        },
+    )
+    draft = doors.parse_draft(reply, asset_types)
+    if draft is None:
+        return Answer(skill="create", text=chat_reply(svc, prompt, history))
+    asset_type, drafted_prompt = draft
+    return Answer(
+        skill="create",
+        text=None,
+        action={"kind": "draft", "asset_type": asset_type, "prompt": drafted_prompt},
+    )
+
+
 def ask(
     svc: Any,
     prompt: str,
@@ -270,6 +345,8 @@ def ask(
     mode: str,
     history: tuple[Any, ...],
     scene: dict[str, Any] | None = None,
+    destinations: tuple[doors.Destination, ...] = (),
+    asset_types: tuple[tuple[str, str], ...] = (),
 ) -> Answer:
     """Route *prompt* to a skill, then answer it.
 
@@ -286,6 +363,17 @@ def ask(
     :func:`chat_reply`, with :attr:`Answer.skill` still naming what the
     router picked so a caller can tell "answered as chat" from "no skill
     wanted this at all".
+
+    T8: ``navigate``/``create`` are the same shape, one step removed --
+    *destinations*/*asset_types* are handed in by the caller rather than
+    read here, because building either list touches studio-level machinery
+    (the palette's own commands, ``app_settings.CATEGORIES``,
+    ``create_assets``) this module must not import (the offline/layering
+    invariant -- see ``studio/familiar_doors.py``'s own docstring for where
+    that acting half actually lives). Empty (the caller's default, and what
+    every pre-T8 call site still passes) means "nothing to route to", so
+    both fall back to plain chat exactly like an unbuilt skill does, rather
+    than asking the model to choose among zero options.
     """
     route_reply = _call(
         svc,
@@ -309,5 +397,11 @@ def ask(
         # on Clay tool calls at all is exactly as unable to edit them.
         calls = clay_build(svc, prompt, scene)
         return Answer(skill=skill, text=None, calls=calls)
+
+    if skill == "navigate" and destinations:
+        return _ask_navigate(svc, prompt, history, destinations)
+
+    if skill == "create" and asset_types:
+        return _ask_create(svc, prompt, history, asset_types)
 
     return Answer(skill=skill, text=chat_reply(svc, prompt, history))

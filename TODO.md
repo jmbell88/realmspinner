@@ -2034,6 +2034,23 @@ states~~ **Built 2026-09-14:**
   all. Nothing has run this against a real server yet. T9's smoke test is
   the first place it will, and a routing eval corpus does not exist.
 
+~~T8 navigation and Create-draft doors~~ **Built 2026-09-14 (before T7, which
+reuses the draft door):**
+- `studio/familiar/doors.py` is pure: the schemas, messages and parsers.
+- `studio/familiar_doors.py` acts, on the frame thread.
+  - `destinations(ctx)` is derived from `palette.commands` (`go:*`, `tour:*`,
+    manual, shortcuts, workspace-layout, show-trash) plus
+    `settings:<category>`.
+  - `navigate` runs the command only when its own `enabled` allows and
+    otherwise returns its `why`.
+  - `draft_in_create` checks `mode_gate("create")`, fills `form_2d` the way
+    the brief does, goes to Reference, and never submits. It takes
+    `character_fields` for T7.
+- `ask` receives the destination list and the asset types from the caller,
+  so `service` imports no studio registry. An unusable answer falls back to
+  chat.
+- Unmeasured: whether base Gemma picks the right destination.
+
 **Do, in order, from master:** T7
 character skill with a plan card; T8 navigation and Create-draft doors; T9 GPU
 smoke test plus a dated VRAM measurement before `vram.FAMILIAR_GIB` loses its
