@@ -408,6 +408,15 @@ class LlamaServer:
             winjob.track(self._proc.pid, "llama-server")
             self._claim_port(self._proc.pid)
             self._spawned_at = time.monotonic()
+            # Stamped at spawn, not only once /health answers 200. ``running``
+            # is true from the moment the child exists, and
+            # ``queue.Worker._maybe_evict_idle`` compares ``last_used`` against
+            # ``idle_timeout`` -- so with the 0.0 the constructor leaves, a
+            # cold start still loading its weights (503s on /health) read as
+            # idle since boot and was stopped mid-load. That happened on the
+            # first real run in the app, 2026-09-14: spawned 21:18:10.652,
+            # evicted 21:18:13.399.
+            self.last_used = self._spawned_at
             log.info("llama-server spawned as pid %d", self._proc.pid)
             self._reader = threading.Thread(
                 target=self._pump, name="llama-server-stdout", daemon=True

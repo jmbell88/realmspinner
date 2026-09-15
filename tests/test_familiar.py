@@ -277,6 +277,71 @@ def test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted(tmp_p
     assert stopped == []
 
 
+@pytest.mark.asyncio
+async def test_a_cold_start_still_loading_its_weights_is_not_evicted_as_idle(
+    tmp_path, monkeypatch
+):
+    """The first real run in the app, 2026-09-14: llama-server spawned at
+    21:18:10.652, answered /health with 503 while it loaded the Q8_0 weights,
+    and ``Worker._maybe_evict_idle`` stopped it at 21:18:13.399. ``running`` is
+    true from the moment the child exists, but ``last_used`` was only written
+    once /health answered 200 -- so it still held the constructor's 0.0 and a
+    server mid-load read as idle since boot. The idle sweep here runs at
+    exactly that moment, between a 503 and the 200 that would follow."""
+    import httpx
+
+    from warlock.config import Config
+    from warlock.db import JobStore
+    from warlock.queue import Worker
+
+    srv = _srv(tmp_path, idle_timeout=300.0)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    srv._resolve_weights().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"")
+    monkeypatch.setattr(
+        llama_mod.fetch,
+        "verify_manifest",
+        lambda dest: fetch.Verification(dest=dest, status=fetch.VERIFY_UNKNOWN),
+    )
+    monkeypatch.setattr(srv, "_check_vram", lambda: None)
+    monkeypatch.setattr(llama_mod, "_port_in_use", lambda port: False)
+    monkeypatch.setattr(llama_mod.winjob, "assign", lambda pid: None)
+    monkeypatch.setattr(llama_mod.winjob, "track", lambda pid, name: None)
+    monkeypatch.setattr(srv, "_claim_port", lambda pid: None)
+    monkeypatch.setattr(srv, "_pump", lambda: None)
+    fake_proc = type("P", (), {"pid": 4242, "returncode": None, "poll": lambda self: None})()
+    monkeypatch.setattr(llama_mod.subprocess, "Popen", lambda *a, **k: fake_proc)
+
+    config = Config(
+        data_dir=tmp_path / "assets", db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe", trellis_models_dir=tmp_path / "models",
+        t2i_model_root=tmp_path / "t2i-models",
+    )
+    worker = Worker(config, JobStore(config.db_path))
+    worker.familiar = srv
+    stopped = []
+    monkeypatch.setattr(srv, "stop", lambda: stopped.append(True))
+
+    health_calls = []
+
+    async def fake_get(self, url, **kwargs):
+        health_calls.append(url)
+        if len(health_calls) == 1:
+            # Still loading: the sweep runs now, the way the worker's own
+            # idle tick did in the app.
+            await worker._maybe_evict_idle()
+            return httpx.Response(503)
+        return httpx.Response(200)
+
+    monkeypatch.setattr(llama_mod.httpx.AsyncClient, "get", fake_get)
+
+    await srv.ensure_started()
+
+    assert len(health_calls) >= 2
+    assert stopped == [], "a server still loading its weights was evicted as idle"
+
+
 def test_shutdown_stops_familiar_and_removes_its_key_and_owner_files(tmp_path, monkeypatch):
     """A clean app exit used to stop trellis and unload SDXL but never touch
     ``self.familiar`` -- only idle eviction or row deletion did. ``stop()`` is

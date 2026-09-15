@@ -20,6 +20,15 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **Familiar's server is no longer stopped while it is still starting.** The
+  first real run in the app died about three seconds after launch: the
+  server was loading its weights and answering "not ready yet", and the
+  queue's idle sweep stopped it as if it had sat unused since boot. The
+  sweep compares a last-used time against the five-minute idle limit, and
+  that time was only set once the server reported ready, so a server mid-load
+  still carried its starting value of zero. It is now set the moment the
+  server starts. A test runs the idle sweep during a cold start, between a
+  not-ready answer and the ready one, and fails on the old code.
 - **Ask Familiar for a character and it shows a plan before anything is
   made.** The model turns the request into a species from the family
   registry, plus any movements, directions, size or name you actually asked
