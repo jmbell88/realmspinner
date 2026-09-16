@@ -50,9 +50,9 @@ than smoothed over:
   document, which is where most of the refusals below come from. The model built the telescope and the colonnade in **one**
   document (verified by replay: 20 objects, exactly the two saved files'
   9 + 11), and the operator split it by hand when saving.
-- **Blindness to call counts is not claimed.** The operator ran the sessions,
-  and nothing on record says the call counts were out of view while grading,
-  so this document cannot assert rule 3's condition.
+- **The grades were blind to call counts.** By the operator's account no
+  counts were tracked during the review, so rule 3's condition holds. The
+  counts in this document were computed afterwards, for the write-up.
 
 Each graded document's extent in the transcript (line numbers as
 `agent_bench.py --show` prints them), established by replaying each slice in a
@@ -176,9 +176,10 @@ first finding.
 ### P43's five questions
 
 The operator asked for these to be drafted from transcript evidence rather than
-left blank. The first answer opens with the operator's own verdict; everything
-after it, and the other four answers, remain a draft from the transcript that
-the operator has not corrected. No sentence here moves a grade.
+left blank. Three of them now open with the operator's own words, in italics;
+what follows each, and the whole of the other two (where it stopped, plan or
+flailing), is drawn from the transcript and uncorrected. No sentence here
+moves a grade.
 
 - **Did it build the subject, or something else it found easier?** In the
   operator's words: *only the serpent creature was unreadable — the rest you
@@ -191,24 +192,29 @@ the operator has not corrected. No sentence here moves a grade.
   serpent is something easier**: `clay_add_figure(key="quadruped")` and twenty
   preset parts moved around. It used no `sweep`, no `tube` and no taper along a
   path, which is the one thing the `hard` class exists to ask for.
-- **Which refusals could it not have avoided?** None demonstrated. Three can't
-  be diagnosed from the file (see the table).
+- **Which refusals could it not have avoided?** In the operator's words: *the
+  model refused only twice, and both times because it did not know the
+  intention was to build the models in Clay.* Those are the model declining in
+  conversation, which the transcript does not record, and they are not the
+  tool-call refusals in the table above. From the transcript, no tool-call
+  refusal was shown to be unavoidable, and three can't be diagnosed.
 - **Where did it stop — surface or patience?** Every document ended on a
   render, not a refusal. The serpent ended after five renders, three
   repositioning batches and a `shade-smooth`. It never reached the part of the
   surface built for its shape, so this sitting does not show that surface
   running out.
-- **Is there a shape in the corpus this surface cannot express?** No evidence
-  either way for the one that matters. A profile swept straight works (the
-  colonnade). A body tapering along a curved path was never attempted.
+- **Is there a shape in the corpus this surface cannot express?** In the
+  operator's words: *the shapes were fine except the serpent creature, which
+  looked more like a balloon animal than a serpent.* From the transcript, the serpent
+  was assembled from the quadruped figure preset's parts, and a body tapering
+  along a curved path was never attempted. This sitting shows the
+  model avoided that shape, not that the surface cannot build it.
 - **Plan or flailing?** The chair and the colonnade read as a plan executed in
   one batch. The bracket and the telescope are built part by part, with renders
   between. The serpent reads as iterative adjustment of a preset. The full first
   pass also worked, by the operator's account, but it was never reviewed or
   graded, so it adds nothing to the verdict.
 
-**Still unconfirmed:** whether the grades were given without the call counts
-in view (rule 3), so blindness stays unclaimed.
 
 ## Verdict
 

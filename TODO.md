@@ -1348,8 +1348,10 @@ on record rather than three stages of "not mine".
   or `tube`, so the tapering-along-a-path question is still unanswered. Three
   findings built the same day: the recorder keeps refusal messages, `--serve`
   keeps its home, and a missing `uid` is refused as missing. Driven by Sonnet 5
-  with high thinking; in the operator's words only the serpent was unreadable.
-  The other four question answers stay a transcript-evidence draft.
+  with high thinking, graded blind to call counts; in the operator's words only
+  the serpent was unreadable, "more like a balloon animal than a serpent", and
+  the model's only two refusals came from not knowing the aim was to build in
+  Clay.
 
 - **Open findings F1–F11.** Closed 2026-09-15, and the section deleted as the
   file's rule says: every entry was built, and git holds each one's text. The
