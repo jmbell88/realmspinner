@@ -17,8 +17,8 @@ programme and demands nothing of a rerun.
 
 ## What is under test
 
-The Clay tool surface as shipped at `0f2bdafe`, driven by Claude through a
-Claude Code MCP client connected to `uv run python scripts/agent_bench.py
+The Clay tool surface as shipped at `0f2bdafe`, driven by Claude Sonnet 5 with
+high thinking, through a Claude Code MCP client connected to `uv run python scripts/agent_bench.py
 --serve`, with the bridge on and the recorder writing. No tool, tool
 description or catalogue was altered for the sitting. The catalogue includes
 the ten `character_*` tools, which no corpus subject asks for; P43's own
@@ -41,8 +41,9 @@ than smoothed over:
 - **One recorded file, two complete passes.** The transcript holds 108 calls:
   lines 1–63 attempt all five subjects, and lines 64–108 attempt all five
   again. **Only the second pass was graded.** The first is reported below as a
-  discarded run, and nothing in it contributes to a grade. The file does not
-  say why there were two.
+  discarded run, and nothing in it contributes to a grade. The operator's
+  account: both passes worked, but the first was never reviewed in the app;
+  the second was, and that review is what was graded.
 - **Documents were separated inside one session, not by sessions.** Between
   subjects the agent's document was closed (by the operator, as far as the
   file can show), and the agent's next call landed on a session with no
@@ -172,13 +173,17 @@ first finding.
    fix_arguments`.
    `tests/test_agent_clay.py::test_a_call_with_no_uid_is_told_to_give_one_rather_than_that_uid_none_does_not_exist`.
 
-### P43's five questions — DRAFT, from transcript evidence, for the operator to correct
+### P43's five questions
 
-The operator asked for these to be drafted rather than left blank. None of this
-is yet in the operator's own words, and no sentence here moves a grade.
+The operator asked for these to be drafted from transcript evidence rather than
+left blank. The first answer opens with the operator's own verdict; everything
+after it, and the other four answers, remain a draft from the transcript that
+the operator has not corrected. No sentence here moves a grade.
 
-- **Did it build the subject, or something else it found easier?** Four of the
-  five built the subject as briefed. The bracket's holes are two cylinders
+- **Did it build the subject, or something else it found easier?** In the
+  operator's words: *only the serpent creature was unreadable — the rest you
+  could tell what they were.* From the transcript, four of the five built the
+  subject as briefed. The bracket's holes are two cylinders
   subtracted from the plate, and its gusset is a `sweep`. The colonnade's
   column is a 48-point fluted `sweep` joined to a plinth, a capital and an
   abacus in one batch, then arrayed radially into eight; the model first tried that sweep as a scratch
@@ -198,12 +203,12 @@ is yet in the operator's own words, and no sentence here moves a grade.
   colonnade). A body tapering along a curved path was never attempted.
 - **Plan or flailing?** The chair and the colonnade read as a plan executed in
   one batch. The bracket and the telescope are built part by part, with renders
-  between. The serpent reads as iterative adjustment of a preset. The file does
-  not explain why a full first pass exists.
+  between. The serpent reads as iterative adjustment of a preset. The full first
+  pass also worked, by the operator's account, but it was never reviewed or
+  graded, so it adds nothing to the verdict.
 
-**Still owed by the operator:** the exact model version (the transcript does not
-record the client), why there were two passes, and whether the grades were
-given without the call counts in view.
+**Still unconfirmed:** whether the grades were given without the call counts
+in view (rule 3), so blindness stays unclaimed.
 
 ## Verdict
 

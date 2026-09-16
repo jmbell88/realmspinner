@@ -1347,9 +1347,9 @@ on record rather than three stages of "not mine".
   serpent was built from the quadruped figure preset and never touched `sweep`
   or `tube`, so the tapering-along-a-path question is still unanswered. Three
   findings built the same day: the recorder keeps refusal messages, `--serve`
-  keeps its home, and a missing `uid` is refused as missing. The five-question
-  answers in that document are a draft the operator still owes a correction
-  pass on, with the model version and why the file holds two passes.
+  keeps its home, and a missing `uid` is refused as missing. Driven by Sonnet 5
+  with high thinking; in the operator's words only the serpent was unreadable.
+  The other four question answers stay a transcript-evidence draft.
 
 - **Open findings F1–F11.** Closed 2026-09-15, and the section deleted as the
   file's rule says: every entry was built, and git holds each one's text. The
