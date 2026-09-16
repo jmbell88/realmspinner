@@ -485,6 +485,22 @@ def test_unknown_template_presets_raise():
         rigging.preset_poses("not-a-template")
 
 
+def test_the_deformation_battery_declares_delta_space():
+    """The 2026-09-16 QA sheet finding: templates/deform_qa/humanoid.json had
+    no top-level ``space``, so ``_load_pose_library`` dropped it silently
+    (unlike ``parse_clip_library``, which has always read the same field off
+    a clip library) and every deform-QA cell rendered in the pose editor's
+    ``node`` frame regardless. Broken specifically on a *measured* rig (a
+    real render of Quaternius's Superhero Male showed the squat folding the
+    legs up behind the head and "arms overhead" pointing the arms straight
+    forward) -- see blender_worker.POSE_SPACES for why a node-local value
+    bakes in the rest orientation of the skeleton it was authored against."""
+    poses = rigging.deform_battery("humanoid")
+    assert poses, "the humanoid battery should not be empty"
+    for pose in poses:
+        assert pose.get("space") == "delta", f"{pose['name']!r} has no delta space"
+
+
 # --- clip libraries -----------------------------------------------------
 
 

@@ -20,6 +20,14 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **A rig's deformation review sheet shows the poses its labels name.** On a
+  rig whose joints were measured off the mesh, the squat folded the legs up
+  behind the head, "arms overhead" pointed the arms forward, and the 90° knee
+  bent backward. The poses were stored in the wrong rotation frame, and the
+  knee signs were inverted as well. They now use the frame the Troupe clips
+  use. The P4 sitting found this on an authored humanoid, and the same
+  sitting judged that the palette ramp works at sprite scale
+  (`docs/measurements/2026-09-16-p4-authored-humanoid-ramp-verdict.md`).
 - **An agent that forgets which object it means is told so.** A Clay tool
   called with no `uid` used to answer "no object with uid None." and suggest
   re-reading the scene, which could not help. It now says "give a value for

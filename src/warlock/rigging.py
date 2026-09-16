@@ -272,9 +272,18 @@ def _load_pose_library(
     for path in sorted(directory.glob("*.json")):
         try:
             raw = _read_json_capped(path, MAX_TEMPLATE_BYTES)
+            # The frame the whole file's poses are authored in -- the same
+            # top-level field ``parse_clip_library`` reads,
+            # and the same reason: a battery authored as deltas from rest
+            # says so once, for every pose, rather than per bone. Left off
+            # a row entirely when it is the default, so a preset file with
+            # no opinion renders exactly as it always has.
+            space = str(raw.get("space") or "node")
             rows = []
             for i, pose in enumerate(raw["poses"]):
                 row = {"name": str(pose["name"]), "bones": pose["bones"]}
+                if space != "node":
+                    row["space"] = space
                 if with_ids:
                     # A synthetic id, and only where the library is rendered
                     # rather than offered: a sheet row is keyed by (pose id,

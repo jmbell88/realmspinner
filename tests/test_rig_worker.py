@@ -779,6 +779,29 @@ async def test_every_battery_row_is_posed_rather_than_the_first_one_four_times(
     await worker.shutdown()
 
 
+async def test_the_deformation_battery_renders_in_delta_space(worker, monkeypatch):
+    """The 2026-09-16 QA sheet finding: ``_deform_qa`` built every cell with
+    no ``"space"`` key at all, so the battery rendered in the pose editor's
+    ``node`` frame no matter what templates/deform_qa/humanoid.json declared
+    -- broken on a *measured* rig, the same way a node-local clip would be
+    (see rigging.deform_battery and blender_worker.POSE_SPACES). ``_sheet``
+    already threads a per-cell ``pose_space`` this way in ``_q_rig.py``;
+    this is the battery's own copy of that wiring."""
+    calls = _fake_worker_run(monkeypatch)
+    source = _mesh_job(worker)
+    rig_id = worker.store.create("rig", None, {"source_job": source})
+
+    worker.start()
+    await _wait_until(lambda: worker.store.get(rig_id)["status"] == "done")
+
+    cells = calls.sheets[0]["spec"]["cells"]
+    assert cells, "the battery should have rendered at least one cell"
+    assert all(c.get("pose_space") == "delta" for c in cells), (
+        "every deform-QA cell must render in delta space"
+    )
+    await worker.shutdown()
+
+
 async def test_a_battery_that_fails_never_fails_the_rig(worker, monkeypatch):
     """Log and swallow, the ``_audit_mesh`` rule: the rig is already published,
     and a review render is the improvement nobody asked for."""

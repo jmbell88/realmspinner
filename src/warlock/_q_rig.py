@@ -260,6 +260,13 @@ class RigOps:
             yaws=queue_mod.DEFORM_QA_YAWS,
         )
         bones = {(p["id"], 0): p["bones"] for p in poses}
+        # Per pose, the same way ``_sheet`` builds ``spaces`` from its own
+        # records in this file: the battery is authored as deltas
+        # from rest (see templates/deform_qa/humanoid.json's ``space``), and
+        # dropping it here left every cell rendering in the pose editor's
+        # ``node`` frame instead -- broken on a ``measured`` rig, the
+        # 2026-09-16 QA sheet finding.
+        spaces = {(p["id"], 0): p["space"] for p in poses if p.get("space")}
         cells = [
             {
                 "index": c.index,
@@ -267,6 +274,11 @@ class RigOps:
                 "pose": c.pose,
                 "frame": c.frame,
                 "bones": bones.get((c.pose, c.frame)) or {},
+                **(
+                    {"pose_space": space}
+                    if (space := spaces.get((c.pose, c.frame)))
+                    else {}
+                ),
             }
             for c in layout.cells
         ]

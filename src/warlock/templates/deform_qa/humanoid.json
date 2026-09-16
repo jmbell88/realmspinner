@@ -1,26 +1,27 @@
 {
   "template": "humanoid",
-  "comment": "The deformation battery: the poses a rig is reviewed in, not poses anybody would ship. Same format and the same convention as templates/poses/*.json -- local joint rotations, XYZW, the order the pose editor saves -- because they go through the same sheet pipeline and the same op_sheet renderer. Chosen to put every joint through the range where a bad weight map shows: hips and knees folded, shoulders at their limit, elbows and knees at a right angle, and the spine twisted about its own axis. Symmetric rows carry L and R as exact mirrors (x, -y, -z, w), which is what rigging.mirror_quaternion means and what the tests check.",
+  "space": "delta",
+  "comment": "The deformation battery: the poses a rig is reviewed in, not poses anybody would ship. Same format as templates/poses/*.json -- local joint rotations, XYZW -- but space=delta, like templates/clips/humanoid.json: each value is a rotation from the bone's own rest orientation (blender_worker.POSE_SPACES), not the pose editor's node-local frame. That is load-bearing here specifically because the battery is what a *measured* rig (joints fit to the mesh, not to a canonical bbox) is reviewed in, and a node-local value bakes in the rest orientation of the skeleton it was authored against -- see tests/test_clip_library_poses.py's docstring for the sign convention this file follows (negative thigh/upper_arm X = forward/up flexion, positive shin X = knee flexion, positive spine X = forward lean). Chosen to put every joint through the range where a bad weight map shows: hips and knees folded, shoulders at their limit, elbows and knees at a right angle, and the spine twisted about its own axis. Symmetric rows carry L and R as exact mirrors (x, -y, -z, w), which is what rigging.mirror_quaternion means and what the tests check -- a pure-X pose (this file's legs and squat spine) is its own mirror, so L and R carry the same quaternion.",
   "poses": [
     {
       "name": "squat",
       "bones": {
-        "spine": [0.0872, 0.0, 0.0, 0.9962],
-        "thigh.L": [0.5, 0.0, 0.0, 0.8660],
-        "thigh.R": [0.5, 0.0, 0.0, 0.8660],
-        "shin.L": [-0.7071, 0.0, 0.0, 0.7071],
-        "shin.R": [-0.7071, 0.0, 0.0, 0.7071],
-        "foot.L": [0.2588, 0.0, 0.0, 0.9659],
-        "foot.R": [0.2588, 0.0, 0.0, 0.9659]
+        "spine": [0.1736, 0.0, 0.0, 0.9848],
+        "thigh.L": [-0.7071, 0.0, 0.0, 0.7071],
+        "thigh.R": [-0.7071, 0.0, 0.0, 0.7071],
+        "shin.L": [0.766, 0.0, 0.0, 0.6428],
+        "shin.R": [0.766, 0.0, 0.0, 0.6428],
+        "foot.L": [-0.0872, 0.0, 0.0, 0.9962],
+        "foot.R": [-0.0872, 0.0, 0.0, 0.9962]
       }
     },
     {
       "name": "arms overhead",
       "bones": {
-        "upper_arm.L": [0.0, 0.0, 0.6088, 0.7934],
-        "upper_arm.R": [0.0, 0.0, -0.6088, 0.7934],
-        "forearm.L": [0.0, 0.0, 0.1305, 0.9914],
-        "forearm.R": [0.0, 0.0, -0.1305, 0.9914]
+        "upper_arm.L": [0.9659, 0.0, 0.0, 0.2588],
+        "upper_arm.R": [0.9659, 0.0, 0.0, 0.2588],
+        "forearm.L": [-0.1305, 0.0, 0.0, 0.9914],
+        "forearm.R": [-0.1305, 0.0, 0.0, 0.9914]
       }
     },
     {
@@ -28,8 +29,8 @@
       "bones": {
         "forearm.L": [-0.7071, 0.0, 0.0, 0.7071],
         "forearm.R": [-0.7071, 0.0, 0.0, 0.7071],
-        "shin.L": [-0.7071, 0.0, 0.0, 0.7071],
-        "shin.R": [-0.7071, 0.0, 0.0, 0.7071]
+        "shin.L": [0.7071, 0.0, 0.0, 0.7071],
+        "shin.R": [0.7071, 0.0, 0.0, 0.7071]
       }
     },
     {

@@ -41,95 +41,6 @@ so that "done" is recognisable without re-deriving it.
 
 ---
 
-## P4. A textured, rigged humanoid `.glb` — one file, three jobs
-
-**Why it is yours:** art. Every Troupe frame to date quantises into the pale
-end of whatever ramp it is given because no textured base mesh exists. The
-palette ramps are installed (`~/.warlock/palettes/cosmos`, `light_world`) and
-proven on 2D; **this file is the only thing between them and a verdict on
-Troupe.** The same file is the base mesh the Troupe manual chapter assumes, and
-the tutorial sample for chapter 11.
-
-**Constraints a base mesh must satisfy:** GLB/glTF (`blender_worker._import_glb`
-is the only importer on this path); T-pose or A-pose; +Z up, −Y forward; if it
-ships rigged, its bone names do not need to map onto the 19-bone template —
-`_strip_incoming_rig` discards any skin and skeleton a supplied mesh brings in
-regardless of naming, and the auto-rig replaces it. Mapping tables now exist
-(`src/warlock/clipmaps.py`, `templates/clip_maps/{mixamo,rigify}.json`), built
-for "Import clip" — converting an external *animation* onto an already-rigged
-Warlock skeleton — not for accepting a supplied mesh's own rig, which this
-entry's constraint is about; no very short bones (Blender silently deletes a
-bone below a fraction of the mesh's largest dimension *and takes its children*
-— fingers and toes are the usual casualties); under ~300k faces; male and
-female variants; a licence permitting commercial redistribution of rendered
-sprites.
-
-**Do:** author or commission it; put it through **Send to Troupe** (library
-menu, inspector, or the picker inside Troupe) with `palette=cosmos`.
-
-**Partially unblocked 2026-08-30.** `tests/fixtures/humanoid/cesium_man.glb`
-(CesiumMan, CC-BY 4.0 — `tests/fixtures/humanoid/ATTRIBUTION.md`) is textured,
-rigged, +Z up, A-pose-ish and 4,672 polys, so the chain was runnable from that
-day. It does not close this entry: a ramp verdict taken on a 3,273-vertex sample
-with a small JPEG and no female variant is a claim about CesiumMan, not about
-character art anyone would ship. Putting it through the path found and fixed
-three silent rig defects (`_strip_incoming_rig`, `tests/test_rig_supplied_mesh.py`,
-`docs/measurements/2026-08-30-art-verdicts-preregistration.md` Q5).
-
-**Narrowed 2026-09-05.** This entry is no longer what stands between Troupe and
-a verdict, and it is no longer chapter 11's tutorial sample. Create's Character
-type builds a textured, rigged body from an authored family — thirty-one species
-over four body plans — so there is a base mesh with real colour on it in the
-build, and the ramp verdict is P28's. What is still owed here is what it always
-was underneath: a *human-authored* character anyone would ship, as the thing a
-generated species is judged against and as the mesh a user brings of their own.
-It no longer blocks anything.
-
-**Expected outcome:** the first Troupe sheet from art rather than from a
-generator, and a verdict on whether the ramp works at sprite scale on it.
-Unblocks P11.
-
-**In progress, 2026-09-12 — leaving off here for a future session.** Found a
-usable candidate mesh: `docs/examples/Universal Base Characters/` (Quaternius,
-CC0 1.0 — `License_Standard.txt`), male and female variants, textured,
-pre-rigged, both cleared through the real pipeline. The male
-(`Base Characters/Godot - UE/Superhero_Male_FullBody.gltf`, converted to
-`.glb` via Blender's own exporter with `--webp off`/PNG textures since
-`trellis-cli`'s WebP default and Mason's viewer don't implement
-`EXT_texture_webp`) imports clean: 14,318 faces, T-pose, correct +Z-up axis
-convention after `_import_glb`, 65 incoming bones stripped with no crash by
-`_strip_incoming_rig` (bone-name mapping turned out not to matter — Warlock
-discards any incoming rig rather than adopting it, so the finger-bone-length
-risk this entry's constraints list warns about never bites). Ran the whole
-chain for real: `service.jobs.import_mesh` → `service.troupe.send_to_troupe`
-→ rig → charsheet, all `done`, no errors. One deviation: `palette=cosmos`
-this entry names is not installed on this machine (only `dawnlight.hex` is,
-in `~/.warlock/palettes/`) — this entry's own background text claiming
-`cosmos`/`light_world` are installed is stale; rendered with `dawnlight`
-instead.
-
-**What stopped this from closing today:** looking at the actual sheet
-surfaced two rig-template defects that were never visible on CesiumMan or a
-generated species — **F7** (jump's knee bends backward, root-caused to a
-sign error in `humanoid.json`'s pose data) and **F8** (walk may play backward
-left/right, unconfirmed, needs to be seen in motion rather than as static
-frames). Closing this entry on a ramp verdict taken over a visibly broken rig
-would be worse than not closing it, so F7 at minimum should be fixed and
-re-rendered before asking for the ramp verdict itself. **Next session:** fix
-F7, chase F8 (play the yaw-90 walk frames back, or read `rigging.py`'s
-yaw/mirroring path against the leading-leg convention), re-render this same
-mesh's sheet, *then* hand it over for the actual ramp-at-sprite-scale
-judgement this entry is asking for. The mesh, the license, and the working
-import/rig/render chain are the hard part and are already proven — what's
-left is fixing what looking at it found.
-
-**2026-09-15:** that Next session list is done except its last step. F7 and F8
-are both built, F7 corrected after a render of this same Superhero Male that now
-squats with both feet on the ground (2026-09-14, `72a4107a` and `61c0c945`; the
-entries below say what changed). The other jump poses are F10. What this entry
-still owes is only the ramp-at-sprite-scale judgement on a fresh sheet of this
-mesh.
-
 ## P6. Open a Warlock-written `.aseprite` in real Aseprite
 
 **Why it is yours:** an app this repository does not have. A green test proves
@@ -1339,6 +1250,18 @@ on record rather than three stages of "not mine".
 
 ## Closed records (kept so nobody re-derives them)
 
+- **P4, a textured, rigged humanoid `.glb`.** Closed 2026-09-16 on a sitting
+  written up in
+  [`2026-09-16-p4-authored-humanoid-ramp-verdict.md`](docs/measurements/2026-09-16-p4-authored-humanoid-ramp-verdict.md).
+  Quaternius's Superhero Male (CC0), rendered at 32 px through **Send to
+  Troupe** on `dawnlight`, since `cosmos` is not installed. The ramp works at
+  sprite scale; in the operator's words the sheets "look good for the most
+  part", and the jump's pixel gaps are F12. The same sitting found the
+  deformation QA battery posing a measured rig impossibly, because it was
+  authored in the `node` frame with inverted knees. That was built the same
+  day: the battery is now `delta` and re-authored. A female variant was never
+  put through the chain.
+
 - **P43, judge what an agent actually builds in Clay.** Closed 2026-09-16 on
   the 2026-09-15 sitting, written up in
   [`2026-09-15-clay-agent-benchmark-results.md`](docs/measurements/2026-09-15-clay-agent-benchmark-results.md).
@@ -1893,3 +1816,27 @@ the ~600 projection into a number.
 Mason paragraphs, and — if it is 1, 2 or 3 — a fully specified open finding
 for it, or a line there saying why a Mason scene deliberately has no VRAM
 door.
+
+## Open findings
+
+## F12. The humanoid jump shows pixel gaps at its transitions
+
+Seen 2026-09-16 on the P4 sheet (Superhero Male, 32 px, `dawnlight`). In the
+operator's words: "some pixel gaps in the transitions, only noticeable for a
+frame or two", in the jump. Nothing has pinned down the cause yet. It could be
+geometry separating at a joint in the crouch, launch or land poses, or thin,
+crossing legs dropping pixels when the frame is reduced to 32 px. Troupe's
+heatmap flags shape, jitter and foot on most jump frames 1, 2, 4 and 5 in every
+direction. **Do:** re-render the jump at the 512 px source size before
+reduction, to tell mesh gaps from reduction gaps, then fix whichever it is and
+add a test that fails on the current data.
+
+## F13. CesiumMan's deformation QA sheet renders the figure lying down
+
+Found 2026-09-16 while checking the battery fix. Import
+`tests/fixtures/humanoid/cesium_man.glb` and rig it `humanoid`: every
+`rig_qa.png` cell shows the body horizontal, even though its `model.glb` stands
+upright (Y 0 to 1.51 m). The battery as it was before that fix renders the same, so the
+pose-space change did not cause it. Superhero Male's sheet on the same code is
+upright. **Do:** find whether the rig, the pose application or the QA camera
+turns this fixture over, and fix it with a test.

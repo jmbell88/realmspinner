@@ -189,6 +189,49 @@ def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
     assert checked > 0
 
 
+# --- the deformation battery (templates/deform_qa/humanoid.json) -----------
+#
+# A separate file and a separate loader (rigging.deform_battery, not
+# clip_library), but the same sign convention -- and it shipped with the same
+# F7 mistake this module's first test names: every leg sign inverted.
+
+
+def test_deform_battery_squat_flexes_the_hip_forward_and_the_knee_back():
+    """The 2026-09-16 human QA pass on a real ``measured`` rig (Quaternius's
+    Superhero Male): the shipped squat was thigh ``+0.5``, shin ``-0.7071``,
+    foot ``+0.2588`` -- every leg sign inverted, exactly the F7 mistake above,
+    just in the battery instead of the clip library -- and it rendered the
+    legs folded up behind the head instead of a crouch."""
+    poses = {p["name"]: p for p in rigging.deform_battery("humanoid")}
+    bones = poses["squat"]["bones"]
+    for side in ("L", "R"):
+        thigh = _angle(bones[f"thigh.{side}"])
+        shin = _angle(bones[f"shin.{side}"])
+        assert thigh < 0, f"squat swings thigh.{side} back ({thigh:+.0f} deg)"
+        assert shin > 0, f"squat bends knee.{side} backward ({shin:+.0f} deg)"
+
+
+def test_no_deform_battery_pose_bends_a_knee_backward_past_fifteen_degrees():
+    """The battery's own version of
+    ``test_no_authored_knee_bends_backward_past_fifteen_degrees`` above:
+    "elbow and knee 90" shipped shin ``-0.7071``, the knee bending backward
+    the same wrong way as the squat's."""
+    poses = rigging.deform_battery("humanoid")
+    checked = 0
+    for pose in poses:
+        bones = pose["bones"]
+        for side in ("L", "R"):
+            shin_key = f"shin.{side}"
+            if shin_key not in bones:
+                continue
+            shin = _angle(bones[shin_key])
+            assert shin >= -15.0, (
+                f"{pose['name']!r} bends shin.{side} backward ({shin:+.0f} deg)"
+            )
+            checked += 1
+    assert checked > 0
+
+
 @pytest.mark.parametrize(
     ("library", "clip_name"),
     [("humanoid", "walk"), ("humanoid", "run"), ("bird", "walk"), ("bird", "run")],
