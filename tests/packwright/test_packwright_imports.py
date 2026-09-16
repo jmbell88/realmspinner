@@ -132,7 +132,7 @@ def test_the_only_outward_imports_are_the_ones_written_down():
 
 def test_the_docstrings_count_eight_reaches_not_seven_or_four():
     """packwright-06: the package docstring said seven outward reaches, this
-    file's own docstring said four, and ``docs/INVARIANTS.md:203`` said six --
+    file's own docstring said four, and ``dev/INVARIANTS.md:203`` said six --
     while ``OUTWARD_IMPORTS`` has always had eight, because ``wpack.py``'s
     ``from .. import zipguard`` was in none of the three counts."""
     assert len(OUTWARD_IMPORTS) == 8

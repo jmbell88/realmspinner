@@ -4,7 +4,7 @@ The pairwise containment walk is unavoidable -- containment is a relation, not
 an order -- but deleting in place cost an O(n) memmove per removal, so a pack
 that split its free list into a few hundred rectangles paid O(n**3) to prune
 them. Marking-and-filtering fixed that. Batch 7
-(docs/measurements/2026-09-06-native-batch-7-candidates.md) went further:
+(dev/measurements/2026-09-06-native-batch-7-candidates.md) went further:
 after any prune no survivor contains another, so on the next placement only
 pairs touching a piece the last split produced can newly fire, and
 ``_prune`` was restricted to exactly those pairs. Nothing about the *answer*
@@ -144,7 +144,7 @@ def _pack_new_only(items: list[tuple[str, int, int]], width: int, height: int):
     """The restricted-prune pack, spelled out independently of `maxrects.pack`
     so the parity test below is checking two implementations, not one
     implementation against itself. Mirrors
-    scripts/bench_native.py::_pack_new_only exactly."""
+    dev/scripts/bench_native.py::_pack_new_only exactly."""
     free = [Rect(0, 0, int(width), int(height))]
     placed: list[Placement] = []
     free_snapshots: list[list[Rect]] = []

@@ -11,7 +11,7 @@ downstream can lay out.
 
 The second is that **the reduction partitions the cell**. It was measured for
 the ground path this replaced -- deleted 2026-08-18, measurement kept at
-``docs/measurements/2026-08-17-ground-reduction.md`` -- and the argument
+``dev/measurements/2026-08-17-ground-reduction.md`` -- and the argument
 survives the move unchanged: a 128px cell is one pixel-art-LoRA "art pixel" per
 mid pixel, so a plain box mean all the way down to 32 averages 4x4 uncorrelated
 art pixels and regresses every tile to its mean colour.
@@ -195,7 +195,7 @@ def test_the_isometric_guide_inscribes_a_diamond_the_top_down_one_does_not():
 
 def test_the_three_quarter_guide_is_the_top_down_one():
     """Measured, not assumed
-    (``docs/measurements/2026-08-21-three-quarter-guide.md``): two interior
+    (``dev/measurements/2026-08-21-three-quarter-guide.md``): two interior
     marks were tried, both were obeyed, and both drew a dark stripe rather than
     a change of plane while flattening every cell towards the same tile. The
     subject clause is what carries the view, so 3/4 adds no guide shape -- and
@@ -314,7 +314,7 @@ def test_a_flat_block_reduces_to_its_own_colours():
 
 def test_two_stage_beats_a_plain_box_mean_on_contrast():
     """The measured reason the sampler is two-stage
-    (docs/measurements/2026-08-17-ground-reduction.md): averaging 4x4
+    (dev/measurements/2026-08-17-ground-reduction.md): averaging 4x4
     uncorrelated art pixels regresses every material to its mean colour."""
     source = _noise(128, 128)
     two_stage = tilesheet.reduce_cell(source, 32, 32).astype(np.int64)

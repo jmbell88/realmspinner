@@ -296,7 +296,7 @@ def _log_mem(when: str) -> None:
     # a uv venv those are trampolines, so the line read 0.8 MB of shim and
     # printed ``children 0.0 GiB`` beside a worker holding 6.3 GiB -- on the
     # very tick that then refused the next job for want of commit
-    # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+    # (dev/measurements/2026-08-22-trampoline-child-pids.md).
     host = memlog.summary(children=winjob.measured_pids())
     if host is not None:
         log.info("host %s: %s", when, host)

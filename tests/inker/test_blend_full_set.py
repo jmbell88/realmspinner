@@ -95,7 +95,7 @@ def test_every_one_of_the_seven_is_a_kernel_mode():
     assert the opposite: the reading was that the four non-separable ones "could
     not be a per-channel C case", which is true and was the wrong conclusion --
     they are per-*pixel* independent, and the kernel now takes the whole pixel.
-    What the gap cost is in ``docs/measurements/2026-08-16-blend-modes-and-dither.md``:
+    What the gap cost is in ``dev/measurements/2026-08-16-blend-modes-and-dither.md``:
     ``_stack_native`` is all-or-nothing, so one such layer put the whole stack
     on the numpy fold and a dab invalidate went 5.4 ms to 49.
 

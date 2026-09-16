@@ -2,7 +2,7 @@
 -m perf -n 0``.
 
 Studio's pipe answers RPC v1 exclusively now (no bare-MCP path -- see
-``docs/INVARIANTS.md``'s agent paragraph), so every round trip measured
+``dev/INVARIANTS.md``'s agent paragraph), so every round trip measured
 here goes through both layers a real agent session actually pays for:
 ``_RpcBridge`` speaks RPC v1 (``hello``/``catalogue``/``call``) to a real,
 started ``AgentHost`` over a real pipe, exactly the way ``warlock mcp``
@@ -31,7 +31,7 @@ a wall-clock claim about it does not need as many samples to stop moving):
 * ``clay_scene`` on a 1-object document: ~1.7 ms.
 * ``clay_scene`` on a 50-object document: ~5.6 ms.
 
-See ``docs/measurements/2026-09-10-agent-bridge-round-trip.md`` for the
+See ``dev/measurements/2026-09-10-agent-bridge-round-trip.md`` for the
 fuller history of these numbers. The budgets below (the measured medians
 above, plus 0.5 ms of headroom for the RPC v1 + ``bridge_dispatch`` layers
 on top of raw pipe I/O and JSON framing) are generous enough that a modest
@@ -109,13 +109,13 @@ class _Ctx:
 def _median_round_trip_ms(fn, runs: int, label: str, warmup: int = 3) -> float:
     """The median wall-clock cost of *runs* calls to *fn* (each a full
     request/reply round trip), in milliseconds -- a median, not a minimum:
-    see ``docs/measurements/2026-09-07-library-frame-times.md`` for why a
+    see ``dev/measurements/2026-09-07-library-frame-times.md`` for why a
     single best run says nothing about what an agent actually experiences
     call to call. *warmup* calls run first and are discarded, so the first
     real import/allocation inside the call path is not what gets measured.
 
     The figure is printed as well as returned, so ``-m perf -n 0 -s`` re-runs
-    the measurement in ``docs/measurements/2026-09-10-agent-bridge-round-trip.md``
+    the measurement in ``dev/measurements/2026-09-10-agent-bridge-round-trip.md``
     rather than only checking it still fits the budget. That document's own
     method note keeps its raw numbers in a probe's ``-s`` output for exactly
     this reason: a budget that passes tells a future reader nothing about

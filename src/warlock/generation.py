@@ -399,7 +399,7 @@ def _recipe_table() -> tuple[Recipe, ...]:
         # defect; the fix is to let it change something and say what.
         #
         # The trade is measured, not guessed.
-        # ``docs/measurements/2026-08-11-default-base-model.md`` scores this
+        # ``dev/measurements/2026-08-11-default-base-model.md`` scores this
         # exact arm: ``sdxl`` took 2 of 4 accepted and ``sdxl_cfg`` 3 of 3 --
         # tiny n, no significance claimed, and a documented quality trade is
         # precisely what "Fast" is supposed to mean. ``sdxl`` and not

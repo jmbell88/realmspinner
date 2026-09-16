@@ -1,6 +1,6 @@
 """Per-cel opacity: the value a *slot* carries on top of its track's.
 
-Divergence 1 (``docs/INVARIANTS.md``) used to read "opacity is a Track property;
+Divergence 1 (``dev/INVARIANTS.md``) used to read "opacity is a Track property;
 per-cel skipped", and this file is what retired it on 2026-08-30.
 
 The whole design turns on one fact, and most of the tests below are about it: a

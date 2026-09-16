@@ -1108,7 +1108,7 @@ def _wants_auto_accept(ctx: Any, state: Any) -> bool:
     if state.preview is None:
         # A failure still has to reach the modal -- its Cancel is the only
         # door back to Fix matte, and the toast alone does not offer it. See
-        # docs/INVARIANTS.md on ``_tried_and_failed`` vs. ``failed_stamp``:
+        # dev/INVARIANTS.md on ``_tried_and_failed`` vs. ``failed_stamp``:
         # the stamp alone cannot tell "not tried yet" from "tried and failed".
         return not state._tried_and_failed
     if not _matte_is_clean(state.preview):

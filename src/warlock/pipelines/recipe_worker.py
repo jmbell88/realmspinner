@@ -2,7 +2,7 @@
 
 **Why a child, and why one-shot.** The model is a few hundred megabytes of
 weights that transformers holds in arenas no ``del`` returns
-(``docs/measurements/2026-08-08-load-probe-memory.md``, the rule every helper
+(``dev/measurements/2026-08-08-load-probe-memory.md``, the rule every helper
 model here follows), and a prompt is typed a few times an hour, so the right
 trade is the ``loadprobe`` one: load, answer, exit. ``winjob.run`` puts the
 child in the kill-on-close job, so a hard kill of the app leaves nothing

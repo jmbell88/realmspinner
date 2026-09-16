@@ -1,6 +1,6 @@
 """_to_oklab's uint8 fast path must match the float reference exactly.
 
-docs/measurements/2026-08-30-native-batch-6-candidates.md #3: a 256-entry
+dev/measurements/2026-08-30-native-batch-6-candidates.md #3: a 256-entry
 lookup table replaces the sRGB->linear closed form when the input is already
 uint8. The float expression stays in ``_to_oklab`` unchanged, so it is the
 reference these tests check the LUT path against.

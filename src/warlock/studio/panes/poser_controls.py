@@ -317,7 +317,7 @@ def _front(ctx: Any, state: Any, viewer: Any) -> None:
     job's own params, so there is nothing here for the guard to protect.
 
     A button rather than anything derived, because the 2026-08-05 sweep
-    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    (``dev/measurements/2026-08-04-view-calibration.md``) found a mesh's own
     matched view scatters *uniformly* across a 330-degree range on 37 jobs --
     there is no reading "the front" off the mesh or the reference image it
     came from, so the only honest control is one that captures wherever the

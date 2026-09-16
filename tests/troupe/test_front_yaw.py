@@ -4,7 +4,7 @@ Every directional sheet rendered before 2026-09-08 assumed the subject's
 forward was -Y. That is true of the shipped skeleton templates and true of
 nothing a reconstruction returns, and it could not be fixed by measuring: the
 2026-08-05 view-calibration sweep over 37 finished jobs
-(``docs/measurements/2026-08-04-view-calibration.md``) found each mesh's
+(``dev/measurements/2026-08-04-view-calibration.md``) found each mesh's
 best-matching view scattered by 330 degrees -- effectively uniform, with two
 metrics agreeing with each other no better than chance. So the front is a
 human's press, stored as ``params["front_yaw"]`` on the model row.

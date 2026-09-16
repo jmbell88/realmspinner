@@ -120,7 +120,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         # through) stats the file before reading and refuses anything over
         # ``MAX_RECORD_BYTES`` (1 MiB) rather than loading it, so the worst
         # case here is one small stat call and a suppressed exception, not an
-        # unbounded read. See docs/INVARIANTS.md.
+        # unbounded read. See dev/INVARIANTS.md.
         #
         # P4 (2026-09-13): a rig whose skeleton was edited away from its
         # template may no longer have every bone the template's clip library

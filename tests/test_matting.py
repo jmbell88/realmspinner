@@ -342,7 +342,7 @@ def test_a_model_kept_on_the_cpu_is_cast_to_float32(tmp_path, monkeypatch):
 # -- the child ----------------------------------------------------------------
 #
 # BiRefNet loads in a subprocess because the 1475 MB it costs does not come back
-# in-process (docs/measurements/2026-08-08-load-probe-memory.md). These drive
+# in-process (dev/measurements/2026-08-08-load-probe-memory.md). These drive
 # the real spawn, through matting.CHILD_ARGV, with a scripted child in place of
 # the real worker -- so the pipe, the marker filtering and the PNG round trip
 # are exercised rather than patched out.

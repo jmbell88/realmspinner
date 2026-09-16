@@ -497,10 +497,7 @@ every tool call that answers is appended to it as one line of JSON — what was 
 was refused and, if it was, the sentence it was refused with, and which objects came back. It is off unless
 that variable is set, it is written on the thread that talks to the agent rather than the one that draws, and
 a path it cannot write is logged and ignored rather than allowed to fail the call it was only meant to
-describe. `scripts/agent_bench.py --serve` is the whole thing wired up: a throwaway home, the bridge switched
-on, the recorder pointed somewhere, and the command line to paste into your agent's client. The home is kept
-when you close the window, not deleted, and the script prints where it is, because anything the agent exported
-lives inside it — delete it yourself once you are done. `--show` reads a transcript back. A transcript is also
+describe. A transcript is also
 exactly what the suite replays, so a session worth keeping can become a regression test by being copied into
 `tests/fixtures/agent_transcripts/` with a claim about what it should build written beside it.
 
@@ -677,9 +674,9 @@ granted.
 **The prose.** A chapter for the mode, in the part the rail's order puts it in — see the next
 section, and expect a renumbering rather than an append. A section in the keyboard-shortcuts chapter
 *and* a group in `shortcuts.py`, which are gated against each other in both directions, so neither
-lands alone. The overview chapter's mode list and the mode-count words in `docs/INVARIANTS.md` and
-`README.md`, all three of which are read off `modes.MODES` by a test rather than kept in step by
-hand.
+lands alone. The overview chapter's mode list and the mode-count words in `README.md` and the
+maintainer's own internal invariants ledger, all three of which are read off `modes.MODES` by a
+test rather than kept in step by hand.
 
 The one geometry check worth running early is
 `tests/test_studio_smoke.py::test_the_rail_fits_the_resize_floor_at_every_scale`. It asserts the

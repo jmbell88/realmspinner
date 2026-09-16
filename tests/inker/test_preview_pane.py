@@ -1,7 +1,7 @@
 """The preview pane's discipline, which is entirely a list of things it must not do.
 
 ``panes/inker_preview.py`` carries a second playhead so a clip can run in the
-corner while the document is painted on, and ``docs/INVARIANTS.md`` spells out
+corner while the document is painted on, and ``dev/INVARIANTS.md`` spells out
 what makes that free: it never sets ``playing``, ``saving`` or
 ``set_current_frame``, it draws through the same ``frame_texture`` onion
 skinning uses so it adds no GPU state, it ignores ``PaintView``'s rotation and

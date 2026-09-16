@@ -1,7 +1,7 @@
 """Whether a gltfpack tier preserved what it had to. Pure, and the bar is data.
 
 Tier qualification's automated half
-(``docs/measurements/2026-08-13-tier-qualification.md`` records the run).
+(``dev/measurements/2026-08-13-tier-qualification.md`` records the run).
 ``vendor/gltfpack/gltfpack.exe`` has been present since 2026-08-07, so
 ``draft``/``standard``/``detailed`` are live code rather than dormant -- which
 changed the shape of the constraint instead of removing it. A named tier is no

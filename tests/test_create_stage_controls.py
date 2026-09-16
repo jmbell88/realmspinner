@@ -1,6 +1,6 @@
 """Create's mesh-side controls: what a greyed control says, and to whom.
 
-Pure source inspection, for ``docs/INVARIANTS.md``'s reason for every pane in
+Pure source inspection, for ``dev/INVARIANTS.md``'s reason for every pane in
 this file's neighbourhood: these are imgui panes and cannot be driven
 headlessly, so the *decision* -- what argument a call is made with, what an
 ``if`` is conditioned on -- is what gets tested, the way

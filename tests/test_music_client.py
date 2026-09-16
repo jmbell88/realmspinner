@@ -12,7 +12,7 @@ pair of test files making the same assertions in the same order.
 The invariant behind every test here: `unload()` must genuinely end the process,
 because an `unload()` that returns the VRAM and keeps the host commit is the
 defect the child exists to fix
-(`docs/measurements/2026-08-22-trampoline-child-pids.md`).
+(`dev/measurements/2026-08-22-trampoline-child-pids.md`).
 """
 
 from __future__ import annotations

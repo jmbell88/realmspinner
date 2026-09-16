@@ -205,7 +205,7 @@ def _render_textured(
         # Composite only the particle's window -- stamp() used to hand back a
         # whole zeroed (H, W, 4) plane per particle to add and alpha-compose
         # here; both were no-ops outside the window, which was the whole cost
-        # at 400 particles (docs/measurements/
+        # at 400 particles (dev/measurements/
         # 2026-09-13-native-batch-10-candidates.md §3, 1.9s -> ~30ms).
         win, patch = result
         tile = out[win.rows, win.cols]

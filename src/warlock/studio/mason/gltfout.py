@@ -35,7 +35,7 @@ same node this file named -- by construction, not by running the same rule
 twice and hoping.
 
 **Units and handedness: metres, Y-up, right-handed.** That is glTF's own
-convention and this project now states it outright (``docs/INVARIANTS.md``);
+convention and this project now states it outright (``dev/INVARIANTS.md``);
 nothing here converts anything, which is precisely what the statement buys.
 """
 

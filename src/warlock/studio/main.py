@@ -1536,7 +1536,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # Over ``measured_pids()`` rather than ``tracked()``: the latter holds
         # the pids ``Popen`` returned, which under a uv venv are trampolines
         # rather than the interpreters holding the weights
-        # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+        # (dev/measurements/2026-08-22-trampoline-child-pids.md).
         summary = memlog.summary(children=winjob.measured_pids())
         if summary is not None:
             # The frame rate rides along on the same line: a session that dies

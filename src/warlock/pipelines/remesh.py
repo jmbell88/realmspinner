@@ -27,7 +27,7 @@ from typing import Any
 #: the ladder a mobile/indie engine actually budgets in. ``custom`` takes a
 #: number in ``FACES_MIN..FACES_MAX``.
 #:
-#: No `docs/measurements/` document backs these three numbers, and the
+#: No `dev/measurements/` document backs these three numbers, and the
 #: 2026-09-11 audit (finding pipelines-08) is right that this is a weaker
 #: footing than ``optimize.PROFILES``' triangle tiers, whose named rungs are
 #: deliberately kept out of the generate form until a qualification run backs
@@ -56,7 +56,7 @@ DEFAULT_TEXTURE_PX = 1024
 #: gaps ``meshaudit`` flags without rounding off a sword's edge; finer than
 #: that is minutes in Blender for no visible change.
 #:
-#: That sentence reads as measured and is not: no `docs/measurements/` document
+#: That sentence reads as measured and is not: no `dev/measurements/` document
 #: backs it, and the 2026-09-11 audit (finding pipelines-09) flagged exactly
 #: that ambiguity -- a reader could not tell a measured number from one chosen
 #: by feel and written up confidently. It is chosen by feel. Nothing in the
@@ -76,7 +76,7 @@ GEOMETRY_DERIVED = ("model.stl", "model_obj.zip", "collision.glb", "textures.zip
 #: The margin (texels) the bake grows past every island edge, so bilinear
 #: filtering and the first two mips never read the background. Eight texels is
 #: the conventional figure for exactly that pair of readers and is not measured
-#: here; no `docs/measurements/` document backs it (the 2026-09-11 audit,
+#: here; no `dev/measurements/` document backs it (the 2026-09-11 audit,
 #: finding pipelines-09), and nothing in the corpus is keyed on it.
 BAKE_MARGIN_PX = 8
 

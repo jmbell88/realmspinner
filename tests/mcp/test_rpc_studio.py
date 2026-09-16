@@ -232,7 +232,7 @@ def test_a_connection_that_opens_with_jsonrpc_gets_bad_request_and_is_closed(tmp
     looked like bare MCP JSON-RPC rather than RPC v1, serve that old in-app
     path for the rest of the connection. That path is gone: the only server
     that speaks MCP at all now is `warlock mcp` (`bridge.py`), and Studio
-    itself answers RPC v1 exclusively (`docs/INVARIANTS.md`'s agent
+    itself answers RPC v1 exclusively (`dev/INVARIANTS.md`'s agent
     paragraph). A first frame that is not RPC v1 gets one `bad_request`
     header reply and the connection is closed -- proven here by a bare MCP
     `initialize`, and by the connection refusing a second request rather

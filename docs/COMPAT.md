@@ -14,8 +14,8 @@ real application agrees with either of them: a round trip through our own two
 halves cannot catch an error both halves make together. So every positive claim
 below is a claim about this editor until a human with the real app has opened
 one of our exports or authored a fixture for our reader to prove itself
-against. `TODO.md` holds the passes that are owed, and the two fixture
-inventories — `tests/plotter/fixtures/tiled/FIXTURES.md` and
+against. The maintainer tracks the passes that are owed in local development
+notes, and the two fixture inventories — `tests/plotter/fixtures/tiled/FIXTURES.md` and
 `tests/inker/fixtures/aseprite/FIXTURES.md` — name what to author first.
 
 **One part is executable and the other is prose, and the difference is
@@ -118,7 +118,7 @@ only when the fixture was *authored in Tiled*.
 worth having and it is not the claim the word makes on its own, which is why
 it is said once here rather than appended to thirty rows.
 `tests/plotter/fixtures/tiled/FIXTURES.md` labels each fixture and lists what
-authoring is owed, and `TODO.md` carries the pass itself. As Tiled-authored
+authoring is owed, and the maintainer tracks the pass itself outside this repo. As Tiled-authored
 fixtures land, this paragraph shrinks to name the rows still waiting.
 
 The 2026-08-29 verification above did **not** change this: it was done against
@@ -134,11 +134,11 @@ inventing a `1.12` format-version value.
 ### The `M{n}` citations
 
 A milestone number used to be cited as `M{n}` from comments under
-`src/warlock/studio/plotter/`, from `docs/INVARIANTS.md` and from the table
+`src/warlock/studio/plotter/`, from the project's internal invariants ledger and from the table
 below. **They referred to `docs/PLOTTER_PLAN.md`, which was deleted in
 `09c64b4`** — chase it with `git log --all --diff-filter=D --
-'*PLOTTER_PLAN.md'`, the same way a `TODO.md §N` citation is chased. This is the
-plotter's instance of the rule `CLAUDE.md` already states for the deleted
+'*PLOTTER_PLAN.md'`, the same way a retired plan file's citation is chased. This is the
+plotter's instance of the same rule this project applies to every deleted
 roadmap: the numbering was a citable API while the file existed, so a citation
 is left pointing at history rather than renumbered, and **no new `M{n}` citation
 is minted**. Write what the deferred work is instead of a number for it.
@@ -286,7 +286,8 @@ States mean:
 - **n/a on write** — nothing to lose because this side never has the
   construct to begin with.
 
-Every row cites its `docs/INVARIANTS.md` divergence number where one exists.
+Every row cites its divergence number, tracked in the maintainer's own
+internal invariants ledger, where one exists.
 Not every row has one: a divergence number marks a standing decision about
 this editor's *document model*, cited by code and tests across the package,
 where several of the rows below are narrower — a single field's mapping
@@ -301,8 +302,8 @@ has never been checked against a file Aseprite itself wrote — the one error a
 round trip through our own two halves structurally cannot catch. And the
 **derived palette chunk** (#23) changes the bytes of every RGB and grayscale
 file this build writes; the corpus proves it stable and lossless here, not that
-Aseprite likes the table it finds. `TODO.md` names the three fixtures that
-settle the first question in a minute.
+Aseprite likes the table it finds. The maintainer tracks, outside this repo, the
+three fixtures that would settle the first question.
 
 ### ORA → aseprite (what `aseout.py` drops writing a document out)
 

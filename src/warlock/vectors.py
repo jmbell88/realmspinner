@@ -58,7 +58,7 @@ from .pipelines.reference import REFUSAL_CODES
 # and pose keys (they describe a follow-up job, not this one's settings), and
 # ``hand_edited``/``imported``/``built``/``rerun_of`` (provenance, not config).
 # The twelve taxonomy keys were removed on 2026-08-17 (see
-# docs/measurements/2026-08-17-taxonomy-retirement.md): same-settings vectors
+# dev/measurements/2026-08-17-taxonomy-retirement.md): same-settings vectors
 # re-key and evidence accumulation restarts per configuration, the accepted
 # cost that document records. A stale key in old stored params is skipped by
 # config_vector's membership test, never an error.
@@ -108,7 +108,7 @@ VECTOR_PARAMS = (
 # An integer scale rather than a bit, because the binary corpus failed at its own
 # purpose: 3 accepts against 81 rejects on 2026-08-07, in which a slab with no
 # geometry, a smeared texture and a mesh a modeller would fix in five minutes are
-# all the same row. See ``docs/measurements/2026-08-09-grade-scale.md``, which is
+# all the same row. See ``dev/measurements/2026-08-09-grade-scale.md``, which is
 # where every number here is argued -- the repo rule is that a constant the stored
 # corpus is keyed on gets its document before it changes.
 #

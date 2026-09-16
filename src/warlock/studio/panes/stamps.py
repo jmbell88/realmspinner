@@ -12,7 +12,7 @@ missing was missing for the same reason: it looks unnecessary.
 A file's (or a directory's) mtime on Windows is written from the system clock,
 whose tick is 15.6 ms unless something has asked for better -- adding a file
 left a directory's mtime unchanged 155 times in 200 on this machine (see
-``docs/measurements/2026-08-07-directory-mtime-granularity.md``). So a write
+``dev/measurements/2026-08-07-directory-mtime-granularity.md``). So a write
 landing *after* a read but still inside the stamped mtime's own tick is
 invisible to that stamp, and invisible **forever**, because every later
 comparison keeps matching the stale answer -- which is exactly the case these

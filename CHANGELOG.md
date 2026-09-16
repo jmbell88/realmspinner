@@ -87,6 +87,13 @@ are in the commit each one names.
 - **`clay_program`'s all-or-nothing guarantee held again**: a negative number
   raised to a fractional power used to escape uncaught and leave a partially
   applied program with no rollback.
+- **Development-only material moved out of the public repository, into a
+  local `dev/` folder that stays on the maintainer's disk and is gitignored.**
+  The plan file, the invariants ledger, the measurement write-ups, the review
+  screenshot trees, the Clay-assistant training programme, and the bench and
+  calibration scripts (with the tests that read them) all live there now
+  rather than at the paths older commits and documents name; a clean checkout
+  never carries any of it, and the public docs no longer cite it by path.
 
 ## 0.0.47 — 2026-09-14
 

@@ -1,7 +1,7 @@
 """What a bulk delete keeps, and what it still takes.
 
 The measured incident is in ``service/evidence.py``'s docstring and in
-``docs/measurements/2026-09-07-mesh-probe-preregistration.md``: nine model-stage
+``dev/measurements/2026-09-07-mesh-probe-preregistration.md``: nine model-stage
 human verdicts on the machine and **zero** of them still carrying a
 ``source.glb``, because filing the last verdict of a sweep is what fires
 ``cleanup_sweep``, and ``cleanup_sweep`` is what took them. Finishing the

@@ -1,6 +1,6 @@
 """UX.md Phases 2 and 3: the parts a screenshot cannot check.
 
-The screenshot pass (``scripts/screenshot_modes.py``) is this repo's definition
+The screenshot pass (``dev/scripts/screenshot_modes.py``) is this repo's definition
 of "somebody looked at it", and it is the right instrument for the half of
 these phases that is about pixels. It cannot see a rule -- that the shadow
 bands tile, that a status glyph is a shape rather than two letters, that a

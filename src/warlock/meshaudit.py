@@ -75,7 +75,7 @@ _BATCH_MAX_CELLS = 4_000_000
 # nothing now and costs the sub-pixel gaps 512 could not see.
 #
 # The reason it is safe to change a number the corpus is keyed on is measured,
-# not assumed: docs/measurements/2026-08-06-audit-resolution.md walks meshes
+# not assumed: dev/measurements/2026-08-06-audit-resolution.md walks meshes
 # from 0.0 to 0.84 hole fraction at both resolutions and finds the largest
 # disagreement is 0.00045 -- two orders of magnitude below the empty band from
 # 0.0308 to 0.1010 that Config.mesh_hole_max sits in, and below the ~0.3% noise

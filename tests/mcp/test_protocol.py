@@ -3,7 +3,7 @@ dispatcher `bridge.py` calls.
 
 The in-app `dispatch` this file used to pin was deleted the day Studio's
 listener stopped speaking bare MCP JSON-RPC over the pipe (`studio/
-agent_host.py` answers RPC v1 only now, per `docs/INVARIANTS.md`'s agent
+agent_host.py` answers RPC v1 only now, per `dev/INVARIANTS.md`'s agent
 paragraph) -- there is no longer a caller inside the app for it to be. What
 remains here: the framing (`encode`/`decode`) and content helpers (`text`,
 `image_png`, `ok`, `fail`) both wire formats share, and `bridge_dispatch`

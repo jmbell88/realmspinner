@@ -56,7 +56,7 @@ NEW_ROWS = 8
 #: of a borrowed 0.55) -- but a floor still has to say what "even division"
 #: must never shrink below, the same way ``sirens_envelopes.ENVELOPES_FLOOR``
 #: and ``BRIDGE_FLOOR`` do for their own panes. This is the pane the shipped
-#: 0.0.39 ``screenshots/dark-sirens.png`` caught missing outright -- that image
+#: 0.0.39 ``dev/screenshots/dark-sirens.png`` caught missing outright -- that image
 #: has since been refreshed, so the evidence is the release rather than the
 #: file as it stands now.
 EFFECTS_FLOOR = 210.0

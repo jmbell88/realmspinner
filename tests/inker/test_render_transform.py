@@ -4,7 +4,7 @@
 stated reason -- it has **two** callers that must not drift, the floating
 buffer's live render and the per-cel replay a ranged commit runs, and "two
 spellings would mean a transform that previewed one way and landed another"
-(``docs/INVARIANTS.md``, the selection section).
+(``dev/INVARIANTS.md``, the selection section).
 
 It had no direct test. Its callers were covered, which is the coverage that
 cannot catch the thing it exists to prevent: if the function is wrong, both

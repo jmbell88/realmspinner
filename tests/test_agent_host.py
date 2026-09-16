@@ -2,7 +2,7 @@
 
 ``AgentHost`` is the seam between the listener thread an MCP bridge talks to
 and the frame thread that is the only place a ``Document`` or a GL context may
-be touched (see ``docs/INVARIANTS.md``'s three-thread model). Everything below
+be touched (see ``dev/INVARIANTS.md``'s three-thread model). Everything below
 is about that seam holding, with no real GL and no real app:
 
 * :meth:`AgentHost.pump` runs queued work **on the thread that calls it** --

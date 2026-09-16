@@ -6,7 +6,7 @@ and returned 4.9 of it; ``flux_klein_distilled`` cost **+21.1 GiB and returned
 0.1**, against the ``host_peak_gib=16.0`` the registry ships. ``unload()``
 returns the VRAM exactly as it claims and the host figure does not move, because
 what holds it is the allocator's arenas rather than a live object -- the same
-finding ``docs/measurements/2026-08-08-load-probe-memory.md`` made for BiRefNet,
+finding ``dev/measurements/2026-08-08-load-probe-memory.md`` made for BiRefNet,
 where dropping every reference plus ``gc.collect()`` left 71% resident.
 
 That session ended with the app refusing its own sprite-sheet follow-up at 94%
@@ -15,7 +15,7 @@ instance of one rule -- ``bpy`` is process-global (``blender_worker``),
 ``HF_HUB_OFFLINE`` is read at import time (``fetch_worker``), RSS is
 unreturnable (``loadprobe``) -- and the t2i loader was the one path paying it in
 the process that has to keep running, where nothing but exit reclaims it.
-``docs/measurements/2026-08-22-trampoline-child-pids.md`` carries the figures
+``dev/measurements/2026-08-22-trampoline-child-pids.md`` carries the figures
 and the two options not taken.
 
 **Why persistent, and not one-shot.** A reroll, a sprite sheet and a tile sheet

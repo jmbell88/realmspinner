@@ -800,7 +800,7 @@ def test_sirens_right_column_gives_every_pane_room_at_a_realistic_width():
     ``skeletons.sirens`` table and a real ``Layout``, at 900 px -- about what a
     sidebar gets at the app's default 1600x950 once the menu strip and status
     row are taken off. All four must be visible, which is the property a
-    screenshot found missing -- the ``screenshots/dark-sirens.png`` that shipped
+    screenshot found missing -- the ``dev/screenshots/dark-sirens.png`` that shipped
     with 0.0.39 shows Instruments, Envelopes and a sliver of Song file, and no
     Sound effects at all. That image has been refreshed since, which is exactly
     why the claim belongs in an assertion: this asks the arithmetic directly, and

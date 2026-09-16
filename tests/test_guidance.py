@@ -62,7 +62,7 @@ def test_legacy_platform_keys_normalize_to_the_new_ones(stored, canonical):
 # --- taxonomy-retirement tolerance -------------------------------------------
 #
 # The twelve taxonomy tables (and framing) were retired on 2026-08-17
-# (docs/measurements/2026-08-17-taxonomy-retirement.md). Every job row already
+# (dev/measurements/2026-08-17-taxonomy-retirement.md). Every job row already
 # on disk still carries those keys, and rerun/promotion re-run normalize() over
 # stored params -- so a stale key must be *ignored*, never refused.
 

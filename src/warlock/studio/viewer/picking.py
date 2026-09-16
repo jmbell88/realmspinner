@@ -268,7 +268,7 @@ def _build_bvh_native(tri_lo, tri_hi, centroid) -> BVH | None:
     index) is pinned so that the tree and the full linear sweep agree -- and
     that is what ``tests/viewer/test_bvh_native.py`` asserts, together with the
     structural invariants a tree must have whatever its shape. The argument is
-    in ``docs/INVARIANTS.md``; it is not a precedent for loosening any other
+    in ``dev/INVARIANTS.md``; it is not a precedent for loosening any other
     kernel's bar.
     """
     if not native.available():

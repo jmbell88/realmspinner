@@ -202,7 +202,7 @@ def test_the_registry_figures_are_not_under_the_real_cost(client, tmp_path, caps
     refuses a job that might have fitted, which is the safe error.
 
     The measurement is *printed* as well as asserted, because the figures it
-    produces belong in a ``docs/measurements/`` document -- this test is how
+    produces belong in a ``dev/measurements/`` document -- this test is how
     that document gets its numbers.
     """
     from warlock import memlog, vram

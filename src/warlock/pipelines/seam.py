@@ -33,7 +33,7 @@ from typing import Any
 
 # Above this the seam is a visible edge rather than part of the texture.
 #
-# Measured, not guessed: docs/measurements/2026-08-08-seam-threshold.md. 72
+# Measured, not guessed: dev/measurements/2026-08-08-seam-threshold.md. 72
 # units on sdxl-turbo -- 48 generated through the circular-padding path and 24
 # identical prompts and seeds with it off -- put the highest legitimately
 # seamless tile at 2.50 and the lowest visible seam at 5.52, an empty band whose
@@ -50,11 +50,11 @@ from typing import Any
 # than an open one -- what those runs found is a limit of the *statistic*, and
 # a third checkpoint corpus would find it again:
 #
-# - docs/measurements/2026-08-09-seam-threshold-cfg.md (run 2026-08-13),
+# - dev/measurements/2026-08-09-seam-threshold-cfg.md (run 2026-08-13),
 #   sdxl_cfg at 30 steps, the same 72 units. The populations overlap and its
 #   refusal rule fired: a wrap-preview-confirmed seamless tile scored 4.288
 #   while the lowest visibly seamed unit scored 2.705. No value separates them.
-# - docs/measurements/2026-08-29-seam-threshold-cfg.md, which reproduces that
+# - dev/measurements/2026-08-29-seam-threshold-cfg.md, which reproduces that
 #   corpus bit-identically (max delta 0.000000) and adds the population the
 #   seamless-tileset track actually generates -- sdxl_cfg under the pixelxl
 #   LoRA with SHEET_NEGATIVE_PROMPT, which neither earlier corpus contained.
@@ -65,7 +65,7 @@ from typing import Any
 #
 # That better denominator is now measured and shipped -- see
 # ``SEAM_DOMINANCE_MAX`` below and
-# docs/measurements/2026-08-30-seam-dominance.md -- so this constant no longer
+# dev/measurements/2026-08-30-seam-dominance.md -- so this constant no longer
 # decides anything. It stays because ``worst`` is still reported beside the new
 # verdict and because every row written before 2026-08-30 was judged against
 # it; a stored report with no ``metric`` field is one of those, and
@@ -79,7 +79,7 @@ SEAM_MAX = 3.5
 # **Fixed by construction rather than fitted**, and that is the point of it:
 # at exactly 1.0 the seam is precisely as large as the largest step the picture
 # already contains, so the number is the statistic's own semantics and cannot
-# drift with a corpus. docs/measurements/2026-08-30-seam-dominance.md
+# drift with a corpus. dev/measurements/2026-08-30-seam-dominance.md
 # pre-registered it before drawing a single held-out unit and then tried to
 # falsify it: 144 tiled axes at seeds no published corpus contains -- plain,
 # pixel-art-LoRA'd and hard-structured -- and **not one scored above 1.0**
@@ -165,7 +165,7 @@ def report(path: Path) -> dict[str, Any]:
     wraps one way and not the other is not a tile.
 
     Two statistics are reported and only one decides. ``dominance`` is the
-    verdict (docs/measurements/2026-08-30-seam-dominance.md); ``worst`` is the
+    verdict (dev/measurements/2026-08-30-seam-dominance.md); ``worst`` is the
     edge-against-mean-grain ratio three published corpora are keyed on, kept so
     those documents stay readable against new output and so a row's number does
     not silently change meaning. ``metric`` names which one decided, and its

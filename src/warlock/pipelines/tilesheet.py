@@ -18,13 +18,13 @@ sixty-four differently-sized tiles.
 **The reduction was measured for the ground path this replaced, and carried
 over with it.** :func:`reduce_cell` is two stages -- a box mean down to the art
 resolution, then a centre sample of each remaining group. The argument in
-``docs/measurements/2026-08-17-ground-reduction.md`` is about a 128px block of
+``dev/measurements/2026-08-17-ground-reduction.md`` is about a 128px block of
 pixel-art-LoRA output reduced to a 32px tile, which is exactly what happens
 here; only the seamless-torus half of that argument fell away with the ground
 set (deleted 2026-08-18), because a cell in a grid is not a torus.
 
 **The grid mechanism is measured; the art direction is not settled.**
-``docs/measurements/2026-08-18-tile-sheet-grid.md`` records a four-arm run: the
+``dev/measurements/2026-08-18-tile-sheet-grid.md`` records a four-arm run: the
 guide *is* obeyed -- the model's discontinuities land on the rectangles the
 slicer cuts on -- but SDXL 1.0 with the pixel-art LoRA resolves an 8x8 grid of
 *identical* guide cells either by painting one continuous scene through it or by
@@ -101,7 +101,7 @@ ISOMETRIC = "isometric"
 #: for the same picture*, so it would have been a third button that changed
 #: nothing. 3/4 shares the rectangle too -- but what SDXL is handed is the
 #: subject clause and the guide, and both of those differ, which is the whole
-#: measured argument (``docs/measurements/2026-08-21-three-quarter-guide.md``).
+#: measured argument (``dev/measurements/2026-08-21-three-quarter-guide.md``).
 VIEWS: tuple[str, ...] = (TOP_DOWN, THREE_QUARTER, ISOMETRIC)
 
 #: Stored spellings that are not the canonical one. Read-only: one entry, and a
@@ -308,7 +308,7 @@ def render_guide(geom: SheetGeometry) -> PILImage:
 
     **A 3/4 cell gets the plain rectangle, exactly as a top-down one does, and
     that was measured rather than assumed** --
-    ``docs/measurements/2026-08-21-three-quarter-guide.md``. Two interior marks
+    ``dev/measurements/2026-08-21-three-quarter-guide.md``. Two interior marks
     were tried (a horizon line at 2/3 height, and that plus a hatched front
     band) and both were *obeyed* and both made the sheet worse: the model drew
     the mark as a dark stripe rather than a change of plane, and flattened every
@@ -380,7 +380,7 @@ def reduce_cell(pixels: Any, out_w: int, out_h: int) -> Any:
     of each remaining ``m x m`` group. A pure box mean all the way down
     averaged uncorrelated art pixels into every output pixel and regressed each
     material to its mean colour; a pure centre sample keeps single-pixel noise.
-    Measured in ``docs/measurements/2026-08-17-ground-reduction.md``.
+    Measured in ``dev/measurements/2026-08-17-ground-reduction.md``.
 
     Identity when the target equals the source, and ``m`` degrades to 1 for
     tiles near the cell size, where the stages collapse back to the plain box

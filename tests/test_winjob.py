@@ -218,7 +218,7 @@ def test_a_scoped_terminate_does_not_stop_the_other_live_child():
 # child and stays alive as a ~0.8 MB parent. Every reading keyed on the pid
 # Popen returned therefore reports the shim -- which is how a session log came
 # to print `children 0.0 GiB` beside a worker holding 6.3 GiB
-# (docs/measurements/2026-08-22-trampoline-child-pids.md).
+# (dev/measurements/2026-08-22-trampoline-child-pids.md).
 #
 # The job already holds the whole tree, because a process created by a process
 # in a job is assigned to that job at creation. So the register exists; it just

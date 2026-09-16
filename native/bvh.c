@@ -14,7 +14,7 @@
  * contours.c situation exactly, so the bar moves to what is actually
  * guaranteed, which here is the *pick result*: the triangle a ray returns,
  * whose tie-break (lowest triangle index) is already pinned so that the tree
- * and the full linear sweep agree. See docs/INVARIANTS.md and
+ * and the full linear sweep agree. See dev/INVARIANTS.md and
  * tests/viewer/test_bvh_native.py.
  *
  * The arithmetic that is *not* licensed to differ is the boxes: min and max

@@ -838,7 +838,7 @@ def test_a_profiles_radii_are_taken_as_magnitudes() -> None:
 
 def test_a_profiles_y_is_clamped_non_decreasing() -> None:
     """A pair of stations that can cross inverts a band's winding through two
-    perfectly positive numbers -- ``docs/INVARIANTS.md``'s generator
+    perfectly positive numbers -- ``dev/INVARIANTS.md``'s generator
     paragraph names this the same failure a negative extent causes."""
     clamped = bp.clamp_params("lathe", {"profile": [[0.1, 0.0], [0.2, -1.0], [0.3, 2.0]]})
     ys = [y for _, y in clamped["profile"]]

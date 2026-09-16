@@ -124,7 +124,7 @@ is depth 1, a ``repeat`` or taken ``if`` branch's own list is one deeper."""
 PROGRAM_MAX_BOOLEANS = 4
 """The most ``boolean`` steps one compiled program may contain, counting
 every iteration a ``repeat`` expands one into. Each is `MAX_BOOLEAN_TRIANGLES`
-work on the frame thread (see ``docs/INVARIANTS.md``'s agent paragraph); a
+work on the frame thread (see ``dev/INVARIANTS.md``'s agent paragraph); a
 program is one MCP round trip and should not be able to queue an unbounded
 amount of that behind it."""
 

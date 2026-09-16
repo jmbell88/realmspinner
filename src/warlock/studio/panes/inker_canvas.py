@@ -278,7 +278,7 @@ def seam_text(ctx: Any, tab: Any) -> tuple[int, str] | None:
 
     **Decides on dominance, not the retired ratio.** The 2026-09-07 audit found
     this indicator still reading ``tiling.seam_ratio``/``SEAM_MAX`` after
-    ``docs/measurements/2026-08-30-seam-dominance.md`` replaced that statistic
+    ``dev/measurements/2026-08-30-seam-dominance.md`` replaced that statistic
     in ``pipelines/seam.py`` for false-alarming on exactly the flat-cell pixel
     art this editor produces (up to 20 of 24 seamless tiles misflagged); this
     surface had never been switched over.

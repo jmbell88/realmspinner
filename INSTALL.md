@@ -110,7 +110,7 @@ Everything Warlock Studio downloads or creates lives under your Warlock home, `%
 
 ## Upgrading
 
-Installing a newer version over an existing one keeps `%USERPROFILE%\.warlock` — your assets, your model weights, and the pack wheel cache — untouched. **What it does not currently do is reinstall the dependency packs you had.** The upgrade replaces the app's own runtime, and that runtime is where packs are installed *into*; today nothing restores them automatically afterward. This is a known gap (tracked in `TODO.md`), not an intended behaviour.
+Installing a newer version over an existing one keeps `%USERPROFILE%\.warlock` — your assets, your model weights, and the pack wheel cache — untouched. **What it does not currently do is reinstall the dependency packs you had.** The upgrade replaces the app's own runtime, and that runtime is where packs are installed *into*; today nothing restores them automatically afterward. This is a known gap, not an intended behaviour.
 
 **After upgrading, check Settings → Packs and reinstall anything that shows as not installed.** Because the wheel cache under `%USERPROFILE%\.warlock\packs` survives the upgrade, reinstalling a pack you'd already fetched should be fast — it re-verifies the cached wheels rather than downloading them again, as long as their pinned versions haven't changed in the new release.
 

@@ -135,7 +135,7 @@ def test_check_bake_cost_still_allows_the_shipped_fireball_preset():
     up, and it is a real, shipped effect -- a cost model that closes the hole
     ``inker-06`` found must not also refuse the effect the manual's own
     "Casting a spell" chapter walks the reader through inserting. See
-    ``docs/measurements`` for this preset's cost before and after the fix, if
+    ``dev/measurements`` for this preset's cost before and after the fix, if
     recorded there; here it is enough that it still fits.
     """
     from warlock.studio.inker.flourish import presets

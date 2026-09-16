@@ -61,7 +61,7 @@ answered from a nearest-neighbour query over the raw vertices instead of the
 full narrow phase, marked ``exact=False``, and ``intersects`` is reported as
 ``None`` (unknown) rather than guessed, because a whole-document call is
 still worth answering approximately rather than not at all. See
-``docs/INVARIANTS.md``'s accepted-stall list for why that approximate path
+``dev/INVARIANTS.md``'s accepted-stall list for why that approximate path
 still exists rather than a fourth refusal: a big analysis is a deliberate
 one-shot action, like a big ``clay_boolean``, not something that should be
 unreachable.

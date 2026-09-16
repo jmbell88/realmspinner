@@ -9,7 +9,7 @@ GPU and never touches the document until the release.
 
 :meth:`DragOps._narrow` is deliberately the **single** narrowing site for axis
 locks, typed values and vertex snapping, above both paths -- an invariant named
-in ``docs/INVARIANTS.md`` as ``ClayView._narrow``, which it still is: the class
+in ``dev/INVARIANTS.md`` as ``ClayView._narrow``, which it still is: the class
 that carries this mixin is ``ClayView``.
 """
 
@@ -943,7 +943,7 @@ class DragOps:
         material grouping, the corner gathers and the index buffer are built
         once and only the positions and normals are recomputed per frame. A
         200k-triangle import went 368 ms a frame to 92 -- see
-        ``docs/measurements/2026-08-16-interactive-defects.md``.
+        ``dev/measurements/2026-08-16-interactive-defects.md``.
         """
         entry = self._cache.get(uid)
         if entry is None:

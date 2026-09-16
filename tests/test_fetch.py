@@ -377,13 +377,19 @@ def test_the_readme_counts_the_registered_base_models():
 def test_the_authoritative_docs_agree_with_the_registry_about_the_default():
     """DOC-02: the default moved to ``sdxl_cfg`` and four documents did not.
 
-    ``docs/INVARIANTS.md`` is the one that mattered — it instructs a reader to
+    ``dev/INVARIANTS.md`` is the one that mattered — it instructs a reader to
     consult it *before* modifying a subsystem, and it handed them the
     pre-2026-08-11 answer, complete with a causal story ("because FLUX is
     gated") that was never why this checkpoint won. Asserted as a property of
     the prose rather than by parsing it: a document that names the registry's
     default anywhere near the word must not simultaneously call Turbo the
     default.
+
+    Two of the original four documents, ``docs/INVARIANTS.md`` (now
+    ``dev/INVARIANTS.md``) and ``CLAUDE.md`` (now untracked/gitignored at the
+    root), stopped being part of the public checkout on 2026-09-16 and are
+    checked instead in ``dev/tests/test_fetch.py``'s twin of this test; this
+    one keeps the two that stayed public.
     """
     assert models.DEFAULT_BASE_MODEL == "sdxl_cfg"
     turbo = models.BASE_MODELS["turbo"]
@@ -397,13 +403,13 @@ def test_the_authoritative_docs_agree_with_the_registry_about_the_default():
         "prompt → SDXL-Turbo",
         "default because FLUX is gated",
     )
-    for name in ("docs/INVARIANTS.md", "CLAUDE.md", "README.md", "docs/MODELS.md"):
+    for name in ("README.md", "docs/MODELS.md"):
         text = (root / name).read_text(encoding="utf-8")
         for claim in claims:
             assert claim not in text, (
                 f"{name} still says {claim!r}; the registry's default is "
                 f"{models.DEFAULT_BASE_MODEL!r} "
-                f"(docs/measurements/2026-08-11-default-base-model.md)"
+                f"(dev/measurements/2026-08-11-default-base-model.md)"
             )
 
 
@@ -692,7 +698,7 @@ def test_a_checkpoint_without_its_step_distillation_lora_is_absent(tmp_path):
 
 def test_create_mode_gate_admits_a_zero_byte_engine_download(tmp_path):
     """pipelines-01 (2026-09-08 audit). ``modes.NEEDS_ROWS`` -- the mode gate
-    ``docs/INVARIANTS.md`` names as the sole protection against missing engine
+    ``dev/INVARIANTS.md`` names as the sole protection against missing engine
     weights -- is built from ``Entry.is_present`` via
     ``service.downloads.rows``'s "present" flag. That used to be
     ``fetch.present`` alone, a sweep of ``Path.is_file()`` calls blind to

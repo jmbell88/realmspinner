@@ -283,7 +283,7 @@ def frames():
 
 
 def test_the_wheel_is_reachable_by_the_control_probe(frames, monkeypatch):
-    """``probe`` is what ``scripts/exercise_mode.py`` and the driver in
+    """``probe`` is what ``dev/scripts/exercise_mode.py`` and the driver in
     ``tests/test_probe.py``-shaped suites use to find and click a control; a
     canvas drawn straight to the draw list is invisible to it unless it calls
     ``controls._finish_item`` itself (see ``_wheel``'s call to it, right after

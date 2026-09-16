@@ -1145,7 +1145,7 @@ def _layout_request(form: dict[str, Any]) -> dict[str, Any]:
     top-level ``fps``, or a movement outside the closed legacy five -- and
     version 2 otherwise, byte-identical to what this function produced before
     the open vocabulary existed. See
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a v2
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a v2
     payload never has its ``fps`` read at all (``resolve_layout`` only looks
     for one on a v3+ payload), so a form that set a rate and stayed on
     ``"version": 2`` would have the rate silently ignored rather than applied.

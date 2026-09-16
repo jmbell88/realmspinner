@@ -196,7 +196,7 @@ def linked(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
     label propagation. Propagation's pass count is a shell's *length* along
     the mesh, not the square root of its size, so four disconnected quad
     strips two faces wide totalling 200k vertices took 11.1 s -- 11 seconds on
-    the frame thread for one L key (docs/measurements/
+    the frame thread for one L key (dev/measurements/
     2026-09-13-native-batch-10-candidates.md, §1). ``connected_components``
     answers the same question -- which vertices share a component with the
     seeds -- in one pass over the whole graph regardless of its shape, and

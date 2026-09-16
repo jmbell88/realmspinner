@@ -1,6 +1,6 @@
 """Pure, torch-free prompt assembly and CLIP-token chunking.
 
-Mirrors the pipelines/sheet.py split docs/INVARIANTS.md already establishes:
+Mirrors the pipelines/sheet.py split dev/INVARIANTS.md already establishes:
 decidable, testable logic lives here with no torch import; only the tensor
 work (_encode_long_prompt) stays in pipelines/text2image.py. transformers is
 imported only inside the functions that need it, so this module stays
@@ -113,7 +113,7 @@ TILESHEET_TEMPLATE = (
 # for: an object recipe recorded under 1-3 no longer reproduces byte-for-byte,
 # and a benchmark comparing across the bump is comparing two compilers.
 #
-# 5: the taxonomy retirement (docs/measurements/2026-08-17-taxonomy-retirement.md).
+# 5: the taxonomy retirement (dev/measurements/2026-08-17-taxonomy-retirement.md).
 # guidance._PROMPT_FIELDS emptied, TILE_FIELDS and the ``{view}`` slot deleted
 # with the view literal re-inlined. The empty-params composition is
 # byte-identical to 4 (tests/test_prompt.py pins it as a literal); the bump is

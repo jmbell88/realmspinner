@@ -26,7 +26,7 @@ This is the fourth measurement in the tree and the four must not be merged:
 Different questions at different doors.
 
 **The two ratios below are import-door heuristics behind a confirm popup and no
-``docs/measurements/`` document is owed for them.** That rule (CLAUDE.md) is
+``dev/measurements/`` document is owed for them.** That rule (CLAUDE.md) is
 about constants the *stored corpus is keyed on* -- ``trellis_band``,
 ``SEAM_MAX``, the grade scale -- where a change silently reinterprets everything
 already recorded. Nothing is stored keyed on these: they decide what a popup

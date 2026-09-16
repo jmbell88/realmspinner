@@ -84,7 +84,7 @@ def pytest_configure(config):
     # environment before the first test imports ``warlock.studio.guard``. A pane
     # that raises must keep failing its test rather than quietly becoming a
     # placeholder -- see ``studio/guard.py``'s note on why that matters to
-    # ``scripts/exercise_mode`` too. ``tests/test_pane_guard.py`` opts back out.
+    # ``dev/scripts/exercise_mode`` too. ``tests/test_pane_guard.py`` opts back out.
     os.environ["WARLOCK_UI_STRICT"] = "1"
     global _GPU_LANE
 
@@ -460,7 +460,7 @@ def svc(tmp_path, monkeypatch):
     # gitignored, so whether a named triangle tier is refused depended on
     # whether whoever ran the suite happened to have vendored the binary --
     # which is exactly the "a test about the fallback must pin the fallback"
-    # rule docs/INVARIANTS.md states for warlockc.dll. Vendoring gltfpack on
+    # rule dev/INVARIANTS.md states for warlockc.dll. Vendoring gltfpack on
     # 2026-08-07 duly turned two admission tests red without a line of their subject
     # changing. A test that wants the binary *present* writes one.
     monkeypatch.setenv("WARLOCK_GLTFPACK", str(tmp_path / "no-gltfpack.exe"))

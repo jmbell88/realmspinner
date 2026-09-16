@@ -351,7 +351,7 @@ def wang_field(data: np.ndarray, ref: TilesetRef, wangset: Any) -> Any:
     ``holds`` is ``firstgid <= id <= last_gid`` and ``last_gid`` recomputes
     through a ``max_local_id -> tile_count -> columns/rows -> image_w/h``
     property chain on every call, and one gesture makes on the order of eight
-    such reads per touched cell. `docs/measurements/2026-09-06-native-batch-7-candidates.md`
+    such reads per touched cell. `dev/measurements/2026-09-06-native-batch-7-candidates.md`
     (B9) measured a 128-cell diagonal drag at 131 ms shipped, 68 ms with this
     hoist -- same answers, by inspection of ``holds``.
     """
@@ -478,7 +478,7 @@ def paint_wang_cells(
     # shared here is everything that can be, and it is the expensive part. The
     # 2026-09-02 review filed the remaining per-cell Python as a cost; it is
     # the algorithm rather than the implementation. Batch 7 profiled that cost
-    # (docs/measurements/2026-09-06-native-batch-7-candidates.md, B9): it was
+    # (dev/measurements/2026-09-06-native-batch-7-candidates.md, B9): it was
     # ``TilesetRef.holds``'s property chain, not the loop -- see wang_field.
     field = wang_field(work, ref, wangset)
     cache: dict[tuple[tuple[int, int], ...], list[int]] = {}

@@ -1,6 +1,6 @@
 """``charsheet.compass_name`` against the camera arithmetic it is derived
 from, not against its own table -- see
-``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``
+``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``
 ("Compass names follow the camera arithmetic, not the docstring")."""
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def test_compass_names_follow_the_camera_arithmetic_not_the_docstring(name, yaw)
 
 
 #: The sixteen direction keys' compass points, written out by hand from
-#: ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s rule
+#: ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s rule
 #: (``bearing = (180 + yaw) % 360``) rather than derived from
 #: ``compass_name``/``COMPASS_16`` -- so this test can actually disagree with
 #: the code it is checking, unlike the tautology it replaces (``COMPASS_16``

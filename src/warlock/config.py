@@ -312,7 +312,7 @@ class Config:
     # than a repair: the second reconstruction can perfectly well be worse than
     # the first, which is why the loop keeps whichever attempt measured best
     # rather than whichever came last. Graded on 2026-09-02
-    # (docs/measurements/2026-09-02-hole-audit-vs-grade.md): the loop was run
+    # (dev/measurements/2026-09-02-hole-audit-vs-grade.md): the loop was run
     # for real on the five meshes the trigger still fires on under v0.6.0 and
     # the reviewer graded the kept attempts 0 of 5 usable -- the trigger sees
     # perforated skins, which that release fixed, and what remains is open
@@ -322,7 +322,7 @@ class Config:
     )
     # The worst-view see-through fraction past which a mesh is worth redoing.
     # 0.07 is measured, not guessed, the same way trellis_band was settled by a
-    # sweep: docs/measurements/2026-08-04-hole-rate-baseline.md ran the whole
+    # sweep: dev/measurements/2026-08-04-hole-rate-baseline.md ran the whole
     # core-v1 suite at two seeds and found the hole rate sharply bimodal, with
     # *nothing at all* between 0.0308 and 0.1010 -- 22 of 37 meshes below the
     # gap and 15 above it, out to 0.556. 0.07 is the midpoint of that empty gap
@@ -345,7 +345,7 @@ class Config:
     # exists at all is measured: on 2026-09-07 the mesh probe found 0 of 9
     # model-stage verdicts still carrying a source.glb, because finishing a
     # blind grading pass is also what deletes the meshes it graded
-    # (docs/measurements/2026-09-07-mesh-probe-preregistration.md). Retention
+    # (dev/measurements/2026-09-07-mesh-probe-preregistration.md). Retention
     # keeps an accept *in place*; this keeps everything that was judged
     # *somewhere*.
     evidence_dir: Path = field(
@@ -448,7 +448,7 @@ class Config:
     # res/512 when the flag is absent, which is what None gives you.
     #
     # Measured 2026-08-01 and written up in
-    # docs/measurements/2026-08-01-trellis-band.md (the document was backfilled
+    # dev/measurements/2026-08-01-trellis-band.md (the document was backfilled
     # on 2026-09-11 after an audit found this table living only here, in the one
     # constant CLAUDE.md names as the example of a corpus-keyed one).
     # (`warlock sweep`, one reference image, seed 42, res 1024,
@@ -480,7 +480,7 @@ class Config:
     # budget). None omits the flag, so the exe's own default runs -- and that
     # default is *not printed by --help*, so the first rung of any sweep over
     # these must be "omitted", never a number copied from a guess. They exist
-    # as sweep axes for the props-v1 hole question (docs/measurements/
+    # as sweep axes for the props-v1 hole question (dev/measurements/
     # 2026-08-30-sdxl-cfg-props.md); a winning rung becomes a default here by
     # a measurement doc, not before.
     trellis_gss: float | None = field(
@@ -501,7 +501,7 @@ class Config:
     # off; a positive value selects the legacy cluster-grid decimation at that
     # grid. --atlas: the UV atlas edge in px (the exe defaults 2048 at res
     # 1024, 1024 at 512), the texture-detail twin of trellis_tex_res. None
-    # omits the flag. Both are sweep axes for docs/measurements/
+    # omits the flag. Both are sweep axes for dev/measurements/
     # 2026-09-03-trellis-detail-sweep.md; a default moves by that document.
     trellis_decim: int | None = field(
         default_factory=lambda: _env_opt_int("WARLOCK_TRELLIS_DECIM", None)
@@ -531,7 +531,7 @@ class Config:
     # cannot give: klein charged +21.1 GiB of host commit on 2026-08-22 and
     # `unload()` returned 0.1 GiB of it, because the allocator's arenas outlive
     # every reference. Turning this on restores that leak
-    # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+    # (dev/measurements/2026-08-22-trampoline-child-pids.md).
     t2i_in_process: bool = field(
         default_factory=lambda: _env_bool("WARLOCK_T2I_IN_PROCESS", False)
     )

@@ -191,7 +191,7 @@ def print_table(rows: list[dict[str, Any]], audit_resolution: int) -> None:
     # actually open: the re-baseline is where the AUC above is measured.
     print(
         "a featureless slab measures 0.0000. "
-        "See docs/measurements/2026-08-09-rebaseline.md."
+        "See dev/measurements/2026-08-09-rebaseline.md."
     )
     print(f"{'band':>6}  {'worst':>8}  {'mean':>8}  {'faces':>9}  {'gen s':>7}")
     for row in rows:

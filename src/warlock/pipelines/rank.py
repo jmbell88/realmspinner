@@ -39,7 +39,7 @@ UNMEASURED = 0.5
 # composition dominant (0.45 effective with an anchor), which is right for
 # the same reason COMPOSITION_WEIGHT leads: aesthetics only matter among
 # candidates that can all reconstruct. The pre-registered labelling session
-# (docs/measurements/2026-08-09-judge-threshold.md) is the natural place to
+# (dev/measurements/2026-08-09-judge-threshold.md) is the natural place to
 # calibrate this against real picks; until it runs, the weight is the
 # literature's "best single human-preference predictor" claim applied
 # conservatively.
@@ -79,7 +79,7 @@ def _subjects(report: dict[str, Any]) -> int:
 
     ``components_major`` or nothing. The raw ``components`` count is speckle at
     this image class -- median 15-18 per image
-    (docs/measurements/2026-08-17-reference-source-bench.md) -- so charging
+    (dev/measurements/2026-08-17-reference-source-bench.md) -- so charging
     ``COMPONENT_COST`` against it took 2.25 to 2.55 off a base of 1.0 and every
     reference this function was ever shown clamped to zero. A 0.6-weighted term
     that is a constant on all inputs is not a weight; it meant candidate order

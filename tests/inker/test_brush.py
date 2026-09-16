@@ -387,7 +387,7 @@ def test_taper_never_reaches_a_zero_diameter():
 #
 # The Aseprite parity programme's P1 appendix carried "the measured symmetry=xy 16x
 # per-dab invalidation cliff (union-rect defect)". The measurement
-# (``docs/measurements/2026-08-20-stroke-invalidation.md``) found that cliff and
+# (``dev/measurements/2026-08-20-stroke-invalidation.md``) found that cliff and
 # found it was the smaller half: a single accumulating union was answering both
 # "what does the undo patch cover" (once, at release, where one box is right) and
 # "what has to be recomposited now" (after every dab, where it is wrong twice

@@ -373,7 +373,7 @@ def test_a_rewritten_manifest_is_re_read(tmp_path):
 #: So the capture is by *category* rather than by call site. Both take a single
 #: string and both mean "a muted note", which is what makes one list correct;
 #: a note function reaching for a third spelling belongs here the day it does.
-#: This is the same rule ``docs/measurements/2026-08-25-suite-context-crash.md``
+#: This is the same rule ``dev/measurements/2026-08-25-suite-context-crash.md``
 #: draws about the one imgui context -- a test that draws must patch what draws.
 _NOTE_WIDGETS = ("muted", "muted_wrapped")
 

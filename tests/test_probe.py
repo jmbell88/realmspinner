@@ -3,7 +3,7 @@
 Headless throughout: ``probe.record`` is guarded by an imgui-context check, so
 every one of these runs without a window. The one thing that cannot be tested
 here is a real click -- that needs a window, and it is what
-``scripts/exercise_mode.py`` is for.
+``dev/scripts/exercise_mode.py`` is for.
 """
 
 from __future__ import annotations

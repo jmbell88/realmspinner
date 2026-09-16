@@ -13,7 +13,7 @@ user-supplied string is how ``../`` and a Windows reserved name get into an
 archive, and the indirection costs one line in each direction.
 
 **The rendered audio is not in here.** A ``.wsng`` is the composition; every WAV
-is a pure function of it (``docs/INVARIANTS.md``). Storing a render would make
+is a pure function of it (``dev/INVARIANTS.md``). Storing a render would make
 the file able to disagree with the notes beside it, and exporting is a separate
 act with its own destination.
 

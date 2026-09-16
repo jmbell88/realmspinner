@@ -10,7 +10,7 @@ Nothing here imports imgui, so a test can assert the sentence without a GL
 context and ``review_mode`` can read the threshold without dragging the whole
 widget layer into a frame.
 
-See ``docs/measurements/2026-08-09-rebaseline.md`` and ``judge.py``'s module
+See ``dev/measurements/2026-08-09-rebaseline.md`` and ``judge.py``'s module
 docstring for the measurement itself.
 """
 

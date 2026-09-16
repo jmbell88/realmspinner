@@ -2,9 +2,8 @@
 
 Everything on this page is optional and independently skippable. The core setup in the
 [README](../README.md) — TRELLIS.2 plus SDXL 1.0 — is enough to generate assets; what follows
-widens the choices. SDXL 1.0 is the shipped default because it measured best
-([docs/measurements/2026-08-11-default-base-model.md](measurements/2026-08-11-default-base-model.md))
-and because its 7 GB is the one base download four registered recipes share, so most of this page
+widens the choices. SDXL 1.0 is the shipped default because it measured best on the maintainer's
+own benchmark corpus, and because its 7 GB is the one base download four registered recipes share, so most of this page
 is a small adapter over weights you already have rather than another checkpoint.
 
 One thing on the generation side is **not** on this page and never will be: Create's **Character**
@@ -42,8 +41,8 @@ The engine used to ship inside the installer, where it was **838 MB of a 1.4 GB 
 than half of it — for a program most of whose workspaces never start it. `trellis-server.exe` is
 3 MB of that; the rest is `cublasLt64_13.dll` (480 MB) and `ggml-cuda.dll` (338 MB), linear algebra
 it links against. So it became a download, and a machine that only draws pixel art in Inker now
-fetches none of it. The figures and the verification are in
-[docs/measurements/2026-09-10-engine-as-a-download.md](measurements/2026-09-10-engine-as-a-download.md).
+fetches none of it. The figures and the verification were confirmed on the maintainer's own machine on
+2026-09-10.
 
 It is the one entry on this page that is **not a Hugging Face repository**: it is a single archive
 published on trellis.cpp's own GitHub releases, so it is pinned by SHA-256 rather than by a commit
@@ -110,8 +109,8 @@ curl -L -o $HOME/.warlock/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip `
 ```
 
 **The weights row is a testing pin, stated as one.** It is Unsloth's own Q8_0 requantization of
-the stock `google/gemma-4-E2B-it` instruct model — not `familiar_v1.0`, the fine-tune trained in
-`training/clay-assistant/`, which a later tranche (T10) swaps in as the shipped pin. There is no
+the stock `google/gemma-4-E2B-it` instruct model — not `familiar_v1.0`, the fine-tune trained by
+this project's own training pipeline, which a later tranche (T10) swaps in as the shipped pin. There is no
 picker and no path override: this exact file, or nothing.
 
 ```powershell
@@ -125,7 +124,7 @@ the same "fetched from upstream, nothing redistributed" footing as the reconstru
 weights repository (`unsloth/gemma-4-E2B-it-GGUF`) is published under Apache 2.0, matching the base
 `google/gemma-4-E2B-it` model it requantizes.
 
-**`familiar_v1.0` is reviewed and clear to ship (TODO.md P53, decided 2026-09-14).** The base
+**`familiar_v1.0` is reviewed and clear to ship (decided 2026-09-14).** The base
 model's real terms are Google's own Gemma Terms of Use, not the Apache-2.0 tag Hugging Face shows
 for it — a base-model licence tag is not automatically the same promise once weights are retrained
 on new data, which is exactly what this review checked. Gemma's terms permit fine-tuning and
@@ -155,7 +154,7 @@ restricted ones; this table is the same information in full.
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
 | **llama.cpp** (Familiar's runtime) | MIT | Yes |
 | **Gemma 4 E2B** (Familiar's weights, testing pin) | Apache-2.0 | Yes |
-| **`familiar_v1.0`** (Familiar's fine-tuned weights, ships when T10 replaces the testing pin above) | Google's Gemma Terms of Use (not Apache-2.0) | Yes — reviewed 2026-09-14 (TODO.md P53); ships openly under this project's own GPL-3.0-or-later |
+| **`familiar_v1.0`** (Familiar's fine-tuned weights, ships when T10 replaces the testing pin above) | Google's Gemma Terms of Use (not Apache-2.0) | Yes — reviewed 2026-09-14; ships openly under this project's own GPL-3.0-or-later |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

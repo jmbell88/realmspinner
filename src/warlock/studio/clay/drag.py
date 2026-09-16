@@ -202,7 +202,7 @@ def constrain_rotation(quat: np.ndarray, drag: DragInput) -> np.ndarray:
 
 #: The largest vertex count (the mesh, not the selection) the distance search
 #: will attempt. Replaced the ``selected x vertices`` pair cap on 2026-09-13
-#: (`docs/measurements/2026-09-13-native-batch-10-candidates.md` §2): a
+#: (`dev/measurements/2026-09-13-native-batch-10-candidates.md` §2): a
 #: ``cKDTree`` query is ~O((n + m) log m) rather than the broadcast's O(n*m),
 #: so the cost that matters is no longer the product -- it is dominated by the
 #: mesh's own vertex count, because the query side touches every vertex
@@ -221,7 +221,7 @@ def _min_distance(positions: np.ndarray, anchors: np.ndarray) -> np.ndarray:
 
     A ``cKDTree`` over *anchors*, queried once for every row of *positions* --
     replaced the chunked brute-force broadcast on 2026-09-13
-    (`docs/measurements/2026-09-13-native-batch-10-candidates.md` §2): 1343 ms
+    (`dev/measurements/2026-09-13-native-batch-10-candidates.md` §2): 1343 ms
     to 66 ms at the old cap's 40M pairs. The two agree to 1e-9, not bit for
     bit, which is why this is no longer pinned bit-identical against a
     reference broadcast in the tests -- only ``allclose``, with the selected

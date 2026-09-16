@@ -47,15 +47,7 @@ dist/
 # meant every run produced a diff and every branch produced a conflict, over a
 # file that is per-machine by definition.
 imgui.ini
-# Measurement corpora: the images a docs/measurements/ document was eyeballed
-# against. Regenerable from the scripts/ harness that produced them (fixed
-# seeds), and 49 MB for the seam corpus alone. The results JSON beside them is
-# the evidence and is tracked.
-/docs/measurements/data/**/*.png
-# And the meshes, for the same reason and more so: a re-texture corpus is a
-# copy of the input GLB plus its re-textured output, which is 27 MB a pair.
-/docs/measurements/data/**/*.glb
-# Screenshot-harness output (`scripts/screenshot_modes.py --out`), and the
+# Screenshot-harness output (`dev/scripts/screenshot_modes.py --out`), and the
 # `WARLOCK_HOME` each run is pointed at. Per-run, regenerable, photographed for
 # one review -- never an input to anything, and tens of MB of PNGs a pass.
 #
@@ -103,23 +95,23 @@ imgui.ini
 # earlier commit, and were never secret.
 /.claude/
 
-# The Clay-assistant training programme's own generated output: renders,
-# training run artefacts and weights. The JSONL under training/clay-assistant/
-# (drafts/, dataset/) is tracked -- it is the reproducible input and the
-# verified dataset; everything below is regenerable from it, or is a model
-# weight file too large (and too far from source) to belong in git.
-/training/clay-assistant/gallery/
-/training/clay-assistant/runs/
-/training/clay-assistant/out/
-/training/**/*.gguf
-/training/**/*.safetensors
-# The Unsloth-shaped export repeats the ~8k-character system turn on every row, so
-# it is ten times the size of the dataset it is derived from (24 MB for 2,159 rows)
-# and carries no information train.jsonl/val.jsonl do not: `build.py --export
-# unsloth` regenerates it in seconds. Tracked: drafts/, dataset/{train,val,rejects}
-# .jsonl and manifest.json.
-/training/clay-assistant/dataset/unsloth_*.jsonl
 # Unsloth writes its torch.compile cache into the current directory when a training
-# script runs from the repo root (training/clay-assistant/train/*.py under Studio's
+# script runs from the repo root (dev/training/clay-assistant/train/*.py under Studio's
 # Python); machine-local, regenerable, and a ruff failure the moment it appears.
 /unsloth_compiled_cache/
+
+# Development material -- the plan file, the invariants ledger, dated
+# measurements and their corpora, review screenshots, the Clay-assistant
+# training programme, bench/calibration scripts and the tests that read them --
+# lives under /dev/ and is kept out of the published repository (2026-09-16).
+# It is maintainer-local working state, not part of the application or its
+# documentation. Its tests are a local lane (`dev/tests`, listed in testpaths;
+# pytest skips a testpath that does not exist on a clean checkout), and nothing
+# in tests/ may read a file under dev/, or CI breaks on a clean clone. No
+# history purge was done: these files remain readable in earlier commits.
+/dev/
+# Agent-facing configuration that only works at the repository root. CLAUDE.md
+# is the development guide for whoever drives this checkout and cites /dev/
+# throughout; .mcp.json hard-codes machine-local absolute paths.
+/CLAUDE.md
+/.mcp.json

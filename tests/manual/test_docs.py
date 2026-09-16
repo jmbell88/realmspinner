@@ -239,7 +239,7 @@ def test_help_button_call_sites_match_help_targets():
 
 # --- the mode count ---------------------------------------------------------
 #
-# Prose, and so self-correcting by nothing. ``docs/INVARIANTS.md`` -- the
+# Prose, and so self-correcting by nothing. ``dev/INVARIANTS.md`` -- the
 # authoritative file -- said "Ten modes" and enumerated nine plus Settings, with
 # Troupe missing, while CLAUDE.md, README.md and ``modes.py`` all said eleven;
 # the manual's own mode list was missing Troupe too, despite carrying a chapter
@@ -255,12 +255,14 @@ def _root():
 
 
 def test_both_documents_state_the_mode_count_the_rail_actually_draws():
+    """``docs/INVARIANTS.md`` moved to ``dev/INVARIANTS.md`` on 2026-09-16, so
+    its half of this check now lives in
+    ``dev/tests/manual/test_docs.py``; this keeps the public overview half.
+    """
     from warlock.studio import modes
 
     want = _COUNT_WORDS[len(modes.MODES)]
-    invariants = (_root() / "docs" / "INVARIANTS.md").read_text(encoding="utf-8")
     overview = (_root() / "docs" / "manual" / "20-overview.md").read_text(encoding="utf-8")
-    assert f"**{want.capitalize()} modes and one rail" in invariants
     assert f"chooses between {want} modes" in overview
 
 

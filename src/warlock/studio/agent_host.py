@@ -10,7 +10,7 @@ resource and prompt ops) ->
 means touching a :class:`~.clay.document.Document` and, for ``clay_render``,
 a moderngl context -- exactly the two things this thread must never reach
 for itself (see ``CLAUDE.md``'s "one GL context" rule and ``docs/
-INVARIANTS.md``'s three-thread model). So :meth:`AgentHost._call` does not
+dev/INVARIANTS.md``'s three-thread model). So :meth:`AgentHost._call` does not
 run the tool at all: it drops a job on a queue and blocks *this* thread on a
 :class:`threading.Event` until :meth:`AgentHost.pump`, called once a frame
 from ``main.py:App.frame``, dequeues it and runs ``agent_clay.call`` for
@@ -19,7 +19,7 @@ real. The listener thread waits; it never works.
 **Studio speaks only RPC v1 on this pipe -- there is no bare-MCP path
 here any more, and none of this module (or anything else under
 ``warlock.studio``) may import ``warlock.mcp.protocol``** (``docs/
-INVARIANTS.md``'s agent paragraph; pinned by ``tests/mcp/
+dev/INVARIANTS.md``'s agent paragraph; pinned by ``tests/mcp/
 test_mcp_imports.py``). ``bridge.py`` (``warlock mcp``) is the only MCP
 *server*: it is the thing a third-party agent client's tool runner dials,
 and it translates whatever MCP era that client negotiates into RPC v1
@@ -166,7 +166,7 @@ TRANSCRIPT_ENV = "WARLOCK_AGENT_TRANSCRIPT"
 (``tests/test_agent_transcripts.py``'s module docstring names the tiers).
 Unset by default, so recording costs nothing for the ordinary case of an
 agent session nobody is trying to capture. Read fresh on every call rather
-than cached at :meth:`AgentHost.start`, so ``scripts/agent_bench.py``'s
+than cached at :meth:`AgentHost.start`, so ``dev/scripts/agent_bench.py``'s
 ``--serve`` (which sets this before calling ``studio.main.run()``, not
 before constructing the host) does not have to race the host's own
 construction to take effect."""
@@ -288,7 +288,7 @@ def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
     the module docstring's opening claim), so one more small, synchronous
     write here costs it nothing it was not already paying; the frame thread,
     by contrast, runs under a hard per-frame drain budget
-    (:meth:`AgentHost.pump`'s own docstring, and ``docs/INVARIANTS.md``'s
+    (:meth:`AgentHost.pump`'s own docstring, and ``dev/INVARIANTS.md``'s
     three-thread model), and a disk write is new work that diagnostic would
     be adding to *every* call, forever, for a feature that is off unless a
     human switches it on. The listener is also simply where this data
@@ -300,7 +300,7 @@ def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
     an agent session driving Clay has nothing to do with whether a diagnostic
     file happened to be unwritable, and letting that exception propagate
     would fail a real tool call over a debugging aid nobody but a human
-    running ``scripts/agent_bench.py`` even asked for. Logged and swallowed,
+    running ``dev/scripts/agent_bench.py`` even asked for. Logged and swallowed,
     the same shape ``pump`` already uses for one bad job not stopping the
     drain (see its own comment).
 
@@ -726,7 +726,7 @@ class AgentHost:
 
         Familiar must keep working while the pipe server is off, and turning
         the pipe server off must never drop an in-app session's own jobs
-        (``docs/INVARIANTS.md``'s agent-host paragraph): scoping teardown to
+        (``dev/INVARIANTS.md``'s agent-host paragraph): scoping teardown to
         "the last owner released" rather than "the pipe stopped" is what
         makes both true at once."""
         with self._job_lock:

@@ -129,7 +129,7 @@ class Entry:
         sweep of ``Path.is_file()`` calls, blind to size, so a killed download
         that left every probe file at zero bytes read as "present" here --
         reproduced with all ten engine GGUF probe files emptied, which let
-        ``modes.NEEDS_ROWS`` (the sole gate ``docs/INVARIANTS.md`` names for
+        ``modes.NEEDS_ROWS`` (the sole gate ``dev/INVARIANTS.md`` names for
         this weight) admit Create, while doctor's "TRELLIS GGUF weights" row,
         reading the same files, already said FAIL.
 
@@ -335,7 +335,7 @@ def download_text(config: Config, kind: str, spec: Any) -> str:
 # counter here would not have detected it anyway.
 #
 # An int rather than an mtime: directory mtimes are not a reliable change signal
-# on Windows (docs/measurements/2026-08-07-directory-mtime-granularity.md), and
+# on Windows (dev/measurements/2026-08-07-directory-mtime-granularity.md), and
 # this needs no persistence -- a fresh process has a fresh pipe.
 _store_generation = 0
 

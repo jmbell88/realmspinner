@@ -1,5 +1,5 @@
 """``terrain.wang_field`` hoists ``ref``/``wangset`` reads out of the per-cell
-closure (docs/measurements/2026-09-06-native-batch-7-candidates.md, B9): the
+closure (dev/measurements/2026-09-06-native-batch-7-candidates.md, B9): the
 old body called ``ref.holds(value)`` on every neighbour read, and ``holds``
 recomputes ``last_gid`` through a ``max_local_id -> tile_count ->
 columns/rows -> image_w/h`` property chain each time. Two claims: the hoisted

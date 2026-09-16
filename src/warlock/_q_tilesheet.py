@@ -28,7 +28,7 @@ seed, the recipe that ran. It cannot record *structure*, because one guided
 generation has none -- there is no per-cell prompt, no cell seed and no
 Wang/path role anywhere in it, and the sixty-four guide cells are identical,
 which is the measurement that retired the mode for new requests
-(``docs/measurements/2026-08-18-tile-sheet-grid.md``). So this worker compiles
+(``dev/measurements/2026-08-18-tile-sheet-grid.md``). So this worker compiles
 no plan and the sidecar carries no ``workflow`` block. It used to: a stored
 ``generation_request`` was run through ``asset_workflows.tile_plan`` and the
 compiled per-cell (or sixteen-role) description was written beside a picture

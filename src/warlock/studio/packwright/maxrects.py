@@ -159,7 +159,7 @@ def _prune(free: list[Rect], fresh: list[bool]) -> None:
     only for this placement's new pieces, and the postcondition above is what
     makes that safe. This is 92% of a pack's time at 1024 sprites before the
     restriction: measured at 4432 ms, 297 ms after, in
-    docs/measurements/2026-09-06-native-batch-7-candidates.md.
+    dev/measurements/2026-09-06-native-batch-7-candidates.md.
     """
     count = len(free)
     if count < 2:

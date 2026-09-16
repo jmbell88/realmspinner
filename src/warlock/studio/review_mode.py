@@ -72,7 +72,7 @@ first unverdicted unit and recording steps past everything already answered.
 **Blinding hides the arm, and that means the order too.** The review that
 produced the ``bg_removal`` signal was unblinded and single-reviewer, which is
 why the campaign's rule is a small blind confirm before anything is leaned
-on -- the pre-registration in ``docs/measurements/2026-08-09-rebaseline.md``,
+on -- the pre-registration in ``dev/measurements/2026-08-09-rebaseline.md``,
 whose confirm is the one that ran and failed against its own rule.
 ``blind`` is therefore a property of the *session*, not of a sweep: it renames
 every unit to a neutral id prefix and presents them in an order derived from a
@@ -120,8 +120,8 @@ SOURCE = verdicts_mod.SOURCE_HUMAN
 # is decided once. **Nothing writes it yet, and that is a decision rather than
 # an omission**: filing a verdict needs a probability-to-accept threshold, and
 # a threshold is a constant the stored corpus is then keyed on, which owes a
-# ``docs/measurements/`` document first --
-# ``docs/measurements/2026-08-09-judge-threshold.md`` is that document, and it
+# ``dev/measurements/`` document first --
+# ``dev/measurements/2026-08-09-judge-threshold.md`` is that document, and it
 # says exactly what the run must produce before a cut may be adopted.
 # The ``(job_id, source, stage)`` seam is already built and tested, so
 # the day that measurement exists this is one call.
@@ -1720,8 +1720,8 @@ AXIS_HELP: dict[str, str] = {
     "trellis_band": (
         "Width of the narrow band the engine's DC remesh runs over. Empty runs "
         "its default of res/512. Measured 2026-08-01: widening it made the "
-        "surface *more* perforated while adding faces and time -- see "
-        "docs/measurements. Restarts the engine per value."
+        "surface *more* perforated while adding faces and time. Restarts the "
+        "engine per value."
     ),
     "trellis_tex_res": (
         "Baked PBR texture resolution in px. Pinned to 512 by default because "
@@ -2015,7 +2015,7 @@ def mesh_lines(unit: dict[str, Any]) -> list[str]:
         # ``hole_worst`` is corpus-dependent and is never presented as a quality
         # scale: it measured AUC 0.115 against reject on the 2026-08-07 corpus
         # and 0.756 after the matte fix
-        # (``docs/measurements/2026-08-09-rebaseline.md``). A low figure is
+        # (``dev/measurements/2026-08-09-rebaseline.md``). A low figure is
         # still what a solid slab measures, which is why the caveat below is
         # about the *direction of inference* rather than about either number.
         worst = audit.get("worst")

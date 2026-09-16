@@ -9,7 +9,7 @@ without ever `json.loads`-ing that result.
 
 There used to be a second dispatcher here, `dispatch`, that answered bare
 MCP JSON-RPC directly on Studio's own pipe -- `studio/agent_host.py` called
-it before Studio spoke only RPC v1. It is gone: `docs/INVARIANTS.md`'s agent
+it before Studio spoke only RPC v1. It is gone: `dev/INVARIANTS.md`'s agent
 paragraph is now "Studio speaks only RPC v1; the bridge is the only MCP
 server", and `warlock.studio` importing this module at all is a pinned
 regression (`tests/mcp/test_mcp_imports.py`). Nothing here knows Clay

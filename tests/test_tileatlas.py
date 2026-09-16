@@ -2,7 +2,7 @@
 
 Three claims carry this module.
 
-The first is the one ``docs/measurements/2026-08-18-tile-sheet-grid.md`` argues
+The first is the one ``dev/measurements/2026-08-18-tile-sheet-grid.md`` argues
 for: **variety is a property of the request.** N materials are N generations
 laid out in the order the user typed them, so the layout is a list rather than a
 packing and the tests below pin reading order rather than aspect ratio.
@@ -158,7 +158,7 @@ def test_three_quarter_is_refused_by_name_in_both_modes(call):
     for "a shallow visible front face", and a front face does not tile
     vertically: the row below would occlude it. Nothing is lost, because the
     grid path still offers 3/4 and its guide is measured
-    (``docs/measurements/2026-08-21-three-quarter-guide.md``)."""
+    (``dev/measurements/2026-08-21-three-quarter-guide.md``)."""
     with pytest.raises(ValueError, match="front face"):
         call()
     # The clause this is refusing really does say it, so the argument is not
@@ -348,7 +348,7 @@ def test_reduce_material_accepts_the_sizes_that_divide(tile):
 
 def test_reduce_material_is_tilesheets_measured_reducer():
     """Delegation, pinned: the two-stage reducer of
-    ``docs/measurements/2026-08-17-ground-reduction.md`` is not reimplemented
+    ``dev/measurements/2026-08-17-ground-reduction.md`` is not reimplemented
     here, only fenced."""
     material = _blocks(256, 256, 8)
     assert np.array_equal(

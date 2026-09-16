@@ -436,7 +436,7 @@ def _exe_check(config: Config) -> Check:
     registry row now (``models.ENGINE_MODELS["trellis_runtime"]``, 838 MB,
     optional so a machine that only draws pixel art never fetches it), so
     their absence is the ordinary state of a fresh install -- the exact
-    distinction ``docs/INVARIANTS.md`` draws under "A model you have not
+    distinction ``dev/INVARIANTS.md`` draws under "A model you have not
     downloaded is not a fault". Reporting it fatal put a red banner and a
     non-zero exit code on a healthy first launch, which is the incident the
     GGUF weights row beside it was already fixed for; this row had been left
@@ -477,7 +477,7 @@ def _exe_check(config: Config) -> Check:
     # of it: something is on disk, damaged, and the remedy is "remove and
     # reinstall" rather than "install". A row that called this
     # ``pending_install`` would drop out of every failure counter
-    # (``docs/INVARIANTS.md``'s rule) and hide the one case that is a real
+    # (``dev/INVARIANTS.md``'s rule) and hide the one case that is a real
     # defect on this machine.
     if path.exists():
         return Check(

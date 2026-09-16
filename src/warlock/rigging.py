@@ -2111,7 +2111,7 @@ class RigError(ValueError):
 def validate_rig_bones(bones: Any) -> list[str]:
     """A rig.json's ``bones`` list, name-checked. Raises :class:`RigError`.
 
-    docs/INVARIANTS.md states a pose *or rig* JSON is validated at the read
+    dev/INVARIANTS.md states a pose *or rig* JSON is validated at the read
     door, not only at the write door -- but until the 2026-09-08 audit
     (poser-02) that was only ever built for pose records: a rig.json passed
     ``read_record``'s three file-level guards (valid JSON, valid dict, under

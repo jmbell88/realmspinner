@@ -164,15 +164,11 @@ def test_manual_lock_paragraph_matches_pick_not_being_gated_by_locked():
 
 
 # --- docs-01: CONTRIBUTING and CLAUDE.md agree on the suite size ----------
-
-
-def test_contributing_and_claude_agree_on_the_default_suite_size():
-    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    contrib_match = re.search(r"~2 min for (\d+k\+) tests", contributing)
-    claude_match = re.search(r"~2 min for (\d+k\+) tests", claude)
-    assert contrib_match and claude_match
-    assert contrib_match.group(1) == claude_match.group(1)
+#
+# CLAUDE.md moved out of the public checkout on 2026-09-16 (untracked,
+# gitignored at the root), so this pairing test moved whole to
+# ``dev/tests/manual/test_manual_prose_drift_2026_09_13.py`` -- it compares
+# two documents and only one of them stayed public.
 
 
 # --- docs-02: COMPAT.md row 314 matches the partial retirement -------------

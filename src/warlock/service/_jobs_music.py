@@ -205,7 +205,7 @@ def create_music_job(
     between, and deleting one must not touch another.
 
     ``reference_wav`` is **the one door the reverse Sirens bridge opens**, and
-    saying so is better than pretending otherwise: ``docs/INVARIANTS.md``'s "the
+    saying so is better than pretending otherwise: ``dev/INVARIANTS.md``'s "the
     bridge to Sirens opens no new doors" is about Muse -> Sirens and stays true,
     while the other direction genuinely needs this, because this function
     otherwise takes scalars only.

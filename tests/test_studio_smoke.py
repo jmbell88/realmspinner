@@ -4703,7 +4703,7 @@ def test_a_staged_tag_is_the_only_thing_that_repaints_a_toggle(app_ctx, imgui_ct
     branch builds identically whether or not it paints -- so a push that went to
     the wrong colour slot, or never happened, would be invisible here and
     invisible in the GL pass. The staged fill was in fact verified by eye
-    through ``scripts/screenshot_modes.py --review``; this is what keeps it.
+    through ``dev/scripts/screenshot_modes.py --review``; this is what keeps it.
 
     Asserted on the *calls* rather than on pixels: pushed only when something is
     staged, and every push popped. A framebuffer colour comparison would be more
@@ -5559,7 +5559,7 @@ def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):
 def test_the_canvas_seam_indicator_decides_on_dominance_not_the_retired_ratio(app_ctx):
     """The 2026-09-07 audit found this pane still reading
     ``tiling.seam_ratio``/``SEAM_MAX`` after
-    ``docs/measurements/2026-08-30-seam-dominance.md`` moved the shipped
+    ``dev/measurements/2026-08-30-seam-dominance.md`` moved the shipped
     verdict to dominance for false-alarming on exactly this population --
     flat cells parted by one thin hard line.
 

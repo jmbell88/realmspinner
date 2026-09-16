@@ -3,7 +3,7 @@
 **Why a child.** Loading BiRefNet on the CPU costs **1475 MB** of RSS on this
 machine, and dropping every reference and calling ``gc.collect()`` leaves
 **1053 MB** still resident, because what holds it is the allocator's arenas
-rather than a live object (``docs/measurements/2026-08-08-load-probe-memory.md``).
+rather than a live object (``dev/measurements/2026-08-08-load-probe-memory.md``).
 ``matting.unload()`` therefore *cannot* return it -- it cleared a dict and the
 gigabyte stayed -- and only a process that ends can. This is the fourth
 instance of one rule: ``bpy`` is process-global (``blender_worker``),

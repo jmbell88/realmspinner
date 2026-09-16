@@ -555,7 +555,7 @@ class Document(
             # crossed the active layer and re-splitting the stack per dab, for a
             # feature whose whole point is that the split does not hold -- and
             # the cost of refusing is measured rather than assumed:
-            # ``docs/measurements/2026-08-30-cel-z-below-cache.md``.
+            # ``dev/measurements/2026-08-30-cel-z-below-cache.md``.
             #
             # ``_below`` is cleared, not merely bypassed, so that turning the
             # last z back to 0 rebuilds it from the document rather than

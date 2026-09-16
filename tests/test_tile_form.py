@@ -114,7 +114,7 @@ def test_a_row_written_before_the_statistic_changed_is_worded_in_its_own_terms()
     2026-08-30 does. Those rows hold an edge-against-mean-grain ratio judged
     against 3.5, and the pane has to keep describing them that way: relabelling
     a stored 4.9 as a seam-against-worst-join number would be reporting a
-    measurement that was never taken. ``docs/measurements/2026-08-30-seam-dominance.md``
+    measurement that was never taken. ``dev/measurements/2026-08-30-seam-dominance.md``
     R8 -- nothing on disk is reinterpreted.
     """
     _colour, text = inspector.seam_verdict(
@@ -209,7 +209,7 @@ def test_editing_a_tile_re_measures_its_seam_rather_than_its_composition(svc):
     # A half/half block would be the shorter way to write "a hard step" and it
     # is the wrong picture: two blocks make a *stripe*, which repeats without
     # introducing any join it does not already contain, and
-    # ``docs/measurements/2026-08-30-seam-dominance.md``'s statistic correctly
+    # ``dev/measurements/2026-08-30-seam-dominance.md``'s statistic correctly
     # passes it. The edit this test is about is one that stops the tile
     # wrapping, not one that adds an edge.
     ramp_edit = (np.arange(64) * 255.0 / 64).astype(np.uint8)

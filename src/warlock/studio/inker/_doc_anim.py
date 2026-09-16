@@ -483,7 +483,7 @@ class AnimOps:
         turns off ``Document._below``, because that cache's premise is that the
         rows under the active layer are finished business and a lift is exactly
         the thing that makes them not. Measured in
-        ``docs/measurements/2026-08-30-cel-z-below-cache.md``.
+        ``dev/measurements/2026-08-30-cel-z-below-cache.md``.
         """
         slot = self._slot(track_index, frame_index)
         anim = self.anim

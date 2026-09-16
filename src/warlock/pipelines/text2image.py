@@ -535,7 +535,7 @@ class Text2Image:
             # the trigger words are still prepended, so the output does change
             # when a style is picked; it just is not the adapter doing it.
             #
-            # Measured on FLUX.2 klein (docs/measurements/2026-08-10-pixel-art
+            # Measured on FLUX.2 klein (dev/measurements/2026-08-10-pixel-art
             # -klein.md): three weights after a no-LoRA run came back
             # byte-identical to each other, and none of them matched the same
             # weight run first. Nothing is family-specific about it -- this is

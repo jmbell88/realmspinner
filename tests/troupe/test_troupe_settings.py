@@ -1,7 +1,7 @@
 """Troupe's New Character pane: the open clip vocabulary, Style and Frame rate.
 
 Four claims new since the 2026-09-12 open vocabulary
-(``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` and the
+(``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` and the
 service-layer landing that followed it):
 
 * every clip the rig's skeleton defines is a row on this form, not just the

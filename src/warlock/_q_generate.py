@@ -10,7 +10,7 @@ buried among them.
 ``Worker._release_t2i``: every other t2i stage ends when the image does, while
 this one hands straight on to the mesh stage inside the same job, so what it
 trades the VRAM against is different. The comment at its own ``finally`` is the
-argument; ``docs/INVARIANTS.md`` records that the asymmetry is intended.
+argument; ``dev/INVARIANTS.md`` records that the asymmetry is intended.
 
 ``_get_text2image`` can live here even though ``conftest`` patches the image
 model: its body import (``from .pipelines.text2image import Text2Image``) reads
@@ -992,7 +992,7 @@ class GenerateOps:
                 # arenas outlive every reference. The session that measured it
                 # ended with the app refusing its own follow-up job at 94%
                 # commit
-                # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+                # (dev/measurements/2026-08-22-trampoline-child-pids.md).
                 #
                 # The import is still guarded, and still names the extra: the
                 # client is import-light, but the child it spawns is not, and a

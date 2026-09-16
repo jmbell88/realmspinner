@@ -151,7 +151,7 @@ def _preview(ctx: Any, form: dict[str, Any], job: Any) -> None:
         # The asset's own front (``poser_mode.set_front`` / the viewport
         # toolbar's twin) is added to every yaw here because the queued
         # render (``pipelines/sheet.py``) adds it to every camera it frames --
-        # INVARIANTS.md's "a sprite sheet's grid is decided on the host,
+        # dev/INVARIANTS.md's "a sprite sheet's grid is decided on the host,
         # never in Blender" is exactly the preview/renderer agreement this
         # module already keeps for the frame margin and the yaw-0-on-+Z
         # convention, and a preview that ignored the front would show column

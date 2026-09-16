@@ -87,10 +87,10 @@ def test_clay_build_on_the_testing_pin_refuses_before_any_request(monkeypatch):
 def test_clay_build_docstring_cites_the_document_with_the_door_acceptance_figures():
     """The 2026-09-16 audit (familiar-02): ``clay_build``'s docstring
     attributed the 0 % -> 74 % door-acceptance figures to
-    ``docs/measurements/2026-09-14-clay-assistant-ablation.md``, but that
+    ``dev/measurements/2026-09-14-clay-assistant-ablation.md``, but that
     document contains neither number -- the table is actually in
-    ``docs/measurements/2026-09-12-clay-assistant-run-A.md`` (lines 42, 82),
-    corroborated in ``docs/measurements/2026-09-14-familiar-base-vram.md``
+    ``dev/measurements/2026-09-12-clay-assistant-run-A.md`` (lines 42, 82),
+    corroborated in ``dev/measurements/2026-09-14-familiar-base-vram.md``
     (86-88). A reader checking the evidence behind the ``reason="card"``
     refusal must be sent to the document that actually holds the number."""
     doc = svc_familiar.clay_build.__doc__

@@ -4,7 +4,7 @@
 ``_manifest`` and ``sheet_panel.pixel_record`` stamped a path's mtime and
 remembered it unconditionally, which is the exact documented Windows hazard:
 adding a file left a directory's mtime unchanged 155 times in 200 on this
-machine (``docs/measurements/2026-08-07-directory-mtime-granularity.md``),
+machine (``dev/measurements/2026-08-07-directory-mtime-granularity.md``),
 because the mtime comes from the system clock and its tick is 15.6 ms. So a
 write landing after the read but inside the stamped mtime's own tick is
 invisible to that stamp -- and invisible *forever*, since every later comparison

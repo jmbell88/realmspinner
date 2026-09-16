@@ -5,7 +5,7 @@ distinct publish contract -- and deliberately *beside* that one rather than
 inside it, because the two are opposites at the only point that matters. The
 grid path imposes sixty-four cells on **one** generation with a canny guide and
 cuts them out; this path runs **N** generations that each wrap, and lays them
-out. ``docs/measurements/2026-08-18-tile-sheet-grid.md`` is why both exist: the
+out. ``dev/measurements/2026-08-18-tile-sheet-grid.md`` is why both exist: the
 guide is obeyed and the cells still come back identical, because every cell of
 the guide is identical and there is no per-cell signal for variety. Variety is a
 property of the request, not of the model's composition.

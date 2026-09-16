@@ -3,7 +3,7 @@ Lines sequence of tool calls -- against a real ``ClayDoc`` through the real
 ``agent_clay.call`` door, and assert what came out. See the tranche-5 plan for
 the split: tier one (here) runs unattended in the suite with no model
 involved; tier two is ``studio/agent_transcript.py``'s recorder (called from
-``studio/agent_host.py``) plus ``scripts/agent_bench.py``'s ``--serve``
+``studio/agent_host.py``) plus ``dev/scripts/agent_bench.py``'s ``--serve``
 driver, which together produce a transcript from an actual agent's own
 trajectory over a real MCP connection -- something this file cannot do and
 does not try to (``chair`` and ``spoked-hub`` under
@@ -142,7 +142,7 @@ agent."
 **The three ``p43-*`` transcripts are recorded**, by tier two's recorder
 during the 2026-09-15 Clay agent benchmark sitting, from a real model driving the real app --
 the graded pass written up in
-``docs/measurements/2026-09-15-clay-agent-benchmark-results.md``. They are
+``dev/measurements/2026-09-15-clay-agent-benchmark-results.md``. They are
 *slices* of that session's one file, and two edits were made in slicing,
 both stated here so the word "recorded" does not overclaim either:
 **every ``clay_render`` line is dropped** (it reads the document without

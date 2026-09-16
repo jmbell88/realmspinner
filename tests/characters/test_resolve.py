@@ -255,7 +255,7 @@ def test_every_camera_preset_can_be_asked_for_in_words():
 def test_every_action_key_the_vocabulary_emits_is_a_real_animation_or_a_shipped_clip(key):
     """The closed legacy five (``charsheet.ANIMATIONS``), or one of the five
     shipped clips beyond it every archetype's library carries -- see
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. Never a
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. Never a
     third thing: a word the resolver can produce as an "action" has to name
     something some template can actually play.
     """

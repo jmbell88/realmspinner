@@ -104,7 +104,7 @@ PHASES_SPRITE: dict[str, tuple[float, float]] = {
 # phase is ``trellis``. An unknown phase maps onto the *whole* bar, so the last
 # sampling step of the **first** band emitted 100%, and the never-regress creep
 # then pinned it there for the rest of a multi-minute job (CON-02). Exactly the
-# trap docs/INVARIANTS.md documents; ``_sprite_synthesis`` routed around it with
+# trap dev/INVARIANTS.md documents; ``_sprite_synthesis`` routed around it with
 # its own table and its two siblings walked in.
 PHASES_PIXEL_SHEET: dict[str, tuple[float, float]] = {
     "restyle": (0.00, 0.10),
@@ -174,7 +174,7 @@ PHASES_TILE_SHEET: dict[str, tuple[float, float]] = {
 # render's closing ``on_progress(1.0, ...)`` landed in an undeclared phase,
 # mapped onto the whole bar, and the never-regress creep pinned it at 100% for
 # the entire tail. This table is one of the nine stage-keyed tables a new job
-# kind must sweep (``docs/INVARIANTS.md``), and Troupe swept eight of them.
+# kind must sweep (``dev/INVARIANTS.md``), and Troupe swept eight of them.
 #
 # ``effects`` joined on 2026-09-05, between the reduction and the pack, and it
 # is where a themed character's flames are composited onto the reduced cells.

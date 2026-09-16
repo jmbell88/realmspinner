@@ -848,7 +848,7 @@ def set_front(ctx: Any) -> None:
     the number means, and this only has to carry it across, never correct it.
 
     A button and not a computed default, because the 2026-08-05 sweep
-    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    (``dev/measurements/2026-08-04-view-calibration.md``) found a mesh's own
     matched view scatters *uniformly* across a 330-degree range over 37 jobs
     -- trellis-server picks its own orientation per subject, and there is
     nothing on disk "the front" could be derived from. Submitted on a per-job
@@ -2632,7 +2632,7 @@ def set_duration(ctx: Any, ms: int) -> None:
     :func:`set_easing`/:func:`set_segment` do -- through :func:`_touch` -- and
     for the same reason neither of them pushes an undo step: a clip's timing
     fields are not the pose gizmo's editor history (``viewer.editor.history``,
-    ``docs/INVARIANTS.md``'s "undo is addressed by uid" is about *that* stack),
+    ``dev/INVARIANTS.md``'s "undo is addressed by uid" is about *that* stack),
     they are the clip *library*'s working copy, and the library has exactly one
     undo door -- :func:`revert_clips`, which discards every unsaved field at
     once, this one included.

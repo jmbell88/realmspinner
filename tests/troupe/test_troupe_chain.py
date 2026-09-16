@@ -2109,7 +2109,7 @@ async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
     ``hit`` and ``death`` among them, neither in the closed legacy
     :data:`charsheet.ANIMATIONS` five. This is that vocabulary all the way
     through a render, not only the door's plan-and-discard check
-    (``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``): the
+    (``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``): the
     sidecar's ``animation`` block has to tag every run the layout actually
     named."""
     from warlock import clips, rigging

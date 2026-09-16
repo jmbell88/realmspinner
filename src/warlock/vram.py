@@ -79,7 +79,7 @@ IP_ENCODER_GIB = 1.2
 FAMILIAR_GIB = 4.0
 """llama-server.exe resident with the base Gemma 4 E2B Q8_0 pin, ``-ngl 999``.
 
-**Measured** (``docs/measurements/2026-09-14-familiar-base-vram.md``,
+**Measured** (``dev/measurements/2026-09-14-familiar-base-vram.md``,
 RTX 5090): 3.09 GiB resident once healthy and 3.20 GiB peak with both slots
 generating from ~5,500-token prompts, identical across three runs. This is
 that peak plus 0.8 GiB for a different driver or CUDA context and for
@@ -119,7 +119,7 @@ GiB is chosen the way every other unmeasured figure here is: erring high, since
 under-pricing is the direction that OOMs at load rather than merely refusing a
 job that would have fitted.
 
-``docs/measurements/`` owes the real number, and the gpu-lane test that will
+``dev/measurements/`` owes the real number, and the gpu-lane test that will
 replace it is the one that prints peak VRAM for an ``extend`` of a 240 s take.
 """
 

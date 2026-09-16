@@ -18,7 +18,7 @@ there silently mis-clips every later pane in the frame rather than failing.
 ``STRICT`` is forced off per test here. ``tests/conftest.py`` turns it on autouse
 for every other file in the suite, so a pane that raises anywhere else in these
 twelve thousand tests still fails loudly instead of quietly drawing a
-placeholder -- which is the same guarantee ``scripts/exercise_mode`` needs.
+placeholder -- which is the same guarantee ``dev/scripts/exercise_mode`` needs.
 """
 
 from __future__ import annotations

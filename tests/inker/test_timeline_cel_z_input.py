@@ -5,7 +5,7 @@ harness deliberately: a control that is drawn and wired to nothing is this
 codebase's most common historical defect and is invisible to every test that
 calls the document directly. So nothing here calls ``set_cel_z``. The timeline
 cell menu is opened inside a real imgui frame, the slider is found through
-:mod:`.probe` -- the same census ``scripts/exercise_mode`` uses, so the rect is
+:mod:`.probe` -- the same census ``dev/scripts/exercise_mode`` uses, so the rect is
 *read* and never computed -- and the left mouse button is pressed inside it.
 What is asserted is that the grid moved, and that the picture moved with it.
 

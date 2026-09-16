@@ -31,7 +31,7 @@ confidence the method does not have.
 
 **On the measured-constant rule, honestly.** None of these figures is keyed on
 the stored corpus -- music contributes nothing to ``VECTOR_PARAMS``, because no
-aggregator reads it -- so ``docs/measurements/`` is not compelled. Every
+aggregator reads it -- so ``dev/measurements/`` is not compelled. Every
 constant with a derivation carries it below. The three score weights are the
 only ones chosen by ear, and they say so. An honest unmeasured constant beats a
 measured-sounding one.

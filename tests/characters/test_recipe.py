@@ -212,7 +212,7 @@ def test_the_default_animations_leave_the_legacy_table_alone():
 
 def test_a_recipe_may_ask_for_a_clip_beyond_the_legacy_five():
     """The vocabulary is open, per
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a recipe
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a recipe
     may name any syntactically legal clip, not just the five
     ``charsheet.ANIMATIONS`` rows. Whether the archetype's own rig actually
     defines it is a question for ``service.characters._plan``, which has the

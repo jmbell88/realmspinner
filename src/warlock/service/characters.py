@@ -733,7 +733,7 @@ def export_frames(
     an engine that wants ``AnimatedSprite2D``-style frame folders rather than
     an atlas-plus-sidecar pair gets ``<clip>/<COMPASS>/<nnn>.png`` for every
     cell, named the way
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s compass
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``'s compass
     table names them -- never the raw facing key, which is Troupe's own
     internal spelling (``front_left``) and not a direction word an importer
     should have to know.
@@ -1538,7 +1538,7 @@ def _plan(spec: Recipe, clip_library: str, frame_size: int) -> charsheet.LayoutS
     ``timing`` is passed the same way ``troupe._timed_layout`` passes it, so
     a recipe may name any clip *clip_library* actually defines -- not just the
     closed :data:`charsheet.ANIMATIONS` five -- per
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A clip the
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A clip the
     library has never heard of surfaces as ``resolve_layout``'s own
     ``ValueError`` now rather than ``expand_clips``' ``KeyError``, and falls
     into the same ``field="layout"`` branch below either way -- the existing

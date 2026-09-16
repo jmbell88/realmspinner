@@ -120,7 +120,7 @@ XRAY_ALPHA = 0.33
 #:
 #: **Chosen rather than measured, and that is defensible here only because
 #: nothing stored is keyed on it.** This repo's rule is that a constant the
-#: stored corpus depends on gets a dated ``docs/measurements/`` document
+#: stored corpus depends on gets a dated ``dev/measurements/`` document
 #: *before* it is fixed, which is why ``scene.MAX_PLACED``,
 #: ``scene.PLACED_WARN_THRESHOLD`` and ``terrain.MAX_TERRAIN_SIDE`` each have
 #: one. This number decides only whether a visibility test runs on a given
@@ -469,7 +469,7 @@ class MasonView(FrameOps):
         A sculpt drag therefore pays one mesh rebuild *and* one upload per frame
         it is open, which is measured and is why ``MAX_TERRAIN_SIDE`` is 256:
         at that side a rebuild alone is 5.65 ms, a third of a frame. See
-        ``docs/measurements/2026-09-11-mason-scene-ceilings.md``.
+        ``dev/measurements/2026-09-11-mason-scene-ceilings.md``.
 
         ``override`` is the resolver's nearest-ancestor material, part of what
         the pinned state is validated against for ``_entry_key``'s reason: a

@@ -274,7 +274,7 @@ class Text2ImageClient:
         # between Popen and that call is the only one in which a parent crash
         # can still orphan it. It is also what puts the *real* interpreter in
         # the job, since the pid Popen returned is a trampoline under a uv venv
-        # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+        # (dev/measurements/2026-08-22-trampoline-child-pids.md).
         try:
             proc = subprocess.Popen(
                 argv,

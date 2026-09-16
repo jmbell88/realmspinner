@@ -58,7 +58,7 @@ CUSTOM_MIN = 5_000
 # because the same run showed the pipeline cannot carry an undecimated mesh
 # at all.) 250k therefore sits just under the landing point, where a custom
 # budget is always a genuine reduction of something that exists.
-# docs/measurements/2026-09-03-trellis-detail-sweep.md has the evidence.
+# dev/measurements/2026-09-03-trellis-detail-sweep.md has the evidence.
 CUSTOM_MAX = 250_000
 
 DEFAULT_TIMEOUT = 300.0

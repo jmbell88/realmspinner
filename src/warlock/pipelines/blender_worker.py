@@ -1137,7 +1137,7 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     lo, hi = _world_bounds(mesh)
     # The 2026-09-16 audit: captured *before* the measured-joints branch below
     # can rebind ``spec`` with its own measured ``bones`` -- ``adjusted`` must
-    # mean "the caller supplied bones", per docs/INVARIANTS.md ("adjusted
+    # mean "the caller supplied bones", per dev/INVARIANTS.md ("adjusted
     # still means only 'the user moved these'"), and reading it off the
     # post-mutation ``spec`` further down could no longer tell that apart
     # from "op_rig's own measured-joints branch just populated spec['bones']".
@@ -2157,7 +2157,7 @@ def op_project(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
                 # texel. ``bake`` -- the colour target -- stays sRGB, which is
                 # correct for it and is why this is a tuple rather than a flip.
                 #
-                # See docs/measurements/2026-08-20-retexture-weight-colorspace.md.
+                # See dev/measurements/2026-08-20-retexture-weight-colorspace.md.
                 image.colorspace_settings.name = "Non-Color"
             node = tree.nodes.new("ShaderNodeTexImage")
             node.image = image
@@ -2214,7 +2214,7 @@ def _bake_image(bpy: Any, name: str, size: int, *, data: bool) -> Any:
     if data:
         # Roughness and normals are data, not colour: left on the sRGB
         # default the exporter would bend a straight ramp
-        # (docs/measurements/2026-08-20-retexture-weight-colorspace.md).
+        # (dev/measurements/2026-08-20-retexture-weight-colorspace.md).
         image.colorspace_settings.name = "Non-Color"
     return image
 

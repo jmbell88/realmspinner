@@ -1,6 +1,6 @@
 """Per-cel z-index: the offset a *slot* carries from its track's position.
 
-Divergence 12 (``docs/INVARIANTS.md``) used to read "track order IS stack order
+Divergence 12 (``dev/INVARIANTS.md``) used to read "track order IS stack order
 (compositor + native kernel contract)", and this file is what retired it on
 2026-08-30.
 
@@ -30,7 +30,7 @@ against the tree as it stood **before** this wave (a throwaway script,
 Wave 13's method, pasted in below as literals).
 
 The measured cost of the disabled cache is
-``docs/measurements/2026-08-30-cel-z-below-cache.md``.
+``dev/measurements/2026-08-30-cel-z-below-cache.md``.
 """
 
 from __future__ import annotations

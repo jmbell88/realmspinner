@@ -144,7 +144,7 @@ def test_a_rig_with_a_nameless_bone_is_refused_not_a_keyerror(svc, assets):
     bone entry that has no "name" key, and get_rig used to let
     rigging.rig_bone_names' bare ``[b["name"] for b in ...]`` crash out as an
     uncaught KeyError instead of a field-addressed refusal -- one field
-    deeper than the pose-record case docs/INVARIANTS.md already names as
+    deeper than the pose-record case dev/INVARIANTS.md already names as
     fixed. tests/test_poses_api.py covers the same fix for list_poses,
     save_pose and apply_library_pose."""
     job_id = _finished_mesh_job(svc, assets)

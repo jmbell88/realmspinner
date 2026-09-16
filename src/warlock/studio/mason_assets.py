@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 #: not collide in ``TaskRunner``'s one-in-flight-per-key rule.
 TASK_PREFIX = "mason-asset:"
 
-#: **Not a measured constant.** ``docs/measurements/`` is where a number a
+#: **Not a measured constant.** ``dev/measurements/`` is where a number a
 #: stored document is keyed on gets a dated write-up before it is fixed --
 #: ``trellis_band``, ``SEAM_MAX``, the grade scale. This is not that: nothing
 #: in a ``.wscn`` is keyed on ``CACHE_BYTES``, it only decides when an already-

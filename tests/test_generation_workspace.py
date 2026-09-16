@@ -169,7 +169,7 @@ def test_open_form_prompt_is_advisory_and_does_not_block_generate():
 
     Every member of that list disables Generate, and an audit-flagged open form
     still grades usable two times in five
-    (docs/measurements/2026-09-02-fantasy-v1.md) -- so blocking would be the app
+    (dev/measurements/2026-09-02-fantasy-v1.md) -- so blocking would be the app
     asserting a certainty the corpus does not support. Fails against the
     unfixed code, where ``advisories_for`` does not exist.
     """

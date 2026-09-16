@@ -81,7 +81,7 @@ DIRECTION_CHOICES: tuple[int, ...] = (1, 4, 8, 16)
 #: (is this actually a clip the rig's library defines) is not decided here:
 #: this module may not import ``rigging`` or ``clips``, so that question waits
 #: for ``service.characters._plan``, which has the archetype's library in
-#: hand. See ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+#: hand. See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
 _CLIP_NAME_RE = re.compile(r"[a-z0-9_]+")
 
 #: The most a name may be, matching ``rigging.validate_pose``'s cap so a
@@ -363,7 +363,7 @@ def _check_animations(raw: Any) -> dict[str, int]:
     **Open, not closed.** A recipe may name any clip its archetype's skeleton
     eventually turns out to define -- not just the five legacy
     :data:`charsheet.ANIMATIONS` names -- because
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` opens the
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` opens the
     same vocabulary here that ``resolve_layout``'s ``timing`` argument opens
     for Troupe. *Existence* is a fact about the rig, not the request: this
     module may import no more of ``warlock`` than ``pipelines.charsheet``, so

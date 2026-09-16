@@ -7,7 +7,7 @@ change that moved on without it:
   the retired ``seam_ratio``/``SEAM_MAX`` statistic ("against the picture's
   own grain", amber above 3.5) after the 2026-09-07 fix moved
   ``inker_canvas.seam_text`` onto ``seam_dominance``/``SEAM_DOMINANCE_MAX``
-  (1.0) -- ``docs/measurements/2026-08-30-seam-dominance.md``.
+  (1.0) -- ``dev/measurements/2026-08-30-seam-dominance.md``.
 * docs-02 -- README.md's Settings -> Models paragraph said "four of the
   registered recipes share one 7 GB checkpoint"; ``sdxl_cfg_pag`` (PAG) is a
   fifth entry on the same ``sdxl-base-1.0`` weights, as the 2026-09-06
@@ -21,7 +21,7 @@ change that moved on without it:
   serve three entries in the model list" and named only Hyper-SD, full-CFG
   and pixel-art; PAG (``sdxl_cfg_pag``) and Lightning also share the
   identical ``sdxl-base-1.0`` weights, for five total.
-* docs-05 -- ``docs/INVARIANTS.md``'s Muse paragraph opens "five
+* docs-05 -- ``dev/INVARIANTS.md``'s Muse paragraph opens "five
   modifications are marked ``WARLOCK n/6``", counting the marker family's
   own denominator down by one; the vendored tree carries six
   (``pipelines/acestep/ATTRIBUTION.md``, ``tests/test_music_format.py``).
@@ -30,10 +30,15 @@ change that moved on without it:
   yet"; ``_frame_rate`` has drawn one (a ``form_ui.combo("fps", ...)``)
   since fa2fee2a.
 
-docs-05 and docs-06 are ``docs/INVARIANTS.md`` paragraphs, which this fixer
+docs-05 and docs-06 are ``dev/INVARIANTS.md`` paragraphs, which this fixer
 does not own; their tests here only prove the stale sentences are still
 stale, so the orchestrator's replacement paragraphs have something to make
 fail-then-pass.
+
+``docs/INVARIANTS.md`` moved to ``dev/INVARIANTS.md`` on 2026-09-16, so
+docs-05's test and docs-06's INVARIANTS.md half moved to
+``dev/tests/test_audit_2026_09_15_docs.py``; docs-06's source-only half
+(``troupe_settings.py`` still draws the fps control) stays here.
 """
 
 from __future__ import annotations
@@ -165,38 +170,12 @@ def test_installation_chapter_sdxl_recipe_count_matches_the_registry():
     )
 
 
-def test_invariants_muse_paragraph_states_six_acestep_modifications_not_five():
-    """docs-05: INVARIANTS.md's Muse paragraph must say the vendored
-    ACE-Step tree carries six ``WARLOCK n/6`` modifications, matching
-    ``ATTRIBUTION.md`` ("Six, each marked...") and the marker count
-    ``tests/test_music_format.py`` pins against it -- not five, the count
-    from before the fifth-to-sixth addition this same paragraph's own later
-    sentence ("When the modifications went from five to six...") already
-    describes.
-
-    docs/INVARIANTS.md is not a file this fixer owns; this test only proves
-    the stale opening sentence is still there, for the orchestrator's
-    replacement paragraph to flip.
-    """
-    invariants = (ROOT / "docs" / "INVARIANTS.md").read_text(encoding="utf-8")
-    assert "five modifications are marked `WARLOCK n/6`" not in invariants, (
-        "docs/INVARIANTS.md's Muse paragraph still says 'five modifications "
-        "are marked `WARLOCK n/6`' -- the vendored tree carries six "
-        "(pipelines/acestep/ATTRIBUTION.md says so, and this same paragraph "
-        "later says the count went 'from five to six')"
-    )
-
-
 def test_troupe_settings_draws_the_fps_control_the_invariant_says_it_lacks():
-    """docs-06: INVARIANTS.md's fps-refusal paragraph justifies
-    ``field="fps"`` with "panes/troupe_settings.py draws no fps control
-    yet"; ``_frame_rate`` (added in fa2fee2a) draws one -- a
-    ``form_ui.combo("fps", "Frame rate", ...)`` -- so the stated reason is
-    false today, not merely future-tense.
-
-    docs/INVARIANTS.md is not a file this fixer owns; this test only proves
-    the stale sentence is still there, for the orchestrator's replacement
-    paragraph to flip.
+    """docs-06, source half: ``troupe_settings.py`` must still draw the fps
+    control that INVARIANTS.md's fps-refusal paragraph (checked in
+    ``dev/tests/test_audit_2026_09_15_docs.py``) says it lacks --
+    ``_frame_rate`` (added in fa2fee2a) draws one, a
+    ``form_ui.combo("fps", "Frame rate", ...)``.
     """
     troupe_settings_path = (
         ROOT / "src" / "warlock" / "studio" / "panes" / "troupe_settings.py"
@@ -207,12 +186,4 @@ def test_troupe_settings_draws_the_fps_control_the_invariant_says_it_lacks():
     ), (
         "troupe_settings.py no longer draws an 'fps' combo -- re-check docs-06 "
         "against the current source"
-    )
-
-    invariants = (ROOT / "docs" / "INVARIANTS.md").read_text(encoding="utf-8")
-    assert "panes/troupe_settings.py` draws no `fps` control yet" not in invariants, (
-        "docs/INVARIANTS.md's fps-refusal paragraph still claims "
-        "'panes/troupe_settings.py draws no fps control yet', but "
-        "_frame_rate has drawn one (a form_ui.combo(\"fps\", ...)) since "
-        "fa2fee2a"
     )

@@ -71,7 +71,7 @@ MAX_ASPECT = 8.0
 # ``components_major >= 2`` is exactly when that refusal fires, and a test pins
 # it. What the raw count measures at this image class is JPEG-grade noise
 # around the silhouette: median 15-18 blobs per image
-# (docs/measurements/2026-08-17-reference-source-bench.md), which is why
+# (dev/measurements/2026-08-17-reference-source-bench.md), which is why
 # ``rank.composition_score`` charged 0.15 apiece and floored at zero on
 # everything it was ever shown.
 MIN_MAJOR_COMPONENT = MIN_SECOND_COMPONENT

@@ -370,7 +370,7 @@ def _gaussian(plane: np.ndarray, radius: float) -> np.ndarray:
     to be.
 
     **This stays on ``np.convolve``, and a native kernel for it was built,
-    measured and rejected** -- see docs/measurements/2026-08-09-native-batch-2.md.
+    measured and rejected** -- see dev/measurements/2026-08-09-native-batch-2.md.
     The short version is that the two halves of the usual argument pull against
     each other here. ``np.convolve`` reaches ``cblas_sdot`` for contiguous
     float32, so its summation order is OpenBLAS's and varies with CPU dispatch;
@@ -421,7 +421,7 @@ def _grow(mask: np.ndarray, steps: int, corners: int, *, wrap: bool) -> np.ndarr
     a rounded outline and a boxy one. Each step is fused into a single
     in-place OR per neighbour (``grown |= ...`` on a slice, or ``np.roll`` for
     the wrap case) rather than building a fresh whole-canvas shift array per
-    neighbour and OR-ing that in: docs/measurements/2026-08-30-native-batch-6-candidates.md
+    neighbour and OR-ing that in: dev/measurements/2026-08-30-native-batch-6-candidates.md
     §2 measured the old per-neighbour ``_shift`` allocation at 174.7 ms vs
     27.8 ms fused (6.3x) at r=32 on a 1024^2 canvas, bit-identical either way.
     """

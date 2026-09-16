@@ -24,7 +24,7 @@ The layering this buys:
   a stray local connection cannot drive the Studio.
 - `bridge.py` is `warlock mcp` itself -- the real MCP server, and the
   *only* MCP server: `studio/agent_host.py` answers RPC v1 exclusively now,
-  never bare MCP JSON-RPC (`docs/INVARIANTS.md`'s agent paragraph; enforced
+  never bare MCP JSON-RPC (`dev/INVARIANTS.md`'s agent paragraph; enforced
   by `tests/mcp/test_mcp_imports.py`, which pins that nothing under
   `warlock.studio` imports `warlock.mcp.protocol` at all). `bridge.py`
   speaks `rpc.py`'s private RPC v1 to Studio (`hello`, `catalogue`, `call`)

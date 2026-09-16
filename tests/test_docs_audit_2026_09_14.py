@@ -213,18 +213,10 @@ def test_security_md_names_familiars_loopback_listener():
 
 
 # --- docs-04: the pixel-art-xl pre-registration still reads as live and
-# plans edits to guidance.PRESETS, deleted 2026-08-17. ----------------------
-
-
-def test_pixel_art_xl_preregistration_is_marked_retired_or_closed():
-    from warlock import guidance
-
-    assert not hasattr(guidance, "PRESETS")
-
-    text = _read("docs/measurements/2026-08-06-pixel-art-xl.md")
-    head = text[:800]
-    assert "retired" in head.lower()
-    assert "taxonomy-retirement" in head
+# plans edits to guidance.PRESETS, deleted 2026-08-17. The document this test
+# read, docs/measurements/2026-08-06-pixel-art-xl.md, moved to
+# dev/measurements/ on 2026-09-16, so this whole regression moved to
+# dev/tests/test_docs_audit_2026_09_14.py. ----------------------------------
 
 
 # --- docs-09 / docs-10: manual bolds a control name that does not match the

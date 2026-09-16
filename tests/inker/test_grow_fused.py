@@ -4,7 +4,7 @@ filters._grow used to build a per-neighbour whole-canvas ``_shift`` array
 and OR it in; that allocated the canvas ~24 times per dilation step. The
 fused version ORs each neighbour in place. This module spells the OLD
 ``_shift``-based implementation as the reference and asserts bit-identical
-output (docs/measurements/2026-08-30-native-batch-6-candidates.md §2).
+output (dev/measurements/2026-08-30-native-batch-6-candidates.md §2).
 """
 
 from __future__ import annotations

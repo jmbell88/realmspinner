@@ -9,7 +9,7 @@ provable against a fixture:
   than sixty-four fragments straddling their neighbours;
 * **the reduction keeps the art** -- a 128px cell brought down to 32px still has
   contrast rather than having regressed to its mean colour, which is the defect
-  ``docs/measurements/2026-08-17-ground-reduction.md`` measured for the ground
+  ``dev/measurements/2026-08-17-ground-reduction.md`` measured for the ground
   path this reduction was carried over from.
 
 Both are asserted as *ratios* against the cell's own art rather than as absolute

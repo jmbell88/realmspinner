@@ -362,7 +362,7 @@ def _newell(
     return np.add.reduceat(contrib, starts_head, axis=0)
 
 
-# Compat: the tests and INVARIANTS.md name the private form, and it was the
+# Compat: the tests and dev/INVARIANTS.md name the private form, and it was the
 # spelling three other modules in this package imported across the boundary --
 # which is what the promotion above is for. The alias keeps both readable.
 _face_normals = face_normals

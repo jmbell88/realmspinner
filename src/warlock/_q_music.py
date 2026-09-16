@@ -115,7 +115,7 @@ def _task_kwargs(params: dict[str, Any], job_dir: Any) -> dict[str, Any]:
         # never the stored ``retake_seed``: at the default 0.5 variance
         # roughly 70% of the blended noise was unseeded, so no retake could be
         # reproduced and ``derive_music_job``'s seed walk plus ``rerun_job``'s
-        # re-roll of it (INVARIANTS.md's Muse paragraph) were dead weight.
+        # re-roll of it (dev/INVARIANTS.md's Muse paragraph) were dead weight.
         # Upstream takes a *list* (``retake_seeds``, one entry per batch
         # member) the same way ``MusicClient.generate`` turns a bare ``seed``
         # into ``manual_seeds`` -- absent when the row predates this fix, so

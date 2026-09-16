@@ -1,7 +1,7 @@
 """Sirens' export: ``song.wav``, ``stems/`` and ``sfx/`` into a chosen folder.
 
 **The invariant this file is here for.** A ``.wsng`` is the composition and every
-WAV is a pure function of it (``docs/INVARIANTS.md``), which is a claim with two
+WAV is a pure function of it (``dev/INVARIANTS.md``), which is a claim with two
 halves: the bytes must not depend on when they were written, and the *names* must
 not depend on anything but the document either. So the byte-identity assertion
 below is not a nicety about diffs -- it is the statement that an export is

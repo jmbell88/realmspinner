@@ -128,7 +128,7 @@ async def server(tmp_path_factory):
 
 #: A representative compacted scene, in ``contract.compact_scene``'s own
 #: shape (``contract._SCENE_ROW_KEYS`` plus ``materials``/``bounds``) --
-#: hand-built rather than pulled from ``training/clay-assistant``'s dataset
+#: hand-built rather than pulled from ``dev/training/clay-assistant``'s dataset
 #: (as ``tests/familiar/test_contract.py`` does) because this file needs one
 #: representative scene, not the corpus's own worst case.
 SAMPLE_SCENE: dict[str, Any] = {
@@ -615,7 +615,7 @@ def test_measure_resident_vram(tmp_path_factory, server):
     assert listed, "the spawned child never appeared in NVML's own process list"
     assert peak_gib > 0
     # Measured three times on 2026-09-14 (3.20 GiB peak each run,
-    # docs/measurements/2026-09-14-familiar-base-vram.md) and FAMILIAR_GIB set
+    # dev/measurements/2026-09-14-familiar-base-vram.md) and FAMILIAR_GIB set
     # from it, so the admission figure is now a claim this lane checks.
     assert peak_gib <= vram.FAMILIAR_GIB, (
         f"Familiar peaked at {peak_gib:.2f} GiB, over vram.FAMILIAR_GIB={vram.FAMILIAR_GIB}"

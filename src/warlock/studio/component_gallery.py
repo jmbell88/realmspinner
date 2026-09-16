@@ -30,7 +30,7 @@ def request() -> None:
 def scroll_to(fraction: float | None) -> None:
     """Ask the next frame to park the gallery's scroller at ``fraction``.
 
-    For ``scripts/screenshot_modes.py``, which photographs one frame: the
+    For ``dev/scripts/screenshot_modes.py``, which photographs one frame: the
     gallery is a popup with a scrolling child, so a single capture only ever
     showed the blocks above the fold -- four of ten once the catalogue was
     completed (2026-09-05), which is most of the executable catalogue absent

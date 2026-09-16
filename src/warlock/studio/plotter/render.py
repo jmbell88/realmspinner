@@ -37,7 +37,7 @@ from .tilemap import OPAQUE_WHITE, ImageLayer, MapDoc, TileLayer
 # side, so 268 megapixels -- the figure ``minimap`` below quotes, and the
 # arithmetic this line used to get wrong by a factor of sixty-seven) and far
 # short of a machine's RAM. **New rather than corpus-keyed** -- nothing
-# stored is measured against it, so it needs no ``docs/measurements/`` document;
+# stored is measured against it, so it needs no ``dev/measurements/`` document;
 # it is a refusal about arithmetic, not a threshold about quality. Read from
 # module globals at call time so a test can lower it.
 MAX_RENDER_PIXELS = 1 << 28

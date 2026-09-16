@@ -1570,7 +1570,7 @@ def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adju
     measured-joints branch just populated spec['bones']" -- so a Troupe/
     T-pose rig built with ``joints="measured"`` recorded ``"adjusted": true``
     and ``"fit": {"method": "manual"}``, identical to a real user
-    hand-correction, breaking docs/INVARIANTS.md's "adjusted still means
+    hand-correction, breaking dev/INVARIANTS.md's "adjusted still means
     only 'the user moved these'"."""
     import types
 
@@ -1619,7 +1619,7 @@ def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adju
         f"same tag a real user hand-correction gets -- got {rig_meta['fit']!r}"
     )
     assert rig_meta["adjusted"] is False, (
-        "docs/INVARIANTS.md: 'adjusted still means only the user moved these' "
+        "dev/INVARIANTS.md: 'adjusted still means only the user moved these' "
         "-- a measured fit is not a correction the user made"
     )
 

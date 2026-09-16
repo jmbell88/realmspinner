@@ -29,7 +29,7 @@ def _create(svc, **overrides):
     """A *grid* request, which is what every test in this file is about.
 
     ``allow_grid`` because the grid mode is refused for a new request now --
-    ``docs/measurements/2026-08-18-tile-sheet-grid.md`` -- and every assertion
+    ``dev/measurements/2026-08-18-tile-sheet-grid.md`` -- and every assertion
     below is about the path that still builds it: the sixty-four cell geometry,
     the canny guide, the three views. The seamless modes have their own file.
     """
@@ -390,7 +390,7 @@ def test_every_offered_size_and_view_builds_a_geometry():
 
 
 def test_the_palette_size_is_the_measured_one():
-    """docs/measurements/2026-08-17-ground-reduction.md: occupancy at 32 was
+    """dev/measurements/2026-08-17-ground-reduction.md: occupancy at 32 was
     saturated for even a two-material set, and 64 stayed above 95%."""
     assert tilesheets.SHEET_COLORS == 64
 

@@ -437,7 +437,7 @@ def stamp(
 
     Used to return a full ``(H, W, 4)`` zero plane with the patch pasted in --
     1.9 s at 400 textured particles on a 512px raster (§3,
-    ``docs/measurements/2026-09-13-native-batch-10-candidates.md``), almost
+    ``dev/measurements/2026-09-13-native-batch-10-candidates.md``), almost
     all of it a per-particle allocate-and-composite of pixels that are zero
     everywhere outside this window. Every caller composites the window slice
     directly now; outside it the old plane was exactly zero, so the visible

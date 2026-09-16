@@ -111,7 +111,7 @@ def test_a_recipes_layout_that_cannot_be_planned_is_refused_with_field_layout(mo
 
 # --- the open clip vocabulary -------------------------------------------------
 #
-# ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a layout may
+# ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``: a layout may
 # now name any clip the rig's own library defines, not just the closed
 # ``charsheet.ANIMATIONS`` five.
 

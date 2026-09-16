@@ -293,7 +293,7 @@ def save_as(ctx: Any, tab: SongTab | None = None) -> None:
 # --- exporting ----------------------------------------------------------------
 #
 # **The ``.wsng`` is the composition and every WAV is a pure function of it**
-# (``docs/INVARIANTS.md``). That is what :func:`export_plan` is: a document and
+# (``dev/INVARIANTS.md``). That is what :func:`export_plan` is: a document and
 # a destination in, a complete ``{path: bytes}`` map out, with no clock, no
 # randomness and no filesystem read anywhere in it -- so re-exporting a document
 # nobody has touched writes the same bytes it wrote last time, and a test can

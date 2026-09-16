@@ -358,7 +358,7 @@ def _draw_sheet_preview(preview: dict[str, Any]) -> None:
     would carry them into their own file.
 
     Draw-list only, no imgui input widget: this is what keeps it out of the
-    clipped-control count P30 measured (``scripts/exercise_mode.py``) --
+    clipped-control count P30 measured (``dev/scripts/exercise_mode.py``) --
     everything here lives inside the same collapsed **Sheet options** header
     the nine knobs above it do, so it draws nothing at the pane's rest state.
     """

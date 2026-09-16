@@ -132,7 +132,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .document import MasonDoc
 
 #: Two different numbers answer two different questions, and the first
-#: measurement pass here conflated them -- see ``docs/measurements/`` for the
+#: measurement pass here conflated them -- see ``dev/measurements/`` for the
 #: dated write-up both are read off, re-measured 2026-09-11 against
 #: ``nodes.Node.local()``'s memo (which took 64% of a resolve's cost off the
 #: table by not rebuilding an unmoved node's matrix every frame; the numbers

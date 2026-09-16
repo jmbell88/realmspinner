@@ -268,7 +268,7 @@ def materialize(refs: np.ndarray, ts: Tileset, size: tuple[int, int]) -> np.ndar
     A canvas asks for one of at most ``tile_count * 8`` distinct answers
     hundreds of thousands of times, so ``oriented`` is memoised per distinct
     raw ref -- the cost is per cell, not per pixel (2026-08-30 batch-6 candidates,
-    docs/measurements/2026-08-30-native-batch-6-candidates.md#1: bit-identical,
+    dev/measurements/2026-08-30-native-batch-6-candidates.md#1: bit-identical,
     444ms -> 142ms at 3200^2 with 8px tiles). ``oriented`` returns a view onto
     the tileset's pixels, and the memo holds those views; the only use of a
     memoised entry below is the copy into ``canvas``, never a write through

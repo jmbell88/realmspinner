@@ -25,7 +25,7 @@
  * is the set of unit edges. The BVH build in bvh.c inherits np.argpartition's
  * unspecified permutation among equal keys, and its bar is the pick result
  * plus the structural invariants. A loosened bar is how a kernel quietly stops
- * being checked, so each licence is argued in docs/INVARIANTS.md and asserted
+ * being checked, so each licence is argued in dev/INVARIANTS.md and asserted
  * beside the tests that rest on it -- and neither is a precedent for a third.
  */
 
@@ -370,7 +370,7 @@ WARLOCKC_API void warlockc_flood_u8(const uint8_t *match, int64_t match_stride,
  * unspecified, so a C median split legitimately builds a different -- equally
  * valid -- tree. The bar is the pick result (the tie-break is already pinned
  * to the lowest triangle index so that tree and linear sweep agree) plus the
- * structural invariants. The licence is argued in docs/INVARIANTS.md. */
+ * structural invariants. The licence is argued in dev/INVARIANTS.md. */
 WARLOCKC_API int64_t warlockc_bvh_build(const double *tri_lo,
                                         const double *tri_hi,
                                         const double *centroid, int64_t n_tris,

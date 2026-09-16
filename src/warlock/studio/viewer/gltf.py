@@ -103,7 +103,7 @@ MAX_ACCESSOR_BYTES = 1 << 28
 #: index stream is 24 MB; five fully populated 16-megapixel texture slots are
 #: another ~320 MB) while still refusing a file that keeps asking for more.
 #:
-#: No `docs/measurements/` document backs the figure and none is owed: this is a
+#: No `dev/measurements/` document backs the figure and none is owed: this is a
 #: safety ceiling derived by arithmetic from what the pipeline can produce, not
 #: a threshold the stored corpus is keyed on, so it moves when the arithmetic
 #: above it moves rather than when a run says so. The 2026-09-11 audit (finding

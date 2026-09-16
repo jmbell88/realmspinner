@@ -62,7 +62,7 @@ MAX_THUMB_BYTES = 512 * 1024
 # Matches guidance.MAX_NEGATIVE_PROMPT. Not a stand-in for a text-encoder
 # limit -- pipelines/prompt.chunk() encodes an SDXL prompt in multiple pieces
 # rather than cutting it off at the encoder's own short window (see
-# docs/INVARIANTS.md's "chunk-encoded" paragraph). What a ceiling here still
+# dev/INVARIANTS.md's "chunk-encoded" paragraph). What a ceiling here still
 # guards against is unbounded: a longer prompt keeps diluting cross-attention
 # chunk over chunk, and it is params stored forever -- refuse it at the door
 # rather than keep it.

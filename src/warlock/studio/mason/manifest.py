@@ -21,7 +21,7 @@ same uniquifier twice and hoping.
 import script gets wrong and the one thing no amount of care downstream can
 recover: metres, Y-up, right-handed, ``-Z`` forward, rotations as XYZW
 quaternions, angles in radians. This project now says so in
-``docs/INVARIANTS.md`` as well; a scene unit that exists only inside an
+``dev/INVARIANTS.md`` as well; a scene unit that exists only inside an
 exporter is a scene unit nobody can rely on.
 
 **The schema is ours and no importer exists to test it against**, which is

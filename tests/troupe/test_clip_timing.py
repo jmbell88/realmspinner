@@ -1,6 +1,6 @@
 """``clips.py``'s timing comes from the clip library now, not
 ``charsheet.ANIMATIONS`` -- its one home, since the open clip vocabulary
-(``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``) means a
+(``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``) means a
 library can carry a clip ``ANIMATIONS`` never heard of."""
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """materialize memoises oriented() per distinct raw ref.
 
-docs/measurements/2026-08-30-native-batch-6-candidates.md §1 measured this at
+dev/measurements/2026-08-30-native-batch-6-candidates.md §1 measured this at
 a bit-identical 3.1x (444ms -> 142ms at 3200^2 with 8px tiles). These tests
 pin bit-identical output against the old un-memoised loop, and pin the memo
 itself: the second test fails against the unfixed code because it counts

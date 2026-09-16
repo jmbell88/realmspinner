@@ -11,7 +11,7 @@ into an MCP envelope without ever re-parsing them (see
 `protocol.splice_tool_result`). There is no relay-hatch escape back to the
 old dumb byte-relay behaviour any more: Studio's own pipe stopped answering
 bare MCP JSON-RPC the day its listener moved to RPC v1 only (`studio/
-agent_host.py`, `docs/INVARIANTS.md`'s agent paragraph), so a relay would
+agent_host.py`, `dev/INVARIANTS.md`'s agent paragraph), so a relay would
 have nothing to talk to on the other end.
 
 **Main thread only, and that is not a style preference.**

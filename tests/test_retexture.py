@@ -950,7 +950,7 @@ def test_every_data_bake_target_is_written_as_non_color():
     source = inspect.getsource(blender_worker.op_project)
     assert 'suffix in ("depthpair", "weight")' in source, (
         "the data targets must both be Non-Color; see "
-        "docs/measurements/2026-08-20-retexture-weight-colorspace.md"
+        "dev/measurements/2026-08-20-retexture-weight-colorspace.md"
     )
     assert 'colorspace_settings.name = "Non-Color"' in source
 

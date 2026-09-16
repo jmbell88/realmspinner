@@ -13,7 +13,7 @@ per-texel noise into the atlas above that.
 
 The creative-direction taxonomy this module used to own (twelve tables of
 subject adjectives) was retired on 2026-08-17 -- see
-docs/measurements/2026-08-17-taxonomy-retirement.md. What survives is the
+dev/measurements/2026-08-17-taxonomy-retirement.md. What survives is the
 machinery selection: ``platform`` (geometry resolution), the model fields
 (``base_model``/``style_lora``) and the conditioning fields
 (``ip_adapter``/``control``), all validated and stored here so the API gets

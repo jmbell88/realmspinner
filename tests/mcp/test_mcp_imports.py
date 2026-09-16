@@ -18,7 +18,7 @@ direction for this package is the app reaching back down into it becoming the
 That direction used to be allowed one way: ``studio/agent_host.py`` imported
 ``protocol`` lazily, inside methods, to answer bare MCP JSON-RPC directly on
 Studio's own pipe. It no longer does -- Studio speaks RPC v1 exclusively now
-(``docs/INVARIANTS.md``'s agent paragraph), and nothing under
+(``dev/INVARIANTS.md``'s agent paragraph), and nothing under
 ``warlock.studio`` may import ``warlock.mcp.protocol`` at all, lazily or
 otherwise (the second half of this file, below the package's own outward-
 import pins, checks the studio side of that same line). A lazy import the
@@ -157,7 +157,7 @@ def test_every_module_imports():
 # =============================================================================
 # The other side of the same line: nothing under ``warlock.studio`` may
 # import ``warlock.mcp.protocol`` -- Studio's own pipe answers RPC v1 only
-# now (``docs/INVARIANTS.md``'s agent paragraph), and the bare-MCP dispatcher
+# now (``dev/INVARIANTS.md``'s agent paragraph), and the bare-MCP dispatcher
 # that module used to expose was deleted along with the last caller of it in
 # ``studio/agent_host.py``. A regression here would be a lazy, function-local
 # import exactly as easily as a module-level one, so this scan is the same

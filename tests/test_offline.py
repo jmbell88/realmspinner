@@ -68,7 +68,7 @@ def test_the_measured_hole_threshold_is_the_shipped_default(monkeypatch):
     # The whole of the 2026-08-04 measurement gate's ruling lives in one string
     # literal in config.py, and every remesh test passes its own threshold
     # explicitly -- so without this, a typo in the default would be invisible.
-    # See docs/measurements/2026-08-04-hole-rate-baseline.md: 0.07 is the
+    # See dev/measurements/2026-08-04-hole-rate-baseline.md: 0.07 is the
     # midpoint of the empty gap between 0.0308 and 0.1010.
     monkeypatch.delenv("WARLOCK_MESH_HOLE_MAX", raising=False)
     monkeypatch.delenv("WARLOCK_MESH_RETRIES", raising=False)

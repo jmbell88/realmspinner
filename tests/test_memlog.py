@@ -151,7 +151,7 @@ def test_child_commit_counts_the_interpreter_behind_the_trampoline():
     the ~0.8 MB shim and misses everything the worker actually holds -- which
     is how an idle tick printed `children 0.0 GiB` while a BiRefNet worker held
     6.3 GiB, at the moment the app was deciding whether to admit the next job
-    (docs/measurements/2026-08-22-trampoline-child-pids.md).
+    (dev/measurements/2026-08-22-trampoline-child-pids.md).
 
     Asserted as a comparison rather than an absolute: what must hold is that
     the job-derived set sees the weight and the Popen-derived one does not.

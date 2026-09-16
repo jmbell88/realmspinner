@@ -620,7 +620,7 @@ def _tile_grid(
         "One 1024 px frame is painted through a grid guide and cut into "
         f"{options['tiles']} cells. Every cell of the guide is identical, so the "
         "cells tend to come back as one scene cut up or as one tile repeated "
-        "(docs/measurements/2026-08-18-tile-sheet-grid.md). Materials and Terrain "
+        "(measured 2026-08-18-tile-sheet-grid). Materials and Terrain "
         "set were built to replace it; it stays for 3/4 and isometric, and for "
         "rerunning a sheet made under it."
     )

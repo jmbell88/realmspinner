@@ -1,6 +1,6 @@
 """What a bulk delete keeps, because finishing a grading pass was destroying it.
 
-**The incident, and it is measured.** ``docs/measurements/2026-09-07-mesh-probe-
+**The incident, and it is measured.** ``dev/measurements/2026-09-07-mesh-probe-
 preregistration.md`` opened by counting what it had to fit against: nine
 model-stage human verdicts on the machine, and **zero** of them still carrying a
 ``source.glb``. Every one had been graded to completion inside a sweep, and
@@ -8,7 +8,7 @@ model-stage human verdicts on the machine, and **zero** of them still carrying a
 a verdict has its assets removed, with a toast and no dialog" -- is what took
 them. The loop consumed its own corpus: the act of finishing the judgement was
 the act of deleting the evidence for it. The probe is still unfitted, and
-``scripts/qualify_tiers.py`` warns about the same shortage from the other end.
+``dev/scripts/qualify_tiers.py`` warns about the same shortage from the other end.
 
 ``jobs.retained_job_ids`` already solves half of this and its docstring argues
 the half it solves: an *accept* is kept **in place**, because ``tiercheck`` and

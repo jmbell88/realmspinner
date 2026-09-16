@@ -21,7 +21,7 @@ carries neither. A limb that vanishes is caught by the silhouette delta and the
 palette flicker, which is the gross case that matters at 32 px.
 
 Thresholds are in :data:`THRESHOLDS` with the reasoning in
-``docs/measurements/2026-09-02-troupe-qa-thresholds.md``; numpy is imported
+``dev/measurements/2026-09-02-troupe-qa-thresholds.md``; numpy is imported
 inside the functions, as every module of this package does.
 """
 

@@ -30,10 +30,11 @@ source, and you will get failures that have nothing to do with your change.
 
 ## Before you write anything
 
-Read **`docs/INVARIANTS.md`** for the subsystem you are touching. It is the
-authoritative record of this codebase's hard constraints *and the measured
-reasoning behind each one* -- most of them exist because something specific went
-wrong, and the file says what. `CLAUDE.md` has the one-line summaries.
+This codebase runs on a set of hard constraints, most of which exist because
+something specific went wrong. The maintainer keeps the authoritative record
+of each one, with the measured reasoning behind it, in a local development
+ledger that isn't part of this public repo -- ask in your PR or issue if
+you're unsure whether a change touches one.
 
 The ones that most often surprise people:
 
@@ -78,7 +79,9 @@ a regression test; check that it fails first.
   `pwsh scripts\rebuild.ps1`.
 - One logical change per commit.
 - If you change something a stored measurement depends on (`trellis_band`,
-  `SEAM_MAX`, the grade scale), a `docs/measurements/` document comes first.
+  `SEAM_MAX`, the grade scale), say so in the PR description -- the maintainer
+  keeps a dated record of the measurement behind each such constant outside
+  this repo, and it needs updating before the change lands.
 - If you change behaviour the manual describes, update the manual in the same
   commit. Chapter numbering is test-gated in both directions.
 

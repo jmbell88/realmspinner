@@ -66,7 +66,7 @@ log = logging.getLogger(__name__)
 # interior walls the axis set either misses or -- before the visibility test --
 # smeared. Every additional view costs a full SDXL pass, which is why the
 # under-side diagonals are not here: the straight-down bottom view measurably
-# added ~0 coverage (docs/measurements/2026-08-08-retexture-bake.md), so
+# added ~0 coverage (dev/measurements/2026-08-08-retexture-bake.md), so
 # their upside-down cousins have to earn a place in the next measurement
 # rather than being presumed. The set is data so a caller can ask for fewer
 # without this module learning about it.
@@ -98,7 +98,7 @@ MIN_FACING = 0.15
 # Below LO the difference is quantisation and the texel is fully visible; above
 # HI something genuinely nearer was in the way; between them a smoothstep fades
 # so the frontier is a blend rather than a dotted line of acne. Provisional
-# until docs/measurements pins them (the retexture-visibility doc), like every
+# until dev/measurements pins them (the retexture-visibility doc), like every
 # constant the corpus is keyed on.
 DEPTH_EPS_LO = 2.0 / 255.0
 DEPTH_EPS_HI = 6.0 / 255.0
@@ -299,7 +299,7 @@ def floor_weights(weights: Any, vis: Any | None = None) -> Any:
     second time to get its own `total`. Here ``np.multiply(weights, vis,
     out=zeros, where=keep)`` writes ``weights * vis`` where the floor holds
     and leaves the zero everywhere else -- one masked pass instead of two,
-    computed once per call (docs/measurements/2026-09-06-native-batch-9-
+    computed once per call (dev/measurements/2026-09-06-native-batch-9-
     facing-floor.md).
 
     Identical to the two-pass form in both regimes: where the floor fails,
@@ -335,7 +335,7 @@ def combine_floored(colours: Any, w: Any, base: Any) -> Any:
     # Not `(colours * w[..., None]).sum(axis=0)`: broadcasting the stride-0
     # channel axis puts numpy on its non-SIMD inner loop, three elements at a
     # time, and measured as 56% of this function at a TRELLIS atlas size --
-    # the N-view temporary was not the cost (docs/measurements/2026-09-06-
+    # the N-view temporary was not the cost (dev/measurements/2026-09-06-
     # native-batch-8-retexture.md). Bit-identity holds because einsum
     # contracts the view axis with the same in-order accumulation per output
     # element that `.sum(axis=0)` already uses on a C-contiguous stack.
@@ -555,7 +555,7 @@ def atlas_size(glb_path: Path) -> int | None:
 
     What a re-texture should bake at unless told otherwise, and the measurement
     is the reason it is asked rather than assumed
-    (``docs/measurements/2026-08-08-retexture-bake.md``). A trellis mesh's
+    (``dev/measurements/2026-08-08-retexture-bake.md``). A trellis mesh's
     atlas is 2048; baking at a fixed 1024 made no visible difference to the
     parts a view covered -- and quietly halved the resolution of the ~63% that
     no view covered and therefore *kept its old colour*, which is the half a

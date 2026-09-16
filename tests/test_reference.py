@@ -87,7 +87,7 @@ def test_speckle_is_counted_but_is_not_a_second_subject():
 
     A dozen stray pixels around the silhouette is what a real SDXL reference
     looks like to ``cv2.connectedComponents`` -- median 15-18 blobs
-    (docs/measurements/2026-08-17-reference-source-bench.md). They are recorded,
+    (dev/measurements/2026-08-17-reference-source-bench.md). They are recorded,
     because ``params["reference_report"]`` is a corpus nothing may re-base, and
     they are not subjects: ``components_major`` is what the refusal and the
     ranker read.

@@ -93,7 +93,7 @@ def default_form_2d() -> dict[str, Any]:
         #
         # ``grid`` is deliberately not the default and is deliberately still
         # offered: it paints one frame through a guide whose sixty-four cells
-        # are identical (docs/measurements/2026-08-18-tile-sheet-grid.md), and
+        # are identical (dev/measurements/2026-08-18-tile-sheet-grid.md), and
         # it is the only layout that draws a 3/4 or an isometric tile. The door
         # refuses it unless the request says ``allow_grid``, which the pane
         # sends only when this field says so.

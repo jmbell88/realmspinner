@@ -38,7 +38,7 @@ from ..pipelines import sheet
 # with each other either, and it scatters within every category as well as
 # across them: there is no fixed matched view, so these stay a guess and column
 # 0 is not the matched view of anything. Any fidelity metric built on top of
-# this has to be max-over-8-views. See docs/measurements/
+# this has to be max-over-8-views. See dev/measurements/
 # 2026-08-04-view-calibration.md for the tables and the reasoning.
 REFERENCE_YAW = 0.0
 REFERENCE_ELEVATION = 20.0

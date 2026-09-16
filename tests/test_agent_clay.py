@@ -1140,7 +1140,7 @@ def test_clay_set_params_bad_key_among_several_refuses_the_whole_call() -> None:
     assert result["isError"] is True
     assert result["structuredContent"]["field"] == "params"
     # ``uids`` (a list), never a singular ``uid``: ``agent_clay.fail``'s own
-    # docstring and the agent paragraph in ``docs/INVARIANTS.md`` both
+    # docstring and the agent paragraph in ``dev/INVARIANTS.md`` both
     # enumerate the four extras a refusal may carry, and this is the one
     # that means "these objects" -- the same key ``_resolve_uids`` already
     # answers a missing uid with.

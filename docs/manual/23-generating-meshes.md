@@ -210,8 +210,8 @@ worth knowing — its unset reading is `-1`, not `0`, because `0` is itself a me
 Changing any one of these restarts the engine process for the job it applies to — that is what a
 launch flag *is* — so the note under the header says so, and this is not a section to open on every
 run. It exists for measurement work: sweeping the token budget or the atlas size to find where a
-default should move, in the same way `docs/measurements/2026-09-03-trellis-detail-sweep.md` and its
-siblings already did through Review's sweep form. See
+default should move, the way earlier measurement passes on this same axis
+already did through Review's sweep form. See
 [Configuration](41-configuration.md#environment-variables) for what each flag does and the environment
 variable that sets the same thing app-wide, and [Review](38-review.md#what-works) for how a findings
 hint next to one of these controls is read.

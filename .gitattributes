@@ -9,4 +9,4 @@ tests/inker/fixtures/palettes/* -text
 # on is identified by sha256, and a CRLF checkout (core.autocrlf=true, the Git
 # for Windows default) would change the hash and the prompt the model sees.
 src/warlock/studio/familiar/cards/* -text
-docs/measurements/data/clay-assistant/*/card.txt -text
+dev/measurements/data/clay-assistant/*/card.txt -text

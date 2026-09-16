@@ -43,7 +43,7 @@ GRID_SCALES: tuple[int, ...] = (4, 5, 6, 8, 10, 12, 16)
 # Normalized within-cell variance below which the lattice is considered real.
 # Provisional: Phase C's bench run over bench/suites/pixel-v1 calibrates it from
 # the observed separation between an on-grid generation and an off-grid one, and
-# docs/measurements/2026-08-06-pixel-art-xl.md is that document (procedure
+# dev/measurements/2026-08-06-pixel-art-xl.md is that document (procedure
 # pre-registered, run not yet taken) and comes before it moves -- the pattern
 # trellis_band and mesh_hole_max both set.
 GRID_RESIDUAL_MAX = 0.05
@@ -442,7 +442,7 @@ def lattice(image: PILImage) -> dict[str, Any]:
 
     **Recorded, not acted on.** No reduction anywhere reads this. The threshold
     that would decide such a thing, ``GRID_RESIDUAL_MAX``, is provisional --
-    see the constant, and ``docs/measurements/2026-08-06-pixel-art-xl.md``,
+    see the constant, and ``dev/measurements/2026-08-06-pixel-art-xl.md``,
     whose procedure was pre-registered and whose run has never been taken.
     Rewiring a path's reduction onto an uncalibrated threshold is the mistake
     that document exists to prevent; shipping the measurement is what makes the
@@ -508,7 +508,7 @@ def _get_srgb_lut() -> Any:
 def _to_oklab(rgb: Any) -> Any:
     """sRGB (0..255 float, or 0..255 uint8) -> Oklab.
 
-    docs/measurements/2026-08-30-native-batch-6-candidates.md #3: at 1024^2 the
+    dev/measurements/2026-08-30-native-batch-6-candidates.md #3: at 1024^2 the
     float sRGB->linear step allocates several 8 MB float64 temporaries and
     evaluates the discarded ``** 2.4`` branch on every pixel. When the input
     is already ``uint8`` (the dtype ``map_palette`` hands the frame in as),

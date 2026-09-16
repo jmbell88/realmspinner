@@ -285,7 +285,7 @@ def give_way(avail: float, share: float, wanted: float, floor: float) -> float:
     known minimum -- a fixed grid of buttons, plus enough of the form under it
     to be worth scrolling -- must be allowed to overrule a share that would cut
     that minimum in half, and must still yield before it starves the pane below
-    it. That is the sidebar/centre give-way rule of INVARIANTS.md read down a
+    it. That is the sidebar/centre give-way rule of dev/INVARIANTS.md read down a
     column instead of across a row, and it is written here rather than in the
     workspace so it can be asserted without a window.
 
@@ -441,7 +441,7 @@ class Layout:
         back 0.55 from :meth:`share` with nothing dragged, and the column that
         divides 900 px three ways at 0.55 each has nothing left for Sound effects
         or the FILL pane under it -- which is the incident this method exists to
-        stop reproducing (see docs/INVARIANTS.md).
+        stop reproducing (see dev/INVARIANTS.md).
 
         The order matches :meth:`share`'s own priority, minus the one rung that
         cannot be told apart from "nothing saved": the workspace-bound override
@@ -1038,7 +1038,7 @@ def column(
     # nobody has dragged belongs out of the dict, not in it with a borrowed
     # value, which is what starved Sirens' Sound effects and Song file panes
     # down to zero height for every user who never touched a splitter (see
-    # docs/INVARIANTS.md).
+    # dev/INVARIANTS.md).
     shares = {
         slot.share_key: value
         for slot in live

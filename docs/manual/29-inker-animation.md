@@ -109,7 +109,7 @@ in it has nothing to lift, and the slider is not offered there.
 While any cell on the frame you are drawing on is lifted, the editor stops caching the layers
 underneath the one you are painting on, because a lifted cel can be one of them. A dab costs a
 little more and the *first* dab of a stroke costs a great deal less; you are unlikely to notice
-either. The numbers are in `docs/measurements/2026-08-30-cel-z-below-cache.md`.
+either. The numbers were measured on the maintainer's own machine.
 
 ### Colours and notes
 

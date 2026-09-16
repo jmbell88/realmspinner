@@ -1,7 +1,7 @@
 """UX.md Phases 4 and 5: the parts a screenshot cannot check.
 
 Same division of labour as ``tests/test_ux_phases.py`` states for Phases 2 and
-3. The screenshot pass (``scripts/screenshot_modes.py``, now with ``--floating``
+3. The screenshot pass (``dev/scripts/screenshot_modes.py``, now with ``--floating``
 so the palette's translucency is in a still at all) is the instrument for the
 half of these phases that is pixels. It cannot see that a resume row opens in
 the pane that made it, that a nine-patch refuses a rectangle smaller than its

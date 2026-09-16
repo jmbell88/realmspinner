@@ -45,7 +45,7 @@ MASK_COVERAGE_CEILING = 0.98
 
 # The difference hash: an 8x9 grayscale downscale, compared left-to-right, so
 # 8*8 = 64 bits. HASH_FLOOR is the *measured* agreement between unrelated
-# images, which is chance and not zero -- see docs/measurements/. Every
+# images, which is chance and not zero -- see dev/measurements/. Every
 # user-facing number goes through hash_similarity, which subtracts it.
 HASH_SIDE = 8
 HASH_BITS = HASH_SIDE * HASH_SIDE
@@ -231,7 +231,7 @@ def hash_similarity(a: int, b: int) -> float:
     with a floor under it, and reporting it as-is would call a worst-case pair
     of pure-noise plates "75% similar". Subtracting the floor and rescaling is
     what ``pipelines.rank`` already does to the cosine's -1..1 range. The corpus
-    is ``docs/measurements/2026-08-11-perceptual-hash-floor.md``; do not
+    is ``dev/measurements/2026-08-11-perceptual-hash-floor.md``; do not
     "simplify" this back to a bit count.
     """
     agreement = 1.0 - bin(a ^ b).count("1") / HASH_BITS

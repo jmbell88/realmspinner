@@ -226,7 +226,7 @@ def refusal_text(result: dict) -> str:
     Its own function rather than two lines inside :func:`record` because it
     is the third rule this module owns that both halves of a transcript have
     to agree on, and the 2026-09-15 Clay agent benchmark sitting is what
-    earned it (``docs/measurements/2026-09-15-clay-agent-benchmark-results.md``).
+    earned it (``dev/measurements/2026-09-15-clay-agent-benchmark-results.md``).
     That sitting recorded twelve refusals and kept none of their messages, so
     ``2026-09-10-clay-agent-benchmark-preregistration.md``'s rule 5 -- "a
     refusal an agent could not have avoided is a defect... written up as a

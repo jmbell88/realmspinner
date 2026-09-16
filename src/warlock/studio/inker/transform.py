@@ -825,7 +825,7 @@ GRID_SCALES: tuple[int, ...] = (4, 5, 6, 8, 10, 12, 16)
 
 #: Normalized within-cell gradient ratio below which the lattice is real.
 #: **Provisional** in the sibling too, and governed by the same document:
-#: ``docs/measurements/2026-08-06-pixel-art-xl.md`` (procedure pre-registered).
+#: ``dev/measurements/2026-08-06-pixel-art-xl.md`` (procedure pre-registered).
 #: Copying it to a second surface moves nothing -- one document governs both.
 GRID_RESIDUAL_MAX = 0.05
 

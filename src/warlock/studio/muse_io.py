@@ -14,7 +14,7 @@ source* -- this module writes them. So a ``smpl`` chunk pointing at ``(s, e)``
 of an untouched track is a loop that clicks wearing a label saying it does not,
 and the second export is refused whenever a fade is asked for. That is the kind
 of thing that gets "simplified" back into a bug, so it is also in
-``docs/INVARIANTS.md``.
+``dev/INVARIANTS.md``.
 
 **Importing ``wavout`` from here is the existing pattern, not an exception.**
 ``tests/sirens/test_sirens_imports.py`` pins what files *inside* that package

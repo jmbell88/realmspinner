@@ -97,7 +97,7 @@ def test_speckle_does_not_floor_the_composition_score():
     """The defect this module shipped with, pinned.
 
     A real reference carries 15-18 connected components and one *subject*
-    (docs/measurements/2026-08-17-reference-source-bench.md). Charging
+    (dev/measurements/2026-08-17-reference-source-bench.md). Charging
     COMPONENT_COST against the raw count took 2.25 off a base of 1.0, so the
     clamp fired on every image and the 0.6-weighted composition term was a
     constant. Fails against the unfixed code, which returns 0.0 here.

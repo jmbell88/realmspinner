@@ -2,7 +2,7 @@
 
 The child exists so that a checkpoint's host commit is returned by a process
 exit rather than by a ``gc.collect()`` that cannot return it
-(``docs/measurements/2026-08-22-trampoline-child-pids.md``). What has to be
+(``dev/measurements/2026-08-22-trampoline-child-pids.md``). What has to be
 guaranteed here is the protocol around that: every request gets exactly one
 terminal response, a failure is reported rather than thrown, progress arrives
 before the answer it belongs to, and a cancel is not mistaken for a crash.

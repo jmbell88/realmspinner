@@ -28,7 +28,7 @@ smooth the instrument.
 
 :data:`OVERSAMPLE` and the filter width are keyed on by every rendered corpus.
 Changing either changes the output of every existing document, so both get a
-``docs/measurements/`` entry first -- the rule ``docs/INVARIANTS.md`` states.
+``dev/measurements/`` entry first -- the rule ``dev/INVARIANTS.md`` states.
 """
 
 from __future__ import annotations

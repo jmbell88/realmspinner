@@ -145,8 +145,8 @@ def test_linked_from_nothing_selects_nothing():
 def _strip_mesh(n_verts: int, islands: int = 4, width: int = 2):
     """*islands* disconnected quad strips *width* faces wide, ~*n_verts* total.
 
-    Mirrors ``scripts/bench_native.py``'s ``_linked_mesh`` fixture (the one
-    behind ``docs/measurements/2026-09-13-native-batch-10-candidates.md``
+    Mirrors ``dev/scripts/bench_native.py``'s ``_linked_mesh`` fixture (the one
+    behind ``dev/measurements/2026-09-13-native-batch-10-candidates.md``
     §1): a long thin strip is label propagation's worst case, since its pass
     count is the strip's length, not the square root of its size. Kept as its
     own copy here because ``bench_native.py`` is a script, not an importable
@@ -210,7 +210,7 @@ def _linked_by_label_propagation(mesh, verts) -> np.ndarray:
 def test_linked_on_a_long_thin_strip_finishes_well_under_a_second():
     """The regression this batch is about. Label propagation's pass count is
     a strip's *length*, not its size, so four 200k-vertex-total quad strips
-    two faces wide took 11.1 s (docs/measurements/
+    two faces wide took 11.1 s (dev/measurements/
     2026-09-13-native-batch-10-candidates.md §1) -- 11 seconds on the frame
     thread for one L key. ``connected_components`` over the edge graph is
     flat in the strip's length, not linear in it, so a generous 1 s bound

@@ -4,19 +4,19 @@ assistant`` and Familiar's own spawn path both need to agree on byte for
 byte.
 
 This is a T3 extraction, not a rewrite. Every function here used to live in
-``training/clay-assistant/gen/convert.py`` (built against the *live*
+``dev/training/clay-assistant/gen/convert.py`` (built against the *live*
 ``agent_clay`` registry, so a new generator or op changed the dataset on the
-next ``build.py`` run) and ``training/clay-assistant/eval/run_val.py`` (the
+next ``build.py`` run) and ``dev/training/clay-assistant/eval/run_val.py`` (the
 reply grammar a trained model is scored against). The user chose to freeze
 run A's own card (``cards/clay-1.txt``, sha256 ``70697ece…8aab``, recorded as
 ``settings.card_sha256`` in run A's own eval JSONs under
-``docs/measurements/data/clay-assistant/run-A/``) as what actually ships, so
+``dev/measurements/data/clay-assistant/run-A/``) as what actually ships, so
 this module is where "the card a running Familiar loads" and "the card
 training built its dataset's system prompt from" meet: :func:`load_card`
 reads the frozen text; :func:`derive_clay_card` still rebuilds the live
 equivalent, kept only so a training run (or a test) can prove the two have
 not silently drifted apart (:func:`derived_card_sha` versus
-``training/clay-assistant/dataset/manifest.json``'s own ``tools_sha``).
+``dev/training/clay-assistant/dataset/manifest.json``'s own ``tools_sha``).
 
 **No imgui, moderngl, pygame, httpx, service or queue import, ever, even
 transitively at module scope** -- this module has to be importable by
@@ -90,7 +90,7 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     "clay": {"temperature": 0.2, "top_k": 64, "top_p": 0.95, "max_tokens": 4096},
     # T5's plain-chat sampling -- there is no measurement behind this row the
     # way there is for "clay" (that one is
-    # docs/measurements/2026-09-13-clay-assistant-sampling.md's own pick out
+    # dev/measurements/2026-09-13-clay-assistant-sampling.md's own pick out
     # of a 232-row corpus): base Gemma 4 E2B has no fine-tune or eval corpus
     # of its own here yet, so this is Google's own stock instruct-model
     # recommendation (t0.7/top-k 64/top-p 0.95), carried over unmeasured. A
@@ -137,7 +137,7 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     "character": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 200},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
-``docs/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
+``dev/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
 pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178,
 Google's stock Gemma recommendation, what run A was first scored at) were
 both beaten by t0.2/top-k 64/top-p 0.95 sampled three times a row (185.0,
@@ -288,7 +288,7 @@ def cited(
 # ---------------------------------------------------------------------------
 # The tool card itself -- KEEP_TOOLS, the behaviour paragraph, the sentence-
 # and summary-trimming helpers, and derive_clay_card/derived_card_sha. Moved
-# verbatim from training/clay-assistant/gen/convert.py's compact_tools()/
+# verbatim from dev/training/clay-assistant/gen/convert.py's compact_tools()/
 # tools_sha(); convert.py re-exports the old names so build.py, run_val.py,
 # drafts/_gen_queries.py and the training tests keep working unchanged.
 # ---------------------------------------------------------------------------
@@ -423,7 +423,7 @@ def derive_clay_card() -> str:
     part names, nine of them in ``creatures``), 7 unknown params for a
     generator (e.g. ``depth`` on a cylinder), and ``clay_op`` given ``axis``
     outside ``params`` among 6 other refusals naming an op's own arguments.
-    See ``training/clay-assistant/README.md``'s "The compact tool card"
+    See ``dev/training/clay-assistant/README.md``'s "The compact tool card"
     section for the fix's own accounting.
 
     Imports ``agent_clay`` lazily, inside this function, rather than at
@@ -508,7 +508,7 @@ not need to answer."""
 def compact_scene(structured: dict[str, Any]) -> dict[str, Any]:
     """*structured* (a ``clay_scene`` ``structuredContent`` payload),
     projected to the fields an edit/query training row's "here is the scene"
-    turn actually needs. Moved from ``training/clay-assistant/gen/
+    turn actually needs. Moved from ``dev/training/clay-assistant/gen/
     convert.py`` unchanged."""
     objects = [
         {key: row.get(key) for key in _SCENE_ROW_KEYS} for row in structured.get("objects", [])
@@ -529,13 +529,13 @@ def user_turn(prompt: str, scene: dict[str, Any] | None = None) -> str:
     encoding. *scene* is ``None`` for a plain build row (no prior state to
     describe), in which case this is just *prompt*.
 
-    ``training/clay-assistant/eval/run_val.py``'s own ``_user_turn`` builds
+    ``dev/training/clay-assistant/eval/run_val.py``'s own ``_user_turn`` builds
     the same shape but with ``json.dumps(scene, sort_keys=True)`` -- the
     *default* separators (``", "``/``": "``), not this compact form. That is
     a real, deliberate difference, not a bug: run A's whole eval corpus was
     scored against that slightly longer encoding, and switching ``run_val.py``
     over to this compact one now would change every prompt's token count and
-    make a new eval no longer comparable with ``docs/measurements/data/
+    make a new eval no longer comparable with ``dev/measurements/data/
     clay-assistant/run-A/``'s own recorded numbers. ``run_val.py`` keeps its
     own ``_user_turn`` for that reason; this function is what a *new* caller
     (Familiar's own runtime, a future eval line) should build on.
@@ -558,7 +558,7 @@ def build_messages(
 
 
 # ---------------------------------------------------------------------------
-# Reply grammar -- moved from training/clay-assistant/eval/run_val.py, same
+# Reply grammar -- moved from dev/training/clay-assistant/eval/run_val.py, same
 # fence and the same three failure details ("no fenced json", "json: ...",
 # "no calls list"). run_val.py and eval/tier_two.py both import parse_calls
 # from here now.
@@ -583,7 +583,7 @@ MIN_REPLY_TOKENS = 1893
 """A floor below which :func:`output_budget` refuses rather than hand back a
 reserve too small for any real Clay reply. Measured 2026-09-14: the longest
 assistant reply text (a build/edit row's fenced ``{"calls": [...]}}`` JSON, or
-a query row's ``answer``) across ``training/clay-assistant/dataset/{train,
+a query row's ``answer``) across ``dev/training/clay-assistant/dataset/{train,
 val}.jsonl`` is 5,167 chars (``vehicles-0029``); at the same 2.73 chars/token
 ratio :func:`output_budget`'s own caller measures prompts with, that is
 ``ceil(5167 / 2.73) == 1893`` tokens."""

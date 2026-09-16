@@ -21,7 +21,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # The three thresholds below decide a mesh's ready/review classification, and
-# none of them is backed by a `docs/measurements/` document -- unlike HOLE_WARN
+# none of them is backed by a `dev/measurements/` document -- unlike HOLE_WARN
 # a few lines down, which is (2026-08-06-audit-resolution.md). The 2026-09-11
 # audit (finding pipelines-10) flagged that asymmetry: they read like measured
 # figures because their neighbour is one. They are not. Each is a round number
@@ -57,7 +57,7 @@ HOLE_WARN = 0.02
 # relative to the model because an absolute epsilon means something different
 # on a 0.02 m gear than on a 30 m building.
 #
-# No `docs/measurements/` document backs this number: nothing in the stored
+# No `dev/measurements/` document backs this number: nothing in the stored
 # corpus is keyed on it. It decides one boolean, and the boolean it replaces
 # was measuring the wrong thing entirely.
 WELD_TOLERANCE = 1e-5

@@ -232,7 +232,7 @@ def set_front_yaw(svc: WarlockService, job_id: str, degrees: float) -> dict[str,
     """Record which way a mesh is "front", for every directional sprite render.
 
     The 2026-08-05 view-calibration sweep
-    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's
+    (``dev/measurements/2026-08-04-view-calibration.md``) found a mesh's
     matched view scatters 330 degrees across 37 jobs -- effectively uniform --
     so the front cannot be derived from the reconstruction and has to be a
     human's press: orbit the model in a viewport, then confirm what is facing

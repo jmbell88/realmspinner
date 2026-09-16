@@ -18,7 +18,7 @@ columns: an empty cell must not be a valid value of anything.
 **Equal temperament, A-4 = 440 Hz, and deliberately not a period table.** The
 2A03 tunes by writing an 11-bit divider, so its notes are quantised and its top
 octave is audibly sharp; reproducing that would be the register-level emulation
-this engine is explicitly not (see ``docs/INVARIANTS.md``). The timbre is the
+this engine is explicitly not (see ``dev/INVARIANTS.md``). The timbre is the
 part that makes the era, and the tuning is the part that makes it unusable
 beside anything else -- a song exported from here has to sit under a modern
 soundtrack without beating against it.

@@ -3,7 +3,7 @@
 ``prims.stamp`` used to allocate a fresh ``(H, W, 4)`` zero plane per particle
 and every caller added and alpha-composed the whole frame, though only the
 stamp's own window was ever non-zero: 1.9 s at 400 textured particles on a
-512px raster (docs/measurements/2026-09-13-native-batch-10-candidates.md
+512px raster (dev/measurements/2026-09-13-native-batch-10-candidates.md
 §3). This pins the windowed shape and proves every caller still produces the
 bit-identical frame a full-frame stamp-and-compose would have.
 """

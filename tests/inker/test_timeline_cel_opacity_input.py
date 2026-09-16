@@ -4,7 +4,7 @@ A control that is drawn and wired to nothing is this codebase's most common
 historical defect, and it is invisible to every test that calls the document
 directly. So this file does not call ``set_cel_opacity``: it opens the timeline
 cell menu inside a real imgui frame, finds the slider through :mod:`.probe` --
-the same census ``scripts/exercise_mode`` uses, so the rect is *read* and never
+the same census ``dev/scripts/exercise_mode`` uses, so the rect is *read* and never
 computed -- and presses the left mouse button inside it. What is asserted is
 that the document's grid changed.
 

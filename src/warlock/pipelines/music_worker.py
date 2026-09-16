@@ -124,7 +124,7 @@ class _Server:
     pipes in-process, the way ``matting_worker.main`` can be called directly.
     """
 
-    #: Deferred as *config* knobs deliberately -- see docs/INVARIANTS.md. Both
+    #: Deferred as *config* knobs deliberately -- see dev/INVARIANTS.md. Both
     #: are trades against VRAM that no measurement has been taken for yet, so
     #: they are class attributes a GPU-lane experiment can set rather than
     #: Config fields whose SETTINGS rows would have to be written first.

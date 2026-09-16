@@ -9,7 +9,7 @@ The invariant behind every test here: `Text2ImageClient` must be substitutable
 for `Text2Image` at every call site, and `unload()` must genuinely end the
 process, because a `unload()` that returns the VRAM and keeps 21 GiB of host
 commit is the defect this replaced
-(`docs/measurements/2026-08-22-trampoline-child-pids.md`).
+(`dev/measurements/2026-08-22-trampoline-child-pids.md`).
 """
 
 from __future__ import annotations

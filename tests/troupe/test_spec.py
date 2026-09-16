@@ -61,7 +61,7 @@ def test_only_the_power_of_two_rungs_divide_the_render_exactly(spec):
     assert spec.render_size == 512
     # 256 divides 512 exactly too -- it is not a rung that stopped being one,
     # ``charsheet.SIZES`` legitimately grew it (see
-    # ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``).
+    # ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``).
     assert spec.exact_sizes() == (16, 32, 64, 128, 256)
 
 

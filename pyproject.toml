@@ -197,6 +197,12 @@ build-backend = "hatchling.build"
 # An allowlist rather than an exclude list, deliberately: an exclude only stops
 # what somebody thought of, and the failure mode here is a directory nobody
 # thought of. ``tests/test_release_hygiene.py`` pins it.
+#
+# ``/CLAUDE.md`` and ``/TODO.md`` came out on 2026-09-16, when both moved out
+# of the public checkout (``/CLAUDE.md`` untracked and gitignored at the root;
+# ``TODO.md`` into ``/dev``, which stays off this list on purpose) -- an
+# allowlist only ever names what should ship, so a file leaving the checkout
+# means removing its entry, not adding an exclusion for it.
 [tool.hatch.build.targets.sdist]
 include = [
     "/src/warlock",
@@ -207,8 +213,6 @@ include = [
     "/installer",
     "/README.md",
     "/CHANGELOG.md",
-    "/CLAUDE.md",
-    "/TODO.md",
     "/LICENSE",
     "/THIRD-PARTY-NOTICES.md",
     "/pyproject.toml",
@@ -260,11 +264,17 @@ select = ["E", "F", "I", "W", "UP", "B", "SIM"]
 # call-building one-liners each; wrapping every f-string at 100 columns would make
 # the recipe harder to read against the JSONL it emits, for no gain the rest of
 # the lint set does not already give. Line length and one-letter loop names only.
+# Path updated 2026-09-16 when training/ moved to dev/training/.
 [tool.ruff.lint.per-file-ignores]
-"training/clay-assistant/drafts/_gen_*.py" = ["E501", "E741"]
+"dev/training/clay-assistant/drafts/_gen_*.py" = ["E501", "E741"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# "dev/tests" is a second, maintainer-local lane for the tests that read
+# dev/-only material (TODO.md, INVARIANTS.md, measurements, screenshots, the
+# Clay-assistant training tree, the moved bench/campaign scripts) -- pytest
+# silently skips a testpath that does not exist, so a clean CI checkout
+# (where /dev is gitignored) still collects "tests" alone with no error.
+testpaths = ["tests", "dev/tests"]
 asyncio_mode = "auto"
 markers = [
     "gpu: requires local GPU + model weights (opt in with '-m gpu -n 0')",

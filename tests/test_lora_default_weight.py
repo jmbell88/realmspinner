@@ -29,7 +29,7 @@ def test_every_registered_adapter_is_reachable_through_the_helper():
 
 
 def test_the_klein_default_sits_inside_its_usable_band():
-    """The band is measured in docs/measurements/2026-08-10-pixel-art-klein.md;
+    """The band is measured in dev/measurements/2026-08-10-pixel-art-klein.md;
     the flat default does not sit in it, which is the whole defect."""
     assert 0.02 <= settings_2d.lora_default_weight("pixelklein") <= 0.08
     assert not 0.02 <= models.DEFAULT_LORA_WEIGHT <= 0.08

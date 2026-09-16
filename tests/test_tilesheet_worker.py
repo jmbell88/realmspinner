@@ -547,7 +547,7 @@ async def test_the_measured_two_stage_reducer_still_runs_on_every_cell(
     worker, monkeypatch
 ):
     """``pixelize.reduce``'s single box mean is precisely what
-    ``docs/measurements/2026-08-17-ground-reduction.md`` rejected -- it
+    ``dev/measurements/2026-08-17-ground-reduction.md`` rejected -- it
     regressed every tile to its mean colour -- so this path keeps
     ``reduce_cell`` and only the quantisation moved."""
     real = tilesheet.reduce_cell

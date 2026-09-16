@@ -7,7 +7,7 @@ failed at its own purpose: 3 accepts against 81 rejects on 2026-08-07, in which 
 slab with no geometry, a smeared texture and a mesh a modeller would fix in five
 minutes are all the same row. A bit can say a mesh failed and can never say how
 close it came. The scale, its +-3 backfill and its ``grade >= +3`` usable cut are
-argued in ``docs/measurements/2026-08-09-grade-scale.md``.
+argued in ``dev/measurements/2026-08-09-grade-scale.md``.
 
 **``verdict`` survives as a derived column with exactly one writer.** This
 function is that writer, via ``vectors.verdict_for_grade``, which is what leaves

@@ -31,7 +31,7 @@ just filed reaches it because `panes.inspector.record_verdict` already calls
 `ctx.cache.invalidate()`. What is drawn from it is deliberately thin: a
 grade beside the candidate that has one, and a muted line while a finished
 attempt does not. No ordering, no pre-selection, no filtering -- the judge's
-own doctrine (`docs/INVARIANTS.md`, "advisory... sorts and never filters")
+own doctrine (`dev/INVARIANTS.md`, "advisory... sorts and never filters")
 applies here even though nothing here is the judge, because the failure mode
 is the same one: a picker that reordered or hid a candidate on the strength
 of a grade would be making the keep decision instead of nudging it.

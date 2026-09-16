@@ -30,7 +30,7 @@ data rather than in advance.
 
 Its **target** changed on 2026-08-09 without a line of this module moving. Mesh
 verdicts are graded -5..+5 now rather than accept/reject
-(``docs/measurements/2026-08-09-grade-scale.md``), so the mesh probe becomes a
+(``dev/measurements/2026-08-09-grade-scale.md``), so the mesh probe becomes a
 grade *regression* rather than a binary classifier -- a strictly better fit for a
 corpus whose problem was the resolution of its labels rather than their number.
 The two image stages are untouched and stay binary, which is why nothing here
@@ -55,7 +55,7 @@ which is precisely the case a learned judge exists to catch.
 
 **No threshold lives here.** ``score`` returns a probability. A threshold is a
 constant the stored corpus is keyed on, so by this repo's own rule it gets a
-document under ``docs/measurements/`` before it is baked in.
+document under ``dev/measurements/`` before it is baked in.
 """
 
 from __future__ import annotations

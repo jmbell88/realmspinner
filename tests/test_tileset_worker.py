@@ -760,7 +760,7 @@ async def test_a_default_terrain_set_is_the_median_cut_it_always_was(worker):
 @pytest.mark.asyncio
 async def test_the_measured_reducer_still_runs_once_per_material(worker, monkeypatch):
     """``pixelize.reduce``'s single box mean is what
-    ``docs/measurements/2026-08-17-ground-reduction.md`` rejected, so this path
+    ``dev/measurements/2026-08-17-ground-reduction.md`` rejected, so this path
     keeps ``reduce_material`` and only the quantisation moved. Once per
     *material*, never per cell: a terrain set is forty-seven composites of two
     generations."""

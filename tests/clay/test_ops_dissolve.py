@@ -413,7 +413,7 @@ def test_dissolving_one_edge_does_not_walk_the_whole_meshs_face_count(
     ``for i in range(len(self.parent))`` in all three dissolve ops -- every
     face in the whole mesh, not the selection -- so one edge dissolved
     measured 3.5 ms at 2,401 faces and 654 ms at 408,321, linear in mesh size
-    with no refusal, which broke ``docs/INVARIANTS.md``'s promise that every
+    with no refusal, which broke ``dev/INVARIANTS.md``'s promise that every
     Clay op's cost tracks what it grows.
 
     Proven structurally rather than by wall clock (flaky under xdist): a mesh

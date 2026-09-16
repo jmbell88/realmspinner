@@ -1,6 +1,6 @@
 """Regression coverage for the einsum weighted-sum in ``retexture.combine``.
 
-docs/measurements/2026-09-06-native-batch-8-retexture.md measured the shipped
+dev/measurements/2026-09-06-native-batch-8-retexture.md measured the shipped
 ``(colours * w[..., None]).sum(axis=0)`` as 56% of ``combine`` at a TRELLIS
 atlas size, and measured ``np.einsum("nhwc,nhw->hwc", colours, w)`` as a
 bit-identical, 2.2x-faster replacement. The parity claim here is exact

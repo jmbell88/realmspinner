@@ -614,7 +614,7 @@ def on_job_failed(svc: WarlockService, job: dict[str, Any]) -> None:
     **The incident.** The ``detail-060`` run (2026-09-06, five subjects as
     five sweeps) failed all three ``decim0-*`` rungs on its first subject at
     ~29 minutes each, for one structural reason
-    (``docs/measurements/2026-09-03-trellis-detail-sweep.md``); the other four
+    (``dev/measurements/2026-09-03-trellis-detail-sweep.md``); the other four
     subjects were still queued to repeat exactly those three configurations,
     and nothing noticed. ``JobStore.next_queued`` is FIFO and sweep-blind by
     construction, so it never was going to.
@@ -632,7 +632,7 @@ def on_job_failed(svc: WarlockService, job: dict[str, Any]) -> None:
     server config supports -- see P31's own "Expected outcome" for why that is
     a feature and not a gap.
 
-    Cancelling writes no observation (``docs/INVARIANTS.md``: a cancel comes
+    Cancelling writes no observation (``dev/INVARIANTS.md``: a cancel comes
     in two kinds now, and this is the system-initiated one, still not a
     measurement -- the unit never ran). The reason text names
     ``scripts/sweep_refill.py``, which is the re-queue path for exactly this

@@ -331,7 +331,7 @@ MIGRATIONS: list[list[str]] = [
     # two-spellings hazard.
     #
     # The backfill is +-3 rather than +-5, and the value is argued in
-    # ``docs/measurements/2026-08-09-grade-scale.md``: a reviewer who pressed
+    # ``dev/measurements/2026-08-09-grade-scale.md``: a reviewer who pressed
     # Accept asserted "usable" and had no key for anything stronger, so +-5 would
     # invent evidence 84 times over and leave every real grade recorded later
     # sitting inside synthetic tails. It is the same number as ``USABLE_GRADE``

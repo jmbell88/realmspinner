@@ -2,7 +2,7 @@
 
 This is the second kernel in the tree whose bar is not output identity, and the
 only one added since ``contours.c``. The licence is written out in
-``docs/INVARIANTS.md``, in ``native/bvh.c`` and beside ``_build_bvh_native``,
+``dev/INVARIANTS.md``, in ``native/bvh.c`` and beside ``_build_bvh_native``,
 and it comes down to one fact: ``np.argpartition`` is introselect, so its
 permutation among *equal* keys is unspecified. A C median split therefore
 separates coincident centroids differently and builds a different -- equally

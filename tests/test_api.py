@@ -805,7 +805,7 @@ def test_a_job_gets_the_learned_matte_when_its_weights_are_on_disk(svc):
     # ``default_bg_removal`` now falls back to ``auto`` for a zero-byte
     # weight file (the same damage ``doctor._birefnet_check`` already
     # reported unhealthy), so an empty placeholder here no longer means
-    # "downloaded", it means "corrupt". docs/INVARIANTS.md: "Test fixtures
+    # "downloaded", it means "corrupt". dev/INVARIANTS.md: "Test fixtures
     # therefore write one byte, not zero -- an empty placeholder now means
     # 'corrupt'".
     (svc.config.trellis_models_dir / guidance_mod.BIREFNET_WEIGHTS).write_bytes(b"x")

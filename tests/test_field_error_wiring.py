@@ -247,7 +247,7 @@ def test_a_recipe_refusal_is_re_filed_under_the_control_it_is_about():
         "camera": {"camera": "nowhere"},
         "elevation": {"elevation": 200.0},
         # "flying" used to be this row's refusal, but the 2026-09-12 clip
-        # vocabulary opening (docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md)
+        # vocabulary opening (dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md)
         # made any name legal, so it stopped being a refusal at all --
         # "walk_front" now provokes the direction-suffix refusal instead.
         "animations": {"animations": {"walk_front": 4}},

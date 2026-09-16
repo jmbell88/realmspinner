@@ -433,7 +433,7 @@ class RigOps:
         )
         # The direction the user pressed, added to every cell's camera yaw so
         # the sheet is shot from the front the user chose rather than always
-        # yaw 0. ``docs/measurements/2026-08-04-view-calibration.md``: a
+        # yaw 0. ``dev/measurements/2026-08-04-view-calibration.md``: a
         # mesh's matched view scatters 330 degrees across 37 jobs, uniformly,
         # so this cannot be derived and has to be a human's press.
         front_yaw = float(params.get("front_yaw") or 0.0) % 360.0

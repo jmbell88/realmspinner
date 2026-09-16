@@ -128,7 +128,7 @@ DEFAULT_CAMERA_PRESET = "three_quarter_top_down"
 #: ``resolve_layout``'s ``timing`` argument) instead of being one of
 #: :data:`ANIMATIONS`' five names. ``resolve_layout`` still reads a 2, and
 #: ``LayoutSpec.as_dict`` still writes one whenever the result is expressible
-#: in it -- see ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+#: in it -- see ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
 LAYOUT_VERSION = 3
 WARN_CELLS = 256
 MAX_CELLS = 512
@@ -188,7 +188,7 @@ _COMPASS_POINTS: tuple[str, ...] = (
 def compass_name(yaw: float) -> str:
     """The compass point a frame-folder export names direction ``yaw`` with.
 
-    See ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``
+    See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``
     ("Compass names follow the camera arithmetic, not the docstring"):
     **bearing = (180 + yaw) mod 360**, derived from
     :func:`blender_worker._view_forward` -- the camera sits at
@@ -241,7 +241,7 @@ class ClipTiming:
     ``clips.clip_timing`` from ``rigging.clip_library``. Naming it lets a
     layout resolve any clip a rig's library defines, not just the five
     :data:`ANIMATIONS` names. See
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
     """
 
     frames: int
@@ -337,7 +337,7 @@ def _movement_base_timing(
     """``(frames, loop, duration_ms)`` before any global ``fps`` override.
 
     The precedence
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` lays out:
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` lays out:
     a rig's own clip library (``timing``) first; then a v3 snapshot's own
     literal ``loop``/``duration_ms``; then the closed legacy table --
     **always** the table for a v2 payload, even though a v2 movement dict may
@@ -490,7 +490,7 @@ def resolve_layout(
     ``clamp(round(base_frames * base_ms * fps / 1000), 1, MAX_FRAMES)`` --
     rather than the legacy/timing frame count verbatim, so it keeps its real
     length at the new rate. See
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
     """
 
     if not payload:

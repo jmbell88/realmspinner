@@ -3,7 +3,7 @@
 ``tests/test_studio_smoke.py`` asserts that every pane *builds*. It asserts
 nothing about whether a control is wired to anything, whether it is reachable,
 or whether pressing it does what its label says --- and
-``scripts/screenshot_modes.py`` photographs a mode *at rest*. So the failure
+``dev/scripts/screenshot_modes.py`` photographs a mode *at rest*. So the failure
 nobody catches is a control that draws correctly and does nothing: clipped past
 its content region, disabled with no reason, wired to a handler that was
 renamed, or reaching one that raises into the frame and gets swallowed. Every

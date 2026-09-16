@@ -317,7 +317,7 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # probe exists.
         #
         # The mislabel was not merely imprecise. Until the speckle floor was
-        # fixed (docs/measurements/2026-09-06-speckle-composition-floor.md) the
+        # fixed (dev/measurements/2026-09-06-speckle-composition-floor.md) the
         # composition term clamped to zero on every real reference, so an
         # ordinary generation with no anchor rendered "judge: 0% likely a
         # keeper" -- the app asserting, in the trained probe's name, that a

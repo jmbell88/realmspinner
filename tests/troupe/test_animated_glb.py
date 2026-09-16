@@ -120,7 +120,7 @@ def test_animated_glb_carries_the_clips_own_root_translation(tmp_path):
 def test_the_timing_has_one_home_the_clip_library():
     """Per-frame duration and the loop flag have one home, and it is no longer
     ``charsheet.ANIMATIONS``: the vocabulary opened past its five names (see
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``), and a
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``), and a
     track for a clip that table has never heard of -- ``attack_02``, ``cast``,
     ``fall``, ``hit``, ``death`` -- has nowhere else to get its timing from. A
     second copy of either field would be one edit from disagreeing about how

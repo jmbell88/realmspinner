@@ -200,7 +200,7 @@ def _front_yaw(ctx: Any, job: Any, viewer: Any) -> None:
     means -- the button only has to carry the number across.
 
     A button and not anything computed, because the 2026-08-05 sweep
-    (``docs/measurements/2026-08-04-view-calibration.md``) found a mesh's own
+    (``dev/measurements/2026-08-04-view-calibration.md``) found a mesh's own
     matched view scatters *uniformly* across a 330-degree range on 37 jobs --
     there is nothing on disk "the front" could be derived from.
     """

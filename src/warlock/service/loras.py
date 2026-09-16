@@ -34,7 +34,7 @@ IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 #: How similar two candidate images' perceptual hashes must be for
 #: ``library_training_set`` to treat them as the same picture rather than two
-#: different ones. ``docs/measurements/2026-08-11-perceptual-hash-floor.md``
+#: different ones. ``dev/measurements/2026-08-11-perceptual-hash-floor.md``
 #: measured a lossless round trip (resize, JPEG re-encode) at a rescaled 1.0,
 #: the worst real variation it tried -- a 1.4x brightness multiply -- at only
 #: 0.66, and two genuinely different drawn objects at ~0.06, indistinguishable

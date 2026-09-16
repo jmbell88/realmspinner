@@ -34,7 +34,7 @@ MANUAL = ROOT / "docs" / "manual"
 # than globbed: a glob would quietly stop covering a file that was renamed, and
 # the whole point here is that a link nobody walks is a link that rots.
 # ``docs/TODO.md`` sat here until 2026-08-11, when the roadmap file was deleted
-# outright (`de87838`; there is no roadmap file now -- see docs/INVARIANTS.md).
+# outright (`de87838`; there is no roadmap file now -- see dev/INVARIANTS.md).
 # Its entry is gone rather than commented into the tuple, because a declared
 # source that does not exist used to be *silent*: ``_manual_links`` skipped a
 # missing path, so the link count simply fell, and the global-count guard below
@@ -42,25 +42,24 @@ MANUAL = ROOT / "docs" / "manual"
 # file's own comments warn about, and it is why
 # ``test_every_declared_source_exists`` now fails on the missing file itself
 # rather than leaving the shrink to be inferred from a total.
+#
+# ``CLAUDE.md``, ``docs/INVARIANTS.md`` (now ``dev/INVARIANTS.md``),
+# ``TODO.md`` (now ``dev/TODO.md``) and the ``docs/measurements/*.md`` glob
+# (now ``dev/measurements/``) moved out of this tuple on 2026-09-16, when they
+# moved out of the public checkout entirely -- they do not exist on a clean
+# clone, so declaring them here would fail ``test_every_declared_source_exists``
+# on CI. The same link-and-anchor sweep for them now lives in
+# ``dev/tests/test_external_doc_links.py``, which only runs where ``dev/``
+# exists.
 SOURCES = (
     ROOT / "README.md",
-    ROOT / "CLAUDE.md",
-    # The invariants reference CLAUDE.md's detail moved into on 2026-08-10. It
-    # carries no manual mentions yet, but it is exactly the file that will grow
-    # them, and the rule here is that sources are named, not globbed.
-    ROOT / "docs" / "INVARIANTS.md",
     # The optional-model catalogue the README's download sections moved into on
     # 2026-08-10. It points readers at the guidance-panel chapter, so its links
     # rot with a renumbering exactly the way README.md's do.
     ROOT / "docs" / "MODELS.md",
-    # The two documents created by the 2026-08-21 consolidation, declared here
-    # on the day they were written rather than after the first dead link.
-    # ``TODO.md`` is the one plan file and cites the code paths its owed work
-    # touches; ``docs/COMPAT.md`` is the merged interop ledger and cites the
-    # fixture inventories, the manual and this file's other sources.
-    ROOT / "TODO.md",
+    # Created in the 2026-08-21 consolidation: the merged interop ledger, which
+    # cites the fixture inventories, the manual and this file's other sources.
     ROOT / "docs" / "COMPAT.md",
-    *sorted((ROOT / "docs" / "measurements").glob("*.md")),
     # The 2026-09-06 docs audit, finding docs-10: the docs slice's own root
     # sources stopped at the seven above, so INSTALL.md:124's citation of a
     # manual chapter and THIRD-PARTY-NOTICES.md's links to docs/MODELS.md were
@@ -257,13 +256,13 @@ def _resolve(source: Path, target: Path | str) -> tuple[Path, str]:
 
 
 # The named sources that are expected to point readers into the manual. Not
-# every declared source is here, and the difference is deliberate:
-# ``docs/INVARIANTS.md`` and ``CLAUDE.md`` are declared because they are exactly
-# the files that will grow manual links, but neither carries one today, and
-# asserting one would be asserting a wish rather than a fact. The measurement
-# documents are globbed and each is free to carry none. Everything in this set
-# has links today, so a file that loses its last one is a regression rather
-# than an edit.
+# every declared source is here, and the difference is deliberate: SECURITY.md,
+# CONTRIBUTING.md and the others carry no manual link today, and asserting one
+# would be asserting a wish rather than a fact. (``dev/INVARIANTS.md`` and
+# ``CLAUDE.md`` used to be named here for the same reason before they moved to
+# ``dev/`` on 2026-09-16; that reasoning now lives with them in
+# ``dev/tests/test_external_doc_links.py``.) Everything in this set has links
+# today, so a file that loses its last one is a regression rather than an edit.
 LINKED_SOURCES = (
     ROOT / "README.md",
     ROOT / "docs" / "MODELS.md",
@@ -385,12 +384,17 @@ def test_security_md_file_format_list_includes_tiled_json_spellings():
 
 def test_the_five_ungated_root_docs_are_swept_for_dead_citations():
     """The 2026-09-06 audit, finding docs-10: SOURCES covered README.md,
-    CLAUDE.md, docs/INVARIANTS.md, docs/MODELS.md, TODO.md, docs/COMPAT.md and
-    docs/measurements/*.md, and omitted five of the docs slice's own root
+    CLAUDE.md, dev/INVARIANTS.md, docs/MODELS.md, TODO.md, docs/COMPAT.md and
+    dev/measurements/*.md, and omitted five of the docs slice's own root
     sources -- so INSTALL.md:124's citation of a manual chapter and
     THIRD-PARTY-NOTICES.md's links to docs/MODELS.md were never checked for a
     live target. A manual renumbering would have broken them silently, which is
     the exact failure this file exists to prevent for every other source.
+
+    (CLAUDE.md, dev/INVARIANTS.md, TODO.md and dev/measurements/*.md later
+    moved to dev/ on 2026-09-16 and dropped out of this file's own SOURCES --
+    see the comment above it -- but that is a different, later change and does
+    not touch what docs-10 itself found or fixed.)
     """
     names = {p.name for p in SOURCES}
     missing = _DOCS_10_ROOT_SOURCES - names

@@ -92,7 +92,7 @@ TEXTURE_DIR = "textures"
 #: here: "the refusal happens instead of the bytes, not alongside them",
 #: because the whole point of the ceiling is the allocation it prevents.
 #:
-#: Measured 2026-09-11 (``docs/measurements/2026-09-11-mason-obj-ceiling.md``):
+#: Measured 2026-09-11 (``dev/measurements/2026-09-11-mason-obj-ceiling.md``):
 #: at the ceiling, formatting a merged OBJ costs about 6.4 seconds and
 #: produces roughly 211 MB of text, and turning that text into the ``bytes``
 #: this module hands back peaks at roughly three times that figure -- the
@@ -164,8 +164,7 @@ def obj_export(
     if total_vertices > MAX_OBJ_VERTS:
         raise ValueError(
             f"this scene resolves to {total_vertices:,} OBJ vertices, past the "
-            f"{MAX_OBJ_VERTS:,} this writer will format into one file (see "
-            "docs/measurements/2026-09-11-mason-obj-ceiling.md)"
+            f"{MAX_OBJ_VERTS:,} this writer will format into one file"
         )
     return _format(jobs, skipped)
 

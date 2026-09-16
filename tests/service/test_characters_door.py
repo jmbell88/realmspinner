@@ -168,7 +168,7 @@ def test_a_character_mints_a_built_done_model_row_and_one_rig_row(svc, blender, 
 
 def test_a_character_recipe_asking_for_hit_and_death_creates_its_sheet_row(svc, blender):
     """A recipe may name any clip its archetype's own library defines, per
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- not
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- not
     only the closed legacy five (``idle``/``walk``/``run``/``attack``/``jump``)
     ``charsheet.ANIMATIONS`` used to enumerate. Naming ``hit``/``death`` --
     real clips the humanoid archetype's library defines -- gets a sheet row

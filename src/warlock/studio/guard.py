@@ -80,7 +80,7 @@ RETRY_LIMIT = 3
 FATAL: tuple[type[BaseException], ...] = (MemoryError, RecursionError, SystemError)
 
 #: Re-raise everything instead of catching it. ``widgets.FORCE_SECTIONS_OPEN``'s
-#: idiom, and load-bearing rather than a convenience: ``scripts/exercise_mode``
+#: idiom, and load-bearing rather than a convenience: ``dev/scripts/exercise_mode``
 #: exists to find controls that are dead or crashing, and a guard that quietly
 #: replaced a crash with a tidy placeholder would make it report a clean pass on
 #: a broken pane. ``tests/conftest.py`` sets this autouse for the same reason --
@@ -118,7 +118,7 @@ class _Breaker:
 
 
 #: Every failure this frame, cleared beside the other three censuses. Read by
-#: ``scripts/exercise_mode`` and ``scripts/screenshot_modes`` so a swallowed
+#: ``dev/scripts/exercise_mode`` and ``dev/scripts/screenshot_modes`` so a swallowed
 #: exception is still a finding rather than a green picture of a placeholder.
 FRAME_FAILURES: list[Failure] = []
 

@@ -501,7 +501,7 @@ def stage_badge(job: dict[str, Any], *, inline: bool = False) -> None:
     Keyed on ``card_kind(job)``, not ``job["stage"]``: a follow-up row (rig,
     sheet, charsheet, retexture, pixel_sheet, sprite_synthesis, remesh) is a
     product of another asset and deliberately keeps the ``stage`` column's
-    default of ``"model"`` (see INVARIANTS.md), so reading ``stage`` here badged
+    default of ``"model"`` (see dev/INVARIANTS.md), so reading ``stage`` here badged
     every one of them "model" and left ``STAGE_BADGES["rig"]``/``["sheet"]``
     unreachable. ``card_kind`` is the same table the thumbnail glyph
     (``panes.thumbs.thumb_glyph``) already keys on, so the two halves of one
@@ -723,7 +723,7 @@ def quality_badge(job: dict[str, Any], *, inline: bool = False) -> None:
         # stays. What is gone is the claim in the other direction: below the
         # threshold the badge is muted, which says "nothing seen through" and
         # not "good". ``hole_worst`` is corpus-dependent and is never a quality
-        # scale -- see ``docs/measurements/2026-08-09-rebaseline.md`` and
+        # scale -- see ``dev/measurements/2026-08-09-rebaseline.md`` and
         # ``judge.py``'s module docstring.
         colour = (
             theme.MUTED
@@ -1785,7 +1785,7 @@ class Advisory(str):
 
     The distinction is not decorative. The first thing this carries is the
     open-form lint, and an audit-flagged open form still grades usable two
-    times in five (docs/measurements/2026-09-02-fantasy-v1.md) -- a rate that
+    times in five (dev/measurements/2026-09-02-fantasy-v1.md) -- a rate that
     is worth telling somebody about and nowhere near a verdict. An advisory
     that blocked would be the app claiming a certainty the corpus does not
     support.
@@ -2268,7 +2268,7 @@ def grade_key_hint(grade: int) -> str:
     The "" case is unreachable today and is the point of the bound below:
     ``review_mode.GRADE_KEYS`` binds the digits 1..``GRADE_MAX``, so the scale
     is fully typeable only while ``GRADE_MIN == -GRADE_MAX``. Widen one end of
-    the scale alone -- and ``docs/measurements`` is where that argument would
+    the scale alone -- and ``dev/measurements`` is where that argument would
     be made -- and every row past the digits would otherwise keep promising a
     keystroke that files nothing. Saying nothing is the honest answer for a row
     that has no key; ``grade_buttons`` already draws a hintless row.

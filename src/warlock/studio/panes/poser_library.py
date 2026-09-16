@@ -107,7 +107,7 @@ def _rigged_assets(ctx: Any, state: Any) -> None:
     widgets.section("Rigged assets")
     assets = poser_mode.riggable_assets(ctx)
     if not assets:
-        # No button here on purpose (docs/INVARIANTS.md's "one empty-state
+        # No button here on purpose (dev/INVARIANTS.md's "one empty-state
         # vocabulary" exempts a hint that points at a control worked
         # elsewhere): the control that fixes this is Create's Rig stage, not
         # anything this pane owns.

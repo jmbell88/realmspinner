@@ -1,7 +1,7 @@
 """H10 / 2026-09-13: the falloff distance search is a ``cKDTree`` query.
 
 Replaced the chunked brute-force broadcast this module used to pin
-bit-identical (`docs/measurements/2026-09-13-native-batch-10-candidates.md`
+bit-identical (`dev/measurements/2026-09-13-native-batch-10-candidates.md`
 §2): 1343 ms to 66 ms at the old cap's 40M pairs, on this machine. The tree's
 distances agree with the broadcast to 1e-9, not exactly, so this module now
 pins ``allclose`` against a kept brute-force reference rather than bit

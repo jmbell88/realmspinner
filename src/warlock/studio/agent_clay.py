@@ -447,7 +447,7 @@ moment its compiled calls start running and checked between them (never
 mid-call, so one already-running call is never cut off) -- past it, the run
 rolls back and refuses rather than keep going into a second, third frame.
 ``clay_program`` is deliberately not chunked across frames the way ``pump``'s
-own queued-job budget chunks ordinary calls (see ``docs/INVARIANTS.md``'s
+own queued-job budget chunks ordinary calls (see ``dev/INVARIANTS.md``'s
 agent paragraph): a program's whole point is that it is one MCP round trip,
 and a caller that needs more than this buys should split the program into
 several smaller ``clay_program`` calls rather than have this tool silently
@@ -2851,7 +2851,7 @@ def _figure_part_catalog(keys: tuple[str, ...]) -> str:
     called and nowhere needs editing for it to -- the same rule
     :func:`_generator_catalog` and :func:`_op_catalog` already follow for
     their own registries. Run A of the Clay-assistant fine-tune
-    (2026-09-12, ``docs/measurements/data/clay-assistant/run-A/``) showed 15
+    (2026-09-12, ``dev/measurements/data/clay-assistant/run-A/``) showed 15
     refusals of the shape ``no object named '...'`` because nothing told the
     model a figure preset's part names -- nine of those, in the
     ``creatures`` family, were guesses at a generated figure's own parts

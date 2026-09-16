@@ -1466,7 +1466,7 @@ class StrokeState:
 
         Both are the same defect -- a union standing in for a set -- and both go
         away by keeping the pieces. See
-        ``docs/measurements/2026-08-20-stroke-invalidation.md``.
+        ``dev/measurements/2026-08-20-stroke-invalidation.md``.
         """
         rects, self.touched = self.touched, []
         if len(rects) < 2:

@@ -964,7 +964,7 @@ def seam_verdict(report: Any) -> tuple[int, str] | None:
     # interior-maximum statistic (2026-08-30); a row with no ``metric`` at all
     # predates that change and was judged by the edge-against-mean-grain ratio,
     # and describing it in the new vocabulary would be stating a number the row
-    # does not contain. docs/measurements/2026-08-30-seam-dominance.md R8.
+    # does not contain. dev/measurements/2026-08-30-seam-dominance.md R8.
     if report.get("metric") == "dominance":
         worst = float(report.get("dominance") or 0.0)
         wording = "seam/worst join"
@@ -974,7 +974,7 @@ def seam_verdict(report: Any) -> tuple[int, str] | None:
     if report.get("seamless"):
         # "likely", not "seamless", and the hedge is measured rather than
         # cautious. It was introduced because
-        # ``docs/measurements/2026-08-09-seam-threshold-cfg.md`` found the
+        # ``dev/measurements/2026-08-09-seam-threshold-cfg.md`` found the
         # edge-energy ratio does not separate seamless tiles from seamed ones
         # on a CFG base, and it *stays* under the dominance statistic for a
         # narrower and better-measured reason:
@@ -1339,7 +1339,7 @@ def _quality(ctx: Any, job: Any) -> None:
         # reject over the 2026-08-07 rogue corpus (backwards rather than merely
         # weak; 48 of 81 rejected meshes measured exactly 0.0), and it
         # re-baselined to 0.756 once the matte was fixed -- see
-        # ``docs/measurements/2026-08-09-rebaseline.md``, whose "`hole_worst`
+        # ``dev/measurements/2026-08-09-rebaseline.md``, whose "`hole_worst`
         # is no longer inverted, and the matte is why" section is the authority.
         # The caveat below stays through both readings, because what it warns
         # about is reading *any* single figure as a grade.
@@ -1486,7 +1486,7 @@ def _verdict(ctx: Any, job: Any) -> None:
     # **Open on an ungraded mesh.** The corpus this feeds is the only unbiased
     # way to close the probe's ``MIN_PER_CLASS`` floor -- a corpus assembled by
     # going looking for one class is exactly what
-    # docs/measurements/2026-08-09-judge-threshold.md says makes the resulting
+    # dev/measurements/2026-08-09-judge-threshold.md says makes the resulting
     # threshold worthless -- so it has to grow from ordinary use, and behind a
     # collapsed header it did not grow at all. Closed again the moment a
     # verdict is filed, because then there is nothing left to ask.

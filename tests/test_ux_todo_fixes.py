@@ -30,6 +30,14 @@ from warlock.studio.state import TOAST_LEVELS
 SRC = Path(__file__).resolve().parents[1] / "src" / "warlock"
 STUDIO = SRC / "studio"
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+# dev/scripts/ holds the bench/calibration/campaign scripts moved out of the
+# public checkout on 2026-09-16 -- legitimately absent on a clean CI clone
+# (hence the existence check, unlike SCRIPTS above, which is always scanned).
+# When it *is* present (a maintainer checkout), a plan-file citation there is
+# exactly as much a defect as one in scripts/, so the sweeps below fold it in
+# rather than leaving it a blind spot the day someone edits a moved script.
+DEV_SCRIPTS = Path(__file__).resolve().parents[1] / "dev" / "scripts"
+_SCAN_ROOTS = (SRC, SCRIPTS, DEV_SCRIPTS) if DEV_SCRIPTS.is_dir() else (SRC, SCRIPTS)
 
 
 # --- the toast vocabulary is closed ------------------------------------------
@@ -71,7 +79,7 @@ def test_every_toast_level_literal_is_a_level_that_exists():
 
 
 def test_no_module_cites_the_plan_file():
-    """``docs/INVARIANTS.md``'s rule, now a full sweep rather than a ratchet.
+    """``dev/INVARIANTS.md``'s rule, now a full sweep rather than a ratchet.
 
     This began as a narrowed check over ``studio/`` alone, because a
     ``TODO.md §N`` citation resolved against ``docs/LEFTOVERS.md`` -- deleted
@@ -80,7 +88,7 @@ def test_no_module_cites_the_plan_file():
     ``scripts``. **All fourteen were rewritten on 2026-08-21**, when the four
     remaining plan files were consolidated into a root ``TODO.md`` and the
     filename was deliberately reclaimed: each now names the programme it means
-    (the quality judge, tier qualification) or the ``docs/measurements/``
+    (the quality judge, tier qualification) or the ``dev/measurements/``
     document that records the reasoning, so no ``§N`` API exists anywhere in
     the tree and none is to be minted.
 
@@ -91,12 +99,12 @@ def test_no_module_cites_the_plan_file():
     where it is, or in an invariant or a measurement document that outlives any
     plan.
 
-    Scoped to ``src`` and ``scripts`` and never ``tests`` -- this docstring is
-    why.
+    Scoped to ``src``, ``scripts`` and (when a maintainer checkout has it)
+    ``dev/scripts``, and never ``tests`` -- this docstring is why.
     """
     offenders = [
         f"{path}:{n}"
-        for root in (SRC, SCRIPTS)
+        for root in _SCAN_ROOTS
         for path in sorted(root.rglob("*.py"))
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if "TODO.md" in line
@@ -114,7 +122,7 @@ RETIRED_PLANS = (
     "NEXT_SESSION" ".md",
     # Retired 2026-08-20, both finished. ``ASEPRITE_PARITY.md``'s six waves and
     # every one of their "Left open / owed" items closed; its non-goals, its P1
-    # backlog and its rule of engagement are folded into ``docs/INVARIANTS.md``
+    # backlog and its rule of engagement are folded into ``dev/INVARIANTS.md``
     # and its citations were rewritten to name the *programme*. ``UPDATE_2.md``
     # had all seventeen parts done and, unusually, not one citation anywhere in
     # the tree -- so it went with nothing to rewrite at all.
@@ -123,7 +131,7 @@ RETIRED_PLANS = (
     # Retired 2026-08-21, when every plan file in the repo was consolidated into
     # one root ``TODO.md``. ``LPC_ALT.md`` was the Troupe programme and was
     # ~85% a record of shipped work -- its invariants already live in
-    # ``docs/INVARIANTS.md`` and its ULPC measurements are passing oracles in
+    # ``dev/INVARIANTS.md`` and its ULPC measurements are passing oracles in
     # ``studio/troupe/ulpc.py``, so only phases 0e and 6-8 travelled; its eight
     # citations under ``src`` were rewritten to name the programme.
     # ``EXE_PLAN.md`` was unstarted in full and moved across whole.
@@ -149,8 +157,8 @@ RETIRED_PLANS = (
     # stage. The Mason programme's plan carried its own record of where each
     # stage turned out to be wrong, and every durable part of it has a home
     # that outlives the file: the units and handedness in
-    # ``docs/INVARIANTS.md``, the three stored-document ceilings in two dated
-    # ``docs/measurements/`` documents, and the mode itself in
+    # ``dev/INVARIANTS.md``, the three stored-document ceilings in two dated
+    # ``dev/measurements/`` documents, and the mode itself in
     # ``docs/manual/31-mason.md``. Its six citations under ``src`` and
     # ``tests`` were rewritten to name the programme rather than the file.
     "MASON-PLAN" ".md",
@@ -161,11 +169,11 @@ def test_no_module_cites_a_retired_plan_file():
     """The sibling of the sweep above, for every plan file that has been retired.
 
     ``REDESIGN.md``, ``INKER_UPDATE.md`` and ``NEXT_SESSION.md`` described work
-    that is merged; ``docs/INVARIANTS.md`` records their retirement and carries
+    that is merged; ``dev/INVARIANTS.md`` records their retirement and carries
     the one section worth keeping (the eighteen Aseprite divergences). Their
     eighty-odd citations were rewritten to name the *programme* rather than the
     file -- "the UI redesign, wave N" -- and that rewrite loses nothing, because
-    a wave's outcome is described in ``docs/INVARIANTS.md`` and the filename
+    a wave's outcome is described in ``dev/INVARIANTS.md`` and the filename
     pointed only at a deleted plan. The 2026-08-21 batch went the same way.
 
     Two of the names are not plans at all. ``docs/PLOTTER_COMPAT.md`` and
@@ -175,12 +183,12 @@ def test_no_module_cites_a_retired_plan_file():
     catch, whatever the reason a file went.
 
     A full sweep rather than a narrowed ratchet: there is no grandfathered site
-    left to protect. Scoped to ``src`` and ``scripts`` because ``tests``
-    contains this docstring.
+    left to protect. Scoped to ``src``, ``scripts`` and (when present)
+    ``dev/scripts`` because ``tests`` contains this docstring.
     """
     offenders = [
         f"{path}:{n} -> {token}"
-        for root in (SRC, SCRIPTS)
+        for root in _SCAN_ROOTS
         for path in sorted(root.rglob("*.py"))
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         for token in RETIRED_PLANS

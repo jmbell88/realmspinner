@@ -101,7 +101,7 @@ def _prose_files():
     ``INSTALL.md``) are both there, and both said "six creative workspaces"
     while this test watched two directories that did not contain them.
 
-    ``CHANGELOG.md`` and ``docs/measurements/`` are left out on purpose --
+    ``CHANGELOG.md`` and ``dev/measurements/`` are left out on purpose --
     they are records of what was true on a date, and a count in them is
     correct as history.
     """

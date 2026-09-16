@@ -511,7 +511,7 @@ def _run_worker(
         # The last phase the worker announced (H02's two words), tracked so a
         # timeout can ask the same question Cancel already does. The 2026-09-07
         # audit found this ceiling force-killing the child regardless of phase
-        # (service-04): INVARIANTS.md's "killing mid-install leaves the site-
+        # (service-04): dev/INVARIANTS.md's "killing mid-install leaves the site-
         # packages the app is running out of half written" was honoured on the
         # click-Cancel path (withdrawn once pip starts) and ignored on this one.
         last_phase = ""
@@ -555,7 +555,7 @@ def _run_worker(
             winjob.untrack(proc.pid)
         except subprocess.TimeoutExpired:
             if last_phase == pack_worker.PHASE_COMMIT:
-                # Refuse the force-kill INVARIANTS.md forbids here: pip is
+                # Refuse the force-kill dev/INVARIANTS.md forbids here: pip is
                 # mid-write into this app's own site-packages, and the
                 # timeout can no longer be honoured without risking exactly
                 # the half-written install the child process exists to

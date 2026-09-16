@@ -32,7 +32,7 @@ from ..tokens import sp
 #: shares above it before any of them see room, and before ``Layout.saved_share``
 #: existed at all this pane -- along with Sound effects, the SHARE pane above
 #: it -- was drawn at zero height on every launch nobody had dragged a splitter
-#: on (the 0.0.39 ``screenshots/dark-sirens.png``, before that release's own
+#: on (the 0.0.39 ``dev/screenshots/dark-sirens.png``, before that release's own
 #: fix refreshed it: a 15 px sliver of "Song file" and
 #: nothing more). The Closeness slider, the wrapped export summary and the
 #: Compose-in-Muse button below the Export button are past this floor and

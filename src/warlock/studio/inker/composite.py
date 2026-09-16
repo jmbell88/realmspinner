@@ -83,7 +83,7 @@ BLEND_MODES: tuple[str, ...] = (
 # that the four non-separable ones "could not be a per-channel C case" -- true,
 # and beside the point, because they are per-*pixel* independent and the kernel
 # was free to hand the whole pixel over. What the gap actually cost was measured
-# before it was closed (``docs/measurements/2026-08-16-blend-modes-and-dither.md``)
+# before it was closed (``dev/measurements/2026-08-16-blend-modes-and-dither.md``)
 # and it was not the mode: ``_stack_native`` is all-or-nothing, so *one* layer in
 # one of the seven put the **whole stack** on the numpy fold. A 256-square dab
 # invalidate over six layers went 5.4 ms to 39-49 ms, and a full-canvas rebuild

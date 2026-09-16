@@ -245,7 +245,7 @@ def _rank_vectors(
     # affine function of the usable rate and a mean-primary sort would be the
     # Wilson sort with its confidence correction thrown away. Displayed always;
     # revisited when real spread exists, per
-    # ``docs/measurements/2026-08-09-grade-scale.md``.
+    # ``dev/measurements/2026-08-09-grade-scale.md``.
     #
     # A bucket with no grades sorts last among its ties rather than as 0.0 --
     # zero is a real grade here, and "unknown" is not a value at one end of a

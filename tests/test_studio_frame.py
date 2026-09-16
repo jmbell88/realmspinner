@@ -292,7 +292,7 @@ def test_a_new_artifact_on_disk_is_noticed_without_a_status_change(svc):
 #
 # A directory's mtime has a resolution, and on Windows it is the system clock's
 # 15.6 ms tick: measured, adding a file left the mtime unchanged 155 times in
-# 200 (docs/measurements/2026-08-07-directory-mtime-granularity.md). The test
+# 200 (dev/measurements/2026-08-07-directory-mtime-granularity.md). The test
 # above used to fail about one run in ten for exactly that reason, and the
 # product bug behind it was worse than a flake -- a stamp that matches a stale
 # answer matches it *forever*. ``os.utime`` is what makes the timing a decision

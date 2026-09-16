@@ -39,7 +39,7 @@ pictures, and an absolute bound would only ever be a claim about whichever four
 prompts are written below.
 
 **``seam.SEAM_MAX`` is outside its own corpus here, and the first run showed
-it.** ``docs/measurements/2026-08-08-seam-threshold.md`` measured 3.5 on
+it.** ``dev/measurements/2026-08-08-seam-threshold.md`` measured 3.5 on
 ``sdxl-turbo`` at four steps and closes by naming the next thing to re-run the
 scripts against: "a CFG base at 30 steps draws harder edges, and the failure
 mode found here is *about* hard edges". This lane is that base at those steps.
@@ -54,7 +54,7 @@ padding did not fire; the wrap preview is what says that.
 
 **That question is settled now, and this paragraph is kept as the history.** The
 threshold was re-measured twice (2026-08-13, 2026-08-29) and then the deciding
-statistic was replaced outright: ``docs/measurements/2026-08-30-seam-dominance.md``
+statistic was replaced outright: ``dev/measurements/2026-08-30-seam-dominance.md``
 judges a wrap against the worst *interior* join rather than the mean grain, which
 is what removed the flat-cell false alarm instead of widening a number around it.
 Both seam assertions in this file read ``report["seamless"]`` — the shipped
@@ -264,7 +264,7 @@ def test_every_material_is_seamless(materials):
     ratio to a pixel-art LoRA's flat cells -- the ratio's documented
     false-alarm shape, on the exact population this fixture draws. Had it read
     the shipped verdict, adopting the statistic that fixed it
-    (``docs/measurements/2026-08-30-seam-dominance.md``, which measured 0 false
+    (``dev/measurements/2026-08-30-seam-dominance.md``, which measured 0 false
     alarms across 72 held-out tiled units against the ratio's 18) would have
     turned it green with no edit here at all.
     """
@@ -286,7 +286,7 @@ def test_every_material_is_seamless(materials):
         f"circular padding failed -- a number above the line means the wrap is "
         f"the single largest discontinuity in the frame, which is a strong claim "
         f"but still a statistic. It is the *miss* direction that is measured "
-        f"loosest: docs/measurements/2026-08-30-seam-dominance.md records "
+        f"loosest: dev/measurements/2026-08-30-seam-dominance.md records "
         f"dominance passing 4 of 44 visibly seamed control units, so a material "
         f"that looks joined and scores under the line is a known shape rather "
         f"than a surprise"
@@ -320,7 +320,7 @@ def test_the_wrap_previews_are_left_behind_to_look_at(materials):
 
 
 def test_the_four_materials_are_structurally_different(materials):
-    """The defect ``docs/measurements/2026-08-18-tile-sheet-grid.md`` measured,
+    """The defect ``dev/measurements/2026-08-18-tile-sheet-grid.md`` measured,
     asked of the path that replaced it.
 
     That run's arm A -- the shipped constants -- imposed an 8x8 grid on one
@@ -367,7 +367,7 @@ def test_the_reduction_keeps_each_materials_contrast(materials):
 
     The measured defect the two-stage sampler replaced: a plain box mean
     averages uncorrelated art pixels and regresses every tile to its mean
-    colour (``docs/measurements/2026-08-17-ground-reduction.md``). The reference
+    colour (``dev/measurements/2026-08-17-ground-reduction.md``). The reference
     is the material's *own* art resolution -- the prefilter stage's output, one
     mid pixel per pixel-art-LoRA art pixel -- and not an absolute number,
     because a cobblestone and a sheet of still water legitimately have different
@@ -421,7 +421,7 @@ def test_the_reduced_material_still_tiles(materials):
     false-alarm shape for the edge-against-mean-grain ratio, and 32px makes the
     denominator larger still. This assertion was left on ``SEAM_MAX`` when
     ``test_every_material_is_seamless`` was migrated to the dominance verdict
-    (``docs/measurements/2026-08-30-seam-dominance.md``, R9), so it kept judging
+    (``dev/measurements/2026-08-30-seam-dominance.md``, R9), so it kept judging
     the one population the ratio is known to misjudge; the 2026-09-11 audit
     (finding docs-08) found it. One definition of the word in the tree.
     """
@@ -537,7 +537,7 @@ def test_the_palette_occupancy_is_recorded_rather_than_asserted(materials):
 
     This test produces the four-material row of that table and asserts nothing
     about it. **A threshold asserted here would be a number invented rather than
-    measured**, which is the failure mode the whole ``docs/measurements/``
+    measured**, which is the failure mode the whole ``dev/measurements/``
     convention exists to prevent -- and it would also be self-fulfilling, since
     the only run that could refute it is this one.
 

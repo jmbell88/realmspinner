@@ -1,7 +1,7 @@
 """Text, rasterised into pixels and then forgotten.
 
 **There are no text objects and no text layers**, and that is a decision rather
-than a first instalment (``docs/INVARIANTS.md``, Aseprite divergence 17). A live
+than a first instalment (``dev/INVARIANTS.md``, Aseprite divergence 17). A live
 text object is not a drawing feature, it is a second document model: the glyphs
 have to survive a save, a crop, a scale, a flip and an undo, every filter has to
 decide whether it applies to them, the exporters have to flatten them, and the

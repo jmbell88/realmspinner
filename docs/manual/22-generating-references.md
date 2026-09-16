@@ -520,8 +520,8 @@ lands in **Plotter** with the Terrain tool already working — see
 *Grid (legacy)* is the original single-generation path. It stays for two reasons and the pane says
 both: it is the only layout that offers a **View** other than top-down, and it is how a sheet made
 under it is rerun. Its cells are drawn from one guide in which every cell is identical, so they tend
-to come back as one scene cut up or as one tile repeated — measured, in
-`docs/measurements/2026-08-18-tile-sheet-grid.md`.
+to come back as one scene cut up or as one tile repeated — measured on the
+maintainer's own corpus.
 
 **Tile size** lives in the **Tileset** section. **View** is drawn in the layout section
 itself, and only by the grid — the other two would be a picker with nothing to pick. What each
@@ -541,8 +541,8 @@ vertically. If you want either view, you want the grid.
 **3/4 needs subjects with height to show.** It is the same square lattice as top-down, and the whole
 difference is what the model is asked to draw, so a sheet of flat flagstones comes back looking the
 same either way. Ask it for walls, crates, fences, roofs, a well — anything with a front — and the
-difference is unmistakable. This was measured rather than assumed; see
-`docs/measurements/2026-08-21-three-quarter-guide.md`.
+difference is unmistakable. This was measured rather than assumed, on the
+maintainer's own corpus.
 
 One palette is applied across the whole sheet in one pass, never per tile — quantized per tile, the
 same moss comes out two different greens in two tiles. *Which* palette is yours to choose; see

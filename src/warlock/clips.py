@@ -168,7 +168,7 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     Timing comes from the clip library's own ``closed``/``duration_ms``
     fields now -- their one home, since the vocabulary opened past
     ``charsheet.ANIMATIONS``' five names (see
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``). A
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``). A
     second copy would be one edit from disagreeing about how fast a walk
     cycle is.
 

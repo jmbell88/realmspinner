@@ -266,7 +266,7 @@ def _clamp_profile(value: Any) -> list[list[float]]:
     of the six steps below, means a huge profile costs one slice rather than
     a full pass through all of them.
 
-    Six steps, in the order ``docs/INVARIANTS.md``'s generator paragraph
+    Six steps, in the order ``dev/INVARIANTS.md``'s generator paragraph
     states the first four of them:
 
     1. Coerce to ``[radius, y]`` pairs and take ``abs()`` of every radius --

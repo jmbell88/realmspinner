@@ -1193,7 +1193,7 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
     **But a directory's mtime has a resolution, and it is coarse.** Windows
     updates it from the system clock, whose tick is 15.6 ms unless something has
     asked for better; measured here, adding a file left the mtime *unchanged*
-    155 times out of 200 (see ``docs/measurements/2026-08-07-directory-mtime-
+    155 times out of 200 (see ``dev/measurements/2026-08-07-directory-mtime-
     granularity.md``). So a write that lands after this listing but still inside
     the stamped mtime's tick is invisible to the stamp -- and not for one tick,
     but **forever**, because every later comparison keeps matching. That is

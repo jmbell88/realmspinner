@@ -182,7 +182,7 @@ def test_a_rig_with_a_nameless_bone_refuses_cleanly_instead_of_a_keyerror(svc, a
     carries a bone with no "name" key used to crash rigging.rig_bone_names
     with an uncaught KeyError, which reached list_poses/save_pose unhandled
     instead of the field-addressed refusal poselib.validate_record already
-    gives an equivalently malformed *pose* record. docs/INVARIANTS.md's own
+    gives an equivalently malformed *pose* record. dev/INVARIANTS.md's own
     "a pose or rig JSON is validated at the read door" paragraph names this
     exact failure mode as fixed -- but only for pose records.
     """

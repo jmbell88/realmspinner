@@ -273,7 +273,7 @@ def test_max_prompt_docstring_does_not_claim_truncation_the_encoder_no_longer_do
     1000-character refusal with "the prompt ends up in an SDXL text encoder
     that truncates far earlier anyway" -- but ``prompt.chunk()`` (landed
     2026-08-02, one day before that comment was written 2026-08-03) removed
-    exactly that truncation for the SDXL family, which docs/INVARIANTS.md now
+    exactly that truncation for the SDXL family, which dev/INVARIANTS.md now
     states explicitly: "The composed SDXL prompt is chunk-encoded, not
     truncated." A reader tuning MAX_PROMPT should not reason from a premise
     the code no longer has. Read from source, not a second copy of the

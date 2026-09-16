@@ -36,7 +36,7 @@ from typing import Any
 # stabilityai/stable-diffusion-xl-base-1.0 is shared by four recipes -- sdxl,
 # sdxl_cfg, pixel, lightning -- so shipping this one entry unlocks the speed
 # recipes for a small LoRA each, and pixel sheets for 0.2 GB more. Recorded in
-# docs/measurements/2026-08-11-default-base-model.md.
+# dev/measurements/2026-08-11-default-base-model.md.
 DEFAULT_BASE_MODEL = "sdxl_cfg"
 
 # The one key WARLOCK_T2I_DIR redirects. Pinned by name, not to the default:
@@ -97,7 +97,7 @@ DEFAULT_IMG2IMG_STRENGTH = 0.45
 # retexture measurement's positive control showed the projection carries what
 # 0.85 invents faithfully, and with the depth ControlNet anchoring structure,
 # invention is the point. The default is the 2026-08-15 retexture-visibility
-# ladder's pick (docs/measurements/2026-08-15-retexture-visibility.md):
+# ladder's pick (dev/measurements/2026-08-15-retexture-visibility.md):
 # monotone and pathology-free to 0.85 under the anchor, 0.65 sits in the
 # pre-registered landing zone and is the old un-anchored ceiling made
 # comfortable.
@@ -882,7 +882,7 @@ FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
 # quantised. **A testing pin, stated as one**: this is Unsloth's own
 # requantization of stock ``google/gemma-4-E2B-it``, picked so Familiar has
 # something real to run before T10 swaps in the Clay-assistant fine-tune
-# (training/clay-assistant/) as the shipped pin. Q8_0, by user decision, not
+# (dev/training/clay-assistant/) as the shipped pin. Q8_0, by user decision, not
 # a 4-bit quant.
 #
 # Revision is the repository's commit at pin time; sha256 is the file's own
@@ -896,7 +896,7 @@ FAMILIAR_GGUF_SHA256 = (
     "605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053"
 )
 
-# The name of the Warlock-trained fine-tune (training/clay-assistant run A),
+# The name of the Warlock-trained fine-tune (dev/training/clay-assistant run A),
 # as llama-server should report it once it is actually served. T10 sets this
 # as the ``familiar_gguf`` row's ``served_name`` when run A's weights replace
 # the testing pin. The weights file carries the same name in its own GGUF
@@ -976,7 +976,7 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
             "instruct model.\n\n"
             "Unsloth's Q8_0 requantization -- no picker, no path override, "
             "this exact file. Apache 2.0 licensed. T10's Clay-assistant "
-            "fine-tune (training/clay-assistant/) replaces this as the "
+            "fine-tune, a fine-tune of this base, replaces this as the "
             "shipped pin."
         ),
     ),
@@ -1132,7 +1132,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # because that row's unconditioned output is bit-identity-pinned: this
         # is the opt-in arm the bench compares against it, and a measured win
         # is what would flip DEFAULT_BASE_MODEL here -- with the
-        # docs/measurements/ note that rule requires. No new download.
+        # dev/measurements/ note that rule requires. No new download.
         "sdxl_cfg_pag",
         "SDXL 1.0 + PAG (full CFG, cleaner structure)",
         "sdxl-base-1.0",
@@ -1166,7 +1166,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # pipelines/text2image; variant="fp16" only names the weight *files*),
         # which has fp32's exponent range -- so that failure mode does not
         # exist here. If bench images ever show VAE decode artifacts, add a
-        # BaseModel.vae field then, with a docs/measurements/ note.
+        # BaseModel.vae field then, with a dev/measurements/ note.
         "pixel",
         "SDXL 1.0 + LCM (pixel art)",
         "sdxl-base-1.0",
@@ -1341,7 +1341,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # charged 18.3 GiB of private commit and one 1024x1024 sample took it to
         # **24.1**, which is the figure admission is actually standing in front
         # of. The old number priced the weights and forgot the sample
-        # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+        # (dev/measurements/2026-08-22-trampoline-child-pids.md).
         host_peak_gib=24.0,
         probe=(
             "transformer/diffusion_pytorch_model.safetensors",
@@ -1382,7 +1382,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # trained on: 4 steps at CFG 1.0. The two checkpoints are the same
         # architecture, so an adapter fitted to either loads onto both; which
         # one *expresses* a style is a recipe fact, measured rather than
-        # assumed (docs/measurements/2026-08-10-pixel-art-klein.md).
+        # assumed (dev/measurements/2026-08-10-pixel-art-klein.md).
         #
         # Same layout, same probe, same offload argument, same redundant
         # single-file checkpoint to ignore as klein-base.
@@ -1404,7 +1404,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # charged 18.3 GiB of private commit and one 1024x1024 sample took it to
         # **24.1**, which is the figure admission is actually standing in front
         # of. The old number priced the weights and forgot the sample
-        # (docs/measurements/2026-08-22-trampoline-child-pids.md).
+        # (dev/measurements/2026-08-22-trampoline-child-pids.md).
         host_peak_gib=24.0,
         probe=(
             "transformer/diffusion_pytorch_model.safetensors",
@@ -1532,7 +1532,7 @@ STYLE_LORAS: dict[str, StyleLora] = _table(
         # ``family`` at all. Trained against the *distilled* FLUX.2-klein-4B;
         # klein-base is the same architecture, so it loads onto both, and which
         # one expresses the style is a recipe fact rather than an architecture
-        # one -- measured in docs/measurements/2026-08-10-pixel-art-klein.md.
+        # one -- measured in dev/measurements/2026-08-10-pixel-art-klein.md.
         #
         # "pixelklein" names the architecture the way "pixelxl" does. A bare
         # "pixel" is banned: it is a BASE_MODELS key, and keys are adapter
@@ -1572,7 +1572,7 @@ STYLE_LORAS: dict[str, StyleLora] = _table(
         # honoured, that range is an effective 13.6-22.4 and every image in it
         # is a black frame. The usable band is 0.02-0.08, and by 0.125 the
         # lattice is already smearing. All of that is measured, per prompt and
-        # per weight, in docs/measurements/2026-08-10-pixel-art-klein.md.
+        # per weight, in dev/measurements/2026-08-10-pixel-art-klein.md.
         default_weight=0.0625,
         fetch=(
             Fetch(
@@ -1888,7 +1888,7 @@ class MusicModel:
     probe: tuple[str, ...] = ()
     fetch: tuple[Fetch, ...] = ()
     # Both deliberately conservative, and both are estimates until the GPU lane
-    # publishes a docs/measurements/ document for them -- ``vram.estimate_parts``
+    # publishes a dev/measurements/ document for them -- ``vram.estimate_parts``
     # prices a music job off these, and under-pricing admits a job that OOMs at
     # load, which is the exact failure the door exists to prevent.
     vram_gib: float = 10.0

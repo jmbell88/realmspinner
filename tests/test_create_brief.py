@@ -501,7 +501,7 @@ def test_the_bar_fits_with_the_count_hidden_too(frames):
 
 
 def test_reset_is_censused_against_the_bars_own_pane(frames, monkeypatch):
-    """``probe``'s per-frame census -- the mechanism ``scripts/exercise_mode.py``
+    """``probe``'s per-frame census -- the mechanism ``dev/scripts/exercise_mode.py``
     drives every control through -- must attribute Reset to the bar's own
     child window once it is drawn through ``layout.pane``, not to whatever
     happened to be current when it was a bare row.

@@ -22,7 +22,7 @@ import numpy as np
 from ..viewer import gltf
 
 #: The largest side (cells per edge; the array itself is one larger) a
-#: ``Terrain`` will hold. Measured 2026-09-11 (see ``docs/measurements/`` for
+#: ``Terrain`` will hold. Measured 2026-09-11 (see ``dev/measurements/`` for
 #: the dated write-up this number is read off): a full ``terrain_mesh()``
 #: rebuild -- what a sculpt drag pays every frame it is open, since a brush
 #: has no partial-mesh update -- costs 5.7 ms at side 256 and 28.2 ms at side

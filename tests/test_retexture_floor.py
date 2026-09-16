@@ -1,6 +1,6 @@
 """The fused facing floor: same numbers as the two-pass form, computed once.
 
-docs/measurements/2026-09-06-native-batch-9-facing-floor.md measured the
+dev/measurements/2026-09-06-native-batch-9-facing-floor.md measured the
 shipped ``combine``/``assemble`` pair spending 255 ms per pass at a 2048 atlas
 on ``np.where(weights >= MIN_FACING, weights, 0.0)`` then ``* vis`` -- and
 ``assemble`` repeated the whole thing a second time for its own ``total``.

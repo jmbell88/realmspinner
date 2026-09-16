@@ -219,7 +219,7 @@ def seam_seeds(
 #: Above this the wrap seam is a visible edge rather than part of the texture.
 #:
 #: Copied from ``pipelines/seam.py`` with its citation:
-#: ``docs/measurements/2026-08-08-seam-threshold.md``. 72 units on sdxl-turbo put
+#: ``dev/measurements/2026-08-08-seam-threshold.md``. 72 units on sdxl-turbo put
 #: the highest legitimately seamless tile at 2.50 and the lowest visible seam at
 #: 5.52, an empty band whose geometric centre is 3.72; 3.5 is the round value
 #: inside it. A copy at a second surface moves nothing -- **the same document
@@ -292,7 +292,7 @@ def seam_ratio(pixels: np.ndarray) -> tuple[float, float]:
 #: mean one (:func:`seam_dominance`, not :func:`seam_ratio` above).
 #:
 #: Copied from ``pipelines/seam.py`` with its citation:
-#: ``docs/measurements/2026-08-30-seam-dominance.md``. Dividing by the interior
+#: ``dev/measurements/2026-08-30-seam-dominance.md``. Dividing by the interior
 #: *mean* (``SEAM_MAX`` above) inflates on a texture of flat cells parted by
 #: thin hard lines -- pixel art, ceramic grout, riveted panels -- because the
 #: mean collapses toward zero on exactly that population while the seam does

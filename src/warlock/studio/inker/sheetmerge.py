@@ -50,7 +50,7 @@ __all__ = [
 #: Named in the payload and checked on read, never assumed. A stored corpus of
 #: ``.ora`` files becomes keyed on this the moment one is written, so a future
 #: change is a read-side branch on this string rather than a silent mismatch --
-#: the same rule ``docs/measurements/`` states for a constant the corpus is
+#: the same rule ``dev/measurements/`` states for a constant the corpus is
 #: keyed on, applied to a hash instead of a threshold.
 DIGEST_ALGORITHM = "blake2b-16"
 

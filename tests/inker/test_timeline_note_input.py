@@ -5,7 +5,7 @@ a control that is drawn and wired to nothing is this codebase's most common
 historical defect, and it is invisible to every test that calls the document
 directly. So nothing here calls ``set_cel_note``: the cel menu is opened inside
 a real imgui frame, the swatch is found through :mod:`.probe` -- the same census
-``scripts/exercise_mode`` uses, so the rect is *read* and never computed -- and
+``dev/scripts/exercise_mode`` uses, so the rect is *read* and never computed -- and
 the mouse is pressed and released inside it.
 
 Two findings from the two waves before this one are load-bearing here. A popup

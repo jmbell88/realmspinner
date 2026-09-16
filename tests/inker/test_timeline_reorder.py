@@ -17,7 +17,7 @@ drag-reorder had never once worked -- the gesture it exists for takes exactly
 the path that asserted.
 
 **What this file does and does not cover.** The behavioural reproduction is
-``scripts/exercise_mode.py --mode inker``, which crashed deterministically on
+``dev/scripts/exercise_mode.py --mode inker``, which crashed deterministically on
 the timeline's frame buttons before the fix and completes after it. It is not
 reproduced here, and the attempt is worth recording rather than quietly
 dropping: standing the conditions up in a bare context did not reach the

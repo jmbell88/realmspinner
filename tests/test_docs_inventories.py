@@ -16,6 +16,10 @@ The audit fixed the two documents it knew about. Reviewing CLAUDE.md later the
 same day turned up a fifth carrying the same undercount -- CONTRIBUTING.md's
 "surprises people" list -- which nothing here covered, because the *list of
 documents* was itself hand-kept. Both lists are derived now.
+
+docs-04's own document, CLAUDE.md's Offline bullet, is checked in
+``dev/tests/test_docs_inventories.py`` since CLAUDE.md moved out of the
+public checkout on 2026-09-16.
 """
 
 from __future__ import annotations
@@ -115,17 +119,6 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
     )
 
 
-def test_claude_md_offline_bullet_names_every_network_worker():
-    """CLAUDE.md's Offline bullet said "the single exception is fetch_worker",
-    undercounting pack_worker and update_worker -- the 2026-09-12 audit's
-    docs-04. SECURITY.md already named all three; CLAUDE.md's one-paragraph
-    summary of the app's core guarantee did not.
-    """
-    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    missing = [w for w in network_workers() if w not in text]
-    assert not missing, f"CLAUDE.md never names {missing} as network-reaching workers (docs-04)"
-
-
 def test_readme_setup_section_names_every_network_worker():
     """README.md's model-download passage said "those two are the only code
     in the project that reaches the network", omitting update_worker -- the
@@ -157,7 +150,7 @@ def test_contributing_md_offline_bullet_names_every_network_worker():
     """CONTRIBUTING.md was the *fifth* copy of this fact, and the one nobody
     counted.
 
-    ``docs/INVARIANTS.md`` records the offline exceptions as being stated in
+    ``dev/INVARIANTS.md`` records the offline exceptions as being stated in
     four documents -- itself, ``SECURITY.md``, ``README.md`` and ``CLAUDE.md``
     -- and docs-04/docs-05 fixed the two of those four that had gone stale.
     CONTRIBUTING.md holds the same fact in its "surprises people" list and was

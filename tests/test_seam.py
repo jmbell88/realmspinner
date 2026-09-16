@@ -6,7 +6,7 @@ the wrap seam differs *more* than the interior does. That normalisation is
 what makes one threshold work for cobblestone and for flat plaster alike.
 
 *Which* interior number it is normalised against changed on 2026-08-30
-(``docs/measurements/2026-08-30-seam-dominance.md``): the verdict is now the
+(``dev/measurements/2026-08-30-seam-dominance.md``): the verdict is now the
 seam against the largest interior step rather than against the mean one. Both
 are reported and the tests below say which is which, because the difference is
 one word in a docstring and two very different answers on flat-cell pixel art.
@@ -24,7 +24,7 @@ from warlock.pipelines import seam
 def test_the_threshold_stays_inside_the_band_that_was_measured():
     """The calibration, as an assertion rather than as a comment.
 
-    ``docs/measurements/2026-08-08-seam-threshold.md`` puts the highest
+    ``dev/measurements/2026-08-08-seam-threshold.md`` puts the highest
     legitimately seamless tile at 2.50 and the lowest visible seam at 5.52 over
     72 units. Anything inside that band scores identically on the corpus and
     anything outside it is known to misclassify -- 2.0, the value this replaced,

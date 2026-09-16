@@ -152,7 +152,7 @@ def _clip_vocabulary(template_key: str) -> list[dict[str, Any]]:
     name that is also one of the five the legacy layout already carries -- the
     boundary a pane can use to group "the sheet always had this" from "this
     rig also offers". See
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
     """
     library = rigging.clip_library(template_key)
     timing = clip_timing(template_key)
@@ -335,7 +335,7 @@ def _timed_layout(
     """``charsheet.resolve_layout``, timed to *template*'s clip library.
 
     Every movement *template*'s own clip library defines is askable, per
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- passing
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` -- passing
     ``timing`` is what opens that door, in place of the closed
     :data:`charsheet.ANIMATIONS` five.
 

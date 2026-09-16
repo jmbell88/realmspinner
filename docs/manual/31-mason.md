@@ -187,7 +187,7 @@ several of.
 **Add ground** in the Assets panel creates it, and **Delete ground** removes it. The ground is a grid
 of heights, at one vertex per metre, and its side is capped at **256 cells** — a 256×256 ground
 rebuilds in under six milliseconds against a sixteen-millisecond frame, and twice that side does not.
-The measurement behind that number is in `docs/measurements/`.
+The measurement behind that number was taken on the maintainer's own machine.
 
 ### Sculpting
 
@@ -232,8 +232,7 @@ Past **1,500 placed items** the readout and the Scene file panel warn: "This sce
 works, it is just no longer free to drag things around in.
 
 At **100,000** the app refuses outright rather than drawing or exporting something truncated. Both
-numbers were measured rather than guessed, and the document that fixed them is in
-`docs/measurements/`.
+numbers were measured rather than guessed, on the maintainer's own machine.
 
 ## Missing sources
 

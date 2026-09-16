@@ -149,7 +149,7 @@ def _layout(form: dict[str, Any], form_ui: forms.Form, options: dict[str, Any]) 
     Every row comes from ``clip_vocabulary[<the rig's template>]`` -- the
     rig's whole clip library, open past the closed legacy five -- rather than
     a second, hand-written list: see
-    ``docs/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A row
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``. A row
     whose clip is ``provisional`` says so, in both the short muted note under
     its switch and the tooltip beside its name, because a row offered with no
     such mark reads as an animator's finished pass.

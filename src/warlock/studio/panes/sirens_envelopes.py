@@ -98,7 +98,7 @@ GRIP_W = 5.0
 #: chrome is taken out), 300 plus the two new floors below --
 #: ``sirens_effects.EFFECTS_FLOOR`` and ``sirens_bridge.BRIDGE_FLOOR``, added
 #: the same day this column's real defect (Sound effects and Song file drawn at
-#: zero height, in the ``screenshots/dark-sirens.png`` that shipped with 0.0.39)
+#: zero height, in the ``dev/screenshots/dark-sirens.png`` that shipped with 0.0.39)
 #: was traced to
 #: ``layout.column`` handing every share key a borrowed 0.55 -- left nothing
 #: for Instruments, the one pane in this column with no floor of its own at

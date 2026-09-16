@@ -144,7 +144,7 @@ class TroupeOps:
         logical = int(params.get("logical_size", 32))
         # The direction the user pressed in the reference stage, added to every
         # cell's camera yaw so the row Troupe labels "front" is actually shot
-        # from the front. ``docs/measurements/2026-08-04-view-calibration.md``
+        # from the front. ``dev/measurements/2026-08-04-view-calibration.md``
         # is why this cannot be derived: a mesh's matched view scatters 330
         # degrees across 37 jobs, uniformly, so only a human's press can supply
         # it.

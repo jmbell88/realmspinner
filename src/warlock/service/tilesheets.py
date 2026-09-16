@@ -20,7 +20,7 @@ sheet.
 
 ``grid``
     The original path: one 1024px frame painted through a canny guide and cut
-    into sixty-four cells. ``docs/measurements/2026-08-18-tile-sheet-grid.md``
+    into sixty-four cells. ``dev/measurements/2026-08-18-tile-sheet-grid.md``
     measured what it produces -- every cell of the guide is identical, so there
     is no per-cell signal for variety and the model answers with one scene cut
     up or one tile repeated. It still builds, because rerunning a sheet made
@@ -173,7 +173,7 @@ VIEWS: tuple[str, ...] = ("top_down", "three_quarter", "isometric")
 LEGACY_VIEWS: dict[str, str] = {"orthogonal": "top_down"}
 
 #: One palette across the whole sheet, at the size the ground run measured
-#: (``docs/measurements/2026-08-17-ground-reduction.md``: occupancy at 32 was
+#: (``dev/measurements/2026-08-17-ground-reduction.md``: occupancy at 32 was
 #: saturated, 64 stayed above 95%). Not a control, for the reason the module
 #: docstring gives.
 #:
@@ -204,7 +204,7 @@ def sheet_colors(cells: int) -> int:
     is where an indexed PNG stops being indexed.
 
     It changes the bytes of every sheet it touches, so it is the kind of number
-    this repo owes a ``docs/measurements/`` document before it moves again. What
+    this repo owes a ``dev/measurements/`` document before it moves again. What
     would move it: occupancy measured per material at 2, 4, 8 and 16 materials
     against the shared table, the way the ground run measured it at one -- and
     in particular whether the saturation point rises linearly with the material
@@ -544,7 +544,7 @@ def create_tile_sheet(
             "the grid layout paints one frame through a guide whose sixty-four "
             "cells are identical, so there is no per-cell signal for variety and "
             "it comes back as one scene cut up or as one tile repeated "
-            "(docs/measurements/2026-08-18-tile-sheet-grid.md). Ask for "
+            "(measured 2026-08-18-tile-sheet-grid). Ask for "
             "'materials' -- a list of surfaces, each generated seamlessly on its "
             "own -- or for 'terrain', two surfaces composited into an autotile "
             "set.",

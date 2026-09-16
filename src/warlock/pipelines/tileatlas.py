@@ -1,6 +1,6 @@
 """Two ways to build a tileset out of *seamless materials*, and the words for both.
 
-``docs/measurements/2026-08-18-tile-sheet-grid.md`` took one 1024px generation,
+``dev/measurements/2026-08-18-tile-sheet-grid.md`` took one 1024px generation,
 imposed an 8x8 grid on it with a canny guide, and asked SDXL for sixty-four
 different tiles. The guide was obeyed and the tiles were not different: every
 cell of the guide is identical, so there is no per-cell signal for variety, and
@@ -44,7 +44,7 @@ name, each for a reason about *tiling* rather than about taste:
   material is not redundant, it is incoherent.
 
 Nothing is lost by either refusal, because the grid path keeps both --
-``docs/measurements/2026-08-21-three-quarter-guide.md`` measured 3/4 for the
+``dev/measurements/2026-08-21-three-quarter-guide.md`` measured 3/4 for the
 tile-sheet *guide*, which still ships. So ``view`` survives here as one value
 with one job: the record. ``plotter_tilesets._VIEW_LATTICE`` reads it to know
 which lattice a set was drawn for, and no clause anywhere below is a function of
@@ -492,7 +492,7 @@ def reduce_material(pixels: Any, out_w: int, out_h: int) -> Any:
     """One seamless material at exactly the tile size, on an exact partition.
 
     :func:`tilesheet.reduce_cell` does the work -- the two-stage reducer
-    measured in ``docs/measurements/2026-08-17-ground-reduction.md``, a box mean
+    measured in ``dev/measurements/2026-08-17-ground-reduction.md``, a box mean
     down to the art resolution and then a centre sample of each remaining group.
     What this adds is a refusal, and the refusal is the reason this function
     exists at all rather than the call being made directly.
