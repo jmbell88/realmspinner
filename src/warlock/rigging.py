@@ -103,6 +103,12 @@ class Template:
     root: str
     bones: tuple[dict[str, Any], ...]
     mirror_pairs: tuple[tuple[str, str], ...]
+    #: True for a template that :func:`catalog` omits -- not a normal
+    #: skeleton a user picks to auto-fit, but still a real, fully valid
+    #: template that :func:`get_template`/``create_rig`` resolve exactly
+    #: like any other. 2026-09-16's ``blank`` (Poser's manual-rig bootstrap,
+    #: one root bone) is the first and, for now, the only one.
+    hidden: bool = False
 
 
 _templates: dict[str, Template] | None = None
@@ -222,6 +228,7 @@ def _parse_template(raw: dict[str, Any]) -> Template:
             for b in bones
         ),
         mirror_pairs=tuple((a, b) for a, b in raw.get("mirror_pairs", [])),
+        hidden=bool(raw.get("hidden", False)),
     )
 
 
@@ -240,8 +247,16 @@ def get_template(key: str) -> Template:
 
 
 def catalog() -> list[dict[str, str]]:
-    """The template table in the same {key, label} shape the UI selects use."""
-    return [{"key": t.key, "label": t.label} for t in templates().values()]
+    """The template table in the same {key, label} shape the UI selects use.
+
+    A hidden template (``blank``, so far) is a real, fully working template
+    -- ``get_template``/``create_rig`` resolve it exactly like any other --
+    but not one a user should be offered from a normal skeleton picker,
+    since fitting it automatically produces one bare bone and nothing to
+    pose. It reaches a mesh only through Poser's own "Rig manually" door,
+    which names it by key directly rather than through this list.
+    """
+    return [{"key": t.key, "label": t.label} for t in templates().values() if not t.hidden]
 
 
 # --- shipped pose libraries -------------------------------------------------

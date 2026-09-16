@@ -161,11 +161,13 @@ async def test_a_prompt_too_large_for_the_trained_window_is_refused_not_truncate
 
 
 async def test_every_request_turns_the_models_thinking_off(tmp_path):
-    """Base Gemma 4's chat template opens a reasoning channel unless told not
-    to. On the first real-card run (2026-09-14) the router's 16-token budget
-    went entirely into reasoning_content and the reply's content was '', so
-    every schema-constrained call failed to decode. Every request, chat and
-    skill alike, must ask the template for no thinking."""
+    """Base Gemma 4, the previous pin, had a chat template that opened a
+    reasoning channel unless told not to. On the first real-card run
+    (2026-09-14) the router's 16-token budget went entirely into
+    reasoning_content and the reply's content was '', so every
+    schema-constrained call failed to decode. The guard stays on the current
+    (Qwen3-VL-4B-Instruct) pin, harmlessly: every request, chat and skill
+    alike, must ask the template for no thinking."""
     for sampling, skill in ((contract.SAMPLING["chat"], None), (contract.SAMPLING["router"], None)):
         server = _server(tmp_path)
         handler, requests = _chat_handler()

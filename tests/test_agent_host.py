@@ -272,6 +272,36 @@ def test_start_is_idempotent_while_already_running(tmp_path) -> None:
         host.stop()
 
 
+def test_stop_unblocks_a_listener_with_no_client_ever_connected(tmp_path) -> None:
+    """The Settings toggle's actual failure mode: switch the feature on, never
+    connect a bridge, switch it off, then back on.
+
+    Every other real-pipe test in this file connects a client at least once
+    before ``stop()`` runs, which is exactly the condition under which the
+    underlying ``PipeListener.accept()`` reliably unblocks on ``close()``. A
+    listener that has *never* accepted anything is parked in a different wait
+    (``ConnectNamedPipe`` for the very first peer on Windows), and closing the
+    handle from another thread does not reliably release that one -- measured
+    at 5/5 trials leaving the thread alive past ``stop()``'s own join, so the
+    next ``start()`` failed with ``PermissionError`` from a leaked
+    ``FILE_FLAG_FIRST_PIPE_INSTANCE`` handle. ``pipe.Server.close()`` now
+    pokes a self-connect specifically to unblock this case; this proves it
+    against the real pipe, not a mock.
+    """
+    host = agent_host.AgentHost(_Ctx(), tmp_path)
+    assert host.start() is True
+    thread = host._thread
+    host.stop()
+
+    thread.join(timeout=1.0)
+    assert not thread.is_alive(), "listener thread leaked past stop() with no client ever connected"
+
+    try:
+        assert host.start() is True, f"restart failed: {host.failure}"
+    finally:
+        host.stop()
+
+
 def test_a_pipe_that_will_not_open_switches_the_feature_off_rather_than_raising(
     tmp_path, monkeypatch
 ) -> None:

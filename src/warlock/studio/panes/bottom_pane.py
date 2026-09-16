@@ -9,9 +9,12 @@ installed. Nothing here drives expansion yet; the growth arithmetic
 to show can grow this pane into it without inventing a second geometry system
 under time pressure.
 
-No drag handle and no keyboard shortcut: T0 has nothing to resize into, so
-sizing is content-driven only, same as every other pane that has not yet
-earned an affordance for a state it cannot reach.
+No drag handle and no keyboard shortcut in T0: it had nothing to resize into,
+so sizing was content-driven only, same as every other pane with no
+affordance for a state it could not reach. 2026-09-16 gave it one: once
+expanded, a handle above the pane lets a user drag its height, persisted
+through :func:`familiar_ui.pane_height`/``set_pane_height`` -- see
+:func:`draw` and :func:`reserve`.
 """
 
 from __future__ import annotations
@@ -121,7 +124,27 @@ def height(ctx: Any) -> float:
 
     viewport = imgui.get_main_viewport()
     ceiling = max_height(viewport.work_size.y, _mode_chrome(ctx))
-    return min(familiar_ui.EXPANDED_H, ceiling)
+    return min(familiar_ui.pane_height(ctx), ceiling)
+
+
+def reserve(ctx: Any) -> float:
+    """Vertical design px the shell must leave above the pane -- :func:`height`
+    plus the drag handle's own hit-zone once expanded (see :func:`draw`).
+
+    ``height`` alone is what :func:`draw` sizes the pane's own child to; a
+    caller reserving space *above* this pane (``main.py``'s own content
+    child, the toast overlay's ``bottom_offset``) needs the handle counted
+    too, or it is drawn into space nobody left for it and pushes the pane's
+    bottom edge past the window by exactly the handle's grip width -- the
+    same "a floor that does not cover its own content clips something" defect
+    ``inker_picker.PICKER_FLOOR``'s own docstring already names once.
+    """
+    from .. import layout as layout_mod
+
+    h = height(ctx)
+    if h > COLLAPSED_H + 0.5:
+        return h + layout_mod.GRIP
+    return h
 
 
 def familiar_state(config: Any) -> str:
@@ -159,12 +182,26 @@ def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
 
     from .. import controls, familiar_ui, fonts, theme, tokens
+    from .. import layout as layout_mod
     from .. import state as state_mod
     from . import app_settings
 
     pad_x = tokens.sp(tokens.SP_2)
     row_h = tokens.sp(height(ctx))
     expanded = row_h > tokens.sp(COLLAPSED_H) + 0.5
+    if expanded:
+        # Drawn *above* the pane it resizes, since this pane is anchored to
+        # the window's bottom edge -- reserve()'s own docstring is what makes
+        # sure the shell left room for this handle in the first place.
+        width = imgui.get_content_region_avail().x
+        drag = layout_mod.splitter("familiar-height", vertical=False, length=width)
+        if drag:
+            # Dragging up is a negative delta and must *grow* the pane, the
+            # opposite sign from Inker's own canvas/timeline handle (main.py)
+            # -- that one shrinks the strip below it as it drags down because
+            # the strip is what the share names, while this pane's own
+            # height is what a drag here names directly.
+            familiar_ui.set_pane_height(ctx, familiar_ui.pane_height(ctx) - drag)
     # Only the collapsed row centres its text vertically in the reserved
     # height -- an expanded pane has its own rows (transcript, input) to lay
     # out top-down, and centring *those* against the whole grown height would

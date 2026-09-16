@@ -1,9 +1,9 @@
 """Manages a resident llama-server.exe subprocess for Familiar, Warlock's in-app assistant.
 
 Familiar is one pinned model (models.FAMILIAR_MODELS["familiar_gguf"] --
-Unsloth's Q8_0 requantization of the base Gemma 4 E2B instruct model, a
-testing pin; T10's Clay-assistant fine-tune replaces it as the shipped pin)
-served
+Qwen's own Q8_0 GGUF of the base Qwen3-VL-4B-Instruct model, a testing pin;
+a Clay-assistant fine-tune of it replaces this as the shipped pin once one
+is published) served
 by llama.cpp's own HTTP server, on loopback, with no webui and offline mode
 forced. It never coexists with a GPU job: ``Worker.before_gpu_job`` stops it
 before ``_check_resources`` runs, and ``ensure_started`` refuses to spawn it
@@ -209,15 +209,16 @@ class LlamaServer:
             "-ngl", str(GPU_LAYERS),
             "--parallel", str(PARALLEL_SLOTS),
             "--ctx-size", str(CTX_SIZE),
-            # Thinking off, server-wide. Gemma 4's template opens a reasoning
-            # channel, and the request-level chat_template_kwargs
-            # enable_thinking=false did not hold: on the 2026-09-14 real-card
-            # probe, base Gemma still reasoned on "make a wooden barrel" and a
-            # character plan, spending the whole max_tokens in
-            # reasoning_content and returning content=''. With these two
-            # flags every probed request came back with no reasoning at all.
-            # Nothing Familiar sends wants the trace, and run A was trained on
-            # replies with no thinking block.
+            # Thinking off, server-wide. Added for the previous pin, Gemma 4:
+            # its template opened a reasoning channel, and the request-level
+            # chat_template_kwargs enable_thinking=false did not hold -- on
+            # the 2026-09-14 real-card probe, base Gemma still reasoned on
+            # "make a wooden barrel" and a character plan, spending the whole
+            # max_tokens in reasoning_content and returning content=''. With
+            # these two flags every probed request came back with no
+            # reasoning at all. Kept as a guard on Qwen3-VL-4B-Instruct too:
+            # nothing Familiar sends wants a reasoning trace, and the flags
+            # are harmless on an Instruct model that doesn't open one.
             "--reasoning", "off",
             "--reasoning-budget", "0",
         ]

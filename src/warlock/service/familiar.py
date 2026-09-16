@@ -171,12 +171,15 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
     that check only runs at *spawn*: a server already running for plain chat
     (started with ``expected_card_sha=None``, which is never refused) would
     otherwise happily serve a Clay prompt it was never trained to answer.
-    Run A's own measurement is why this matters: base Gemma 4 E2B scored 0%
-    door acceptance on Clay builds (the fine-tune: 74%,
-    ``dev/measurements/2026-09-12-clay-assistant-run-A.md``), so serving
-    a Clay request on the testing pin would not fail loudly -- it would just
-    fail, every time, with no tool call in the reply for :func:`~.contract.
-    parse_calls` to find.
+    Run A's own measurement on the previous (Gemma 4 E2B) pin is why this
+    matters: base Gemma scored 0% door acceptance on Clay builds against its
+    own fine-tune's 74% (``dev/measurements/2026-09-12-clay-assistant-run-A.md``).
+    The untuned base model is not trusted with Clay builds on the current
+    (Qwen3-VL-4B-Instruct) pin either -- no eval corpus has scored it yet --
+    so a fine-tune's card sha is required before this door opens, and serving
+    a Clay request on the testing pin alone would not fail loudly -- it would
+    just fail, every time, with no tool call in the reply for
+    :func:`~.contract.parse_calls` to find.
     """
     card_sha = contract.card_sha("clay")
     if card_sha not in models.FAMILIAR_MODELS["familiar_gguf"].card_shas:

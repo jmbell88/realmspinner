@@ -1134,6 +1134,12 @@ def _overflow(ctx: Any, job: Any) -> None:
             compare(ctx, job_id)
         if ctx.rigging_available and controls.menu_item("Rig", "", False)[0]:
             run_action(ctx, job, "rig")
+        if (
+            ctx.rigging_available
+            and "rig.glb" not in files
+            and controls.menu_item("Rig manually", "", False)[0]
+        ):
+            run_action(ctx, job, "rig_manual")
     widgets.divider()
     if controls.menu_item("Delete", "Delete", False)[0]:
         # No confirm (J91): the trash *is* the confirmation, and it is a better
@@ -1381,6 +1387,20 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
             ctx.svc,
             job_id,
             template=stage_rig.skeleton(ctx),
+        )
+    elif action == "rig_manual":
+        # The blank template (one root bone, hidden from every normal
+        # skeleton picker -- rigging.catalog() filters it out) fitted onto the
+        # mesh through the exact same queued Blender pass every automatic rig
+        # already runs, so bounds and the root bone's placement are real
+        # Blender output rather than host-side coordinate math this app has
+        # no way to verify against Blender's own Y-up -> Z-up import
+        # rotation. The same submit key as "Rig": a mesh cannot be both rigs
+        # at once.
+        from . import stage_rig
+
+        ctx.submit(
+            stage_rig.rig_key(job), svc_rig.create_rig, ctx.svc, job_id, template="blank"
         )
     elif action == "open":
         # A job that stops at an image opens at the stage that made it; a tile

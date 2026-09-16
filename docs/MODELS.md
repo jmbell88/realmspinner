@@ -88,7 +88,7 @@ never the trellis ones, because llama.cpp and trellis.cpp ship their own, differ
 |---|---|---|
 | **Familiar runtime** | `llama-server.exe` (llama.cpp b10948, CUDA 12.4 Windows build) and the DLLs it links, minus the CUDA redistributable | ~0.24 GB down |
 | **Familiar runtime (CUDA)** | the CUDA 12.4 redistributable (`cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`) the runtime above links against | ~0.37 GB down |
-| **Familiar weights (Gemma 4 E2B)** | the model it serves, quantised | ~4.7 GB |
+| **Familiar weights (Qwen3-VL-4B-Instruct)** | the model it serves, quantised | ~4.28 GB |
 
 **Two rows for the runtime, not one, and that is upstream's shape, not this app's.** llama.cpp
 publishes its CUDA Windows build as two separate release zips — the server binaries, and the CUDA
@@ -108,32 +108,30 @@ curl -L -o $HOME/.warlock/engine/llama/cudart-llama-bin-win-cuda-12.4-x64.zip `
 # then unpack both into $HOME/.warlock/engine/llama
 ```
 
-**The weights row is a testing pin, stated as one.** It is Unsloth's own Q8_0 requantization of
-the stock `google/gemma-4-E2B-it` instruct model — not `familiar_v1.0`, the fine-tune trained by
-this project's own training pipeline, which a later tranche (T10) swaps in as the shipped pin. There is no
-picker and no path override: this exact file, or nothing.
+**The weights row is a testing pin, stated as one.** It is Qwen's own Q8_0 GGUF of the stock
+`Qwen/Qwen3-VL-4B-Instruct` instruct model — not `familiar_v1.0`, the name reserved for a
+Clay-assistant fine-tune of this base, trained by this project's own training pipeline, which will
+swap in as the shipped pin once one is published. There is no picker and no path override: this
+exact file, or nothing. Text only for now: no mmproj row, no `--mmproj`, no image input — vision is
+a later tranche.
 
 ```powershell
-# Familiar weights (~4.7 GB) -> ~/.warlock/models/familiar/
-uvx hf download unsloth/gemma-4-E2B-it-GGUF --revision 0314792d7f1f7e229411f620751375812bb9faf2 `
-  --include "gemma-4-E2B-it-Q8_0.gguf" --local-dir $HOME/.warlock/models/familiar
+# Familiar weights (~4.28 GB) -> ~/.warlock/models/familiar/
+uvx hf download Qwen/Qwen3-VL-4B-Instruct-GGUF --revision 1cd86afb9a95c410a6038ab3b40d8b578c892266 `
+  --include "Qwen3VL-4B-Instruct-Q8_0.gguf" --local-dir $HOME/.warlock/models/familiar
 ```
 
 Licences: the runtime is MIT (llama.cpp and ggml) over NVIDIA's redistributable CUDA libraries, on
 the same "fetched from upstream, nothing redistributed" footing as the reconstruction engine. The
-weights repository (`unsloth/gemma-4-E2B-it-GGUF`) is published under Apache 2.0, matching the base
-`google/gemma-4-E2B-it` model it requantizes.
+weights repository (`Qwen/Qwen3-VL-4B-Instruct-GGUF`) is published under Apache 2.0, matching the
+base `Qwen/Qwen3-VL-4B-Instruct` model it requantizes.
 
-**`familiar_v1.0` is reviewed and clear to ship (decided 2026-09-14).** The base
-model's real terms are Google's own Gemma Terms of Use, not the Apache-2.0 tag Hugging Face shows
-for it — a base-model licence tag is not automatically the same promise once weights are retrained
-on new data, which is exactly what this review checked. Gemma's terms permit fine-tuning and
-redistributing derivative weights, provided the derivative doesn't lead its name with
-"Gemma"/"Google" (`familiar_v1.0` doesn't), Google's own attribution travels with the distributed
-weights, and use stays within the Gemma Acceptable Use Policy. So unlike every other row on this
-page, `familiar_v1.0` is *Warlock's own* download row rather than a pointer at a third party's Hub
-repo — and it ships openly, under this project's own GPL-3.0-or-later, the same as the rest of
-Warlock Studio. The notice text is in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
+**`familiar_v1.0` is reserved, not yet published.** It names a future Clay-assistant fine-tune of
+Qwen3-VL-4B-Instruct; no such fine-tune exists yet, so the row's `served_name` stays empty and Clay
+Build keeps refusing by name. Because the base model is Apache-2.0, a fine-tune of it carries no
+licence question the way the previous (Gemma) base once did — when `familiar_v1.0` ships it will be
+under this project's own GPL-3.0-or-later, the same as the rest of Warlock Studio, same as its base's
+Apache-2.0 permits.
 
 ## Licences, and what you may do with the output
 
@@ -153,8 +151,8 @@ restricted ones; this table is the same information in full.
 | **FLUX.2 klein / klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
 | **llama.cpp** (Familiar's runtime) | MIT | Yes |
-| **Gemma 4 E2B** (Familiar's weights, testing pin) | Apache-2.0 | Yes |
-| **`familiar_v1.0`** (Familiar's fine-tuned weights, ships when T10 replaces the testing pin above) | Google's Gemma Terms of Use (not Apache-2.0) | Yes — reviewed 2026-09-14; ships openly under this project's own GPL-3.0-or-later |
+| **Qwen3-VL-4B-Instruct** (Familiar's weights, testing pin) | Apache-2.0 | Yes |
+| **`familiar_v1.0`** (Familiar's fine-tuned weights, not yet published) | Apache-2.0 (base); ships under this project's own GPL-3.0-or-later once published | Yes |
 | **BiRefNet** (matting) | MIT | Yes |
 | **ACE-Step v1 3.5B** (Muse) | Apache-2.0 | Yes |
 | **Hybrid Demucs** (stem separation) | MIT code, **CC BY-NC-SA 4.0 weights** | **No** — see below |

@@ -335,6 +335,13 @@ PALETTES: dict[str, dict[str, int]] = {
         "WASH": 0xFFFFFF,
         "CHECKER_A": 0x44464F,
         "CHECKER_B": 0x2C2E35,
+        # Familiar's transcript: two elevated surfaces rather than two
+        # literals, for ``test_accessibility``'s reason above -- ASSISTANT
+        # matches ELEV_1's own neutral raise, USER is the same step tinted
+        # toward ACCENT's hue, so the two read as different speakers rather
+        # than as one role redrawn twice.
+        "BUBBLE_USER": 0x232538,
+        "BUBBLE_ASSISTANT": 0x1D1F26,
     },
     "light": {
         "BG": 0xF4F4F7,
@@ -362,6 +369,8 @@ PALETTES: dict[str, dict[str, int]] = {
         "WASH": 0x1B1C22,
         "CHECKER_A": 0xFFFFFF,
         "CHECKER_B": 0xD6D6DE,
+        "BUBBLE_USER": 0xE4E1F5,
+        "BUBBLE_ASSISTANT": 0xEDEDF2,
     },
     "pixel": {
         "BG": 0x1A1714,  # the canvas surround: the darkest thing on screen
@@ -400,6 +409,8 @@ PALETTES: dict[str, dict[str, int]] = {
         "WASH": 0xF2EDE3,
         "CHECKER_A": 0x4F4A40,
         "CHECKER_B": 0x35312A,
+        "BUBBLE_USER": 0x3A2E1E,
+        "BUBBLE_ASSISTANT": 0x2E2A22,
     },
 }
 
@@ -445,7 +456,7 @@ CONTRAST_UI = 3.0
 # BG alone: MUTED clears 4.5:1 on the window floor and the same label on a
 # hovered card is the one that fails, so the floor is the least informative
 # place to measure.
-COPY_SURFACES = ("BG", "PANEL", "ELEV_1", "ELEV_2")
+COPY_SURFACES = ("BG", "PANEL", "ELEV_1", "ELEV_2", "BUBBLE_USER", "BUBBLE_ASSISTANT")
 
 
 def _linear(channel: float) -> float:

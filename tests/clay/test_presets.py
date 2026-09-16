@@ -54,8 +54,12 @@ def test_there_is_a_body_for_every_skeleton():
     A template with no assembly is a skeleton nothing feeds; an assembly with no
     template is a body that can never be posed. Either is a half-built feature,
     and neither is visible from inside one of the two files.
+
+    A hidden template is not a skeleton a figure feeds: ``blank`` is Poser's
+    manual-rig bootstrap, one root bone reached only by key, and ``rigging.
+    catalog`` leaves it out of every picker for the same reason.
     """
-    assert set(presets.ASSEMBLIES) == set(templates())
+    assert set(presets.ASSEMBLIES) == {k for k, t in templates().items() if not t.hidden}
 
 
 @pytest.mark.parametrize("key", ASSEMBLY_KEYS)

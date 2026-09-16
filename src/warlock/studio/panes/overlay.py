@@ -340,7 +340,7 @@ def fps_meter(ctx: Any, meter: Any) -> None:
     imgui.set_next_window_pos(
         (
             viewport.work_pos.x + sp(16),
-            viewport.work_pos.y + viewport.work_size.y - sp(16) - sp(bottom_pane.height(ctx)),
+            viewport.work_pos.y + viewport.work_size.y - sp(16) - sp(bottom_pane.reserve(ctx)),
         ),
         imgui.Cond_.always.value,
         (0.0, 1.0),
@@ -425,7 +425,7 @@ def progress_card(ctx: Any, eta: Any) -> None:
             + viewport.work_size.y
             - sp(18)
             + sp(14) * (1.0 - present)
-            - sp(bottom_pane.height(ctx)),
+            - sp(bottom_pane.reserve(ctx)),
         ),
         imgui.Cond_.always.value,
         (0.5, 1.0),

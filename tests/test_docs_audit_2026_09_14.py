@@ -33,11 +33,13 @@ def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-# --- docs-01: THIRD-PARTY-NOTICES.md claims llama.cpp/Gemma are "shown by
-# hand in the tables above", but neither appeared in any table. ------------
+# --- docs-01: THIRD-PARTY-NOTICES.md claims llama.cpp/the Familiar weights
+# are "shown by hand in the tables above", but neither appeared in any
+# table. Familiar's base moved from Gemma 4 E2B to Qwen3-VL-4B-Instruct
+# (2026-09-16); the row this test looks for moved with it. -----------------
 
 
-def test_third_party_notices_names_llama_cpp_and_gemma_where_it_claims_to():
+def test_third_party_notices_names_llama_cpp_and_qwen_where_it_claims_to():
     text = _read("THIRD-PARTY-NOTICES.md")
     marker = "all shown by\nhand in the tables above"
     idx = text.replace("\r\n", "\n").index(marker.replace("\r\n", "\n"))
@@ -54,13 +56,13 @@ def test_third_party_notices_names_llama_cpp_and_gemma_where_it_claims_to():
     assert llama_rows, "no table row mentions llama.cpp above the claim"
     assert any("MIT" in row for row in llama_rows), llama_rows
 
-    gemma_rows = [
+    qwen_rows = [
         line
         for line in tables_above.splitlines()
-        if line.startswith("|") and "Gemma" in line
+        if line.startswith("|") and "Qwen" in line
     ]
-    assert gemma_rows, "no table row mentions Gemma 4 E2B above the claim"
-    assert any("Apache-2.0" in row for row in gemma_rows), gemma_rows
+    assert qwen_rows, "no table row mentions Qwen3-VL above the claim"
+    assert any("Apache-2.0" in row for row in qwen_rows), qwen_rows
 
 
 # --- docs-02: Manual 17 said an instance holds nothing of its own but a

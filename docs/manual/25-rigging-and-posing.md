@@ -46,6 +46,20 @@ There are three ways to rig:
 All three use the same skeleton — the one the picker is showing — and the same queue slot, so a
 second press while one is running is refused rather than queueing a second rig of the same mesh.
 
+### Rigging a mesh by hand
+
+Each of the first two doors above has a second button beside it, **Rig manually**, for a mesh none
+of the eight templates fit — a shape none of them was built for, or one you would simply rather
+build yourself. It queues the same rig job as the others, fitted with a hidden ninth template of one
+bare bone at the mesh's centre rather than a full skeleton, so what lands a few minutes later is a
+genuine `rig.glb` — Blender really did compute its bounds and place that one bone, the same way it
+does for every other rig — with nothing posable yet.
+
+From there, open the asset in the [Poser](26-poser.md) and use **Edit skeleton** to build the rest:
+add a child bone, split one, graft on a limb preset, drag joints into place, same tools a correction
+to an automatic rig already uses. Nothing about rigging changes once you apply — the mesh is
+re-skinned against whatever skeleton you built, exactly like any other skeleton edit.
+
 Rigging is a queued job like any other, and it takes minutes of CPU rather than seconds — skinning
 is not cheap. It runs Blender as a separate process, never inside the app: Blender's Python module
 is process-global and can take the whole interpreter down on the kind of non-manifold geometry

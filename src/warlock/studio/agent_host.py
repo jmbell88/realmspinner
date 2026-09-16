@@ -881,6 +881,18 @@ class AgentHost:
             # an empty registry.
             self._drop_queued_service_jobs()
         self._thread.join(timeout=STOP_JOIN_TIMEOUT)
+        if self._thread.is_alive():
+            # pipe.Server.close() now pokes a self-connect specifically to
+            # avoid this (see its own comment), so reaching here means that
+            # trick failed on this platform/build too. Log it rather than
+            # silently forgetting the reference the way this used to: a
+            # `start()` that then fails with a bare `PermissionError` is
+            # undiagnosable without this line naming the actual cause.
+            log.warning(
+                "agent host: listener thread still alive %.1fs after stop(); "
+                "the pipe handle may still be leaked into the next start()",
+                STOP_JOIN_TIMEOUT,
+            )
         self._thread = None
         self._server = None
         self._connected = False

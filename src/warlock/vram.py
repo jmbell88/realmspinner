@@ -76,20 +76,23 @@ LORA_TRAIN_GIB = 18.0
 IP_ENCODER_GIB = 1.2
 """The CLIP-ViT-H image encoder an IP-Adapter needs (same place)."""
 
-FAMILIAR_GIB = 4.0
-"""llama-server.exe resident with the base Gemma 4 E2B Q8_0 pin, ``-ngl 999``.
+FAMILIAR_GIB = 7.7
+"""llama-server.exe resident with the Qwen3-VL-4B-Instruct Q8_0 pin, ``-ngl 999``.
 
-**Measured** (``dev/measurements/2026-09-14-familiar-base-vram.md``,
-RTX 5090): 3.09 GiB resident once healthy and 3.20 GiB peak with both slots
-generating from ~5,500-token prompts, identical across three runs. This is
-that peak plus 0.8 GiB for a different driver or CUDA context and for
-familiar_v1.0 (same architecture and quant), which T10 re-confirms. It
-replaced a 6.5 GiB guess built from the 4.70 GiB file size. The file
-overstates the card cost, likely because E2B keeps its per-layer embeddings
-in host memory, which that document leaves unmeasured. Familiar is always stopped
-before a GPU job runs (see ``Worker.before_gpu_job``), so this number never
-actually has to share the card with anything else -- it exists for
-``familiar_admission`` alone, the door Familiar's own spawn stands at.
+Measured on the GPU lane (``dev/measurements/2026-09-16-familiar-qwen-vram.md``,
+RTX 5090): 6.81 GiB resident once healthy and 6.82 GiB peak with both slots
+generating, identical across three runs. This is that peak plus 0.8 GiB for a
+different driver or CUDA context and for a same-architecture, same-quant
+fine-tune of that base, rounded up to the tenth.
+
+The previous pin, Gemma 4 E2B, measured 3.20 GiB peak and carried 4.0 here;
+it kept its per-layer embeddings off the card, where Qwen puts the whole
+3.99 GiB file on it -- which is why a smaller file costs twice the VRAM and
+why this figure could not be carried across a model switch. Familiar is
+always stopped before a GPU job runs (see ``Worker.before_gpu_job``), so
+this number never actually has to share the card with anything else -- it
+exists for ``familiar_admission`` alone, the door Familiar's own spawn
+stands at.
 """
 
 TRELLIS_RES_MULT: dict[int, float] = {512: 0.85, 1024: 1.0, 1536: 1.5}

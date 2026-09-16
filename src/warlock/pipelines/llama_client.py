@@ -92,9 +92,12 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 #: count them (checked 2026-09-14: the string is absent from
 #: ``llama-server-impl.dll``). Uncorrected, the count comes out *low*, which
 #: is the unsafe direction -- a budget sized off it overruns the 8,192-token
-#: slot by exactly the template's overhead. Gemma's template spends a
-#: handful of tokens per turn plus BOS and the generation prompt; a Clay
-#: request has two turns, so 32 is a generous ceiling, not a measurement.
+#: slot by exactly the template's overhead. 32 is a ceiling, not the
+#: measurement: on Qwen3-VL-4B's ChatML template the GPU lane measured the
+#: real overhead of a two-turn Clay request at 13 tokens
+#: (dev/measurements/2026-09-16-familiar-qwen-vram.md), and it sat inside
+#: 32 on the previous Gemma 4 E2B pin too. Shrinking it would buy 19 tokens
+#: of an 8,192-token slot and lose the room for a template that spends more.
 TEMPLATE_MARGIN_TOKENS = 32
 
 
@@ -210,14 +213,17 @@ async def chat(
             "top_p": sampling["top_p"],
             "max_tokens": max_tokens,
             "stream": False,
-            # Thinking off, asked for on every request too. Gemma 4's chat
-            # template (the server runs --jinja) opens a reasoning channel by
-            # default; the first real-card run (2026-09-14) spent the router's
-            # whole budget on "Thinking Process: ..." in reasoning_content and
-            # returned content=''. This field alone did not hold on every
-            # prompt, so the real switch is llama.py's --reasoning off
+            # Thinking off, asked for on every request too. Added for the
+            # previous pin, Gemma 4: its chat template (the server runs
+            # --jinja) opened a reasoning channel by default, and the first
+            # real-card run (2026-09-14) spent the router's whole budget on
+            # "Thinking Process: ..." in reasoning_content and returned
+            # content=''. This field alone did not hold on every prompt, so
+            # the real switch is llama.py's --reasoning off
             # --reasoning-budget 0; this stays as the request's own statement
-            # of the same intent, for a server started some other way.
+            # of the same intent, for a server started some other way, and is
+            # harmless on Qwen3-VL-4B-Instruct, which doesn't open a
+            # reasoning channel by default.
             "chat_template_kwargs": {"enable_thinking": False},
         }
         if response_format is not None:

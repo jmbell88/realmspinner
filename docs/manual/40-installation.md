@@ -147,7 +147,7 @@ command.
 Familiar, the in-app assistant, is optional and separate from both: its runtime is llama.cpp's own
 CUDA Windows release (`ggml-org/llama.cpp`, two zips upstream splits apart — the server binaries
 and the CUDA 12.4 redistributable), and its weights are a testing pin of
-`unsloth/gemma-4-E2B-it-GGUF`. All three rows live in Settings → Models under the *Familiar*
+`Qwen/Qwen3-VL-4B-Instruct-GGUF`. All three rows live in Settings → Models under the *Familiar*
 heading; `docs/MODELS.md` carries the full commands.
 
 The GGUF download also brings `birefnet.gguf`, the background-matting model. It is optional: without

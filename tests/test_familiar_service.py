@@ -66,7 +66,10 @@ def test_clay_build_on_the_testing_pin_refuses_before_any_request(monkeypatch):
     """The testing pin's ``card_shas`` is empty, so a Clay build must refuse
     with reason ``"card"`` *before* ``llama_client.chat`` is ever called --
     not after a wasted round trip that would fail anyway (run A's own
-    measurement: base Gemma scores 0% door acceptance on Clay builds)."""
+    measurement on the previous, Gemma 4 E2B pin: base Gemma scores 0% door
+    acceptance on Clay builds; the untuned base is no more trusted on the
+    current Qwen3-VL-4B-Instruct pin, which has no eval corpus of its own
+    yet either)."""
     called = []
 
     async def fake_chat(*args, **kwargs):

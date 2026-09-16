@@ -94,6 +94,36 @@ are in the commit each one names.
   calibration scripts (with the tests that read them) all live there now
   rather than at the paths older commits and documents name; a clean checkout
   never carries any of it, and the public docs no longer cite it by path.
+- **Familiar's base model moved from Gemma 4 E2B-it to Qwen3-VL-4B-Instruct**,
+  text only for now (no mmproj, no image input). The testing pin is Qwen's
+  own Q8_0 GGUF, Apache-2.0 like the model; `familiar_v1.0` stays reserved
+  for the Clay-assistant fine-tune of the new base, which is not published
+  yet, so Clay Build still refuses by name until one is. The figures the old
+  pin was measured for were measured again on Qwen rather than carried over:
+  Familiar's VRAM admission rises from 4.0 to 7.7 GiB (6.82 GiB peak, where
+  Gemma kept part of itself off the card), and the smallest reply budget a
+  Clay build may be given rises from 1,893 to 2,573 tokens, counted with
+  Qwen's own tokenizer, which spends a token per digit. The router, navigate,
+  create and character replies all parse on Qwen unchanged.
+- **A Familiar build that refers to its own new objects no longer fails to
+  preview.** The model names an object it made earlier in the same reply as
+  `{"$ref": "name"}`, which only resolves inside one `clay_batch`, but the
+  preview ran the calls one by one -- "Build the Eiffel Tower" came back as
+  "uids must be a list of integers." The reply now runs as one batch, and a
+  refusal shows the refused call's own sentence.
+- **You can keep talking to Familiar while a build is still a ghost.** The
+  input stays open under Apply and Discard, and a follow-up refines the
+  ghost: the model is shown the previewed scene, its calls run on top of it,
+  and Apply lands the build and every refinement as one undo step.
+- **Familiar's pane can be dragged taller or shorter**, remembers the height,
+  and draws the conversation as chat bubbles that stay pinned to the newest
+  turn.
+- **A mesh no template fits can be rigged by hand.** **Rig manually** sits
+  beside the existing rig doors and fits a hidden one-bone template, so a real
+  `rig.glb` lands that Poser's **Edit skeleton** then builds out.
+- **Switching the agent server off and on again no longer fails** when no
+  agent had ever connected: stopping it now releases the pipe instead of
+  leaving the listener thread holding it.
 
 ## 0.0.47 — 2026-09-14
 

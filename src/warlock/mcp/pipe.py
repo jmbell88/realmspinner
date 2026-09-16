@@ -173,8 +173,29 @@ class Server:
 
     def close(self) -> None:
         if self._listener is not None:
+            address = self._listener.address
             self._listener.close()
             self._listener = None
+            if sys.platform == "win32":
+                # The mid-handshake peer (module docstring above) is not the
+                # only way `accept()` gets stuck: if *no* peer has ever
+                # dialled in, the listener thread is parked inside
+                # `ConnectNamedPipe`'s wait, and closing the handle from this
+                # thread does not reliably release that wait the way it does
+                # once a first connection has already been accepted once.
+                # Measured: 5/5 trials left the thread alive past `stop()`'s
+                # own join, holding the pipe's `FILE_FLAG_FIRST_PIPE_INSTANCE`
+                # handle, so the next `start()` failed with `PermissionError`
+                # -- the same failure shape the docstring above describes,
+                # from a trigger it does not cover. Dialling in ourselves
+                # completes the pending `ConnectNamedPipe`, so the blocked
+                # `accept()` call returns instead of hanging until the
+                # process exits. `self._authkey` is already cleared below by
+                # the time this connection reaches `_handshake` in the
+                # listener thread, so it is rejected there and never mistaken
+                # for a real bridge.
+                with contextlib.suppress(Exception):
+                    mpconn.Client(address, family=_FAMILY).close()
         self._authkey = None
         # Cleared even if start() was never called: idempotent close is what
         # lets AgentHost.stop() be idempotent too, per its own contract.

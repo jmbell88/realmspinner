@@ -249,6 +249,169 @@ def test_a_canned_build_previews_as_a_ghost_and_apply_lands_it():
     assert ctx.clay_view.cleared == 1
 
 
+def test_a_build_that_addresses_its_own_objects_by_ref_previews_as_one_batch():
+    """The trained model answers with calls that name objects made earlier in
+    the same reply as ``{"$ref": "<name>"}`` -- the convention the training
+    data, the eval and ``clay_batch`` all share, because the uids do not exist
+    until those earlier calls have run. ``$ref`` only resolves inside a
+    ``clay_batch``. The preview ran each call on its own, so the first call
+    carrying a ``$ref`` was refused: "Build the Eiffel Tower" in the real app
+    (2026-09-16, run Q1) came back as "uids must be a list of integers."
+    from ``clay_boolean``, although the same reply is what the eval accepts.
+
+    Fails against the unfixed code with:
+        AssertionError: assert 'uids must be a list of integers.' is None
+    """
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "base"}},
+        {
+            "name": "clay_add_primitive",
+            "arguments": {"generator": "box", "name": "top", "translation": [0.2, 0.5, 0.0]},
+        },
+        {
+            "name": "clay_boolean",
+            "arguments": {"kind": "union", "uids": [{"$ref": "base"}, {"$ref": "top"}]},
+        },
+    ]
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.message is None
+    assert ui.preview_calls == calls
+    assert ctx.clay_view.previewed is not None
+    assert doc.objects == [], "a preview runs on a scratch clone, never the real document"
+
+
+def test_a_refused_build_reports_the_refused_call_s_own_sentence():
+    """Folding the calls into one ``clay_batch`` must not turn a refusal into
+    the batch's whole structured payload dumped as JSON: the pane shows the
+    sentence of the call that stopped the batch, as it did per call.
+
+    Fails against the unfixed code with:
+        AssertionError: assert 'nothing_called_this' in 'uids must be a list of integers.'
+    """
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "base"}},
+        {"name": "clay_delete", "arguments": {"uids": [{"$ref": "nothing_called_this"}]}},
+    ]
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls is None
+    assert ui.message is not None
+    assert "nothing_called_this" in ui.message
+    assert not ui.message.lstrip().startswith("{")
+
+
+def _land_build(ctx, calls, **tag) -> None:
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid, **tag},
+    )
+    familiar_ui.on_task_done(ctx, done)
+
+
+def test_a_follow_up_while_a_ghost_is_pending_is_sent_the_ghost_as_its_scene(monkeypatch):
+    """A follow-up refines the pending preview rather than being refused
+    (user, 2026-09-16: "it also doesn't allow follow up prompts"). The model
+    has to be shown what it is refining, so the scene it gets is the ghost's
+    own scratch document, not the untouched real one.
+
+    Fails against the unfixed code with:
+        AssertionError: assert 'tower' in []
+    """
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    _land_build(
+        ctx, [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "tower"}}]
+    )
+    assert familiar_ui.ensure(ctx).preview_calls is not None
+
+    seen = {}
+    monkeypatch.setattr(
+        svc_familiar, "clay_build", lambda svc, prompt, scene: seen.setdefault("scene", scene)
+    )
+    assert familiar_ui.submit_build(ctx, "make it taller")
+    fn, args, kwargs, _tag = ctx._pending[familiar_ui.BUILD_KEY]
+    fn(*args, **kwargs)
+
+    assert "tower" in [row["name"] for row in seen["scene"]["objects"]]
+
+
+def test_a_follow_up_lands_on_top_of_the_ghost_and_apply_lands_both_as_one_step(monkeypatch):
+    """The follow-up's calls run on a clone of the pending ghost, so they can
+    address what the first build made, and Apply lands the whole refined
+    result on the real document at once.
+
+    Fails against the unfixed code with:
+        AssertionError: assert "no object named 'tower'." is None
+    """
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    first = [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "tower"}}]
+    _land_build(ctx, first)
+    ghost = familiar_ui.ensure(ctx).preview_scratch
+
+    monkeypatch.setattr(svc_familiar, "clay_build", lambda svc, prompt, scene: [])
+    assert familiar_ui.submit_build(ctx, "make it taller")
+    _fn, _args, _kwargs, tag = ctx._pending.pop(familiar_ui.BUILD_KEY)
+    second = [
+        {"name": "clay_transform", "arguments": {"uid": {"$ref": "tower"}, "scale": [1, 3, 1]}}
+    ]
+    _land_build(ctx, second, **{k: v for k, v in tag.items() if k not in ("thread_key", "tab_uid")})
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.message is None
+    assert ui.preview_calls == first + second
+    assert doc.objects == [], "still only a preview"
+    assert ghost.objects[0].scale.tolist() == [1.0, 1.0, 1.0], "the first ghost is not mutated"
+
+    familiar_ui.apply_preview(ctx)
+
+    (tower,) = doc.objects
+    assert tower.name == "tower" and tower.scale.tolist() == [1.0, 3.0, 1.0]
+    assert len(doc.history) == 1, "both turns land as one undo step"
+
+
+def test_a_follow_up_whose_ghost_was_discarded_meanwhile_does_not_land():
+    """The ghost a follow-up was asked against can be applied or discarded
+    while the model is still thinking. Its calls were written against that
+    ghost, so landing them on the real document instead would address objects
+    that are not there; it is refused with the preview-again sentence."""
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+    _land_build(
+        ctx, [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "tower"}}]
+    )
+    ghost = familiar_ui.ensure(ctx).preview_scratch
+    familiar_ui.discard_preview(ctx)
+
+    _land_build(
+        ctx,
+        [{"name": "clay_transform", "arguments": {"uid": {"$ref": "tower"}, "scale": [1, 3, 1]}}],
+        refine=ghost,
+    )
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls is None
+    assert ui.message is not None and "preview again" in ui.message
+
+
 def test_apply_after_the_document_changed_returns_preview_again():
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="existing", mesh=bp.box()))

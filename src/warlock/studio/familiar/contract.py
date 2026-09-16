@@ -91,11 +91,13 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # T5's plain-chat sampling -- there is no measurement behind this row the
     # way there is for "clay" (that one is
     # dev/measurements/2026-09-13-clay-assistant-sampling.md's own pick out
-    # of a 232-row corpus): base Gemma 4 E2B has no fine-tune or eval corpus
-    # of its own here yet, so this is Google's own stock instruct-model
-    # recommendation (t0.7/top-k 64/top-p 0.95), carried over unmeasured. A
-    # dated measurement document should replace this comment before the
-    # number is trusted for anything beyond "a reasonable default".
+    # of a 232-row corpus): the base instruct model has no fine-tune or eval
+    # corpus of its own here yet. t0.7/top-k 64/top-p 0.95 was Google's own
+    # stock recommendation for Gemma 4, the previous pin, carried over
+    # unmeasured; it has not been re-picked against Qwen3-VL-4B's own
+    # published defaults. A dated measurement document should replace this
+    # comment before the number is trusted for anything beyond "a
+    # reasonable default".
     "chat": {"temperature": 0.7, "top_k": 64, "top_p": 0.95, "max_tokens": 1024},
     # Greedy and starved on purpose: the router answers one enum value
     # (:data:`~.router.SKILLS`) through ``response_format``'s constrained
@@ -105,8 +107,8 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     # spelled `{"skill": "clay_build"}` with spacing in exactly 16 tokens and
     # finish_reason 'length', so 16 left no margin for the longest names.
     "router": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 32},
-    # Unmeasured, same caveat as "chat" above: base Gemma has no eval corpus
-    # for citation-style answers yet. 768 tokens is well past what a few
+    # Unmeasured, same caveat as "chat" above: the base model has no eval
+    # corpus for citation-style answers yet. 768 tokens is well past what a few
     # sentences with inline [n] markers needs -- see
     # ``tests/familiar/test_contract.py::
     # test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget`` for the
@@ -573,20 +575,26 @@ FENCE = re.compile(r"```(?:json)?\s*\n(.*?)```", re.S)
 # ---------------------------------------------------------------------------
 
 TRAINED_WINDOW = 8192
-"""Run A's own trained max sequence length (``train/train_a.py``'s
-``max_seq_length``). ``pipelines/llama.py`` runs the server at
+"""The Clay-assistant fine-tune's trained max sequence length (the
+trainer's ``max_seq_length``; run Q1 on Qwen3-VL-4B kept run A's 8,192, and
+its longest row is 7,165 tokens). ``pipelines/llama.py`` runs the server at
 ``CTX_SIZE = 16384`` with ``PARALLEL_SLOTS = 2``, so each slot gets exactly
 this many tokens -- the server's own total context is not the number a single
 chat turn has to fit inside."""
 
-MIN_REPLY_TOKENS = 1893
+MIN_REPLY_TOKENS = 2573
 """A floor below which :func:`output_budget` refuses rather than hand back a
-reserve too small for any real Clay reply. Measured 2026-09-14: the longest
-assistant reply text (a build/edit row's fenced ``{"calls": [...]}}`` JSON, or
-a query row's ``answer``) across ``dev/training/clay-assistant/dataset/{train,
-val}.jsonl`` is 5,167 chars (``vehicles-0029``); at the same 2.73 chars/token
-ratio :func:`output_budget`'s own caller measures prompts with, that is
-``ceil(5167 / 2.73) == 1893`` tokens."""
+reserve too small for any real Clay reply. The longest assistant reply text
+(a build/edit row's fenced ``{"calls": [...]}}`` JSON, or a query row's
+``answer``) across the Clay-assistant dataset is 5,167 chars
+(``vehicles-0029``), and Qwen3-VL-4B's own tokenizer counts it as exactly
+2,573 tokens (``dev/measurements/2026-09-16-familiar-qwen-vram.md``).
+
+Counted, not estimated: the Gemma-era floor was ``ceil(5167 / 2.73)``, an
+average chars/token ratio, and on Qwen that ratio overstates by about a quarter for
+this text -- Qwen spends one token per digit, so number-dense call JSON runs
+2.01 chars/token while the prose card runs 3.35. A ratio taken from prose
+would have left the floor ~680 tokens short."""
 
 
 def output_budget(skill: str, prompt_tokens: int) -> int:

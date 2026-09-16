@@ -94,6 +94,22 @@ def test_a_rig_job_points_back_at_its_source(svc, assets):
     assert rig_job["params"]["template"] == "quadruped"
 
 
+def test_the_blank_template_is_a_real_template_hidden_from_the_catalogue(svc, assets):
+    """Poser's manual-rig bootstrap (2026-09-16): "blank" (one root bone) is a
+    real, fully working template -- ``create_rig`` resolves it exactly like
+    any other -- but ``rig_templates``'s own catalogue must never offer it in
+    a normal skeleton picker, since fitting it automatically produces one
+    bare bone and nothing posable. It reaches a mesh only through the "Rig
+    manually" door, which names it by key directly.
+    """
+    assert "blank" not in {t["key"] for t in svc_rig.rig_templates(svc)["templates"]}
+
+    job_id = _finished_mesh_job(svc, assets)
+    out = svc_rig.create_rig(svc, job_id, template="blank")
+    rig_job = svc.store.get(out["id"])
+    assert rig_job["params"]["template"] == "blank"
+
+
 def test_a_rig_job_cannot_itself_be_rigged(svc, assets):
     job_id = _finished_mesh_job(svc, assets)
     rig_id = svc_rig.create_rig(svc, job_id)["id"]

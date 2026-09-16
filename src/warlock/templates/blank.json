@@ -1,0 +1,11 @@
+{
+  "key": "blank",
+  "label": "Blank (manual)",
+  "root": "root",
+  "hidden": true,
+  "comment": "Poser's manual-rig bootstrap (2026-09-16): one root bone at the mesh's own centre, fitted through the same Blender pass every other template runs -- so its bounds and this bone's placement are real Blender output, not host-side coordinate math this app has no way to verify against Blender's own Y-up -> Z-up import rotation. Hidden from every normal skeleton picker (rigging.catalog() filters it) since fitting it automatically produces one bare bone and nothing posable; it reaches a mesh only through Poser's 'Rig manually' door, and the point of it is the empty slate: Poser's skeleton editor (Add child, Split, Attach limb, drag to reposition) builds the rest by hand. Same normalized frame as every other template, Blender axes: x/y span -0.5..0.5, z spans 0 (floor) to 1 (crown).",
+  "bones": [
+    {"name": "root", "parent": null, "head": [0.00, 0.00, 0.45], "tail": [0.00, 0.00, 0.55]}
+  ],
+  "mirror_pairs": []
+}

@@ -878,30 +878,32 @@ FAMILIAR_RUNTIME_CUDART_DIGESTS: tuple[tuple[str, str], ...] = (
     ("cudart64_12.dll", "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"),
 )
 
-# Familiar's weights: the base (non-fine-tuned) Gemma 4 E2B instruct model,
-# quantised. **A testing pin, stated as one**: this is Unsloth's own
-# requantization of stock ``google/gemma-4-E2B-it``, picked so Familiar has
-# something real to run before T10 swaps in the Clay-assistant fine-tune
-# (dev/training/clay-assistant/) as the shipped pin. Q8_0, by user decision, not
-# a 4-bit quant.
+# Familiar's weights: the base (non-fine-tuned) Qwen3-VL-4B-Instruct model,
+# quantised. **A testing pin, stated as one**: this is Qwen's own official
+# GGUF requantization of stock ``Qwen/Qwen3-VL-4B-Instruct``, picked so
+# Familiar has something real to run before a Qwen fine-tune
+# exists to become the shipped pin. Q8_0 for testing; a 4-bit shipped pin
+# waits on a measured BF16-to-Q4 delta, because Gemma's Q4_K_M lost 44-61 of
+# 232 Clay eval rows. Text only for now: no mmproj row, no ``--mmproj``, no
+# image input -- vision is a later tranche.
 #
 # Revision is the repository's commit at pin time; sha256 is the file's own
-# LFS oid (the ``X-Linked-ETag`` HF's CDN reports for it), read from the Hub
-# API without downloading the 4.7 GB file. Unsloth publishes this repository
-# under Apache 2.0 (its own ``license`` tag), matching the base model's.
-FAMILIAR_GGUF_REPO = "unsloth/gemma-4-E2B-it-GGUF"
-FAMILIAR_GGUF_REVISION = "0314792d7f1f7e229411f620751375812bb9faf2"
-FAMILIAR_GGUF_FILE = "gemma-4-E2B-it-Q8_0.gguf"
+# LFS oid, read from the Hub API without downloading the 4.28 GB file. Qwen
+# publishes this repository under Apache 2.0 (its own ``license`` tag),
+# matching the base model's.
+FAMILIAR_GGUF_REPO = "Qwen/Qwen3-VL-4B-Instruct-GGUF"
+FAMILIAR_GGUF_REVISION = "1cd86afb9a95c410a6038ab3b40d8b578c892266"
+FAMILIAR_GGUF_FILE = "Qwen3VL-4B-Instruct-Q8_0.gguf"
 FAMILIAR_GGUF_SHA256 = (
-    "605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053"
+    "054721f478bc5fa6beffb7f38eae575d45298f88cbb8d2f83ef675a727863eb1"
 )
 
-# The name of the Warlock-trained fine-tune (dev/training/clay-assistant run A),
-# as llama-server should report it once it is actually served. T10 sets this
-# as the ``familiar_gguf`` row's ``served_name`` when run A's weights replace
-# the testing pin. The weights file carries the same name in its own GGUF
-# ``general.name``: run A's Unsloth export said "Merged 16bit", and the file is
-# re-labelled with the tensors untouched, so the alias and the file agree.
+# The name a Warlock-trained Clay-assistant fine-tune of Qwen3-VL-4B-Instruct
+# should report once one is actually served (dev/training/clay-assistant/,
+# run-Q1 and successors). Reserved, not yet assigned to any served weights:
+# the ``familiar_gguf`` row's ``served_name`` stays "" and ``card_shas`` stays
+# empty until that fine-tune ships, at which point this becomes its
+# ``served_name`` and its GGUF ``general.name`` is set to match.
 FAMILIAR_V1_NAME = "familiar_v1.0"
 
 FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
@@ -959,7 +961,7 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
     ),
     FamiliarModel(
         "familiar_gguf",
-        "Familiar weights (Gemma 4 E2B)",
+        "Familiar weights (Qwen3-VL-4B-Instruct)",
         (FAMILIAR_GGUF_FILE,),
         fetch=(
             Fetch(
@@ -967,17 +969,17 @@ FAMILIAR_MODELS: dict[str, FamiliarModel] = _table(
                 "familiar-gguf",
                 revision=FAMILIAR_GGUF_REVISION,
                 filenames=(FAMILIAR_GGUF_FILE,),
-                size_gib=4.70,
+                size_gib=3.99,
             ),
         ),
         digests=((FAMILIAR_GGUF_FILE, FAMILIAR_GGUF_SHA256),),
         description=(
-            "Familiar's own weights: a testing pin of the base Gemma 4 E2B "
-            "instruct model.\n\n"
-            "Unsloth's Q8_0 requantization -- no picker, no path override, "
-            "this exact file. Apache 2.0 licensed. T10's Clay-assistant "
-            "fine-tune, a fine-tune of this base, replaces this as the "
-            "shipped pin."
+            "Familiar's own weights: a testing pin of the base "
+            "Qwen3-VL-4B-Instruct model.\n\n"
+            "Qwen's own Q8_0 GGUF -- no picker, no path override, this exact "
+            "file. Apache 2.0 licensed. Warlock's own Clay-assistant "
+            "fine-tune of this base replaces this as the shipped pin once "
+            "one is published."
         ),
     ),
 )

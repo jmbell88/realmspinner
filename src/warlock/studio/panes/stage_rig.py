@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from imgui_bundle import imgui
+
 from ...service import rig as svc_rig
 from .. import icons, widgets
 from ..manual import render as manual_render
@@ -82,6 +84,17 @@ def draw(ctx: Any) -> None:
         # pane's bare widgets.field_error() could not supply by itself.
         ctx.state.clear_field_errors()
         ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template=skeleton(ctx))
+    if not rigged:
+        imgui.same_line()
+        if widgets.disabled_button(
+            "Rig manually", not ctx.busy(key), reason="This mesh is already being rigged."
+        ):
+            # "blank" (one root bone, hidden from this stage's own skeleton
+            # picker above) fitted through the same Blender pass every
+            # automatic rig runs -- see pose_panel.py's identical button for
+            # the reason this is not host-side coordinate math instead.
+            ctx.state.clear_field_errors()
+            ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template="blank")
 
 
 def skeleton_field(ctx: Any, form: dict[str, Any], *, help_text: str | None = None) -> None:

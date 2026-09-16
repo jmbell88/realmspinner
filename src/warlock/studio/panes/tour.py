@@ -499,7 +499,7 @@ def _card(
 
     state = ctx.state.tour
     alpha, rise = widgets.popover_enter("tour", appearing)
-    x, y = _card_pos(viewport, hole, sp(bottom_pane.height(ctx)))
+    x, y = _card_pos(viewport, hole, sp(bottom_pane.reserve(ctx)))
     imgui.set_next_window_pos((x, y + rise), imgui.Cond_.always.value, (1.0, 1.0))
     imgui.set_next_window_size((sp(CARD_W), 0))
     frosted = widgets.frosted()

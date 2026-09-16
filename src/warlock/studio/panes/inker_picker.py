@@ -71,21 +71,28 @@ from ..tokens import sp
 #: own default, ``layout.SIDEBAR_W``) and 360 px -- and read back with
 #: ``imgui.get_cursor_pos_y()`` after the last control. The heading, target
 #: row, wheel, Value bar, Alpha bar, Space combo, a four-field numeric row and
-#: the hex field come to 519 px at every one of those three widths (the wheel
-#: is the only thing here that resizes with the sidebar, and nothing else
-#: wraps), on a document holding a palette slot -- the taller of the two
-#: cases, since editing a slot adds the "Editing palette slot N" line. A floor
-#: shorter than the content it enumerates protects nothing, which is the whole
-#: reason this is measured on every layout change rather than carried over
-#: from the last one.
-PICKER_FLOOR = 519.0
+#: the hex field came to 519 px at every one of those three widths at the
+#: original ``WHEEL_DIAMETER`` of 150 (the wheel is the only thing here that
+#: resizes with the sidebar, and nothing else wraps), on a document holding a
+#: palette slot -- the taller of the two cases, since editing a slot adds the
+#: "Editing palette slot N" line.
+#:
+#: **2026-09-16: derived, not re-measured with a real frame.** The wheel grew
+#: from 150 to 190 design px (below) to read less cramped; it is drawn as a
+#: single square ``invisible_button(diameter, diameter)`` in the vertical
+#: stack, so it is the only element whose height changed and it changed by
+#: exactly ``190 - 150 = 40`` px -- nothing above or below it in the pane
+#: shifted shape. This floor is that arithmetic (``519 + 40``), not a fresh
+#: three-widths render; run ``/exercise-mode inker`` once to confirm nothing
+#: clips (the hex field and numeric row sit right below the wheel) before
+#: trusting it the way the rest of this file's history does.
+PICKER_FLOOR = 559.0
 
 #: The wheel's own diameter, in design px, before it is clamped to whatever
-#: width the sidebar actually has (see :func:`_wheel`). Chosen so the wheel,
-#: the two bars, the combo, a four-field row and the hex field fit inside
-#: ``PICKER_FLOOR`` at the sidebar's default 300 px width with room to spare,
-#: rather than so large the wheel alone dictates the floor.
-WHEEL_DIAMETER = 150.0
+#: width the sidebar actually has (see :func:`_wheel`). Raised from 150 to
+#: 190 on 2026-09-16 (user feedback: "make it larger, it's small") -- still
+#: comfortably inside ``PICKER_FLOOR`` at the sidebar's default 300 px width.
+WHEEL_DIAMETER = 190.0
 
 #: The two things the sliders can be pointed at. The foreground is what a
 #: left-drag writes with and the background what a right-drag does, which is

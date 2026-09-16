@@ -45,8 +45,44 @@ CHARACTER_KEY = "familiar/character"
 #: ``bottom_pane.max_height``'s own window-relative clamp -- room for a short
 #: scrollable transcript plus one input row. Not derived from content height:
 #: a pane that resizes itself every frame to fit a variable-length transcript
-#: would fight the layout it sits in rather than the user's own toggle.
+#: would fight the layout it sits in rather than the user's own toggle. This
+#: is only the *starting* height now (2026-09-16) -- see :func:`pane_height`,
+#: which is what every caller actually reads.
 EXPANDED_H = 160.0
+
+#: Where a user-dragged pane height is persisted (``ctx.settings``), a plain
+#: top-level key the same way ``main.AGENT_SERVER_SETTING`` is -- one number,
+#: not worth a dict entry of its own.
+HEIGHT_SETTING = "familiar_pane_height"
+
+#: The narrowest a user may drag the pane to before expanded stops being
+#: worth the screen it costs -- room for roughly two transcript lines and the
+#: input row.
+MIN_EXPANDED_H = 100.0
+
+#: The widest a user may drag the pane to, before ``bottom_pane.max_height``'s
+#: own window-relative clamp gets a say. Generous -- a long back-and-forth is
+#: exactly when someone wants the transcript tall -- but still bounded, so a
+#: stray dependency on a settings file cannot hand this a value that eats the
+#: whole window.
+MAX_EXPANDED_H = 480.0
+
+
+def pane_height(ctx: Any) -> float:
+    """The expanded pane's height before :func:`bottom_pane.max_height`'s own
+    clamp -- the user's last drag if there was one, else :data:`EXPANDED_H`."""
+    stored = ctx.settings.get(HEIGHT_SETTING, EXPANDED_H)
+    try:
+        value = float(stored)
+    except (TypeError, ValueError):
+        return EXPANDED_H
+    return min(max(value, MIN_EXPANDED_H), MAX_EXPANDED_H)
+
+
+def set_pane_height(ctx: Any, value: float) -> None:
+    """Persist a drag of the handle above the pane, clamped the same way
+    :func:`pane_height` reads it back."""
+    ctx.settings.set(HEIGHT_SETTING, min(max(value, MIN_EXPANDED_H), MAX_EXPANDED_H))
 
 
 @dataclass
@@ -157,6 +193,19 @@ def thread_key(ctx: Any) -> tuple[str, str]:
 # --- submission ----------------------------------------------------------
 
 
+def _pending_ghost(ctx: Any, tab_uid: str) -> Any:
+    """The scratch document of the preview pending on *tab_uid*, or ``None``.
+
+    A prompt sent while a ghost is showing refines that ghost rather than the
+    real document (user, 2026-09-16: follow-ups used to be impossible until
+    Apply or Discard), so this is what the scene is read from and what the
+    reply's calls later run on top of."""
+    ui = ensure(ctx)
+    if not tab_uid or ui.preview_calls is None or ui.preview_tab_uid != tab_uid:
+        return None
+    return ui.preview_scratch
+
+
 def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     """The compact scene for *tab_uid*, or ``None`` with no tab open.
 
@@ -172,6 +221,14 @@ def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     from . import agent_clay
     from .familiar import contract
 
+    ghost = _pending_ghost(ctx, tab_uid)
+    if ghost is not None:
+        from . import familiar_preview
+
+        # Read from a clone of the ghost, so a refinement is written against
+        # what the user is looking at and the ghost itself is never touched.
+        scratch_ctx = familiar_preview.build(ghost)
+        ctx, tab_uid = scratch_ctx, scratch_ctx.tab_uid
     session = agent_clay.Session(tab_uid=tab_uid)
     scene_result = agent_clay.call(ctx, session, "clay_scene", {})
     structured = (
@@ -278,7 +335,12 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
             character_options=character_options,
         )
 
-    tag = {"thread_key": key, "tab_uid": tab_uid, "scene_captured": scene is not None}
+    tag = {
+        "thread_key": key,
+        "tab_uid": tab_uid,
+        "scene_captured": scene is not None,
+        "refine": _pending_ghost(ctx, tab_uid),
+    }
     if not ctx.submit(CHAT_KEY, run, tag=tag):
         return False
     ui = ensure(ctx)
@@ -314,7 +376,7 @@ def submit_build(ctx: Any, prompt: str) -> bool:
     def run() -> list[dict]:
         return svc_familiar.clay_build(ctx.svc, prompt, scene)
 
-    tag = {"thread_key": key, "tab_uid": tab_uid}
+    tag = {"thread_key": key, "tab_uid": tab_uid, "refine": _pending_ghost(ctx, tab_uid)}
     if not ctx.submit(BUILD_KEY, run, tag=tag):
         return False
     ui = ensure(ctx)
@@ -353,7 +415,9 @@ def on_task_done(ctx: Any, done: Any) -> None:
             if isinstance(result, Answer) and result.calls is not None:
                 # The router sent this one to Clay -- land it exactly like
                 # an explicit Build's own result, calls and all.
-                _run_build_preview(ctx, ui, tag.get("tab_uid", ""), result.calls)
+                _run_build_preview(
+                    ctx, ui, tag.get("tab_uid", ""), result.calls, refine=tag.get("refine")
+                )
                 return
             if (
                 isinstance(result, Answer)
@@ -396,12 +460,13 @@ def on_task_done(ctx: Any, done: Any) -> None:
         ui.thinking = ""
         if not done.ok:
             ui.reason, ui.message = _reason_and_message(done)
-            _clear_preview(ui)
+            if tag.get("refine") is None:
+                _clear_preview(ui)
             return
         calls = done.result if isinstance(done.result, list) else []
         ui.reason = None
         ui.message = None
-        _run_build_preview(ctx, ui, tag.get("tab_uid", ""), calls)
+        _run_build_preview(ctx, ui, tag.get("tab_uid", ""), calls, refine=tag.get("refine"))
         return
 
     if done.key == CHARACTER_KEY:
@@ -448,6 +513,22 @@ def _run_door(ctx: Any, action: dict[str, Any]) -> str:
     return "I'm not sure what to do with that."
 
 
+def _refusal_sentence(result: dict) -> str:
+    """The door's own sentence for a refused ``clay_batch``. A batch's text is
+    its whole structured payload dumped as JSON, so the readable sentence is
+    the one on the entry named by ``stopped_at``; a refusal of the batch
+    itself (a malformed entry, say) has no such entry and keeps its text."""
+    structured = result.get("structuredContent") or {}
+    stopped_at = structured.get("stopped_at")
+    results = structured.get("results") or []
+    if isinstance(stopped_at, int) and 0 <= stopped_at < len(results):
+        result = results[stopped_at]
+    content = result.get("content") or []
+    if content and isinstance(content[0], dict) and content[0].get("text"):
+        return str(content[0]["text"])
+    return "Familiar's build could not be previewed."
+
+
 def _clear_preview(ui: FamiliarUIState) -> None:
     ui.preview_calls = None
     ui.preview_scratch = None
@@ -455,11 +536,15 @@ def _clear_preview(ui: FamiliarUIState) -> None:
     ui.preview_tab_uid = ""
 
 
-def _run_build_preview(ctx: Any, ui: FamiliarUIState, tab_uid: str, calls: list[dict]) -> None:
-    """Run *calls* against a scratch clone of *tab_uid*'s document, one at a
-    time, stopping at the first refusal (:func:`~.familiar_preview.
-    run_scratch`'s own contract) -- and show the ghost the moment the whole
-    list has run clean."""
+def _run_build_preview(
+    ctx: Any, ui: FamiliarUIState, tab_uid: str, calls: list[dict], *, refine: Any = None
+) -> None:
+    """Run *calls* as one batch against a scratch clone of *tab_uid*'s
+    document -- or, when *refine* is the ghost a follow-up was asked against,
+    against a clone of that ghost -- and show the result as the ghost the
+    moment it has run clean. A refinement's diff is still taken against the
+    real document, so Apply lands the first build and every follow-up at
+    once."""
     from . import clay_mode, familiar_preview
     from .clay import scratch as clay_scratch
 
@@ -483,25 +568,29 @@ def _run_build_preview(ctx: Any, ui: FamiliarUIState, tab_uid: str, calls: list[
         ui.reason = None
         return
 
-    scratch_ctx = familiar_preview.build(tab.doc)
-    for entry in calls:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        args = entry.get("arguments") if isinstance(entry, dict) else {}
-        result = familiar_preview.run_scratch(scratch_ctx, name, args or {})
-        if result.get("isError"):
-            content = result.get("content") or []
-            text = (
-                content[0].get("text")
-                if content and isinstance(content[0], dict)
-                else "Familiar's build could not be previewed."
-            )
-            ui.message = text
-            ui.reason = "parse"
-            return
+    if refine is not None and (ui.preview_scratch is not refine or ui.preview_tab_uid != tab_uid):
+        # Applied or discarded while the model was thinking: these calls were
+        # written against a ghost that is gone, and on the real document they
+        # would address objects that are not there.
+        ui.message = "the preview changed -- preview again"
+        ui.reason = None
+        return
+    base_calls = list(ui.preview_calls or []) if refine is not None else []
+    scratch_ctx = familiar_preview.build(refine if refine is not None else tab.doc)
+    # One clay_batch, never call by call: the model names objects made earlier
+    # in the same reply as {"$ref": "<name>"}, which only a batch resolves --
+    # it is the shape the training data, the eval and the door all share. Run
+    # one at a time, the first $ref was refused ("Build the Eiffel Tower" came
+    # back as clay_boolean's "uids must be a list of integers.", 2026-09-16).
+    result = familiar_preview.run_scratch(scratch_ctx, "clay_batch", {"calls": calls})
+    if result.get("isError"):
+        ui.message = _refusal_sentence(result)
+        ui.reason = "parse"
+        return
 
     scratch_doc = scratch_ctx.state.clay.get(scratch_ctx.tab_uid).doc
     diff = clay_scratch.diff(tab.doc, scratch_doc)
-    ui.preview_calls = calls
+    ui.preview_calls = base_calls + list(calls)
     ui.preview_scratch = scratch_doc
     ui.preview_diff = diff
     ui.preview_tab_uid = tab_uid
@@ -704,16 +793,55 @@ def draw_expanded(ctx: Any) -> None:
     """
     from imgui_bundle import imgui
 
-    from . import controls
+    from . import controls, theme, tokens
 
     ui = ensure(ctx)
     key = thread_key(ctx)
     turns = ctx.familiar_threads.get(key) if getattr(ctx, "familiar_threads", None) else ()
 
-    imgui.begin_child("##familiar-transcript", (0, 60), imgui.ChildFlags_.borders.value)
+    # The transcript takes whatever the pane's own drag (bottom_pane.draw)
+    # leaves after a rough estimate of what still has to draw below it --
+    # the message line, and either the input row, the preview buttons or the
+    # taller plan card. Not exact (the plan card's real height depends on how
+    # much of its summary is present), but the alternative -- a hardcoded
+    # transcript height -- is the defect this pane shipped with: dragging the
+    # handle above it would grow the pane while the transcript itself stayed
+    # a fixed 60px, all of the new room going to blank space beneath it.
+    footer = imgui.get_frame_height_with_spacing()
+    if ui.message:
+        footer += imgui.get_text_line_height_with_spacing()
+    if ui.plan is not None:
+        footer += imgui.get_frame_height_with_spacing() * 4.0
+    if ui.preview_calls is not None:
+        footer += imgui.get_frame_height_with_spacing()
+    transcript_h = max(tokens.sp(40.0), imgui.get_content_region_avail().y - footer)
+
+    # A turn already at the bottom stays pinned to it as new ones arrive; one
+    # scrolled up to reread history is left alone. Read *before* this frame's
+    # content is drawn, against last frame's scroll range, which is the
+    # standard chat-log idiom -- there is no other point at which "was the
+    # user already at the bottom" can be asked.
+    was_at_bottom = imgui.get_scroll_y() >= imgui.get_scroll_max_y() - 1.0
+
+    pad = tokens.sp(tokens.SP_2)
+    imgui.push_style_var(imgui.StyleVar_.window_padding.value, (pad, pad))
+    imgui.push_style_var(imgui.StyleVar_.item_spacing.value, (pad, pad * 0.5))
+    imgui.begin_child("##familiar-transcript", (0, transcript_h), imgui.ChildFlags_.borders.value)
+    wrap_width = imgui.get_content_region_avail().x
     for turn_idx, turn in enumerate(turns[-20:]):
         prefix = "You: " if turn.role == "user" else "Familiar: "
-        imgui.text_wrapped(prefix + turn.text)
+        text = prefix + turn.text
+        bubble = theme.BUBBLE_USER if turn.role == "user" else theme.BUBBLE_ASSISTANT
+        size = imgui.calc_text_size(text, None, False, wrap_width)
+        origin = imgui.get_cursor_screen_pos()
+        draw_list = imgui.get_window_draw_list()
+        draw_list.add_rect_filled(
+            (origin.x - pad * 0.5, origin.y - pad * 0.25),
+            (origin.x + size.x + pad * 0.5, origin.y + size.y + pad * 0.25),
+            imgui.get_color_u32(imgui.ImVec4(*theme.rgba(bubble))),
+            rounding=pad * 0.5,
+        )
+        imgui.text_wrapped(text)
         # A Manual answer's own [n] markers, each a small link back to the
         # section it came from -- ``cited`` already guarantees every one of
         # these actually appeared in the reply, so there is no dead link to
@@ -725,20 +853,24 @@ def draw_expanded(ctx: Any) -> None:
             label = f"[{citation.n}] {citation.title_path}##familiar-cite-{turn_idx}-{cite_idx}"
             if controls.small_button(label):
                 follow_citation(ctx, citation)
+    if was_at_bottom:
+        imgui.set_scroll_here_y(1.0)
     imgui.end_child()
+    imgui.pop_style_var(2)
 
     if ui.message:
-        from . import theme
-
         imgui.text_colored(imgui.ImVec4(*theme.rgba(theme.WARN)), ui.message)
 
-    if ui.preview_calls is not None:
-        if controls.small_button("Apply##familiar/apply"):
+    pending = ui.preview_calls is not None
+    if pending:
+        # Disabled while Familiar is thinking: the reply is a refinement of
+        # this ghost, and applying or discarding it underneath would only make
+        # that reply land as "preview again".
+        if controls.small_button("Apply##familiar/apply", enabled=not ui.thinking):
             apply_preview(ctx)
         imgui.same_line()
-        if controls.small_button("Discard##familiar/discard"):
+        if controls.small_button("Discard##familiar/discard", enabled=not ui.thinking):
             discard_preview(ctx)
-        return
 
     if ui.plan is not None:
         # T7: a Clay preview (checked above) always wins the pane's one row
@@ -749,8 +881,9 @@ def draw_expanded(ctx: Any) -> None:
         return
 
     imgui.set_next_item_width(-1.0)
+    hint = "Refine the preview..." if pending else "Ask Familiar..."
     _changed, ui.input_text = controls.input_text_with_hint(
-        "##familiar-input", "Ask Familiar...", ui.input_text
+        "##familiar-input", hint, ui.input_text
     )
     # Not ``changed and Enter``: pressing Enter does not change the text, so
     # that pairing never fired. Enter deactivates a single-line field on the

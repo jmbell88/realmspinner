@@ -258,7 +258,9 @@ the plan could not act on (a look the species does not offer, say) is named unde
 dropped. In **Clay**, with a document open, the expanded pane also offers **Build**:
 describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
 **Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
-decides that is what you meant. Building needs the trained Clay model (`familiar_v1.0`); until that model replaces the
+decides that is what you meant. The input stays open while a ghost is showing: a follow-up ("make it taller") refines
+the ghost rather than the document, and **Apply** lands the build and every refinement as one undo step. Building
+needs the trained Clay model (`familiar_v1.0`); until that model replaces the
 testing pin, a Clay build answers with a plain sentence saying so rather than a ghost, however it was asked for. Each
 document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and
 every other mode without a document of its own shares one Studio-wide thread.

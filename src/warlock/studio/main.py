@@ -4177,7 +4177,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # the next item also consumes the parent's item spacing. Reserve both
         # so the shared status line is never clipped at the host's lower edge,
         # especially when that spacing is doubled by UI scale.
-        status_reserve = tokens.sp(bottom_pane.height(ctx)) + imgui.get_style().item_spacing.y
+        status_reserve = tokens.sp(bottom_pane.reserve(ctx)) + imgui.get_style().item_spacing.y
         imgui.begin_child("##content", (0, -status_reserve))
         from .panes import overlay
 
@@ -4977,7 +4977,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             ctx.state,
             (viewport.work_size.x, viewport.work_size.y),
             on_action=self._toast_action,
-            bottom_offset=tokens.sp(bottom_pane.height(ctx)),
+            bottom_offset=tokens.sp(bottom_pane.reserve(ctx)),
             title="Notifications",
         )
         # The first-run question owns the screen before any workflow modal.

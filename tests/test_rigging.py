@@ -28,6 +28,7 @@ EXPECTED_TEMPLATES = {
     "serpent",
     "biped_tail",
     "blob",
+    "blank",
 }
 
 
@@ -38,6 +39,20 @@ def test_both_templates_load():
 
 def test_every_shipped_template_parses():
     assert set(rigging.templates()) == EXPECTED_TEMPLATES
+
+
+def test_the_blank_template_is_hidden_from_the_catalogue_but_still_resolves():
+    """Poser's manual-rig bootstrap (2026-09-16): a real template
+    (``get_template``/``templates()`` both carry it, and every generic
+    per-template test above and below still runs against it), but
+    ``catalog()`` -- what every normal skeleton picker offers -- must omit
+    it, since fitting it automatically produces one bare bone and nothing
+    posable."""
+    assert "blank" in rigging.templates()
+    assert rigging.get_template("blank").hidden is True
+    assert "blank" not in {t["key"] for t in rigging.catalog()}
+    # Every non-hidden shipped template is still offered, unaffected.
+    assert {t["key"] for t in rigging.catalog()} == EXPECTED_TEMPLATES - {"blank"}
 
 
 @pytest.mark.parametrize("key", sorted(EXPECTED_TEMPLATES))

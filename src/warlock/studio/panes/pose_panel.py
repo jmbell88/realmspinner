@@ -67,6 +67,17 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
             ctx.submit(
                 rig_key, svc_rig.create_rig, ctx.svc, job["id"], template=stage_rig.skeleton(ctx)
             )
+        imgui.same_line()
+        if widgets.disabled_button(
+            "Rig manually", not ctx.busy(rig_key), reason="This mesh is already being rigged."
+        ):
+            # Same submit key as the automatic button: a mesh cannot be both
+            # rigs at once. "blank" is a real, hidden template (one root
+            # bone) fitted through the identical Blender pass every rig
+            # already runs, so what lands is a genuine rig.glb the skeleton
+            # editor (Poser -> Edit skeleton) can build out from nothing by
+            # hand -- Add child, Split, Attach limb, drag to reposition.
+            ctx.submit(rig_key, svc_rig.create_rig, ctx.svc, job["id"], template="blank")
         return
 
     viewer = ctx.viewer
