@@ -25,6 +25,7 @@ is loaded, which is a worse lie than the one being replaced.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import json
 import logging
@@ -217,14 +218,30 @@ def _min_window_size(monitor_scale: float) -> tuple[int, int]:
 
 
 def _desktop_size(pygame: Any) -> tuple[int, int] | None:
-    """The primary display's size in physical pixels, or None if SDL cannot say.
+    """The area to clamp the startup window's *client* size to.
 
-    ``get_desktop_sizes`` is the whole-display size rather than the work area,
-    so this is a ceiling on what can be *asked for*, not a promise the window
-    will not sit under the taskbar. That is the honest guarantee available: SDL
-    exposes no work area, and a window one taskbar too tall is recoverable
-    where one whose title bar is off the bottom of the screen is not.
+    Prefers :func:`dpi.work_area` -- the desktop minus the taskbar (and any
+    docked toolbars) -- over ``get_desktop_sizes``'s whole-display size,
+    because a client size clamped only to the whole display could still fit
+    a window whose bottom edge lands under the taskbar: Familiar's Build/Send
+    row did exactly that (2026-09-16). ``get_desktop_sizes`` is the fallback
+    for whatever isn't Windows, or where the work-area query itself fails --
+    a ceiling on what can be *asked for*, not a promise the window won't sit
+    under the taskbar, but better than nothing.
+
+    This is still only half the fix: it bounds the client area passed to
+    ``set_mode``, not the outer frame (title bar included) the window ends
+    up with. See ``setup_window``'s call to ``dpi.fit_window_to_work_area``
+    for the other half, applied once the window -- and therefore its real
+    frame size -- exists.
     """
+    from . import dpi
+
+    area = dpi.work_area()
+    if area is not None:
+        _, _, width, height = area
+        if width >= 1 and height >= 1:
+            return (int(width), int(height))
     try:
         sizes = pygame.display.get_desktop_sizes()
     except Exception:  # pragma: no cover - SDL without a display
@@ -837,6 +854,27 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
                 "happen over Remote Desktop or in a virtual machine, where the "
                 "session offers no hardware OpenGL.",
             ) from exc
+        if not size_override:
+            # ``size`` above is the client area only; the title bar and frame
+            # SDL adds on top of it push the outer window further down/right
+            # than that clamp can see, which is how Familiar's Build/Send row
+            # ended up under the taskbar with a client size that "fit"
+            # (2026-09-16). Skipped under ``size_override`` -- the screenshot
+            # harness asked for an exact framebuffer, and moving the window
+            # would not change that, but a stray SetWindowPos on a headless
+            # CI runner is one more thing that could fail for no reason.
+            #
+            # The resulting VIDEORESIZE is drained by the splash loop, which
+            # deliberately does not persist a size, so the fitted size is not
+            # stored -- it does not need to be: the fit is re-applied on every
+            # launch and is a no-op once the window already fits, and imgui
+            # reads ``get_window_size`` fresh each frame. Startup only: a
+            # window the user later drags under the taskbar is left alone.
+            # Silent on purpose: ``get_wm_info`` has no ``"window"`` off
+            # Windows or under a stand-in video driver, and a window left one
+            # taskbar too low is the pre-fix state, never worth a startup crash.
+            with contextlib.suppress(Exception):
+                dpi.fit_window_to_work_area(pygame.display.get_wm_info()["window"])
         pygame.display.set_caption(WINDOW_TITLE)
         # Dropped files are how a reference image gets in without a dialog.
         pygame.event.set_allowed(None)

@@ -259,7 +259,10 @@ dropped. In **Clay**, with a document open, the expanded pane also offers **Buil
 describe what to add and Familiar proposes it as a translucent ghost over your document, with **Apply** and
 **Discard** beside it once it lands — the same ghost a Send message routed to a Clay build lands as, if the router
 decides that is what you meant. The input stays open while a ghost is showing: a follow-up ("make it taller") refines
-the ghost rather than the document, and **Apply** lands the build and every refinement as one undo step. Building
+the ghost rather than the document, and **Apply** lands the build and every refinement as one undo step. However a
+build finishes — a ghost ready to apply, or a refusal — Familiar says so as a line in the conversation and a toast, so
+you can tell it is done even with the pane collapsed; **Apply** and **Discard** answer the same way, with **Discard**
+skipping the toast. Building
 needs the trained Clay model (`familiar_v1.0`); until that model replaces the
 testing pin, a Clay build answers with a plain sentence saying so rather than a ghost, however it was asked for. Each
 document tab keeps its own conversation, the same way it keeps its own undo stack — closing a tab ends its thread, and

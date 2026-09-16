@@ -125,6 +125,17 @@ are in the commit each one names.
   agent had ever connected: stopping it now releases the pipe instead of
   leaving the listener thread holding it.
 
+- **Familiar says when it is done.** A build that lands as a ghost now
+  answers in the conversation and as a toast -- "Done: the preview adds 3
+  objects and changes 1" -- and so does a refusal, so a finished build is
+  visible with the pane collapsed. Apply answers "Applied to the scene.";
+  Discard answers in the conversation only.
+- **The window no longer opens under the taskbar.** The first-run size was
+  clamped to the whole display and counted only the client area, so Familiar's
+  Build and Send row sat behind the Windows taskbar. The window is now sized
+  to the work area and, once it exists, moved and shrunk so its title bar and
+  frame fit inside it too.
+
 ## 0.0.47 — 2026-09-14
 
 - **A rig's deformation review sheet shows the poses its labels name.** On a

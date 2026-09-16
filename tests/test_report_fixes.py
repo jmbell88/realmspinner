@@ -276,6 +276,83 @@ def test_a_display_that_reports_nothing_falls_back_to_the_default():
     assert _window_size(None, override=None, first_run_scale=1.0, desktop=None) == DEFAULT_SIZE
 
 
+# --- the startup window sat under the taskbar -----------------------------------
+#
+# Familiar's bottom pane put its Build/Send row under the Windows taskbar:
+# ``_desktop_size`` clamped the startup window to ``get_desktop_sizes()``, the
+# whole display, and even a client size that fit inside that whole-display
+# ceiling could still leave the window's outer frame (title bar included)
+# hanging past the work area's bottom edge. Fixed 2026-09-16 with the primary
+# monitor's work area (``dpi.work_area``) preferred for the client-size clamp,
+# plus a post-``set_mode`` frame fit (``dpi.fit_window_to_work_area``) for the
+# title bar and frame a client-size clamp cannot see at all.
+
+
+@pytest.mark.parametrize(
+    "outer,work,expected",
+    [
+        # Already inside: no move, so a caller can skip SetWindowPos entirely.
+        ((100, 100, 800, 600), (0, 0, 1920, 1040), None),
+        # Too tall for the work area: shrunk to fit, then pulled back inside.
+        ((0, 0, 1600, 1200), (0, 0, 1920, 1040), (0, 0, 1600, 1040)),
+        # Bottom edge under a bottom taskbar: moved up, not shrunk -- this is
+        # Familiar's actual defect shape (a window that already fit sideways).
+        ((0, 900, 800, 600), (0, 0, 1920, 1040), (0, 440, 800, 600)),
+        # Taskbar on the left: the work area's own x is > 0, and a window
+        # sitting at x=0 has to move right, not just get clipped in place.
+        ((0, 0, 800, 600), (40, 0, 1880, 1080), (40, 0, 800, 600)),
+        # Taskbar on top: the work area's own y is > 0.
+        ((0, 0, 800, 600), (0, 40, 1920, 1040), (0, 40, 800, 600)),
+    ],
+)
+def test_fit_rect(outer, work, expected):
+    """Pure geometry, kept separate from the three Win32 calls
+    (``MonitorFromWindow``/``GetMonitorInfoW``/``GetWindowRect``) that supply
+    ``fit_window_to_work_area``'s two rects and cannot be exercised off
+    Windows."""
+    from warlock.studio.dpi import fit_rect
+
+    assert fit_rect(outer, work) == expected
+
+
+def test_desktop_size_prefers_the_work_area(monkeypatch):
+    """The old ``_desktop_size`` clamped only to the whole display, which a
+    window can still slip under the taskbar within -- that is exactly how
+    Familiar's Build/Send row ended up hidden. This fails against that code:
+    it never imported ``dpi`` or called ``work_area`` at all, so patching
+    ``work_area`` changes nothing and the assertion below sees whatever
+    ``get_desktop_sizes`` returned instead (here, an exception turned into
+    ``None`` by the old function's blanket ``except``).
+    """
+    from warlock.studio import dpi, main
+
+    monkeypatch.setattr(dpi, "work_area", lambda: (0, 0, 1920, 1040))
+
+    class _FakePygame:
+        class display:
+            @staticmethod
+            def get_desktop_sizes():
+                raise AssertionError("get_desktop_sizes should not be reached")
+
+    assert main._desktop_size(_FakePygame) == (1920, 1040)
+
+
+def test_desktop_size_falls_back_to_get_desktop_sizes(monkeypatch):
+    """Off Windows, or if ``SystemParametersInfoW`` itself fails, ``work_area``
+    returns None and the whole-display size is still better than nothing."""
+    from warlock.studio import dpi, main
+
+    monkeypatch.setattr(dpi, "work_area", lambda: None)
+
+    class _FakePygame:
+        class display:
+            @staticmethod
+            def get_desktop_sizes():
+                return [(1920, 1080)]
+
+    assert main._desktop_size(_FakePygame) == (1920, 1080)
+
+
 # --- writers that truncated the user's only copy -------------------------------
 
 

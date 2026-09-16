@@ -28,6 +28,7 @@ from __future__ import annotations
 import concurrent.futures
 import dataclasses
 import threading
+import time
 from typing import Any
 
 import httpx
@@ -35,6 +36,7 @@ import httpx
 from .. import models
 from ..pipelines import llama, llama_client
 from ..studio.familiar import character_plan, contract, doors, retrieval, router
+from . import familiar_log
 from .errors import ServiceError
 
 #: The fixed vocabulary a :class:`FamiliarRefusal` names itself with. Every
@@ -97,10 +99,15 @@ def _call(
 ) -> str:
     if getattr(svc, "worker", None) is None:
         # ``call_on_loop`` returns None with no worker rather than raising, so
-        # without this a chat would "succeed" with no reply at all.
+        # without this a chat would "succeed" with no reply at all. Not a
+        # round trip that ever reached the model, so it is not logged below --
+        # there is no request to have a record of.
         raise FamiliarRefusal("Familiar is not available in this session.", reason="missing")
+    started = time.monotonic()
+    reply: str | None = None
+    error: FamiliarRefusal | None = None
     try:
-        return svc.call_on_loop(
+        reply = svc.call_on_loop(
             lambda: llama_client.chat(
                 svc.worker.familiar,
                 messages,
@@ -112,17 +119,20 @@ def _call(
             ),
             timeout=LOOP_TIMEOUT,
         )
+        return reply
     except (TimeoutError, concurrent.futures.TimeoutError) as exc:
-        raise FamiliarRefusal(
+        error = FamiliarRefusal(
             "Familiar did not answer in time -- try again.", reason="unhealthy"
-        ) from exc
+        )
+        raise error from exc
     except ValueError as exc:
         # contract.output_budget's own refusal: the prompt left no room for a
         # real reply. Not a RuntimeError, so it needs its own except clause,
         # but it is the same "too_large" bucket a reply over MAX_RESPONSE_BYTES
         # lands in -- both mean "this request does not fit", one on the way in
         # and one on the way out.
-        raise FamiliarRefusal(str(exc), reason="too_large") from exc
+        error = FamiliarRefusal(str(exc), reason="too_large")
+        raise error from exc
     except httpx.HTTPError as exc:
         # The 2026-09-16 audit (familiar-01): httpx's own transport exceptions
         # (ReadTimeout, ConnectError, RemoteProtocolError, ...) are not
@@ -133,11 +143,32 @@ def _call(
         # could (LOOP_TIMEOUT = STARTUP_TIMEOUT + CHAT_TIMEOUT + 30), so a
         # slow or hung llama-server reply raised a raw httpx exception instead
         # of the "did not answer in time" sentence this bucket exists for.
-        raise FamiliarRefusal(
+        error = FamiliarRefusal(
             "Familiar did not answer in time -- try again.", reason="unhealthy"
-        ) from exc
+        )
+        raise error from exc
     except RuntimeError as exc:
-        raise FamiliarRefusal(str(exc), reason=_reason_for(str(exc))) from exc
+        error = FamiliarRefusal(str(exc), reason=_reason_for(str(exc)))
+        raise error from exc
+    finally:
+        # dev-only (WARLOCK_FAMILIAR_LOG, familiar_log.py's own docstring):
+        # one record per model round trip regardless of which of the above
+        # exits it took, so try/finally rather than a record call duplicated
+        # at every return/raise site.
+        if familiar_log.enabled():
+            familiar_log.record(
+                "request",
+                skill=skill,
+                slot=slot,
+                messages=messages,
+                sampling=sampling,
+                response_format=response_format,
+                elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                reply=reply,
+                error_type=None if error is None else type(error).__name__,
+                error_message=None if error is None else error.message,
+                reason=None if error is None else error.reason,
+            )
 
 
 def chat_reply(svc: Any, prompt: str, history: tuple[Any, ...] = ()) -> str:

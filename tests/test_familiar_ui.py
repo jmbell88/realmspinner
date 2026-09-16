@@ -455,6 +455,147 @@ def test_discard_clears_the_ghost_without_touching_the_document():
     assert ctx.clay_view.cleared == 1
 
 
+# --- 2026-09-16: a build's own "done" confirmation lands as a turn + toast --
+
+
+def test_a_clean_preview_appends_a_familiar_turn_naming_the_counts_and_toasts():
+    """A ghost that landed clean must say so in the transcript, not just set
+    the ghost silently -- with the pane collapsed there was previously
+    nothing to see at all (user, 2026-09-16: "it needs to send a
+    confirmation... that it is done")."""
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert (
+        turns[-1].text
+        == "Done: the preview adds 1 object. Apply to keep it or Discard to drop it."
+    )
+    assert ctx.toasts[-1] == turns[-1].text
+
+
+def test_an_empty_diff_preview_says_it_changed_nothing():
+    """A batch that ran clean but touched nothing (a selection no-op) must
+    not claim to have added or changed anything."""
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+    calls = [{"name": "clay_select", "arguments": {"uids": []}}]
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == "Done, but the build changed nothing."
+    assert ctx.toasts[-1] == turns[-1].text
+
+
+def test_a_refused_preview_appends_the_refusal_as_a_turn():
+    """The same parse refusal :func:`test_a_refused_build_reports_the_
+    refused_call_s_own_sentence` checks against ``ui.message`` must also land
+    in the transcript, with a toast -- a refusal used to only ever set
+    ``ui.message``, invisible with the pane collapsed."""
+    ctx = _FakeCtx(bd.ClayDoc(), mode="clay")
+    calls = [
+        {"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "base"}},
+        {"name": "clay_delete", "arguments": {"uids": [{"$ref": "nothing_called_this"}]}},
+    ]
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    ui = familiar_ui.ensure(ctx)
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == ui.message
+    assert "nothing_called_this" in turns[-1].text
+    assert ctx.toasts[-1] == turns[-1].text
+
+
+def test_a_failed_build_task_appends_a_turn():
+    """A BUILD_KEY task that failed outright (the door itself raised) must
+    also say so in the transcript, the same as a refusal landed by
+    ``_run_build_preview`` itself."""
+    ctx = _FakeCtx(mode="clay")
+    error = svc_familiar.FamiliarRefusal(
+        "Familiar is not available in this session.", reason="missing"
+    )
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        error=error,
+        message=error.message,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == error.message
+    assert ctx.toasts[-1] == error.message
+
+
+def test_apply_appends_applied_to_the_scene():
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+    familiar_ui.on_task_done(ctx, done)
+
+    familiar_ui.apply_preview(ctx)
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == "Applied to the scene."
+    assert ctx.toasts[-1] == "Applied to the scene."
+
+
+def test_discard_appends_a_turn_without_toasting():
+    doc = bd.ClayDoc()
+    ctx = _FakeCtx(doc, mode="clay")
+    calls = _canned_calls()
+    done = Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+    familiar_ui.on_task_done(ctx, done)
+    toasts_before = list(ctx.toasts)
+
+    familiar_ui.discard_preview(ctx)
+
+    turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
+    assert turns, "nothing landed in the transcript"
+    assert turns[-1].role == "familiar"
+    assert turns[-1].text == "Preview discarded."
+    assert ctx.toasts == toasts_before
+
+
 # --- T6: Send routes through the router --------------------------------
 
 

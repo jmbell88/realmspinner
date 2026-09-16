@@ -322,27 +322,48 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     character_options = _character_options(ctx)
 
     from ..service import familiar as svc_familiar
+    from ..service import familiar_log
+
+    # T5's dev-only log (WARLOCK_FAMILIAR_LOG): minted here, on the frame
+    # thread, and carried into ``run()``'s closure so every record the
+    # request/outcome pair produces on the worker thread groups back to the
+    # same round trip this submit accepted.
+    exchange_id = familiar_log.new_exchange_id()
+    refine = _pending_ghost(ctx, tab_uid)
 
     def run() -> Any:
-        return svc_familiar.ask(
-            ctx.svc,
-            prompt,
-            mode=mode,
-            history=history,
-            scene=scene,
-            destinations=tuple(destinations),
-            asset_types=asset_types,
-            character_options=character_options,
-        )
+        with familiar_log.exchange(exchange_id):
+            return svc_familiar.ask(
+                ctx.svc,
+                prompt,
+                mode=mode,
+                history=history,
+                scene=scene,
+                destinations=tuple(destinations),
+                asset_types=asset_types,
+                character_options=character_options,
+            )
 
     tag = {
         "thread_key": key,
         "tab_uid": tab_uid,
         "scene_captured": scene is not None,
-        "refine": _pending_ghost(ctx, tab_uid),
+        "refine": refine,
+        "exchange": exchange_id,
     }
     if not ctx.submit(CHAT_KEY, run, tag=tag):
         return False
+    if familiar_log.enabled():
+        with familiar_log.exchange(exchange_id):
+            familiar_log.record(
+                "submit",
+                submit_kind="chat",
+                prompt=prompt,
+                mode=mode,
+                tab_uid=tab_uid,
+                scene=scene,
+                refine=refine is not None,
+            )
     ui = ensure(ctx)
     ui.thinking = "chat"
     ui.reason = None
@@ -372,13 +393,29 @@ def submit_build(ctx: Any, prompt: str) -> bool:
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
 
     from ..service import familiar as svc_familiar
+    from ..service import familiar_log
+
+    exchange_id = familiar_log.new_exchange_id()
+    refine = _pending_ghost(ctx, tab_uid)
 
     def run() -> list[dict]:
-        return svc_familiar.clay_build(ctx.svc, prompt, scene)
+        with familiar_log.exchange(exchange_id):
+            return svc_familiar.clay_build(ctx.svc, prompt, scene)
 
-    tag = {"thread_key": key, "tab_uid": tab_uid, "refine": _pending_ghost(ctx, tab_uid)}
+    tag = {"thread_key": key, "tab_uid": tab_uid, "refine": refine, "exchange": exchange_id}
     if not ctx.submit(BUILD_KEY, run, tag=tag):
         return False
+    if familiar_log.enabled():
+        with familiar_log.exchange(exchange_id):
+            familiar_log.record(
+                "submit",
+                submit_kind="build",
+                prompt=prompt,
+                mode="clay",
+                tab_uid=tab_uid,
+                scene=scene,
+                refine=refine is not None,
+            )
     ui = ensure(ctx)
     ui.thinking = "build"
     ui.reason = None
@@ -396,6 +433,67 @@ def _reason_and_message(done: Any) -> tuple[str | None, str]:
     return reason, message
 
 
+def _say(ctx: Any, thread_key: Any, text: str, *, toast: bool = True) -> None:
+    """Append a Familiar turn to *thread_key*'s transcript and, unless
+    *toast* is false, toast it too.
+
+    The "done" confirmation (user, 2026-09-16: "after the assistant
+    considers itself done, it needs to send a confirmation to the user that
+    it is done with its job" -- transcript turn plus toast, the user's own
+    choice): before this, a build preview landing or a refusal only ever set
+    ``ui.message``/the ghost silently, so with the pane collapsed there was
+    nothing to see. Tolerates a missing thread/``ctx.familiar_threads``
+    exactly like the CHARACTER_KEY branch this was factored out of always
+    did -- a caller with no thread key (no document tab, an early return
+    before one was captured) still gets its toast.
+    """
+    if not text:
+        # A refusal with no sentence (``familiar_preview.apply`` answering
+        # ``ok: False`` without a ``message``) must not become a ``None``
+        # turn: ``draw_expanded`` concatenates the prefix onto it.
+        return
+    threads_obj = getattr(ctx, "familiar_threads", None)
+    if thread_key is not None and threads_obj is not None:
+        from .familiar import threads
+
+        threads_obj.append(thread_key, threads.Turn("familiar", text))
+    if toast:
+        toast_fn = getattr(ctx, "toast", None)
+        if toast_fn is not None:
+            toast_fn(text)
+
+
+def _log_outcome(done: Any, tag: dict) -> None:
+    """Dev-only (WARLOCK_FAMILIAR_LOG): one ``outcome`` record per landed
+    task, carrying the same exchange id its ``submit``/``request`` records
+    used -- see ``familiar_log.py``'s own docstring."""
+    from ..service import familiar_log
+
+    if not familiar_log.enabled():
+        return
+    from ..service.familiar import Answer
+
+    result = done.result
+    skill = text = calls = action = None
+    if isinstance(result, Answer):
+        skill, text, calls, action = result.skill, result.text, result.calls, result.action
+    elif isinstance(result, list):
+        calls = result
+    reason = getattr(done.error, "reason", None) if done.error is not None else None
+    with familiar_log.exchange(tag.get("exchange")):
+        familiar_log.record(
+            "outcome",
+            key=done.key,
+            ok=done.ok,
+            skill=skill,
+            text=text,
+            calls=calls,
+            action=action,
+            reason=reason,
+            message=None if done.ok else done.message,
+        )
+
+
 def on_task_done(ctx: Any, done: Any) -> None:
     """Called from the app for :data:`CHAT_KEY`/:data:`BUILD_KEY`/
     :data:`CHARACTER_KEY`, the same way every other mode's ``on_task_done``
@@ -403,6 +501,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
     reaches here)."""
     ui = ensure(ctx)
     tag = done.tag if isinstance(done.tag, dict) else {}
+    _log_outcome(done, tag)
 
     if done.key == CHAT_KEY:
         ui.thinking = ""
@@ -416,7 +515,13 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 # The router sent this one to Clay -- land it exactly like
                 # an explicit Build's own result, calls and all.
                 _run_build_preview(
-                    ctx, ui, tag.get("tab_uid", ""), result.calls, refine=tag.get("refine")
+                    ctx,
+                    ui,
+                    tag.get("tab_uid", ""),
+                    result.calls,
+                    refine=tag.get("refine"),
+                    thread_key=tag.get("thread_key"),
+                    exchange=tag.get("exchange"),
                 )
                 return
             if (
@@ -453,20 +558,37 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
                 threads_obj.append(thread, threads.Turn("familiar", text, citations))
         else:
+            # A failed CHAT_KEY task is also where a routed build's own
+            # refusal lands (``ask`` calls ``clay_build`` directly for a
+            # ``clay_build``/``clay_edit`` route, so its ``FamiliarRefusal``
+            # fails the whole task rather than coming back as an ``Answer``)
+            # -- said here, once, for every CHAT_KEY failure rather than
+            # only the build-routed ones, since there is nothing in ``done``
+            # that tells the two apart.
             ui.reason, ui.message = _reason_and_message(done)
+            _say(ctx, tag.get("thread_key"), ui.message)
         return
 
     if done.key == BUILD_KEY:
         ui.thinking = ""
         if not done.ok:
             ui.reason, ui.message = _reason_and_message(done)
+            _say(ctx, tag.get("thread_key"), ui.message)
             if tag.get("refine") is None:
                 _clear_preview(ui)
             return
         calls = done.result if isinstance(done.result, list) else []
         ui.reason = None
         ui.message = None
-        _run_build_preview(ctx, ui, tag.get("tab_uid", ""), calls, refine=tag.get("refine"))
+        _run_build_preview(
+            ctx,
+            ui,
+            tag.get("tab_uid", ""),
+            calls,
+            refine=tag.get("refine"),
+            thread_key=tag.get("thread_key"),
+            exchange=tag.get("exchange"),
+        )
         return
 
     if done.key == CHARACTER_KEY:
@@ -479,16 +601,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             return
         ui.reason = None
         ui.message = None
-        thread = tag.get("thread_key")
-        threads_obj = getattr(ctx, "familiar_threads", None)
-        text = "Character queued -- it will appear in the Library."
-        if thread is not None and threads_obj is not None:
-            from .familiar import threads
-
-            threads_obj.append(thread, threads.Turn("familiar", text))
-        toast = getattr(ctx, "toast", None)
-        if toast is not None:
-            toast(text)
+        _say(ctx, tag.get("thread_key"), "Character queued -- it will appear in the Library.")
         return
 
 
@@ -536,15 +649,69 @@ def _clear_preview(ui: FamiliarUIState) -> None:
     ui.preview_tab_uid = ""
 
 
+def _preview_sentence(diff: Any) -> str:
+    """The "done" sentence a clean preview lands with (2026-09-16 brief: a
+    transcript turn naming what the preview does, not just the silent
+    ghost). Reads :class:`~.clay.scratch.PreviewDiff` -- ``added``/
+    ``removed`` and ``changed`` minus ``added`` (an added object is not also
+    counted as "changed") -- singular/plural per clause, and a clause is
+    dropped rather than read as "adds 0 objects" when its count is zero.
+    Removals are named too, not just additions and changes."""
+    if diff.empty:
+        return "Done, but the build changed nothing."
+    added = len(diff.added)
+    removed = len(diff.removed)
+    changed = len(diff.changed - diff.added)
+    clauses = []
+    if added:
+        clauses.append(f"adds {added} object{'s' if added != 1 else ''}")
+    if removed:
+        clauses.append(f"removes {removed} object{'s' if removed != 1 else ''}")
+    if changed:
+        clauses.append(f"changes {changed}")
+    body = " and ".join(clauses) if clauses else "changes the document"
+    return f"Done: the preview {body}. Apply to keep it or Discard to drop it."
+
+
+def _log_preview(exchange_id: Any, *, diff: Any = None, refusal: str | None = None) -> None:
+    """Dev-only (WARLOCK_FAMILIAR_LOG): one ``preview`` record per landed
+    build -- diff counts on a clean preview, the refusal sentence
+    otherwise."""
+    from ..service import familiar_log
+
+    if not familiar_log.enabled():
+        return
+    fields: dict[str, Any] = {}
+    if refusal is not None:
+        fields["refusal"] = refusal
+    if diff is not None:
+        fields.update(added=len(diff.added), removed=len(diff.removed), changed=len(diff.changed))
+    with familiar_log.exchange(exchange_id):
+        familiar_log.record("preview", **fields)
+
+
 def _run_build_preview(
-    ctx: Any, ui: FamiliarUIState, tab_uid: str, calls: list[dict], *, refine: Any = None
+    ctx: Any,
+    ui: FamiliarUIState,
+    tab_uid: str,
+    calls: list[dict],
+    *,
+    refine: Any = None,
+    thread_key: Any = None,
+    exchange: Any = None,
 ) -> None:
     """Run *calls* as one batch against a scratch clone of *tab_uid*'s
     document -- or, when *refine* is the ghost a follow-up was asked against,
     against a clone of that ghost -- and show the result as the ghost the
     moment it has run clean. A refinement's diff is still taken against the
     real document, so Apply lands the first build and every follow-up at
-    once."""
+    once.
+
+    *thread_key* -- the same ``(mode, tab_uid)`` the request was submitted
+    under -- is where the "done" sentence (:func:`_preview_sentence`, or one
+    of the refusals below) lands as a Familiar turn, via :func:`_say`;
+    *exchange* is the dev-log id the same round trip's ``submit``/``request``
+    records used."""
     from . import clay_mode, familiar_preview
     from .clay import scratch as clay_scratch
 
@@ -566,6 +733,8 @@ def _run_build_preview(
         # rather than showing a ghost for a document nobody is looking at.
         ui.message = "the document changed -- preview again"
         ui.reason = None
+        _log_preview(exchange, refusal=ui.message)
+        _say(ctx, thread_key, ui.message)
         return
 
     if refine is not None and (ui.preview_scratch is not refine or ui.preview_tab_uid != tab_uid):
@@ -574,6 +743,8 @@ def _run_build_preview(
         # would address objects that are not there.
         ui.message = "the preview changed -- preview again"
         ui.reason = None
+        _log_preview(exchange, refusal=ui.message)
+        _say(ctx, thread_key, ui.message)
         return
     base_calls = list(ui.preview_calls or []) if refine is not None else []
     scratch_ctx = familiar_preview.build(refine if refine is not None else tab.doc)
@@ -586,6 +757,8 @@ def _run_build_preview(
     if result.get("isError"):
         ui.message = _refusal_sentence(result)
         ui.reason = "parse"
+        _log_preview(exchange, refusal=ui.message)
+        _say(ctx, thread_key, ui.message)
         return
 
     scratch_doc = scratch_ctx.state.clay.get(scratch_ctx.tab_uid).doc
@@ -597,6 +770,8 @@ def _run_build_preview(
     view = getattr(ctx, "clay_view", None)
     if view is not None:
         view.set_preview(diff, scratch_doc)
+    _log_preview(exchange, diff=diff)
+    _say(ctx, thread_key, _preview_sentence(diff))
 
 
 def apply_preview(ctx: Any) -> None:
@@ -606,16 +781,22 @@ def apply_preview(ctx: Any) -> None:
     ui = ensure(ctx)
     if ui.preview_calls is None:
         return
+    from ..service import familiar_log
     from . import familiar_preview
 
     result = familiar_preview.apply(ctx, ui.preview_tab_uid, ui.preview_diff, ui.preview_scratch)
+    key = thread_key(ctx)
+    if familiar_log.enabled():
+        familiar_log.record("apply", ok=bool(result.get("ok")), message=result.get("message"))
     if not result.get("ok"):
         ui.message = result.get("message")
         ui.reason = None
+        _say(ctx, key, ui.message)
         return
     ui.message = None
     ui.reason = None
     _clear_preview(ui)
+    _say(ctx, key, "Applied to the scene.")
 
 
 def discard_preview(ctx: Any) -> None:
@@ -623,10 +804,17 @@ def discard_preview(ctx: Any) -> None:
     ui = ensure(ctx)
     if ui.preview_calls is None:
         return
+    from ..service import familiar_log
     from . import familiar_preview
 
     familiar_preview.discard(ctx, ui.preview_tab_uid)
+    if familiar_log.enabled():
+        familiar_log.record("discard")
+    key = thread_key(ctx)
     _clear_preview(ui)
+    # No toast (unlike Apply): discarding is a quiet "never mind", not a
+    # result to be told about across the room.
+    _say(ctx, key, "Preview discarded.", toast=False)
 
 
 # --- T7: the character plan card ------------------------------------------
@@ -684,15 +872,22 @@ def submit_character(ctx: Any) -> bool:
     plan = action["plan"]
 
     from ..service import familiar as svc_familiar
+    from ..service import familiar_log
+
+    exchange_id = familiar_log.new_exchange_id()
 
     def run() -> Any:
-        return svc_familiar.create_planned_character(
-            ctx.svc, action["prompt"], action["overrides"], plan.get("name")
-        )
+        with familiar_log.exchange(exchange_id):
+            return svc_familiar.create_planned_character(
+                ctx.svc, action["prompt"], action["overrides"], plan.get("name")
+            )
 
-    tag = {"thread_key": thread_key(ctx)}
+    tag = {"thread_key": thread_key(ctx), "exchange": exchange_id}
     if not ctx.submit(CHARACTER_KEY, run, tag=tag):
         return False
+    if familiar_log.enabled():
+        with familiar_log.exchange(exchange_id):
+            familiar_log.record("submit", submit_kind="character", prompt=action["prompt"])
     ui.plan = None
     ui.reason = None
     ui.message = None
