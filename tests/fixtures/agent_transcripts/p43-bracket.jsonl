@@ -1,0 +1,7 @@
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "base_plate", "params": {"size": [0.4, 0.02, 0.3]}, "translation": [0, 0.01, 0]}, "ok": true, "made": [11]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "box", "name": "vertical_plate", "params": {"size": [0.02, 0.3, 0.3]}, "translation": [-0.19, 0.15, 0]}, "ok": true, "made": [12]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "sweep", "name": "gusset", "params": {"outline": [[0, 0], [0.15, 0], [0, 0.15]], "depth": 0.1, "taper": 1, "twist": 0, "sections": 1}, "translation": [-0.18, 0.02, -0.05]}, "ok": true, "made": [13]}
+{"tool": "clay_transform", "arguments": {"uid": 13, "translation": [-0.105, 0.095, -0.05]}, "ok": true, "made": [13]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "cylinder", "name": "bolt_hole_1", "params": {"radius": 0.012, "height": 0.08, "segments": 24}, "translation": [0.05, 0.01, 0]}, "ok": true, "made": [14]}
+{"tool": "clay_add_primitive", "arguments": {"generator": "cylinder", "name": "bolt_hole_2", "params": {"radius": 0.012, "height": 0.08, "segments": 24}, "translation": [0.15, 0.01, 0]}, "ok": true, "made": [15]}
+{"tool": "clay_boolean", "arguments": {"kind": "difference", "uids": [11, 14, 15]}, "ok": true, "made": [11]}

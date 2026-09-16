@@ -891,7 +891,17 @@ def _resolve_uid(doc: Any, args: dict, key: str = "uid") -> tuple[Any, dict | No
     out separately -- three copies of one lookup, free to drift on the wording
     or the field name the moment one of them was edited and the others were
     not.
+
+    **An absent uid is a different refusal from an unknown one.** The
+    2026-09-15 Clay agent benchmark sitting's model called ``clay_select_by`` with no
+    arguments at all and was told "no object with uid None." -- naming a uid
+    it never passed, and pointing it at ``read_scene``, when re-reading the
+    scene could not have helped and the fix was in its own arguments. The
+    wording is ``clay_select_by``'s own for a missing query argument, so the
+    two missing-value refusals on one tool read as one sentence.
     """
+    if args.get(key) is None:
+        return None, fail(f"give a value for {key!r}.", field=key, recovery="fix_arguments")
     try:
         uid = int(args[key])
         obj = doc.by_uid(uid)

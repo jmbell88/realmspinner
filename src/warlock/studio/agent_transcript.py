@@ -15,8 +15,9 @@ refuses everywhere else in this codebase.
 
 See ``tests/test_agent_transcripts.py``'s own module docstring for the
 format itself (one JSON object per line, ``tool``/``arguments``/``ok``/
-``made``) and the reasoning behind every field in it -- that specification
-did not move, only the four functions that implement half of it.
+``made``, plus ``error`` on a refusal) and the reasoning behind every field
+in it -- that specification did not move, only the functions that implement
+half of it.
 """
 
 from __future__ import annotations
@@ -218,6 +219,36 @@ def remap(
 # --- writing a transcript, one line at a time --------------------------------
 
 
+def refusal_text(result: dict) -> str:
+    """The sentence a refused call answered with, or ``""`` if it carried
+    none -- the first ``text`` block of *result*'s own ``content``.
+
+    Its own function rather than two lines inside :func:`record` because it
+    is the third rule this module owns that both halves of a transcript have
+    to agree on, and the 2026-09-15 Clay agent benchmark sitting is what
+    earned it (``docs/measurements/2026-09-15-clay-agent-benchmark-results.md``).
+    That sitting recorded twelve refusals and kept none of their messages, so
+    ``2026-09-10-clay-agent-benchmark-preregistration.md``'s rule 5 -- "a
+    refusal an agent could not have avoided is a defect... written up as a
+    finding" -- had to be answered by replaying the file, and the replay
+    could not answer it: three of the twelve refused against live state the
+    transcript does not carry, and reproduced as *successes*. The one thing
+    that would have settled them was in hand at record time and thrown away.
+
+    The first text block rather than a join of all of them: every refusal
+    ``agent_clay.fail`` builds carries exactly one, and ``clay_batch``'s
+    envelope carries one whose text is the whole JSON reply -- which is
+    precisely what the caller was told, and so precisely what a later reader
+    of the transcript needs to see.
+    """
+    for block in result.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                return text
+    return ""
+
+
 def record(path: Path, tool: str, arguments: dict, result: dict) -> None:
     """Append one call to the transcript at *path*, in tier one's own line
     format -- the same shape :func:`remap`/:func:`produced_uids` above and
@@ -244,15 +275,31 @@ def record(path: Path, tool: str, arguments: dict, result: dict) -> None:
     transcript line describes: see that module's own comment for why a
     diagnostic that is off by default must never be able to break a call
     that is on.
+
+    **A refused call also carries ``error``**, :func:`refusal_text`'s answer
+    -- the fifth key, written only when the call was refused and only when
+    there was a message to write. A line that succeeded has exactly the four
+    keys it always had, which is what leaves every fixture already under
+    ``tests/fixtures/agent_transcripts/`` valid with nothing to migrate.
+    Kept because the alternative was tried: see :func:`refusal_text`.
     """
-    line = json.dumps(
-        {
-            "tool": tool,
-            "arguments": arguments,
-            "ok": not bool(result.get("isError", False)),
-            "made": produced_uids(result),
-        }
-    )
+    ok = not bool(result.get("isError", False))
+    entry: dict[str, Any] = {
+        "tool": tool,
+        "arguments": arguments,
+        "ok": ok,
+        "made": produced_uids(result),
+    }
+    # Only on a refusal, and only when there is one -- so every line an
+    # earlier build wrote, and every fixture under
+    # tests/fixtures/agent_transcripts/, is still exactly this format with
+    # nothing to migrate: tier one's loader reads ``ok`` and ``made`` and has
+    # never cared what else a line carries.
+    if not ok:
+        message = refusal_text(result)
+        if message:
+            entry["error"] = message
+    line = json.dumps(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")

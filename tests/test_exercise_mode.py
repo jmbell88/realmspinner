@@ -130,6 +130,57 @@ def test_isolate_home_clears_every_env_var_config_resolves_under_home():
     assert set(harness._ROOTS_UNDER_HOME) == expected
 
 
+def _isolate_with(monkeypatch, tmp_path, env: dict[str, str]) -> list[tuple]:
+    """Run ``isolate_home`` against a private copy of the environment, a fake
+    temp dir and a recording ``atexit`` -> every cleanup it registered.
+
+    ``os.environ`` is swapped for a plain dict rather than edited in place,
+    because ``isolate_home`` pops every root under home and repoints
+    ``WARLOCK_HOME`` -- in this process that is ``tests/conftest.py``'s own
+    pinned throwaway home, and a test that moved it would move it for every
+    test after this one in the same worker.
+    """
+    import os
+
+    harness = _load("_appharness")
+    fake_env = {k: v for k, v in os.environ.items() if k != "WARLOCK_HOME"}
+    fake_env.pop(harness.REAL_HOME_ENV, None)
+    fake_env.pop(harness.KEEP_HOME_ENV, None)
+    fake_env.update(env)
+    monkeypatch.setattr(os, "environ", fake_env)
+    home = tmp_path / "throwaway-home"
+    monkeypatch.setattr(harness.tempfile, "mkdtemp", lambda **_: str(home))
+    registered: list[tuple] = []
+    monkeypatch.setattr(harness.atexit, "register", lambda *a, **k: registered.append(a))
+
+    assert harness.isolate_home() == home
+    return registered
+
+
+def test_isolate_home_keeps_the_throwaway_home_when_told_to(monkeypatch, tmp_path):
+    """The 2026-09-15 Clay agent benchmark sitting.
+
+    ``agent_bench.py --serve`` ran a graded session whose two ``clay_export``
+    calls minted Library rows inside the throwaway home, and the atexit
+    cleanup deleted the whole directory the moment the window closed --
+    exactly the assets the benchmark's pre-registration says to keep until
+    its results are written up.
+    """
+    harness = _load("_appharness")
+    registered = _isolate_with(monkeypatch, tmp_path, {harness.KEEP_HOME_ENV: "1"})
+
+    assert registered == []
+
+
+def test_isolate_home_still_deletes_the_throwaway_home_by_default(monkeypatch, tmp_path):
+    """The other half: ``screenshot_modes.py`` and ``exercise_mode.py`` want
+    the cleanup, and keeping homes is opt-in for the one caller that needs
+    it, never the new default."""
+    registered = _isolate_with(monkeypatch, tmp_path, {})
+
+    assert [args[1] for args in registered] == [tmp_path / "throwaway-home"]
+
+
 def test_delta_names_only_the_components_that_moved(driver):
     before = ("inker", "", None, "brush", 4, (), 0, False, ())
     after = ("inker", "", None, "bucket", 4, (), 0, False, ())

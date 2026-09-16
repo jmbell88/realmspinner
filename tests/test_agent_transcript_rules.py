@@ -150,6 +150,53 @@ def test_record_marks_a_refusal_ok_false_with_nothing_made(tmp_path) -> None:
     assert line["made"] == []
 
 
+def test_record_keeps_the_refusal_message_a_refused_call_answered_with(tmp_path) -> None:
+    """The claim the 2026-09-15 Clay agent benchmark sitting bought at full price.
+
+    That sitting recorded twelve refusals and kept not one of their
+    messages, so the pre-registration's rule 5 -- every unavoidable refusal
+    is a defect and gets written up -- had to be answered by replaying the
+    file afterwards, and replay could not answer it: three of the twelve
+    refused against live application state a transcript does not carry, and
+    came back from the replay as *successes*. The sentence that would have
+    settled each one was in hand at record time.
+    """
+    path = tmp_path / "subject.jsonl"
+    refusal = {
+        "content": [{"type": "text", "text": "an object is already named 'seat'."}],
+        "isError": True,
+        "structuredContent": {"changed": False, "field": "name"},
+    }
+
+    agent_transcript.record(path, "clay_add_primitive", {"name": "seat"}, refusal)
+
+    (line,) = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    assert line.get("error") == "an object is already named 'seat'."
+
+
+def test_record_writes_no_error_key_at_all_for_a_call_that_succeeded(tmp_path) -> None:
+    """The other half, and the one that keeps every fixture already under
+    ``tests/fixtures/agent_transcripts/`` valid: a successful line carries
+    exactly the four keys it has always carried, so the format did not
+    change for anything that was not refused.
+    """
+    path = tmp_path / "subject.jsonl"
+    result = {
+        "content": [{"type": "text", "text": '{"uid": 3}'}],
+        "isError": False,
+        "structuredContent": {"uid": 3},
+    }
+
+    agent_transcript.record(path, "clay_add_primitive", {"generator": "box"}, result)
+
+    (line,) = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    assert "error" not in line
+
+
 def test_record_appends_rather_than_overwrites(tmp_path) -> None:
     path = tmp_path / "subject.jsonl"
     ok_result = {"content": [], "isError": False}

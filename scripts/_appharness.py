@@ -93,6 +93,15 @@ _ROOTS_UNDER_HOME = _roots_under_home()
 #: for one of the app's own settings; the app never reads it.
 REAL_HOME_ENV = "WARLOCK_HARNESS_REAL_HOME"
 
+#: Set this to keep the throwaway home instead of deleting it on the way out.
+#: One caller: ``agent_bench.py --serve``, whose whole output is inside that
+#: home. The 2026-09-15 Clay agent benchmark sitting is why it exists -- the pre-registration
+#: it serves says in as many words to keep the exported GLB of every graded
+#: session until the results document is written, and the cleanup below threw
+#: both exports away the moment the app window closed. Same naming rule as
+#: :data:`REAL_HOME_ENV`: not ``WARLOCK_*``, because the app never reads it.
+KEEP_HOME_ENV = "WARLOCK_HARNESS_KEEP_HOME"
+
 
 def isolate_home() -> Path | None:
     """Point this process at a throwaway ``WARLOCK_HOME``. -> the dir, or None.
@@ -117,7 +126,9 @@ def isolate_home() -> Path | None:
     **An explicit ``WARLOCK_HOME`` is left alone**, so pointing the harness at
     a prepared library stays a one-variable job; only the unset case --- the
     dangerous default, and the one nobody notices --- is redirected. Setting
-    :data:`REAL_HOME_ENV` opts out of even that.
+    :data:`REAL_HOME_ENV` opts out of even that, and setting
+    :data:`KEEP_HOME_ENV` keeps the throwaway home rather than deleting it ---
+    for the one caller whose output lives inside it.
 
     ``WARLOCK_NO_MIGRATE`` goes on either way, and it is not belt-and-braces.
     ``migrate.run`` treats ``PROJECT_ROOT/assets``, ``bench``, ``palettes`` and
@@ -141,6 +152,12 @@ def isolate_home() -> Path | None:
         # that one root back out of the throwaway home, which is the half of
         # this that "set WARLOCK_HOME" alone has never covered.
         os.environ.pop(name, None)
+    if os.environ.get(KEEP_HOME_ENV):
+        # No cleanup at all, and deliberately no warning either: the one
+        # caller that sets this prints the path itself, on the way in and on
+        # the way out, because a kept home nobody is told about is a leak
+        # rather than a retention.
+        return home
     # ``ignore_errors`` because the app holds warlock.log and jobs.sqlite open
     # for the life of the process on Windows, and a harness that raised on the
     # way out would turn a successful capture run into a failed one.

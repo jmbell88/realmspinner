@@ -3856,6 +3856,22 @@ def test_clay_select_by_refuses_a_query_the_current_mode_cannot_answer() -> None
     assert result["content"][0]["text"] == clay_ops._in_mode_reason("face")(tab.doc)
 
 
+def test_a_call_with_no_uid_is_told_to_give_one_rather_than_that_uid_none_does_not_exist() -> None:
+    """The 2026-09-15 Clay agent benchmark sitting: ``clay_select_by {}`` answered "no object
+    with uid None." with ``recovery: read_scene`` -- a uid the model never
+    passed, and a recovery that could not help. ``clay_transform`` shares the
+    same resolver, so it is held to the same sentence."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    _new_agent_tab(ctx, session, "box")
+
+    for tool in ("clay_select_by", "clay_transform"):
+        result = agent_clay.call(ctx, session, tool, {})
+        assert result["isError"] is True, tool
+        assert result["content"][0]["text"] == "give a value for 'uid'.", tool
+        assert result["structuredContent"]["recovery"] == "fix_arguments", tool
+
+
 def test_clay_diagnose_can_select_the_finding_it_reports() -> None:
     ctx = _Ctx()
     session = agent_clay.Session()

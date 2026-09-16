@@ -985,79 +985,6 @@ the choice is missing.
 the code; items 1 to 4 answered as art direction, against renders rather than
 against this file.
 
-## P43. Judge what an agent actually builds in Clay
-
-**Why it is yours:** nobody but a person can say whether the thing is
-recognisable. Four tranches of work (2026-09-10) gave an agent element mode and
-selection, a recoverable transport, curved and swept generators, repetition and
-placement ops, and object names a batch can address — and every one of them is
-asserted by unit tests proving one tool does one thing. Nothing has ever asked
-whether the surface, taken together, can turn a brief into something that looks
-like a chair. That is a judgement against renders, not a measurement.
-
-**Where it stands.** The two tiers a machine *can* run are built and green.
-`tests/test_agent_transcripts.py` replays a transcript against a real document
-and asserts what it built — a regression gate, not a score, and it says so.
-`scripts/agent_bench.py --serve` stands the real app up with a throwaway home,
-the bridge switched on and a recorder running, prints the corpus and the
-connect line, and leaves a transcript behind; `--show` reads one back. The
-corpus and the decision rules are **pre-registered** in
-`docs/measurements/2026-09-10-clay-agent-benchmark-preregistration.md`, written
-before any session, and the bar is fixed there: three of five subjects at grade
-0 or better on the standing −5..+5 mesh scale, at least one of them not the
-`easy` one.
-
-The honest N today is **zero** — zero model sessions, zero graded subjects. One
-of the five subjects (the chair) has a hand-authored transcript, written by
-reasoning about the geometry rather than by a model, and every file that
-mentions it says so.
-
-**Addendum (2026-09-13):** the tool catalogue grew again before this sitting's
-sessions ran — ten `character_*` tools, one resource family
-(`warlock://character/...`) and one prompt (`character_sheets_from_description`)
-landed on `feature/game-character-pipeline` for the character pipeline's own
-agent surface. This sitting's corpus stays Clay-only; nothing in it asks a
-model to touch a character tool, and the pre-registration above is unchanged.
-But the fixed context every session pays before its first useful call —
-`tools/list` plus the `initialize` instructions — now includes that whole
-second surface regardless of whether a session ever calls into it, so whoever
-runs these sessions must account for the added catalogue cost when reading how
-a model spends its calls, the same way `docs/INVARIANTS.md`'s catalogue-budget
-bullet already tracks Clay's own growth.
-
-**Do:**
-
-1. Run `uv run python scripts/agent_bench.py --serve`. It prints a
-   `claude mcp add` line carrying the throwaway `WARLOCK_HOME`; paste it into
-   your agent client, and connect.
-2. Hand the model **one** corpus subject per session, verbatim from
-   `docs/measurements/corpora/clay-agent-v1.txt`, and nothing else — no hints,
-   no corrections, no "try a lathe for that". What it does unaided is the
-   measurement. Five subjects, five sessions.
-3. Let it export. Keep the transcript and the GLB; the pre-registration's
-   retention rule exists because an earlier sweep scored zero of twenty and
-   could not diagnose why, its assets already deleted.
-4. Look at the renders, and grade each subject −5..+5 on the scale in
-   `docs/measurements/2026-08-09-grade-scale.md`, **without the call count in
-   front of you** — the pre-registration requires that, because knowing a
-   thing took four calls talks a grader into liking it.
-
-**The questions, to answer in your own words beside the grades:**
-
-- Did it build the subject, or something else it found easier?
-- Which refusals did it hit that it could not have avoided? Those are defects,
-  and they are worth more than the grades.
-- Where did it stop — did it run out of surface, or out of patience?
-- Is there a shape in the corpus this surface simply cannot express?
-- Does `--show`'s transcript read like a plan, or like flailing?
-
-**Expected outcome:** five grades and the answers above, written into a dated
-`docs/measurements/` results document that applies the pre-registered rule
-verbatim — including if the answer is that the bar was missed. Any subject
-whose session is worth keeping gets its transcript promoted into
-`tests/fixtures/agent_transcripts/` with a claim file beside it, which is how a
-session becomes a permanent regression test. Then this entry is struck out.
-
 ## P35. Settle Muse's Steps guidance, and measure it
 
 **Why it is yours:** the manual and the slider disagree about where Steps stops
@@ -1412,6 +1339,18 @@ on record rather than three stages of "not mine".
 
 ## Closed records (kept so nobody re-derives them)
 
+- **P43, judge what an agent actually builds in Clay.** Closed 2026-09-16 on
+  the 2026-09-15 sitting, written up in
+  [`2026-09-15-clay-agent-benchmark-results.md`](docs/measurements/2026-09-15-clay-agent-benchmark-results.md).
+  Grades: chair +4, bracket +3, telescope +2, colonnade +5, serpent −3. The
+  pre-registered bar (three of five at ≥ 0, one not `easy`) is met; the `hard`
+  serpent was built from the quadruped figure preset and never touched `sweep`
+  or `tube`, so the tapering-along-a-path question is still unanswered. Three
+  findings built the same day: the recorder keeps refusal messages, `--serve`
+  keeps its home, and a missing `uid` is refused as missing. The five-question
+  answers in that document are a draft the operator still owes a correction
+  pass on, with the model version and why the file holds two passes.
+
 - **Open findings F1–F11.** Closed 2026-09-15, and the section deleted as the
   file's rule says: every entry was built, and git holds each one's text. The
   last, F11, was six humanoid stride and attack poses (`run contact A`/`B`,
@@ -1606,9 +1545,9 @@ Decisions with arguments beside them, not backlog:
 
 ## P46. Decide whether the bridge stays lockstep
 
-**Why it is yours:** it is a design call that wants evidence P43 has not
-produced yet, and building it first would be guessing at a cost nobody has
-measured.
+**Why it is yours:** it is a design call that wants evidence of real agent
+traffic, and the one P43 sitting recorded outcomes but no timings -- so
+building it first would still be guessing at a cost nobody has measured.
 
 `mcp/bridge.py` relays one frame at a time: read a line from stdin, send it,
 block on the reply, write it out. That is what makes the relay dumb enough to
@@ -1627,9 +1566,12 @@ are short and `warlock_status` already answers the "is it still running"
 question out of band, on the listener thread, without waiting for the frame.
 The question is whether that stays true.
 
-**Do:** run P43 first -- it is the sitting that puts a real model through the
-surface, and its transcripts are the only place the shape of real agent
-traffic is going to show up. Then read them for the three things this is
+**Do:** P43 has run (2026-09-15). Its one recorded file,
+`docs/measurements/data/clay-agent-v1/transcript.jsonl`, is the first real agent
+traffic this surface has seen, and it carries no timings -- the recorder writes
+none -- so it answers this only in part. Read it, with
+[`2026-09-15-clay-agent-benchmark-results.md`](docs/measurements/2026-09-15-clay-agent-benchmark-results.md)
+beside it for where each document starts, for the three things this is
 about: whether any call ran long enough that a human would have wanted to
 cancel it, whether any client gave up before `CALL_TIMEOUT` did, and whether
 the model ever wanted to ask something while a call was in flight.

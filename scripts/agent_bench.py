@@ -1,8 +1,9 @@
 """Tier two of Clay's MCP agent benchmark: a real model, driving a real app.
 
 ``tests/test_agent_transcripts.py``'s module docstring names the split. Tier
-one replays a hand-authored transcript against a bare ``ClayDoc`` double, with
-no model and no window, and runs in the suite on every push. Tier two is this
+one replays a transcript -- hand-authored, or promoted from a recorded
+session -- against a bare ``ClayDoc`` double, with no model and no window,
+and runs in the suite on every push. Tier two is this
 file plus ``studio/agent_transcript.py`` (the recorder) and
 ``studio/agent_host.py`` (which calls it): the part that cannot run in CI at
 all, because it needs a real MCP-speaking model, a real window and a real GL
@@ -45,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -53,6 +55,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # below needs scripts/ on the path when this is run as a path rather than as
 # a module, which is how every other script in here is run.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Set *before* the import below, not after, and that ordering is the whole
+# point: isolate_home() runs at _appharness's own import time and decides
+# there and then whether to register the cleanup, so a line under the import
+# would be a line too late. This script is the one caller whose entire output
+# -- the Library rows clay_export mints -- lives inside the throwaway home,
+# and the 2026-09-15 Clay agent benchmark sitting lost both of a graded session's exports to
+# that cleanup. ``setdefault`` so a human who set it to "" on purpose keeps
+# the deletion.
+os.environ.setdefault("WARLOCK_HARNESS_KEEP_HOME", "1")  # noqa: E402
 
 # Imported for its side effect, not its names: _appharness.isolate_home() runs
 # at *its own* import time (see that module's docstring on why advice was not
@@ -112,7 +124,21 @@ def _serve(transcript: Path) -> int:
     print()
     print("Starting Warlock Studio...")
 
-    return run()
+    status = run()
+
+    # Said again on the way out, because by now the interesting thing in that
+    # directory exists: every Library row clay_export minted during the
+    # session, which the pre-registration's retention rule says to keep until
+    # the results document is written. The home is kept rather than deleted
+    # (see the WARLOCK_HARNESS_KEEP_HOME line at the top of this file), so
+    # this is a path a human can still walk into -- and a directory nobody is
+    # told about is a leak rather than a retention.
+    print()
+    print("This session's throwaway home was kept, not deleted:")
+    print(f"    {home}")
+    print("Its assets/ holds every GLB clay_export minted. Delete it yourself")
+    print("once the results are written up.")
+    return status
 
 
 #: The subjects a tier-two session is run against, pre-registered in
@@ -153,12 +179,12 @@ def _show(path: Path) -> int:
     """Print *path* -- a tier-two transcript -- call by call, then a count.
 
     A plain read of the format ``agent_transcript.record`` and tier one's
-    own ``_load_transcript`` both already agree on: this prints the four
-    recorded fields rather than recomputing any of them (there is nothing to
-    recompute -- ``ok`` and ``made`` are exactly what the recorder decided
-    they were when the call actually ran), so a reader sees precisely what
-    is on disk, which is the point of a review step that exists to catch a
-    recording gone wrong before it becomes a fixture.
+    own ``_load_transcript`` both already agree on: this prints the recorded
+    fields rather than recomputing any of them (there is nothing to
+    recompute -- ``ok``, ``made`` and a refusal's ``error`` are exactly what
+    the recorder decided they were when the call actually ran), so a reader
+    sees precisely what is on disk, which is the point of a review step that
+    exists to catch a recording gone wrong before it becomes a fixture.
     """
     lines = [
         json.loads(line)
@@ -171,6 +197,14 @@ def _show(path: Path) -> int:
         made_str = f"  -> made {made}" if made else ""
         args_str = json.dumps(line.get("arguments") or {}, sort_keys=True)
         print(f"{i:>4}. {outcome:<8} {line.get('tool', '?'):<28} {args_str}{made_str}")
+        # The refusal's own sentence, on its own line under the call. Absent
+        # from anything recorded before 2026-09-15 (see
+        # ``agent_transcript.refusal_text`` for what that cost the
+        # 2026-09-15 benchmark sitting), so this prints what is there and says nothing when there
+        # is nothing -- an old transcript still reads exactly as it did.
+        error = line.get("error")
+        if error:
+            print(f"      {error}")
 
     ok_count = sum(1 for line in lines if line.get("ok"))
     made_count = sum(len(line.get("made") or []) for line in lines)

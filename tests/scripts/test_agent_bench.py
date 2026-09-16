@@ -73,3 +73,24 @@ def test_show_marks_a_refused_call_and_still_reports_a_clean_count(
     assert exit_code == 0
     assert "REFUSED" in out
     assert "2 call(s), 1 ok, 1 refused, 1 uid(s) produced" in out
+
+
+def test_serve_asks_the_harness_to_keep_its_home_before_the_harness_decides() -> None:
+    """``_appharness.isolate_home`` runs at that module's *import* and decides
+    there whether to register the cleanup that deleted the 2026-09-15 Clay agent
+    benchmark sitting's exports, so asking for the home to be kept is only worth
+    anything above the import line. Checked against the source rather than
+    by importing the script: the ``bench`` fixture above already imported it
+    once for this process, and the harness does nothing under
+    ``tests/conftest.py``'s own pinned ``WARLOCK_HOME`` anyway.
+    """
+    lines = (SCRIPTS / "agent_bench.py").read_text(encoding="utf-8").splitlines()
+    keep = next(i for i, line in enumerate(lines) if "WARLOCK_HARNESS_KEEP_HOME" in line)
+    harness = next(i for i, line in enumerate(lines) if line.startswith("import _appharness"))
+
+    assert keep < harness
+    # A literal on that line, because nothing can be imported from the
+    # harness before the harness is imported -- so pin it to the constant.
+    assert 'KEEP_HOME_ENV = "WARLOCK_HARNESS_KEEP_HOME"' in (SCRIPTS / "_appharness.py").read_text(
+        encoding="utf-8"
+    )

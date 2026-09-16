@@ -6,10 +6,10 @@ involved; tier two is ``studio/agent_transcript.py``'s recorder (called from
 ``studio/agent_host.py``) plus ``scripts/agent_bench.py``'s ``--serve``
 driver, which together produce a transcript from an actual agent's own
 trajectory over a real MCP connection -- something this file cannot do and
-does not try to (everything under ``tests/fixtures/agent_transcripts/`` today
-is still **hand-authored**, not recorded, and says so below: tier two exists
-now, but nobody has pointed it at a model and promoted what came back into a
-fixture yet); tier three is human judgement through a ``TODO.md`` sitting.
+does not try to (``chair`` and ``spoked-hub`` under
+``tests/fixtures/agent_transcripts/`` are **hand-authored**; the three
+``p43-*`` beside them were **recorded** from a real model, and both kinds say
+so below); tier three is human judgement through a ``TODO.md`` sitting.
 This file's job is narrower than either: a change that makes a corpus subject
 unbuildable, or that silently stops a call producing an object, fails here --
 a regression gate, not a benchmark score.
@@ -32,6 +32,16 @@ extraction rule is structural ("every uid this result surfaced"), not a
 judgement about novelty. That is what keeps the recording and the replay
 mechanically unable to disagree about what "produced" means -- there is only
 one rule, used both times.
+
+``error`` is the fifth key and the only optional one: the refusal's own
+sentence, written by :func:`agent_transcript.refusal_text` and present only
+on a line whose ``ok`` is false. **Nothing here reads it** -- the replay
+asserts the recorded *outcome*, never the recorded wording, because a refusal
+message is prose a later change may legitimately reword while refusing for
+exactly the same reason, and a test that pinned it would fail on the
+rewording and call it a regression. It is written for a human diagnosing a
+tier-two session; see that function's docstring for the sitting that earned
+it.
 
 **The uid problem, and the rule that solves it.** ``document.new_uid()``
 never reuses a uid for the life of a process, so a transcript recorded in one
@@ -119,16 +129,31 @@ enough to catch a corrupted mesh or a scene-graph cycle, but it says nothing
 about the GLB path itself (optimize, normalize, ground) or about a
 ``service``-side failure.
 
-**These two transcripts are hand-authored, not recorded.** Tier two's
-recorder (``agent_transcript.record``, called from ``studio/agent_host.py``)
-exists now, but describing either ``chair.jsonl`` or ``spoked-hub.jsonl`` as
-"recorded" would still overclaim what produced them -- neither ever went
-through a real MCP connection. Both were written by reasoning about the
-geometry by hand, then actually run once (through this same
+**Two of these transcripts are hand-authored, not recorded.** Describing
+either ``chair.jsonl`` or ``spoked-hub.jsonl`` as "recorded" would overclaim
+what produced them -- neither ever went through a real MCP connection.
+Both were written by reasoning about the geometry by hand, then actually run
+once (through this same
 ``agent_clay.call`` door, with the same ``agent_transcript.produced_uids``
 this file uses to replay) to read off the real ``made`` lists and the real
 call outcomes -- "authored, verified by execution," not "recorded from an
 agent."
+
+**The three ``p43-*`` transcripts are recorded**, by tier two's recorder
+during the 2026-09-15 Clay agent benchmark sitting, from a real model driving the real app --
+the graded pass written up in
+``docs/measurements/2026-09-15-clay-agent-benchmark-results.md``. They are
+*slices* of that session's one file, and two edits were made in slicing,
+both stated here so the word "recorded" does not overclaim either:
+**every ``clay_render`` line is dropped** (it reads the document without
+changing it, and needs the GL context ``_Ctx`` deliberately lacks), and each
+slice **starts at its document's first building call**, leaving out the
+refusals the operator's own closing of the previous document caused at each
+handover -- a fresh session here mints its tab and would not refuse. Nothing
+else is touched: arguments, outcomes and ``made`` lists are the recorder's
+own. ``p43-telescope-colonnade`` is one slice because the model built both
+subjects in one document. The serpent, graded −3, was not promoted: this
+gate pins what a transcript builds, and nobody wants that build pinned.
 """
 
 from __future__ import annotations
@@ -299,6 +324,18 @@ def test_chair_transcript_builds_a_four_legged_chair() -> None:
 
 def test_spoked_hub_transcript_exercises_batch_ref_and_array_radial() -> None:
     _replay("spoked-hub")
+
+
+def test_recorded_p43_chair_builds_ten_parts_in_two_calls() -> None:
+    _replay("p43-chair")
+
+
+def test_recorded_p43_bracket_replays_to_its_three_graded_parts() -> None:
+    _replay("p43-bracket")
+
+
+def test_recorded_p43_telescope_and_colonnade_share_one_document() -> None:
+    _replay("p43-telescope-colonnade")
 
 
 def test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist() -> None:

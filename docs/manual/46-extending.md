@@ -494,12 +494,14 @@ process happened to number that way.
 
 You can watch a whole agent session go by, and keep it. Set `WARLOCK_AGENT_TRANSCRIPT` to a file path and
 every tool call that answers is appended to it as one line of JSON — what was called, with what, whether it
-was refused, and which objects came back. It is off unless that variable is set, it is written on the thread
-that talks to the agent rather than the one that draws, and a path it cannot write is logged and ignored
-rather than allowed to fail the call it was only meant to describe. `scripts/agent_bench.py --serve` is the
-whole thing wired up: a throwaway home, the bridge switched on, the recorder pointed somewhere, and the
-command line to paste into your agent's client. `--show` reads one back. A transcript is also exactly what
-the suite replays, so a session worth keeping can become a regression test by being copied into
+was refused and, if it was, the sentence it was refused with, and which objects came back. It is off unless
+that variable is set, it is written on the thread that talks to the agent rather than the one that draws, and
+a path it cannot write is logged and ignored rather than allowed to fail the call it was only meant to
+describe. `scripts/agent_bench.py --serve` is the whole thing wired up: a throwaway home, the bridge switched
+on, the recorder pointed somewhere, and the command line to paste into your agent's client. The home is kept
+when you close the window, not deleted, and the script prints where it is, because anything the agent exported
+lives inside it — delete it yourself once you are done. `--show` reads a transcript back. A transcript is also
+exactly what the suite replays, so a session worth keeping can become a regression test by being copied into
 `tests/fixtures/agent_transcripts/` with a claim about what it should build written beside it.
 
 A refusal now also *reports* that nothing moved. Every one built through `agent_clay.fail` carries

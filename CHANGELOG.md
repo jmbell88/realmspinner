@@ -20,6 +20,18 @@ the release you are actually running.
 
 ## 0.0.47 — 2026-09-14
 
+- **An agent that forgets which object it means is told so.** A Clay tool
+  called with no `uid` used to answer "no object with uid None." and suggest
+  re-reading the scene, which could not help. It now says "give a value for
+  'uid'." and points at the arguments. The first graded run of the Clay agent
+  benchmark found it: a real model sent `clay_select_by` with nothing in it.
+  That run passed its pre-registered bar, four subjects of five at grade 0 or
+  better, and is written up in
+  `docs/measurements/2026-09-15-clay-agent-benchmark-results.md`. Two
+  benchmark tools changed with it: a recorded transcript now keeps each
+  refusal's sentence, and `agent_bench.py --serve` keeps its home, so a
+  session's exports survive the window closing.
+
 - **The run and attack clips keep the planted toe above the ground.** The
   pass that fixed the jump, fall and death knees also found six run and attack
   poses pushing a toe about 1.5% of the character's height below the ground.
