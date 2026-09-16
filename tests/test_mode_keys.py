@@ -420,6 +420,48 @@ def test_modal_open_sees_both_queues():
     assert main.App._modal_open(app) is True
 
 
+def test_modal_open_sees_the_muse_derive_popup():
+    """The 2026-09-16 audit: Muse's derive popup is a real
+    ``imgui.begin_popup_modal``, but was never one of ``modal_open``'s answers,
+    so Ctrl+Enter reached ``muse_mode.handle_key`` and queued a fresh job from
+    the top brief while the popup believed it alone had the keyboard (I77)."""
+    from warlock.studio.muse_state import MuseState
+
+    ctx = SimpleNamespace(
+        confirms=dialogs.ConfirmQueue(),
+        prompts=dialogs.PromptQueue(),
+        state=SimpleNamespace(muse=None),
+    )
+    app = SimpleNamespace(app_ctx=ctx)
+    assert main.App._modal_open(app) is False
+    ctx.state.muse = MuseState()
+    assert main.App._modal_open(app) is False
+    ctx.state.muse.derive_job = "abc"
+    assert main.App._modal_open(app) is True
+
+
+def test_modal_open_sees_the_packwright_tileset_popup():
+    """The 2026-09-16 audit: Packwright's tile-set import popup (the tile-size
+    fields, the Import/Cancel pair) was never one of ``modal_open``'s answers,
+    so a global shortcut -- e.g. Ctrl+W, closing the very tab the pending
+    import named -- still reached the app while the popup had the user's
+    attention: the UX-08 shape ``modal_open``'s own docstring names the matte
+    preview for."""
+    from warlock.studio.packwright_state import PackwrightState
+
+    ctx = SimpleNamespace(
+        confirms=dialogs.ConfirmQueue(),
+        prompts=dialogs.PromptQueue(),
+        state=SimpleNamespace(packwright=None),
+    )
+    app = SimpleNamespace(app_ctx=ctx)
+    assert main.App._modal_open(app) is False
+    ctx.state.packwright = PackwrightState()
+    assert main.App._modal_open(app) is False
+    ctx.state.packwright.tileset_import_open = True
+    assert main.App._modal_open(app) is True
+
+
 def test_the_confirm_modal_binds_enter_and_escape_and_focuses_confirm():
     source = inspect.getsource(dialogs.ConfirmQueue.draw)
     assert "_escape_pressed()" in source

@@ -118,13 +118,18 @@ def _click(state: Any, doc: Any, node: Any) -> None:
     ``clay_outliner._click``, verbatim, against node uids instead of object
     uids."""
     io = imgui.get_io()
+    # active=node.uid on both multi-uid branches: the 2026-09-16 audit's
+    # mason-02 finding found the Active pivot falling back to document-walk
+    # order for exactly this row's own gesture -- a Shift-range or Ctrl-toggle
+    # click is unambiguous about which node was actually clicked, so it is
+    # recorded even though the resulting selection has more than one uid.
     if io.key_shift and state.outliner_anchor:
         range_uids = _range(doc, state.outliner_anchor, node.uid)
-        doc.select(range_uids)
+        doc.select(range_uids, active=node.uid)
         return
     if io.key_ctrl:
         chosen_uids = set(doc.selection) ^ {node.uid}
-        doc.select(chosen_uids)
+        doc.select(chosen_uids, active=node.uid)
     else:
         doc.select([node.uid])
     state.outliner_anchor = node.uid

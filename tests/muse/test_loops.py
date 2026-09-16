@@ -103,6 +103,51 @@ def test_a_loud_passage_and_a_quiet_one_of_the_same_material_match_on_content():
     assert levels[half // 2] - levels[half + half // 2] == pytest.approx(20.0, abs=1.0)
 
 
+# --- _refine ------------------------------------------------------------------
+
+
+def test_refine_does_not_misalign_the_phase_when_the_target_window_clips_at_the_buffer_start(
+    monkeypatch,
+):
+    """The 2026-09-16 audit, finding muse-engine-01.
+
+    ``_refine`` builds ``target = mono[max(start - half, 0) : start + half]``
+    and then assumes sample ``start`` always sits at offset ``half`` inside
+    it -- true only when ``start >= half``. When ``start`` is inside the
+    buffer's first ``half`` samples, the window clips at 0 and ``start``
+    actually sits at offset ``start``, so the old ``end = lo + argmax(...) +
+    half`` is off by ``half - start``.
+
+    Isolated from the zero-crossing snap (monkeypatched to identity here, as
+    the audit's own probe did) so only the correlation math is under test. A
+    copy of ``target`` is planted at a known position ``k`` so the *true*
+    match is known exactly, rather than inferred from a period.
+    """
+    monkeypatch.setattr(loops, "_snap", lambda mono, at, rate: at)
+
+    rate = 2000
+    half = int(loops.REFINE_MS * rate / 1000.0) // 2
+    assert half == 100  # keeps the arithmetic below legible
+
+    rng = np.random.RandomState(0)
+    mono = (rng.standard_normal(1000) * 0.1).astype(np.float32)
+
+    start = 20  # < half: the clipped case
+    lo_target = max(start - half, 0)
+    assert lo_target == 0, "start must be inside the window's clipped left edge"
+    origin = start - lo_target  # true offset of ``start`` inside ``target``
+    target = mono[lo_target : start + half]
+
+    # Plant an exact copy of ``target`` at k, so mono[k + origin] is the one
+    # sample that truly corresponds to mono[start].
+    k = 500
+    mono[k : k + target.size] = target
+    true_end = k + origin
+
+    _, end = loops._refine(mono, start, true_end, rate)
+    assert end == true_end
+
+
 # --- find --------------------------------------------------------------------
 
 

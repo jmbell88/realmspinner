@@ -347,6 +347,24 @@ def test_ctrl_clicking_an_edge_adds_a_corner_on_that_edge(scene):
     )
 
 
+def test_ctrl_clicking_far_from_any_edge_inserts_no_corner(scene):
+    """The 2026-09-16 audit: the Ctrl branch called ``picking.inserted_vertex``
+    on the nearest edge with no distance gate at all, unlike every other pick
+    in this tab (``nearest_region`` refuses past ``GRAB_RADIUS``). The tab's
+    own tooltip promises "Ctrl+click an edge to add one" -- a click at the
+    square's centre, equidistant and far from all four edges, must not
+    silently add a corner at an unrelated point."""
+
+    scene.add(TilePolygon)
+    scene.frame((8.0, 8.0), click=True, ctrl=True)
+    assert picking.vertices(scene.selected()) == (
+        (0.0, 0.0),
+        (16.0, 0.0),
+        (16.0, 16.0),
+        (0.0, 16.0),
+    )
+
+
 def test_alt_clicking_a_corner_removes_it(scene):
     scene.add(TilePolygon)
     scene.frame((16.0, 16.0), click=True, alt=True)

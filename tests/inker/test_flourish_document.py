@@ -443,6 +443,52 @@ def test_opening_a_flourish_document_preserves_its_layer_uids(tmp_path):
     assert "uid is not reissued on load" in source
 
 
+def test_read_flourish_refuses_past_a_metadata_ceiling(tmp_path, monkeypatch):
+    """The 2026-09-16 audit found ``animation.json``'s "flourish" list had no
+    ceiling at all, unlike every sibling list this module already bounds
+    (``"tracks"``, ``"frames"``, a per-frame ``"palette"``): a crafted file
+    could repeat one valid entry thousands of times and build one real
+    ``FlourishState`` -- a full ``Recipe`` parse -- per copy with no refusal.
+    Pins that the loop never starts once the list is over
+    ``MAX_ORA_METADATA_ENTRIES``, by counting calls into the recipe parser
+    rather than trusting the final ``doc.flourish`` size, which a repeated
+    entry would leave looking identical either way (same uid, overwritten)."""
+    import json
+    import zipfile
+
+    from warlock.studio.inker.flourish import recipe as flourish_recipe
+
+    doc = inker.Document.blank(40, 40)
+    rec = _recipe(seed=5)
+    doc.insert_flourish(B.bake(rec))
+    path = tmp_path / "many.ora"
+    ora.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[ora.ANIMATION_MEMBER])
+    entry = payload["flourish"][0]
+    payload["flourish"] = [entry] * (ora.MAX_ORA_METADATA_ENTRIES + 1)
+    members[ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    calls: list[int] = []
+    original = flourish_recipe.from_dict
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(flourish_recipe, "from_dict", _counting)
+
+    back = inker.Document.load(broken)
+    assert calls == []
+    assert not back.flourish
+
+
 def test_an_ordinary_document_writes_no_flourish_key(tmp_path):
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

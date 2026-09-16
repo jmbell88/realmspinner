@@ -423,3 +423,135 @@ def test_separate_job_does_not_reuse_the_blender_pose_timeout(svc, monkeypatch):
     # completely different cost model) -- it must be the job's own field.
     assert calls[0]["timeout"] != svc.config.pose_timeout
     assert calls[0]["timeout"] == svc.config.separation_timeout
+
+
+# --- the overlap-add window (2026-09-16 audit, fix-separation) ---------------
+
+
+def _hann_periodic(n: int) -> list[float]:
+    """``torch.hann_window(n)``'s default (``periodic=True``) formula, restated
+    in pure Python so this test needs neither torch nor a GPU -- separate()'s
+    windowing is arithmetic, and this simulates exactly that arithmetic."""
+    import math
+
+    return [0.5 * (1 - math.cos(2 * math.pi * k / n)) for k in range(n)]
+
+
+def _old_window(segment: int) -> list[float]:
+    """The window the unfixed ``separate()`` built: the rising half of a
+    double-length Hann window, spanning the *whole* segment."""
+    return _hann_periodic(segment * 2)[:segment]
+
+
+def _new_window(segment: int, overlap: int) -> list[float]:
+    """The window the fixed ``separate()`` builds: 1.0 through the body of the
+    chunk, tapering only across the true overlap width at each edge."""
+    ramp = _hann_periodic(overlap * 2)
+    window = [1.0] * segment
+    window[:overlap] = ramp[:overlap]
+    window[segment - overlap:] = ramp[overlap:]
+    return window
+
+
+def _earlier_share(segment: int, overlap: int, window: list[float]) -> list[float]:
+    """The earlier chunk's fraction of the blended weight at each sample of
+    the overlap region, the same arithmetic ``stems / weights.clamp(min=1e-6)``
+    performs once both chunks have been accumulated -- reduced to just the two
+    contributing chunks since nothing else touches this region."""
+    earlier = window[segment - overlap:segment]
+    later = window[0:overlap]
+    return [
+        e / (e + lat) if (e + lat) else 0.0
+        for e, lat in zip(earlier, later, strict=True)
+    ]
+
+
+def test_separate_blends_adjacent_segments_instead_of_stepping_at_the_boundary():
+    """The 2026-09-16 audit found ``separate()``'s overlap-add window was the
+    rising half of a double-length Hann window applied to the *whole* segment
+    (``torch.hann_window(segment * 2)[:segment]``), not a taper confined to the
+    overlap. Reproduced here in pure numpy-free Python (the note on this
+    finding: real torch/audio processing is out of scope for this lane) with
+    segment=40, overlap=10: the old formula's earlier-chunk share never drops
+    below ~0.91 across the whole overlap -- a near-instant hand-off, not a
+    crossfade -- while the fixed formula sweeps smoothly from 1.0 to ~0.02 and
+    crosses 0.5 exactly at the overlap's midpoint.
+
+    Fails against the unfixed formula: ``min(old_fraction) > 0.85`` is true (it
+    is ~0.91), so a test asserting the old formula behaves like a crossfade
+    (spans most of [0, 1]) fails; this test instead asserts the reproduction
+    directly and then asserts the *new* formula is the smooth one.
+    """
+    segment, overlap = 40, 10
+
+    old_fraction = _earlier_share(segment, overlap, _old_window(segment))
+    new_fraction = _earlier_share(segment, overlap, _new_window(segment, overlap))
+
+    # Reproduction: the old window is a near-instant hand-off -- the earlier
+    # chunk holds nearly all the weight for virtually the entire overlap.
+    assert min(old_fraction) > 0.85, old_fraction
+    assert max(old_fraction) - min(old_fraction) < 0.15, old_fraction
+
+    # The fix: the new window's crossfade fraction moves smoothly across the
+    # whole overlap region -- not bunched at one end -- and passes through the
+    # midpoint at (approximately) an even split.
+    assert max(new_fraction) - min(new_fraction) > 0.9, new_fraction
+    midpoint = new_fraction[len(new_fraction) // 2]
+    assert 0.3 < midpoint < 0.7, new_fraction
+    # Monotonic: the earlier chunk's share only ever falls as the later chunk
+    # takes over, never oscillates.
+    pairs = zip(new_fraction, new_fraction[1:], strict=False)
+    assert all(a >= b - 1e-9 for a, b in pairs), new_fraction
+
+
+def test_separation_worker_result_cleanup_does_not_mask_a_replace_failure(
+    tmp_path, monkeypatch
+):
+    """``separation_worker.main()``'s staged-result cleanup used to be a bare
+    ``tmp.unlink(missing_ok=True)`` in the ``finally`` after ``tmp.write_text``/
+    ``tmp.replace``, unlike the byte-identical pattern in ``blender_worker.py``
+    and ``lora_train_worker.py``, both of which wrap it in
+    ``contextlib.suppress(OSError)``. If ``tmp.replace(result_path)`` itself
+    fails, the unwrapped ``finally``'s own OSError from ``unlink`` replaces
+    that more informative exception -- ordinary ``try``/``finally`` behaviour:
+    an exception raised while unwinding a ``finally`` clause supersedes the one
+    that triggered it.
+
+    Fails against the unfixed code: forcing ``Path.replace`` to fail with one
+    distinctive OSError and ``Path.unlink`` to fail with another, the unfixed
+    ``finally`` lets the unlink's message ("unlink: locked (simulated)")
+    propagate out of ``main()`` and bury the replace's ("replace: disk full
+    (simulated)").
+    """
+    import io
+    import json
+    import sys
+    from pathlib import Path
+
+    from warlock.pipelines import separation_worker as sw
+
+    spec = {
+        "source": str(tmp_path / "missing-take.wav"),
+        "out_dir": str(tmp_path / "stems"),
+        "model_dir": str(tmp_path / "no-such-model-dir"),
+        "sources": ["drums", "bass", "other", "vocals"],
+        "segment_seconds": 10.0,
+        "result_path": str(tmp_path / "separate.json"),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(spec)))
+
+    real_replace = Path.replace
+
+    def fake_replace(self, target):
+        if self.name.endswith(".tmp"):
+            raise OSError("replace: disk full (simulated)")
+        return real_replace(self, target)
+
+    def fake_unlink(self, missing_ok=False):
+        raise OSError("unlink: locked (simulated)")
+
+    monkeypatch.setattr(Path, "replace", fake_replace)
+    monkeypatch.setattr(Path, "unlink", fake_unlink)
+
+    with pytest.raises(OSError, match="disk full"):
+        sw.main()

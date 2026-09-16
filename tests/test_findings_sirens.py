@@ -907,6 +907,32 @@ def test_column_chars_length_agrees_with_document_columns(monkeypatch):
         importlib.reload(sirens_patterns)
 
 
+def test_column_chars_values_are_unused_by_channel_width():
+    """the 2026-09-16 audit, finding sirens-05: ``COLUMN_CHARS``' docstring
+    and the adjoining comment claimed it is "the five columns' character
+    widths within a group" and that "a sixth column added to the engine must
+    widen the group here or the grid silently stops drawing it," but nothing
+    in the module reads its *values* -- only ``len(COLUMN_CHARS)`` is
+    consulted, by the import-time assert
+    ``test_column_chars_length_agrees_with_document_columns`` covers. The
+    grid's actual per-column width comes from ``_advance()``'s live text
+    measurement, and the channel group's width is the unrelated hardcoded
+    ``CHANNEL_W``. Reproduced against the unfixed code (git HEAD): the
+    corrected sentence below is nowhere in that source, because the
+    docstring only ever claimed the opposite.
+    """
+    import inspect
+
+    from warlock.studio.panes import sirens_patterns as sp
+
+    source = inspect.getsource(sp)
+    assert "only its *length* is read" in source, (
+        "COLUMN_CHARS' docstring should say plainly that only its length is"
+        " consulted at import time -- the individual values are not, and"
+        " CHANNEL_W is a separate, hardcoded constant"
+    )
+
+
 class _FakeOrderDoc:
     """A stand-in for ``SongDoc`` carrying only what ``add_to_order_reason``
     reads. The function is pure over ``doc.patterns``' truthiness alone, so a
@@ -1157,3 +1183,55 @@ def test_add_to_order_reason_names_busy_even_when_the_caret_is_on_an_effect():
     assert sirens_orders.add_to_order_reason("Coin", with_pattern, True) != (
         sirens_orders._BUSY_WHY
     )
+
+
+# --- envelope graph pixel arithmetic -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "low, high, height",
+    [
+        (0, 15, 52.0),  # volume/duty: unsigned, the baseline sits at the bottom
+        (0, 3, 52.0),  # duty's own narrower unsigned span
+        (-8, 7, 52.0),  # arpeggio-shaped: signed, the baseline is the zero line
+        (0, 0, 52.0),  # a degenerate span (an empty sequence, or a fixed reach)
+        (-8, 7, 0.0),  # a zero-height graph, e.g. before the first layout pass
+    ],
+)
+def test_bar_top_and_baseline_agree_at_zero_for_every_span(low, high, height):
+    """the 2026-09-16 audit, finding sirens-07: ``_baseline`` and ``_bar_top``
+    -- the pure pixel-position arithmetic every envelope graph's bars and
+    zero-line are drawn from -- had no unit test anywhere in the suite,
+    unlike every other pure helper this file and its sibling panes pulled out
+    for exactly that reason. A sign error or off-by-one in either function
+    would silently mis-draw every volume/arpeggio/pitch/duty bar and the zero
+    line for the two signed sequences, and nothing in the suite would have
+    caught it -- confirmed against a deliberately broken ``_bar_top`` stand-in
+    (an injected ``- 1.0``) in the scratchpad, which this same identity check
+    caught for every span above except the degenerate ``low == high`` one,
+    where both functions short-circuit before doing any arithmetic at all.
+
+    The identity this pins: a value of exactly ``0`` must draw its bar at the
+    same height as the zero line itself (the bottom of the graph for an
+    unsigned sequence, the middle for a signed one) -- both are "nothing
+    played here," and a bar that stopped short of, or ran past, its own zero
+    line would be a visible seam between the two.
+    """
+    assert sirens_envelopes._bar_top(0, low, high, height) == (
+        sirens_envelopes._baseline(low, high, height)
+    )
+
+
+def test_bar_top_and_baseline_known_values():
+    """A handful of concrete pixel answers beside the identity above, so a
+    formula that satisfied ``_bar_top(0, ...) == _baseline(...)`` by
+    coincidence (both wrong the same way) is still caught."""
+    # Unsigned (volume): 0 is the floor, max value touches the top exactly.
+    assert sirens_envelopes._baseline(0, 15, 52.0) == 52.0
+    assert sirens_envelopes._bar_top(15, 0, 15, 52.0) == 0.0
+    # Signed (arpeggio-shaped, -8..7): the zero line sits proportionally
+    # above the bottom, at height * high / (high - low).
+    assert sirens_envelopes._baseline(-8, 7, 52.0) == 52.0 * 7 / 15
+    # A value clamped past either end still lands exactly on that end's bar.
+    assert sirens_envelopes._bar_top(99, -8, 7, 52.0) == 0.0
+    assert sirens_envelopes._bar_top(-99, -8, 7, 52.0) == 52.0

@@ -83,8 +83,8 @@ def test_the_bridge_and_the_menu_both_resolve_the_doors_from_inker_export():
     assert "inker_export.open_door(" in menu
 
 
-def _tab(*, busy=False, tags=(), splits=1):
-    doc = SimpleNamespace(anim=SimpleNamespace(tags=list(tags)))
+def _tab(*, busy=False, tags=(), splits=1, anim=True):
+    doc = SimpleNamespace(anim=SimpleNamespace(tags=list(tags)) if anim else None)
     return SimpleNamespace(busy=busy, doc=doc, _splits=splits)
 
 
@@ -115,6 +115,21 @@ def test_the_two_split_doors_name_what_is_missing(one_layer):
         "the sheet Export sheet already writes.",
     )
     assert inker_export.door_state(per_tag, _tab(tags=["walk"])) == (True, "")
+
+
+def test_the_sheet_gif_and_png_doors_are_greyed_for_a_still_document(one_layer):
+    """The 2026-09-16 audit: ``door_state`` never asked about ``tab.doc.anim``,
+    so for a still (non-animated) document the three base doors drew live and
+    clickable and only ``_begin_export``'s own click-time check refused them
+    with a toast -- contradicting the doors' own stated contract, "a grey one
+    always carries a sentence"."""
+    still = _tab(anim=False)
+    for key in ("sheet", "gif", "pngs"):
+        door = next(d for d in inker_export.doors() if d.key == key)
+        assert inker_export.door_state(door, still) == (
+            False,
+            "This drawing has no timeline to export frames from.",
+        )
 
 
 def test_with_no_document_every_door_says_so():

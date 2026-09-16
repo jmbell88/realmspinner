@@ -749,6 +749,7 @@ def transfer(
                 map_key=match_result.clip_map.key,
                 left_at_rest=match_result.left_at_rest,
                 ignored=match_result.ignored,
+                duplicate_source_names=match_result.duplicate_source_names,
             )
         )
     return out
@@ -775,6 +776,7 @@ def _transfer_action(
     map_key: str,
     left_at_rest: tuple[str, ...],
     ignored: tuple[str, ...],
+    duplicate_source_names: Mapping[str, tuple[str, ...]],
 ) -> dict[str, Any]:
     src_frames = list(action["frames"])
     if len(src_frames) < 1:
@@ -935,6 +937,16 @@ def _transfer_action(
         "map": map_key,
         "left_at_rest": list(left_at_rest),
         "ignored": list(ignored),
+        # The 2026-09-16 audit: the 2026-09-15 fix (finding poser-04) taught
+        # clipmaps.MatchResult to record a normalized name more than one raw
+        # source bone collapsed onto, but nothing between clipmaps.match and
+        # this report ever read the field -- so a colliding duplicate still
+        # vanished with no trace once it reached "Import clip"'s own report,
+        # one call frame further downstream of the fix. Surfaced the same way
+        # ``ignored`` already is.
+        "duplicate_source_names": {
+            name: list(raw_names) for name, raw_names in duplicate_source_names.items()
+        },
         "loop": {"closed": closed, "residual_deg": residual_deg},
         "frames": n_frames,
         "keys": len(kept),

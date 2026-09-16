@@ -192,7 +192,14 @@ def test_settings_2d_sub_fields_each_get_their_own_name_line():
     source = Path(settings_2d.__file__).read_text(encoding="utf-8")
     for ident in ("##Strength##ip", "##Strength##init", "##Strength##cn", "##Until##cn"):
         assert f'"{ident}"' in source, ident
-    assert 'controls.slider_float("##Strength", form["lora_weight"]' in source
+    # The 2026-09-16 audit's create-panes-02 fix wrapped this call across
+    # lines (its bound now reads through `_range` rather than a hardcoded
+    # literal, which no longer fits on one line under the column limit), so
+    # the id and the form key are checked as two substrings of one window
+    # rather than one contiguous literal.
+    assert "controls.slider_float(" in source
+    lora_strength_pos = source.find('"##Strength", form["lora_weight"]')
+    assert lora_strength_pos != -1
     # Each hidden slider has a field_label immediately above it in the
     # source, in the order the four appear -- not just somewhere in the
     # function, and not the same one every time.

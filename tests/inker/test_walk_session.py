@@ -271,6 +271,34 @@ def test_bake_and_cancel_are_refused_with_no_session_open():
     assert not _op("walk_cancel").enabled(state, tab)
 
 
+def test_enter_in_walk_cycle_context_says_why_when_the_bake_is_refused():
+    """The 2026-09-16 audit: pressing Enter while a walk-cycle session is open
+    but not yet bakeable called ``inker_walk.bake`` directly from
+    ``inker_keys._modal`` and swallowed the refusal completely -- no toast, no
+    ``state.tip``, nothing on screen -- where every other op in this mode is
+    routed through ``inker_ops.run``, whose own docstring states the rule
+    this broke: "a refused op says why"."""
+    import pygame
+
+    from warlock.studio import inker_mode
+
+    ctx, tab = _scene()
+    inker_walk.open_session(ctx, tab)
+    state = ctx.state.inker
+    assert not inker_walk.can_bake(state, tab), "the rig is deliberately unfinished"
+    assert state.tip is None
+
+    inker_mode.handle_key(
+        ctx, pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN, mod=0)
+    )
+
+    assert state.tip is not None, "the refusal reached the user"
+    assert state.tip.text == inker_walk.bake_reason(state, tab)
+    # Refused, not silently closed: the session the user was setting up is
+    # still there to finish.
+    assert inker_walk.is_open(state, tab)
+
+
 def test_cutting_from_a_selection_is_refused_with_no_selection():
     ctx, tab = _scene()
     inker_walk.open_session(ctx, tab)

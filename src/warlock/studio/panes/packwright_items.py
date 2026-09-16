@@ -49,11 +49,9 @@ def draw(ctx: Any) -> None:
         )
         return
 
-    used = sum(frame.w * frame.h for frame in layout.frames)
-    total = max(layout.width * layout.height, 1)
     widgets.muted(
         f"{len(layout.frames)} sprite(s) in {layout.width} x {layout.height} px "
-        f"-- {100 * used // total}% covered"
+        f"-- {_coverage_pct(tab)}% covered"
     )
     if layout.is_grid:
         widgets.muted(
@@ -79,6 +77,30 @@ def draw(ctx: Any) -> None:
         for index in range(clipper.display_start, clipper.display_end):
             _item_row(state, layout.frames[index], by_key)
     clipper.end()
+
+
+def _coverage_pct(tab: Any) -> int:
+    """The "-- N% covered" figure, cached on the tab.
+
+    The 2026-09-16 audit (packwright-08) found this summed over every packed
+    frame on every single frame this pane draws, with no memoisation keyed on
+    ``pack_generation`` -- the same shape ``packwright_mode.source_index``
+    (packwright-07, 2026-09-07) was fixed for. An atlas near ``MAX_SPRITES``
+    paid a full Python-level sum sixty times a second merely by having this
+    pane on screen. ``getattr`` on both ends rather than a hard read, so a
+    minimal test double with no ``pack_generation`` just never hits the cache
+    rather than raising.
+    """
+    layout = tab.layout
+    generation = getattr(tab, "pack_generation", None)
+    cached = getattr(tab, "_pw_coverage_pct", None)
+    if cached is not None and cached[0] == generation and generation is not None:
+        return cached[1]
+    used = sum(frame.w * frame.h for frame in layout.frames)
+    total = max(layout.width * layout.height, 1)
+    pct = 100 * used // total
+    tab._pw_coverage_pct = (generation, pct)
+    return pct
 
 
 def _item_row(state: Any, frame: Any, by_key: dict) -> None:

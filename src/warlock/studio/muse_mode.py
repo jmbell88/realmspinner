@@ -188,6 +188,22 @@ def close_derive(ctx: Any) -> None:
     ensure(ctx).derive_job = ""
 
 
+def derive_popup_open(ctx: Any) -> bool:
+    """Whether the derive popup owns the keyboard. Tolerant of a partial
+    ``ctx`` (``getattr``, not attribute access), ``matte_preview.is_open``'s
+    reason: ``dialogs.modal_open`` asks this on every key press (I77), for a
+    caller that has never built a Muse state.
+
+    The 2026-09-16 audit found the derive popup missing from ``modal_open``'s
+    five answers -- a real ``imgui.begin_popup_modal``, but Ctrl+Enter still
+    reached ``handle_key`` and queued a fresh job from the top brief while the
+    popup believed it alone had the keyboard, and Space/arrows/``[``/``]``/``L``
+    kept auditioning and reseeking the take behind it.
+    """
+    state = getattr(getattr(ctx, "state", None), "muse", None)
+    return bool(state is not None and state.derive_job)
+
+
 def derive(ctx: Any) -> bool:
     """Queue what the popup asks for. -> whether the submit was accepted.
 
@@ -330,6 +346,25 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 choose_candidate(ctx, 0)
             else:
                 ctx.toast("No loop points stood out in this take.", "warn")
+        return
+    if key.startswith(muse_io.EXPORT_PREFIX):
+        # **2026-09-16 audit.** This branch did not exist: every ``muse-export:``
+        # result -- success or failure alike -- fell through to the
+        # ``LOAD_PREFIX`` guard below and was discarded with no toast, so
+        # "Export the loop" and "Export the track with loop points" gave the
+        # user identical silence whether the write landed or not. Mirrors
+        # ``sirens_mode``'s own ``EXPORT_PREFIX`` toast -- ``muse_io``'s
+        # docstring calls that module "the same seam".
+        #
+        # ``muse_io._save``'s task returns three different things down one
+        # ``str | None`` channel: the written path, ``None`` for a picker the
+        # user cancelled (wants no word), and ``""`` for a write that did not
+        # happen for any other reason (the region changing between muse-03's
+        # upfront check and this task running, chiefly) -- which does want one.
+        if result:
+            ctx.toast(f"Exported to {result}")
+        elif result == "":
+            ctx.toast("The export did not write anything -- try again.", "warn")
         return
     if not key.startswith(LOAD_PREFIX) or not isinstance(result, dict):
         return

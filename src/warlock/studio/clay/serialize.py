@@ -705,6 +705,7 @@ def read_wblk(data: bytes) -> ClayDoc:
         textures = _read_textures(zf, scene)
         objects = []
         triangles = 0
+        seen_uids: set[int] = set()
         for entry in declared:
             # The uid is the one field with no defensible default -- it names the
             # mesh member and it is what undo addresses -- so a missing or
@@ -716,6 +717,24 @@ def read_wblk(data: bytes) -> ClayDoc:
                 raise ValueError(
                     "an object in this clay document has no usable uid"
                 ) from exc
+            # The 2026-09-16 audit: every other field on this entry is checked
+            # for the shape a legitimate writer could never produce, but
+            # uniqueness across the whole document was not -- a scene.json
+            # declaring two objects with the same uid used to load cleanly,
+            # both objects reading whichever archive member ``meshes/<uid>.npz``
+            # happens to hold (silently losing one object's geometry), and then
+            # leaving ``by_uid``/``index_of``/``set_props``/``remove_object``
+            # addressing an arbitrary one of the two for the rest of the
+            # session. This is exactly the "half-read document is worse than a
+            # refused one" rule the rest of this reader follows, and this file
+            # is also what crash recovery reads with no user to ask first. The
+            # check runs before ``_read_mesh`` so the refusal names the real
+            # problem rather than surfacing however that read happens to land.
+            if uid in seen_uids:
+                raise ValueError(
+                    f"this clay document has two objects sharing uid {uid}"
+                )
+            seen_uids.add(uid)
             reserve_uid(uid)
             mesh = _read_mesh(zf, uid)
             # The 2026-09-08 audit's second run, clay-09: this used to add

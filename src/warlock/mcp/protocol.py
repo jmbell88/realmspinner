@@ -272,7 +272,17 @@ def splice_tool_result(msg_id: Any, body: bytes, *, meta: dict[str, Any] | None 
     result already serialised elsewhere (Studio, over RPC v1) -- into the
     envelope, never by `json.loads`-ing it. `meta` is `None` for the legacy
     era (the body becomes `result` verbatim) or `{"resultType": "complete",
-    "_meta": {...}}`-shaped for modern (see `_merge_body`)."""
+    "_meta": {...}}`-shaped for modern (see `_merge_body`).
+
+    The 2026-09-16 audit (agents-02): this used to validate *body*'s shape
+    only via `_merge_body`, which the legacy era (`meta=None`) never calls --
+    so a malformed `call_tool` body went straight onto the wire as
+    `"result":<body>` with no check at all, becoming literally invalid JSON
+    for a legacy client while the identical body degraded cleanly to an
+    isError reply for a modern one. Checked once here, unconditionally,
+    before either era decides what to do with a well-formed body."""
+    if not body.startswith(b"{") or not body.endswith(b"}"):
+        raise ValueError("tool result body must be a JSON object")
     id_json = json.dumps(msg_id).encode("utf-8")
     result = body if meta is None else _merge_body(meta, body)
     return b'{"jsonrpc":"2.0","id":' + id_json + b',"result":' + result + b"}"
@@ -603,6 +613,27 @@ def _dispatch_one(
                 if has_id
                 else None
             )
+        if state.era == "legacy":
+            # The 2026-09-16 audit (agents-06): this branch refused a stray
+            # `initialize` on an already-modern connection (the fix just
+            # above, 2026-09-15's agents-03) but not a *second* `initialize`
+            # on a connection already locked to legacy -- it silently re-ran
+            # `_legacy_initialize` and overwrote `state.legacy_version`,
+            # even though `BridgeEra`'s own docstring says the era is
+            # "locked for the connection's life" once decided. That let a
+            # later batch request be silently accepted or refused depending
+            # on whichever version the second `initialize` happened to name,
+            # since `legacy_version` is what gates batching. Refuse it the
+            # same way the modern branch refuses its own stray initialize.
+            return (
+                _error_bytes(
+                    msg_id,
+                    -32600,
+                    "invalid request: this connection is already locked to the legacy era",
+                )
+                if has_id
+                else None
+            )
         state.era = "legacy"
         version, reply = _legacy_initialize(
             msg_id,
@@ -696,7 +727,21 @@ def _dispatch_one(
         arguments = params.get("arguments", {}) or {}
         if not isinstance(arguments, dict):
             return _error_bytes(msg_id, -32602, "'arguments' must be an object")
-        operation_id, status = call_tool_task(name, arguments)
+        try:
+            # The 2026-09-16 audit (agents-01): unlike the ordinary
+            # `tools/call` path (`_dispatch_tools_call`'s own try/except),
+            # this Tasks-extension callback had no exception backstop, so
+            # anything it raised (e.g. `rpc.split_reply`'s plain `ValueError`
+            # on a malformed/truncated Studio reply) propagated straight out
+            # of `bridge_dispatch` -- and `bridge.py::main`'s run loop only
+            # catches `(EOFError, KeyboardInterrupt)`, so an uncaught
+            # exception here killed the whole `warlock mcp` process. The
+            # same guard is repeated below for `get_task`/`cancel_task`.
+            operation_id, status = call_tool_task(name, arguments)
+        except Exception as exc:  # noqa: BLE001 -- see the comment above
+            return _error_bytes(
+                msg_id, -32603, f"call_tool_task failed: {type(exc).__name__}: {exc}"
+            )
         return _create_task_result_bytes(
             msg_id, operation_id, status, server_info_meta=server_info_meta
         )
@@ -706,7 +751,10 @@ def _dispatch_one(
             return _error_bytes(msg_id, -32602, "tasks/get needs a string 'taskId'")
         if get_task is None:
             return _error_bytes(msg_id, -32601, f"unknown method: {method}")
-        found = get_task(task_id)
+        try:
+            found = get_task(task_id)  # see the 2026-09-16 audit comment above
+        except Exception as exc:  # noqa: BLE001
+            return _error_bytes(msg_id, -32603, f"tasks/get failed: {type(exc).__name__}: {exc}")
         if found is None:
             return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
         status, body = found
@@ -717,7 +765,12 @@ def _dispatch_one(
             return _error_bytes(msg_id, -32602, "tasks/cancel needs a string 'taskId'")
         if cancel_task is None:
             return _error_bytes(msg_id, -32601, f"unknown method: {method}")
-        status = cancel_task(task_id)
+        try:
+            status = cancel_task(task_id)  # see the 2026-09-16 audit comment above
+        except Exception as exc:  # noqa: BLE001
+            return _error_bytes(
+                msg_id, -32603, f"tasks/cancel failed: {type(exc).__name__}: {exc}"
+            )
         if status is None:
             return _error_bytes(msg_id, -32602, "unknown task", data={"taskId": task_id})
         return _result_bytes(msg_id, {"taskId": task_id, "status": status})

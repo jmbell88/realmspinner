@@ -409,6 +409,17 @@ def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any)
             imgui.set_cursor_screen_pos(after)
             imgui.text(widgets.fit_text(name, thumb))
             imgui.unindent(pad.x)
+            # Called while this cell's own child window is still current, not
+            # after ``end_child()`` -- the 2026-09-16 audit (shell-library)
+            # found a right-click anywhere in the grid acting on the *last*
+            # cell drawn that frame, because ``_card_context``'s
+            # ``imgui.is_window_hovered()`` was being read against the shared
+            # scrolling grid (imgui's current window, once this cell's own
+            # child had closed) rather than this cell, and every cell's check
+            # that frame read the same answer. Moved here to mirror
+            # ``library._card_body``, whose own call to ``_card_context``
+            # likewise runs before its "card" child closes.
+            library._card_context(ctx, job)
     library.draggable_source(ctx, job)
     if imgui.is_item_hovered():
         imgui.set_mouse_cursor(imgui.MouseCursor_.hand.value)
@@ -418,7 +429,6 @@ def _cell(ctx: Any, job: Any, size: tuple[float, float], thumb: float, pad: Any)
         imgui.set_tooltip(name)
     if imgui.is_item_clicked():
         library.select(ctx, job_id)
-    library._card_context(ctx, job)
     if selected:
         widgets.ring(
             imgui.ImVec2(origin.x, origin.y),

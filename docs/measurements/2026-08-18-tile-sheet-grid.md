@@ -4,6 +4,16 @@
 art direction does not reach the bar and the constants ship **provisional**.
 This document is what the next change to them argues against.
 
+**2026-09-16 update.** `TODO.md`'s P10 resolved the feature-level question on
+2026-08-29: the shipped answer is candidate 1 below, "N materials, one grid",
+built as a separate "Materials and Terrain set" job kind rather than as a
+change to this document's constants. The grid mechanism this document
+measures now ships only as **Grid (legacy)** — kept reachable for 3/4 and
+isometric views and for rerunning a sheet made under it
+(`studio/panes/settings_2d.py`'s `_tile_grid`) — and every finding below
+still stands for that legacy path specifically. The verdict on the new path
+is `TODO.md`'s P15.
+
 ## The question
 
 `pipelines/tilesheet.py` asks SDXL 1.0 (`sdxl_cfg`, pixel-art LoRA at 1.2) for

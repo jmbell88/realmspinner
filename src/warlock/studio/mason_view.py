@@ -766,7 +766,26 @@ class MasonView(FrameOps):
         if not points:
             return None
         if pivot == "active":
-            return np.asarray(points[0], dtype="f8")
+            # The 2026-09-16 audit's mason-engine-... : this used to be
+            # ``points[0]``, the first node in ``resolve()``'s walk order
+            # that happened to be selected -- for a fixed selection, the
+            # same node however the user built it up, not "the last node
+            # clicked" the pivot's own tooltip promises. ``doc.select``
+            # records that uid in ``selection_active``; fall back to the
+            # median (below) when it is unset or points at a uid no longer
+            # in the current selection -- an ambiguous Shift+range or
+            # Ctrl+A leaves it stale rather than wrong.
+            active_uid = getattr(doc, "selection_active", None)
+            if active_uid in selection:
+                for item in self.resolved(doc):
+                    if item.owner == active_uid:
+                        return np.asarray(item.world[:3, 3], dtype="f8")
+                try:
+                    found = msc.resolved_for(doc, active_uid)
+                except ValueError:
+                    found = None
+                if found is not None:
+                    return np.asarray(found.world[:3, 3], dtype="f8")
         return np.asarray(points, dtype="f8").mean(axis=0)
 
     # -- picking -----------------------------------------------------------
@@ -1062,9 +1081,14 @@ class MasonView(FrameOps):
                     selection.symmetric_difference_update({owner})
                 else:
                     selection.add(owner)
-            doc.select(selection)
+            # ``owner`` -- the node actually under the pointer -- is the
+            # "last node clicked" the Active pivot's tooltip promises, even
+            # while it is only one of several uids landing in ``selection``
+            # here; passed explicitly because ``select`` cannot infer it
+            # from an unordered multi-uid set (the 2026-09-16 audit).
+            doc.select(selection, active=owner)
         else:
-            doc.select([owner] if owner is not None else [])
+            doc.select([owner] if owner is not None else [], active=owner)
         # The press that selected also arms an orbit, exactly as Clay's does: a
         # click selects, a drag from the same press turns the camera, and the
         # two are told apart by whether the pointer travelled.

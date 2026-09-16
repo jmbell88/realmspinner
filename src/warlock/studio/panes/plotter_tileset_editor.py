@@ -499,19 +499,30 @@ def _collision_input(
             state.tileset_drag_vertex = int(vertex)
             return
         if io.key_ctrl and isinstance(shape, TilePolygon):
-            doc.set_tile_meta(
-                index,
-                local,
-                dataclasses.replace(
-                    meta,
-                    collision=_swapped(
-                        shapes,
-                        chosen,
-                        picking.inserted_vertex(shape, point, tile_w, tile_h),
+            # The 2026-09-16 audit: this call had no distance gate at all,
+            # unlike the handle and vertex picks just above it (both go
+            # through ``nearest_region``, which refuses past ``GRAB_RADIUS``)
+            # -- so a Ctrl+click anywhere inside the tile silently added a
+            # corner on whichever edge happened to be nearest, however far
+            # away that was. The tab's own tooltip promises "Ctrl+click an
+            # edge to add one"; a click that is not near one now falls
+            # through to the ordinary press below instead.
+            segment = picking.nearest_segment_distance(shape, point)
+            near = segment is not None and segment[1] * view.scale <= sp(picking.GRAB_RADIUS)
+            if near:
+                doc.set_tile_meta(
+                    index,
+                    local,
+                    dataclasses.replace(
+                        meta,
+                        collision=_swapped(
+                            shapes,
+                            chosen,
+                            picking.inserted_vertex(shape, point, tile_w, tile_h),
+                        ),
                     ),
-                ),
-            )
-            return
+                )
+                return
 
     found = picking.shape_at(shapes, point)
     if found is None:

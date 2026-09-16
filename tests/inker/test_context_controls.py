@@ -106,6 +106,45 @@ def _click(imgui, build, control):
     _frame(imgui, build, pos=control.centre, down=False)
 
 
+def test_the_selection_combine_row_starts_flush_left_like_every_other_context_bar_row(
+    ui, monkeypatch
+):
+    """The 2026-09-16 audit: ``_selection_bar``'s first statement was a stray
+    ``imgui.same_line()``, unlike ``_float_bar`` and ``_gesture_bar``, which
+    both draw a label first and *only then* call ``same_line()`` to keep
+    their own toolbar on it. imgui's ``SameLine()`` does not need a widget on
+    the current line to have an effect -- it always adds one
+    ``ItemSpacing.x`` to whatever ``CursorPosPrevLine`` already holds -- so a
+    leading call shifted the whole row right by exactly that amount instead
+    of starting flush left the way every sibling row does.
+
+    Proven against an independent reference control (a plain ghost button,
+    drawn as the literal first thing in its own frame -- guaranteed flush
+    left because there is nothing before it for a stray ``same_line()`` to
+    have added to): with the bug, the combine control lands one
+    ``ItemSpacing.x`` to the right of it; fixed, the two line up exactly.
+    """
+    from warlock.studio import controls
+
+    ctx, state, tab, _written = _scene(monkeypatch)
+    tab.doc.select_all()
+
+    def reference():
+        controls.button(
+            "ref##flush-left-probe",
+            role=controls.ButtonRole.GHOST,
+            control_size=controls.ControlSize.COMPACT,
+        )
+
+    ref = _laid_out(ui, reference)
+    ref_x = _find(ref, "ref##flush-left-probe").rect[0]
+
+    selection = _laid_out(ui, lambda: inker_context._selection_bar(ctx, state, tab))
+    replace = _find(selection, "Replace##inker-combine")
+
+    assert replace.rect[0] == pytest.approx(ref_x)
+
+
 def test_the_bar_says_the_word_symmetry(ui, monkeypatch):
     """The complaint this whole change answers: four buttons labelled ``H``,
     ``V``, ``\\`` and ``/`` with nothing on screen naming them."""

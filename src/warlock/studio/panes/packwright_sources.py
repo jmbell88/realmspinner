@@ -173,6 +173,42 @@ def _forget_slice_preview(ctx: Any) -> None:
     _slice_grid_cache = None
 
 
+def clear_tileset_import(ctx: Any, state: Any) -> None:
+    """Drop a parked tile-set import outright: the state quartet, and the
+    parked sheet's own texture and cached grid.
+
+    Pulled out of ``_tileset_popup``'s Cancel button and its click-outside
+    branch, which used to do this inline in two slightly different orders, so
+    ``packwright_mode.close_tab`` can reach the same clear. The 2026-09-16
+    audit: closing the tab a pending import named (Ctrl+W, reachable with no
+    confirm on a still-clean new atlas) used to leave this popup on screen
+    describing a document that no longer existed -- and its texture and grid
+    cache alive -- until a human noticed and cancelled it by hand.
+    """
+    state.tileset_import = None
+    state.tileset_import_uid = ""
+    state.tileset_import_open = False
+    state.tileset_preview_key = None
+    _forget_slice_preview(ctx)
+
+
+def tileset_popup_open(ctx: Any) -> bool:
+    """Whether the tile-set import popup owns the keyboard. Tolerant of a
+    partial ``ctx`` (``getattr``, not attribute access) -- ``matte_preview.
+    is_open``'s reason: ``dialogs.modal_open`` asks this on every key press
+    (I77), for a caller that has never built Packwright state.
+
+    The 2026-09-16 audit found this popup missing from ``modal_open``'s
+    answers: it is a real popup with the user's attention (the tile-size
+    fields, the Import/Cancel pair), but every global shortcut still reached
+    the app while it was up -- the same UX-08 shape ``modal_open``'s own
+    docstring names the matte preview for, reproduced in a door that fix
+    never reached.
+    """
+    state = getattr(getattr(ctx, "state", None), "packwright", None)
+    return bool(state is not None and state.tileset_import_open)
+
+
 def _hatch(
     draw: Any, lo: tuple[float, float], hi: tuple[float, float], colour: int, spacing: float
 ) -> None:
@@ -298,11 +334,7 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
         # imgui closes a popup on a click outside, and the sheet is a megabyte
         # or two: dropping it here is what keeps a cancelled import from
         # pinning the pixels for the rest of the session.
-        if state.tileset_import_open:
-            state.tileset_import_open = False
-            state.tileset_import = None
-            state.tileset_preview_key = None
-        _forget_slice_preview(ctx)
+        clear_tileset_import(ctx, state)
         return
     widgets.popup_chrome(_imgui=imgui)
     if state.tileset_import is None:
@@ -370,9 +402,7 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
     imgui.end_disabled()
     imgui.same_line()
     if controls.button("Cancel##tileset", (sp(90), 0)):
-        state.tileset_import = None
-        state.tileset_preview_key = None
-        state.tileset_import_open = False
+        clear_tileset_import(ctx, state)
         imgui.close_current_popup()
     imgui.end_popup()
 

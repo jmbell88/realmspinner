@@ -3922,3 +3922,31 @@ async def test_an_unrelated_exception_during_a_pending_cancel_is_still_logged(
     # the actual "Traceback (most recent call last)" text.
     assert "disk full" in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+# --- _Cancel.stopping, pinned to its own docstring ---------------------------
+
+
+async def test_cancel_stopping_is_false_once_committed():
+    """service-queue-04 (the 2026-09-16 audit): ``_Cancel.stopping``'s
+    docstring says the property reads False once a stage has committed its
+    publish -- "the tail after a publish is bookkeeping and QA ... expensive
+    to have half-done" -- but the implementation was ``return
+    self.event.is_set()``, never consulting ``self.committed``. Harmless only
+    because nothing in ``src/`` or ``tests/`` calls ``.stopping`` at all
+    today; this pins the property to the contract its own docstring
+    promises, in case a future caller reaches for it.
+    """
+    from warlock.queue import _Cancel
+
+    cancel = _Cancel("job-1")
+    assert cancel.stopping is False
+
+    cancel.event.set()
+    assert cancel.stopping is True, "a set cancel event with no commit should still stop"
+
+    cancel.commit()
+    assert cancel.stopping is False, (
+        "stopping must read False once committed, even with the event set -- "
+        "the tail after a publish is bookkeeping and QA, not work to abandon"
+    )

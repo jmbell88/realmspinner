@@ -55,18 +55,27 @@ ROW_H = 16.0
 GUTTER_W = 34.0
 CHANNEL_W = 116.0
 
-#: The five columns' character widths within a group, in the document's order.
-#: ``document.COLUMNS`` worth of entries, asserted by a test rather than by a
-#: comment -- a sixth column added to the engine must widen the group here or
-#: the grid silently stops drawing it.
+#: The five columns' character widths within a group, in the document's
+#: order. ``document.COLUMNS`` worth of entries -- but only its *length* is read,
+#: by the import-time assert below. Nothing in this module consults the
+#: individual widths: each column's actual on-screen width comes from
+#: ``_advance()``'s live text measurement, and the group's width is the
+#: unrelated hardcoded ``CHANNEL_W`` above. The 2026-09-16 audit (finding
+#: sirens-05) found this docstring still claiming a sixth column "must widen
+#: the group here or the grid silently stops drawing it" -- not true even
+#: before that sentence was written: adding a column here changes nothing
+#: about the group's width, only the length check below. What the tuple buys
+#: is that check: a column-count mismatch fails loudly at import time rather
+#: than drawing a column silently missing.
 COLUMN_CHARS: tuple[int, ...] = (3, 2, 2, 1, 2)
 
-# The 2026-09-08 audit found sirens-04: this comment's "asserted by a test"
-# was not true -- nothing in the module or the suite ever read COLUMN_CHARS,
-# so a seventh column added to ``document.COLUMNS`` without widening this
-# tuple would have drawn a grid with a column silently missing, the exact
-# hazard the comment claimed was already guarded against. Asserted here, at
-# import time, rather than left for a test to notice on its own schedule.
+# The 2026-09-08 audit found sirens-04: the docstring above claimed
+# COLUMN_CHARS was "asserted by a test", which was not true -- nothing in the
+# module or the suite ever read it, so a seventh column added to
+# ``document.COLUMNS`` without a matching entry here would have drawn a grid
+# with a column silently missing, the exact hazard the docstring claimed was
+# already guarded against. Asserted here, at import time, rather than left
+# for a test to notice on its own schedule.
 assert len(COLUMN_CHARS) == D.COLUMNS, (
     "COLUMN_CHARS must have one entry per document.COLUMNS column, or the"
     " grid silently stops drawing the one it forgot"

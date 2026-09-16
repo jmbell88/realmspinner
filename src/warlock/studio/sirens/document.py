@@ -627,7 +627,21 @@ class SongDoc:
         self.patterns.insert(index, pattern)
 
     def _detach_pattern(self, uid: int) -> None:
-        self.patterns = [one for one in self.patterns if one.uid != uid]
+        """Remove the *first* pattern with this uid, never every one that
+        shares it.
+
+        ``wsng.read_wsng`` refuses a manifest with two patterns sharing one
+        uid (the 2026-09-16 audit), so a document opened through this build
+        cannot carry a duplicate -- but this stayed index-scoped as defense
+        in depth: the old ``[one for one in self.patterns if one.uid != uid]``
+        filter would have deleted *every* pattern sharing a duplicated uid in
+        one call, silently destroying a second, untouched pattern alongside
+        the one the user actually selected.
+        """
+        for index, one in enumerate(self.patterns):
+            if one.uid == uid:
+                del self.patterns[index]
+                return
 
     def _apply_pattern_cells(self, uid: int, cells: np.ndarray) -> None:
         pattern = self.pattern(uid)
@@ -727,8 +741,12 @@ class SongDoc:
         if len(self.channels) <= 1:
             raise ValueError("a song needs at least one channel")
         index = self.channels.index(channel)
-        after = tuple(one for one in self.channels if one.uid != uid)
-        self._push_channels(after, insert_at=None, removed=index)
+        # Index-scoped, not a ``uid !=`` filter: the latter would drop every
+        # channel sharing a duplicated uid, not just the one at ``index`` --
+        # the 2026-09-16 audit's defense in depth, the same shape
+        # ``_detach_pattern`` and ``_detach_oneshot`` carry the comment for.
+        after = self.channels[:index] + self.channels[index + 1 :]
+        self._push_channels(tuple(after), insert_at=None, removed=index)
         return True
 
     def update_channel(self, uid: int, **values: Any) -> bool:
@@ -839,7 +857,13 @@ class SongDoc:
         self.oneshots.insert(index, oneshot)
 
     def _detach_oneshot(self, uid: int) -> None:
-        self.oneshots = [one for one in self.oneshots if one.uid != uid]
+        """Remove the *first* one-shot with this uid. See ``_detach_pattern``
+        for why this is index-scoped rather than a ``uid !=`` filter -- the
+        2026-09-16 audit's defense in depth against the same shape."""
+        for index, one in enumerate(self.oneshots):
+            if one.uid == uid:
+                del self.oneshots[index]
+                return
 
     def _apply_oneshot(self, uid: int, value: OneShot) -> None:
         for i, one in enumerate(self.oneshots):

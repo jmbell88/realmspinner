@@ -82,6 +82,26 @@ class PixelOpts:
 
 _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
+#: The absolute ceiling on how many rows any reader below will turn into
+#: colours. Restated from ``studio/inker/gpl.MAX_PALETTE_ROWS`` verbatim --
+#: this package may not import the studio, and the studio's headless Inker
+#: package may not import this one, so the intentional-duplication comment
+#: above applies to the constant too. The 2026-09-16 audit found these four
+#: readers had no ceiling at all: a crafted 200,000-row ``.gpl`` returned with
+#: no refusal (probe: 200,000 colours, no error), the same amplification the
+#: 2026-09-11 audit fixed in ``gpl.parse`` but never ported here. 65536 is
+#: generous for any real palette -- Aseprite's own indexed mode tops out at
+#: 256 entries.
+MAX_PALETTE_ROWS = 1 << 16
+
+
+def _refuse_past_max_rows(count: int) -> None:
+    if count > MAX_PALETTE_ROWS:
+        raise ValueError(
+            f"this palette holds more than the {MAX_PALETTE_ROWS} rows"
+            " this build will read"
+        )
+
 
 def parse_hex(text: str) -> tuple[RGB, ...]:
     """A Lospec ``.hex`` palette: one ``rrggbb`` per line.
@@ -91,6 +111,9 @@ def parse_hex(text: str) -> tuple[RGB, ...]:
     and refusing the file over it would be a worse answer than ignoring it. A
     line that looks like it is *trying* to be a colour and is not still raises,
     because silently dropping one entry changes what every mapped pixel becomes.
+
+    Refuses past :data:`MAX_PALETTE_ROWS` rather than building an unbounded
+    list -- the 2026-09-16 audit found this loop had no ceiling at all.
     """
     colors: list[RGB] = []
     for raw in text.splitlines():
@@ -104,6 +127,7 @@ def parse_hex(text: str) -> tuple[RGB, ...]:
         colors.append(
             (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
         )
+        _refuse_past_max_rows(len(colors))
     if not colors:
         raise ValueError("the palette file contains no colours")
     return tuple(colors)
@@ -115,6 +139,11 @@ def parse_gpl(text: str) -> tuple[RGB, ...]:
     The header is required to say GIMP Palette -- that is the format's own
     magic, and without it a stray text file parses as a palette of whatever
     numbers it happens to contain.
+
+    Refuses past :data:`MAX_PALETTE_ROWS` rather than building an unbounded
+    list -- the 2026-09-16 audit found this loop had no ceiling at all, the
+    same amplification the 2026-09-11 audit fixed in ``gpl.parse`` but never
+    ported to this port.
     """
     lines = text.splitlines()
     if not lines or not lines[0].strip().lower().startswith("gimp palette"):
@@ -136,6 +165,7 @@ def parse_gpl(text: str) -> tuple[RGB, ...]:
         if not all(0 <= c <= 255 for c in (r, g, b)):
             raise ValueError(f"channel out of range: {line!r}")
         colors.append((r, g, b))
+        _refuse_past_max_rows(len(colors))
     if not colors:
         raise ValueError("the palette file contains no colours")
     return tuple(colors)
@@ -176,6 +206,9 @@ def parse_pal(text: str) -> tuple[RGB, ...]:
     rows in enough files in the wild that trusting it would drop real colours,
     and the rows are the palette. A row this cannot read is skipped rather than
     fatal, which is ``gpl.parse_jasc``'s rule and has to stay it.
+
+    Refuses past :data:`MAX_PALETTE_ROWS` rather than building an unbounded
+    list -- the 2026-09-16 audit found this loop had no ceiling at all.
     """
     lines = [line.strip() for line in text.lstrip("﻿").splitlines()]
     if not lines or lines[0].strip().upper() != JASC_HEADER:
@@ -195,6 +228,7 @@ def parse_pal(text: str) -> tuple[RGB, ...]:
         except ValueError:
             continue
         colors.append((_clamp(r), _clamp(g), _clamp(b)))
+        _refuse_past_max_rows(len(colors))
     if not colors:
         raise ValueError("the palette file contains no colours")
     return tuple(colors)
@@ -207,6 +241,9 @@ def parse_txt(text: str) -> tuple[RGB, ...]:
     everything downstream of here maps pixels onto -- ``gpl.parse_txt`` keeps
     it, and that difference is the one thing the two readers are allowed to
     disagree about. Six-digit rows, which some writers emit, are opaque.
+
+    Refuses past :data:`MAX_PALETTE_ROWS` rather than building an unbounded
+    list -- the 2026-09-16 audit found this loop had no ceiling at all.
     """
     colors: list[RGB] = []
     for raw in text.lstrip("﻿").splitlines():
@@ -219,12 +256,14 @@ def parse_txt(text: str) -> tuple[RGB, ...]:
             colors.append(
                 (int(value[2:4], 16), int(value[4:6], 16), int(value[6:8], 16))
             )
+            _refuse_past_max_rows(len(colors))
             continue
         narrow = _HEX_RE.match(line)
         if narrow is None:
             raise ValueError(f"not a hex colour: {line!r}")
         value = narrow.group(1)
         colors.append((int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)))
+        _refuse_past_max_rows(len(colors))
     if not colors:
         raise ValueError("the palette file contains no colours")
     return tuple(colors)

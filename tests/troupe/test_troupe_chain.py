@@ -682,6 +682,94 @@ def test_a_mesh_already_rigged_as_something_else_is_still_refused(svc):
     assert "fish" in str(excinfo.value)
 
 
+# -- the send dialog's layout follows the sent mesh, not Troupe's own pane --
+
+
+def test_send_to_troupe_does_not_submit_the_currently_selected_characters_layout_for_a_different_mesh(  # noqa: E501
+    svc,
+):
+    """The 2026-09-16 audit, finding troupe-01: ``troupe_send.ask()``/``_send()``
+    used to submit ``troupe_mode.form(ctx)["layout"]`` unchanged -- built by
+    ``troupe_mode._default_layout`` against whichever character is *bound to
+    Troupe's own pane* (``troupe_mode.ensure(ctx).job_id``), never rebuilt
+    against the mesh this dialog is actually sending, a separate id chosen
+    from the Library or the inspector. A user with a character open in
+    Troupe, its sheet layout hand-edited down to one movement, who then used
+    "Send to Troupe" on an unrelated rigged mesh from the Library used to
+    submit that same hand-edited layout on the unrelated mesh's rig, silently
+    -- today's shipped templates share one clip vocabulary, so there is no
+    refusal to notice it by.
+    """
+    from types import SimpleNamespace
+
+    from warlock.studio import troupe_mode
+    from warlock.studio.panes import troupe_send
+
+    class _Ctx:
+        """The slice of the app context the door's logic touches. No GL --
+        ``tests/troupe/test_send_door.py``'s own fixture, inlined here since
+        this test lives beside the service-layer chain rather than that
+        pane-level file."""
+
+        def __init__(self, svc):
+            self.svc = svc
+            self.state = SimpleNamespace(
+                troupe=None, preview={}, mode="library", troupe_send=None
+            )
+            self.submitted: list[tuple[str, object]] = []
+
+        def job_dir(self, job_id):
+            return self.svc.job_dir(job_id)
+
+        def toast(self, *a, **k):
+            pass
+
+        def busy(self, key):
+            return False
+
+        def submit(self, key, run, *a, **kw):
+            self.submitted.append((key, run))
+            return True
+
+    ctx = _Ctx(svc)
+
+    # A character is bound to Troupe's own pane, and its sheet layout has
+    # been hand-edited down to one movement -- "run" only, none of the
+    # humanoid library's other four legacy clips.
+    bound = _rigged_mesh(svc, template="humanoid")
+    rig_row = svc.store.create(
+        "rig", "a bound ranger", {"source_job": bound, "template": "humanoid"}
+    )
+    svc.store.set_status(rig_row, "done")
+    troupe_mode.ensure(ctx).job_id = bound
+
+    default_layout = troupe_mode.form(ctx)["layout"]
+    edited = {
+        **default_layout,
+        "movements": [
+            dict(m, enabled=(m["key"] == "run")) for m in default_layout["movements"]
+        ],
+    }
+    troupe_mode.form(ctx)["layout"] = edited
+    assert {m["key"] for m in edited["movements"] if m["enabled"]} == {"run"}
+
+    # A different, unrelated rigged mesh is sent through the library door.
+    other = _rigged_mesh(svc, template="humanoid")
+    job = {"id": other, "prompt": "an unrelated ranger", "files": ["model.glb", "rig.glb"]}
+    assert troupe_send.ask(ctx, job)
+    state = ctx.state.troupe_send
+    troupe_send._send(ctx, state, troupe_mode.form(ctx))
+
+    (_key, run), = ctx.submitted
+    made = run()
+    row = svc.store.get(made["id"])
+    submitted_movements = {m["key"] for m in row["params"]["layout"]["movements"]}
+    # Not the bound character's hand-edited set -- the sent mesh's own fresh
+    # default, the humanoid library's whole legacy five.
+    assert submitted_movements != {"run"}
+    assert submitted_movements == {"idle", "walk", "run", "attack", "jump"}
+
+
 async def test_the_worker_mints_the_sheet_when_the_rig_lands(worker):
     """The second half, and it re-checks the rig rather than assuming it."""
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -1831,6 +1919,90 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
     # The re-rendered run still carries a flame -- a subset that composited
     # nothing would pass every assertion above.
     assert _warm(cells_b[3]).any()
+
+
+async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata_for_copied_cells(
+    worker, monkeypatch
+):
+    """The 2026-09-16 audit, finding troupe-02: ``_q_troupe._charsheet``'s
+    ``sockets_px`` only covers the cells a subset re-render actually
+    rendered -- but every other cell was just copied byte-for-byte from the
+    base sheet by ``sheetlib.compose_cells``, and the base sidecar already
+    measured *that* cell's sockets. The pixels survive the copy; the
+    ``sockets`` entry describing them used to be dropped anyway.
+    """
+    import json
+
+    from warlock import rigging
+
+    layout = {
+        "version": 2,
+        "movements": [
+            {"key": "idle", "frames": 3, "directions": 1},
+            {"key": "attack", "frames": 2, "directions": 1},
+        ],
+    }
+    _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
+
+    source = worker.store.create("image", "an elemental", {}, stage="model")
+    source_dir = worker.config.job_dir(source)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "model.glb").write_bytes(b"fake-glb")
+    (source_dir / "rig.glb").write_bytes(b"fake-rig")
+    (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
+    (source_dir / "character.json").write_text(json.dumps(_CHARACTER), "utf-8")
+    worker.store.set_status(source, "done")
+
+    def _queue(**extra):
+        return worker.store.create(
+            "charsheet",
+            "an elemental",
+            {
+                "source_job": source,
+                "sheet_id": rigging.new_id(),
+                "logical_size": 32,
+                "colors": 16,
+                "layout": layout,
+                **extra,
+            },
+        )
+
+    first = _queue()
+    worker.start()
+    try:
+        await _wait_until(
+            lambda: worker.store.get(first)["status"] in ("done", "error"), 90.0
+        )
+        assert worker.store.get(first)["error"] is None
+        base_sheet = worker.store.get(first)["params"]["sheet_id"]
+        base_meta = rigging.read_sheet(source_dir, base_sheet)
+        assert all("sockets" in c for c in base_meta["cells"]), "fixture regressed"
+
+        rerun = _queue(
+            subset=[{"animation": "attack", "direction": "front"}],
+            base_sheet=base_sheet,
+        )
+        await _wait_until(
+            lambda: worker.store.get(rerun)["status"] in ("done", "error"), 90.0
+        )
+    finally:
+        await worker.shutdown()
+
+    assert worker.store.get(rerun)["error"] is None
+    rerun_sheet = worker.store.get(rerun)["params"]["sheet_id"]
+    meta = rigging.read_sheet(source_dir, rerun_sheet)
+    base_cells = {int(c["index"]): c for c in base_meta["cells"]}
+    cells = {int(c["index"]): c for c in meta["cells"]}
+    # Cells 0-2 (idle) were copied byte-for-byte from the base sheet this run;
+    # 3-4 (attack) were actually re-rendered.
+    for index in (0, 1, 2):
+        assert "sockets" in cells[index], (
+            f"cell {index} was copied unchanged from the base sheet but lost "
+            "its socket metadata"
+        )
+        assert cells[index]["sockets"] == base_cells[index]["sockets"]
+    for index in (3, 4):
+        assert "sockets" in cells[index]
 
 
 # -- D5: HD mode ---------------------------------------------------------------

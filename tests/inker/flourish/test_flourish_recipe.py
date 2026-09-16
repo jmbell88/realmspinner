@@ -157,3 +157,40 @@ def test_a_layer_with_no_phases_is_active_everywhere_and_invisible_never():
     assert layer.active_in("anything")
     assert not R.Layer(uid=1, kind="core", visible=False).active_in("anything")
     assert not R.Layer(uid=1, kind="core", phases=("a",)).active_in("b")
+
+
+def test_unity_snippet_class_name_does_not_start_with_a_digit():
+    """The 2026-09-16 audit: ``_ident(name, pascal=True)`` -- used only for
+    the Unity snippet's class name -- had no leading-digit guard, unlike the
+    non-pascal branch three lines below it, which falls back to a ``fx_``
+    prefix. An effect named "3D Explosion" produced
+    ``public class 3DExplosionPlayer : MonoBehaviour``, which is not a legal
+    C# identifier and fails to compile with nothing in the popup warning the
+    user.
+    """
+    import ast
+    import keyword
+    import re
+
+    from warlock.studio.inker.flourish import engines
+
+    info = engines.describe(
+        name="3D Explosion",
+        image="sheet.png",
+        frame_width=32,
+        frame_height=32,
+        frames=4,
+        fps=12,
+        loop=False,
+        origin=(16, 16),
+    )
+    text = engines.snippet("unity", info)
+    match = re.search(r"public class (\w+)Player", text)
+    assert match is not None, text
+    class_name = match.group(1)
+    assert not class_name[0].isdigit(), class_name
+    # A legal C# identifier: not a bare keyword and not digit-led -- ``ast``
+    # has no C# grammar, so this checks the same shape Python identifiers
+    # share with C#'s (a leading letter/underscore) as the cheapest real proof.
+    assert class_name.isidentifier() and not keyword.iskeyword(class_name)
+    assert ast.parse(f"{class_name} = 1")  # parses as a bare name, not a number

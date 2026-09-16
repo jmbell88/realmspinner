@@ -3535,6 +3535,54 @@ def test_two_rows_with_the_same_icon_and_tooltip_keep_separate_hover_state(imgui
     )
 
 
+def test_two_ghost_buttons_with_the_same_label_keep_separate_hover_state(imgui_ctx):
+    """Muse's results grid (``panes/muse_results.py``'s per-card ``_actions``)
+    draws one ``ghost_button("Make more", ...)`` per take card with no job-id
+    suffix on the label -- the 2026-09-16 audit's shell-widgets finding for
+    the role buttons. ``primary_button``/``ghost_button``/``destructive_button``
+    keyed their hover-fade animation on the bare label text alone (``f"ghost/
+    {label}"``), with nothing from imgui's id stack folded in, unlike
+    :func:`widgets._glyph_button` above, fixed for exactly this reason. Two
+    cards drawn under different ``push_id`` scopes with the identical label
+    shared one animation slot, so hovering one card's "Make more" painted
+    every other visible card's as hovered too.
+    """
+    imgui, _renderer = imgui_ctx
+    from warlock.studio import widgets
+
+    seen: list[str] = []
+    real_note_hover = widgets.note_hover
+
+    def spy(key, hovered):
+        seen.append(key)
+        real_note_hover(key, hovered)
+
+    widgets.note_hover = spy
+    try:
+        imgui.get_io().add_mouse_pos_event(-1, -1)
+        imgui.new_frame()
+        imgui.set_next_window_pos((0, 0))
+        imgui.set_next_window_size((400, 400))
+        imgui.begin("##ghost-hover-collision", None, imgui.WindowFlags_.no_decoration.value)
+        imgui.push_id("card-a")
+        widgets.ghost_button("Make more")
+        imgui.pop_id()
+        imgui.push_id("card-b")
+        widgets.ghost_button("Make more")
+        imgui.pop_id()
+        imgui.end()
+        imgui.render()
+        _renderer.render(imgui.get_draw_data())
+    finally:
+        widgets.note_hover = real_note_hover
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1], (
+        "two different cards' ghost buttons shared one hover-animation key "
+        f"({seen[0]!r}); hovering one paints the other"
+    )
+
+
 @pytest.mark.parametrize("stage", ["reference", "tile", "model", "rig", "sheet"])
 def test_a_library_card_says_which_kind_of_asset_it_is(app_ctx, imgui_ctx, stage):
     """The card never read ``stage``, and the only tells were a 72 px

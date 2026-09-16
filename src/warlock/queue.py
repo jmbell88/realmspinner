@@ -222,8 +222,16 @@ class _Cancel:
     def stopping(self) -> bool:
         """Whether a stage should stop early. False once committed is not a
         cancel being ignored: the tail after a publish is bookkeeping and QA,
-        both of which are cheap to finish and expensive to have half-done."""
-        return self.event.is_set()
+        both of which are cheap to finish and expensive to have half-done.
+
+        service-queue-04 (the 2026-09-16 audit): this used to read
+        ``self.event.is_set()`` alone, which is the opposite of what the
+        docstring above promises -- it would report ``True`` (stop) even
+        after a commit. Harmless only because nothing in ``src/`` or
+        ``tests/`` calls ``.stopping`` at all; every real cancel check in
+        ``_q_*.py`` reads ``event.is_set()`` and ``committed`` directly.
+        """
+        return self.event.is_set() and not self.committed
 
 
 def vram_gib() -> tuple[float, float] | None:

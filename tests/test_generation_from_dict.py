@@ -188,3 +188,27 @@ def test_validate_request_refuses_a_count_above_the_doors_own_ceiling():
     )
     issues = generation.validate_request(req)
     assert any(issue.field == "count" for issue in issues)
+
+
+def test_cell_dimensions_is_gone_now_that_nothing_ever_called_it():
+    """The 2026-09-16 audit, finding create-panes-03.
+
+    ``cell_dimensions`` (docstring: "Return output dimensions; a blank
+    target never reduces or upscales", enforcing the isometric-parity and
+    no-upscale rules) had no caller anywhere in ``src/``, ``scripts/``,
+    ``docs/`` or ``tests/`` -- the actual pixel-size resolution for a
+    tileset/sprite request happens in
+    ``pipelines/tilesheet.py``'s ``reduce_cell``/``reduce_sheet``
+    (its own no-upscale check: "cannot be reduced to ...; generate it
+    larger") and ``geometry`` (its own isometric-parity halving), an
+    entirely separate implementation that has superseded this one. Deleted
+    rather than wired in: the pipeline that would need to call it
+    (``pipelines/tilesheet.py``, ``_q_tilesheet.py``) is outside this
+    finding's owned files, and wiring a second, competing implementation
+    into a path that already has one is not a fix.
+    """
+    assert not hasattr(generation, "cell_dimensions"), (
+        "generation.cell_dimensions still exists; it was found unreachable "
+        "from every real code path (superseded by pipelines/tilesheet.py's "
+        "reduce_cell/reduce_sheet) and should have been deleted"
+    )

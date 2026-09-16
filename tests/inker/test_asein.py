@@ -670,6 +670,24 @@ def test_a_per_frame_old_palette_is_kept_the_same_way():
     assert doc.palette_for(doc.anim.frames[1]) == [(9, 8, 7, 255)]
 
 
+def test_read_old_palette_docstring_matches_its_silent_snapshot_behaviour():
+    """The 2026-09-16 audit: ``_read_old_palette``'s docstring said a
+    per-frame legacy-palette change is "warned about against the table as it
+    stood when this chunk began", but the function body never calls
+    ``state.warn`` -- it only sets ``state.palette_touched``, silently,
+    exactly like the modern 0x2019 chunk's reader does post-divergence-20 (see
+    ``test_a_per_frame_palette_is_kept_and_frame_zero_is_the_base`` above).
+    The docstring is checked directly rather than re-running that behaviour,
+    which ``test_a_per_frame_old_palette_is_kept_the_same_way`` already
+    covers and which did not change here -- only the sentence describing it
+    did."""
+    import inspect
+
+    doc = inspect.getdoc(asein._read_old_palette) or ""
+    assert "warned about against the table" not in doc
+    assert "nothing warned about" in doc
+
+
 def test_a_delta_carries_forward_to_the_frames_after_it():
     """The format's own rule: a palette chunk applies from its frame *onward*,
     so frame 2 here is coloured by frame 1's chunk and not by the base."""
@@ -928,6 +946,36 @@ def test_a_tileset_chunk_is_read_into_the_documents_tileset_list():
     assert slot.tileset.tile_count == 2
     assert tuple(slot.tileset.tile_pixels(1)[0, 0]) == (0, 255, 0, 255)
     assert warnings == []
+
+
+def test_parse_refuses_when_summed_tileset_bytes_exceed_the_decode_budget(monkeypatch):
+    """The 2026-09-16 audit: ``MAX_DECOMPRESSED_BYTES`` bounds one 0x2023
+    chunk's own decompressed size, but nothing summed the total across every
+    tileset chunk a file may declare -- unlike ``ora.py``'s tiles.json reader,
+    fixed for the identical shape after the 2026-09-11 audit's inker-03
+    finding. Lowered here, the same rule ``test_an_animated_aseprite_with_many_
+    real_cels_has_a_pixel_budget`` above states, so two small,
+    individually-legal tileset chunks trip it without building the
+    multi-hundred-megabyte fixture the real budget would need."""
+    from warlock.studio import pixelguard
+
+    monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 6)
+    tile = _rgba(2, 2, (1, 2, 3, 255))
+    data = _file(
+        _header(1, 2, 2),
+        [
+            _frame(
+                [
+                    _layer("Art"),
+                    _cel(0, _rgba(2, 2, (1, 1, 1, 255)), 2, 2),
+                    _tileset_chunk(1, 2, 2, [tile]),
+                    _tileset_chunk(2, 2, 2, [tile]),
+                ]
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="tilesets hold more than"):
+        asein.document_from_aseprite(data)
 
 
 def test_a_tilemap_cel_decodes_its_refs_grid():

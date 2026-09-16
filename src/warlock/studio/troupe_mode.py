@@ -1404,8 +1404,8 @@ def _bound_template(ctx: Any) -> str:
     return _bound_rig_template(ctx, ensure(ctx).job_id) or default
 
 
-def _default_layout(ctx: Any) -> dict[str, Any]:
-    """The layout a fresh New Character form opens with.
+def _layout_for_template(ctx: Any, template: str) -> dict[str, Any]:
+    """The default layout for *template*'s own clip vocabulary.
 
     Built from ``clip_vocabulary`` -- the rig's *whole* clip library -- rather
     than the closed legacy five, so a movement the vocabulary opened is a row
@@ -1414,17 +1414,19 @@ def _default_layout(ctx: Any) -> dict[str, Any]:
     five, by construction) start ticked, which is what keeps a fresh form's
     request byte-identical to the one it built before this vocabulary opened.
 
-    **Timed to the bound character's own skeleton** (:func:`_bound_template`),
-    not always the door's default -- a quadruped, bird or blob bound here used
-    to get the humanoid vocabulary's names, frames and provisional flags
-    regardless of what its own clip library actually holds, which offers
-    clips the rig lacks and hides ones it has. The resolved template travels
-    on the layout itself (``"template"``) so ``troupe_settings._layout`` reads
-    the one this table was actually built from rather than asking the door's
-    default a second time.
+    Keyed to *template* directly rather than always the character bound to
+    Troupe's own pane -- :func:`_default_layout` is that caller, but
+    ``panes.troupe_send`` needs the layout for the mesh it is actually
+    sending, which the 2026-09-16 audit (finding troupe-01) found is not
+    necessarily Troupe's current character at all: ``ask()``/``_send()`` used
+    to submit whichever layout ``troupe_mode.form(ctx)`` happened to hold,
+    built for whatever was bound in Troupe's own pane, regardless of the
+    mesh the dialog was sending. The resolved template travels on the layout
+    itself (``"template"``) so ``troupe_settings._layout`` and
+    ``troupe_send._send`` can both tell what this table was actually built
+    for rather than asking the door's default a second time.
     """
     opts = options(ctx)
-    template = _bound_template(ctx)
     vocabulary = (opts.get("clip_vocabulary") or {}).get(template) or ()
     return {
         "version": 2,
@@ -1440,6 +1442,19 @@ def _default_layout(ctx: Any) -> dict[str, Any]:
             for row in vocabulary
         ],
     }
+
+
+def _default_layout(ctx: Any) -> dict[str, Any]:
+    """The layout a fresh New Character form opens with.
+
+    **Timed to the bound character's own skeleton** (:func:`_bound_template`),
+    not always the door's default -- a quadruped, bird or blob bound here used
+    to get the humanoid vocabulary's names, frames and provisional flags
+    regardless of what its own clip library actually holds, which offers
+    clips the rig lacks and hides ones it has. See :func:`_layout_for_template`
+    for the shape this delegates to.
+    """
+    return _layout_for_template(ctx, _bound_template(ctx))
 
 
 def start_character(ctx: Any, form: dict[str, Any]) -> bool:

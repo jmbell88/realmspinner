@@ -70,6 +70,7 @@ class MasonDoc:
         materials: list[gltf.Material]
         missing: set[tuple]
         selection: set[int]
+        selection_active: int | None
         history: UndoStack
         rev: int
         saved_head: int
@@ -101,6 +102,15 @@ class MasonDoc:
         # on its own; it only reports through :meth:`missing_refs`.
         self.missing: set[tuple[Any, ...]] = set()
         self.selection: set[int] = set()  # node uids; not undoable
+        # The uid ``select`` was last confident was the one actually clicked
+        # (see :meth:`select`) -- ``mason_view.MasonView.selection_centre``'s
+        # "active" pivot reads this back. The 2026-09-16 audit found no such
+        # record existed at all: "Active" silently fell back to whichever
+        # selected node came first in the document's own tree-walk order,
+        # not "the last node clicked" its own tooltip promises. May go stale
+        # (point at a uid no longer in ``selection``, or at ``None``) --
+        # ``selection_centre`` falls back to the median pivot when it does.
+        self.selection_active: int | None = None
         self.history = UndoStack()
         # A change counter for anything that caches off the document.
         # Deliberately not what ``dirty`` is derived from; see the module
@@ -250,7 +260,15 @@ class MasonDoc:
         # before a single node is attached, via the shared
         # :meth:`_check_max_placed` (the 2026-09-15 audit's mason-01 put
         # ``add_node`` and ``unpack_instance`` behind the same door).
-        self._check_max_placed(len(added))
+        #
+        # The 2026-09-16 audit's mason-engine-01: counting ``len(added)``
+        # here only counted the top-level nodes handed in, not each one's
+        # whole subtree -- so the Array tool duplicating a selected GroupNode
+        # (``_spawn_array`` -> ``copy_subtree()`` -> here) silently attached
+        # far more nodes than the ceiling check saw. Summed the same way
+        # :meth:`add_node` already counts a single subtree, over every node
+        # being added.
+        self._check_max_placed(sum(len(list(nd.walk([node]))) for node in added))
         made: list[Edit] = []
         for node in added:
             siblings = self.children_of(parent_uid)
@@ -861,11 +879,32 @@ class MasonDoc:
     def touch(self) -> None:
         self.rev += 1
 
-    def select(self, uids: Iterable[int]) -> None:
+    def select(self, uids: Iterable[int], *, active: int | None = None) -> None:
         """Replace the selection. Pushes no step -- see the module docstring
         -- but still bumps ``rev``, because the viewport draws a selection
-        outline and has to know to redraw it."""
+        outline and has to know to redraw it.
+
+        ``active`` records which uid was the one actually clicked, for
+        :attr:`selection_active` (the 2026-09-16 audit's mason-... finding --
+        see that attribute's own comment). Most callers replace the whole
+        selection with exactly one uid -- an outliner row click, a
+        context-menu click, a duplicate that reselects its own result -- and
+        that is unambiguous with no ``active`` argument needed, so it is
+        inferred. A caller building a multi-node selection from an
+        extend/toggle/range gesture is the one case that is *not*
+        unambiguous (only the caller knows which of the several uids was the
+        one under the pointer) and must pass ``active`` explicitly --
+        ``mason_view.MasonView._press``'s shift/ctrl branch does.
+        """
         self.selection = {int(u) for u in uids}
+        if active is not None:
+            self.selection_active = int(active)
+        elif len(self.selection) == 1:
+            self.selection_active = next(iter(self.selection))
+        # else: an ambiguous multi-uid replacement with no ``active`` given
+        # (a Shift+range, a Ctrl+A) leaves the previous value in place --
+        # stale is fine, since it is checked against the live selection
+        # before use, never trusted blindly.
         self.touch()
 
     # -- reporting -------------------------------------------------------------

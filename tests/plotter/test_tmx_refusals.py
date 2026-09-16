@@ -349,6 +349,29 @@ def test_an_embedded_image_collection_tileset_is_read():
     assert doc.tilesets[0].holds(4)
 
 
+def test_a_gid_in_a_sparse_collections_gap_is_refused_at_load_not_crashed_at_render():
+    """The 2026-09-16 audit: ``TilesetRef.holds`` checked only the numeric
+    range ``[firstgid, firstgid + max_local_id]``, so a gid sitting in a real
+    gap of a sparse collection (here local id 2, between the ids 0 and 3 this
+    tileset actually names) passed the gid-accounting door clean and raised an
+    uncaught ``IndexError`` the first time ``render.py`` resolved it to pixels.
+    The door is where this has to be refused -- a raw ``IndexError`` from deep
+    inside painting is not a sentence a user can act on."""
+    data = (
+        b'<map version="1.10" orientation="orthogonal" width="2" height="2" '
+        b'tilewidth="16" tileheight="16">'
+        b'<tileset firstgid="1" name="c" tilewidth="16" tileheight="16">'
+        b'<tile id="0"><image source="a.png"/></tile>'
+        b'<tile id="3"><image source="a.png"/></tile></tileset>'
+        # gid 3 is local id 2 -- inside [0, 3] but not one of this
+        # collection's actual ids (0, 3), a genuine gap.
+        b'<layer id="1" name="L" width="2" height="2">'
+        b'<data encoding="csv">3,0,0,0</data></layer></map>'
+    )
+    with pytest.raises(ValueError, match="tile 3"):
+        tmx.read_tmx(data, **LOADERS)
+
+
 def test_an_embedded_tileset_with_an_empty_wangsets_block_is_read():
     """Recognise-or-refuse ended with the general model: a set that is not this
     editor's blob preset is read as data rather than turned away, and an empty

@@ -464,6 +464,30 @@ def test_the_gizmo_sits_at_the_pivot_the_user_chose() -> None:
     assert origin_view.selection_centre(doc, source)[0] == pytest.approx(0.0)
 
 
+def test_active_pivot_uses_the_last_clicked_node_not_document_order() -> None:
+    """The "Active" pivot's own tooltip promises "the last node clicked", but
+    the 2026-09-16 audit found ``selection_centre`` returning ``points[0]`` --
+    the first selected node in ``resolve()``'s document-walk order -- which
+    for a fixed selection is the same node however the user built it up, not
+    whichever one was actually clicked last. Selecting both nodes with the
+    *second* recorded as ``active`` (``doc.select``'s new keyword) must put
+    the pivot at the second node's position (x=3.0) -- against the unfixed
+    ``points[0]`` this would instead land on the first node (x=0.0).
+    """
+    doc = _scene(count=2)
+    first, second = doc.roots
+    doc.select([first.uid, second.uid], active=second.uid)
+
+    active_view = mason_view.MasonView.__new__(mason_view.MasonView)
+    active_view.app_ctx = _Ctx(pivot="active")
+    active_view._placed = []
+    active_view._placed_key = None
+    active_view._last_doc = None
+
+    source = _Source()
+    assert active_view.selection_centre(doc, source)[0] == pytest.approx(3.0)
+
+
 # --- Stage F: the ground, which has geometry and no ref -----------------------
 
 

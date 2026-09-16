@@ -290,6 +290,101 @@ def test_an_oversize_stdin_line_is_refused_and_the_connection_keeps_going(
     assert replies[1]["result"]["protocolVersion"] in protocol.LEGACY
 
 
+# --- recv_bytes is bounded, not just the frame it decodes --------------------
+
+
+class _StubConn:
+    """A duck-typed stand-in for a real `Connection`, holding one canned
+    reply and recording every `maxlength` `recv_bytes` was called with.
+    Real `Connection.recv_bytes(maxlength=...)` enforces the bound at the
+    stdlib level (checking the frame's own length prefix before reading its
+    body), which this file's real-pipe fixtures already exercise for the
+    ordinary request/reply path; this stub only needs to prove *this
+    module's* call sites actually pass the argument."""
+
+    def __init__(self, reply: bytes) -> None:
+        self._reply = reply
+        self.maxlengths: list[object] = []
+        self.sent: list[bytes] = []
+
+    def send_bytes(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def poll(self, timeout: float | None = None) -> bool:
+        return True
+
+    def recv_bytes(self, maxlength=None) -> bytes:
+        self.maxlengths.append(maxlength)
+        return self._reply
+
+    def close(self) -> None:
+        pass
+
+
+def test_a_pipe_peer_cannot_force_an_unbounded_recv_bytes_allocation() -> None:
+    """The 2026-09-16 audit (agents-04): every `conn.recv_bytes()` call in
+    this module (`_hello`, `_fetch_catalogue`, and each of `_Session`'s six
+    Studio-reply reads) omitted stdlib's own `maxlength` argument, so a
+    confused or hostile peer past the handshake could force this process to
+    fully buffer whatever it sent before `rpc.split_reply`'s own length
+    check ever got a chance to run -- and `split_reply` (unlike
+    `rpc.decode_request`) checks no length at all, so a reply frame had no
+    backstop whatsoever without `maxlength` bounding the read itself."""
+    seen: list[object] = []
+
+    hello_conn = _StubConn(
+        rpc.encode_reply(
+            {"rpc": 1, "studio_version": "9.9.9", "catalogue_hash": "h", "call_timeout": 5.0}
+        )
+    )
+    bridge._hello(hello_conn)
+    seen += hello_conn.maxlengths
+
+    catalogue_conn = _StubConn(
+        rpc.encode_reply({"hash": "h", "tools": [], "instructions": None, "server": {}})
+    )
+    bridge._fetch_catalogue(catalogue_conn)
+    seen += catalogue_conn.maxlengths
+
+    def _session(reply: bytes) -> bridge._Session:
+        conn = _StubConn(reply)
+        session = bridge._Session("home", conn, {"call_timeout": 5.0}, {"hash": "h"})
+        return session, conn
+
+    session, conn = _session(rpc.encode_reply({"hash": "h"}, b"{}"))
+    session.call_tool("t", {})
+    seen += conn.maxlengths
+
+    session, conn = _session(rpc.encode_reply({"operation_id": "op-1", "status": "working"}))
+    session.call_tool_task("t", {})
+    seen += conn.maxlengths
+
+    session, conn = _session(
+        rpc.encode_reply({"operation_id": "op-1", "status": "completed"}, b"{}")
+    )
+    session.get_task("op-1")
+    seen += conn.maxlengths
+
+    session, conn = _session(rpc.encode_reply({"status": "cancelled"}))
+    session.cancel_task("op-1")
+    seen += conn.maxlengths
+
+    session, conn = _session(
+        rpc.encode_reply({"uri": "u", "mimeType": "text/plain"}, b"hi")
+    )
+    session.read_resource("u")
+    seen += conn.maxlengths
+
+    session, conn = _session(rpc.encode_reply({"description": "d", "messages": []}))
+    session.get_prompt("p", {})
+    seen += conn.maxlengths
+
+    assert seen, "recv_bytes() was never called"
+    assert all(m == rpc.MAX_FRAME for m in seen), (
+        f"recv_bytes() was called without maxlength=rpc.MAX_FRAME: {seen}"
+    )
+
+
 # --- resources and prompts, through a real bridge process against a fake Studio --
 
 

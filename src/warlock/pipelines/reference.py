@@ -275,7 +275,18 @@ def rank_key(report: Report) -> tuple[int, int, int]:
 
 
 def has_alpha(image: PILImage) -> bool:
-    """Whether ``subject_mask`` will read an alpha channel rather than flood fill.
+    """Whether the image *carries* an alpha channel at all.
+
+    This is presence only, not use: a PNG saved by almost any editor is RGBA
+    whether or not anything in it is transparent. It answers ``normalise()``'s
+    "keep or drop the channel in the output" question (see
+    ``test_normalise_never_invents_or_strips_an_alpha_channel``), which cares
+    only whether the file had one. For "does this channel actually say
+    anything", see :func:`_alpha_is_meaningful` -- the 2026-09-16 audit found
+    ``subject_mask``/``measure`` using *this* function for that second
+    question too, which is what let a routine, fully-opaque RGBA upload
+    (``service.files.to_png``, a browser canvas export, most editors) read
+    back as "the entire frame is the subject".
 
     Exported rather than left inline because a second caller now has to make
     the same decision: ``pipelines/matting.py`` reports *which* source produced
@@ -285,9 +296,41 @@ def has_alpha(image: PILImage) -> bool:
     return image.mode in ("RGBA", "LA") or "transparency" in image.info
 
 
+# Below this, an alpha channel is carrying real transparency; at or above it
+# every pixel is opaque and the channel says nothing. The same threshold
+# ``matting.is_cutout`` applies before it will call ``subject_mask`` (not
+# imported from there: ``matting`` already imports ``has_alpha``/
+# ``subject_mask`` from this module, and a second import direction back would
+# be circular) -- 250, not 255, because a saved cutout's antialiased rim can
+# leave the interior a step or two short of full.
+_OPAQUE = 250
+
+
+def _alpha_is_meaningful(image: PILImage) -> bool:
+    """Whether the alpha channel actually carries a matte, not just a channel.
+
+    The 2026-09-16 audit found ``subject_mask``/``measure`` trusting *any*
+    alpha channel as the subject mask whenever ``has_alpha()`` was true, with
+    no check that the channel is ever non-opaque -- so an ordinary
+    RGBA-but-fully-opaque PNG read back as "the entire frame is the subject"
+    and misfired every downstream composition rule (occupancy, edge,
+    multi-object). ``matting.is_cutout`` already asks exactly this question,
+    with the same threshold, before it will call ``subject_mask`` for a real
+    export; this is that same predicate, now asked here too rather than only
+    at matting's door.
+    """
+    import numpy as np
+
+    if not has_alpha(image):
+        return False
+    alpha = np.asarray(image.convert("RGBA"))[:, :, 3]
+    return bool(alpha.min() < _OPAQUE)
+
+
 def subject_mask(image: PILImage):
-    """A boolean mask of the subject: the alpha channel when there is one,
-    otherwise a corner flood fill of the background.
+    """A boolean mask of the subject: the alpha channel when there is one
+    *and it is actually used*, otherwise a corner flood fill of the
+    background.
 
     The fill samples the four corner patches and takes their median as the
     background colour, which is exactly right for the images PROMPT_TEMPLATE
@@ -298,7 +341,7 @@ def subject_mask(image: PILImage):
     import cv2
     import numpy as np
 
-    if has_alpha(image):
+    if _alpha_is_meaningful(image):
         alpha = np.asarray(image.convert("RGBA"))[:, :, 3]
         return alpha > 8
 
@@ -391,8 +434,18 @@ def measure(image: PILImage) -> Report:
     # The 2026-09-07 audit found this restating has_alpha()'s condition rather
     # than calling it -- subject_mask() already relies on that one definition,
     # and a copy here is exactly the drift has_alpha()'s own docstring warns
-    # matting.py's second caller against.
+    # matting.py's second caller against. It still records channel *presence*,
+    # not use: normalise() reads this field to decide whether to keep the
+    # alpha channel in its output, independent of whether the channel was
+    # trusted as the mask.
     alpha_source = has_alpha(image)
+    # What actually decided ``mask`` above -- the 2026-09-16 audit's fix.
+    # ``_leaked`` must be told this, not ``alpha_source``: a fully-opaque RGBA
+    # image now falls through subject_mask() to the flood fill, and telling
+    # ``_leaked`` "this came from alpha" (via the presence-only flag) would
+    # skip the leak check on a mask that is, in fact, a flood fill and can
+    # genuinely leak.
+    mask_from_alpha = _alpha_is_meaningful(image)
 
     if total == 0:
         return Report(
@@ -402,7 +455,7 @@ def measure(image: PILImage) -> Report:
             size=(w, h),
             alpha_source=alpha_source,
         )
-    if _leaked(mask, alpha_source):
+    if _leaked(mask, mask_from_alpha):
         # The separation failed, so nothing below it means anything. Reported
         # as unmeasured rather than as a rejection: a light subject on a light
         # background is exactly what PROMPT_TEMPLATE produces, and refusing
@@ -505,7 +558,20 @@ def normalise(
     x0, y0, x1, y1 = report.bbox
     subject = src.crop((x0, y0, x1, y1))
     side = max(image.size)
-    target = max(1, round(side * (occupancy ** 0.5) * (1.0 - 2 * pad)))
+    # ``occupancy`` alone sets the target size (sqrt because occupancy is an
+    # *area* fraction); ``pad`` is documented next to DEFAULT_PAD as "the
+    # minimum margin left around it" -- a floor on the blank border, not a
+    # second shrink stacked on the first. The 2026-09-16 audit found this
+    # multiplying the two -- side * sqrt(occupancy) * (1 - 2*pad) -- so the
+    # documented defaults (occupancy=0.78, pad=0.06) landed the subject at
+    # ~0.604 of the frame's area, not the ~0.78 the constant and this
+    # docstring both promise. A ceiling reproduces what "minimum margin"
+    # actually says: the target never eats more of the side than
+    # (1 - 2*pad) leaves, and when occupancy alone would already leave at
+    # least that much room, the ceiling does nothing.
+    target_occupancy = max(1, round(side * (occupancy ** 0.5)))
+    target_margin = max(1, round(side * (1.0 - 2 * pad)))
+    target = min(target_occupancy, target_margin)
     scale = target / max(subject.width, subject.height)
     nw = max(1, round(subject.width * scale))
     nh = max(1, round(subject.height * scale))

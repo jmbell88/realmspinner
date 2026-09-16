@@ -169,6 +169,17 @@ MAX_ORA_LAYERS = 1024
 #: with nothing bounding either list.
 MAX_ORA_FRAMES = 4096
 
+#: The absolute ceiling on how many entries the cheap per-item metadata lists
+#: in ``warlock.json``/``animation.json`` may declare: "slices", a slice's own
+#: "keys", "groups"."nodes" and "flourish". Each entry is as cheap as a frame
+#: -- a handful of scalars, none of it canvas-sized -- so this reuses
+#: :data:`MAX_ORA_FRAMES`'s order of magnitude rather than inventing a second
+#: number for the same shape of risk. The 2026-09-16 audit found all four had
+#: no ceiling at all: a 770 KB ``.ora`` naming 300,000 slices opened with no
+#: refusal, spending 1.19s building one ``Slice`` object per declared entry --
+#: the same amplification ``MAX_ORA_FRAMES`` was added for on 2026-09-11.
+MAX_ORA_METADATA_ENTRIES = MAX_ORA_FRAMES
+
 
 def _layer_budget(width: int, height: int) -> int:
     """How many layers a ``width`` x ``height`` drawing may hold.
@@ -1675,6 +1686,14 @@ def _read_groups(doc, payload: dict) -> None:
     if raw is None:
         return
     try:
+        # The 2026-09-16 audit: "nodes" had no ceiling, unlike every sibling
+        # list this module already bounds -- a crafted file could build one
+        # ``GroupNode`` per declared entry with no refusal at all.
+        if len(raw["nodes"]) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"animation.json names more than {MAX_ORA_METADATA_ENTRIES}"
+                " group nodes"
+            )
         nodes = [
             GroupNode(
                 name=entry.get("name") or f"Group {i + 1}",
@@ -1716,6 +1735,16 @@ def _read_flourish(doc, payload: dict, nodes: list) -> None:
     """
     raw = payload.get("flourish")
     if not raw or doc.anim is None:
+        return
+    if len(raw) > MAX_ORA_METADATA_ENTRIES:
+        # The 2026-09-16 audit: this list had no ceiling, unlike every sibling
+        # this module already bounds. Guarded the same way as every other
+        # way of being wrong here -- the layers stay, the document just loses
+        # its *regenerate*.
+        log.warning(
+            "ignoring animation.json flourish: more than %d entries",
+            MAX_ORA_METADATA_ENTRIES,
+        )
         return
     from ._doc_flourish import FlourishState
     from .flourish import recipe as flourish_recipe
@@ -1905,14 +1934,31 @@ def _read_slices(zf: zipfile.ZipFile, anim: Animation | None) -> list:
         payload = json.loads(raw)
         if int(payload.get("version", 0)) != WARLOCK_VERSION:
             raise ValueError(f"{WARLOCK_MEMBER} version {payload.get('version')!r}")
+        # The 2026-09-16 audit: "slices" (and a slice's own "keys") had no
+        # ceiling, unlike every sibling list this module already bounds -- a
+        # 770 KB file naming 300,000 slices built one ``Slice`` per entry
+        # with no refusal at all. Refused here, before either list is built,
+        # the same way an oversized "tracks"/"frames" refuses in
+        # ``_read_animation``.
+        raw_slices = payload.get("slices", [])
+        if len(raw_slices) > MAX_ORA_METADATA_ENTRIES:
+            raise ValueError(
+                f"{WARLOCK_MEMBER} names more than {MAX_ORA_METADATA_ENTRIES}"
+                " slices"
+            )
         out = []
-        for entry in payload.get("slices", []):
+        for entry in raw_slices:
             bounds = _rect_of(entry, "bounds")
             if bounds is None:
                 raise ValueError("a slice with no bounds")
             pivot = entry.get("pivot")
             keys: dict[int, SliceKey] = {}
-            for record in entry.get("keys", []):
+            raw_keys = entry.get("keys", [])
+            if len(raw_keys) > MAX_ORA_METADATA_ENTRIES:
+                raise ValueError(
+                    f"a slice names more than {MAX_ORA_METADATA_ENTRIES} keys"
+                )
+            for record in raw_keys:
                 index = int(record["frame"])
                 if not 0 <= index < len(frames):
                     dropped += 1

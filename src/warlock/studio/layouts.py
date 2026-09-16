@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .settings import as_dict, as_list
-from .tokens import SIDEBAR_WIDTHS, clamp_panel
+from .tokens import SIDEBAR_WIDTHS, clamp_panel, clamp_share
 
 #: This build's layout-blob version. Independent of ``settings.VERSION``.
 VERSION = 2
@@ -219,10 +219,10 @@ class Library:
         if self.current().readable:
             value = self.arrangement(workspace).shares.get(key)
             if value is not None:
-                return min(max(float(value), 0.25), 0.75)
+                return clamp_share(value)
         if key in self._share_seeds:
-            return min(max(self._share_seeds[key], 0.25), 0.75)
-        return min(max(float(self._share_seed if default is None else default), 0.25), 0.75)
+            return clamp_share(self._share_seeds[key])
+        return clamp_share(self._share_seed if default is None else default)
 
     # -- writing ------------------------------------------------------------
 
@@ -306,7 +306,7 @@ class Library:
         if not layout.readable:
             return
         arrangement = layout.workspaces.setdefault(workspace, Arrangement())
-        arrangement.shares[str(key)] = min(max(float(value), 0.25), 0.75)
+        arrangement.shares[str(key)] = clamp_share(value)
         self.save()
 
     def duplicate(self, name: str, into: str) -> bool:

@@ -93,6 +93,72 @@ def test_switching_the_active_tab_via_the_tab_bar_commits_or_cancels_a_live_drag
         view.release()
 
 
+# --- 2026-09-16 audit: add() (new/open/import/recover) settles nothing -------
+
+
+def test_creating_or_opening_a_document_mid_drag_settles_the_drag_on_the_tab_it_replaces(
+    gl,
+) -> None:
+    """``ClayState.add`` -- what ``new_document``, both ``clay-open`` adopt
+    branches, ``clay-recover`` and both ``clay-import`` adopt branches all
+    call to bring a *new* tab in -- had no settle at all, unlike ``activate``
+    (fixed for exactly this class of bug by the 2026-09-15 audit's clay-01,
+    the test above). New/Open carry no drag gate in the UI either
+    (``widgets.document_header``'s buttons), and the async adopt paths are
+    inherently decoupled from whatever drag is in progress when their result
+    lands, so a live G/R/S drag on the tab being replaced was left with its
+    TRS already written in place and no history step behind it -- Ctrl+Z can
+    never revert a move nothing recorded.
+
+    Fails against the unfixed code with:
+        AssertionError: the drag must be settled, not left live on the tab it was replaced on
+    (``ClayState.add`` only appended the new tab and cleared its own
+    ``drag_axis``/``ref``, so ``view._grab`` was still ``"keydrag"`` after
+    the add.)
+    """
+    doc_a = bd.ClayDoc()
+    obj = bd.Obj(uid=bd.new_uid(), name="a", mesh=bp.box())
+    doc_a.add_object(obj)
+    doc_a.select([obj.uid])
+
+    state = clay_mode.ClayState()
+    tab_a = clay_mode.ClayTab(doc=doc_a)
+    state.add(tab_a)
+    state.active_uid = tab_a.uid
+
+    ctx = SimpleNamespace(state=SimpleNamespace(clay=state, mode="clay"), settings=None)
+    view = clay_view.ClayView(gl, ctx)
+    ctx.clay_view = view
+    try:
+        clay_mode.ensure(ctx)  # wires ClayState.settle_drag to this view
+
+        view.draw(doc_a, RECT, 0.0)
+        view._last_mouse = (64.0, 48.0)
+        assert view.begin_keyboard_drag(doc_a, "move")
+        view._motion(doc_a, (100.0, 48.0))
+        assert view.dragging
+        head_a = doc_a.history.head
+        dragged_to = np.array(obj.translation, copy=True)
+
+        doc_b = bd.ClayDoc()
+        tab_b = clay_mode.ClayTab(doc=doc_b)
+        state.add(tab_b)  # exactly what new_document/open/import/recover do
+
+        assert state.active_uid == tab_b.uid
+        assert not view.dragging, (
+            "the drag must be settled, not left live on the tab it was replaced on"
+        )
+        assert doc_a.history.head != head_a, "one history step for the whole gesture"
+        assert np.allclose(obj.translation, dragged_to), (
+            "the commit must land on tab A, the tab the drag began on"
+        )
+        assert doc_b.history.head == 0, (
+            "the new tab -- what it was replaced with -- must be untouched"
+        )
+    finally:
+        view.release()
+
+
 # --- clay-04: a copy family with a four-digit suffix -------------------------
 
 

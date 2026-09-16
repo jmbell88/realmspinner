@@ -1105,16 +1105,18 @@ class Document(
                     if found is not None:
                         source = found
                         break
-            # Every one of the six track properties, not four: ``alpha_lock`` was
-            # the one left out, and the write that autovivified the cel is normally
-            # one line away from reading it back off the layer -- ``begin_stroke``
-            # samples ``layer.alpha_lock`` immediately after ``_ensure_active_cel``
-            # -- so a missing lock did not merely mislabel the cel, it painted
-            # through "preserve transparency" on the first stroke of every fresh
-            # frame. ``locked`` (the content lock) joined the list for the same
-            # reason and would fail the same way, one door further out.
-            # ``placeholder`` and ``layers_for`` both copy all six; this is the
-            # third copy of that list and it has to agree with them.
+            # Every one of CEL_PROPS' eight track properties, not six: the
+            # 2026-09-16 audit found this branch hand-writing only
+            # ``name, opacity, visible, blend, alpha_lock, locked`` and
+            # omitting ``background``/``reference``, so a background track's
+            # freshly-drawn frame composited with a transparent hole instead
+            # of the opaque backing Aseprite-parity promises, and a reference
+            # track's freshly-drawn frame lost its write lock the moment the
+            # user visited an unpainted frame. ``placeholder`` and
+            # ``layers_for`` both copy all eight, and the tilemap branch three
+            # lines above already builds its keyword dict off ``CEL_PROPS``
+            # rather than a hand list -- this mirrors it instead of adding a
+            # fourth copy for the next property to fall out of.
             real = Layer(
                 pixels=cp.empty(width, height) if source is None else source.pixels.copy(),
                 # A fresh cel in an indexed document is a plane of the transparent
@@ -1135,13 +1137,8 @@ class Document(
                     if source is None
                     else (None if source.indices is None else source.indices.copy())
                 ),
-                name=track.name,
-                opacity=track.opacity,
-                visible=track.visible,
-                blend=track.blend,
-                alpha_lock=track.alpha_lock,
-                locked=track.locked,
                 uid=placeholder.uid,
+                **{key: getattr(track, key) for key in CEL_PROPS},
             )
         anim.cels[(track.uid, frame.uid)] = real
         self.stack.layers[index] = real

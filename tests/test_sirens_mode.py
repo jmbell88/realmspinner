@@ -225,6 +225,55 @@ def test_a_failed_render_clears_the_flag_and_records_why():
     assert not tab.rendering and tab.render_error == "that song is too long"
 
 
+def test_render_prefix_is_a_shared_constant_not_a_repeated_literal():
+    """the 2026-09-16 audit, finding sirens-04: unlike every sibling task-key
+    prefix this mode owns (``AUDITION_PREFIX``, ``PATTERN_PREFIX``,
+    ``PREVIEW_PREFIX`` in ``sirens_play.py``), the render key's
+    ``"sirens-render:"`` was spelled out by hand at four call sites with no
+    shared constant -- ``request_render``'s busy check and submit, and
+    ``on_task_done``'s/``on_task_failed``'s dispatch -- so a rename at one
+    site would desynchronize submission from adoption or failure handling
+    with nothing to catch the drift. Reproduced against the unfixed code (git
+    HEAD, read into a scratch AST rather than checked out): the three
+    functions' bodies each held a bare ``"sirens-render"``/``"sirens-render:"``
+    string constant. This walks the *live* functions' AST instead and asserts
+    none of them do -- every one must read ``RENDER_PREFIX`` by name.
+    """
+    import ast
+    import inspect
+
+    from warlock.studio import sirens_play
+
+    assert sirens_mode.RENDER_PREFIX == "sirens-render:" == sirens_play.RENDER_PREFIX
+
+    def _bad_literals(func: Any) -> list[str]:
+        tree = ast.parse(inspect.getsource(func))
+        func_node = tree.body[0]
+        assert isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        body = func_node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            body = body[1:]  # the docstring, which explains the constant in prose
+        found: list[str] = []
+        for stmt in body:
+            for node in ast.walk(stmt):
+                if (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and "sirens-render" in node.value
+                ):
+                    found.append(node.value)
+        return found
+
+    for func in (
+        sirens_play.request_render,
+        sirens_mode.on_task_done,
+        sirens_mode.on_task_failed,
+    ):
+        assert not _bad_literals(func), (
+            f"{func.__qualname__} still spells the render prefix by hand"
+        )
+
+
 def test_a_render_already_in_flight_is_not_re_serialised_every_frame(monkeypatch):
     """``wsng_bytes`` DEFLATEs every pattern and encodes every sample, on the
     frame thread. ``submit`` refuses a key already in flight and the dirty flag

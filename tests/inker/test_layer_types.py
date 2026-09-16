@@ -358,6 +358,27 @@ def test_a_background_track_composites_opaque_on_every_frame():
     assert int(shown[..., 3].min()) == 255
 
 
+def test_drawing_on_a_fresh_frame_of_a_background_track_keeps_the_background_flag():
+    """``test_a_background_track_composites_opaque_on_every_frame`` above pre-
+    populates ``anim.cels`` for the new frame through ``_second_frame``, so it
+    never reaches ``Document._ensure_cel_for``'s raster-autovivify branch. This
+    one leaves the new frame a placeholder and lets ``_ensure_active_cel``
+    autovivify it -- the path the 2026-09-16 audit found hand-writing only 6 of
+    ``CEL_PROPS``' 8 fields and dropping ``background``."""
+    from warlock.studio.inker.animation import Frame
+
+    doc = inker.Document.blank(8, 8)
+    anim = doc.ensure_animation()
+    assert doc.to_background()
+    anim.frames.append(Frame())
+    doc.set_current_frame(1)
+    assert anim.is_placeholder(doc.stack[0])
+    doc._ensure_active_cel()
+    assert doc.stack[0].background is True
+    shown = layers._shown_pixels(doc.stack[0])
+    assert int(shown[..., 3].min()) == 255
+
+
 def _second_frame(doc, anim):
     from warlock.studio.inker.animation import Frame
 

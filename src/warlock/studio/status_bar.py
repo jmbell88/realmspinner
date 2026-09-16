@@ -164,12 +164,20 @@ def resource_item(ctx: Any) -> StatusItem | None:
 
     **Not in** :func:`items`. That list is unit-tested on its key set and is
     drawn left to right with the tail elided, so putting the meter in it would
-    make it the *first* thing dropped as the window narrows -- which is
-    backwards for the one item that has to be readable while a generation is
-    being decided on. ``menus.draw`` right-anchors it instead (the flat status
-    bar this module used to draw itself is gone -- see the module docstring),
-    following ``overlay.doctor_banner``'s rule: reserve the trailing item
-    before trimming the leading detail.
+    make it read as truncated-by-position -- clipped mid-string whenever the
+    group runs out of room, rather than dropped whole -- which is the wrong
+    failure mode for a reading someone is deciding a generation on.
+    ``menus.draw`` right-anchors it instead (the flat status bar this module
+    used to draw itself is gone -- see the module docstring), so it is always
+    either the whole reading or nothing.
+
+    **This does not protect it from being dropped.** ``menus.STATUS_DROP_ORDER``
+    lists ``"resources"`` first, so ``fit_status_rows`` drops the resource
+    meter *before* any left-hand ``items()`` key once the status group runs
+    out of room -- the 2026-09-16 audit found this docstring claiming the
+    opposite (that right-anchoring "reserved" it ahead of the leading detail).
+    Keeping it out of ``items()`` only changes *how* it goes -- whole, not
+    truncated -- never *whether*.
     """
     if not getattr(ctx.state, "show_resources", False):
         return None

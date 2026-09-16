@@ -833,7 +833,26 @@ class TilesetRef:
         return self.firstgid + self.tileset.max_local_id
 
     def holds(self, tile_id: int) -> bool:
-        return self.firstgid <= int(tile_id) <= self.last_gid
+        """Whether this reference answers for ``tile_id``.
+
+        The numeric range is necessary but not sufficient for a collection:
+        the 2026-09-16 audit found a gid sitting in a genuine gap of a sparse
+        collection (inside ``[firstgid, last_gid]`` but naming no id the
+        collection actually has) passing this check, then reaching
+        ``Tileset.tile_pixels``/``tile_rect`` -- which do check membership --
+        as an uncaught ``IndexError`` at render time instead of a refusal at
+        the load-time gid-accounting door (``tmx._finish``, ``wmap``'s
+        equivalent, both via ``ref_for``). A sliced atlas has no gaps -- every
+        local id from 0 to ``max_local_id`` is real -- so the extra check
+        costs it nothing.
+        """
+        value = int(tile_id)
+        if not (self.firstgid <= value <= self.last_gid):
+            return False
+        collection = self.tileset.collection
+        if collection is not None:
+            return collection.slot_of(value - self.firstgid) is not None
+        return True
 
     def local(self, tile_id: int) -> int:
         return int(tile_id) - self.firstgid

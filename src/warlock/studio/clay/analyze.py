@@ -162,6 +162,24 @@ docstring's "for any cell size" proof holds for a *larger* cell just as well,
 so this can only add candidates, never drop a pair whose boxes truly
 overlap."""
 
+_MAX_GRID_REGISTRATIONS = 2_000_000
+"""A ceiling on the *total* number of triangle-into-cell registrations one
+:func:`_grid_candidates` call may perform, summed across every triangle on
+both sides, from each triangle's own cell-span product -- checked before
+either bucket loop below runs, not after. :data:`_MAX_CELLS_PER_TRIANGLE_AXIS`
+only bounds what *one* triangle can cost; the 2026-09-16 audit found nothing
+bounded the total across *many* triangles that are each individually under
+that cap -- an ordinary blockout floor tiled from 20,000 separate 10 m
+quads (each on its own saturating the per-triangle cap, the way an authored
+level's floor plates routinely do) measured 5.8 s in the loops below, at
+only 10% of MAX_ANALYZE_TRIANGLES, with the per-triangle cap doing nothing
+to stop it because no *single* triangle ever crossed it. Past this ceiling
+:func:`_grid_candidates` returns ``None`` and the pair falls back to the same
+vertex-sampled approximation :data:`MAX_TRIANGLE_PAIRS` already uses --
+honestly reported ``exact=False`` -- rather than a fourth outright refusal,
+for the same "a whole-document call is still worth answering approximately"
+reasoning that ceiling's own docstring states."""
+
 
 @dataclass(frozen=True)
 class GroundInfo:
@@ -448,7 +466,7 @@ def _broad_phase_pairs(
 
 def _grid_candidates(
     tri_a: np.ndarray, tri_b: np.ndarray, cell: float
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray] | None:
     """Candidate triangle index pairs whose axis-aligned boxes could overlap.
 
     Each triangle is registered in *every* cell its own box touches, not
@@ -464,6 +482,11 @@ def _grid_candidates(
 
     The smaller side is binned into a dict first, so the dict this builds is
     no bigger than it has to be; the larger side then only ever *looks up*.
+
+    Returns ``None`` -- instead of candidate arrays -- when
+    :data:`_MAX_GRID_REGISTRATIONS` would be crossed; see that constant for
+    why a per-triangle cap alone does not bound this. The caller treats that
+    exactly like the :data:`MAX_TRIANGLE_PAIRS` overflow it already handles.
     """
     if len(tri_a) == 0 or len(tri_b) == 0:
         return np.zeros(0, dtype="i8"), np.zeros(0, dtype="i8")
@@ -487,6 +510,24 @@ def _grid_candidates(
 
     lo_s = np.floor(small.min(axis=1) / cell).astype("i8")
     hi_s = np.floor(small.max(axis=1) / cell).astype("i8")
+    lo_l = np.floor(large.min(axis=1) / cell).astype("i8")
+    hi_l = np.floor(large.max(axis=1) / cell).astype("i8")
+
+    # See _MAX_GRID_REGISTRATIONS: estimate what both loops below will cost
+    # -- one cell-span product per triangle, summed over both sides -- from
+    # lo/hi alone, vectorised, before either loop runs a single Python
+    # iteration; the same "refuse before the allocation" shape
+    # ops_boolean._refuse_complexity uses for the triangle count it would
+    # hand the CSG kernel.
+    span_s = (hi_s - lo_s + 1).astype(np.int64)
+    span_l = (hi_l - lo_l + 1).astype(np.int64)
+    total_registrations = int(
+        (span_s[:, 0] * span_s[:, 1] * span_s[:, 2]).sum()
+        + (span_l[:, 0] * span_l[:, 1] * span_l[:, 2]).sum()
+    )
+    if total_registrations > _MAX_GRID_REGISTRATIONS:
+        return None
+
     buckets: dict[tuple[int, int, int], list[int]] = {}
     for k in range(len(small)):
         for ix in range(int(lo_s[k, 0]), int(hi_s[k, 0]) + 1):
@@ -494,8 +535,6 @@ def _grid_candidates(
                 for iz in range(int(lo_s[k, 2]), int(hi_s[k, 2]) + 1):
                     buckets.setdefault((ix, iy, iz), []).append(k)
 
-    lo_l = np.floor(large.min(axis=1) / cell).astype("i8")
-    hi_l = np.floor(large.max(axis=1) / cell).astype("i8")
     out_small: list[int] = []
     out_large: list[int] = []
     for m in range(len(large)):
@@ -799,8 +838,31 @@ def _pair_analysis(
     tri_a = geom_a.world_pos[geom_a.tris]
     tri_b = geom_b.world_pos[geom_b.tris]
     cell = max(near, _GRID_MIN_CELL)
-    ia, ib = _grid_candidates(tri_a, tri_b, cell)
+    candidates = _grid_candidates(tri_a, tri_b, cell)
 
+    if candidates is None:
+        # See _MAX_GRID_REGISTRATIONS: the 2026-09-16 audit found many
+        # separately-large triangles -- each individually under
+        # _MAX_CELLS_PER_TRIANGLE_AXIS's own cap -- could still make this
+        # pair's total registration cost stall the frame thread, because no
+        # single triangle ever crossed the per-triangle cap that would have
+        # caught it. Same fallback as the MAX_TRIANGLE_PAIRS overflow below:
+        # an honest "unknown" rather than a hard refusal or a guessed "no".
+        distance = _vertex_sampled_distance(geom_a.world_pos, geom_b.world_pos)
+        contact = distance is not None and distance <= contact_tol
+        return (
+            PairAnalysis(
+                uids=(uid_a, uid_b),
+                distance=distance,
+                intersects=None,
+                contact=contact,
+                overlap=None,
+                exact=False,
+            ),
+            True,
+        )
+
+    ia, ib = candidates
     if len(ia) > MAX_TRIANGLE_PAIRS:
         # 2026-09-14 audit, clay-01: this used to hard-code intersects=False
         # here, so two heavily-overlapping 20,000-face meshes read as "not

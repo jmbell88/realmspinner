@@ -420,6 +420,25 @@ def run(config: Config) -> list[str]:
         # needs -- so every root that made it into ``moved`` before the
         # failure is still deleted here, exactly as the exception-free path
         # deletes them below, before the failure is re-raised.
+        #
+        # ``_carry_the_database`` runs here too (service-queue-01, the
+        # 2026-09-16 audit): it used to run only after this whole
+        # try/except, on the exception-free path below. When ``assets``
+        # (which carries ``jobs.sqlite``) had already copied, verified and
+        # published cleanly before a *later* root's copy or verify failed,
+        # a custom ``WARLOCK_DB`` was never offered that database on this
+        # run -- and because ``_delete_legacy_roots`` below removes
+        # ``assets``'s legacy copy regardless, ``_pending`` would not offer
+        # ``assets`` again on a later, successful retry either. The custom
+        # ``WARLOCK_DB`` was silently orphaned even once every root had
+        # finished migrating. Guarded so a failure here -- a full or
+        # read-only custom volume -- cannot shadow the real exception being
+        # propagated; it is logged instead, the same way ``_breadcrumb``
+        # treats its own write as advisory.
+        try:
+            _carry_the_database(config, moved)
+        except MigrationError as exc:
+            print(f"warlock: {exc}", file=sys.stderr, flush=True)
         _delete_legacy_roots(moved)
         raise
 

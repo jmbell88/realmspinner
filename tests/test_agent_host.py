@@ -385,6 +385,65 @@ def test_a_real_round_trip_answers_hello_catalogue_and_call(
         host.stop()
 
 
+# --- recv_bytes is bounded, not just the frame it decodes --------------------
+
+
+def test_a_pipe_peer_cannot_force_an_unbounded_recv_bytes_allocation(monkeypatch) -> None:
+    """The 2026-09-16 audit (agents-04): ``_serve``'s listener-thread
+    ``conn.recv_bytes()`` call omitted stdlib's own ``maxlength`` argument,
+    so a peer past the pipe handshake could force this thread to fully
+    buffer whatever it sent before ``rpc.decode_request``'s own length
+    check (against ``rpc.MAX_FRAME``) ever got a chance to run -- the check
+    both functions perform used to happen only *after* the oversized bytes
+    object already existed in memory. Proven with a stub connection that
+    records every ``maxlength`` it was called with, rather than a real 8 MiB
+    transfer: this file's own real-pipe round trip
+    (``test_a_real_round_trip_answers_hello_catalogue_and_call``) already
+    proves ``_serve`` works end to end; this test only needs to prove the
+    one argument is passed."""
+    host = _bare_host()
+    # ``_serve`` blocks in ``_run_on_frame`` for the tab-open job until
+    # ``pump()`` claims it (up to ``CALL_TIMEOUT``) -- this test has no pump
+    # loop running, so that call is stubbed to return immediately rather
+    # than waiting out a real 30 s timeout for something this test does not
+    # care about.
+    monkeypatch.setattr(
+        host, "_run_on_frame", lambda run, timeout=None, owner=None: (None, None, "done")
+    )
+
+    seen_maxlength: list[object] = []
+
+    class _StubConn:
+        def __init__(self) -> None:
+            self._frame = rpc.encode_request("hello", versions=[1], bridge_version="test")
+            self._delivered = False
+            self.sent: list[bytes] = []
+
+        def recv_bytes(self, maxlength=None):
+            seen_maxlength.append(maxlength)
+            if not self._delivered:
+                self._delivered = True
+                return self._frame
+            # A second read: nothing more to send, the same "peer went
+            # away" EOFError a real Connection raises once the other end
+            # closes -- `_serve`'s own `except (EOFError, OSError): return`
+            # already treats this as an ordinary disconnect.
+            raise EOFError()
+
+        def send_bytes(self, data: bytes) -> None:
+            self.sent.append(data)
+
+        def close(self) -> None:
+            pass
+
+    host._serve(_StubConn())
+
+    assert seen_maxlength, "recv_bytes() was never called"
+    assert all(m == rpc.MAX_FRAME for m in seen_maxlength), (
+        f"recv_bytes() was called without maxlength=rpc.MAX_FRAME: {seen_maxlength}"
+    )
+
+
 # --- catalogue carries agent_clay's instructions ------------------------------
 
 
@@ -1481,6 +1540,26 @@ def test_a_task_mode_warlock_status_call_answers_immediately_instead_of_queuing_
     result = json.loads(body)
     assert result.get("isError") is not True
     assert "no such tool" not in json.dumps(result)
+
+
+def test_a_task_mode_warlock_status_calls_own_arguments_are_dropped_once_answered() -> None:
+    """The 2026-09-16 audit (agents-05): `_Op.args`'s own docstring promises
+    task-mode arguments are "Dropped (set back to None) the moment they are
+    used" -- the only code that ever clears it is `_task_status`'s
+    `if job is not None:` branch, but a `STATUS_TOOL` task-mode operation's
+    `job` is always `None` from the moment `_call_task` mints it (answered
+    synchronously, never queued -- see the test just above), so that branch
+    never ran for it and `op.args` stayed alive for as long as the operation
+    survived eviction, contradicting the class's own contract."""
+    host = _bare_host()
+    calls = agent_host._Calls()
+    session = agent_clay.Session()
+
+    header = host._call_task(session, calls, agent_host.STATUS_TOOL, {"operation_id": "x"})
+
+    op = calls.get(header["operation_id"])
+    assert op is not None
+    assert op.args is None
 
 
 def test_task_mode_call_is_exempt_from_call_timeout(monkeypatch) -> None:

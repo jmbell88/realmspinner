@@ -118,7 +118,21 @@ def _displaced_joints(
 ) -> np.ndarray:
     out = joints.copy()
     for key in sorted(appearance):
-        out = out + float(appearance[key]) * arrays[f"jdisp/{key}"].astype("f8")
+        # Guarded the way ``_displaced`` guards the identical lookup on the
+        # mesh-vertex side -- the 2026-09-16 audit, finding troupe-03 (filed
+        # against the character pipeline): today's four checked-in archetypes
+        # cannot trip this, since every generator's ``build()`` calls
+        # ``_fields()`` once for vertices and once for joints in the same run,
+        # but nothing enforces the two channel sets stay in lockstep for a
+        # mask file built or edited any other way. A bare ``KeyError`` here is
+        # invisible to the ``except ValueError`` doors ``CharacterError``
+        # exists to be caught by, and reaches the UI with no ``field``.
+        field = arrays.get(f"jdisp/{key}")
+        if field is None:
+            raise CharacterError(
+                f"the baked mesh has no {key!r} joint channel", field="appearance"
+            )
+        out = out + float(appearance[key]) * field.astype("f8")
     return out
 
 

@@ -114,7 +114,7 @@ def _area_note(tab: Any, size_px: tuple[int, int]) -> str | None:
     """
     if not tab.doc.sources:
         return None
-    source_area = sum(source.sprite.width * source.sprite.height for source in tab.doc.sources)
+    source_area = _source_area(tab)
     if source_area <= 0:
         return None
     ratio = (size_px[0] * size_px[1]) / source_area
@@ -126,6 +126,26 @@ def _area_note(tab: Any, size_px: tuple[int, int]) -> str | None:
             "power-of-two, or MaxRects, for a tighter fit."
         )
     return "Packed to the same area as the source pixels."
+
+
+def _source_area(tab: Any) -> int:
+    """Every source's pixel area, cached on the tab.
+
+    The 2026-09-16 audit (packwright-08) found this summed over every source
+    on every single frame this pane draws, with no memoisation keyed on
+    ``pack_generation`` -- the same shape ``packwright_mode.source_index``
+    (packwright-07, 2026-09-07) was fixed for. ``getattr`` on both ends
+    rather than a hard read, so a minimal test double with no
+    ``pack_generation`` -- ``test_packwright_preview.py``'s ``_FakeTab`` --
+    just never hits the cache rather than raising.
+    """
+    generation = getattr(tab, "pack_generation", None)
+    cached = getattr(tab, "_pw_source_area", None)
+    if cached is not None and cached[0] == generation and generation is not None:
+        return cached[1]
+    area = sum(source.sprite.width * source.sprite.height for source in tab.doc.sources)
+    tab._pw_source_area = (generation, area)
+    return area
 
 
 def _tabs(ctx: Any, state: Any) -> None:

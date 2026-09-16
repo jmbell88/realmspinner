@@ -184,6 +184,26 @@ def test_a_uid_minted_after_a_load_cannot_collide_with_a_restored_one() -> None:
     assert bd.new_uid() > high
 
 
+def test_read_wblk_refuses_two_objects_that_declare_the_same_uid() -> None:
+    """The 2026-09-16 audit: every other field on an object entry is checked
+    for a shape a legitimate writer could never produce, but uid uniqueness
+    across the whole document was not. A ``.wblk`` whose ``scene.json``
+    declares two objects with the same uid used to load cleanly -- both
+    archive members share the name ``meshes/<uid>.npz``, so one object's
+    geometry is silently lost -- and left ``by_uid``/``index_of``/
+    ``set_props``/``remove_object`` addressing an arbitrary one of the two for
+    the rest of the session. This is exactly the "half-read document is worse
+    than a refused one" rule the rest of this reader follows, and this file is
+    also what crash recovery reads with no user to ask first.
+    """
+
+    def dupe(scene: dict) -> None:
+        scene["objects"][1]["uid"] = scene["objects"][0]["uid"]
+
+    with pytest.raises(ValueError, match="two objects sharing uid"):
+        ser.read_wblk(_rewrite(ser.wblk_bytes(_doc()), dupe))
+
+
 # --- refusals ----------------------------------------------------------------
 
 

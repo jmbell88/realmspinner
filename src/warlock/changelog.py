@@ -73,10 +73,18 @@ class Release:
     bullets: tuple[str, ...] = field(default_factory=tuple)
 
 
-#: A bullet's opening sentence. Bounded on both sides: three characters so a
-#: stray "e.g." cannot be a lead, and 120 so a bullet written as one very long
-#: sentence does not defeat the point of asking.
-_LEAD = re.compile(r"^(.{3,120}?[.!?])(?:\s|$)", re.S)
+#: A candidate end for a bullet's opening sentence: one of ``.!?`` followed by
+#: whitespace or the end of the string.
+_TERMINATOR = re.compile(r"[.!?](?:\s|$)")
+
+#: Abbreviations whose trailing period is not a sentence break. The 2026-09-16
+#: audit found ``_LEAD``'s old single-regex match stopping at "e.g." mid-bullet
+#: -- the doc comment claimed a three-character lower bound "so a stray 'e.g.'
+#: cannot be a lead", but "e.g." is four characters, so the bound never did
+#: what the comment said. Named rather than inferred from shape (e.g. "single
+#: letter, dot, single letter") because that shape also matches a real
+#: sentence that happens to end on a one-letter word.
+_ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "vs.")
 
 
 def lead(bullet: str) -> str:
@@ -92,11 +100,26 @@ def lead(bullet: str) -> str:
     bullet and no parallel tuple to fall out of step with it. The emphasis
     markers are already gone by the time this sees anything (:func:`_plain`),
     which is why this matches on the sentence and not on the ``**``.
+
+    Walked terminator by terminator rather than matched in one regex, because
+    "the bullet's real first sentence-ending punctuation" and "the first
+    ``[.!?]`` followed by whitespace" are different claims once an
+    abbreviation like "e.g." is in play, and only walking can skip the second
+    kind of match and keep looking for the first.
     """
     text = " ".join(bullet.split())
-    match = _LEAD.match(text)
-    if match is not None:
-        return match.group(1)
+    search_from = 0
+    while True:
+        match = _TERMINATOR.search(text, search_from)
+        if match is None or match.start() > 120:
+            break
+        if match.start() < 3:
+            search_from = match.end()
+            continue
+        if any(text[: match.start() + 1].endswith(abbr) for abbr in _ABBREVIATIONS):
+            search_from = match.end()
+            continue
+        return text[: match.start() + 1]
     return text if len(text) <= 120 else text[:117].rstrip() + "..."
 
 

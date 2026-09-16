@@ -443,6 +443,12 @@ class _Parse:
         #: are filled forward at the end of the parse.
         self.palette_snaps: dict[int, list[RGBA]] = {}
         self.palette_touched = False
+        #: Running total of decoded tileset pixels across every 0x2023 chunk
+        #: this file declares, charged in ``_read_tileset`` and checked
+        #: against ``pixelguard.MAX_DECODE_PIXELS`` -- the 2026-09-16 audit's
+        #: fix for the same summed-total hole ``ora.py``'s tiles.json reader
+        #: closed for ``tileset_pixels`` there after the 2026-09-11 audit.
+        self.tileset_pixels = 0
         self.frame = 0
         #: Who the next ``USER_DATA`` chunk belongs to: ``(kind, ordinal)``,
         #: or ``None`` when the chunk before it was not one that owns user
@@ -781,6 +787,21 @@ def _read_tileset(state: _Parse, r: _Reader) -> None:
             " Aseprite's own panel; this is display-only and every tile id"
             " this reader stores is unaffected"
         )
+    # The 2026-09-16 audit: ``MAX_DECOMPRESSED_BYTES`` below bounds one 0x2023
+    # chunk's own decompressed size, but nothing summed the total across every
+    # tileset chunk a file may declare -- ora.py's tiles.json reader carried
+    # the identical hole (a running ``tileset_pixels`` total, fixed after the
+    # 2026-09-11 audit's inker-03) and this reader never got the matching fix.
+    # A 653 KB crafted file naming ten highly-compressible ~64 MiB strips
+    # retained 640 MiB with no refusal at any point. Charged in pixels, the
+    # unit ora.py's own check uses, before this chunk's own decode rather
+    # than after it.
+    state.tileset_pixels += count * tile_w * tile_h
+    if state.tileset_pixels > pixelguard.MAX_DECODE_PIXELS:
+        raise ValueError(
+            "this .aseprite's tilesets hold more than the"
+            f" {pixelguard.MAX_DECODE_PIXELS} pixels this build will open"
+        )
     length = r.u32()
     compressed = r.take(length)
     # The strip is ``count`` tiles stacked vertically, still at the sprite's
@@ -1037,9 +1058,12 @@ def _read_old_palette(state: _Parse, r: _Reader, six_bit: bool) -> None:
     saves. Preferring the old one would cost every palette its alpha.
 
     A later chunk changing an entry an earlier one set is a **per-frame
-    palette**, which is divergence 20's pre-1.0 legacy: warned about against
-    the table as it stood when this chunk began (the placeholder rows the loop
-    below appends are not "set" and must not trip it), and the final table is
+    palette**, which is divergence 20's pre-1.0 legacy: captured into this
+    frame's snapshot exactly like the modern ``0x2019`` chunk's own reader
+    (the 2026-09-16 audit found this docstring's older sentence still
+    describing the warn-and-discard behaviour divergence 20 retired), with
+    nothing warned about -- the placeholder rows the loop below appends are
+    not "set" so a real change still lands on them, and the final table is
     used.
     """
     state.palette_touched = True

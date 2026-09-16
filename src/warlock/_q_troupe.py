@@ -566,6 +566,26 @@ class TroupeOps:
                 "family_version": character.get("family_version"),
                 "recipe": character.get("recipe"),
             }
+        if base_png is not None:
+            # The 2026-09-16 audit, finding troupe-02: a subset re-render's
+            # ``sockets_px`` only covers the cells it actually rendered
+            # (``wanted``) -- but ``sheetlib.compose_cells`` already reused
+            # every other cell's pixels byte-for-byte from the base sheet,
+            # and the base sidecar already measured *that* cell's sockets.
+            # Carried forward here rather than dropped, or a themed
+            # character's untouched cells silently lost their engine-facing
+            # attachment points on every subset re-render, even though the
+            # pixels under them never changed.
+            base_cells = {
+                int(c.get("index")): c for c in base_record.get("cells") or ()
+            }
+            for entry in meta["cells"]:
+                index = int(entry["index"])
+                if index in wanted:
+                    continue
+                carried = (base_cells.get(index) or {}).get("sockets")
+                if carried:
+                    entry["sockets"] = carried
         if sockets_px:
             # Per cell and **only where the worker actually projected one**, in
             # cell pixels like ``pivot_x``/``pivot_y`` beside them. Absent on a

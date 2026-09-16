@@ -100,10 +100,16 @@ FIRST_HOUR = Tour(
         # runs on a machine with no GPU and no weights, and Character is the
         # one generation type that does too, so it is the only thing on this
         # screen a reader without a card can be told to try rather than told
-        # about. It waits on ``mode_is create`` rather than Next: the reader is
-        # already there, so it advances the moment they are ready, but a reader
-        # who wandered off to look at the rail is not left with a card
-        # describing a screen they cannot see.
+        # about.
+        #
+        # ``done`` is the default MANUAL rather than ``mode_is create``: the
+        # 2026-09-16 audit (finding tour-1-01) found that every step reaching
+        # this one has already put the reader in create mode (``open-create``,
+        # three steps back, itself waits on that same condition), so
+        # ``mode_is create`` read satisfied on the card's very first frame --
+        # "Done." for a reader who had done nothing but look. This is a "try
+        # this, or Next" step like the others in this tour, not a
+        # point-and-wait one, so it advances only on the reader's own Next.
         Step(
             id="character-type",
             title="One type needs no card",
@@ -115,7 +121,6 @@ FIRST_HOUR = Tour(
                 "read your words back. If you would rather carry on here, Next."
             ),
             mode="create",
-            done=Condition("mode_is", "create"),
             chapter=("22-generating-references", "characters"),
         ),
         Step(

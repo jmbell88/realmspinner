@@ -116,6 +116,21 @@ def test_the_default_form_is_one_the_door_would_accept():
     assert form["seed"] is None
 
 
+def test_the_recipe_columns_scheduler_and_cfg_options_match_the_door():
+    """The 2026-09-16 audit, finding muse-misc-03. ``muse_recipe._SCHEDULERS``/
+    ``_CFG_TYPES`` hand-repeat ``_jobs_music``'s tuples with no test asserting
+    the sets stay equal -- ``test_the_default_form_is_one_the_door_would_accept``
+    above only checks the default value is a member of each, not that the
+    whole set agrees. A scheduler/guidance-type key added or removed at the
+    door could otherwise leave the Recipe combo silently stale.
+    """
+    from warlock.service import _jobs_music as door
+    from warlock.studio.panes import muse_recipe
+
+    assert {key for key, _label in muse_recipe._SCHEDULERS} == set(door._SCHEDULERS)
+    assert {key for key, _label in muse_recipe._CFG_TYPES} == set(door._CFG_TYPES)
+
+
 def test_reset_puts_the_brief_back_without_sharing_the_default_dict(ctx):
     state = muse_mode.ensure(ctx)
     state.form["prompt"] = "something"
@@ -826,6 +841,20 @@ def test_the_palette_offers_a_go_command_for_free():
 # --- the 2026-09-05 workflow wins (W1-W4) ------------------------------------
 
 
+def test_the_counts_top_pill_matches_the_doors_max_count():
+    """The 2026-09-16 audit, finding muse-misc-02. ``muse_brief._COUNTS``'s own
+    comment claims its top value is ``_jobs_music.MAX_COUNT``, but nothing
+    checked it -- unlike ``create_brief``'s analogous, test-pinned
+    ``_COUNTS`` (``test_create_brief.py::test_the_count_is_the_service_capped_row``).
+    A future ``MAX_COUNT`` change could otherwise silently desync the Takes
+    control from the door with no test catching it.
+    """
+    from warlock.service import _jobs_music as door
+    from warlock.studio import muse_brief
+
+    assert max(muse_brief._COUNTS) == door.MAX_COUNT
+
+
 def test_the_take_count_stays_on_screen_when_its_control_is_dropped():
     """W3. ``_row_widths`` drops the count outright in a narrow pane, leaving
     the user pressing a button whose cost -- four takes is four waits and four
@@ -1093,3 +1122,51 @@ def test_the_loop_memory_is_bounded(ctx):
     assert len(state.loop_memory) == muse_state.LOOP_MEMORY
     assert "job0" not in state.loop_memory, "the oldest is the one evicted"
     assert f"job{muse_state.LOOP_MEMORY + 9}" in state.loop_memory
+
+
+# --- export feedback (2026-09-16 audit) ---------------------------------------
+
+
+def test_export_loop_and_export_with_points_tell_the_user_the_export_landed_somewhere(ctx):
+    """A successful "Export the loop"/"Export the track with loop points" used
+    to give the user the exact same silence a cancelled picker does:
+    ``on_task_done`` branched only on ``CACHE_PREFIX``, ``FIND_PREFIX`` and
+    ``LOAD_PREFIX``, so a ``muse-export:...`` result -- including the written
+    path -- fell through the final guard and was discarded with no toast.
+    Fails against the unfixed code: no toast fires for a written path.
+    """
+    done = type("_Done", (), {
+        "key": f"{muse_io.EXPORT_PREFIX}loop.wav",
+        "result": "C:/exports/loop.wav",
+    })()
+    muse_mode.on_task_done(ctx, done)
+    assert ctx.toasts, "a written export must say where it went"
+    message, kind = ctx.toasts[-1]
+    assert "C:/exports/loop.wav" in message
+    assert kind != "warn"
+
+
+def test_a_cancelled_export_picker_stays_silent(ctx):
+    """The picker asked and the user said no -- ``muse_io._save`` returns
+    ``None`` for that, and it must not grow a toast the way a genuine failure
+    does; that would scold a change of mind."""
+    done = type("_Done", (), {
+        "key": f"{muse_io.EXPORT_PREFIX}loop.wav",
+        "result": None,
+    })()
+    muse_mode.on_task_done(ctx, done)
+    assert ctx.toasts == []
+
+
+def test_an_export_that_wrote_nothing_says_so(ctx):
+    """``muse_io._save`` returns ``""`` -- distinct from the ``None`` a
+    cancelled picker returns -- when ``make()`` failed for some other reason
+    (chiefly the region changing between ``export_loop``'s muse-03 upfront
+    check and this task actually running); that case wants a word, unlike a
+    cancel."""
+    done = type("_Done", (), {
+        "key": f"{muse_io.EXPORT_PREFIX}loop.wav",
+        "result": "",
+    })()
+    muse_mode.on_task_done(ctx, done)
+    assert ctx.toasts and ctx.toasts[-1][1] == "warn"

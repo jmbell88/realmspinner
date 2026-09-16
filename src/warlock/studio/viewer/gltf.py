@@ -64,6 +64,19 @@ MAX_MESHES = 100_000
 #: is a scene.
 MAX_CAMERAS = 100_000
 MAX_LIGHTS = 100_000
+#: One field over from ``MAX_MESHES``: that bounds how many *mesh* entries a
+#: file may declare, but nothing bounded how many *primitives* one mesh entry
+#: may declare. The 2026-09-16 audit found a single mesh referencing the same
+#: tiny, already-cached accessor from millions of primitive entries sails past
+#: MAX_NODES/MAX_MATERIALS/MAX_MESHES/MAX_CAMERAS/MAX_LIGHTS and
+#: ``MAX_TOTAL_BYTES`` alike -- the shared accessor means the *bytes* stay
+#: small even as the *entries* do not -- while still costing seconds to build
+#: one :class:`Primitive` object per entry: reproduced at 2,000,000 primitives
+#: in a 66 MB GLB (comfortably under Clay's own 100 MB import-door ceiling),
+#: ``load`` took 6.3 s. Same value as its siblings above for the same reason:
+#: a primitive entry is the same order of JSON cost as a mesh or a node, and a
+#: file declaring this many of them is a hang before it is a scene.
+MAX_PRIMITIVES = 100_000
 #: Mirrors ``service.validation.MAX_IMAGE_PIXELS`` without importing service
 #: into the viewer (the viewer imports no business-logic layer).
 MAX_TEXTURE_PIXELS = 16_000_000
@@ -455,6 +468,17 @@ def load(path: Path | bytes) -> Model:
     if declared_meshes > MAX_MESHES:
         raise ValueError(
             f"this GLB declares {declared_meshes} meshes, "
+            "more than this viewer will load"
+        )
+    # See MAX_PRIMITIVES: MAX_MESHES bounds mesh *entries*, not how many
+    # primitives one of them declares, so this is summed across every mesh
+    # before the decode loop below builds one Primitive per entry.
+    declared_primitives = sum(
+        len(mesh.get("primitives") or []) for mesh in gltf.get("meshes", [])
+    )
+    if declared_primitives > MAX_PRIMITIVES:
+        raise ValueError(
+            f"this GLB declares {declared_primitives} primitives, "
             "more than this viewer will load"
         )
     declared_cameras = len(gltf.get("cameras", []))

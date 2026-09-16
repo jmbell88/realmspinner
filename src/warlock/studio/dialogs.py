@@ -647,7 +647,20 @@ def modal_open(ctx: Any) -> bool:
     Ctrl+Enter submitted the form the modal was a *question about*; a mode key
     left the app somewhere else with the modal still up. Ownership is a
     property of "a modal is up", not of which queue happens to hold it, so the
-    predicate asks all five.
+    predicate asks all seven.
+
+    Muse's derive popup is the sixth, added for the 2026-09-16 audit: it is
+    also a real ``imgui.begin_popup_modal`` (``panes/muse_results.derive_popup``),
+    but was missing from this list, so Ctrl+Enter reached
+    ``muse_mode.handle_key`` and queued a fresh job from the top brief while
+    the popup believed it alone had the keyboard -- the same UX-08 shape, one
+    door later.
+
+    Packwright's tile-set import popup is the seventh, added the same audit:
+    it is not even a modal (``panes/packwright_sources._tileset_popup`` is an
+    ordinary ``imgui.begin_popup``), but the tile-size fields and the
+    Import/Cancel pair are just as much a question with the user's attention
+    as the other six, and every global chord reached the app while it was up.
 
     A module function with ``App._modal_open`` delegating to it, because the
     guided tour needs the same question and is deliberately *not* one of the
@@ -659,8 +672,8 @@ def modal_open(ctx: Any) -> bool:
     tour is a pane, and importing ``main`` for one predicate made a leaf depend
     on the shell. This module already owns two of the four answers.
     """
-    from . import matte_preview
-    from .panes import first_run, troupe_send
+    from . import matte_preview, muse_mode
+    from .panes import first_run, packwright_sources, troupe_send
 
     return (
         ctx.confirms.pending is not None
@@ -668,4 +681,6 @@ def modal_open(ctx: Any) -> bool:
         or matte_preview.is_open(ctx)
         or first_run.is_open(ctx)
         or troupe_send.is_open(ctx)
+        or muse_mode.derive_popup_open(ctx)
+        or packwright_sources.tileset_popup_open(ctx)
     )

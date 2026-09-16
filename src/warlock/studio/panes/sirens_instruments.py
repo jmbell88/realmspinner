@@ -166,7 +166,15 @@ def draw(ctx: Any) -> None:
     )
     if changed and doc.update_instrument(selected.uid, kind=kind):
         sirens_mode.request_rerender(ctx, tab)
-    if selected.kind == "sample":
+        # ``update_instrument`` installs a *new* object through
+        # ``dataclasses.replace`` rather than mutating ``selected`` in place,
+        # so the check below used to read the pre-update kind and show or
+        # hide the sample panel one frame late (the 2026-09-16 audit, the
+        # same "reads a snapshot a mutation already moved past" shape as the
+        # 2026-09-15 audit's finding sirens-04). Re-fetched here so the panel
+        # matches the Kind combo on the same frame it changed.
+        selected = doc.instrument(selected.uid)
+    if selected is not None and selected.kind == "sample":
         _sample(ctx, tab, selected)
 
 

@@ -194,6 +194,35 @@ def test_add_nodes_refuses_before_building_past_max_placed_rather_than_after(mon
     assert len(d.history) == 1
 
 
+def test_add_nodes_counts_each_added_nodes_whole_subtree_not_just_the_top_level_count(
+    monkeypatch,
+):
+    """The 2026-09-16 audit's mason-engine-01: ``add_nodes`` counted
+    ``len(added)`` -- the number of top-level nodes handed in -- rather than
+    each one's whole subtree, so a single "array" of a GroupNode with
+    children (exactly what ``_spawn_array`` hands it, via
+    ``copy_subtree()``) silently attached far more nodes than the ceiling
+    check saw. This must fail against a version of ``add_nodes`` that counts
+    only the top-level list: one added node, each carrying three children,
+    is 4 nodes against a ceiling of 3, but ``len(added) == 1`` would pass it
+    straight through.
+    """
+    from warlock.studio.mason import scene as sc
+
+    monkeypatch.setattr(sc, "MAX_PLACED", 3)
+    d = doc.MasonDoc()
+    group = nd.GroupNode(uid=nd.new_uid())
+    group.children.append(nd.GroupNode(uid=nd.new_uid()))
+    group.children.append(nd.GroupNode(uid=nd.new_uid()))
+    group.children.append(nd.GroupNode(uid=nd.new_uid()))
+    # group + 3 children == 4 nodes, past a ceiling of 3, from one add_nodes
+    # call carrying a single top-level node.
+    with pytest.raises(ValueError, match="MAX_PLACED"):
+        d.add_nodes([group])
+    assert d.roots == []
+    assert len(d.history) == 0
+
+
 # --- set_transform / set_props -----------------------------------------------
 
 

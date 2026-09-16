@@ -87,7 +87,20 @@ def _reached_reference(job: Any, rig_meta: Any, poses: Any) -> bool:
 
 
 def _reached_mesh(job: Any, rig_meta: Any, poses: Any) -> bool:
-    return _stage_of(job) == "model"
+    """Not just "is this a model-stage row": a job row lands at
+    ``stage == "model"`` the instant it is submitted, and used to tick the
+    moment it did -- so a mesh still queued, still running, or errored out
+    with nothing on disk showed the same checkmark as a finished one, and the
+    checkmark never cleared on the error. The 2026-09-16 audit, finding
+    create-stages-01: this now demands the same evidence ``available()``'s
+    rig/pose branch already demands of the identical row -- ``status ==
+    "done"`` and ``model.glb`` actually listed -- rather than the row merely
+    existing."""
+    return (
+        _stage_of(job) == "model"
+        and (job or {}).get("status") == "done"
+        and "model.glb" in ((job or {}).get("files") or [])
+    )
 
 
 def _reached_rig(job: Any, rig_meta: Any, poses: Any) -> bool:
@@ -118,10 +131,17 @@ def _reached_export(job: Any, rig_meta: Any, poses: Any) -> bool:
     finished, unrigged, unposed prop: Rig and Pose are :data:`OPTIONAL_STAGES`
     now, so this predicate goes on being asked, and answers honestly, past
     the two a prop may never earn.
+
+    The 2026-09-16 audit, finding create-stages-02: the grid is stage-keyed
+    and unconditional on status, so on its own it ticked Export for the same
+    freshly-created, still-running or errored model job that finding
+    create-stages-01 caught ticking Mesh -- a job in flight has a stage and
+    therefore a grid of labels long before it has anything the grid's labels
+    actually name. Reached now also asks whether the job is finished.
     """
     from . import artifacts
 
-    return job is not None and bool(artifacts.artifacts_for(job))
+    return job is not None and job.get("status") == "done" and bool(artifacts.artifacts_for(job))
 
 
 def _reached_pose(job: Any, rig_meta: Any, poses: Any) -> bool:

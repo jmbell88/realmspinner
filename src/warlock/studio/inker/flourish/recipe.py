@@ -234,9 +234,16 @@ MAX_BAKE_COST = 212_000_000
 #: ``size ** 2`` pixels and there are ``count`` of them, so that pair -- not
 #: the layer's mere presence -- is what its cost actually tracks. The
 #: 2026-09-11 audit, inker-06.
+#:
+#: ``trail`` is the same shape and was missing from this table: ``render()``
+#: loops once per ``samples`` and paints a window sized by ``radius`` each
+#: time, so a trail at its own published maximum (samples=64, radius=256)
+#: rendered on the order of 13x what the flat "one layer" rate charged for
+#: it while ``check_bake_cost`` still waved it through. The 2026-09-16 audit.
 _COST_PARAMS: dict[str, tuple[str, str]] = {
     "particles": ("count", "size"),
     "smoke": ("count", "size"),
+    "trail": ("samples", "radius"),
 }
 
 

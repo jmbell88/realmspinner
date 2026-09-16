@@ -11,7 +11,10 @@ no regression test, per the orchestrator's note for this batch.
 
 from __future__ import annotations
 
+import io
 import json
+import struct
+import zlib
 
 import pytest
 from PIL import Image
@@ -116,6 +119,66 @@ def test_sheet_preview_png_refuses_before_allocating_from_a_corrupted_sidecars_f
         )
     assert excinfo.value.field == "sheet_id"
     assert not calls, f"Image.new was reached before the refusal: {calls!r}"
+
+
+def _giant_header_png() -> bytes:
+    """A structurally valid PNG whose IHDR claims a huge width/height, built
+    by patching the header of a genuine 1x1 PNG -- the same trick
+    ``tests/test_agent_refs.py``'s own ``_giant_header_png`` uses for
+    ``files.to_png``'s identical header-only guard. ``Image.open`` alone
+    parses only this header, so a fake one is enough to exercise the refusal
+    without the cost the refusal exists to avoid.
+    """
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), (0, 0, 0)).save(buf, "PNG")
+    data = bytearray(buf.getvalue())
+    assert data[12:16] == b"IHDR"
+    width = height = 9000  # > pipelines.sheet.MAX_ATLAS_PX (8192)
+    struct.pack_into(">II", data, 16, width, height)
+    crc = zlib.crc32(bytes(data[12:29])) & 0xFFFFFFFF
+    struct.pack_into(">I", data, 29, crc)
+    return bytes(data)
+
+
+def test_sheet_preview_png_refuses_before_decoding_an_oversized_atlas_png(svc, monkeypatch):
+    """service-queue-03 (the 2026-09-16 audit): every ceiling troupe-03 added
+    above (``check_atlas_size`` against the sidecar's own numbers) bounds the
+    *composed* preview -- and the ``movement is None`` (whole-atlas) branch
+    never calls it at all -- but none of them ever reads ``png_path``'s own
+    declared dimensions. A hand-edited, corrupted, or otherwise oversized
+    ``sheet.png`` sitting beside a small, honest sidecar used to be decoded
+    in full (``opened.load()``) before any ceiling on the file itself
+    applied, in every branch including ``movement is None``.
+
+    ``PIL.Image.Image.load`` is spied on rather than actually handed the
+    fake 9000x9000 header (which would either allocate a very large buffer
+    or trip Pillow's own decompression-bomb guard): the claim under test is
+    squarely "never decoded before the refusal", which the spy proves
+    directly -- the same shape the sidecar-corruption test above uses on
+    ``Image.new``.
+    """
+    mesh_id, sheet_id = _mesh_with_sheet(svc, frame_size=64, frames=2)
+    job_dir = svc.job_dir(mesh_id)
+    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    png_path.write_bytes(_giant_header_png())
+
+    calls: list[bool] = []
+    real_load = Image.Image.load
+
+    def spy_load(self, *a, **k):
+        calls.append(True)
+        return real_load(self, *a, **k)
+
+    monkeypatch.setattr(Image.Image, "load", spy_load)
+
+    from warlock.service import characters as svc_characters
+
+    with pytest.raises(Invalid) as excinfo:
+        svc_characters.sheet_preview_png(
+            svc, mesh_id, sheet_id, max_side=64, movement=None, max_bytes=200_000,
+        )
+    assert excinfo.value.field == "sheet_id"
+    assert not calls, f"Image.load was reached before the refusal: {calls!r}"
 
 
 # --- troupe-05: a sprite draft must not be deletable mid-publish ------------

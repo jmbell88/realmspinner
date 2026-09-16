@@ -301,6 +301,19 @@ class ClayState:
         return any(doc.dirty for doc in self.docs)
 
     def add(self, tab: ClayTab) -> ClayTab:
+        # ``activate`` was fixed to settle a live drag on the tab it leaves
+        # before moving ``active_uid`` (2026-09-15 audit, clay-01); ``add``
+        # moves ``active_uid`` exactly the same way and was left out, so
+        # creating, opening, importing or auto-recovering a document mid-drag
+        # (New/Open have no drag gate in the UI at all, and the async adopt
+        # paths are inherently decoupled from whatever drag is live when
+        # their result lands) left the old tab's TRS mutated in place with no
+        # history step behind it -- unrevertable (2026-09-16 audit). Guarded
+        # the same way ``activate`` is: a fresh ``ClayState`` has no
+        # ``settle_drag`` yet, and the very first ``add()`` has no
+        # ``active_uid`` to settle.
+        if self.settle_drag is not None and self.active_uid:
+            self.settle_drag(self.active_uid)
         self.docs.append(tab)
         self.active_uid = tab.uid
         self.clear_drag()

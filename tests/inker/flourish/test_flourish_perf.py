@@ -92,6 +92,43 @@ def test_check_bake_cost_refuses_a_particle_heavy_layer_that_would_blow_the_pati
         R.check_bake_cost(rec)
 
 
+def test_check_bake_cost_refuses_a_trail_layer_that_would_blow_the_patience_budget():
+    """The 2026-09-16 audit: ``_COST_PARAMS`` weighted ``particles``/``smoke``
+    by their own ``count``/``size`` (inker-06, 2026-09-11) but never gained a
+    ``trail`` entry, even though ``trail.render()`` loops once per ``samples``
+    and paints a window sized by ``radius`` each time -- the identical
+    "count x window-area" cost shape. A trail at its own published maximum
+    (samples=64, radius=256) measured about 13x the wall time of an empty
+    layer while ``bake_cost`` charged it the same flat 1.0 unit.
+
+    Three such layers, 100 frames, 128px, 4x supersample, one direction --
+    the same recipe shape as the particles regression above -- prices far
+    past ``MAX_BAKE_COST`` once ``trail`` is weighted correctly, and must be
+    refused rather than waved through.
+    """
+    from warlock.studio.inker.flourish import recipe as R
+
+    rec = flourish.clamp(
+        flourish.Recipe(
+            width=128,
+            height=128,
+            supersample=4,
+            directions=1,
+            phases=(flourish.Phase("main", 100),),
+            layers=tuple(
+                flourish.Layer(uid=i, kind="trail", params={"samples": 64, "radius": 256.0})
+                for i in range(3)
+            ),
+        )
+    )
+    # The layers really did clamp to the slider maximum this claims.
+    for layer in rec.layers:
+        assert layer.params["samples"] == 64
+        assert layer.params["radius"] == 256.0
+    with pytest.raises(ValueError, match="pixels of frames"):
+        R.check_bake_cost(rec)
+
+
 def test_check_bake_cost_still_allows_the_shipped_fireball_preset():
     """The fireball preset (``presets/fireball.json``) is what
     ``test_a_default_size_fireball_frame_renders_inside_the_budget`` scales

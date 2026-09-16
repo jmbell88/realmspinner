@@ -234,6 +234,11 @@ def _ident(name: str, *, pascal: bool = False) -> str:
     if not parts:
         parts = ["effect"]
     if pascal:
-        return "".join(p[:1].upper() + p[1:] for p in parts)
+        # The 2026-09-16 audit: this branch had no leading-digit guard, unlike
+        # the non-pascal one three lines below -- an effect named e.g. "3D
+        # Explosion" produced ``public class 3DExplosionPlayer``, not a legal
+        # C# identifier, so the pasted Unity snippet failed to compile.
+        ident = "".join(p[:1].upper() + p[1:] for p in parts)
+        return ident if not ident[0].isdigit() else f"Fx{ident}"
     ident = "_".join(p.lower() for p in parts)
     return ident if not ident[0].isdigit() else f"fx_{ident}"

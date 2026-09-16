@@ -618,6 +618,21 @@ class MusicOps:
         if not result.get("ok"):
             raise RuntimeError(result.get("error") or "separation failed")
 
+        # service-queue-02 (the 2026-09-16 audit): every sibling stage that
+        # finishes with a served-name write re-checks the cancel event here,
+        # immediately before its own commit, and returns early when the user
+        # cancelled in the interim -- ``_rig``, ``_remesh``, ``_charsheet``,
+        # ``_lora_train`` and ``_music`` itself (muse-01, above). ``_separate``
+        # was the one kind with none: a Cancel landing after
+        # ``rigging.run_worker`` returned ``ok=True`` used to reach
+        # ``self._cancel.commit()`` unconditionally, publishing a split the
+        # user had already asked to stop. Returning here (rather than
+        # raising) leaves ``self._cancel.committed`` False, so the dispatch
+        # loop's own ``finally`` (``queue.py``) discards the half-written
+        # stems through ``_discard_artifacts``'s "separate" branch, the same
+        # way every other early return does.
+        if self._cancel is not None and self._cancel.event.is_set():
+            return
         # ``stems.json`` **last**, as the completion gate -- ``rig.json``'s rule
         # and ``sheet.json``'s, stated identically: the four WAVs appear one at
         # a time, so their existence cannot say the set is finished.

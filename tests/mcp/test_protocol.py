@@ -404,6 +404,81 @@ def test_tasks_list_is_refused_rather_than_answered_empty_while_tasks_exist() ->
     assert reply["error"]["code"] == -32601
 
 
+def test_bridge_dispatch_survives_a_call_tool_task_that_raises() -> None:
+    """The 2026-09-16 audit (agents-01): `call_tool_task`, `get_task` and
+    `cancel_task` -- the MCP Tasks extension's three callback call sites in
+    `_dispatch_one` -- had no exception backstop, unlike the ordinary
+    `tools/call` path (`_dispatch_tools_call`'s own try/except), so an
+    exception one of them raised (e.g. `rpc.split_reply`'s plain `ValueError`
+    on a malformed/truncated Studio reply) propagated straight out of
+    `bridge_dispatch`. `bridge.py::main`'s run loop wraps
+    `protocol.bridge_dispatch` in `except (EOFError, KeyboardInterrupt): pass`
+    only, so an uncaught exception here used to crash the whole `warlock mcp`
+    process instead of becoming a JSON-RPC-safe reply."""
+    state = p.BridgeEra()
+    _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": _modern_meta_with_tasks(),
+        },
+        state,
+    )
+
+    def exploding(name, args):
+        raise ValueError("reply frame has no header/body separator")
+
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "t", "arguments": {}, **_modern_meta_with_tasks()},
+        },
+        state,
+        call_tool_task=exploding,
+    )
+    assert reply is not None
+    assert "result" not in reply
+    assert reply["error"]["code"] == -32603
+    assert "reply frame has no header/body separator" in reply["error"]["message"]
+
+
+def test_bridge_dispatch_survives_a_get_task_or_cancel_task_that_raises() -> None:
+    """Same incident as `test_bridge_dispatch_survives_a_call_tool_task_that_raises`,
+    for the other two Tasks-extension callback call sites."""
+    def _raise(*_args):
+        raise ValueError("boom")
+
+    for method, kwargs, expect in (
+        ("tasks/get", {"get_task": _raise}, "tasks/get failed"),
+        ("tasks/cancel", {"cancel_task": _raise}, "tasks/cancel failed"),
+    ):
+        state = p.BridgeEra()
+        _dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": _modern_meta_with_tasks(),
+            },
+            state,
+        )
+        reply = _dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": method,
+                "params": {"taskId": "op-1", **_modern_meta_with_tasks()},
+            },
+            state,
+            **kwargs,
+        )
+        assert reply["error"]["code"] == -32603
+        assert expect in reply["error"]["message"]
+
+
 # --- legacy era ----------------------------------------------------------------
 
 
@@ -436,6 +511,42 @@ def test_legacy_initialize_with_an_unknown_version_falls_back_to_the_newest_lega
         state,
     )
     assert reply["result"]["protocolVersion"] == p.LEGACY[0]
+
+
+def test_a_second_legacy_initialize_does_not_renegotiate_the_locked_version() -> None:
+    """The 2026-09-16 audit (agents-03 follow-up): `BridgeEra`'s own
+    docstring says the era is "locked for the connection's life" once
+    decided, and the 2026-09-15 audit already made a stray `initialize` on
+    an already-modern connection refuse rather than downgrade -- but a
+    *second* `initialize` on a connection already locked to legacy silently
+    re-ran `_legacy_initialize` and overwrote `state.legacy_version`, which
+    gates whether a JSON-RPC batch is ever accepted (only "2025-03-26"
+    batches). Initializing first with "2025-06-18" then again with
+    "2025-03-26" used to leave `legacy_version == "2025-03-26"`, silently
+    changing batch acceptance mid-connection."""
+    state = p.BridgeEra()
+    _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18"},
+        },
+        state,
+    )
+    assert state.legacy_version == "2025-06-18"
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26"},
+        },
+        state,
+    )
+    assert reply["error"]["code"] == -32600
+    assert state.legacy_version == "2025-06-18"
+    assert state.era == "legacy"
 
 
 def test_legacy_notification_gets_no_reply() -> None:
@@ -801,6 +912,33 @@ def test_bridge_dispatch_refuses_a_malformed_tool_result_body_without_crashing()
             "id": 2,
             "method": "tools/call",
             "params": {"name": "t", "arguments": {}, **_modern_meta()},
+        },
+        state,
+        call_tool=lambda n, a: b"not-a-json-object",
+    )
+    assert "error" not in reply
+    assert reply["result"]["isError"] is True
+    assert "malformed tool result" in reply["result"]["content"][0]["text"]
+
+
+def test_legacy_tools_call_with_a_malformed_body_becomes_is_error_not_broken_json() -> None:
+    """The 2026-09-16 audit (agents-02): `splice_tool_result` only ran
+    `_merge_body`'s shape check when `meta` is not `None`, and the legacy
+    branch always calls it with `meta=None` -- so `result = body` used to be
+    spliced onto the wire completely unchecked. The identical malformed body
+    already degrades cleanly to an isError reply on the modern path (see
+    `test_bridge_dispatch_refuses_a_malformed_tool_result_body_without_crashing`
+    just above); on the unfixed legacy path this test's own `_dispatch`
+    helper cannot even `json.loads` the reply, since it was literally invalid
+    JSON on the wire (`"result":not-a-json-object`)."""
+    state = p.BridgeEra()
+    _dispatch({"jsonrpc": "2.0", "id": 1, "method": "initialize"}, state)
+    reply = _dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "t", "arguments": {}},
         },
         state,
         call_tool=lambda n, a: b"not-a-json-object",

@@ -219,9 +219,10 @@ def _placement(ctx: Any, state: Any, tab: Any) -> None:
     _array(ctx, state, doc)
 
 
-def _over_max_placed(doc: md.MasonDoc, added: int) -> int | None:
-    """The document's node count after adding ``added`` more, or ``None`` when
-    that stays within :data:`scene.MAX_PLACED`.
+def _over_max_placed(doc: md.MasonDoc, node: nd.Node, copies: int) -> int | None:
+    """The document's node count after adding ``copies`` more duplicates of
+    ``node``'s whole subtree, or ``None`` when that stays within
+    :data:`scene.MAX_PLACED`.
 
     The 2026-09-14 audit's mason-01: an array count someone typed an extra
     zero into used to run straight through -- ``array_linear``/``array_radial``
@@ -231,8 +232,18 @@ def _over_max_placed(doc: md.MasonDoc, added: int) -> int | None:
     the refusal there just meant the work was wasted rather than avoided.
     Checked here first, with the same cheap structural count ``add_nodes``
     itself refuses on, so the button can toast and build nothing at all.
+
+    The 2026-09-16 audit's mason-engine-01: this used to add ``copies`` --
+    the number of *top-level* duplicates -- straight onto the current count,
+    which undercounts whenever the array's source ``node`` is a GroupNode (or
+    any node with children): each copy is a whole ``copy_subtree()`` of
+    ``node``, not one node, so the real growth is ``copies`` times the
+    source's own subtree size. Counted here the same way
+    ``MasonDoc.add_nodes`` now counts it, so this pre-flight toast and the
+    door it is guarding agree.
     """
-    total = len(doc.all_nodes()) + added
+    per_copy = len(list(nd.walk([node])))
+    total = len(doc.all_nodes()) + copies * per_copy
     return total if total > scene.MAX_PLACED else None
 
 
@@ -255,7 +266,7 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
 
     width = widgets.grid_width(1)
     if widgets.disabled_button("Array (linear)##masonarraylinear", one, (width, 0)) and node:
-        over = _over_max_placed(doc, _PENDING["count"] - 1)
+        over = _over_max_placed(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(
                 f"That array would bring this scene to {over} nodes, past "
@@ -274,7 +285,7 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
     _PENDING["degrees"] = degrees
 
     if widgets.disabled_button("Array (radial)##masonarrayradial", one, (width, 0)) and node:
-        over = _over_max_placed(doc, _PENDING["count"] - 1)
+        over = _over_max_placed(doc, node, _PENDING["count"] - 1)
         if over is not None:
             ctx.toast(
                 f"That array would bring this scene to {over} nodes, past "

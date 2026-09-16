@@ -38,6 +38,7 @@ impossible. The model is built and ``load_state_dict``-ed from our own path.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -60,9 +61,10 @@ def separate(spec: dict) -> dict:
     a card the music pipe may still be releasing: four minutes of 44.1 kHz
     stereo through a U-Net at once is an allocation nobody has measured, while
     ten seconds at a time is bounded by a figure the registry declares. The
-    segments are blended with a triangular window, which is what stops each
-    boundary being an audible step -- an unwindowed concatenation puts a seam
-    every ``segment_seconds`` in all four stems at once.
+    segments are blended with a window that tapers to zero across the overlap
+    at each edge, which is what stops each boundary being an audible step --
+    an unwindowed concatenation puts a seam every ``segment_seconds`` in all
+    four stems at once.
     """
     import soundfile as sf
     import torch
@@ -109,7 +111,29 @@ def separate(spec: dict) -> dict:
     total = mix.shape[-1]
     stems = torch.zeros(len(sources), 2, total, device=device)
     weights = torch.zeros(total, device=device)
-    window = torch.hann_window(segment * 2, device=device)[:segment] if segment else None
+    # A trapezoid: full weight through the body of a chunk, tapering to (near)
+    # zero only across the true overlap width at each edge. The 2026-09-16
+    # audit (fix-separation) found the previous window --
+    # ``torch.hann_window(segment * 2)[:segment]``, a ramp spanning the whole
+    # *segment* -- put the overlap region almost entirely past the ramp's
+    # midpoint: the earlier chunk already held ~98% of the blended weight
+    # before the later chunk's share had risen past a few percent, a
+    # near-instant hand-off rather than the crossfade this function's own
+    # docstring promises. Splitting a single Hann window of ``2 * overlap``
+    # into its rising and falling halves and placing those halves only at the
+    # two edges (constant 1 in between) makes the two halves sum to exactly 1
+    # at every offset in the overlap, so the earlier chunk's share falls from
+    # ~1 to ~0 -- and the later chunk's rises from ~0 to ~1 -- smoothly across
+    # the whole overlap region instead of jumping in the last sample or two.
+    if segment and overlap:
+        ramp = torch.hann_window(overlap * 2, device=device)
+        window = torch.ones(segment, device=device)
+        window[:overlap] = ramp[:overlap]
+        window[segment - overlap :] = ramp[overlap:]
+    elif segment:
+        window = torch.ones(segment, device=device)
+    else:
+        window = None
 
     start = 0
     with torch.no_grad():
@@ -175,7 +199,13 @@ def main() -> int:
         tmp.write_text(json.dumps(result), encoding="utf-8")
         tmp.replace(result_path)
     finally:
-        tmp.unlink(missing_ok=True)
+        # The 2026-09-16 audit (fix-separation) found this bare, unlike the
+        # byte-identical staged-write pattern in blender_worker.main() and
+        # lora_train_worker.main(): if tmp.replace() itself fails (a locked or
+        # AV-scanned temp file, ENOSPC, a permission race), an unsuppressed
+        # OSError here would replace that more informative exception.
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
     # The 2026-09-07 audit (pipelines-01) found this returned 1 on a *handled*
     # failure -- exactly what rigging.run_worker treats as a crash, so it
     # deleted result_path and raised "exited with code 1" before ever reading

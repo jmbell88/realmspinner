@@ -231,6 +231,36 @@ def test_export_is_reached_once_the_asset_has_something_to_export():
     assert create_stages.STAGES[-1] == "export"
 
 
+def test_ticked_does_not_mark_mesh_done_for_a_running_or_errored_model_job():
+    """The 2026-09-16 audit, finding create-stages-01: ``_reached_mesh`` used
+    to read only ``job["stage"] == "model"``, and every model request lands a
+    job row at that stage the instant it is submitted -- so a mesh still
+    queued, still running, or errored out with nothing on disk ticked the
+    Mesh segment as done anyway, and the checkmark never cleared on the
+    error. This now asks the same evidence ``available()``'s rig/pose branch
+    already demands of the identical row."""
+    for status in ("queued", "running", "error"):
+        fresh = job(status=status, files=[])
+        assert "mesh" not in create_stages.ticked(fresh)
+        assert create_stages.reached(fresh) != "mesh"
+
+
+def test_ticked_does_not_mark_export_done_before_the_model_job_finishes():
+    """The 2026-09-16 audit, finding create-stages-02: ``_reached_export``
+    only asked whether ``artifacts.artifacts_for(job)`` returns a non-empty
+    label grid, which is keyed on stage alone and unconditional on status --
+    so it ticked Export for the same freshly-created, still-running or
+    errored model job that finding create-stages-01 caught ticking Mesh.
+    Pinned directly on the predicate, not just through ``ticked``'s walk, so
+    this does not silently ride on the Mesh fix instead of asking its own
+    question."""
+    for status in ("queued", "running", "error"):
+        stalled = job(status=status, files=[])
+        assert create_stages._reached_export(stalled, None, None) is False
+        assert "export" not in create_stages.ticked(stalled)
+    assert create_stages._reached_export(job(), None, None) is True
+
+
 def test_export_does_not_tick_ahead_of_the_stages_before_it():
     """``reached`` stops at the first unreached stage, which is what keeps a
     bare reference -- which also has an export grid -- from ticking Export."""

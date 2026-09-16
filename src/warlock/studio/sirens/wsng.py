@@ -331,15 +331,27 @@ def _int(manifest: dict, key: str, default: int) -> int:
 
 def _channels_from(manifest: dict) -> list[D.Channel]:
     out: list[D.Channel] = []
+    # **A duplicate uid is refused (the 2026-09-16 audit).** Unlike
+    # ``_instruments_from`` -- which already refuses this for instrument ids
+    # -- nothing here checked, and every uid-addressed lookup resolves to the
+    # first match while ``_detach_pattern``-shaped removal filters by
+    # ``uid !=`` and would delete *every* channel sharing that uid in one
+    # call. A file that says so twice is refused rather than silently
+    # collapsed, the same way ``_samples_from`` refuses a duplicate key.
+    seen: set[int] = set()
     for entry in _list(manifest, "channels")[: D.MAX_CHANNELS]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
         kind = str(entry.get("kind", "pulse"))
         if kind not in inst.KINDS:
             raise ValueError(f"this song has a {kind!r} channel, which this build cannot play")
+        uid = int(entry.get("uid", D.new_uid()))
+        if uid in seen:
+            raise ValueError(f"this song lists the channel {uid} twice")
+        seen.add(uid)
         out.append(
             D.Channel(
-                uid=int(entry.get("uid", D.new_uid())),
+                uid=uid,
                 name=str(entry.get("name", "")),
                 kind=kind,
                 pan=float(entry.get("pan", 0.0)),
@@ -420,6 +432,12 @@ def _patterns_from(
     zf: Any, manifest: dict, channels: int, remap: dict[int, int] | None = None
 ) -> list[D.Pattern]:
     out: list[D.Pattern] = []
+    # **A duplicate uid is refused (the 2026-09-16 audit).** See
+    # ``_channels_from``'s comment: nothing here checked either, and
+    # ``document._detach_pattern`` filtered a removal by ``uid !=``, which
+    # deletes every pattern sharing that uid -- so deleting the one pattern a
+    # user selected could silently destroy a second, untouched pattern.
+    seen: set[int] = set()
     for entry in _list(manifest, "patterns")[: D.MAX_PATTERNS]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
@@ -468,9 +486,13 @@ def _patterns_from(
             for old, new in remap.items():
                 plane[stored == old] = new
         np.clip(plane, notes.EMPTY, D.MAX_INSTRUMENTS - 1, out=plane)
+        uid = int(entry.get("uid", D.new_uid()))
+        if uid in seen:
+            raise ValueError(f"this song lists the pattern {uid} twice")
+        seen.add(uid)
         out.append(
             D.Pattern(
-                uid=int(entry.get("uid", D.new_uid())),
+                uid=uid,
                 name=str(entry.get("name", "")),
                 cells=grid,
             )
@@ -480,12 +502,19 @@ def _patterns_from(
 
 def _oneshots_from(manifest: dict) -> list[D.OneShot]:
     out: list[D.OneShot] = []
+    # **A duplicate uid is refused (the 2026-09-16 audit).** Same shape as
+    # ``_channels_from``'s and ``_patterns_from``'s comments.
+    seen: set[int] = set()
     for entry in _list(manifest, "oneshots")[: D.MAX_ONESHOTS]:
         if not isinstance(entry, dict):
             raise ValueError(_MALFORMED)
+        uid = int(entry.get("uid", D.new_uid()))
+        if uid in seen:
+            raise ValueError(f"this song lists the sound effect {uid} twice")
+        seen.add(uid)
         out.append(
             D.OneShot(
-                uid=int(entry.get("uid", D.new_uid())),
+                uid=uid,
                 name=str(entry.get("name", "")),
                 pattern=_int(entry, "pattern", 0),
                 tempo=_int(entry, "tempo", D.DEFAULT_TEMPO),

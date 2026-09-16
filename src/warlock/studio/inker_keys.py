@@ -323,7 +323,18 @@ def _modal(
         from . import inker_walk
 
         if enter:
-            inker_walk.bake(ctx, tab)
+            # The 2026-09-16 audit: this call went straight to ``bake``,
+            # which refuses by returning ``None`` with nothing on screen --
+            # the one caller in this mode that bypasses ``inker_ops.run``'s
+            # "a refused op says why" rule. Checked here the same way that
+            # rule checks ``op.enabled``, so pressing Enter before the rig is
+            # bakeable still tells the user why instead of just consuming
+            # the key.
+            reason = inker_walk.bake_reason(state, tab)
+            if reason:
+                state.say(reason)
+            else:
+                inker_walk.bake(ctx, tab)
         elif escape:
             inker_walk.cancel(ctx, tab)
         return True

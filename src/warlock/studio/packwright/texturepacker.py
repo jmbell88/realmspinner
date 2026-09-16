@@ -17,7 +17,11 @@ schema question rather than an answer.
 in the atlas is the trimmed one, and a fraction of the untrimmed canvas would
 place it wrong by however much was cut off. A sprite that carries no pivot gets
 0.5/0.5 -- the documented centre this format has always emitted -- so the key is
-always present and the schema never shifts under a consumer.
+always present and the schema never shifts under a consumer. A fully
+transparent sprite is the one exception: its trim always collapses to a 1x1
+box regardless of where the pivot was actually set (see :mod:`.trim`), so its
+pivot is normalized against its own untrimmed canvas instead -- the 2026-09-16
+audit, packwright-08.
 
 A ninth key, ``slices``, appears on a frame that has named rectangles and on no
 other, so an atlas of ordinary sprites is byte-for-byte what it was. Those
@@ -52,9 +56,23 @@ def _pivot(frame: Any) -> dict[str, float]:
     every sprite that reaches here. Pinned rather than asserted, because an
     assertion here would turn a packing decision made two modules away into a
     crash in a sidecar writer.
+
+    **An empty sprite is the one exception.** ``trim.trim_rect`` always
+    collapses a fully transparent sprite's trim to a 1x1 box at (0, 0)
+    regardless of where its pivot actually sits, so normalising against
+    ``frame.w``/``frame.h`` there put a blank "pause" frame's explicit pivot
+    -- carried over from a same-pivot solid neighbour -- dozens of pixels
+    outside its own 1x1 cell (the 2026-09-16 audit, packwright-08). Nothing
+    trimmed the sprite, so nothing about the 1x1 box means anything; the
+    sprite's own untrimmed canvas is the rectangle that still does.
     """
     if frame.pivot is None:
         return {"x": 0.5, "y": 0.5}
+    if frame.empty:
+        return {
+            "x": float(frame.pivot[0]) / frame.source_w,
+            "y": float(frame.pivot[1]) / frame.source_h,
+        }
     return {
         "x": (float(frame.pivot[0]) - frame.trim[0]) / frame.w,
         "y": (float(frame.pivot[1]) - frame.trim[1]) / frame.h,

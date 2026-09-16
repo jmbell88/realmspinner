@@ -255,6 +255,53 @@ def test_keys_are_dropped_when_the_grid_read_fell_back_flat(tmp_path: Path):
 # --- crash recovery -----------------------------------------------------------
 
 
+def test_the_slices_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
+    """The 2026-09-16 audit found "slices" had no ceiling at all, unlike every
+    sibling list this module already bounds -- a crafted ``warlock.json``
+    could name hundreds of thousands of slices and build one ``Slice`` per
+    entry with no refusal. Past ``ora.MAX_ORA_METADATA_ENTRIES`` the whole
+    member is refused, the same as any other malformed shape it carries."""
+    slices = [
+        {"name": f"s{i}", "bounds": {"x": 0, "y": 0, "w": 1, "h": 1}}
+        for i in range(ora.MAX_ORA_METADATA_ENTRIES + 1)
+    ]
+    member = json.dumps({"version": ora.WARLOCK_VERSION, "slices": slices}).encode()
+    back = _rewritten(_sliced(), member, tmp_path / "too_many_slices.ora")
+    assert back.slices == []
+    # The pixels the member's own contract protects are untouched.
+    assert len(back.stack) == 1
+    assert int(back.stack[0].pixels[3, 3, 0]) == 255
+
+
+def test_a_slices_keys_list_refuses_past_a_metadata_ceiling(tmp_path: Path):
+    """Same ceiling, on the nested per-slice "keys" list."""
+    doc = _doc()
+    doc.add_frame()
+    doc.add_slice((0, 0, 4, 4), name="k")
+    keys = [
+        {"frame": 0, "bounds": {"x": 0, "y": 0, "w": 1, "h": 1}}
+        for _ in range(ora.MAX_ORA_METADATA_ENTRIES + 1)
+    ]
+    member = json.dumps(
+        {
+            "version": ora.WARLOCK_VERSION,
+            "slices": [
+                {
+                    "name": "k",
+                    "bounds": {"x": 0, "y": 0, "w": 4, "h": 4},
+                    "keys": keys,
+                }
+            ],
+        }
+    ).encode()
+    # ``_rewritten`` swaps ``warlock.json`` in an archive that already carries
+    # one -- a document with no slices writes no member at all for it to
+    # replace, which is what let this exact test pass with the ceiling
+    # disabled the first time around.
+    back = _rewritten(doc, member, tmp_path / "too_many_keys.ora")
+    assert back.slices == []
+
+
 def test_a_journal_copy_carries_the_slices():
     """The journal encodes a drawing through ``ora_bytes``, so it rides along --
     asserted rather than trusted, because "it uses the same writer" is exactly

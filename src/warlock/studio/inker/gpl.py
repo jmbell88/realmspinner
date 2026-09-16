@@ -94,11 +94,7 @@ def parse(text: str) -> list[RGBA]:
             # sense of. Both are skipped by the same branch on purpose: the
             # distinction is not one the caller can act on.
             continue
-        if len(out) >= MAX_PALETTE_ROWS:
-            raise ValueError(
-                f"this palette holds more than the {MAX_PALETTE_ROWS} rows"
-                " this build will read"
-            )
+        _refuse_past_max_rows(len(out))
         out.append((_byte(r), _byte(g), _byte(b), 255))
     if not out:
         raise ValueError("no colours in this palette file")
@@ -107,6 +103,18 @@ def parse(text: str) -> list[RGBA]:
 
 def _byte(value: int) -> int:
     return max(0, min(255, int(value)))
+
+
+def _refuse_past_max_rows(count: int) -> None:
+    """Shared by every reader below -- the 2026-09-16 audit found only
+    :func:`parse` called this check; :func:`parse_jasc`, :func:`parse_hex`
+    and :func:`parse_txt` had no ceiling at all, the same gap the same
+    audit closed the day before in this module's ``pipelines.pixel`` port."""
+    if count >= MAX_PALETTE_ROWS:
+        raise ValueError(
+            f"this palette holds more than the {MAX_PALETTE_ROWS} rows"
+            " this build will read"
+        )
 
 
 def dumps(colours: Sequence[RGBA], name: str = "Warlock") -> str:
@@ -170,6 +178,7 @@ def parse_jasc(text: str) -> list[RGBA]:
             r, g, b = (int(part) for part in parts[:3])
         except ValueError:
             continue
+        _refuse_past_max_rows(len(out))
         out.append((_byte(r), _byte(g), _byte(b), 255))
     if not out:
         raise ValueError("no colours in this palette file")
@@ -244,6 +253,7 @@ def parse_hex(text: str) -> list[RGBA]:
         out.append(
             (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16), 255)
         )
+        _refuse_past_max_rows(len(out))
     if not out:
         raise ValueError("no colours in this palette file")
     return out
@@ -286,6 +296,7 @@ def parse_txt(text: str) -> list[RGBA]:
                     int(value[0:2], 16),
                 )
             )
+            _refuse_past_max_rows(len(out))
             continue
         narrow = _HEX_RE.match(line)
         if narrow is None:
@@ -294,6 +305,7 @@ def parse_txt(text: str) -> list[RGBA]:
         out.append(
             (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16), 255)
         )
+        _refuse_past_max_rows(len(out))
     if not out:
         raise ValueError("no colours in this palette file")
     return out

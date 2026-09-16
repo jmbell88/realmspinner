@@ -344,6 +344,50 @@ def test_a_manifest_with_a_duplicate_instrument_uid_is_refused_not_silently_misa
         wsng.read_wsng(raw)
 
 
+def test_read_wsng_refuses_a_duplicate_pattern_uid():
+    """The 2026-09-16 audit. Unlike ``_instruments_from`` (refused since the
+    2026-09-13 audit) and ``_samples_from`` (refused by key since always),
+    ``_patterns_from`` accepted a manifest with two patterns sharing one uid
+    with no check -- and every uid-addressed lookup resolves to the first
+    match, while ``_detach_pattern`` filtered by ``uid !=`` and would delete
+    *every* entry sharing that uid in one call. Opening such a file and
+    deleting the one pattern the user selected would silently destroy a
+    second, untouched pattern with no error, no toast, and no way to tell
+    from the grid."""
+    doc = _song()
+
+    def edit(manifest):
+        manifest["patterns"].append(dict(manifest["patterns"][0]))
+
+    raw = _repack(doc, edit)
+    with pytest.raises(ValueError, match="pattern.*twice"):
+        wsng.read_wsng(raw)
+
+
+def test_read_wsng_refuses_a_duplicate_channel_uid():
+    """Same shape as the pattern case, for channels."""
+    doc = _song()
+
+    def edit(manifest):
+        manifest["channels"].append(dict(manifest["channels"][0]))
+
+    raw = _repack(doc, edit)
+    with pytest.raises(ValueError, match="channel.*twice"):
+        wsng.read_wsng(raw)
+
+
+def test_read_wsng_refuses_a_duplicate_oneshot_uid():
+    """Same shape as the pattern case, for one-shots."""
+    doc = _song()
+
+    def edit(manifest):
+        manifest["oneshots"].append(dict(manifest["oneshots"][0]))
+
+    raw = _repack(doc, edit)
+    with pytest.raises(ValueError, match="sound effect.*twice"):
+        wsng.read_wsng(raw)
+
+
 def test_the_reserved_uid_high_water_mark_ignores_the_instruments(monkeypatch):
     """Their ids never came out of the global counter, so reserving above one
     would walk that counter toward its own ceiling for nothing -- which is the

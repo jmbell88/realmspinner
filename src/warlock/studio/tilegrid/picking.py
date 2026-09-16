@@ -334,9 +334,15 @@ def without_vertex(shape: Any, index: int) -> Any | None:
     return dataclasses.replace(shape, points=tuple(points))
 
 
-def nearest_segment(shape: Any, at: tuple[float, float]) -> int | None:
-    """Which edge of the closed outline ``at`` is nearest. -> the index it
-    starts at, so a caller inserts *after* it."""
+def nearest_segment_distance(shape: Any, at: tuple[float, float]) -> tuple[int, float] | None:
+    """Which edge of the closed outline ``at`` is nearest, and how far.
+
+    -> ``(index, distance)`` in tile pixels, so a caller inserts *after*
+    ``index`` the way :func:`nearest_segment` does, but can also refuse a
+    click that is not actually near the edge it would land on. Split out
+    rather than folded into :func:`nearest_segment` so a caller that needs
+    the distance does not walk the outline twice.
+    """
     points = vertices(shape)
     if len(points) < 2:
         return None
@@ -345,7 +351,14 @@ def nearest_segment(shape: Any, at: tuple[float, float]) -> int | None:
         distance = _segment_distance(points[index], points[(index + 1) % len(points)], at)
         if distance < best_d:
             best, best_d = index, distance
-    return best
+    return None if best is None else (best, best_d)
+
+
+def nearest_segment(shape: Any, at: tuple[float, float]) -> int | None:
+    """Which edge of the closed outline ``at`` is nearest. -> the index it
+    starts at, so a caller inserts *after* it."""
+    found = nearest_segment_distance(shape, at)
+    return None if found is None else found[0]
 
 
 def inserted_vertex(shape: Any, at: tuple[float, float], tile_w: int, tile_h: int) -> Any:

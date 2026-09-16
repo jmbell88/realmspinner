@@ -289,15 +289,20 @@ class PoserState:
     # some draws (the empty-viewport paths in ``poser_viewport``), and a plain
     # bool answers that with no editor reference required.
     #
-    # That reset guarantee stops here: it does not reach the rest of this
-    # section. ``limb_preset``/``limb_side``/``limb_mirror`` below are cleared
-    # by ``open_asset`` and ``close_asset`` only, not by ``_land_rerig`` (a
-    # landed re-rig has no reason to blank a form the user may still be
-    # filling in), and ``skeleton_rename``/``skeleton_rename_for`` are cleared
-    # by none of the three -- they are re-seeded on a selection change instead
-    # (see their own docstring below). The 2026-09-15 audit, finding
-    # poser-06: this comment used to read as a blanket claim over the whole
-    # section, which was never true for the rename buffer.
+    # That reset guarantee stops here: it does not reach all of the rest of
+    # this section. ``limb_preset``/``limb_side``/``limb_mirror`` below are
+    # cleared by ``open_asset`` and ``close_asset`` only, not by
+    # ``_land_rerig`` (a landed re-rig has no reason to blank a form the user
+    # may still be filling in). ``skeleton_rename``/``skeleton_rename_for``
+    # *are* cleared by all three, alongside ``skeleton_editing`` -- the
+    # 2026-09-16 audit, finding poser-03: the in-session re-seed-on-selection-
+    # change (see their own docstring below) is not a substitute for that,
+    # because every humanoid-template rig shares bone names, so a stale,
+    # uncommitted rename left over from a *different* asset session can read
+    # as already seeded for the newly opened one's same-named bone and never
+    # get re-seeded at all. The 2026-09-15 audit, finding poser-06, first
+    # caught this comment overclaiming the reset for the rename buffer;
+    # poser-03 is what made the claim true.
     skeleton_editing: bool = False
     #: {"field": str | None, "message": str} from the last refused
     #: :func:`apply_skeleton`, or None. Its own field rather than the app-wide
@@ -321,6 +326,9 @@ class PoserState:
     #: stored back every frame while it is being typed into, and re-seeded
     #: only when the *selection* changes underneath it, or every keystroke on
     #: a rename would be clobbered by the next draw's "current name" read.
+    #: Also cleared on every session boundary (see the section comment above)
+    #: -- re-seeding on a name change alone cannot tell a stale cross-session
+    #: value from a fresh one when two sessions' skeletons share a bone name.
     skeleton_rename: str = ""
     skeleton_rename_for: str | None = None
 
@@ -682,6 +690,14 @@ def open_asset(ctx: Any, job: dict[str, Any]) -> None:
         state.asset_poses = []
         state.skeleton_editing = False
         state.skeleton_error = None
+        # The 2026-09-16 audit, finding poser-03: these two used to be
+        # re-seeded only by comparing the selected bone's *name* to
+        # ``skeleton_rename_for`` (``poser_skeleton._rename``), and every
+        # humanoid-template rig shares bone names -- so a typed-but-uncommitted
+        # rename left in the box survived a close/open onto a different asset
+        # and showed as though it were that asset's own bone's name.
+        state.skeleton_rename = ""
+        state.skeleton_rename_for = None
         # The 2026-09-13 audit (poser-01): these five fields are session
         # scratch for the Re-rig picker and the Add-limb form, and their own
         # docstrings say the session clears them -- but only close_asset did.
@@ -736,6 +752,9 @@ def close_asset(ctx: Any) -> None:
         state.rerig_choice = ""
         state.skeleton_editing = False
         state.skeleton_error = None
+        # The 2026-09-16 audit, finding poser-03: see open_asset's own comment.
+        state.skeleton_rename = ""
+        state.skeleton_rename_for = None
         state.limb_preset = ""
         state.limb_side = ""
         state.limb_mirror = False
@@ -1309,6 +1328,10 @@ def _land_rerig(ctx: Any) -> None:
     # first place, so there is nothing left to be "editing".
     state.skeleton_editing = False
     state.skeleton_error = None
+    # The 2026-09-16 audit, finding poser-03: see open_asset's own comment --
+    # the new rig may not even have a bone by this name.
+    state.skeleton_rename = ""
+    state.skeleton_rename_for = None
     if rig is not None and rig.get("skeleton") == "custom":
         # P8's own promise: a re-rig lands with no dialog and no confirm, so
         # the fact that the mesh is now on a hand-edited skeleton (rather than
@@ -3072,7 +3095,24 @@ def _journal_slot_for(ctx: Any, viewer: Any, key: str) -> Any:
 
 
 class _PoseSlot:
-    """A pose session as the journal sees it. Marks proxy onto the viewer."""
+    """A pose session as the journal sees it. Marks proxy onto the viewer.
+
+    The 2026-09-16 audit, finding shell-02: ``tests/test_journal.py``'s
+    six-class pin walks ``dataclasses.fields()`` to catch a slot that drops
+    one of the journal's three bookkeeping names (the 2026-08-18
+    ``PlotterDoc.journal_at`` incident that pin exists for), and it structurally
+    cannot reach this class or ``viewer_embed.Viewer`` -- the object the marks
+    actually live on -- because neither one is a dataclass. The storage still
+    has to live on the viewer (its lifetime is the session's; a slot is
+    rebuilt every frame), so this cannot become a dataclass of its own fields
+    the way the other six providers are. Declaring the three names as class
+    annotations instead gives a test something to introspect
+    (``_PoseSlot.__annotations__``) without changing where the values live.
+    """
+
+    journal_name: str
+    journal_head: Any
+    journal_at: float
 
     def __init__(self, viewer: Any, editor: Any, key: str) -> None:
         self.viewer = viewer

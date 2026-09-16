@@ -126,6 +126,20 @@ def test_alpha_is_used_as_the_mask_when_present():
     assert report.bbox == (32, 32, 96, 96)
 
 
+def test_measure_does_not_refuse_a_well_composed_subject_saved_with_an_opaque_alpha_channel():
+    """2026-09-16 audit, pipelines-01: has_alpha() (channel present) alone
+    used to decide subject_mask() trusts the alpha channel, with no check
+    that it is ever non-opaque. An ordinary RGBA PNG saved fully opaque --
+    routine output of service.files.to_png, a browser canvas export, most
+    editors -- read back as "the entire frame is the subject" (occupancy 1.0,
+    bbox the whole canvas) and was refused for running off every edge, even
+    though the subject here sits well inside the frame."""
+    report = reference.measure(_subject(mode="RGBA"))
+    assert report.ok, report.reasons
+    assert report.bbox == (64, 64, 192, 192)
+    assert "edge" not in report.codes
+
+
 def test_normalise_hits_the_target_and_centres_the_subject():
     small = _subject(box=(10, 10, 40, 40))
     out, report = reference.normalise(small)
@@ -136,6 +150,19 @@ def test_normalise_hits_the_target_and_centres_the_subject():
     assert abs(cx - out.width / 2) <= 2
     assert abs(cy - out.height / 2) <= 2
     assert report.occupancy > 0.3
+
+
+def test_normalise_achieves_the_requested_occupancy_not_occupancy_times_pad_squared():
+    """2026-09-16 audit, pipelines-02: normalise()'s target-size formula used
+    to multiply sqrt(occupancy) by (1 - 2*pad) as a second, independent
+    shrink on top of occupancy, so the documented defaults (occupancy=0.78,
+    pad=0.06) landed the subject at ~0.604 of the canvas's area, not the
+    ~0.78 the constant and the docstring both promise."""
+    small = _subject(box=(10, 10, 40, 40))
+    _out, report = reference.normalise(
+        small, occupancy=reference.DEFAULT_OCCUPANCY, pad=reference.DEFAULT_PAD
+    )
+    assert abs(report.occupancy - reference.DEFAULT_OCCUPANCY) < 0.03
 
 
 def test_normalise_canvas_leak_keeps_the_unmeasured_marker(monkeypatch):

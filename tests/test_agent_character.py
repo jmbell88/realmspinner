@@ -709,6 +709,59 @@ def test_an_agent_may_cancel_the_sheet_its_rig_queued(monkeypatch: pytest.Monkey
     assert refused["structuredContent"]["field"] == "job_id"
 
 
+def test_character_sheet_create_refuses_while_a_rig_is_already_running_and_instructions_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-16 audit, agents-03: ``instructions()`` told a client that
+    ``character_sheet_create`` accepts "a rigged mesh -- or one whose rig is
+    still running, which queues the sheet to follow it", but
+    ``_h_character_sheet_create`` refuses outright ("a rig is already
+    running for this mesh", ``field="job_id"``, ``recovery="wait"``)
+    whenever ``svc_rig.rig_in_flight`` is true, before ``send_to_troupe`` is
+    ever called -- the same refusal ``character_rig``'s own tool
+    description (not ``instructions()``) already documents. The prose is
+    the one that moved: it must no longer promise queueing behind an
+    in-flight rig."""
+    from warlock.service import rig as svc_rig
+
+    e = ac._enums()
+    monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: "some-rig-id")
+
+    result = ac.call(
+        object(),
+        ac.Session(),
+        "character_sheet_create",
+        {"job_id": "a" * 12, "movements": [{"name": e.movements[0]}]},
+    )
+    assert result["isError"]
+    assert result["structuredContent"]["field"] == "job_id"
+    assert result["structuredContent"]["recovery"] == "wait"
+
+    instructions = ac.instructions()
+    assert "which queues the sheet to follow it" not in instructions
+    assert "still running" in instructions
+    assert "wait" in instructions
+
+
+def test_manual_46_cancel_paragraph_names_the_follow_up_sheet_exception() -> None:
+    """The 2026-09-16 audit, agents-08: the manual's "What gets refused, and
+    why" paragraph says flatly that "an agent may cancel only the jobs it
+    started on its own connection -- a job a human began, or an earlier
+    session minted, is not reachable by character_cancel at all", but
+    ``_h_character_cancel`` also reaches one job it never minted: the
+    follow-up sheet job that a rig it minted has since queued
+    (``_rig_queued_this_sheet``), which ``instructions()`` itself documents
+    ("or the sheet job a rig it minted has since queued"). The manual is
+    stricter than the code; this is a doc fix, not a code fix, so the
+    regression reads the chapter text itself."""
+    manual = Path(__file__).resolve().parents[1] / "docs" / "manual" / "46-extending.md"
+    text = manual.read_text(encoding="utf-8")
+    paragraph_start = text.index("**What gets refused, and why.**")
+    paragraph = text[paragraph_start : paragraph_start + 1200]
+    assert "cancel" in paragraph
+    assert "sheet job a rig it" in paragraph or "follow-up sheet" in paragraph
+
+
 def test_a_missing_required_argument_is_refused_on_that_field() -> None:
     """Fix 4: a call missing a REQUIRED top-level argument used to reach a
     handler's own ``args["job_id"]`` indexing directly and surface as the

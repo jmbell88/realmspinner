@@ -232,6 +232,51 @@ def test_no_deform_battery_pose_bends_a_knee_backward_past_fifteen_degrees():
     assert checked > 0
 
 
+def test_deform_qa_humanoid_comment_cites_a_docstring_that_actually_states_the_arm_convention():
+    """The 2026-09-16 audit: this file's own "comment" field stated its sign
+    convention as "negative thigh/upper_arm X = forward/up flexion" and
+    attributed the whole parenthetical to this module's docstring above --
+    but that docstring defines the convention only for thigh/shin/spine and
+    never mentions upper_arm at all, so a future author adding an arm pose
+    to the battery who followed this file's own stated convention literally
+    would author the opposite sign from what templates/clips/humanoid.json's
+    -58 degree rest correction and this file's own "arms overhead" pose
+    actually use -- the F7 sign-inversion mistake, reproduced by the file's
+    own documentation rather than its data this time."""
+    import json
+
+    raw = json.loads((rigging.BATTERY_DIR / "humanoid.json").read_text(encoding="utf-8"))
+    comment = raw["comment"]
+
+    cite = "tests/test_clip_library_poses.py's docstring"
+    assert cite in comment, "the comment should still cite this module's leg convention"
+
+    this_docstring = __doc__ or ""
+    assert "upper_arm" not in this_docstring, (
+        "this module's docstring now documents upper_arm -- update this test, "
+        "or the comment it pins, to match"
+    )
+
+    # The sentence that cites this module's docstring must not claim
+    # upper_arm is part of what it states.
+    cited_sentence = comment.split(cite, 1)[1].split(".", 1)[0]
+    assert "upper_arm" not in cited_sentence, (
+        "the deform_qa comment attributes an upper_arm sign convention to "
+        "tests/test_clip_library_poses.py's docstring, but that docstring "
+        "never states one"
+    )
+
+    # The comment must still document the arm convention itself, separately
+    # -- and it must match what templates/clips/humanoid.json's rest
+    # correction and this file's own "arms overhead" pose actually do:
+    # negative swings the arm down, positive swings it up.
+    assert "upper_arm" in comment
+    arms_overhead_x = next(p for p in raw["poses"] if p["name"] == "arms overhead")[
+        "bones"
+    ]["upper_arm.L"][0]
+    assert arms_overhead_x > 0, "arms overhead should be a positive upper_arm X"
+
+
 @pytest.mark.parametrize(
     ("library", "clip_name"),
     [("humanoid", "walk"), ("humanoid", "run"), ("bird", "walk"), ("bird", "run")],

@@ -341,6 +341,56 @@ def test_a_later_roots_migration_failure_does_not_strand_an_earlier_roots_legacy
     assert (legacy / "palettes").exists()
 
 
+def test_a_custom_warlock_db_is_carried_over_after_a_later_roots_migration_fails_and_is_retried(
+    home, legacy, monkeypatch, tmp_path
+):
+    """service-queue-01 (the 2026-09-16 audit): ``_carry_the_database`` used to
+    run only on the exception-free path at the bottom of ``run()``. Here
+    ``assets`` (which carries ``jobs.sqlite``) succeeds before ``bench`` (the
+    second root) fails, exactly the ordering
+    ``test_a_later_roots_migration_failure_does_not_strand_an_earlier_roots_legacy_copy``
+    above uses -- except a custom ``WARLOCK_DB`` is configured this time. The
+    old code left the custom database unpopulated after this run, and because
+    ``_delete_legacy_roots`` had already removed ``assets``'s legacy copy,
+    ``_pending`` would not offer ``assets`` again on the later, successful
+    retry either -- so the custom ``WARLOCK_DB`` was never populated, even
+    once every root had finished migrating.
+    """
+    elsewhere = tmp_path / "fast-disk" / "jobs.sqlite"
+    monkeypatch.setenv("WARLOCK_DB", str(elsewhere))
+
+    real = migrate._tree_size
+
+    def miscounting(path):
+        files, total = real(path)
+        # bench is the second root in _ROOTS: assets (the first, which
+        # carries jobs.sqlite) has already been copied, verified and
+        # published by the time this fires.
+        return (files + 1, total) if path == legacy / "bench" else (files, total)
+
+    monkeypatch.setattr(migrate, "_tree_size", miscounting)
+
+    with pytest.raises(migrate.MigrationError):
+        migrate.run(Config())
+
+    # assets succeeded before bench failed -- its jobs.sqlite must already be
+    # carried over here, not stranded until a retry that will never offer
+    # assets to _carry_the_database again.
+    assert elsewhere.exists(), "the job history was orphaned by the mid-run failure"
+    conn = sqlite3.connect(str(elsewhere))
+    try:
+        names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+    finally:
+        conn.close()
+    assert "jobs" in names
+
+    # And the retry, once the underlying problem is fixed, still finishes and
+    # leaves the already-carried database alone.
+    monkeypatch.setattr(migrate, "_tree_size", real)
+    migrate.run(Config())
+    assert elsewhere.exists()
+
+
 def test_the_exclusive_hold_survives_the_copy_and_not_only_the_check(home, legacy, monkeypatch):
     """RUN-02: the guarantee has to cover the *copy*, not one instant before it.
 

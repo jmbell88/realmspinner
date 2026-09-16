@@ -461,3 +461,59 @@ def test_a_pattern_name_is_bounded_like_every_other_name():
     uid = doc.patterns[0].uid
     doc.rename_pattern(uid, "x" * 500)
     assert len(doc.pattern(uid).name) <= 64
+
+
+# --- defense in depth against a duplicate uid (the 2026-09-16 audit) ----------
+#
+# ``wsng.read_wsng`` now refuses a manifest with two patterns, channels or
+# one-shots sharing one uid, so none of these should be reachable through the
+# app -- but ``_detach_pattern``, ``remove_channel``'s removal and
+# ``_detach_oneshot`` used to filter by ``uid !=``, which deletes *every*
+# entry sharing a uid in one call rather than just the one a caller resolved.
+# Proven against the pre-fix filter directly (not by importing the old
+# module) in this session's scratchpad probe, which found the old one-line
+# filters dropped both twins every time; these assert the fixed, index-scoped
+# versions keep the untouched one.
+
+
+def test_detach_pattern_removes_only_the_matching_entry_not_every_uid_twin():
+    doc = _song()
+    twin = D.Pattern(uid=doc.patterns[0].uid, name="twin", cells=doc.patterns[0].cells.copy())
+    doc.patterns.append(twin)
+    doc._detach_pattern(doc.patterns[0].uid)
+    assert len(doc.patterns) == 1
+    assert doc.patterns[0] is twin
+
+
+def test_detach_oneshot_removes_only_the_matching_entry_not_every_uid_twin():
+    doc = _song()
+    effect = doc.add_oneshot("jump")
+    twin = D.OneShot(
+        uid=effect.uid, name="twin", pattern=effect.pattern, tempo=effect.tempo, speed=effect.speed
+    )
+    doc.oneshots.append(twin)
+    doc._detach_oneshot(effect.uid)
+    assert len(doc.oneshots) == 1
+    assert doc.oneshots[0] is twin
+
+
+def test_remove_channel_removes_only_the_matching_entry_not_every_uid_twin():
+    doc = _song()
+    before = len(doc.channels)
+    first = doc.channels[0]
+    twin = D.Channel(uid=first.uid, name="twin", kind=first.kind, pan=first.pan)
+    doc.channels.append(twin)
+    # Widen every pattern to match the extra channel that was appended by
+    # hand, the same shape ``add_channel`` keeps: the removal path this test
+    # exercises assumes every pattern's cells already agree with
+    # ``len(self.channels)``.
+    for pattern in doc.patterns:
+        pattern.cells = np.concatenate(
+            [pattern.cells, pattern.cells[:, :1, :].copy()], axis=1
+        )
+    doc.remove_channel(first.uid)
+    assert len(doc.channels) == before
+    # ``_apply_channels`` copies every entry (``replace(one)``), so identity
+    # does not survive the round trip the way it does for a pattern or a
+    # one-shot -- the surviving twin is asserted by value instead.
+    assert doc.channels[-1] == twin

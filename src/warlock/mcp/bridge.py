@@ -101,7 +101,16 @@ def _hello(conn: Any) -> dict[str, Any] | None:
         "hello", versions=RPC_VERSIONS, bridge_version=protocol.SERVER_VERSION
     )
     conn.send_bytes(request)
-    header, _body = rpc.split_reply(conn.recv_bytes())
+    # The 2026-09-16 audit (agents-04): every `recv_bytes()` call on this
+    # pipe omitted stdlib's own `maxlength` argument, so `Connection.
+    # recv_bytes()` fully buffered whatever the peer sent *before*
+    # `rpc.split_reply`'s own length check (against `rpc.MAX_FRAME`) ever
+    # got a chance to run -- a confused or hostile peer past the handshake
+    # could force an allocation of unbounded size. `maxlength` makes the
+    # stdlib itself refuse an oversize frame at the read, the same way
+    # `stdin.readline(protocol.MAX_FRAME + 1)` already bounds this
+    # process's own stdin read in `main`, below.
+    header, _body = rpc.split_reply(conn.recv_bytes(maxlength=rpc.MAX_FRAME))
     if "error" in header:
         err = header["error"]
         if err.get("code") == "rpc_version":
@@ -120,7 +129,7 @@ def _hello(conn: Any) -> dict[str, Any] | None:
 def _fetch_catalogue(conn: Any) -> dict[str, Any]:
     request = rpc.encode_request("catalogue")
     conn.send_bytes(request)
-    header, _body = rpc.split_reply(conn.recv_bytes())
+    header, _body = rpc.split_reply(conn.recv_bytes(maxlength=rpc.MAX_FRAME))
     return header
 
 
@@ -255,7 +264,7 @@ class _Session:
                 )
                 self._disconnect()
                 return json.dumps(result, separators=(",", ":")).encode("utf-8")
-            header, body = rpc.split_reply(self.conn.recv_bytes())
+            header, body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             result = protocol.fail(
@@ -300,7 +309,7 @@ class _Session:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
                 return "unavailable", "cancelled"
-            header, _body = rpc.split_reply(self.conn.recv_bytes())
+            header, _body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             return "unavailable", "cancelled"
@@ -323,7 +332,7 @@ class _Session:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
                 return None
-            header, body = rpc.split_reply(self.conn.recv_bytes())
+            header, body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             return None
@@ -342,7 +351,7 @@ class _Session:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
                 return None
-            header, _body = rpc.split_reply(self.conn.recv_bytes())
+            header, _body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             return None
@@ -395,7 +404,7 @@ class _Session:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
                 return self._static_resource_from_catalogue(uri)
-            header, body = rpc.split_reply(self.conn.recv_bytes())
+            header, body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             return self._static_resource_from_catalogue(uri)
@@ -440,7 +449,7 @@ class _Session:
             if not self.conn.poll(self.call_timeout + 5.0):
                 self._disconnect()
                 return None
-            header, _body = rpc.split_reply(self.conn.recv_bytes())
+            header, _body = rpc.split_reply(self.conn.recv_bytes(maxlength=rpc.MAX_FRAME))
         except (EOFError, OSError):
             self._disconnect()
             return None

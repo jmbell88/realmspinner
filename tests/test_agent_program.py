@@ -78,6 +78,16 @@ class TestExpressionArithmetic:
         c = compile_ok(one_add(translation=["2^3^2", 0, 0]))
         assert c.calls[0][1]["translation"][0] == 512.0
 
+    def test_power_operator_refuses_a_negative_base_with_a_fractional_exponent_instead_of_crashing(self):  # noqa: E501
+        # 2026-09-16 audit: `float(left**right)` for a negative `left` and a
+        # non-integer `right` returns a Python `complex` (Python's own
+        # `float.__pow__` behaviour), and `float(complex)` raises `TypeError`
+        # -- a type the `^` branch's `except (ValueError, OverflowError)`
+        # did not catch, so it escaped uncaught instead of becoming the same
+        # field-named refusal `sqrt(-1)` already gets.
+        err = compile_err(one_add(translation=["(0-4)^0.5", 0, 0]))
+        assert "not finite" in err.reason or "non-finite" in err.reason
+
     def test_double_star_is_not_power(self):
         # Spelled `^` only, by this module's own documented choice; `**`
         # tokenizes as two `*` and is refused as a malformed multiplication.

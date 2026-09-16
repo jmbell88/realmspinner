@@ -664,7 +664,7 @@ def _begin_export(
     # while a save is landing, or while another tab's export dialog is up. A
     # menu item that does nothing and says nothing reads as a broken build.
     if tab.doc.anim is None:
-        ctx.toast("This drawing has no timeline to export frames from.", "warn")
+        ctx.toast(NO_TIMELINE_WHY, "warn")
         return
     if tab.playing:
         ctx.toast("Stop playback first; an export reads the frames as they are.", "warn")
@@ -1358,6 +1358,18 @@ NO_DOCUMENT_WHY = "No drawing is open."
 #: Mid-write. The same sentence the rest of the app's document buttons give.
 BUSY_WHY = "This document is being written; the buttons come back when it lands."
 
+#: A still document has no frames to export. The 2026-09-16 audit found
+#: "sheet", "gif" and "pngs" drew live and clickable for one -- ``door_state``
+#: never asked about ``tab.doc.anim`` -- so the user learned this only after
+#: clicking and reading ``_begin_export``'s own toast, instead of from a grey
+#: button the way every other refusal here already works.
+NO_TIMELINE_WHY = "This drawing has no timeline to export frames from."
+
+#: The three doors that read frames off a timeline, as opposed to "per-tag"
+#: and "per-layer", whose own preconditions already answer for a still
+#: document (no tags, at most one visible layer) with a more specific reason.
+_TIMELINE_DOORS = frozenset({"sheet", "gif", "pngs"})
+
 DOORS: tuple[Door, ...] = (
     Door(
         "sheet",
@@ -1421,6 +1433,8 @@ def door_state(door: Door, tab: Any) -> tuple[bool, str]:
         return (False, NO_DOCUMENT_WHY)
     if getattr(tab, "busy", False):
         return (False, BUSY_WHY)
+    if door.key in _TIMELINE_DOORS and tab.doc.anim is None:
+        return (False, NO_TIMELINE_WHY)
     if door.key == "per-tag":
         tags = getattr(getattr(tab.doc, "anim", None), "tags", None)
         if not tags:

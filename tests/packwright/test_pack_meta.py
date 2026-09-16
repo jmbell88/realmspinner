@@ -221,7 +221,15 @@ def test_an_untrimmed_pack_normalizes_against_the_whole_canvas():
 
 def test_a_fully_transparent_sprite_divides_safely():
     """It trims to 1x1 rather than to nothing, which is what makes the pivot
-    division safe with no guard anywhere in the writer."""
+    division safe with no guard anywhere in the writer.
+
+    The 2026-09-16 audit (packwright-08) found this test pinning the *wrong*
+    number: normalising against that 1x1 box put a blank sprite's explicit
+    pivot dozens of pixels outside its own frame. The fix normalises an empty
+    sprite's pivot against its own untrimmed canvas instead, which is what
+    keeps the emitted fraction between 0 and 1 -- see
+    ``test_pivot_on_an_empty_sprite_with_an_explicit_pivot_stays_a_fraction_between_zero_and_one``
+    for the case that first exposed it."""
     blank = Sprite(
         key="a",
         name="a",
@@ -231,7 +239,115 @@ def test_a_fully_transparent_sprite_divides_safely():
     result = layout([blank], PackSettings(power_of_two=False))
     assert (result.frames[0].w, result.frames[0].h) == (1, 1)
     entry = texturepacker.tp_json(result, image_name="a.png")["frames"][0]
-    assert entry["pivot"] == {"x": 4.0, "y": 4.0}
+    assert entry["pivot"] == {"x": 4.0 / 16, "y": 4.0 / 12}
+
+
+def test_pivot_on_an_empty_sprite_with_an_explicit_pivot_stays_a_fraction_between_zero_and_one():
+    """The 2026-09-16 audit, packwright-08: a blank "pause" frame sharing its
+    neighbours' foot pivot exported that pivot as the raw untrimmed-canvas
+    pixel coordinate, because ``trim_rect`` always collapses an all-transparent
+    sprite's trim rectangle to a 1x1 box at (0, 0) and ``_pivot`` normalised
+    against *that* box regardless of where the pivot was actually set. A 64x64
+    blank frame with ``pivot=(32.0, 60.0)`` -- matched to a same-pivot solid
+    neighbour -- must come out with the same fraction the solid neighbour gets,
+    not the raw pixel coordinate."""
+    solid = Sprite(
+        key="a",
+        name="a",
+        pixels=np.full((64, 64, 4), 255, dtype=np.uint8),
+        meta=SpriteMeta(pivot=(32.0, 60.0)),
+    )
+    blank = Sprite(
+        key="b",
+        name="b",
+        pixels=np.zeros((64, 64, 4), dtype=np.uint8),
+        meta=SpriteMeta(pivot=(32.0, 60.0)),
+    )
+    result = layout([solid, blank], PackSettings(mode="maxrects", power_of_two=False))
+    payload = texturepacker.tp_json(result, image_name="atlas.png")["frames"]
+    by_name = {entry["filename"]: entry for entry in payload}
+    solid_pivot = by_name["a.png"]["pivot"]
+    blank_pivot = by_name["b.png"]["pivot"]
+    assert solid_pivot == {"x": 0.5, "y": 0.9375}
+    assert blank_pivot == solid_pivot
+    assert 0.0 <= blank_pivot["x"] <= 1.0
+    assert 0.0 <= blank_pivot["y"] <= 1.0
+
+
+def test_the_coverage_line_is_not_recomputed_between_packs():
+    """The 2026-09-16 audit, packwright-08: the items pane's "-- N% covered"
+    line (``packwright_items._coverage_pct``) and the preview pane's source-
+    pixel-area sum (``packwright_preview._source_area``) each recomputed a
+    full Python-level sum over every packed frame or every source on every
+    single frame either pane draws, with no memoisation keyed on
+    ``tab.pack_generation`` -- unlike ``packwright_mode.source_index``, fixed
+    for the same shape by the 2026-09-07 audit's packwright-07. Proven by
+    counting how many times the underlying sequence is actually iterated:
+    each helper must touch it once per pack, not once per frame drawn."""
+    from warlock.studio.panes import packwright_items, packwright_preview
+
+    class _CountingList(list):
+        def __init__(self, *args) -> None:
+            super().__init__(*args)
+            self.iterations = 0
+
+        def __iter__(self):
+            self.iterations += 1
+            return super().__iter__()
+
+    class _Frame:
+        def __init__(self, w: int, h: int) -> None:
+            self.w, self.h = w, h
+
+    class _Layout:
+        def __init__(self, frames) -> None:
+            self.frames = frames
+            self.width = 10
+            self.height = 10
+
+    class _ItemsTab:
+        def __init__(self, layout) -> None:
+            self.layout = layout
+            self.pack_generation = 1
+
+    frames = _CountingList([_Frame(2, 2), _Frame(3, 3)])
+    tab = _ItemsTab(_Layout(frames))
+    first = packwright_items._coverage_pct(tab)
+    second = packwright_items._coverage_pct(tab)
+    assert first == second == 13  # (4 + 9) / 100
+    assert frames.iterations == 1, "a second draw at the same pack_generation re-summed"
+
+    # A new pack lands: the cache must follow it, not stay pinned.
+    frames_two = _CountingList([_Frame(1, 1)])
+    tab.layout = _Layout(frames_two)
+    tab.pack_generation = 2
+    third = packwright_items._coverage_pct(tab)
+    assert third == 1
+    assert frames_two.iterations == 1
+
+    class _Sprite:
+        def __init__(self, w: int, h: int) -> None:
+            self.width, self.height = w, h
+
+    class _Source:
+        def __init__(self, w: int, h: int) -> None:
+            self.sprite = _Sprite(w, h)
+
+    class _Doc:
+        def __init__(self, sources) -> None:
+            self.sources = sources
+
+    class _PreviewTab:
+        def __init__(self, doc) -> None:
+            self.doc = doc
+            self.pack_generation = 1
+
+    sources = _CountingList([_Source(4, 4), _Source(2, 2)])
+    ptab = _PreviewTab(_Doc(sources))
+    area_first = packwright_preview._source_area(ptab)
+    area_second = packwright_preview._source_area(ptab)
+    assert area_first == area_second == 20
+    assert sources.iterations == 1, "a second draw at the same pack_generation re-summed"
 
 
 def test_the_slice_block_is_in_source_image_space():

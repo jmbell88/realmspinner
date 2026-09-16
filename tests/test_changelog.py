@@ -94,6 +94,23 @@ def test_bold_that_wraps_a_line_still_comes_back_without_its_markers():
     )
 
 
+def test_lead_does_not_truncate_at_an_abbreviation_like_eg():
+    """The 2026-09-16 audit: ``_LEAD``'s old single regex stopped at "e.g."
+    because it matched the first ``[.!?]`` followed by whitespace, and "e.g. "
+    looks exactly like that from the outside. The doc comment claimed a
+    three-character lower bound stopped a stray "e.g." from being a lead, but
+    "e.g." is four characters, so the bound never did what the comment said.
+    """
+    bullet = (
+        "Export now writes common formats, e.g. PNG or JPEG, next to the "
+        "mesh file. Also renamed the button."
+    )
+    assert changelog.lead(bullet) == (
+        "Export now writes common formats, e.g. PNG or JPEG, next to the "
+        "mesh file."
+    )
+
+
 def test_a_bullet_before_any_heading_belongs_to_no_release():
     """It is dropped rather than attached to the first heading that comes
     along: guessing which release an orphan belongs to is how a line ends up

@@ -49,7 +49,7 @@ def pattern(suffixes: Iterable[str] = IMAGE_SUFFIXES) -> str:
 
 
 def describe(name: str, suffixes: Iterable[str] = IMAGE_SUFFIXES) -> str:
-    """``"Images"`` -> ``"Images (*.png *.jpg *.jpeg *.webp *.bmp)"``.
+    """``"Images"`` -> ``"Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)"``.
 
     Derived rather than written beside the patterns, because a label and a
     pattern list maintained separately is exactly how a dialog comes to refuse

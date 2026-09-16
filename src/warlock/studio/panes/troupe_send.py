@@ -56,6 +56,11 @@ class TroupeSend:
     #: and reading it here is the disk read ``can_send_to_troupe`` deliberately
     #: does not do on the frame thread.
     rigged: bool = False
+    #: The skeleton this send actually resolves against -- read off the
+    #: mesh's own ``rig.json`` when it is already rigged, or the Skeleton
+    #: combo's pick otherwise. **Not** whatever character happens to be
+    #: bound to Troupe's own pane: see :func:`_send`, and the 2026-09-16
+    #: audit, finding troupe-01.
     template: str = ""
     #: This mesh's own recorded front, read once at :func:`ask` -- a fact
     #: about the job, not a question this dialog asks. See ``_front_helper``.
@@ -105,6 +110,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
     rigged = "rig.glb" in ((job or {}).get("files") or [])
     custom_skeleton = False
     custom_missing = 0
+    rig_template = ""
     if rigged:
         # The 2026-09-13 audit, finding troupe-03: this reads rig.json
         # synchronously from a button handler, on the frame thread. Recorded
@@ -127,6 +133,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
 
         with contextlib.suppress(Exception):
             rig = svc_rig.get_rig(ctx.svc, job_id)
+            rig_template = str(rig.get("template") or "")
             if rig.get("skeleton") == "custom":
                 custom_skeleton = True
                 custom_missing = len(
@@ -139,7 +146,11 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         custom_skeleton=custom_skeleton,
         custom_skeleton_missing=custom_missing,
         front_yaw=float(((job or {}).get("params") or {}).get("front_yaw") or 0.0),
-        template=str(form.get("template") or ""),
+        # Rigged: the mesh's own recorded skeleton, read above -- never the
+        # form's, which names whichever character is bound to Troupe's own
+        # pane. Unrigged: the form's remembered choice, the same default the
+        # Skeleton combo below opens on and may still change before Send.
+        template=rig_template if rigged else str(form.get("template") or ""),
         logical_size=logical_size,
         # Off-ladder means the field is already a custom answer -- the form
         # opens on the Custom box rather than silently snapping it to a
@@ -435,6 +446,20 @@ def _send(ctx: Any, state: TroupeSend, form: dict[str, Any]) -> None:
         form["template"] = state.template
     form["style"] = state.style
     form["fps"] = state.fps
+    # The 2026-09-16 audit, finding troupe-01: ``form["layout"]`` is built by
+    # ``troupe_mode.form``/``_default_layout`` against whichever character is
+    # bound to Troupe's own pane (``troupe_mode.ensure(ctx).job_id``), not
+    # against the mesh this dialog is actually sending -- a separate id
+    # chosen from the Library or the inspector. Rebuilt here whenever the two
+    # disagree, so a character open in Troupe -- and any layout it carries,
+    # hand-edited or not -- cannot leak onto an unrelated mesh sent through
+    # this door. ``state.template`` empty means the skeleton could not be
+    # resolved (an unreadable ``rig.json``, read tolerantly above) -- the
+    # form's own layout is kept rather than replaced with one built for no
+    # template at all, and ``create_charsheet`` re-reads the rig and is the
+    # real gate.
+    if state.template and state.job_id != troupe_mode.ensure(ctx).job_id:
+        form["layout"] = troupe_mode._layout_for_template(ctx, state.template)
     job_id = state.job_id
     close(ctx)
     troupe_mode.send_to_troupe(ctx, {"id": job_id}, form)

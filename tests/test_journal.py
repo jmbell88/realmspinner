@@ -864,6 +864,31 @@ def test_every_journalled_state_class_declares_all_three_mark_fields(module, cls
     assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)
 
 
+def test_a_pose_slots_journal_bookkeeping_fields_are_declared_somewhere_a_test_can_check():
+    """The docstring above claims the pose slot "carries the same three as
+    properties ... checked by their own modes' tests" -- but until the
+    2026-09-16 audit's finding shell-02, that claim was false.
+    ``poser_mode._PoseSlot`` proxies ``journal_name``/``journal_head``/
+    ``journal_at`` onto ``viewer_embed.Viewer`` through bare properties, and
+    neither ``_PoseSlot`` nor ``Viewer`` is a dataclass, so
+    ``dataclasses.fields()`` cannot even be applied to either one -- the
+    parametrized test above structurally cannot be widened to cover the
+    seventh registered provider (Poser's ``pose`` kind), and nothing anywhere
+    pinned these three names for it. That is exactly the failure shape the
+    2026-08-18 ``PlotterDoc.journal_at`` incident describes, just unreachable
+    by the guard built to catch it.
+
+    Fixed by giving ``_PoseSlot`` class-level annotations for the three names
+    -- a form ``__annotations__`` can introspect without requiring the actual
+    storage (which has to keep living on the viewer, whose lifetime the slot
+    itself does not share) to be a dataclass.
+    """
+    import warlock.studio.poser_mode as poser_mode_module
+
+    names = set(getattr(poser_mode_module._PoseSlot, "__annotations__", {}))
+    assert {"journal_name", "journal_head", "journal_at"} <= names, sorted(names)
+
+
 def test_no_two_kinds_share_a_name_or_an_extension():
     """A shared extension would let two providers claim one file, and the
     sidecar's ``kind`` would be the only thing distinguishing them."""

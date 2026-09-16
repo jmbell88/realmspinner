@@ -276,7 +276,17 @@ def _refine(mono: np.ndarray, start: int, end: int, rate: int) -> tuple[int, int
     if half < 2 or start + half >= mono.size or end + half >= mono.size:
         return start, end
 
-    target = mono[max(start - half, 0) : start + half]
+    lo_target = max(start - half, 0)
+    target = mono[lo_target : start + half]
+    # The offset of sample ``start`` inside ``target``. Usually ``half``, but
+    # the 2026-09-16 audit (finding muse-engine-01) found that when ``start``
+    # sits inside the buffer's first ``half`` samples, ``target`` clips at 0
+    # and ``start`` lands at offset ``start`` instead -- the same clip the
+    # ``end + half >= mono.size`` guard above already handles on the right
+    # edge, unhandled here on the left. Using the constant ``half`` in that
+    # case put the refined ``end`` off by ``half - start``, out of phase with
+    # the take's own repeat.
+    origin = start - lo_target
     lo = max(end - half * 2, 0)
     hi = min(end + half * 2, mono.size)
     region = mono[lo:hi]
@@ -292,7 +302,7 @@ def _refine(mono: np.ndarray, start: int, end: int, rate: int) -> tuple[int, int
             1e-9,
         )
     )
-    end = lo + int(np.argmax(corr / energy)) + half
+    end = lo + int(np.argmax(corr / energy)) + origin
 
     return _snap(mono, start, rate), _snap(mono, end, rate)
 

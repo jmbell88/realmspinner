@@ -349,10 +349,22 @@ def _save(ctx: Any, make: Any, default_name: str, title: str) -> None:
     def run() -> str | None:
         path = dialogs.save_file(title, default_name, dialogs.filters_for(".wav"))
         if path is None:
+            # Cancelled: the picker asked and the user said no, which wants no
+            # further word -- ``None``, distinct from the failure below.
             return None
         data = make()
         if data is None:
-            return None
+            # **2026-09-16 audit.** Also ``None`` until now, indistinguishable
+            # from the cancel above -- ``muse_mode.on_task_done`` had no
+            # branch for either, but even once it grew one there is a real
+            # difference between "the user said no" (silence is the right
+            # answer) and "the write did not happen for some other reason"
+            # (the region changing between ``export_loop``'s muse-03 upfront
+            # check and this task actually running, chiefly), which wants a
+            # word. ``""`` is falsy like ``None`` for every other caller of
+            # this closure, but ``on_task_done`` can tell it apart with
+            # ``result == ""`` vs ``result is None``.
+            return ""
         # Staged, never written in place: the rule every other writer in this
         # app follows, and it matters most where the user has picked an
         # existing file to overwrite.

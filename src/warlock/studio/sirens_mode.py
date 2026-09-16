@@ -330,6 +330,8 @@ def _still_wanted(state: Any, done: Any) -> bool:
 
 
 def on_task_done(ctx: Any, done: Any) -> None:
+    from . import sirens_play
+
     state = ensure(ctx)
     key, result = done.key, done.result
     name = key.split(":", 1)[0]
@@ -349,7 +351,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if tab is None:
         return
 
-    if name == "sirens-render":
+    if key.startswith(sirens_play.RENDER_PREFIX):
         if isinstance(result, dict):
             tab.adopt_render(
                 result["pcm"], result.get("loop"), result.get("marks") or ()
@@ -461,7 +463,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     if tab is None:
         return
     tab.saving = False
-    if done.key.startswith("sirens-render"):
+    if done.key.startswith(sirens_play.RENDER_PREFIX):
         tab.rendering = False
         tab.render_error = done.message or "That song did not render."
 
@@ -574,6 +576,7 @@ _MOVED: dict[str, str] = {
     "PIANO_KEYS": "sirens_keys",
     "PREVIEW_PREFIX": "sirens_play",
     "PREVIEW_ROWS": "sirens_play",
+    "RENDER_PREFIX": "sirens_play",
     "_MUTATING_CTRL": "sirens_keys",
     "_caret_kind": "sirens_play",
     # Added by the 2026-09-13 audit, finding sirens-02: both names were

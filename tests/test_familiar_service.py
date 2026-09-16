@@ -14,6 +14,7 @@ import asyncio
 import dataclasses
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from warlock import models
@@ -83,6 +84,20 @@ def test_clay_build_on_the_testing_pin_refuses_before_any_request(monkeypatch):
     assert called == [], "clay_build must gate before any request, not after"
 
 
+def test_clay_build_docstring_cites_the_document_with_the_door_acceptance_figures():
+    """The 2026-09-16 audit (familiar-02): ``clay_build``'s docstring
+    attributed the 0 % -> 74 % door-acceptance figures to
+    ``docs/measurements/2026-09-14-clay-assistant-ablation.md``, but that
+    document contains neither number -- the table is actually in
+    ``docs/measurements/2026-09-12-clay-assistant-run-A.md`` (lines 42, 82),
+    corroborated in ``docs/measurements/2026-09-14-familiar-base-vram.md``
+    (86-88). A reader checking the evidence behind the ``reason="card"``
+    refusal must be sent to the document that actually holds the number."""
+    doc = svc_familiar.clay_build.__doc__
+    assert "2026-09-12-clay-assistant-run-A.md" in doc
+    assert "2026-09-14-clay-assistant-ablation.md" not in doc
+
+
 def test_plain_chat_starts_on_the_testing_pin(monkeypatch):
     """Plain chat must pass ``expected_card_sha=None`` and ``skill=None`` --
     the "no card in play" shape ``LlamaServer._check_card_sha`` never refuses
@@ -134,6 +149,29 @@ def test_a_loop_timeout_is_a_refusal_not_an_unmapped_error(monkeypatch):
 
     with pytest.raises(FamiliarRefusal) as excinfo:
         svc_familiar.chat_reply(_SlowSvc(), "hello")
+
+    assert excinfo.value.reason == "unhealthy"
+
+
+def test_an_httpx_transport_timeout_is_a_familiar_refusal_not_an_unmapped_exception(
+    monkeypatch,
+):
+    """The 2026-09-16 audit (familiar-01): ``_call``'s except clauses named
+    ``TimeoutError``/``concurrent.futures.TimeoutError`` (the *outer*
+    ``LOOP_TIMEOUT`` bound) but never ``httpx``'s own transport exceptions --
+    so the *inner* timeout, ``llama_client.CHAT_TIMEOUT``, which always fires
+    first (``LOOP_TIMEOUT = STARTUP_TIMEOUT + CHAT_TIMEOUT + 30``), escaped
+    ``_call`` as a raw ``httpx.ReadTimeout`` instead of the "Familiar did not
+    answer in time -- try again" refusal LOOP_TIMEOUT's own commentary is
+    built to produce."""
+
+    async def fake_chat(*args, **kwargs):
+        raise httpx.ReadTimeout("the read operation timed out")
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+
+    with pytest.raises(FamiliarRefusal) as excinfo:
+        svc_familiar.chat_reply(_FakeSvc(), "hello")
 
     assert excinfo.value.reason == "unhealthy"
 

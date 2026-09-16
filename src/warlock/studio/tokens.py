@@ -552,6 +552,28 @@ def clamp_panel(value: float) -> float:
     return min(max(float(value), PANEL_MIN), PANEL_MAX)
 
 
+# --- vertical splits ------------------------------------------------------------
+
+# How far a vertical split inside a column (a pane divided top and bottom) may
+# be dragged, as a share of the column's height.
+#
+# **Here rather than in ``layout``**, which is where it was written and where
+# ``layout.SHARE_MIN``/``SHARE_MAX`` still name it: ``layouts`` is the
+# persistence half of the same pair and cannot import ``layout`` (that is the
+# direction the dependency runs), so it had re-spelled the bound as a bare
+# ``(0.25, 0.75)`` literal four times -- the 2026-09-16 audit, shell-settings,
+# the same class of drift this file's own docstring names as the reason
+# ``SIDEBAR_WIDTHS``/``PANEL_MIN``/``PANEL_MAX`` were centralised here rather
+# than left in ``layout``.
+SHARE_MIN, SHARE_MAX = 0.25, 0.75
+
+
+def clamp_share(value: float) -> float:
+    """A vertical-split share, held inside the range a splitter may reach."""
+
+    return min(max(float(value), SHARE_MIN), SHARE_MAX)
+
+
 # --- floating surface widths --------------------------------------------------
 
 # How wide a thing that floats over the app is, in design pixels. Named for the

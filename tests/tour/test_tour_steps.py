@@ -188,6 +188,25 @@ def test_no_step_body_is_empty():
         assert step.body.strip(), f"{tour.key}/{step.id}: no body"
 
 
+def test_character_type_step_done_condition_is_not_trivially_satisfied_by_reaching_it():
+    """The 2026-09-16 audit, finding tour-1-01: ``first-hour``'s
+    ``character-type`` step used to wait on ``Condition("mode_is", "create")``,
+    but every step that reaches it has already put the reader in create mode --
+    the tour's own ``open-create`` step waits on that same condition three steps
+    earlier -- so ``satisfied()`` reads True on the card's very first frame,
+    before the reader has touched Generation type at all. A step's ``done``
+    must not be ``mode_is`` naming the same mode the step is itself drawn in,
+    because that mode is already established well before the step is reached.
+    """
+    tour = next(t for t in TOURS if t.key == "first-hour")
+    step = next(s for s in tour.steps if s.id == "character-type")
+    assert not (step.done.name == "mode_is" and step.done.arg == step.mode), (
+        f"{tour.key}/{step.id}: done={step.done!r} duplicates the step's own "
+        f"mode ({step.mode!r}), so the card reads 'Done.' the instant it "
+        "appears, before the reader has done anything"
+    )
+
+
 def test_the_marker_regex_actually_matches_the_call_sites():
     """Guard on the guard.
 

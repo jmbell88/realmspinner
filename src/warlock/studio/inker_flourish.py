@@ -932,7 +932,19 @@ def submit_prompt(ctx: Any, state: Any, tab: Any, text: str) -> bool:
 
     def work() -> dict[str, Any]:
         changed, notes, source = ask_words(recipe, text, model_dir=model_dir)
-        return {"tab": tab_uid, "group": group, "recipe": changed, "notes": notes, "source": source}
+        # ``base`` is the snapshot ``ask_words`` actually started from -- the
+        # 2026-09-16 audit found ``land_prompt`` had no way to tell that
+        # ``state.flourish_pending[group]`` had moved on while this ran
+        # off-thread, so it overwrote a manual edit staged after submit with
+        # the prompt's own edit, itself derived from this now-stale ``recipe``.
+        return {
+            "tab": tab_uid,
+            "group": group,
+            "recipe": changed,
+            "notes": notes,
+            "source": source,
+            "base": recipe,
+        }
 
     if not ctx.submit(key, work):
         state.say("The last prompt is still being read.")
@@ -953,7 +965,20 @@ def land_prompt(ctx: Any, state: Any, done: Any, *, now: float) -> bool:
         return False
     notes = list(result.get("notes") or [])
     recipe = result["recipe"]
-    if recipe == current_recipe(state, tab, group):
+    live = current_recipe(state, tab, group)
+    base = result.get("base")
+    if base is not None and live != base:
+        # The 2026-09-16 audit, inker-flourish-02: this used to apply
+        # ``recipe`` unconditionally, no matter what ``state.flourish_pending``
+        # had become while ``ask_words`` ran off-thread -- so a manual edit
+        # staged after submit and before land vanished, replaced by the
+        # prompt's own edit computed from the older ``base``. Detected here,
+        # the newer edit is left exactly as it is (it already carries its own
+        # debounce clock from whatever call to ``set_pending`` staged it) and
+        # the prompt's own answer is dropped rather than overwrite it.
+        ctx.toast("The effect changed while the prompt was read; resend it to apply.", "info")
+        return False
+    if recipe == live:
         ctx.toast("; ".join(notes) or "Nothing changed.", "info")
         return False
     set_pending(state, group, recipe, now=now)

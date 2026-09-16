@@ -1534,6 +1534,13 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["ip_scale"] = value
+            ctx.state.clear_field_error("ip_scale")
+        # The 2026-09-16 audit, finding create-panes-01: guidance.normalize's
+        # `_number` refuses an out-of-range `ip_scale` by name, but nothing on
+        # this pane rang the control -- a persisted form carrying a stale value
+        # reached the queue door with the Conditioning section still collapsed
+        # and no ring anywhere to say which slider was at fault.
+        widgets.field_error(ctx.state, "ip_scale")
         _hint(ctx, form, "ip_scale", form["ip_scale"])
 
     widgets.field_label("start image")
@@ -1565,6 +1572,11 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["init_strength"] = value
+            ctx.state.clear_field_error("init_strength")
+        # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
+        # above -- guidance.normalize refuses a stale init_strength by name and
+        # this slider never rang.
+        widgets.field_error(ctx.state, "init_strength")
         _hint(ctx, form, "init_strength", float(form.get("init_strength") or 0.45))
     if inert is not None:
         imgui.end_disabled()
@@ -1585,6 +1597,11 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["control_scale"] = value
+            ctx.state.clear_field_error("control_scale")
+        # The 2026-09-16 audit, finding create-panes-01: same gap as ip_scale
+        # above -- guidance.normalize refuses a stale control_scale by name and
+        # this slider never rang.
+        widgets.field_error(ctx.state, "control_scale")
         _hint(ctx, form, "control_scale", form["control_scale"])
         widgets.field_label("Until")
         changed, value = controls.slider_float(
@@ -1592,6 +1609,9 @@ def _reference_body(ctx: Any, form: dict[str, Any]) -> None:
         )
         if changed:
             form["control_end"] = value
+            ctx.state.clear_field_error("control_end")
+        # Same gap, control_end's own name.
+        widgets.field_error(ctx.state, "control_end")
         _hint(ctx, form, "control_end", form["control_end"])
         widgets.help_marker(
             "How far into the drawing the structure keeps acting. Ending early "
@@ -2098,7 +2118,13 @@ def _lora_strength(
     # combo already carries the field_label, so this slider gets its own
     # name line rather than repeating the sentence-case label beside it.
     widgets.field_label("Strength")
-    changed, value = controls.slider_float("##Strength", form["lora_weight"], 0.0, 1.5)
+    # The 2026-09-16 audit, finding create-panes-02: this hardcoded the
+    # literal 0.0, 1.5 instead of going through ``_range``, the pattern every
+    # sibling numeric control in this file follows -- two copies of one bound
+    # with nothing to keep them equal if ``lora_weight_range`` ever changes.
+    changed, value = controls.slider_float(
+        "##Strength", form["lora_weight"], *_range(ctx, "lora_weight_range", 0.0, 1.5)
+    )
     if changed:
         form["lora_weight"] = value
     widgets.muted_wrapped(f"tuned default: {lora_default_weight(form['style_lora']):g}")
@@ -2572,6 +2598,28 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[widgets.Problem]:
         problems.append(
             widgets.Problem("Conditioning needs a reference image.", "ref_path")
         )
+    # The 2026-09-16 audit, finding create-panes-01: guidance.normalize's
+    # ``_number`` refuses ip_scale/control_scale/control_end/init_strength by
+    # name (the same shape of check as lora_weight above), but this function
+    # never range-checked any of the four before Generate is enabled -- a
+    # persisted out-of-range value reached the queue door with the
+    # Conditioning section still collapsed and no ring anywhere on this pane
+    # to land on. Gated the same way ``submit_kwargs`` gates what it sends:
+    # a slider whose selection is unset never reaches params as a live
+    # setting, so it is not checked here either.
+    if not pinned and form.get("ip_adapter"):
+        try:
+            ip_scale = float(form.get("ip_scale"))
+        except (TypeError, ValueError, OverflowError):
+            ip_scale = float("nan")
+        if not modelslib.IP_SCALE_MIN <= ip_scale <= modelslib.IP_SCALE_MAX:
+            problems.append(
+                widgets.Problem(
+                    f"Reference strength must be between {modelslib.IP_SCALE_MIN:g} "
+                    f"and {modelslib.IP_SCALE_MAX:g}.",
+                    "ip_scale",
+                )
+            )
     if (
         not pinned
         and form.get("control")
@@ -2580,6 +2628,31 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[widgets.Problem]:
         problems.append(
             widgets.Problem("Structure control needs a full-CFG model.", "base_model")
         )
+    if not pinned and form.get("control"):
+        try:
+            control_scale = float(form.get("control_scale"))
+        except (TypeError, ValueError, OverflowError):
+            control_scale = float("nan")
+        if not modelslib.CONTROL_SCALE_MIN <= control_scale <= modelslib.CONTROL_SCALE_MAX:
+            problems.append(
+                widgets.Problem(
+                    f"Structure strength must be between "
+                    f"{modelslib.CONTROL_SCALE_MIN:g} and {modelslib.CONTROL_SCALE_MAX:g}.",
+                    "control_scale",
+                )
+            )
+        try:
+            control_end = float(form.get("control_end"))
+        except (TypeError, ValueError, OverflowError):
+            control_end = float("nan")
+        if not modelslib.CONTROL_END_MIN <= control_end <= modelslib.CONTROL_END_MAX:
+            problems.append(
+                widgets.Problem(
+                    f"Structure 'until' must be between "
+                    f"{modelslib.CONTROL_END_MIN:g} and {modelslib.CONTROL_END_MAX:g}.",
+                    "control_end",
+                )
+            )
     # The 2026-09-05 audit, finding create-04: this pane's docstring promises
     # "what would be refused, said before the button is pressed", but nothing
     # here checked img2img against the base's family, so the refusal only
@@ -2599,6 +2672,22 @@ def validate(form: dict[str, Any], ctx: Any = None) -> list[widgets.Problem]:
                 "init_image",
             )
         )
+    if not pinned and form.get("init_image") and form.get("ref_path"):
+        try:
+            init_strength = float(form.get("init_strength") or 0.45)
+        except (TypeError, ValueError, OverflowError):
+            init_strength = float("nan")
+        if not (
+            modelslib.IMG2IMG_STRENGTH_MIN <= init_strength <= modelslib.IMG2IMG_STRENGTH_MAX
+        ):
+            problems.append(
+                widgets.Problem(
+                    f"Start strength must be between "
+                    f"{modelslib.IMG2IMG_STRENGTH_MIN:g} and "
+                    f"{modelslib.IMG2IMG_STRENGTH_MAX:g}.",
+                    "init_strength",
+                )
+            )
     # Reachable the same way: a style picked under one base survives a change
     # of base under Advanced, and the service refuses the submit outright
     # rather than generating without it.

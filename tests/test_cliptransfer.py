@@ -613,6 +613,41 @@ def test_the_duration_is_a_legal_clip_duration():
     assert explicit["clip"]["duration_ms"] == 250
 
 
+# --- clip-map matching, surfaced in the report ------------------------
+
+
+def test_cliptransfer_report_names_a_duplicate_normalized_source_bone():
+    """The 2026-09-16 audit: the 2026-09-15 fix (finding poser-04) taught
+    ``clipmaps.MatchResult`` to record a normalized name more than one raw
+    source bone collapsed onto, so a colliding duplicate no longer vanished
+    from ``clipmaps.match``'s own result -- but nothing between there and
+    ``cliptransfer.transfer``'s returned ``report`` ever read the field, so
+    "Import clip"'s report still carried no trace of it one call frame
+    further downstream. Reproduces the same duplicate
+    ``test_clip_map_match_does_not_silently_drop_a_duplicate_normalized_source_bone_name``
+    (``tests/test_audit_2026_09_15_poser.py``) does directly against
+    ``clipmaps.match``, but through the whole ``transfer`` call."""
+    source_bones = _baseline_source_bones()
+    # A second raw spelling of "Hips" that the shipped mixamo clip map's
+    # strip pattern normalizes onto the same name as "Hips" itself -- exactly
+    # the hand-renamed-duplicate (or merged second Mixamo export) shape
+    # poser-04 was written against.
+    source_bones["mixamorig:Hips"] = dict(source_bones["Hips"])
+    rest = _rest_frame_bones(source_bones)
+    action = _one_frame_action("Idle", rest)
+    sample = _make_sample(source_bones, [action])
+
+    [result] = cliptransfer.transfer(
+        sample, template="humanoid", frames=2, loop="off", root_motion="none"
+    )
+
+    clip_map = clipmaps.load_clip_maps()["mixamo"]
+    normalized = clipmaps.normalise("Hips", clip_map)
+    report = result["report"]
+    assert "duplicate_source_names" in report
+    assert report["duplicate_source_names"][normalized] == ["Hips", "mixamorig:Hips"]
+
+
 # --- the restated constants, pinned to their sources ------------------
 
 

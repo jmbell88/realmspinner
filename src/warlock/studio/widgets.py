@@ -3296,7 +3296,14 @@ def primary_button(
     is the same rule reaching the same button under its other name rather than
     a test being satisfied.
     """
-    key = f"primary/{label}"
+    # ``imgui.get_id`` folds in the current id stack -- see ``_glyph_button``'s
+    # comment for the full story. The 2026-09-16 audit found this button had
+    # never picked up that fix: keying on the bare label left two rows/cards
+    # that push their own id and then draw the identical label (Muse's
+    # results grid draws one ``ghost_button("Make more", ...)`` per take card
+    # with no job-id suffix) sharing one hover-animation slot, so hovering one
+    # card lit up every other visible card too.
+    key = f"primary/{imgui.get_id(label)}"
     if enabled:
         fill = imgui.ImVec4(*theme.rgba(theme.ACCENT, 1.0 - 0.15 * _hover_amount(key)))
         pressed = imgui.ImVec4(*theme.rgba(theme.ACCENT, 0.7))
@@ -3340,7 +3347,12 @@ def ghost_button(
     the register a "not right now" action is most likely to be drawn in, so it
     would be the worst of the three to leave unable to explain itself.
     """
-    key = f"ghost/{label}"
+    # See the comment on the matching line in ``primary_button``: keyed on the
+    # bare label, two cards under different ``push_id`` scopes drawing the
+    # same label (Muse's results grid does this per take card) shared one
+    # hover-animation slot. ``imgui.get_id`` folds the id stack in, the same
+    # fix ``_glyph_button`` already carries.
+    key = f"ghost/{imgui.get_id(label)}"
     fill = imgui.ImVec4(*theme.rgba(theme.ELEV_2, _hover_amount(key)))
     imgui.push_style_color(imgui.Col_.button.value, fill)
     imgui.push_style_color(imgui.Col_.button_hovered.value, fill)
@@ -3379,7 +3391,11 @@ def destructive_button(
     role buttons use, so the probe census and the disabled-reason tooltip both
     see this button the way they see every other one.
     """
-    key = f"destructive/{label}"
+    # See the comment on the matching line in ``primary_button``: keyed on the
+    # bare label, two rows under different ``push_id`` scopes drawing the same
+    # label shared one hover-animation slot. ``imgui.get_id`` folds the id
+    # stack in, the same fix ``_glyph_button`` already carries.
+    key = f"destructive/{imgui.get_id(label)}"
     fill = imgui.ImVec4(*theme.rgba(theme.ERR, 0.85 + 0.15 * _hover_amount(key)))
     imgui.push_style_color(imgui.Col_.button.value, fill)
     imgui.push_style_color(imgui.Col_.button_hovered.value, fill)

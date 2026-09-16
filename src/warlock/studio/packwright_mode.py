@@ -845,7 +845,7 @@ def close_tab(ctx: Any, uid: str) -> None:
     state = ensure(ctx)
 
     def release(_tab: PackTab) -> None:
-        from .panes import packwright_settings, packwright_textures
+        from .panes import packwright_settings, packwright_sources, packwright_textures
 
         packwright_textures.release_doc(ctx, uid)
         # The 2026-09-08 audit (finding packwright-03): ``_last_columns`` is a
@@ -856,6 +856,17 @@ def close_tab(ctx: Any, uid: str) -> None:
         # ever given an explicit column count left one entry behind for the
         # life of the process.
         packwright_settings._last_columns.pop(uid, None)
+        # The 2026-09-16 audit: a tile-set import waits on its own popup
+        # (``PackwrightState.tileset_import``), named to the tab that asked by
+        # ``tileset_import_uid`` -- closing *that* tab (Ctrl+W, reachable with
+        # no confirm on a still-clean new atlas) used to leave the popup on
+        # screen describing a document that no longer exists, holding its
+        # texture and grid cache alive, until a human noticed and cancelled it
+        # by hand. ``import_tileset`` already refuses an Import press once the
+        # tab is gone; this is the same closure, paid at close time instead of
+        # waiting for that press.
+        if state.tileset_import is not None and state.tileset_import_uid == uid:
+            packwright_sources.clear_tileset_import(ctx, state)
 
     docmodes.close_tab(ctx, state, uid, release)
 

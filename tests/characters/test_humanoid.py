@@ -554,6 +554,38 @@ def test_a_mask_file_from_a_different_bake_is_refused_rather_than_applied(tmp_pa
     assert "baked against a different" in str(excinfo.value)
 
 
+def test_a_masks_file_missing_a_joint_displacement_channel_is_refused_not_a_keyerror(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-16 audit, finding troupe-03 (filed against the character
+    pipeline): ``_displaced_joints`` used to index ``arrays[f"jdisp/{key}"]``
+    with no guard, while its sibling ``_displaced`` -- the mesh-vertex path,
+    same function shape, same loop -- guards the identical lookup with
+    ``arrays.get(...)`` and raises ``CharacterError`` when a channel is
+    missing. ``CharacterError`` is a ``ValueError`` subclass specifically so
+    every ``except ValueError`` door still catches it and a refusal reaches
+    the UI addressed at a control; a bare ``KeyError`` is invisible to that
+    plumbing.
+    """
+    from pathlib import Path
+
+    fam = familylib.get_family("ogre")
+    with np.load(fam.masks_npz, allow_pickle=False) as data:
+        arrays = {name: data[name] for name in data.files}
+    del arrays["jdisp/bulk"]
+    forged = tmp_path / "forged.npz"
+    np.savez_compressed(forged, **arrays)
+
+    monkeypatch.setattr(
+        familylib.Family, "masks_npz", property(lambda self: Path(forged))
+    )
+    with pytest.raises(CharacterError) as excinfo:
+        instantiate(DEFAULT_RECIPE, tmp_path / "out")
+    assert excinfo.value.field == "appearance"
+    assert "bulk" in str(excinfo.value)
+    assert "joint" in str(excinfo.value)
+
+
 def test_transformed_joints_uses_the_same_convention_clay_does(tmp_path):
     """``M @ v``, column vectors -- so one matrix moves a mesh through
     ``clay.mesh.transformed`` and its skeleton through this, and nobody has to

@@ -30,6 +30,8 @@ import dataclasses
 import threading
 from typing import Any
 
+import httpx
+
 from .. import models
 from ..pipelines import llama, llama_client
 from ..studio.familiar import character_plan, contract, doors, retrieval, router
@@ -121,6 +123,19 @@ def _call(
         # lands in -- both mean "this request does not fit", one on the way in
         # and one on the way out.
         raise FamiliarRefusal(str(exc), reason="too_large") from exc
+    except httpx.HTTPError as exc:
+        # The 2026-09-16 audit (familiar-01): httpx's own transport exceptions
+        # (ReadTimeout, ConnectError, RemoteProtocolError, ...) are not
+        # TimeoutError/concurrent.futures.TimeoutError, so without this clause
+        # they escaped _call unclassified -- and this is the failure mode
+        # LOOP_TIMEOUT's own commentary says it exists to catch: the client's
+        # CHAT_TIMEOUT always elapses before the outer LOOP_TIMEOUT possibly
+        # could (LOOP_TIMEOUT = STARTUP_TIMEOUT + CHAT_TIMEOUT + 30), so a
+        # slow or hung llama-server reply raised a raw httpx exception instead
+        # of the "did not answer in time" sentence this bucket exists for.
+        raise FamiliarRefusal(
+            "Familiar did not answer in time -- try again.", reason="unhealthy"
+        ) from exc
     except RuntimeError as exc:
         raise FamiliarRefusal(str(exc), reason=_reason_for(str(exc))) from exc
 
@@ -158,7 +173,7 @@ def clay_build(svc: Any, prompt: str, scene: dict[str, Any]) -> list[dict]:
     otherwise happily serve a Clay prompt it was never trained to answer.
     Run A's own measurement is why this matters: base Gemma 4 E2B scored 0%
     door acceptance on Clay builds (the fine-tune: 74%,
-    ``docs/measurements/2026-09-14-clay-assistant-ablation.md``), so serving
+    ``docs/measurements/2026-09-12-clay-assistant-run-A.md``), so serving
     a Clay request on the testing pin would not fail loudly -- it would just
     fail, every time, with no tool call in the reply for :func:`~.contract.
     parse_calls` to find.

@@ -1135,6 +1135,13 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.25, "Fitting skeleton")
     lo, hi = _world_bounds(mesh)
+    # The 2026-09-16 audit: captured *before* the measured-joints branch below
+    # can rebind ``spec`` with its own measured ``bones`` -- ``adjusted`` must
+    # mean "the caller supplied bones", per docs/INVARIANTS.md ("adjusted
+    # still means only 'the user moved these'"), and reading it off the
+    # post-mutation ``spec`` further down could no longer tell that apart
+    # from "op_rig's own measured-joints branch just populated spec['bones']".
+    caller_supplied_bones = bool(spec.get("bones"))
     if spec.get("joints") == "measured" and not spec.get("bones"):
         # Measured off the geometry rather than scaled to its box. Done here
         # and not on the host because this is the only process that can read a
@@ -1161,6 +1168,13 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             print(f"joint measurement failed, using the template fit: {exc}", flush=True)
         else:
             spec = {**spec, "bones": validated}
+            # The 2026-09-16 audit: without this, ``_rig_bones``'s
+            # caller-supplied branch falls through to ``spec.get("fit") or
+            # {"method": "manual"}`` -- tagging an automatic geometric
+            # measurement with the same "manual" label a real user
+            # hand-correction gets. Tag it before ``_rig_bones`` ever sees
+            # this spec.
+            spec.setdefault("fit", {"method": "jointfit"})
     bones, fit = _rig_bones(spec, lo, hi)
     # Identity, not equality: a spec that asked for a custom skeleton but
     # failed re-verification (``_rig_bones``) returns a *fresh* list from
@@ -1183,7 +1197,7 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         hi=hi,
         weighting=weighting,
         weighting_reason=weighting_reason,
-        adjusted=bool(spec.get("bones")),
+        adjusted=caller_supplied_bones,
         fit=fit,
         root=spec.get("root") if custom_ok else None,
         mirror_pairs=spec.get("mirror_pairs") if custom_ok else None,

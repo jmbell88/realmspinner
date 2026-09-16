@@ -262,7 +262,10 @@ def measure(library: Any = None, workspace: str = "", *, fixed_left: float | Non
 # already inside the host window's gutter -- matching it would double the inset
 # on the two sidebars, which are the width-constrained case.
 PANE_PADDING = tokens.SP_3
-SHARE_MIN, SHARE_MAX = 0.25, 0.75
+# Named once, in tokens.py, since the 2026-09-16 audit's shell-07 finding: this
+# module and layouts.py (which cannot import this one) had each spelled the
+# 0.25/0.75 bound separately with nothing keeping the two copies in sync.
+SHARE_MIN, SHARE_MAX = tokens.SHARE_MIN, tokens.SHARE_MAX
 
 #: Splits whose sensible starting proportion is not the shared default.
 #:

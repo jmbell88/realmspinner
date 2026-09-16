@@ -509,6 +509,42 @@ def test_a_provisional_clip_shows_its_badge(app_ctx, imgui_ctx):
     _frame(imgui_ctx, lambda: poser_clips.draw(app_ctx))
 
 
+def test_the_import_report_names_a_duplicate_normalized_source_bone(
+    app_ctx, imgui_ctx, monkeypatch
+):
+    """The 2026-09-16 audit's poser-01 fix threaded ``duplicate_source_names``
+    through ``cliptransfer.transfer``'s report but left rendering it to
+    whoever owns this pane; closed the same day. A report carrying the field
+    must draw a line naming it, the same way ``ignored`` already does."""
+    from warlock.studio import poser_mode
+    from warlock.studio.panes import poser_clips
+
+    app_ctx.rigging_available = True
+    app_ctx.poser_viewer = _PoserViewer()
+    state = poser_mode.ensure(app_ctx)
+    poser_mode.adopt_clips(app_ctx, _library())
+    state.clip_import_reports = [
+        {
+            "map": "mixamo",
+            "loop": {},
+            "ignored": [],
+            "left_at_rest": [],
+            "frames": 10,
+            "keys": 3,
+            "duplicate_source_names": {"mixamorig_hips": ["mixamorig:Hips", "Hips"]},
+        }
+    ]
+    lines: list[str] = []
+    monkeypatch.setattr(poser_clips.widgets, "muted", lines.append)
+    monkeypatch.setattr(poser_clips.controls, "collapsing_header", lambda *a, **k: True)
+
+    _frame(imgui_ctx, lambda: poser_clips._import_report(app_ctx, state))
+
+    joined = " ".join(lines)
+    assert "mixamorig_hips" in joined
+    assert "collided" in joined
+
+
 def test_the_import_report_is_hidden_while_a_skeleton_edit_is_open(app_ctx, imgui_ctx, monkeypatch):
     """P6 (2026-09-13): master hides the whole Clips section during a skeleton
     edit; this branch keeps "Import clip..." drawn through it (see

@@ -424,9 +424,9 @@ offer it. `character_rig` refuses a mesh that is already rigged — an agent add
 replaces one — and refuses again while a rig for that mesh is already running, rather than queuing
 a second one behind it. Every export needs an export folder configured first (Settings, same place
 the switch for this whole bridge lives); with none set, the refusal names that setting rather than
-writing anywhere of its own choosing. And an agent may cancel only the jobs it started on its own
-connection — a job a human began, or an earlier session minted, is not reachable by
-`character_cancel` at all.
+writing anywhere of its own choosing. And an agent may cancel only a job it started on its own
+connection, or the sheet job a rig it started has since queued; any other job — one a human began,
+or an earlier session minted — is not reachable by `character_cancel` at all.
 
 As with Clay, nothing here is a path: every argument this surface takes is an id you already hold —
 a job id, a sheet id — or a name from a fixed list, never a filename or a folder you type out

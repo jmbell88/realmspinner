@@ -1734,26 +1734,30 @@ left the template's thinking on.
 *Closed records*). The screenshot and `/exercise-mode`
 debt T0–T4 left behind does not wait on the card; it is P56.
 
-**Owed by T5 specifically (2026-09-14 review):** `llama_client` must call
+~~**Owed by T5 specifically (2026-09-14 review):** `llama_client` must call
 `LlamaServer.touch()` on every request, because the idle sweep reads
 `last_used` and nothing but the health poll writes it today -- without the
-touch a five-minute conversation has its server evicted mid-reply
-(`tests/test_familiar.py::test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted`
-is the door's test; the client's own test must show it calling it). It must
+touch a five-minute conversation has its server evicted mid-reply. It must
 also size every Clay request with `contract.output_budget(skill,
-prompt_tokens)`, counting the prompt with llama-server's `/tokenize`. One slot
-is 8,192 tokens, run A's trained window. The largest recorded val prompt is
-about 4,931 tokens, so a flat `max_tokens` of 4,096 overruns the slot. It must
+prompt_tokens)`, counting the prompt with llama-server's `/tokenize`. It must
 also read the key file rather than argv, and surface `ensure_started`'s
-"cannot start while a GPU job holds the card" refusal as a pane state. Before
-T5 ships a chat loop against the *testing* pin, note that run A's measurement
-put base Gemma 4 E2B at 0 % door acceptance on Clay builds (the fine-tune: 74 %),
-so a Clay skill on the testing pin fails every build a user asks for -- gate
-the Clay skill on the fine-tune pin, or land T10 first (P53 is cleared).
-`PARALLEL_SLOTS = 2`
-and `CTX_SIZE = 16384` are fixed in `pipelines/llama.py`; the per-tab-threads
-idea above has to be reconciled with two slots sharing one context before T5
-inherits the numbers.
+"cannot start while a GPU job holds the card" refusal as a pane state.~~
+**Built, found already done by the 2026-09-16 audit (finding docs-03):**
+`pipelines/llama_client.py` calls `server.touch()` before and after every
+request, sizes replies with `contract.output_budget`, and reads the key from
+`server.key_path` in `_headers`, never argv; `service/familiar.py`'s
+`_reason_for` classifies "GPU job holds the card" as `reason="lease"`,
+surfaced by `studio/familiar_ui.py` as pane state. Test:
+`tests/test_familiar.py::test_touch_resets_the_idle_clock_so_a_live_conversation_is_not_evicted`.
+One slot is 8,192 tokens, run A's trained window; the largest recorded val
+prompt is about 4,931 tokens, so a flat `max_tokens` of 4,096 overruns the
+slot. Before T5 ships a chat loop against the *testing* pin, note that run A's
+measurement put base Gemma 4 E2B at 0 % door acceptance on Clay builds (the
+fine-tune: 74 %), so a Clay skill on the testing pin fails every build a user
+asks for -- gate the Clay skill on the fine-tune pin, or land T10 first (P53
+is cleared). `PARALLEL_SLOTS = 2` and `CTX_SIZE = 16384` are fixed in
+`pipelines/llama.py`; the per-tab-threads idea above has to be reconciled with
+two slots sharing one context before T5 inherits the numbers.
 
 **Expected outcome:** Familiar answers in the bottom pane, previews Clay builds
 as a ghost, and runs the fine-tune. Strike this entry per tranche as each lands.

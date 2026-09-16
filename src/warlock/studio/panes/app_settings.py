@@ -574,6 +574,25 @@ def _apply_scale(ctx: Any, value: float) -> None:
 # --- effective configuration ------------------------------------------------
 
 
+def _layout_pick_reason(chosen: str, active: str, readable: bool) -> str:
+    """Why picking ``chosen`` in the workspace-layout combo did not switch to
+    it -- empty when the pick is live or already the active layout.
+
+    2026-09-16 audit, shell-settings: an unreadable entry (saved by a newer
+    build, listed as "<name> (a newer version)") used to be pickable in the
+    combo but silently discarded -- ``Library.set_active`` refuses it and the
+    combo reverts to the active layout next frame -- with nothing on screen
+    saying why, breaking the "a refusal names the control it came from"
+    promise every other control in this pane keeps.
+    """
+    if chosen == active or readable:
+        return ""
+    return (
+        f'"{chosen}" was saved by a newer version of Warlock and can\'t be '
+        "read here -- update to switch to it."
+    )
+
+
 def _layouts(ctx: Any) -> None:
     """Saved workspace layouts: the administration, and **the canonical path**.
 
@@ -604,7 +623,10 @@ def _layouts(ctx: Any) -> None:
             "are the app's, not a workspace's."
         ),
     )
-    if chosen != library.active and library.layouts[chosen].readable:
+    reason = _layout_pick_reason(chosen, library.active, library.layouts[chosen].readable)
+    if reason:
+        ctx.toast(reason, "info")
+    elif chosen != library.active:
         library.set_active(chosen)
     width = widgets.grid_width(3)
     if controls.button("Duplicate", (width, 0)):
@@ -1588,7 +1610,13 @@ def _lora_import_form(ctx: Any) -> None:
         _c, form["commercial"] = form_ui.switch(
             "commercial", "Licensed for commercial use", bool(form["commercial"])
         )
-    if widgets.disabled_button("Add style", not ctx.busy("lora:import")):
+    # 2026-09-16 audit, shell-settings: this used to gate on
+    # ``ctx.busy("lora:import")`` alone -- its own exact submit key -- rather
+    # than the ``lora:`` prefix rule every other LoRA-mutating control in this
+    # section already shares (see ``_LORA_BUSY_REASON``), so pressing "Add
+    # style" while, say, a training run was in flight was not blocked.
+    busy = ctx.tasks.any_busy("lora:")
+    if widgets.disabled_button("Add style", not busy, reason=_LORA_BUSY_REASON):
         # Last time's rings first: a new submit is judged on its own. Spelled
         # as a nested ``if`` rather than the ``and`` chain this was, because a
         # statement has to run between the press and the submit.
@@ -1662,10 +1690,16 @@ def _lora_train_form(ctx: Any) -> None:
         if summary is not None
         else "The folder needs between 3 and 100 images."
     )
+    # 2026-09-16 audit, shell-settings: this used to gate on
+    # ``ctx.busy("lora:train")`` alone -- its own exact submit key -- rather
+    # than the ``lora:`` prefix rule every other LoRA-mutating control in this
+    # section already shares (see ``_LORA_BUSY_REASON``), so pressing "Train
+    # style" while, say, an import was in flight was not blocked.
+    busy = ctx.tasks.any_busy("lora:")
     pressed = widgets.disabled_button(
         "Train style",
-        ok and not ctx.busy("lora:train"),
-        reason="" if ok else needed,
+        ok and not busy,
+        reason=needed if not ok else (_LORA_BUSY_REASON if busy else ""),
     )
     if pressed:
         # Last time's rings first: a new submit is judged on its own.

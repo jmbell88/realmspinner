@@ -204,3 +204,43 @@ def test_ask_words_without_a_model_is_the_mapper(text):
     changed, notes, source = inker_flourish.ask_words(rec, text, model_dir=None)
     expected, expected_notes = keywords.apply(rec, text)
     assert changed == expected and notes == expected_notes and source == "keywords"
+
+
+def test_land_prompt_does_not_overwrite_a_newer_pending_edit_with_a_stale_snapshot():
+    """The 2026-09-16 audit, finding inker-flourish-02: ``submit_prompt``
+    snapshots ``current_recipe`` once at submit time and hands it to the
+    async task; ``land_prompt`` used to call ``set_pending`` with that task's
+    result unconditionally, with no comparison against what
+    ``state.flourish_pending[group]`` had become in the meantime -- so a
+    manual edit staged after the prompt was submitted but before it landed
+    was silently discarded and replaced by the prompt's own edit, itself
+    computed from the older base recipe.
+    """
+    ctx, tab, group = _scene()
+    state = ctx.state.inker
+    base = inker_flourish.current_recipe(state, tab, group)
+    # What the prompt's own (off-thread) answer would have been, derived from
+    # the base recipe that was current when it was submitted.
+    prompt_recipe, prompt_notes = keywords.apply(base, "bigger")
+    # A manual edit lands -- e.g. a slider nudge -- after the prompt was
+    # submitted but before its result comes back.
+    newer, _ = keywords.apply(base, "colder")
+    assert newer != base and prompt_recipe != base and prompt_recipe != newer
+    inker_flourish.set_pending(state, group, newer, now=0.0)
+
+    done = Done(
+        key=f"{inker_flourish.PROMPT_KEY}:{tab.uid}:{group}",
+        result={
+            "tab": tab.uid,
+            "group": group,
+            "recipe": prompt_recipe,
+            "notes": prompt_notes,
+            "source": "keywords",
+            "base": base,
+        },
+    )
+    assert not inker_flourish.land_prompt(ctx, state, done, now=1.0)
+    # The newer edit is exactly as the slider left it -- not overwritten by
+    # the prompt's stale-derived answer, and not discarded either.
+    assert state.flourish_pending[group] == newer
+    assert ctx.toasts[-1][1] == "info"

@@ -189,6 +189,17 @@ def _import_report(ctx: Any, state: Any) -> None:
             widgets.muted(f"{len(ignored)} source bone(s) ignored: {shown}{more}")
         else:
             widgets.muted("0 source bone(s) ignored")
+        # The 2026-09-16 audit's poser-01 fix threaded this field through
+        # cliptransfer.transfer's report but, correctly per its own brief,
+        # left rendering it to whoever owns this pane; closed the same day.
+        duplicates = dict(report.get("duplicate_source_names") or {})
+        if duplicates:
+            names = ", ".join(sorted(duplicates)[:3])
+            more = f" and {len(duplicates) - 3} more" if len(duplicates) > 3 else ""
+            widgets.muted(
+                f"{len(duplicates)} normalized source bone name(s) collided: "
+                f"{names}{more} -- only one raw name each kept its motion"
+            )
         closed = "loops" if loop.get("closed") else "does not loop"
         residual = loop.get("residual_deg")
         residual_text = f", {residual:.1f} deg residual" if residual is not None else ""

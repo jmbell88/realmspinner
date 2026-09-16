@@ -1384,6 +1384,31 @@ def sheet_preview_png(
         except ValueError as exc:
             raise invalid_from(exc, "that sheet's sidecar is corrupted", field="sheet_id") from exc
 
+    # service-queue-03 (the 2026-09-16 audit): everything above this point
+    # bounds the *composed* preview built from the sidecar's own numbers --
+    # the ``movement is None`` (whole-atlas) branch never calls
+    # ``check_atlas_size`` at all, and even where it does, none of those
+    # checks ever read ``png_path``'s own declared dimensions. A hand-edited,
+    # corrupted, or otherwise oversized ``sheet.png`` beside a small,
+    # innocent-looking sidecar used to be decoded in full (``opened.load()``)
+    # before any ceiling on the file itself applied. Read from the header,
+    # the same shape ``files._check_pixels`` / ``loras.py``'s training-image
+    # door use: ``Image.open`` alone parses only the header, so ``.width``/
+    # ``.height`` are free -- the expensive part is ``.load()`` below.
+    try:
+        with Image.open(png_path) as probe:
+            atlas_width, atlas_height = probe.width, probe.height
+    except Exception as exc:
+        raise invalid_from(
+            exc, "that sheet's PNG could not be read", field="sheet_id"
+        ) from exc
+    try:
+        sheetlib.check_atlas_size(atlas_width, atlas_height)
+    except ValueError as exc:
+        raise invalid_from(
+            exc, "that sheet's PNG is corrupted", field="sheet_id"
+        ) from exc
+
     with Image.open(png_path) as opened:
         opened.load()
         atlas = opened.convert("RGBA")

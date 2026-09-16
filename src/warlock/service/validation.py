@@ -95,7 +95,7 @@ MAX_TAG_LEN = 32
 # by accident rather than on purpose. Instead each reroll/promotion path in
 # ``service/_jobs_resubmit.py`` overwrites them explicitly. That compensation
 # lives in a different file from this list, so
-# ``tests/test_jobs_resubmit.py::test_every_door_that_copies_params_rerolls_the_seeds``
+# ``tests/test_rerun_regressions.py::test_every_door_that_copies_params_rerolls_the_seeds``
 # ties the two ends together: a future reroll-shaped door that copies
 # ``source["params"]`` and forgets the override would reproduce the previous
 # run's seed -- a reroll that looks like it ran and returns a byte-identical

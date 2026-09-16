@@ -38,6 +38,17 @@ def request_rerender(ctx: Any, tab: SongTab | None = None) -> None:
     tab.render_dirty = True
 
 
+#: The song's own render key prefix. Every sibling key in this file
+#: (``AUDITION_PREFIX``, ``PATTERN_PREFIX``, ``PREVIEW_PREFIX`` below) is a
+#: named module-level constant for exactly this reason, but until the
+#: 2026-09-16 audit (finding sirens-04) this one was spelled out by hand at
+#: the two call sites below and again at ``sirens_mode.on_task_done`` and
+#: ``on_task_failed``'s dispatch, with nothing tying the four together: a
+#: rename at one site would desynchronize submission from adoption or
+#: failure handling with no test catching the drift.
+RENDER_PREFIX = "sirens-render:"
+
+
 def request_render(ctx: Any, tab: SongTab | None = None) -> None:
     """Ask for a render. Safe to call every frame -- that is the point."""
     tab = tab or active(ctx)
@@ -56,7 +67,7 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
     # ``render_dirty`` deliberately stays armed when it does, so a song being
     # rendered was re-serialised in full on every frame until the render landed
     # -- the work thrown away, once per frame, for as long as the render took.
-    if ctx.busy(f"sirens-render:{uid}"):
+    if ctx.busy(f"{RENDER_PREFIX}{uid}"):
         return
 
     from .sirens import wsng
@@ -93,7 +104,7 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
         }
 
     tab.rendering = True
-    if ctx.submit(f"sirens-render:{uid}", run):
+    if ctx.submit(f"{RENDER_PREFIX}{uid}", run):
         # Cleared *only* on an accepted submit. The runner refuses a key
         # already in flight, and clearing regardless would drop the note that
         # arrived while the previous render was running.

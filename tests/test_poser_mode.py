@@ -1270,6 +1270,53 @@ def test_land_rerig_ends_the_skeleton_editing_session_and_announces_a_custom_ske
     )
 
 
+def test_the_skeleton_rename_buffer_does_not_leak_an_uncommitted_edit_across_asset_sessions(
+    svc, monkeypatch
+):
+    """The 2026-09-16 audit, finding poser-03: ``skeleton_rename`` (the rename box's live typing
+    buffer) and ``skeleton_rename_for`` (which bone it was seeded for) are the
+    only fields in the skeleton-editor's session-state block that ``open_asset``,
+    ``close_asset`` and ``_land_rerig`` left untouched -- ``poser_skeleton._rename``
+    re-seeds the box only when the *selected bone's name* changes underneath it,
+    and every humanoid-template rig shares bone names ("hips", "spine", "head",
+    ...). Closing an asset with typed-but-uncommitted rename text left in the
+    box, then opening a different asset built from the same template and
+    selecting a same-named bone, showed the first asset's abandoned text as
+    though it were the new asset's own bone name -- and committing it (Enter,
+    or tabbing away) renamed a pivot on the wrong rig for real.
+    """
+    ctx, _viewer_a, _job_a = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
+    state = poser_mode.ensure(ctx)
+    # What poser_skeleton._rename leaves standing on the state after the user
+    # typed into the box for "hips" but never pressed Enter or tabbed away.
+    state.skeleton_rename = "an uncommitted edit belonging to the first asset"
+    state.skeleton_rename_for = "hips"
+
+    job_b = _rigged_job(svc, bones=_humanoid_bones())
+    poser_mode.open_asset(ctx, {"id": job_b, "name": "B"})
+    assert state.skeleton_rename == "", "open_asset must not carry A's stale buffer onto B"
+    assert state.skeleton_rename_for is None
+
+    # Re-arm, and prove close_asset clears it too.
+    state.skeleton_rename = "another uncommitted edit"
+    state.skeleton_rename_for = "spine"
+    poser_mode.close_asset(ctx)
+    assert state.skeleton_rename == ""
+    assert state.skeleton_rename_for is None
+
+    # And _land_rerig -- the automatic path, with no click behind it to hide
+    # a session boundary the way open_asset's and close_asset's guards do.
+    ctx2, _viewer_c, _job_c = _opened_asset_for_skeleton(
+        svc, monkeypatch, **_custom_rig_meta()
+    )
+    state2 = poser_mode.ensure(ctx2)
+    state2.skeleton_rename = "a third uncommitted edit"
+    state2.skeleton_rename_for = "head"
+    poser_mode._land_rerig(ctx2)
+    assert state2.skeleton_rename == ""
+    assert state2.skeleton_rename_for is None
+
+
 # --- applying ----------------------------------------------------------------
 
 

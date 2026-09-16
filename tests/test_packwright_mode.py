@@ -619,6 +619,47 @@ def test_closing_a_packwright_tab_forgets_its_remembered_column_count():
     assert tab.uid not in packwright_settings._last_columns
 
 
+def test_closing_the_tab_a_pending_tileset_import_named_drops_it():
+    """The 2026-09-16 audit: closing the tab a pending tile-set import
+    belongs to (``tileset_import_uid``) used to leave the popup on screen
+    describing a document that no longer exists -- with its texture and grid
+    cache alive -- until a human noticed and cancelled it by hand. Fails
+    against the unfixed code: ``close_tab`` never touches ``tileset_import``.
+    """
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    state = packwright_mode.ensure(ctx)
+    state.tileset_import = ("C:/sheet.png", "sheet", np.zeros((4, 4, 4), dtype=np.uint8))
+    state.tileset_import_uid = tab.uid
+    state.tileset_import_open = True
+    state.tileset_preview_key = ("stale", (32, 32), False, False)
+
+    packwright_mode.close_tab(ctx, tab.uid)
+
+    assert state.tileset_import is None
+    assert state.tileset_import_uid == ""
+    assert state.tileset_import_open is False
+    assert state.tileset_preview_key is None
+
+
+def test_closing_an_unrelated_tab_leaves_the_pending_tileset_import_alone():
+    """The clear is scoped to the tab the import named -- closing some other
+    open tab must not drop a popup the user is still answering."""
+    ctx = FakeCtx()
+    tab = _tab(ctx)
+    other = _tab(ctx)
+    state = packwright_mode.ensure(ctx)
+    state.tileset_import = ("C:/sheet.png", "sheet", np.zeros((4, 4, 4), dtype=np.uint8))
+    state.tileset_import_uid = tab.uid
+    state.tileset_import_open = True
+
+    packwright_mode.close_tab(ctx, other.uid)
+
+    assert state.tileset_import is not None
+    assert state.tileset_import_uid == tab.uid
+    assert state.tileset_import_open is True
+
+
 # --- keys ---------------------------------------------------------------------
 
 

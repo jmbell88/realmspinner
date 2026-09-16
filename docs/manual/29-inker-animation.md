@@ -592,7 +592,8 @@ cels** clears the flags and leaves your work; **Replace painted cels** renders o
 the same three-way rule a re-rendered character sheet is merged with, for the same reason: a cel
 wrongly kept is one click to re-take, and a cel wrongly taken is an afternoon gone.
 
-**Detach effect** forgets the recipe and leaves the layers as ordinary layers. The pixels do not
+**Detach effect (keep layers)** in the Flourish menu, or **Detach** in the inspector strip, forgets
+the recipe and leaves the layers as ordinary layers. The pixels do not
 change; only the ability to regenerate goes. An effect's recipe is saved in the `.ora` beside the
 group it belongs to and comes back when the file is opened, so a regenerate is still possible next
 week; a save to `.aseprite` keeps the layers and tags and drops the recipe, because that format has

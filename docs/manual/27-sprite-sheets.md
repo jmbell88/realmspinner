@@ -121,10 +121,12 @@ snippet above still works. A reader that does not recognise a block should skip 
   palette reduction. Absent, the ordinary case, is the pixel-art render this chapter already
   describes. See [Troupe → The options](34-troupe.md#the-options).
 
-One addition is **per cell** rather than top level: a cell rendered with sockets carries a
-**`sockets`** map beside its `pivot_x`/`pivot_y` — one entry per socket the body plan places
-(`crown`, `core`, `weapon_main` and so on), each with `x`, `y` in that cell's own pixels, a `depth`,
-and `behind`, which says whether the socket was on the far side of the body in that direction. That
+One addition is **per cell** rather than top level: a cell rendered with sockets — or copied
+byte-for-byte from a base sheet on a subset re-render, carrying forward what that base sheet already
+measured — carries a **`sockets`** map beside its `pivot_x`/`pivot_y` — one entry per socket the
+body plan places (`crown`, `core`, `weapon_main` and so on), each with `x`, `y` in that cell's own
+pixels, a `depth`, and `behind`, which says whether the socket was on the far side of the body in
+that direction. That
 is what lets an engine hang its own effect where Warlock hung its flame, and draw it behind the
 sprite when the character has turned away.
 

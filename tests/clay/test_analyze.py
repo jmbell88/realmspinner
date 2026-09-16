@@ -212,6 +212,50 @@ def test_analyze_does_not_stall_on_one_large_flat_triangle() -> None:
     assert len(result.pairs) == 1
 
 
+def _grid_mesh(rows: int, cols: int, quad_size: float) -> bm.Mesh:
+    """A flat floor tiled from `rows` x `cols` separate quad faces, each
+    `quad_size` metres across -- an ordinary blockout floor built from many
+    tiles, not one giant plate."""
+    positions = [
+        (c * quad_size, 0.0, r * quad_size)
+        for r in range(rows + 1)
+        for c in range(cols + 1)
+    ]
+    stride = cols + 1
+    faces = []
+    for r in range(rows):
+        for c in range(cols):
+            a = r * stride + c
+            faces.append([a, a + 1, a + 1 + stride, a + stride])
+    return bm.from_faces(positions, faces)
+
+
+def test_analyze_does_not_stall_on_many_moderately_large_triangles() -> None:
+    """The 2026-09-16 audit: `_MAX_CELLS_PER_TRIANGLE_AXIS` only bounds what
+    *one* triangle can cost `_grid_candidates`, not the total across *many*
+    triangles that are each individually under that cap. A floor tiled from
+    20,000 separate 10 m quads -- each on its own saturating the per-triangle
+    cap, the way an authored level's floor plates routinely do -- measured
+    5.8 s in the unfixed pure-Python registration loops, at only 10% of
+    MAX_ANALYZE_TRIANGLES, so none of analyze()'s other ceilings caught it
+    either. A blockout floor built from many ordinary tiles, paired against a
+    small box, must stay fast.
+    """
+    import time
+
+    floor = _obj(_grid_mesh(rows=100, cols=100, quad_size=10.0), name="floor")
+    box = _obj(bp.box((0.5, 0.5, 0.5)), translation=(5.0, 0.25, 5.0), name="box")
+
+    t0 = time.time()
+    result = analyze.analyze([floor, box])
+    dt = time.time() - t0
+
+    # Comfortably above what the fix needs and comfortably below the 5.8 s
+    # the unfixed code measured on this exact shape.
+    assert dt < 2.0
+    assert len(result.pairs) == 1
+
+
 def test_analyze_refuses_before_triangulating_past_max_analyze_triangles(monkeypatch) -> None:
     """The 2026-09-14 audit's clay-04: MAX_ANALYZE_TRIANGLES used to be
     checked only after _geometry() -- via cached_triangulation -- had

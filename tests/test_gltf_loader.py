@@ -952,6 +952,25 @@ def test_a_mesh_count_over_the_ceiling_is_refused_at_load(monkeypatch):
         gltf.load(_glb(doc, b""))
 
 
+def test_load_refuses_a_mesh_declaring_more_primitives_than_this_viewer_will_build(monkeypatch):
+    """The 2026-09-16 audit: MAX_MESHES bounds how many *mesh* entries a file
+    may declare, but nothing bounded how many *primitives* one mesh entry may
+    declare. A single mesh referencing the same accessor from many primitive
+    entries stays tiny in bytes (MAX_TOTAL_BYTES never trips) while still
+    costing one Primitive object -- and its own allocation -- per entry;
+    reproduced at 2,000,000 primitives in a 66 MB GLB, ``load`` took 6.3 s
+    with every other ceiling (MAX_NODES/MAX_MATERIALS/MAX_MESHES/MAX_CAMERAS/
+    MAX_LIGHTS/MAX_TOTAL_BYTES) left untripped.
+    """
+    monkeypatch.setattr(gltf, "MAX_PRIMITIVES", 2)
+    doc = {
+        "asset": {"version": "2.0"},
+        "meshes": [{"primitives": [{"attributes": {}}, {"attributes": {}}, {"attributes": {}}]}],
+    }
+    with pytest.raises(ValueError, match="more than this viewer will load"):
+        gltf.load(_glb(doc, b""))
+
+
 def test_an_oversized_texture_costs_the_texture_and_not_the_model(monkeypatch, caplog):
     """Same policy as a corrupt map. The ceiling is lowered rather than a
     16-megapixel image built, which would cost the suite more than the bug."""

@@ -535,6 +535,13 @@ def _apply_binop(op: str, left: float, right: float) -> float:
             raise ValueError("division by zero.") from None
         except (ValueError, OverflowError):
             raise ValueError("expression evaluates to a non-finite number.") from None
+        except TypeError:
+            # 2026-09-16 audit: a negative `left` with a non-integer `right`
+            # (e.g. `(0-4)^0.5`) makes `float.__pow__` return a `complex`,
+            # and `float(complex)` raises `TypeError`, not `ValueError` --
+            # neither caller's `except ValueError` catches that, so it used
+            # to escape uncaught instead of becoming this refusal.
+            raise ValueError("expression evaluates to a non-finite number.") from None
     # pragma: no cover - the parser emits no other op
     raise AssertionError(f"unknown operator {op!r}.")
 

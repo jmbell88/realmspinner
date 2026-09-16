@@ -1558,6 +1558,72 @@ def test_op_rig_validate_joints_failure_falls_back_to_the_bbox_fit(monkeypatch, 
     )
 
 
+def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adjusted(
+    monkeypatch, tmp_path
+):
+    """The 2026-09-16 audit: ``op_rig``'s own ``joints="measured"`` branch
+    rebinds its local ``spec`` with the jointfit-measured bones (``spec =
+    {**spec, "bones": validated}``) before calling ``_rig_bones`` -- so
+    ``_rig_bones``'s caller-supplied branch (``spec.get("fit") or {"method":
+    "manual"}``) and ``op_rig``'s own ``adjusted=bool(spec.get("bones"))``
+    could no longer tell "the caller supplied bones" from "op_rig's own
+    measured-joints branch just populated spec['bones']" -- so a Troupe/
+    T-pose rig built with ``joints="measured"`` recorded ``"adjusted": true``
+    and ``"fit": {"method": "manual"}``, identical to a real user
+    hand-correction, breaking docs/INVARIANTS.md's "adjusted still means
+    only 'the user moved these'"."""
+    import types
+
+    from warlock.pipelines import blender_worker, jointfit
+
+    class _IdentityMatrix:
+        def __matmul__(self, other):
+            return other
+
+    mesh = types.SimpleNamespace(
+        type="MESH",
+        parent=None,
+        modifiers=[],
+        vertex_groups=[],
+        matrix_world=_IdentityMatrix(),
+        data=types.SimpleNamespace(vertices=[types.SimpleNamespace(co=(0.0, 0.0, 0.0))]),
+    )
+    bpy = _fake_bpy_with_incoming_armature([mesh])
+
+    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
+    monkeypatch.setattr(blender_worker, "_world_bounds", lambda _mesh: ([0.0] * 3, [1.0] * 3))
+    monkeypatch.setattr(jointfit, "payload", lambda _points: {"bones": []})
+
+    measured_bones = _humanoid_rig_bones()
+    monkeypatch.setattr(rigging, "validate_joints", lambda _measured, _template: measured_bones)
+    monkeypatch.setattr(blender_worker, "_build_armature", lambda _bpy, _bones: object())
+    monkeypatch.setattr(blender_worker, "_skin", lambda *a, **k: ("automatic", None))
+    monkeypatch.setattr(blender_worker, "_export", lambda *a, **k: None)
+
+    source = tmp_path / "model.glb"
+    source.write_bytes(b"fake-glb")
+    spec = {
+        "template": "humanoid",
+        "source_glb": str(source),
+        "out_glb": str(tmp_path / "rig.glb"),
+        "out_json": str(tmp_path / "rig.json"),
+        "joints": "measured",
+    }
+
+    result = blender_worker.op_rig(bpy, spec)
+    assert result["ok"] is True
+
+    rig_meta = json.loads((tmp_path / "rig.json").read_text(encoding="utf-8"))
+    assert rig_meta["fit"]["method"] == "jointfit", (
+        "an automatic geometric measurement must not be tagged 'manual', the "
+        f"same tag a real user hand-correction gets -- got {rig_meta['fit']!r}"
+    )
+    assert rig_meta["adjusted"] is False, (
+        "docs/INVARIANTS.md: 'adjusted still means only the user moved these' "
+        "-- a measured fit is not a correction the user made"
+    )
+
+
 # --- with Blender actually installed ----------------------------------------
 
 

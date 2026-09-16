@@ -735,24 +735,6 @@ def validate_target_cell(
     return []
 
 
-def cell_dimensions(
-    working: tuple[int, int], target_cell_px: int | None, *, isometric: bool = False
-) -> tuple[int, int]:
-    """Return output dimensions; a blank target never reduces or upscales."""
-    if target_cell_px is None:
-        return int(working[0]), int(working[1])
-    issues = validate_target_cell(target_cell_px, isometric=isometric)
-    if issues:
-        raise ValueError(issues[0].message)
-    width = int(target_cell_px)
-    height = width // 2 if isometric else width
-    if width > working[0] or height > working[1]:
-        raise ValueError(
-            "target cell size is larger than the working cell; generation will not upscale"
-        )
-    return width, height
-
-
 def validate_request(
     request: GenerationRequest, resolved: ResolvedRecipe | None = None
 ) -> list[CompatibilityIssue]:

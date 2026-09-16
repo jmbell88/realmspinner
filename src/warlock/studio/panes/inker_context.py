@@ -207,7 +207,14 @@ def _selection_bar(ctx: Any, state: Any, tab: Any) -> None:
     that says what the next one will do to it does too.
     """
 
-    imgui.same_line()
+    # The 2026-09-16 audit: a stray ``imgui.same_line()`` used to open this
+    # function, with no widget drawn before it in this call to continue --
+    # ``_float_bar`` and ``_gesture_bar`` both draw a label first and *then*
+    # call ``same_line()`` to keep their toolbar on it. Drawn straight after
+    # ``_tool_bar`` (whose own row ends in ``widgets.divider()``, not an
+    # inline widget), that same_line() shifted this row 8px right and 5px
+    # closer to the divider than every other row in the bar starts.
+    #
     # ``sticky_combine``, not ``combine``: the second is what the *current*
     # gesture is doing (a held Shift wins for its own drag), and drawing the
     # bar from it would make the control flicker to Add while Shift is down

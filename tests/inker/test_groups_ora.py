@@ -311,6 +311,50 @@ def test_a_malformed_grouping_costs_the_folders_and_not_the_grid(tmp_path: Path)
     assert not back.groups
 
 
+def test_a_grouping_with_too_many_nodes_costs_the_folders_and_not_the_grid(
+    tmp_path: Path, monkeypatch
+):
+    """The 2026-09-16 audit found "groups"."nodes" had no ceiling at all,
+    unlike every sibling list this module already bounds -- a crafted
+    ``animation.json`` could name hundreds of thousands of nodes and build one
+    ``GroupNode`` per entry with no refusal. Counts constructor calls rather
+    than trusting the final ``doc.groups``, which an unreferenced node would
+    leave empty either way (``_install_groups`` prunes anything with no
+    members)."""
+    from warlock.studio.inker import groups as gp
+
+    calls: list[dict] = []
+    original = gp.GroupNode
+
+    def _counting(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(gp, "GroupNode", _counting)
+
+    doc = _animated()
+    doc.group_layers([1, 2], name="Ink")
+    path = tmp_path / "many_nodes.ora"
+    inker.write_ora(doc, path)
+
+    with zipfile.ZipFile(path) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    payload = json.loads(members[inker_ora.ANIMATION_MEMBER])
+    node = payload["groups"]["nodes"][0]
+    payload["groups"]["nodes"] = [node] * (inker_ora.MAX_ORA_METADATA_ENTRIES + 1)
+    payload["groups"]["tracks"] = []
+    members[inker_ora.ANIMATION_MEMBER] = json.dumps(payload).encode("utf-8")
+    broken = tmp_path / "broken_nodes.ora"
+    with zipfile.ZipFile(broken, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+    calls.clear()
+    back = inker.Document.load(broken)
+    assert calls == []
+    assert not back.groups
+
+
 def test_a_groups_key_that_is_not_a_mapping_is_ignored(tmp_path: Path):
     doc = _animated()
     path = tmp_path / "anim.ora"

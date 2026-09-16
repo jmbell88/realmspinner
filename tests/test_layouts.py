@@ -1118,3 +1118,107 @@ def test_heights_divides_evenly_once_the_borrowed_share_is_out_of_the_way():
     even = skeleton.heights(slots, 900.0, {})
     assert min(even) > 0.0
     assert sum(even) == pytest.approx(900.0)
+
+
+# --- the 2026-09-16 audit: picking an unreadable layout ----------------------
+
+
+def test_choosing_an_unreadable_layout_in_settings_explains_why_it_did_not_switch():
+    """2026-09-16 audit, shell-settings: ``app_settings``'s workspace-layout
+    combo lists unreadable entries (saved by a newer build) as pickable --
+    labelled "<name> (a newer version)" -- but ``Library.set_active`` refuses
+    to switch to one. Before this fix, ``_layouts`` discarded that pick with
+    no toast, tooltip or other explanation and the combo just reverted to the
+    active layout next frame.
+
+    ``_layout_pick_reason`` is the pure decision ``_layouts`` now calls before
+    deciding whether to switch or explain -- the same shape as
+    ``review_panes._launch_sweep_reason`` -- so this is tested without an
+    imgui context.
+    """
+    from warlock.studio.panes.app_settings import _layout_pick_reason
+
+    reason = _layout_pick_reason("future", "default", False)
+    assert reason != "", "no reason at all: the pick would be silently discarded"
+    assert "future" in reason
+
+    # Already active, or a readable pick: nothing to explain, and _layouts
+    # reads that as "go ahead and switch" / "nothing changed".
+    assert _layout_pick_reason("default", "default", True) == ""
+    assert _layout_pick_reason("mirrored", "default", True) == ""
+    assert _layout_pick_reason("default", "default", False) == ""
+
+
+def test_layouts_pane_toasts_rather_than_silently_discards_an_unreadable_pick(monkeypatch):
+    """The same claim, exercised through the real ``Library`` and a fake
+    ``ctx`` -- proves ``_layouts`` actually wires ``_layout_pick_reason`` into
+    ``ctx.toast`` and never calls ``set_active`` with an unreadable name."""
+    from _ui_context import imgui_context
+
+    from warlock.studio.panes import app_settings
+
+    settings = _Settings({layouts.LAYOUTS_KEY: {"future": {"v": 999, "workspaces": {}}}})
+    library = layouts.Library(settings)
+    assert not library.layouts["future"].readable
+    assert library.active == "default"
+
+    monkeypatch.setattr(app_settings.widgets, "labeled_combo", lambda *a, **k: "future")
+
+    class _Ctx:
+        def __init__(self) -> None:
+            self.layouts = library
+            self.toasts: list[tuple[str, str]] = []
+
+        def toast(self, message, kind="info"):
+            self.toasts.append((message, kind))
+
+    ctx = _Ctx()
+    with imgui_context(monkeypatch) as imgui:
+        imgui.new_frame()
+        imgui.set_next_window_size((500.0, 400.0))
+        imgui.begin("probe")
+        try:
+            app_settings._layouts(ctx)
+        finally:
+            imgui.end()
+        imgui.end_frame()
+        imgui.render()
+
+    assert library.active == "default", (
+        "picking an unreadable layout must never call set_active on it"
+    )
+    assert ctx.toasts, (
+        "picking an unreadable layout discarded the pick with nothing "
+        "on screen explaining why"
+    )
+
+
+# --- the 2026-09-16 audit: the share clamp's one named source ---------------
+
+
+def test_layouts_share_clamp_matches_layout_share_min_and_max(monkeypatch):
+    """2026-09-16 audit, shell-settings: the vertical-split share clamp was a
+    bare ``(0.25, 0.75)`` literal repeated four times in ``layouts.py``, while
+    the identical bound lived as named constants ``layout.SHARE_MIN``/
+    ``SHARE_MAX`` in the sibling module, with nothing keeping the two copies
+    in sync -- the same drift ``tokens.py``'s own docstring names as the
+    reason ``SIDEBAR_WIDTHS`` was centralised there instead of left in
+    ``layout``. Now both bounds live once, in ``tokens.SHARE_MIN``/
+    ``SHARE_MAX``, and ``layouts.Library`` clamps through
+    ``tokens.clamp_share``.
+    """
+    from warlock.studio import layout as layout_mod
+    from warlock.studio import tokens
+
+    assert tokens.SHARE_MIN == layout_mod.SHARE_MIN
+    assert tokens.SHARE_MAX == layout_mod.SHARE_MAX
+
+    # Proof the clamp actually reads tokens.SHARE_MIN/SHARE_MAX at call time,
+    # not a copy of the numbers baked in when layouts.py was imported: move
+    # the bound and watch a stored share follow it.
+    monkeypatch.setattr(tokens, "SHARE_MIN", 0.10)
+    monkeypatch.setattr(tokens, "SHARE_MAX", 0.90)
+    settings = _Settings()
+    library = layouts.Library(settings)
+    library.set_share("clay", "clay-tools", 0.05)
+    assert library.share("clay", "clay-tools") == pytest.approx(0.10)

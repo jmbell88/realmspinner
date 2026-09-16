@@ -1063,7 +1063,15 @@ class AgentHost:
         try:
             while True:
                 try:
-                    frame_bytes = conn.recv_bytes()
+                    # The 2026-09-16 audit (agents-04): omitting `maxlength`
+                    # let a confused or hostile peer past the handshake force
+                    # this listener to buffer an unbounded frame before
+                    # `rpc.decode_request`'s own length check (against
+                    # `rpc.MAX_FRAME`) ever ran -- `recv_bytes` itself now
+                    # enforces the ceiling at the read, and the `OSError` it
+                    # raises on overflow is the same one this except clause
+                    # already treats as "the bridge went away."
+                    frame_bytes = conn.recv_bytes(maxlength=rpc.MAX_FRAME)
                 except (EOFError, OSError):
                     # The bridge went away -- not this host's problem to
                     # report, just to notice.
@@ -1731,6 +1739,15 @@ class AgentHost:
             result = self._status(calls, arguments)
             op.state, op.delivered, op.job = DONE, True, None
             op.result = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            # The 2026-09-16 audit (agents-05): _Op.args's own docstring
+            # promises task-mode arguments are "Dropped (set back to None)
+            # the moment they are used" -- but this branch's op.job is
+            # always None from the moment it is minted, so _task_status's
+            # `if job is not None:` clearing branch (the only place that
+            # ever clears op.args for any other task-mode tool) never runs
+            # for a task-mode warlock_status call. Cleared here instead,
+            # right after this op's one and only use of its own arguments.
+            op.args = None
             return {"operation_id": op.operation_id, "status": TASK_STATUS[DONE]}
         if name in agent_character.HANDLERS:
             job = self._queue_service_job_nowait(

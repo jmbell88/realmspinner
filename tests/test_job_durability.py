@@ -399,6 +399,65 @@ async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
     assert charsheet  # imported for the fakes above to be the right shapes
 
 
+async def test_separate_job_discards_stems_when_cancelled_after_the_split_finishes(
+    worker, monkeypatch
+):
+    """service-queue-02 (the 2026-09-16 audit): ``_separate`` never checked
+    ``self._cancel.event.is_set()`` anywhere in its body, and called
+    ``self._cancel.commit()`` unconditionally the instant
+    ``rigging.run_worker`` reported ``ok=True`` -- before
+    ``_write_stems_sidecar`` writes ``stems.json``, the completion gate. Every
+    sibling stage that finishes with a served-name write (``_rig``,
+    ``_remesh``, ``_charsheet``, ``_lora_train`` and ``_music`` itself,
+    muse-01) re-checks the cancel event immediately before its own commit and
+    returns early when the user cancelled in the interim; ``_separate`` was
+    the one kind with no such check, so a cancel racing the subprocess's
+    natural completion could publish a split the user had already asked to
+    stop.
+
+    The cancel is set from inside the fake ``rigging.run_worker`` -- the
+    instant it would return ``ok=True`` -- which is exactly the race window
+    the fix closes.
+    """
+    from warlock import rigging
+
+    source = worker.store.create("music", "dark ambient", {}, stage="music")
+    source_dir = worker.config.job_dir(source)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "track.wav").write_bytes(b"x")
+    worker.store.set_status(source, "done")
+
+    def fake_run_worker(spec, *, on_progress=None, on_start=None, timeout=0.0, **kwargs):
+        out_dir = Path(spec["out_dir"])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for name in spec["sources"]:
+            (out_dir / f"{name}.wav").write_bytes(b"stem")
+        # The race this fix closes: a cancel landing the instant the split
+        # subprocess reports success, before stems.json (the completion
+        # gate) is written.
+        if worker._cancel is not None:
+            worker._cancel.event.set()
+        return {"ok": True, "files": list(spec["sources"]), "rate": 44100}
+
+    monkeypatch.setattr(rigging, "run_worker", fake_run_worker)
+
+    split_id = worker.store.create("separate", "x", {"source_job": source})
+
+    worker.start()
+    await _wait_until(
+        lambda: worker.store.get(split_id)["status"] in ("done", "error", "cancelled"),
+        timeout=30.0,
+    )
+    await worker.shutdown()
+
+    row = worker.store.get(split_id)
+    assert row["status"] == "cancelled", row.get("error")
+    assert not (source_dir / "stems" / "stems.json").exists(), (
+        "the split published stems.json (the completion gate) after a cancel "
+        "that landed before the commit"
+    )
+
+
 # --- stable ids --------------------------------------------------------------
 
 

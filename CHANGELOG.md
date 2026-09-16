@@ -18,6 +18,76 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.48 — 2026-09-16
+
+The 2026-09-16 audit swept all sixteen slices of the app and closed every one
+of its 82 findings the same day — three that could crash the app or lose
+part of a document, twenty that gave a wrong result or broke a documented
+promise, and the rest hardening, consistency and doc-truth fixes. The
+sentences below are the ones that change what a user sees; the smaller fixes
+are in the commit each one names.
+
+- **Right-clicking a card in the full-window Library could open the overflow
+  menu for the wrong asset.** A right-click anywhere in the grid — not just
+  on the card under the cursor — acted on the last card drawn that frame, so
+  Rename, Delete or Convert could land on an asset the user never clicked.
+- **A hand-edited or corrupted `.wsng` or `.wblk` with two objects sharing
+  one id could silently destroy the untouched one.** Deleting the pattern (or
+  channel, or one-shot) a user selected in Sirens, or renaming or removing an
+  object in Clay, could take a second object down with it if the file named
+  two entries with the same id; both formats now refuse the file outright
+  instead.
+- **A Tiled map with a sparse tileset and one stray tile id in its own gap
+  crashed the app the moment it rendered.** It now opens cleanly and the gid
+  is refused at the door instead.
+- **The Create stage rail could tick Mesh and Export as done while the
+  reconstruction was still running, or after it had failed.** Both segments
+  now check the job actually finished before showing a checkmark.
+- **A Clay properties analysis could freeze the app for several seconds on an
+  ordinary tiled floor.** Two objects with many separately large-but-not-huge
+  triangles — a floor built from many quad tiles, say — could stall
+  `clay_analyze`'s pairwise pass for multiple seconds at triangle counts far
+  below the call's own ceiling, because only a single oversized triangle was
+  bounded, never the total across many of them. The 2026-09-16 audit
+  reproduced 5.8 s on a 20,000-triangle tiled floor; it now falls back to an
+  approximate answer past a total-cost ceiling instead of stalling.
+- **A hostile or corrupted mesh could hang the Mason asset preview or the
+  Poser/Library compare view.** The glTF loader bounded how many nodes,
+  materials, meshes, cameras and lights a file may declare, but not how many
+  primitives one mesh entry may declare — a mesh replaying a tiny cached
+  accessor from millions of primitive entries stayed under every byte
+  ceiling while still taking seconds to decode. It is now refused at the
+  same door the other ceilings use.
+- **Stem separation stepped between chunks instead of crossfading**, putting
+  an audible seam in every take longer than ten seconds; the overlap-add
+  window now tapers across the whole overlap on both sides.
+- **Cancelling a stem-split job partway through no longer lands as `done`.**
+  Every other job kind already discarded a cancelled job's output; this one
+  did not.
+- **A custom job-database location could be left empty after a multi-root
+  move to `~/.warlock` partly failed and was retried**, so the app would
+  later open an empty database over a full library with no warning.
+- **"Import clip"'s report now names a source bone a normalized-name
+  collision silently dropped**, instead of the collision vanishing one call
+  frame past `clipmaps.match`'s own fix for it.
+- **A Troupe/T-pose rig built from measured joints no longer records itself
+  as `"adjusted": true`/`"fit": "manual"`**, the same label a real user
+  hand-correction gets.
+- **A blank frame with an explicit pivot exported a Packwright sidecar pivot
+  far outside the 0–1 range** a fraction is supposed to stay in, snapping any
+  engine reading it far from where the frame actually sits.
+- **Muse's derive popup and Packwright's tile-set import popup now hold the
+  keyboard**, the way every other modal in the app already does; a chord
+  typed while either was open used to reach the mode underneath it.
+- **A successful loop or points export in Muse now tells you it worked, and
+  where the file went**; it used to say nothing either way.
+- **Familiar now says "did not answer in time" instead of an unmapped error**
+  when `llama-server` is slow or dies mid-reply — the one failure its own
+  timeout budget exists to catch, and the one that was falling through.
+- **`clay_program`'s all-or-nothing guarantee held again**: a negative number
+  raised to a fractional power used to escape uncaught and leave a partially
+  applied program with no rollback.
+
 ## 0.0.47 — 2026-09-14
 
 - **A rig's deformation review sheet shows the poses its labels name.** On a

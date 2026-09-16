@@ -54,3 +54,33 @@ def test_poser_is_excluded_from_the_derived_set_and_kept_as_its_own_branch():
 
 def test_the_derived_set_matches_the_registry_minus_poser():
     assert status_bar._document_modes() == frozenset(palette._DOC_MODES) - {"poser"}
+
+
+def test_resource_item_docstring_does_not_claim_protection_status_drop_order_denies():
+    """``resource_item``'s docstring used to argue it follows
+    ``overlay.doctor_banner``'s rule to "reserve the trailing item before
+    trimming the leading detail" -- i.e. that being kept out of :func:`items`
+    and right-anchored *protects* the resource meter from being the first
+    thing dropped as the status group runs out of room. But
+    ``menus.STATUS_DROP_ORDER`` lists ``"resources"`` first, so
+    ``fit_status_rows`` drops the (right-anchored, trailing) resource meter
+    *before* any of the left-hand ``items()`` keys -- the opposite priority
+    from what the docstring argued for. The 2026-09-16 audit found the
+    docstring stale against ``STATUS_DROP_ORDER``.
+    """
+    from warlock.studio import menus
+
+    # The real priority the docstring must not contradict: "resources" is the
+    # *first* key given up, not the reserved one.
+    assert menus.STATUS_DROP_ORDER[0] == "resources"
+
+    doc = status_bar.resource_item.__doc__ or ""
+    assert "reserve the trailing item" not in doc, (
+        "resource_item's docstring still claims right-anchoring reserves the "
+        "meter ahead of the leading detail, which STATUS_DROP_ORDER denies -- "
+        "\"resources\" is the first key fit_status_rows drops"
+    )
+    assert "STATUS_DROP_ORDER" in doc, (
+        "resource_item's docstring should name the mechanism that actually "
+        "decides drop priority"
+    )

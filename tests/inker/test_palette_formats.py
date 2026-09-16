@@ -126,6 +126,58 @@ def test_the_hex_writer_writes_the_bare_column_every_reader_takes():
     assert gpl.dumps_hex([(0, 0, 0, 255), (255, 128, 64, 255)]) == "000000\nff8040\n"
 
 
+def test_parse_palette_refuses_past_max_rows():
+    """The 2026-09-16 audit found the four ``pipelines/pixel.py`` readers had
+    no row ceiling at all, unlike ``gpl.parse``'s ``MAX_PALETTE_ROWS`` (added
+    after the 2026-09-11 audit's reproduced amplification: a multi-million-row
+    ``.gpl`` compresses to a few KB and builds hundreds of MB in memory). This
+    pins the restated ceiling on all four of the pipeline's own readers."""
+    too_many = pixel.MAX_PALETTE_ROWS + 1
+
+    gpl_body = "GIMP Palette\n#\n" + "\n".join(
+        f"{i % 256} {(i * 7) % 256} {(i * 13) % 256}" for i in range(too_many)
+    )
+    with pytest.raises(ValueError):
+        pixel.parse_gpl(gpl_body)
+
+    hex_body = "\n".join("000000" for _ in range(too_many))
+    with pytest.raises(ValueError):
+        pixel.parse_hex(hex_body)
+
+    pal_body = "JASC-PAL\r\n0100\r\n" + f"{too_many}\r\n" + "\r\n".join(
+        "0 0 0" for _ in range(too_many)
+    )
+    with pytest.raises(ValueError):
+        pixel.parse_pal(pal_body)
+
+    txt_body = "\n".join("ff000000" for _ in range(too_many))
+    with pytest.raises(ValueError):
+        pixel.parse_txt(txt_body)
+
+
+def test_gpl_parse_jasc_hex_and_txt_refuse_past_max_rows_too():
+    """``gpl.parse`` gained ``MAX_PALETTE_ROWS`` after the 2026-09-11 audit;
+    the 2026-09-16 audit found ``parse_jasc``, ``parse_hex`` and ``parse_txt``
+    -- this module's other three readers -- had never gained the same check,
+    even after the day's own inker-misc fixer ported it to ``pipelines.pixel``
+    and named the gap in this module as a follow-up. Closed the same day."""
+    too_many = gpl.MAX_PALETTE_ROWS + 1
+
+    pal_body = "JASC-PAL\r\n0100\r\n" + f"{too_many}\r\n" + "\r\n".join(
+        "0 0 0" for _ in range(too_many)
+    )
+    with pytest.raises(ValueError):
+        gpl.parse_jasc(pal_body)
+
+    hex_body = "\n".join("000000" for _ in range(too_many))
+    with pytest.raises(ValueError):
+        gpl.parse_hex(hex_body)
+
+    txt_body = "\n".join("ff000000" for _ in range(too_many))
+    with pytest.raises(ValueError):
+        gpl.parse_txt(txt_body)
+
+
 def test_the_directory_and_the_readers_offer_the_same_four_suffixes():
     """Two-way. A suffix the directory lists with no reader behind it is a file
     the picker offers and the loader then refuses; a reader with no suffix here
