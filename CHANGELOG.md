@@ -135,6 +135,21 @@ are in the commit each one names.
   Build and Send row sat behind the Windows taskbar. The window is now sized
   to the work area and, once it exists, moved and shrunk so its title bar and
   frame fit inside it too.
+- **A mesh that arrives already rigged now rigs standing up.** CesiumMan's
+  deformation check sheet drew every pose lying on its side: the rotation that
+  stood the mesh upright lived on the skeleton Warlock discards, and removing
+  that skeleton dropped it, but only once Blender next recomputed the scene.
+  By then the new joints had been fitted to the upright box, so the mesh was
+  bound 90 degrees off its skeleton. The strip now keeps the mesh's world
+  orientation and bakes it in before anything is measured.
+- **Thin limbs no longer break apart on a 32 px character sheet.** At that
+  size a shin is about one pixel wide, and where its coverage dipped under
+  half the alpha snap dropped the pixel and the outline painted the hole into
+  a black band. It showed most on the jump's crouch and land frames, feet cut
+  off from the shins. A pixel between a half and a quarter covered is now kept
+  when it is the only link between solid pixels on either side of it; a real
+  gap, such as the space between two legs, stays open. This changes a few
+  pixels on most frames of every pixel-art sheet.
 
 ## 0.0.47 — 2026-09-14
 

@@ -321,17 +321,29 @@ def _strip_incoming_rig(bpy: Any, mesh: Any) -> int:
     ``_export`` writes *the whole scene*; the result is a GLB carrying two
     armatures, one of which nothing is weighted to.
 
-    **And the measurements are wrong, which is the worst of the three.**
-    ``_import_glb`` bakes the Y-up -> Z-up rotation into the vertex data, but a
-    skinned import parents the mesh to its armature and *that* still carries
-    the rotation -- so ``matrix_world`` applies it a second time and
-    ``_world_bounds`` returns a box rotated once too far. Measured on
-    CesiumMan: ``(0.505, 0.896, 1.458)`` against a true
-    ``(1.138, 0.312, 1.507)``, an arm span reported at under half its real
-    width. ``_rig_bones`` fits the template to that box, so every joint lands
-    in the wrong place while the height stays plausible enough to look fine.
-    Unparenting is what makes the two agree, which is why this must run
-    *before* ``_world_bounds`` and not merely before ``_skin``.
+    **And the measurements were wrong, in two unrelated ways.** Before
+    any strip, ``_world_bounds`` already disagrees with the live vertices -- a
+    skinned mesh's ``bound_box`` is not the same shape ``_live_size`` reads off
+    the data by hand (``test_a_skinned_import_measures_wrong_until_it_is_stripped``
+    pins that). What used to be blamed for it here was a "double rotation": the
+    theory that unparenting fixed it by removing a *second* application of the
+    Y-up -> Z-up rotation. It doesn't. CesiumMan's mesh is parented
+    ``Cesium_Man -> Armature -> Z_UP``, and that rotation lives on the
+    parents' matrices -- never baked into this mesh's own vertex data the way
+    ``_import_glb`` bakes it for an unrigged one. A bare unparent (what
+    ``_unbind`` alone does) drops the parent chain but leaves ``matrix_world``
+    *stale*: Blender does not recompute it until the next depsgraph update, so
+    right after unparenting the stale value still carries the rotation and the
+    mesh looks correctly upright -- until something (``_skin``'s
+    ``parent_set``) forces that update, ``matrix_world`` collapses to the
+    mesh's own rotation-free local transform, and the mesh drops onto its
+    side. By then ``_rig_bones`` has already fitted the skeleton to the stale,
+    upright box: every cell of a CesiumMan ``rig_qa.png`` rendered the body
+    lying down, and the old test passed because it never forced that update.
+    The fix carries the world matrix across the unparent by hand and bakes it
+    into the vertex data immediately, the same way ``_import_glb`` already
+    does for a mesh that arrived without a parent -- which is why this must
+    still run *before* ``_world_bounds`` and not merely before ``_skin``.
 
     None of the three can happen to a TRELLIS reconstruction: no skin, no
     armature, no parent. All three happen to a supplied humanoid.
@@ -342,13 +354,37 @@ def _strip_incoming_rig(bpy: Any, mesh: Any) -> int:
     per leg against the template's 4 and 3. Warlock fits its own skeleton, and
     the one the file arrived with is not evidence about where those joints go.
     """
+    armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    if not armatures:
+        # The ordinary TRELLIS path: nothing parented, nothing to restore, so
+        # this stays exactly the cheap no-op it always was.
+        _unbind(mesh)
+        return 0
+
+    # Force matrix_world current *before* touching the parent chain: it is
+    # only ever recomputed by a depsgraph update, and everything below reads
+    # or restores it around an unparent that doesn't trigger one.
+    bpy.context.view_layer.update()
+    world = mesh.matrix_world.copy()
     _unbind(mesh)
     removed = 0
-    for obj in [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]:
+    for obj in armatures:
         removed += len(obj.data.bones)
         bpy.data.objects.remove(obj, do_unlink=True)
-    if removed:
-        print(f"discarded an incoming rig of {removed} bone(s)", flush=True)
+    print(f"discarded an incoming rig of {removed} bone(s)", flush=True)
+    # The rotation the strip just orphaned lived on the parents' matrices,
+    # never this mesh's own vertex data (CesiumMan, 2026-09-16) -- put the world transform back
+    # and bake it in now, on our own terms, rather than let the next
+    # depsgraph update (``_skin``'s ``parent_set``) drop it and leave the mesh
+    # lying on its side. Selection/active must land back on the mesh: every
+    # op after this one (``_world_bounds``, ``_skin``, ``_export``) assumes
+    # ``_import_glb``'s selection, which this would otherwise undo.
+    mesh.matrix_world = world
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.context.view_layer.update()
     return removed
 
 
@@ -358,9 +394,11 @@ def _import_measured(bpy: Any, path: Path) -> Any:
 
     The 2026-09-07 audit (poser-02) found ``op_remesh`` and ``_retexture_frame``
     (shared by ``op_views``/``op_project``) calling ``_world_bounds`` on a
-    freshly imported mesh without stripping first -- exactly the double
-    Y-up -> Z-up bug ``_strip_incoming_rig``'s docstring describes for
-    ``op_rig``, which alone had been fixed. Reproduced against real Blender: a
+    freshly imported mesh without stripping first -- reading a still-skinned
+    mesh's ``bound_box``, which disagrees with its live vertices for the same
+    reason ``test_a_skinned_import_measures_wrong_until_it_is_stripped`` pins
+    (see ``_strip_incoming_rig``'s docstring; it is not a "double rotation").
+    Only ``op_rig`` had been fixed. Reproduced against real Blender: a
     supplied rigged mesh measured as extent ``(0.505, 0.896, 1.458)`` against a
     true ``(1.138, 0.312, 1.507)``. One helper used everywhere ``_import_glb``
     feeds ``_world_bounds`` is what keeps a fourth caller from reintroducing it

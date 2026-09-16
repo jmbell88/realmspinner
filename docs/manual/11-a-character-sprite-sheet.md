@@ -133,7 +133,9 @@ A rig it arrives with is **discarded**, not adopted, so bone names do not have t
 Warlock fits its own nineteen-bone skeleton, because a supplied rig is not evidence about where the
 template's joints go — CesiumMan has nineteen bones like the template and still splits them
 differently, three per arm and four per leg against the template's four and three. The mesh is
-unbound and the old armature removed before a single measurement is taken.
+unbound and the old armature removed before a single measurement is taken, and it keeps the
+orientation the old skeleton stood it in, so a file whose up-axis lived on its armature still rigs
+standing.
 
 This is the route where joints are *measured off your mesh*, and it is why
 [the A-pose trap](08-rigging-and-posing.md#the-a-pose-trap) matters here and not on the Character

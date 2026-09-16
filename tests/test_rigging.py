@@ -1417,18 +1417,44 @@ class _StopHere(Exception):
     the op (real quadriflow/bake/export calls) is not this test's business."""
 
 
+class _FakeMatrix:
+    """Stands in for ``mathutils.Matrix`` in the fake-bpy tests below: only
+    ``_strip_incoming_rig``'s own plumbing (copy, assign, matmul) touches it,
+    never real geometry, since these tests spy on ``_world_bounds`` rather
+    than let it run."""
+
+    def copy(self):
+        return self
+
+    def __matmul__(self, other):
+        return other
+
+
 def _fake_bpy_with_incoming_armature(scene_objects):
     import types
 
     return types.SimpleNamespace(
-        context=types.SimpleNamespace(scene=types.SimpleNamespace(objects=scene_objects)),
+        context=types.SimpleNamespace(
+            scene=types.SimpleNamespace(objects=scene_objects),
+            # F13: _strip_incoming_rig now forces a depsgraph update around
+            # the unparent, and leaves the mesh selected and active the way
+            # _import_glb found it -- both need somewhere to land here.
+            view_layer=types.SimpleNamespace(
+                update=lambda: None,
+                objects=types.SimpleNamespace(active=None),
+            ),
+        ),
         data=types.SimpleNamespace(
             objects=types.SimpleNamespace(
                 remove=lambda obj, do_unlink=True: scene_objects.remove(obj)
             )
         ),
         ops=types.SimpleNamespace(
-            wm=types.SimpleNamespace(read_factory_settings=lambda use_empty: None)
+            wm=types.SimpleNamespace(read_factory_settings=lambda use_empty: None),
+            object=types.SimpleNamespace(
+                select_all=lambda action="SELECT": None,
+                transform_apply=lambda **_kw: None,
+            ),
         ),
     )
 
@@ -1444,6 +1470,8 @@ def test_op_remesh_measures_a_supplied_rigged_meshs_bounds_correctly(monkeypatch
         parent=armature,  # a supplied humanoid usually arrives skinned and parented
         modifiers=[],
         vertex_groups=[],
+        matrix_world=_FakeMatrix(),
+        select_set=lambda _selected: None,
         data=types.SimpleNamespace(polygons=[]),
     )
     bpy = _fake_bpy_with_incoming_armature([mesh, armature])
@@ -1485,7 +1513,14 @@ def test_retexture_frame_measures_a_supplied_rigged_meshs_bounds_correctly(monke
     from warlock.pipelines import blender_worker
 
     armature = types.SimpleNamespace(type="ARMATURE", data=types.SimpleNamespace(bones=[1]))
-    mesh = types.SimpleNamespace(type="MESH", parent=armature, modifiers=[], vertex_groups=[])
+    mesh = types.SimpleNamespace(
+        type="MESH",
+        parent=armature,
+        modifiers=[],
+        vertex_groups=[],
+        matrix_world=_FakeMatrix(),
+        select_set=lambda _selected: None,
+    )
     bpy = _fake_bpy_with_incoming_armature([mesh, armature])
 
     monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)

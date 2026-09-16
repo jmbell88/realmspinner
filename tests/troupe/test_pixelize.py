@@ -185,6 +185,93 @@ def test_an_outline_never_crosses_a_cell_seam():
     assert (np.asarray(out)[:, cell:, 3] == 0).all()
 
 
+# --- F12: the humanoid jump's ankles, dropped by the alpha snap --------------
+#
+# At 512px every jump frame is one continuous body (measured, no mesh gaps).
+# The pixel-art path reduces 16x16 to 32x32 cells; at the ankles a shin is
+# about one output pixel wide and its coverage straddles the 50% threshold
+# row by row, so ``snap_alpha`` used to zero a row in the *middle* of an
+# otherwise-solid limb, and ``outline(mode="outer")`` then painted that hole
+# into a black band cutting the foot off the shin. See ``pixel.snap_alpha``'s
+# own docstring for the rescue rule these tests hold it to.
+
+
+def _thin_limb_frame():
+    """A 512px frame: a torso block, then a leg column whose middle output
+    row is ~44% covered (a 7px strip of a 16px cell) while the rows above and
+    below are ~62% covered (10px) -- the exact shape measured on the real
+    jump frames (rows straddling 128 while their neighbours clear it)."""
+    size = 512
+    stride = size // 32  # the box-reduce stride pixelize(size=(32, 32)) uses
+    color = (168, 120, 88, 255)
+    arr = np.zeros((size, size, 4), dtype=np.uint8)
+    arr[0 : 5 * stride, 10 * stride : 20 * stride] = color  # torso, rows 0-4
+    col = 14
+    x0 = col * stride
+    wide, thin = 10, 7  # 10/16 = 62.5%, 7/16 = 43.75%
+    wide_off, thin_off = (stride - wide) // 2, (stride - thin) // 2
+    arr[5 * stride : 6 * stride, x0 + wide_off : x0 + wide_off + wide] = color
+    arr[6 * stride : 7 * stride, x0 + thin_off : x0 + thin_off + thin] = color
+    arr[7 * stride : 8 * stride, x0 + wide_off : x0 + wide_off + wide] = color
+    return Image.fromarray(arr, "RGBA"), col
+
+
+def test_a_one_pixel_limb_keeps_its_middle_row_through_the_snap():
+    """The regression: without the bridge, row 6 (the thin row) drops to
+    alpha 0 and the outer outline paints it the darkest ramp colour instead of
+    the limb's own -- a black band across the shin. Fails on the unfixed
+    ``snap_alpha`` (no bridge), which zeroes the middle row and lets the outer
+    outline claim it."""
+    frame, col = _thin_limb_frame()
+    out, _ = pixelize.pixelize(
+        frame, size=(32, 32), palette=RAMP, outline_mode="outer"
+    )
+    arr = np.asarray(out)
+    above, middle, below = arr[5, col], arr[6, col], arr[7, col]
+    assert middle[3] == 255
+    assert tuple(middle[:3]) == tuple(above[:3]) == tuple(below[:3])
+    assert tuple(middle[:3]) != pixelize.darkest(RAMP)
+
+
+def test_the_bridge_does_not_join_two_limbs_across_a_real_gap():
+    """The between-the-legs case: a background pixel deep in a real gap --
+    transparent on every side but for limbs two cells further out -- must not
+    be bridged just because opaque pixels exist somewhere in the frame. Only
+    an *immediate* opposite-side pair earns the rescue."""
+    size = 512
+    stride = size // 32
+    color = (168, 120, 88, 255)
+    arr = np.zeros((size, size, 4), dtype=np.uint8)
+    for leg_col in (8, 12):  # two legs, three cells apart -- a real gap
+        x0 = leg_col * stride
+        arr[5 * stride : 8 * stride, x0 : x0 + stride] = color
+    gap_col = 10  # the middle of the gap: immediate neighbours are background
+    gx0 = gap_col * stride
+    thin, off = 7, (stride - 7) // 2
+    arr[6 * stride : 7 * stride, gx0 + off : gx0 + off + thin] = color
+
+    out, _ = pixelize.pixelize(
+        Image.fromarray(arr, "RGBA"), size=(32, 32), palette=RAMP, outline_mode="outer"
+    )
+    arr_out = np.asarray(out)
+    assert arr_out[6, gap_col, 3] == 0
+
+
+def test_the_bridge_never_crosses_a_cell_boundary_in_the_atlas():
+    """``pixelize_atlas`` must snap alpha per cell, the same reason it cleans
+    orphans and outlines per cell: a dense atlas has no gutter. A naive
+    whole-atlas bridge would see this borderline pixel flanked by two opaque
+    neighbours from the cells either side and wrongly join across both seams
+    at once."""
+    arr = np.array(
+        [[[168, 120, 88, 255], [168, 120, 88, 100], [168, 120, 88, 255]]],
+        dtype=np.uint8,
+    )
+    atlas = Image.fromarray(arr, "RGBA")
+    out, _ = pixelize.pixelize_atlas(atlas, columns=3, rows=1, cell=1, palette=RAMP)
+    assert np.asarray(out)[0, 1, 3] == 0
+
+
 def test_an_atlas_is_byte_identical_run_to_run():
     a, _ = pixelize.pixelize_atlas(_atlas(), columns=2, rows=2, cell=8, palette=RAMP)
     b, _ = pixelize.pixelize_atlas(_atlas(), columns=2, rows=2, cell=8, palette=RAMP)

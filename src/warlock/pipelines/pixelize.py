@@ -24,7 +24,12 @@ The chain, in this order, and the order is the design:
    edge, which is a dark fringe on every sprite -- the exact "muddy" failure
    this program exists to escape.
 2. **Snap alpha.** A reduction leaves partial alpha wherever a cell straddled
-   the edge, and partial alpha at 32px reads as a smudge.
+   the edge, and partial alpha at 32px reads as a smudge. Run with
+   ``bridge=True``: a humanoid's shin at 32px cells (measured 2026-09-16) is
+   about one output pixel wide, straddles the 50% threshold row by row, and the plain
+   snap zeroed a row in the middle of an otherwise-continuous limb -- a hole
+   the outline pass below then painted into a black band across the leg. See
+   ``pixel.snap_alpha``'s own docstring for the rescue rule.
 3. **Map to a designed palette.** Not median-cut. ``quantize_shared`` picks the
    colours the render happens to contain, which is why sheets come out muddy;
    an authored ramp is the single highest-leverage art input in the program.
@@ -216,7 +221,10 @@ def pixelize(
     src = image.convert("RGBA")
     exact = not (src.width % size[0] or src.height % size[1])
     small = reduce(src, size, mode=reduce_mode)
-    small = snap_alpha(small, alpha_threshold)
+    # bridge=True rescues a limb about one output pixel wide whose
+    # coverage straddles the alpha threshold -- see snap_alpha's own
+    # docstring. One frame is one "cell", so there is no seam to guard here.
+    small = snap_alpha(small, alpha_threshold, bridge=True)
     small = map_palette(small, entries, dither=dither)
     orphans = 0
     if clean:
@@ -253,10 +261,11 @@ def pixelize_atlas(
     """A whole rendered atlas at ``cell`` px per cell.
 
     Reduction and palette mapping run whole-atlas -- exact cell boundaries, one
-    nearest search instead of ``columns * rows`` of them -- and the two
-    neighbourhood passes run per cell, because a dense atlas has no gutter and
-    a sprite touching its edge would otherwise be outlined against the sprite
-    next to it.
+    nearest search instead of ``columns * rows`` of them -- while the alpha
+    snap and the two neighbourhood passes (clean, outline) run per cell,
+    because a dense atlas has no gutter and a sprite touching its edge would
+    otherwise be bridged, cleaned or outlined against the sprite next to it
+    (for the snap, its thin-limb bridge).
     """
     import numpy as np
     from PIL import Image
@@ -274,7 +283,22 @@ def pixelize_atlas(
     target = (columns * cell, rows * cell)
     exact = not (atlas.width % target[0] or atlas.height % target[1])
     small = reduce(atlas.convert("RGBA"), target, mode=reduce_mode)
-    small = snap_alpha(small, alpha_threshold)
+
+    # snap_alpha(bridge=True) runs per cell, not whole-atlas, for the same
+    # reason clean_orphans and outline already do below -- a dense atlas has no
+    # gutter, so a whole-atlas bridge would rescue a pixel by reaching into the
+    # sprite next door. Per cell, a candidate's out-of-cell neighbours simply
+    # are not in the array snap_alpha sees, which is the same as treating them
+    # as transparent.
+    arr = np.asarray(small).copy()
+    for row in range(rows):
+        for column in range(columns):
+            y, x = row * cell, column * cell
+            piece = Image.fromarray(arr[y : y + cell, x : x + cell].copy(), "RGBA")
+            piece = snap_alpha(piece, alpha_threshold, bridge=True)
+            arr[y : y + cell, x : x + cell] = np.asarray(piece)
+    small = Image.fromarray(arr, "RGBA")
+
     small = map_palette(small, entries, dither=dither)
 
     ink = outline_color or darkest(entries)

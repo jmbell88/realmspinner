@@ -636,18 +636,62 @@ def map_palette(
     return Image.fromarray(mapped.astype(np.uint8), "RGBA")
 
 
-def snap_alpha(image: PILImage, threshold: int = ALPHA_THRESHOLD) -> PILImage:
+def snap_alpha(
+    image: PILImage, threshold: int = ALPHA_THRESHOLD, *, bridge: bool = False
+) -> PILImage:
     """Alpha becomes 0 or 255 and nothing between.
 
     A reduction leaves partial alpha wherever a cell straddled the subject's
     edge, and a partial-alpha pixel in a 32px sprite reads as a smudge in every
     engine that does not blend the way the preview did.
+
+    ``bridge=True`` adds one rescue pass for a feature that is *thin* rather
+    than *edged*. Found 2026-09-16 on a Troupe humanoid's jump: each shin reduces to about
+    one output pixel wide at 32px cells, and its coverage crosses the 50% line
+    row by row -- one row lands at 40-60%, gets zeroed by the plain threshold
+    above, and ``outline(mode="outer")`` then paints the hole into a black band
+    across the leg, "only noticeable for a frame or two" but visible. A pixel
+    whose alpha falls in ``[threshold // 2, threshold)`` is opaqued if the
+    *already-thresholded* mask is opaque on both sides of it along at least one
+    of the four axes (N+S, E+W, NE+SW, NW+SE) -- a real gap (the space between
+    two legs) has no opaque pixel on at least one side, so it is never bridged.
+    The check runs once against the plain-thresholded mask rather than
+    iteratively against its own output, so a bridged pixel cannot itself bridge
+    a second one and the silhouette cannot creep past one pixel. The pixel's
+    colour is left alone -- ``_weighted_box`` already averaged RGB by alpha, so
+    what is sitting there is the limb's own colour, not the background's.
+
+    Opt-in because every other caller's bytes are pinned: ``asset2d.py``'s
+    legacy export (and its dither/cleanup/grid branches) is exact byte for
+    byte today, and turning this on there would change output nobody asked to
+    change. ``pixelize.pixelize`` and ``pixelize.pixelize_atlas`` -- the
+    character-sheet and restyle paths -- turn it on.
     """
     import numpy as np
     from PIL import Image
 
     rgba = np.asarray(image.convert("RGBA")).copy()
-    rgba[:, :, 3] = np.where(rgba[:, :, 3] >= threshold, 255, 0).astype(np.uint8)
+    alpha = rgba[:, :, 3]
+    opaque = alpha >= threshold
+    if bridge:
+        floor = threshold // 2
+        candidate = (alpha >= floor) & ~opaque
+        if candidate.any():
+            h, w = opaque.shape
+            padded = np.pad(opaque, 1, constant_values=False)
+
+            def _side(dy: int, dx: int) -> Any:
+                return padded[1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w]
+
+            north, south = _side(-1, 0), _side(1, 0)
+            east, west = _side(0, 1), _side(0, -1)
+            ne, sw = _side(-1, 1), _side(1, -1)
+            nw, se = _side(-1, -1), _side(1, 1)
+            bridged = candidate & (
+                (north & south) | (east & west) | (ne & sw) | (nw & se)
+            )
+            opaque = opaque | bridged
+    rgba[:, :, 3] = np.where(opaque, 255, 0).astype(np.uint8)
     return Image.fromarray(rgba, "RGBA")
 
 

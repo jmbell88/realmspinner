@@ -256,6 +256,47 @@ def test_snap_alpha_is_binary():
     assert got.tolist() == [[0, 0, 255, 255]]
 
 
+def test_snap_alpha_without_bridge_is_byte_identical_to_before_f12():
+    """asset2d.py's legacy export calls ``snap_alpha`` with no ``bridge``
+    argument and is pinned byte-for-byte; a pixel ``bridge=True`` would rescue
+    must stay dropped when the keyword is not passed at all."""
+    arr = np.zeros((3, 3, 4), dtype=np.uint8)
+    arr[:, :, :3] = (200, 200, 200)
+    arr[:, :, 3] = 255
+    arr[1, 1, 3] = 100  # in [64, 128): a bridge candidate, opaque N and S
+    got = pixel.snap_alpha(Image.fromarray(arr, "RGBA"))
+    assert np.asarray(got)[1, 1, 3] == 0
+
+
+def test_snap_alpha_bridge_rescues_a_thin_features_middle_pixel():
+    """F12: the humanoid jump's shin, about one output pixel wide, dips below
+    the threshold at one row while the rows above and below stay opaque --
+    ``bridge=True`` must keep that pixel opaque and keep its own colour,
+    which is already the limb's (``_weighted_box`` averages RGB by alpha)."""
+    arr = np.zeros((3, 3, 4), dtype=np.uint8)
+    arr[:, :, :3] = (200, 200, 200)
+    arr[:, :, 3] = 255
+    arr[1, 1, 3] = 100  # a bridge candidate, opaque N and S
+    got = pixel.snap_alpha(Image.fromarray(arr, "RGBA"), bridge=True)
+    out = np.asarray(got)
+    assert out[1, 1, 3] == 255
+    assert tuple(out[1, 1, :3]) == (200, 200, 200)
+
+
+def test_snap_alpha_bridge_does_not_fill_a_real_gap():
+    """A candidate with an opaque neighbour on only one side -- not an
+    opposite pair along any of the four axes -- is a real silhouette edge,
+    not a thin feature, and must stay dropped even with bridge=True. This is
+    the shape of the between-the-legs gap: opaque on one side, background on
+    every other, so no axis is satisfied."""
+    arr = np.zeros((3, 3, 4), dtype=np.uint8)
+    arr[:, :, :3] = (200, 200, 200)
+    arr[0, 1, 3] = 255  # only the north neighbour is opaque
+    arr[1, 1, 3] = 100  # candidate, but south/east/west/diagonals are all 0
+    got = pixel.snap_alpha(Image.fromarray(arr, "RGBA"), bridge=True)
+    assert np.asarray(got)[1, 1, 3] == 0
+
+
 def test_report_and_verdict_say_something_readable():
     palette = ((0, 0, 0), (255, 255, 255))
     src = pixel.map_palette(Image.new("RGBA", (8, 8), (10, 10, 10, 255)), palette)
