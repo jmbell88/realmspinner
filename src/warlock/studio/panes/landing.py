@@ -37,6 +37,7 @@ from .. import (
     create_stages,
     fonts,
     icons,
+    mode_manifest,
     modes,
     recents,
     theme,
@@ -232,17 +233,13 @@ def open_row(ctx: Any, row: Row) -> None:
     _open_with(module, ctx, path)
 
 
-#: Which module's ``open_path`` opens each recent-document kind. One table
-#: beside ``_KIND_MODES`` rather than a dict literal inside ``open_row``: the
-#: two drifted, and a ``.wsng`` row did nothing on click with no toast.
-KIND_OPENERS = {
-    "inker": "inker_mode",
-    "clay": "clay_mode",
-    "mason": "mason_mode",
-    "plotter": "plotter_mode",
-    "packwright": "packwright_mode",
-    "sirens": "sirens_io",
-}
+#: Which module's ``open_path`` opens each recent-document kind. Derived from
+#: :mod:`..mode_manifest` -- one manifest instead of the table here and
+#: ``_KIND_MODES`` below drifting from each other, which is exactly how a
+#: ``.wsng`` row once did nothing on click with no toast. Poser has no entry:
+#: a pose begins by rigging a library asset, never by reopening a path, so it
+#: is not offered through Recents at all.
+KIND_OPENERS = mode_manifest.opener_table()
 
 
 def _open_with(module: str, ctx: Any, path: Path) -> None:
@@ -742,23 +739,17 @@ def _version() -> str:
 # as loud as it needs to be. What did *not* move is the scan: see
 # ``journal.snapshot``, which is called on the first frame and never again.
 
-#: Journal kind -> the mode recovering it should switch to.
+#: Journal kind -> the mode recovering it should switch to. Derived from
+#: :mod:`..mode_manifest`, the same list of facts :data:`KIND_OPENERS` above
+#: reads -- so the two cannot drift from each other the way they once did.
 #:
 #: Only the *mode* is written down; the glyph comes off ``_MODE_ICONS`` as every
 #: other row's does, for that table's own reason -- a hand-copied glyph is how a
 #: row ends up opening Clay under Plotter's icon.
 #:
-#: One of the six does not name its own mode: a pose is authored in Poser,
+#: One of the seven does not name its own mode: a pose is authored in Poser,
 #: which is a plain alias -- every other kind's name already is its mode.
-_KIND_MODES = {
-    "inker": "inker",
-    "clay": "clay",
-    "mason": "mason",
-    "plotter": "plotter",
-    "packwright": "packwright",
-    "sirens": "sirens",
-    "pose": "poser",
-}
+_KIND_MODES = mode_manifest.kind_mode_table()
 
 #: How wide a recovery row's button is, in design pixels. Fixed rather than
 #: sized to its label so a column of them shares one right edge -- the titles

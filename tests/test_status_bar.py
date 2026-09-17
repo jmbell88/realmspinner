@@ -10,33 +10,43 @@ that mode's document name, tool and zoom.
 
 from __future__ import annotations
 
-import importlib
 from types import SimpleNamespace
 
-from warlock.studio import palette, status_bar
+from warlock.studio import mode_manifest, palette, status_bar
 
 
 def test_status_bar_document_modes_match_the_doc_mode_registry(monkeypatch):
-    """A mode registered in ``palette._DOC_MODES`` (other than "poser", which
-    is its own special case in both places) must be one ``status_bar.items``
-    draws a document row for -- proven by adding a mode neither module has
-    ever heard of and checking the row appears, rather than by comparing the
-    two sets structurally, which a hand-written tuple that happened to be
-    copied correctly would also pass.
+    """A mode registered in :data:`mode_manifest.DOC_MODES` (other than
+    "poser", which is its own special case in both places) must be one
+    ``status_bar.items`` draws a document row for -- proven by adding a mode
+    neither module has ever heard of and checking the row appears, rather than
+    by comparing the two sets structurally, which a hand-written tuple that
+    happened to be copied correctly would also pass.
+
+    The registry moved from ``palette._DOC_MODES`` to the manifest on
+    2026-09-17, and so did the *module lookup*: the bar used to spell the
+    module out of the mode key as ``f".{mode}_mode"``, which only held while
+    every mode module sat directly under ``studio/``. The injected row below
+    therefore names its module rather than implying it.
     """
     fake_tab = SimpleNamespace(label="Widget##pd9", dirty=False, view=None)
     fake_module = SimpleNamespace(active=lambda ctx: fake_tab)
 
-    monkeypatch.setitem(palette._DOC_MODES, "gizmo", ("gizmo_mode", "Export Gizmo"))
+    gizmo = mode_manifest.ModeManifest(
+        "gizmo", "gizmo_mode", "gizmo", "Export Gizmo", "gizmo_mode"
+    )
+    monkeypatch.setattr(
+        mode_manifest, "DOC_MODES", (*mode_manifest.DOC_MODES, gizmo)
+    )
 
-    real_import_module = importlib.import_module
+    real_import_module = mode_manifest.import_module
 
     def fake_import_module(name, package=None):
-        if name == ".gizmo_mode":
+        if name.endswith(".gizmo_mode"):
             return fake_module
         return real_import_module(name, package)
 
-    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(mode_manifest, "import_module", fake_import_module)
 
     ctx = SimpleNamespace(state=SimpleNamespace(mode="gizmo"), cache=SimpleNamespace(jobs=[]))
     items = {item.key: item.text for item in status_bar.items(ctx)}

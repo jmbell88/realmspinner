@@ -5433,12 +5433,24 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             # the others -- but the *write* is one flush at the end, because
             # Settings holds the whole document and flushing per step wrote the
             # same file five times on the way out.
+            #
+            # The list of modes to persist is asked of ``mode_manifest``
+            # rather than hand-called one line per mode: that hand list is
+            # the bug this phase exists to fix -- it named five of the six
+            # modules that define ``persist`` and never grew a sixth line for
+            # Sirens, whose own docstring says it is called after every open
+            # and save. ``persisting_modes`` asks each module with
+            # ``getattr`` instead of copying the answer down here, so a
+            # seventh mode that grows a ``persist`` is covered the moment it
+            # exists rather than the next time somebody remembers this list.
+            from . import mode_manifest
+
             _step("persist settings", lambda: self._persist(ctx))
-            _step("persist inker", lambda: self._persist_inker(ctx))
-            _step("persist clay", lambda: self._persist_clay(ctx))
-            _step("persist mason", lambda: self._persist_mason(ctx))
-            _step("persist plotter", lambda: self._persist_plotter(ctx))
-            _step("persist packwright", lambda: self._persist_packwright(ctx))
+            for entry in mode_manifest.persisting_modes():
+                _step(
+                    f"persist {entry.key}",
+                    lambda entry=entry: mode_manifest.call_persist(ctx, entry),
+                )
             _step("write settings", ctx.settings.flush)
             if ctx.textures is not None:
                 _step("release textures", ctx.textures.release)
@@ -5519,31 +5531,6 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         # Not ``vars``: the trash is a *view* rather than a filter, so quitting
         # from it must not reopen in it. See ``state.VOLATILE_FILTERS``.
         ctx.settings.set("filters", filters_to_store(ctx.state.filters))
-
-    def _persist_inker(self, ctx: Any) -> None:
-        from . import inker_mode
-
-        inker_mode.persist(ctx)
-
-    def _persist_clay(self, ctx: Any) -> None:
-        from . import clay_mode
-
-        clay_mode.persist(ctx)
-
-    def _persist_mason(self, ctx: Any) -> None:
-        from . import mason_mode
-
-        mason_mode.persist(ctx)
-
-    def _persist_plotter(self, ctx: Any) -> None:
-        from . import plotter_mode
-
-        plotter_mode.persist(ctx)
-
-    def _persist_packwright(self, ctx: Any) -> None:
-        from . import packwright_mode
-
-        packwright_mode.persist(ctx)
 
 
 def _step(label: str, fn: Any) -> None:

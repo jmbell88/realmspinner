@@ -13,6 +13,7 @@ teardown test that opens one is a teardown test that leaves one behind.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import re
 import sys
@@ -100,21 +101,32 @@ def _ctx(settings: FakeSettings, state: AppState | None = None) -> Any:
 # --- H48 / H49: the modes whose recents never reached the disk ---------------
 
 
-def test_teardown_persists_every_mode_that_has_a_persist():
+def test_teardown_persists_every_mode_that_has_a_persist(fake_pygame, monkeypatch):
     """Plotter's and Packwright's ``persist`` were reachable only from inside
     their own save paths; the teardown list named Inker and Clay alone.
+    Sirens' was the next one forgotten (P2, mode manifests): its own
+    docstring says it is called after every open and save, and nothing did.
 
-    Asserted against the set of modules that actually expose a ``persist``, not
-    against four literals, because the next mode with a recent list is the one
-    that would be forgotten again.
+    Proved by actually calling ``teardown`` and watching each mode's
+    ``persist`` fire, not by grepping ``main.App``'s source for a literal
+    ``f"{name}.persist"`` -- a call built from a loop over
+    ``mode_manifest.persisting_modes()`` instead of one hand-written line per
+    mode cannot be found that way, and a test that can only pass by grepping
+    source is a test the next refactor breaks for no behavioural reason.
     """
     import importlib
 
-    source = inspect.getsource(main.App)
-    for name in ("inker_mode", "clay_mode", "plotter_mode", "packwright_mode"):
-        module = importlib.import_module(f"warlock.studio.{name}")
+    from warlock.studio import mode_manifest
+
+    called: list[str] = []
+    for entry in mode_manifest.persisting_modes():
+        module = importlib.import_module(f"warlock.studio.{entry.module}")
         assert callable(module.persist)
-        assert f"{name}.persist" in source, f"{name}.persist is never called"
+        monkeypatch.setattr(module, "persist", lambda ctx, _k=entry.key: called.append(_k))
+
+    _teardown_app(_ctx(FakeSettings())).teardown()
+
+    assert set(called) == {entry.key for entry in mode_manifest.persisting_modes()}
 
 
 def test_the_plotter_and_packwright_recents_survive_a_teardown(fake_pygame):
@@ -179,12 +191,30 @@ def test_teardown_releases_every_mode_texture_cache_before_the_viewer(fake_pygam
     assert order == ["inker", "plotter", "packwright", "viewer"]
 
 
-def test_no_teardown_step_is_still_called_persist_build():
+def test_no_teardown_step_is_still_called_persist_build(fake_pygame, monkeypatch):
     """Clay was called Build once. A step labelled for a mode that no longer
-    exists is what a log line says when the step fails."""
-    source = inspect.getsource(main.App.teardown)
-    assert "persist build" not in source
-    assert "persist clay" in source
+    exists is what a log line says when the step fails.
+
+    The step labels are built from ``mode_manifest``'s own keys since P2
+    (mode manifests), so there is no longer a literal ``"persist clay"`` in
+    ``teardown``'s source to grep for -- this watches the labels ``_step``
+    actually receives instead.
+    """
+    labels: list[str] = []
+
+    def fake_step(label: str, fn: Any) -> None:
+        # Mirrors the real ``_step``: a failure on this minimal double must
+        # not stop the sweep, exactly as it would not in the real one.
+        labels.append(label)
+        with contextlib.suppress(Exception):
+            fn()
+
+    monkeypatch.setattr(main, "_step", fake_step)
+
+    _teardown_app(_ctx(FakeSettings())).teardown()
+
+    assert "persist build" not in labels
+    assert "persist clay" in labels
 
 
 # --- H52: one mode switch, not two ------------------------------------------

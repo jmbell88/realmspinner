@@ -30,7 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import modes, state, verbs
+from . import mode_manifest, modes, state
 from .tour import scripts as tour_scripts
 
 # How many assets the quick-open section offers at once. A palette is a
@@ -200,24 +200,17 @@ def _selected(ctx: Any) -> Any:
 # cannot drift into a second way of saving. Undo goes to the document's own
 # ``undo()``, which is uid-addressed inside -- the palette never touches a
 # history directly.
-_DOC_MODES: dict[str, tuple[str, str]] = {
-    # mode -> (module name, export command label)
-    "inker": ("inker_mode", "Export PNG"),
-    "clay": ("clay_mode", verbs.EXPORT_TO_LIBRARY),
-    "mason": ("mason_mode", "Export .glb + manifest"),
-    "plotter": ("plotter_mode", "Export .tmx"),
-    "packwright": ("packwright_mode", "Export atlas + JSON"),
-    # Named for the folder rather than for a file: this is the one export in
-    # the app that writes a family (song.wav, stems/, sfx/) into a directory the
-    # user picks, so "Export WAV" would describe a third of what happens.
-    "sirens": ("sirens_mode", "Export WAV + stems"),
-    # **An empty export label suppresses the command** rather than forcing a
-    # fake one: a pose *is* a library record, so it is saved and never
-    # exported, and offering "Export" here would be a row that has to refuse.
-    # Troupe deliberately does not join this table at all -- it has no
-    # document, so all four commands would be empty.
-    "poser": ("poser_mode", ""),
-}
+#
+# Derived from :mod:`.mode_manifest` -- mode -> (module name, export command
+# label) -- rather than written out here a second time: that is the one
+# manifest field this table needed, character for character (Sirens' label
+# names a folder because it is the one export in the app that writes a family
+# -- song.wav, stems/, sfx/ -- into a directory the user picks; Poser's empty
+# label suppresses the command rather than forcing a fake one, since a pose
+# is a library record, saved and never exported). Troupe deliberately does
+# not appear at all -- it has no document, so all four commands would be
+# empty.
+_DOC_MODES: dict[str, tuple[str, str]] = mode_manifest.export_table()
 
 _DOC_WHY = "Open a drawing, model, map, atlas or song first."
 

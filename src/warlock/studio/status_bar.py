@@ -40,19 +40,25 @@ def _document_name(tab: Any) -> str:
 
 
 def _document_modes() -> frozenset[str]:
-    """The modes this bar reports a document/tool/zoom row for -- everything
-    :data:`palette._DOC_MODES` calls a document mode except "poser", which is
-    handled by its own branch above (a viewer, not a tab).
+    """The modes this bar reports a document/tool/zoom row for -- every
+    document mode except "poser", which is handled by its own branch above
+    (a viewer, not a tab).
 
     Derived rather than a second, hand-written tuple: the two used to be two
-    independent literals, and a document mode added to ``_DOC_MODES`` in
-    future had no test tying this one to it -- the "seventh kind left out of
-    a hand-written list" pattern this codebase repeats (shell-08, the
+    independent literals, and a document mode added to the registry in future
+    had no test tying this one to it -- the "seventh kind left out of a
+    hand-written list" pattern this codebase repeats (shell-08, the
     2026-09-08 audit).
-    """
-    from . import palette
 
-    return frozenset(palette._DOC_MODES) - {"poser"}
+    The registry read here is :data:`mode_manifest.DOC_MODES` rather than
+    ``palette._DOC_MODES`` since 2026-09-17: the export table is itself derived
+    from the manifest now, so reading it would be deriving from a derivation,
+    and the module this branch goes on to import comes from the manifest too --
+    one source for both halves of the same question.
+    """
+    from . import mode_manifest
+
+    return frozenset(m.key for m in mode_manifest.DOC_MODES) - {"poser"}
 
 
 def items(ctx: Any) -> list[StatusItem]:
@@ -83,10 +89,19 @@ def items(ctx: Any) -> list[StatusItem]:
         # carry the identical ``PaintView.zoom`` and Plotter has tools, and
         # the bar is "shared by every workspace" (line 1). What a mode has is
         # asked for by name and drawn if it answers (2026-09-05).
-        try:
-            from importlib import import_module
+        # The module is *asked for* rather than spelled out of the mode key.
+        # ``import_module(f".{mode}_mode")`` was only ever expressible while
+        # every mode module sat directly under ``studio/``, which is the
+        # convention the restructure removes; the manifest already knows which
+        # module owns each document mode, and Sirens already breaks the naming
+        # rule elsewhere (its recent rows open through ``sirens_io``).
+        from . import mode_manifest
 
-            module = import_module(f".{mode}_mode", __package__)
+        entry = mode_manifest.by_key(mode)
+        if entry is None:
+            return out
+        try:
+            module = mode_manifest.module_of(entry)
             tab = module.active(ctx)
             if tab is not None:
                 dirty = " *" if bool(getattr(tab, "dirty", False)) else ""

@@ -1095,11 +1095,23 @@ def test_a_dropped_glb_is_refused_in_clay_mode():
 
 
 def test_clay_persists_its_recent_list_and_no_mode():
-    source = inspect.getsource(main.App)
-    assert "clay_mode.persist" in source
+    """Clay is persisted on the way out, and the app still stores no mode.
+
+    The first half used to read ``"clay_mode.persist" in
+    inspect.getsource(main.App)``, which was true only while ``teardown``
+    named each mode by hand -- the very list that forgot Sirens for as long
+    as it existed. Since 2026-09-17 teardown loops over
+    ``mode_manifest.persisting_modes()``, so the claim is asked of the
+    manifest instead: Clay defines ``persist``, therefore Clay is in the set
+    teardown calls. ``tests/test_mode_manifests.py`` is what proves the loop
+    itself calls every member of that set.
+    """
+    from warlock.studio import mode_manifest
+
+    assert "clay" in {entry.key for entry in mode_manifest.persisting_modes()}
     # The guard the whole app is under; restated here because Clay is the
     # newest place that could have broken it.
-    assert 'settings.set("mode"' not in source
+    assert 'settings.set("mode"' not in inspect.getsource(main.App)
 
 
 def test_the_send_to_3d_render_carries_no_grid_gizmo_or_overlay():

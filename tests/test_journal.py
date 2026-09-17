@@ -1084,10 +1084,15 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
         assert ext in module_doc, f"{ext} missing from the journal module docstring"
 
     landing_source = inspect.getsource(landing)
-    kind_modes_comment = landing_source.split("_KIND_MODES = {", 1)[0]
-    # Only the comment directly above the table, not the whole file -- Review
-    # or some other pane could legitimately say "profile" about something
-    # unrelated, and that is not this finding's business.
+    # ``_KIND_MODES`` is now one line deriving from ``mode_manifest`` (P2:
+    # mode manifests) rather than a dict literal -- the split target moved
+    # with it, but the claim is the same: only the comment directly above the
+    # table, not the whole file, since Review or some other pane could
+    # legitimately say "profile" about something unrelated, and that is not
+    # this finding's business.
+    kind_modes_comment = landing_source.split(
+        "_KIND_MODES = mode_manifest.kind_mode_table()", 1
+    )[0]
     comment_tail = kind_modes_comment[kind_modes_comment.rindex("#: Journal kind") :]
     assert "profile" not in comment_tail.lower()
     assert "pose" in comment_tail.lower()

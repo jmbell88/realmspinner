@@ -83,6 +83,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import mode_manifest
+
 log = logging.getLogger(__name__)
 
 #: How long a document may go unjournalled before a copy is taken. Two minutes
@@ -152,18 +154,12 @@ def register(provider: Provider) -> Provider:
     return provider
 
 
-#: The modules that register a provider. Imported on demand rather than at
-#: module scope, which keeps this file stdlib-only and keeps a session that
-#: never opens Clay from paying for the mesh engine.
-_PROVIDER_MODULES = (
-    "inker_mode",
-    "clay_mode",
-    "mason_mode",
-    "plotter_mode",
-    "packwright_mode",
-    "sirens_mode",
-    "poser_mode",
-)
+#: The modules that register a provider, derived from :mod:`.mode_manifest`
+#: -- one list of facts instead of five hand tables, see that module's
+#: docstring. Imported on demand rather than at module scope, which keeps
+#: this file stdlib-only and keeps a session that never opens Clay from
+#: paying for the mesh engine.
+_PROVIDER_MODULES: tuple[str, ...] = mode_manifest.journal_modules()
 
 
 def ensure_providers() -> None:
