@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ... import rigging
+from ...kernels.rig import store
 from ...pipelines import charsheet
 from .. import forms, tokens, troupe_mode, verbs, widgets
 from ..manual import render as manual_render
@@ -423,7 +423,7 @@ def _palette(
         "Name this sheet",
         str(form.get("name") or ""),
         hint="optional",
-        max_length=rigging.MAX_SHEET_NAME,
+        max_length=store.MAX_SHEET_NAME,
         helper="Shown in the sheet chooser. The size and cell count are added for you.",
     )
 

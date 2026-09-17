@@ -3,8 +3,8 @@ the call contract (unknown tool/argument, field aliasing, the blast-radius
 limit on ``character_cancel``), and each handler's own refusals.
 
 S1's own doors (``service.characters``, ``service.troupe``, ``service.rig``,
-``rigging.shipped_clip_*``, ``clips.shipped_clip_timing``) are real on this
-branch now -- ``rigging.shipped_clip_library``/``shipped_clip_templates``/
+``cliplib.shipped_clip_*``, ``clips.shipped_clip_timing``) are real on this
+branch now -- ``cliplib.shipped_clip_library``/``shipped_clip_templates``/
 ``shipped_clip_names``, ``clips.shipped_clip_timing`` and
 ``service.characters.ASSET_FILTERS`` need no stand-in any more and this file
 no longer supplies one. What is still monkeypatched, test by test, is
@@ -53,7 +53,7 @@ def _new_job_id() -> str:
 def _mint_model_job(svc: Any, *, job_id: str | None = None) -> str:
     """A minimal 'done' model row -- enough for ``svc.require_job``/
     ``svc.job_dir`` to answer, which is all ``_h_character_rig`` reads
-    before consulting ``rigging.read_rig``/``rig_in_flight`` (both
+    before consulting ``store.read_rig``/``rig_in_flight`` (both
     monkeypatched directly by the tests that need them, rather than by
     planting real files -- see each test)."""
     job_id = job_id or _new_job_id()
@@ -110,8 +110,8 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     Never checked against ``agent_character._enums()`` itself, which would
     only prove :func:`tools` agrees with :func:`_enums` and miss a bug where
     both read the wrong door the same wrong way (e.g. the user-first
-    ``rigging.clip_library`` instead of the shipped-only
-    ``rigging.shipped_clip_names`` -- see the next test for that one, since
+    ``cliplib.clip_library`` instead of the shipped-only
+    ``cliplib.shipped_clip_names`` -- see the next test for that one, since
     a fresh ``WARLOCK_HOME`` with no user file makes the two agree here).
 
     ``size`` is deliberately absent from this walk's own expectation table:
@@ -124,8 +124,8 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     tools' own ``size`` schema is asserted to carry no ``enum`` and to
     bound the same ``TROUPE_CUSTOM_SIZE_RANGE`` the door underneath enforces.
     """
-    from warlock import rigging
     from warlock.characters import family as family_mod
+    from warlock.kernels.rig import cliplib, templates
     from warlock.pipelines import charsheet, pixelize
     from warlock.service import characters as svc_characters
     from warlock.service import export as svc_export
@@ -133,9 +133,9 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
 
     families = family_mod.families()
     themes = {t.key for fam in families.values() for t in fam.themes}
-    sheet_templates = set(rigging.shipped_clip_templates())
+    sheet_templates = set(cliplib.shipped_clip_templates())
     movements = {
-        name for t in sheet_templates for name in rigging.shipped_clip_names(t)
+        name for t in sheet_templates for name in cliplib.shipped_clip_names(t)
     }
     directions = set(charsheet.DIRECTION_PRESETS)
     facings = set(charsheet.COMPASS_16)
@@ -144,7 +144,7 @@ def test_every_enum_is_its_registry_and_every_registry_value_is_in_an_enum() -> 
     colors = set(svc_troupe.TROUPE_COLOR_CHOICES)
     outlines = set(pixelize.OUTLINE_MODES)
     reduce_modes = set(pixelize.REDUCE_MODES)
-    rig_templates = {r["key"] for r in rigging.catalog()}
+    rig_templates = {r["key"] for r in templates.catalog()}
     filters = set(svc_characters.ASSET_FILTERS)
     formats = set(svc_export.CHARACTER_EXPORTS)
 
@@ -261,23 +261,23 @@ def test_editing_a_user_clip_library_does_not_move_the_character_catalogue(
     tmp_path: Path,
 ) -> None:
     """Writes a *real* user clip library for humanoid -- a v3 file with an
-    extra clip Poser's editor would save -- through ``rigging.
+    extra clip Poser's editor would save -- through ``cliplib.
     set_user_clip_dir``, invalidating the caches the way ``service.clips.
-    save`` does after a real write. ``rigging.shipped_clip_*`` reads only
+    save`` does after a real write. ``cliplib.shipped_clip_*`` reads only
     the shipped ``templates/clips`` tree and must never move for this
     (see ``agent_character``'s own "Movements are the shipped vocabulary"
     paragraph); a version of this module that fell back to the user-first
-    ``rigging.clip_library`` for its movements enum would grow the extra
+    ``cliplib.clip_library`` for its movements enum would grow the extra
     clip into both the tool schema and the vocabulary resource, and this
     test would catch it there.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib
     from warlock.studio import agent_character_resources as acr
 
     before_tools = json.dumps([rpc.tool_dict(t) for t in ac.tools()], sort_keys=True)
     before_vocab = acr.read_static(acr.VOCABULARY_URI)[1]
 
-    raw = json.loads((rigging.CLIP_DIR / "humanoid.json").read_text(encoding="utf-8"))
+    raw = json.loads((cliplib.CLIP_DIR / "humanoid.json").read_text(encoding="utf-8"))
     assert raw.get("version") == 3  # the shipped file is already v3; leave it untouched
     # A structurally valid new clip -- "keys" must name real poses this same
     # file already carries, and "segments" one count per key, or
@@ -299,14 +299,14 @@ def test_editing_a_user_clip_library_does_not_move_the_character_catalogue(
     )
     (tmp_path / "humanoid.json").write_text(json.dumps(raw), encoding="utf-8")
 
-    rigging.set_user_clip_dir(tmp_path)
+    cliplib.set_user_clip_dir(tmp_path)
     try:
-        rigging.invalidate_clips()  # what service.clips.save does after writing
+        cliplib.invalidate_clips()  # what service.clips.save does after writing
         # Sanity: the user file really is being read by *something* -- the
         # user-first door sees the new clip -- so a false pass here (both
         # sides equal only because the write never took effect) is ruled out.
         assert "a_users_own_extra_clip" in {
-            c["name"] for c in rigging.clip_library("humanoid")["clips"]
+            c["name"] for c in cliplib.clip_library("humanoid")["clips"]
         }
 
         after_tools = json.dumps([rpc.tool_dict(t) for t in ac.tools()], sort_keys=True)
@@ -314,8 +314,8 @@ def test_editing_a_user_clip_library_does_not_move_the_character_catalogue(
         assert after_tools == before_tools
         assert after_vocab == before_vocab
     finally:
-        rigging.set_user_clip_dir(None)
-        rigging.invalidate_clips()
+        cliplib.set_user_clip_dir(None)
+        cliplib.invalidate_clips()
 
 
 # --- handler/tool bookkeeping -----------------------------------------------
@@ -845,10 +845,10 @@ def test_the_prompt_polls_the_rig_job_not_the_mesh() -> None:
 def test_character_rig_refuses_a_mesh_that_is_already_rigged(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _mint_model_job(svc)
-    monkeypatch.setattr(rigging, "read_rig", lambda job_dir: {"template": "humanoid"})
+    monkeypatch.setattr(store, "read_rig", lambda job_dir: {"template": "humanoid"})
 
     result = ac.call(svc, ac.Session(), "character_rig", {"job_id": job_id})
     assert result["isError"]
@@ -859,11 +859,11 @@ def test_character_rig_refuses_a_mesh_that_is_already_rigged(
 def test_character_rig_refuses_while_a_rig_is_running(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.service import rig as svc_rig
 
     job_id = _mint_model_job(svc)
-    monkeypatch.setattr(rigging, "read_rig", lambda job_dir: None)
+    monkeypatch.setattr(store, "read_rig", lambda job_dir: None)
     monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: "some-rig-id", raising=False)
 
     result = ac.call(svc, ac.Session(), "character_rig", {"job_id": job_id})
@@ -875,11 +875,11 @@ def test_character_rig_refuses_while_a_rig_is_running(
 def test_character_rig_mints_and_records_a_rig(
     monkeypatch: pytest.MonkeyPatch, svc: Any
 ) -> None:
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.service import rig as svc_rig
 
     job_id = _mint_model_job(svc)
-    monkeypatch.setattr(rigging, "read_rig", lambda job_dir: None)
+    monkeypatch.setattr(store, "read_rig", lambda job_dir: None)
     monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: None, raising=False)
     monkeypatch.setattr(
         svc_rig,
@@ -1016,7 +1016,7 @@ def _real_sheet(
     import numpy as np
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.pipelines import charsheet
     from warlock.pipelines import sheet as sheetlib
 
@@ -1074,9 +1074,9 @@ def _real_sheet(
         atlas = Image.fromarray(pixels, "RGBA")
     else:
         atlas = Image.new("RGBA", (plan.width, plan.height), (10, 20, 30, 255))
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    sheet_id = rigging.new_id()
-    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    sheet_id = store.new_id()
+    png_path = store.sheet_png_path(job_dir, sheet_id)
     atlas.save(png_path, "PNG")
 
     meta = sheetlib.sidecar(
@@ -1089,7 +1089,7 @@ def _real_sheet(
         animation=charsheet.animation_block(layout),
     )
     meta["troupe"] = layout.as_dict()
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
     return job_id, sheet_id, plan.width, plan.height
 
 
@@ -1113,7 +1113,7 @@ def test_a_preview_fits_one_rpc_frame(svc: Any) -> None:
     itself tens of megabytes once encoded -- genuinely too big for one frame
     before anything downscales it.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.mcp import rpc as rpc_mod
 
     # One movement, MAX_CLIP_FRAMES (32) frames, 8 directions, 256 px cells:
@@ -1131,7 +1131,7 @@ def test_a_preview_fits_one_rpc_frame(svc: Any) -> None:
     # already blows the one RPC frame ceiling that matters on the wire. Read
     # off disk rather than re-encoded, since ``_real_sheet`` already paid
     # that PNG-encoding cost once building the fixture.
-    full_png = rigging.sheet_png_path(svc.job_dir(job_id), sheet_id).read_bytes()
+    full_png = store.sheet_png_path(svc.job_dir(job_id), sheet_id).read_bytes()
     unbounded_meta = ac.text(json.dumps({"width": width, "height": height}))
     unbounded_reply = ac.ok(ac.image_png(full_png), unbounded_meta)
     unbounded_body = json.dumps(unbounded_reply, separators=(",", ":")).encode("utf-8")

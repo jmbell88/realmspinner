@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from imgui_bundle import imgui
 
-from warlock.studio import create_brief, create_stages, layout, probe, widgets
+from warlock.studio import create_brief, create_rail, create_stages, layout, probe
 from warlock.studio.state import AppState, default_form_2d
 
 
@@ -76,7 +76,7 @@ def _synthetic_rail(
     """A stand-in for ``App._stage_rail``, real enough to draw and measure --
     unblocked, nothing done, which is a legitimate (if uninteresting) rail
     state and costs no job lookup."""
-    widgets.stage_rail(
+    create_rail.stage_rail(
         "create-stages",
         _synthetic_rail_items(),
         ctx.state.create_stage,
@@ -261,16 +261,16 @@ def test_the_four_rung_ladder_gives_way_at_decreasing_widths(frames):
     """``_row_widths`` walked at real, decreasing window widths -- a real
     frame feeding it real ``imgui.get_style()``/``get_content_region_avail()``
     numbers rather than a source scan. No GL: this only needs the numbers
-    ``widgets.stage_rail_width`` and ``imgui.calc_text_size`` already produce
-    without a renderer.
+    ``create_rail.stage_rail_width`` and ``imgui.calc_text_size`` already
+    produce without a renderer.
     """
     items = _synthetic_rail_items()
     seen: dict[float, tuple] = {}
 
     def measure(width: float) -> None:
         def build() -> None:
-            rail_full = widgets.stage_rail_width(items, "reference")
-            rail_floor = widgets.stage_rail_width(items, "reference", max_width=0.0)
+            rail_full = create_rail.stage_rail_width(items, "reference")
+            rail_floor = create_rail.stage_rail_width(items, "reference", max_width=0.0)
             seen[width] = create_brief._row_widths(False, rail_full, rail_floor)
 
         frames(build, (width, 700.0))

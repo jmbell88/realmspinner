@@ -1,24 +1,34 @@
-"""What Poser's six pure modules are allowed to reach for, pinned exactly.
+"""What Poser's five pure modules are allowed to reach for, pinned exactly.
 
 The ``tests/inker/test_sheetout.py`` pin, fifth instance -- with one structural
 departure the others do not need. Clay, Inker, Plotter and Packwright each own a
 *package*, so their pins glob a directory. Poser owns no package: its pure half
-is four modules at the root of ``warlock`` (``poselib``, ``rigging``,
-``clipmaps``, ``cliptransfer``) and two inside the viewer (``pose``,
-``bonelines``), and the rest of it is panes. So the six are named, and a
-tripwire below fails if one of them ever moves.
+is three modules at the root of ``warlock`` (``poselib``, ``clipmaps``,
+``cliptransfer``) and two inside the viewer (``pose``, ``bonelines``), and the
+rest of it is panes. So the five are named, and a tripwire below fails if one
+of them ever moves.
+
+**``rigging.py`` is gone from this list, and deliberately not replaced
+one-for-one.** P4 of ``dev/RESTRUCTURE.md`` (2026-09-17) split it into
+``warlock.kernels.rig`` -- a shared Layer-1 kernel Troupe and the character
+pipeline read exactly as much as Poser does, not a module Poser owns the way
+it owned the single file. Pinning it here the way ``poselib``/``clipmaps``/
+``cliptransfer`` are pinned would mean re-deciding, in a Poser-named file,
+which of six submodules a Troupe caller may reach for -- so it is not named
+here at all; each of the five modules below that used to import ``rigging``
+now names the specific ``kernels.rig`` submodule(s) it actually needs in its
+own ``OUTWARD_IMPORTS`` row, exactly like any other outward dependency.
 
 They are pinned for the same reason the packages are, plus one of their own:
-``rigging`` is the host half of a Blender subprocess and ``poselib`` is what a
-service module reads a stored pose through. ``clipmaps`` is "Import clip"'s
-bone-name tables -- the mapping side of converting an external animation
-(Mixamo, Rigify) onto a Warlock template rig -- and it exists specifically so
-that conversion is decidable with no Blender, the same argument ``rigging``
-already makes. ``cliptransfer`` restates its own bounds rather than reaching
-for ``warlock.pipelines.sheet``, for the same reason. All four claim in
-their own docstrings to be usable with no studio at all, and the two
-subprocess checks at the bottom make that claim executable instead of
-merely stated.
+``poselib`` is what a service module reads a stored pose through. ``clipmaps``
+is "Import clip"'s bone-name tables -- the mapping side of converting an
+external animation (Mixamo, Rigify) onto a Warlock template rig -- and it
+exists specifically so that conversion is decidable with no Blender, the same
+argument ``kernels.rig`` already makes for its own half. ``cliptransfer``
+restates its own bounds rather than reaching for ``warlock.pipelines.sheet``,
+for the same reason. All three claim in their own docstrings to be usable
+with no studio at all, and the two subprocess checks at the bottom make that
+claim executable instead of merely stated.
 """
 
 from __future__ import annotations
@@ -35,7 +45,6 @@ ROOT = Path(warlock.__file__).parent
 #: ``relative path -> the package a relative import inside it resolves against``.
 MODULES = {
     "poselib.py": "warlock",
-    "rigging.py": "warlock",
     "clipmaps.py": "warlock",
     "cliptransfer.py": "warlock",
     "studio/viewer/pose.py": "warlock.studio.viewer",
@@ -47,43 +56,37 @@ MODULES = {
 #: package" to be exempt, and the point of naming ``gltf`` and ``math3d`` here
 #: is that the list is the whole dependency, not the part that left a directory.
 OUTWARD_IMPORTS = {
-    # The storage half of the library reaches for ids, validation and the
-    # skeleton templates. Nothing else: a stored pose is decidable with no
-    # service, no studio and no Blender, which is what test_poselib.py stands on.
-    "poselib.py": {"warlock.rigging"},
-    # The kill-on-close job object, because ``run_worker`` spawns Blender. The
-    # stdlib ``queue`` and ``subprocess`` imports are not ``warlock.queue`` --
-    # the AST records the bare names, which is why this set stays empty of them.
-    # ``poselib`` joined it 2026-09-07 (poser-05): ``parse_clip_library`` shares
-    # ``poselib.validate_root_translation`` rather than restating its finite
-    # and magnitude checks, and the import is function-level inside that one
-    # function because ``poselib`` imports this module back at its own top --
-    # both sides have finished their own module-level init by the time either
-    # calls the other, so nothing here actually cycles.
-    # ``clipmaps`` joined it 2026-09-13: ``clip_sample_spec`` reads
-    # ``clipmaps.load_clip_maps()`` for "Import clip"'s candidate bone names
-    # and strip patterns. Function-level for the same reason ``poselib`` is --
-    # ``clipmaps`` imports this module back at its own top, and both sides
-    # have finished their own module-level init by the time either calls the
-    # other, so nothing here actually cycles.
-    "rigging.py": {"warlock.winjob", "warlock.poselib", "warlock.clipmaps"},
+    # The storage half of the library reaches into the rig kernel for ids/
+    # staged-write helpers, the template registry and pose validation
+    # (``store``/``templates``/``poses``) -- named as one package, not three
+    # modules, because :func:`_outward` resolves ``from .kernels.rig import
+    # a, b, c`` to the package itself (a dotted ``node.module`` always wins
+    # over the imported names; see the function), the same coarseness
+    # ``warlock.rigging`` had as a single file. Nothing else: a stored pose is
+    # decidable with no service, no studio and no Blender, which is what
+    # test_poselib.py stands on.
+    "poselib.py": {"warlock.kernels.rig"},
     # The bone-name tables: which template a map targets, and validating a
-    # map's bones against that template's own registry.
-    "clipmaps.py": {"warlock.rigging"},
+    # map's bones against that template's own registry -- the rig kernel's
+    # template registry (``templates``), reached the same package-granular
+    # way :data:`poselib.py`'s row above is.
+    "clipmaps.py": {"warlock.kernels.rig"},
     # The pure host math for "Import clip": which bone maps where
-    # (``clipmaps``) and the target template's own rest pose, duration
-    # bounds and clip-name rules (``rigging``). Deliberately not
-    # ``warlock.pipelines.sheet`` -- ``test_none_of_them_imports_the_queue_or_the_pipelines``
-    # refuses that from every module pinned here, so ``sheet.slerp``,
+    # (``clipmaps``) and the target template's own rest pose, duration bounds
+    # and clip-name rules (the rig kernel's ``templates``/``cliplib``).
+    # Deliberately not ``warlock.pipelines.sheet`` --
+    # ``test_none_of_them_imports_the_queue_or_the_pipelines`` refuses that
+    # from every module pinned here, so ``sheet.slerp``,
     # ``sheet.MAX_CLIP_FRAMES`` and ``poselib.MAX_ROOT_TRANSLATION`` are
     # restated in ``cliptransfer.py`` instead, each pinned back to its
     # source of truth by a test in ``tests/test_cliptransfer.py``.
-    "cliptransfer.py": {"warlock.rigging", "warlock.clipmaps"},
-    # The editor: rotations and mirroring from the storage half, matrices and
-    # the node graph from the viewer's own.
+    "cliptransfer.py": {"warlock.kernels.rig", "warlock.clipmaps"},
+    # The editor: rotations and mirroring, skeleton structure edits and
+    # ``RigError``, all from the rig kernel now, plus matrices and the node
+    # graph from the viewer's own.
     "studio/viewer/pose.py": {
         "warlock.poselib",
-        "warlock.rigging",
+        "warlock.kernels.rig",
         # The shared undo engine, which is stdlib-only and has no opinion about
         # what an edit edits -- Clay borrows it for the same reason. Adding it
         # keeps the pose stack in the editor, where both entry points into pose
@@ -201,15 +204,17 @@ def test_the_only_warlock_imports_are_the_ones_written_down():
 
 def test_the_storage_half_imports_with_no_studio_at_all():
     """``poselib``'s docstring says a stored pose is decidable without the app;
-    ``rigging``'s host half is imported by a service module that never draws;
-    ``clipmaps``' whole point is that a bone-name mapping is decidable the
-    same way, with no Blender either; ``cliptransfer`` restates its own
-    bounds from ``rigging`` and ``clipmaps`` rather than importing
-    ``warlock.pipelines.sheet`` for them, for the same reason. All four
-    claims, executed."""
+    ``kernels.rig`` (which ``poselib`` now imports) makes the same claim for
+    its own half; ``clipmaps``' whole point is that a bone-name mapping is
+    decidable the same way, with no Blender either; ``cliptransfer`` restates
+    its own bounds from ``kernels.rig`` and ``clipmaps`` rather than importing
+    ``warlock.pipelines.sheet`` for them, for the same reason. All these
+    claims, executed -- importing ``poselib``, ``clipmaps`` and
+    ``cliptransfer`` already pulls in every ``kernels.rig`` submodule each of
+    them needs, so there is no separate module to name here for it."""
     proc = _run(
         ("imgui", "imgui_bundle", "moderngl", "pygame", "warlock.studio"),
-        "warlock.poselib, warlock.rigging, warlock.clipmaps, warlock.cliptransfer",
+        "warlock.poselib, warlock.clipmaps, warlock.cliptransfer",
     )
     assert proc.returncode == 0, proc.stderr
 
@@ -230,9 +235,10 @@ def test_no_module_but_blender_worker_imports_bpy():
     not raising -- the interpreter on geometry trellis produces. The whole
     safety argument for keeping it to one subprocess module rests on nothing
     else ever importing it, and until the 2026-09-08 audit (poser-05) that
-    rested on convention: this file's own pin above checks four named
-    modules, and ``test_rigging.py`` checks ``rigging.py`` specifically, but
-    nothing scanned the rest of ``src/warlock`` for a stray ``import bpy``.
+    rested on convention: this file's own pin above checks three named
+    modules, and ``test_rigging.py`` checks the ``kernels.rig`` package
+    specifically, but nothing scanned the rest of ``src/warlock`` for a
+    stray ``import bpy``.
     """
     exempt = ROOT / "pipelines" / "blender_worker.py"
     offenders: list[str] = []

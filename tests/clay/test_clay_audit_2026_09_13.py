@@ -152,11 +152,21 @@ def test_output_schema_comment_lists_every_tool_that_declares_one():
     ``clay_analyze`` -- is named in the module comment, which said three
     long after ``clay_add_mesh`` picked up its own schema. This reads the
     source rather than importing the schema builders, so it fails against the
-    unfixed comment text directly."""
-    from warlock.studio import agent_clay
+    unfixed comment text directly.
 
-    source = inspect.getsource(agent_clay)
-    start = source.index("# --- output schemas")
+    The "# --- output schemas" banner and its comment block moved to
+    ``agent_clay_schema.py`` in the P4 restructure (``dev/RESTRUCTURE.md``);
+    this test moved with it rather than reading ``agent_clay`` itself, which
+    no longer carries that banner at all.
+    """
+    from warlock.studio import agent_clay_schema
+
+    source = inspect.getsource(agent_clay_schema)
+    # The dashes are part of the needle on purpose: the module docstring
+    # itself quotes the bare banner name in prose (explaining where the
+    # section moved from), and a search for that alone would match the
+    # docstring instead of the real banner below it.
+    start = source.index("# --- output schemas -----")
     # The comment block itself, up to the next top-level statement.
     block = source[start : start + 1200]
     assert "Five tools below declare an ``outputSchema``" in block

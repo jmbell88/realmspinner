@@ -566,10 +566,10 @@ def newest_sheet_after(svc: Any, job_id: str, sheet_id: str) -> str:
     picture -- and every cell the user has since had re-rendered would read as
     a conflict.
     """
-    from .. import rigging
+    from ..kernels.rig import store
 
     try:
-        records = rigging.list_sheets(svc.job_dir(job_id))
+        records = store.list_sheets(svc.job_dir(job_id))
     except OSError:
         return ""
     current = next((r for r in records if str(r.get("id") or "") == sheet_id), None)

@@ -12,9 +12,10 @@ import json
 
 import pytest
 
-from warlock import clipmaps, rigging
+from warlock import clipmaps
+from warlock.kernels.rig import templates
 
-HUMANOID_BONES = {b["name"] for b in rigging.get_template("humanoid").bones}
+HUMANOID_BONES = {b["name"] for b in templates.get_template("humanoid").bones}
 
 
 def _raw(key: str) -> dict:

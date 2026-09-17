@@ -2,7 +2,7 @@
 ``style_lock`` control, and the generic child-runner contract.
 
 The trainer child itself needs a card and is exercised in the gpu lane; here
-``rigging.run_worker`` is faked and what is under test is that the queue frees
+``blender_run.run_worker`` is faked and what is under test is that the queue frees
 the card, spawns the right module, and registers what came back through the
 one import path.
 """
@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from warlock import generation, models, progress, rigging, vectors, vram
+from warlock import generation, models, progress, vectors, vram
 from warlock.config import Config
 from warlock.db import JobStore
-from warlock.pipelines import lora_train
+from warlock.pipelines import blender_run, lora_train
 from warlock.queue import Worker
 from warlock.service import loras as svc_loras
 from warlock.service import verdicts as svc_verdicts
@@ -107,11 +107,13 @@ def test_run_worker_spawns_the_named_module_and_reads_its_marker(monkeypatch, tm
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", popen)
-    monkeypatch.setattr(rigging.winjob, "assign", lambda pid: True)
-    monkeypatch.setattr(rigging.winjob, "track", lambda pid, what: seen.__setitem__("track", what))
-    monkeypatch.setattr(rigging.winjob, "untrack", lambda pid: None)
+    monkeypatch.setattr(blender_run.winjob, "assign", lambda pid: True)
+    monkeypatch.setattr(
+        blender_run.winjob, "track", lambda pid, what: seen.__setitem__("track", what)
+    )
+    monkeypatch.setattr(blender_run.winjob, "untrack", lambda pid: None)
     progress_seen = []
-    out = rigging.run_worker(
+    out = blender_run.run_worker(
         {"result_path": str(tmp_path / ".r.json")},
         on_progress=lambda f, label: progress_seen.append((f, label)),
         module="warlock.pipelines.lora_train_worker",
@@ -638,7 +640,7 @@ async def test_a_training_job_frees_the_card_runs_the_trainer_and_registers(
         return {"ok": True, "steps": 200, "images": 3, "rank": 16, "loss": 0.05,
                 "weights": str(out / lora_train.WEIGHTS_NAME)}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     job_id = worker.store.create(
         "lora_train", "Cosmos",
         {"base_model": "sdxl_cfg", "label": "Cosmos", "trigger": "cosmos style", "steps": 200},
@@ -672,7 +674,7 @@ async def test_a_training_job_frees_the_card_runs_the_trainer_and_registers(
 async def test_a_trainer_that_wrote_nothing_fails_the_job(worker, monkeypatch):
     monkeypatch.setattr(worker.trellis, "stop", lambda: None)
     monkeypatch.setattr(
-        rigging, "run_worker", lambda spec, **kw: {"ok": True, "steps": 1, "images": 1}
+        blender_run, "run_worker", lambda spec, **kw: {"ok": True, "steps": 1, "images": 1}
     )
     job_id = worker.store.create("lora_train", "x", {"trigger": "t", "steps": 100})
     train_dir = worker.config.job_dir(job_id) / "train"

@@ -25,8 +25,8 @@ class LoraOps:
     """Mixed into :class:`~.queue.Worker`."""
 
     async def _lora_train(self: Worker, job: dict[str, Any]) -> None:
-        from . import fetch, generation, models, rigging
-        from .pipelines import lora_train
+        from . import fetch, generation, models
+        from .pipelines import blender_run, lora_train
 
         job_id = job["id"]
         params = job["params"]
@@ -58,7 +58,7 @@ class LoraOps:
         out_dir = job_dir / "lora"
         result = await asyncio.to_thread(
             functools.partial(
-                rigging.run_worker,
+                blender_run.run_worker,
                 lora_train.train_spec(
                     base_dir,
                     images,

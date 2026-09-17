@@ -23,12 +23,12 @@ import numpy as np
 import pytest
 
 from warlock import clips as clipslib
-from warlock import rigging
 from warlock.characters import DEFAULT_RECIPE, CharacterError, Recipe, families
 from warlock.characters import family as familylib
 from warlock.characters.humanoid import generate
 from warlock.characters.instantiate import instantiate
 from warlock.kernels.geom3d import gltf
+from warlock.kernels.rig import cliplib, skeleton, templates
 from warlock.pipelines import charsheet
 
 SILHOUETTES = sorted(familylib.silhouettes("humanoid"))
@@ -239,8 +239,8 @@ def test_the_generated_mesh_fits_the_humanoid_template_exactly(silhouette, rebui
     ``build`` closed on the wrong number and every joint is off by that much."""
     baked = rebuilt[silhouette]
     lo, hi = baked.bounds
-    fitted = rigging.fit_template(
-        rigging.get_template("humanoid"),
+    fitted = skeleton.fit_template(
+        templates.get_template("humanoid"),
         [float(lo[0]), -float(hi[2]), 0.0],
         [float(hi[0]), -float(lo[2]), 1.0],
     )
@@ -360,8 +360,8 @@ def test_the_humanoid_archetype_uses_the_shipped_template_and_clip_library():
     cycle -- two libraries that start identical are two libraries that drift."""
     arch = familylib.get_archetype("humanoid")
     assert (arch.template, arch.clip_library) == ("humanoid", "humanoid")
-    assert "ogre" not in rigging.templates()
-    library = rigging.clip_library("humanoid")
+    assert "ogre" not in templates.templates()
+    library = cliplib.clip_library("humanoid")
     assert {c["name"] for c in library["clips"]} >= {"idle", "walk", "attack"}
     assert library["space"] == "delta"
 
@@ -455,9 +455,9 @@ def test_the_attack_wind_raises_a_hand_above_the_rest_crown():
     crown. This is the measurement, not an aspiration: if the clip is ever
     re-authored flatter, the framing has to be re-argued.
     """
-    template = rigging.get_template("humanoid")
-    poses = {p["name"]: p for p in rigging.clip_library("humanoid")["poses"].values()}
-    keys = rigging.clip_keys("humanoid", "attack")
+    template = templates.get_template("humanoid")
+    poses = {p["name"]: p for p in cliplib.clip_library("humanoid")["poses"].values()}
+    keys = cliplib.clip_keys("humanoid", "attack")
     highest = max(
         max(_forward_kinematics(key, template)[f"hand.{side}"][2] for side in ("L", "R"))
         for key in keys
@@ -471,7 +471,7 @@ def test_the_bone_basis_agrees_with_what_the_clip_library_says_about_itself():
     """The library's header claims local X is the swing axis for the thigh. If
     that were not this basis, every angle read back above would be about the
     wrong axis and the measurement would be meaningless."""
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     thigh = next(b for b in template.bones if b["name"] == "thigh.L")
     basis = _bone_basis(np.array(thigh["tail"]) - np.array(thigh["head"]))
     assert basis[:, 0] == pytest.approx([1.0, 0.0, 0.0], abs=1e-9)
@@ -487,7 +487,7 @@ def test_instantiating_writes_the_three_files_a_job_directory_serves(tmp_path):
     # No temp names left behind: every one of the three is staged and replaced.
     assert not list(tmp_path.glob(".*.tmp"))
     assert inst.family == "ogre"
-    assert inst.bone_names == [b["name"] for b in rigging.get_template("humanoid").bones]
+    assert inst.bone_names == [b["name"] for b in templates.get_template("humanoid").bones]
     assert set(inst.materials) == set(familylib.get_archetype("humanoid").regions)
 
 
@@ -524,9 +524,9 @@ def test_the_sidecar_says_what_was_built_and_what_was_asked_for(tmp_path):
     assert sidecar["recipe"] == DEFAULT_RECIPE.as_dict()
     # The joints in the sidecar are the ones a rig job would be handed, so they
     # go through the same door a hand-corrected skeleton does.
-    rigging.validate_joints(
+    skeleton.validate_joints(
         {"bones": [{k: b[k] for k in ("name", "head", "tail")} for b in sidecar["joints"]]},
-        rigging.get_template("humanoid"),
+        templates.get_template("humanoid"),
     )
 
 

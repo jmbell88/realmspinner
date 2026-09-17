@@ -1,7 +1,7 @@
 """Stem separation: the registry, the door, and the names on disk.
 
 No card, no weights and no child process, with one exception: the exit-code
-contract between ``separation_worker`` and ``rigging.run_worker`` is only real
+contract between ``separation_worker`` and ``blender_run.run_worker`` is only real
 with a real subprocess, so that one test below spawns one -- CPU-only and
 weight-free, since it exercises the *failure* path.
 
@@ -23,7 +23,8 @@ import time
 
 import pytest
 
-from warlock import _q_music, fetch, models, rigging, vram
+from warlock import _q_music, fetch, models, vram
+from warlock.pipelines import blender_run
 from warlock.queue import Worker
 from warlock.service import _jobs_rework as rework
 from warlock.service import files
@@ -245,7 +246,7 @@ def test_a_failed_separation_surfaces_the_workers_own_error_message_not_just_an_
     """A handled failure must reach the caller as the worker's own sentence.
 
     ``separation_worker.main()`` used to write its caught exception into
-    ``result_path`` and then exit 1 -- exactly the shape ``rigging.run_worker``
+    ``result_path`` and then exit 1 -- exactly the shape ``blender_run.run_worker``
     treats as a crash, so it deleted that file and raised
     "Stem separation exited with code 1" before ever reading the sentence the
     worker had just written into it. That made ``_q_music.py``'s
@@ -268,7 +269,7 @@ def test_a_failed_separation_surfaces_the_workers_own_error_message_not_just_an_
         "segment_seconds": 10.0,
         "result_path": str(tmp_path / "separate.json"),
     }
-    result = rigging.run_worker(
+    result = blender_run.run_worker(
         spec,
         timeout=120,
         module="warlock.pipelines.separation_worker",
@@ -394,7 +395,7 @@ def test_separate_job_does_not_reuse_the_blender_pose_timeout(svc, monkeypatch):
     600-second take on a CPU fallback. Reusing ``pose_timeout`` would kill a
     legitimately-progressing separation at 300s exactly like a hung one.
     Fails against the unfixed code, which passes ``worker.config.pose_timeout``
-    (300.0) to ``rigging.run_worker`` instead of a separation-sized ceiling.
+    (300.0) to ``blender_run.run_worker`` instead of a separation-sized ceiling.
     """
     calls: list[dict] = []
 
@@ -405,7 +406,7 @@ def test_separate_job_does_not_reuse_the_blender_pose_timeout(svc, monkeypatch):
         Path(spec["out_dir"]).mkdir(parents=True, exist_ok=True)
         return {"ok": True, "files": [], "rate": 44100}
 
-    monkeypatch.setattr(rigging, "run_worker", fake_run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", fake_run_worker)
 
     worker = Worker(svc.config, svc.store)
     take = _take(svc)

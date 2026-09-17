@@ -28,7 +28,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import rigging
+from ...kernels.rig import skeleton
 from ...pipelines import charsheet
 from .. import controls, tokens, troupe_mode, widgets
 from ..tokens import sp
@@ -68,7 +68,7 @@ class TroupeSend:
     #: P4 (2026-09-13): whether the rig's own skeleton was edited away from its
     #: template (``rig.json["skeleton"] == "custom"``), and how many bones the
     #: template's clip library animates that this rig no longer has
-    #: (``rigging.clip_coverage``). Read once here, not per frame -- a rig read
+    #: (``skeleton.clip_coverage``). Read once here, not per frame -- a rig read
     #: is a file, and ``_skeleton`` draws every frame the dialog is open.
     custom_skeleton: bool = False
     custom_skeleton_missing: int = 0
@@ -116,7 +116,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
         # synchronously from a button handler, on the frame thread. Recorded
         # here rather than moved off-thread, because the read is a single
         # small JSON on an explicit click, not a loop or a poll, and it is
-        # already bounded -- ``rigging.read_record`` (which ``get_rig`` goes
+        # already bounded -- ``store.read_record`` (which ``get_rig`` goes
         # through) stats the file before reading and refuses anything over
         # ``MAX_RECORD_BYTES`` (1 MiB) rather than loading it, so the worst
         # case here is one small stat call and a suppressed exception, not an
@@ -137,7 +137,7 @@ def ask(ctx: Any, job: dict[str, Any] | None) -> bool:
             if rig.get("skeleton") == "custom":
                 custom_skeleton = True
                 custom_missing = len(
-                    rigging.clip_coverage(rig, str(rig.get("template") or ""))
+                    skeleton.clip_coverage(rig, str(rig.get("template") or ""))
                 )
     ctx.state.troupe_send = TroupeSend(
         job_id=job_id,

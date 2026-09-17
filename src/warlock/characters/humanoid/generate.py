@@ -176,13 +176,13 @@ def _to_blender(p: Any) -> np.ndarray:
 
 def _fit_joints(half_width: float, z_lo: float, z_hi: float) -> list[dict[str, Any]]:
     """The shipped humanoid landmarks, fitted to a candidate bounding box."""
-    from ... import rigging
+    from ...kernels.rig import skeleton, templates
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     # Blender's y is glTF's -z, so the box's y range is the negated z range.
     lo = [-half_width, -z_hi, 0.0]
     hi = [half_width, -z_lo, 1.0]
-    return rigging.fit_template(template, lo, hi)
+    return skeleton.fit_template(template, lo, hi)
 
 
 def _joint_points(joints: list[dict[str, Any]]) -> dict[str, tuple[np.ndarray, np.ndarray]]:

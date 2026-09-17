@@ -29,8 +29,9 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .. import followups, rigging
+from .. import followups
 from ..clips import clip_timing, expand_clips
+from ..kernels.rig import cliplib, skeleton, store, templates
 from ..pipelines import charsheet, pixelize, spritesynth
 from .errors import Conflict, Invalid, NotFound, invalid_from
 from .sheets import check_sheet_cap
@@ -107,7 +108,7 @@ FOLLOW_UP_WINDOW_S = 60.0
 #: allowed: what a character sheet actually needs is a template with clips
 #: authored for it, which is what ``create_charsheet`` refuses on. The pin
 #: survives as the default because it is the template the shipped clip library
-#: carries -- and ``rigging.clip_library`` answers "no clips" for the rest
+#: carries -- and ``cliplib.clip_library`` answers "no clips" for the rest
 #: rather than failing, so without a refusal at the door the mismatch would
 #: land in the worker as a frame-count error.
 TROUPE_TEMPLATE = "humanoid"
@@ -127,7 +128,7 @@ def has_clips(template: str) -> bool:
     refusal gives: from the user's side it is the same fact.
     """
     try:
-        return bool(rigging.clip_library(str(template or "")).get("clips"))
+        return bool(cliplib.clip_library(str(template or "")).get("clips"))
     except ValueError:
         return False
 
@@ -135,10 +136,10 @@ def has_clips(template: str) -> bool:
 def clip_templates() -> list[dict[str, str]]:
     """The skeletons a character sheet can actually be animated on.
 
-    ``rigging.catalog()`` filtered by :func:`has_clips`, in the catalog's own
+    ``templates.catalog()`` filtered by :func:`has_clips`, in the catalog's own
     order, so the Skeleton picker offers exactly the set the door accepts.
     """
-    return [row for row in rigging.catalog() if has_clips(row["key"])]
+    return [row for row in templates.catalog() if has_clips(row["key"])]
 
 
 def _clip_vocabulary(template_key: str) -> list[dict[str, Any]]:
@@ -154,7 +155,7 @@ def _clip_vocabulary(template_key: str) -> list[dict[str, Any]]:
     rig also offers". See
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
     """
-    library = rigging.clip_library(template_key)
+    library = cliplib.clip_library(template_key)
     timing = clip_timing(template_key)
     legacy_names = {name for name, *_rest in charsheet.ANIMATIONS}
     out: list[dict[str, Any]] = []
@@ -182,7 +183,7 @@ def troupe_options(svc: WarlockService) -> dict[str, Any]:
         "variants": list(TROUPE_VARIANTS),
         # Derived, never a second hand-written list: what a character sheet
         # needs is a template with clips authored for it, and
-        # ``rigging.clip_library`` is the one answer to that question. A
+        # ``cliplib.clip_library`` is the one answer to that question. A
         # second list here would be one edit away from offering a skeleton
         # ``create_charsheet`` then refuses.
         "clip_templates": clip_templates(),
@@ -500,13 +501,13 @@ def create_charsheet(
         # layout failure, because rigging it is what the user has to do next.
         raise Invalid("a character sheet needs a rigged mesh")
 
-    rig_meta = rigging.read_rig(job_dir) or {}
+    rig_meta = store.read_rig(job_dir) or {}
     template = str(rig_meta.get("template") or "")
     # **What a sheet needs is clips, not the humanoid template.** The refusal
     # used to name ``humanoid`` and turned away every family that ships its own
     # clip library -- a rig authored with a walk cycle was refused for not
     # being the one template that happened to have one first.
-    # ``rigging.clip_library`` answers with an empty library rather than
+    # ``cliplib.clip_library`` answers with an empty library rather than
     # failing, so the question is asked here: without it the mismatch lands in
     # the worker as a frame-count error, an hour and 256 EEVEE frames later.
     # An unrecorded or unknown template answers False rather than raising --
@@ -561,14 +562,14 @@ def create_charsheet(
         raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
 
     sheet_name = (name or "").strip()
-    if len(sheet_name) > rigging.MAX_SHEET_NAME:
+    if len(sheet_name) > store.MAX_SHEET_NAME:
         raise Invalid(
-            f"sheet name must be at most {rigging.MAX_SHEET_NAME} characters", field="name"
+            f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
 
     params = {
         "source_job": job_id,
-        "sheet_id": rigging.new_id(),
+        "sheet_id": store.new_id(),
         # The rig's own template, read off ``rig.json`` -- the mesh is already
         # rigged, so pinning ``humanoid`` here would have the worker expand a
         # clip library the skeleton on disk does not match.
@@ -628,9 +629,9 @@ def rerender_charsheet(
     check_job_id(job_id)
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if not rigging.is_valid_id(str(sheet_id or "")):
+    if not store.is_valid_id(str(sheet_id or "")):
         raise Invalid("that is not a sheet id", field="sheet_id")
-    record = rigging.read_sheet(job_dir, str(sheet_id))
+    record = store.read_sheet(job_dir, str(sheet_id))
     if not record:
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
     snapshot = record.get("troupe")
@@ -658,9 +659,9 @@ def rerender_charsheet(
         raise invalid_from(exc, "Those runs cannot be re-rendered", field="subset") from exc
 
     sheet_name = (name or "").strip()
-    if len(sheet_name) > rigging.MAX_SHEET_NAME:
+    if len(sheet_name) > store.MAX_SHEET_NAME:
         raise Invalid(
-            f"sheet name must be at most {rigging.MAX_SHEET_NAME} characters", field="name"
+            f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
 
     params = dict(row.get("params") or {})
@@ -680,7 +681,7 @@ def rerender_charsheet(
     params.update(
         {
             "source_job": job_id,
-            "sheet_id": rigging.new_id(),
+            "sheet_id": store.new_id(),
             "base_sheet": str(sheet_id),
             "subset": [{"animation": a, "direction": d} for a, d in runs],
             "layout": resolved_layout.as_dict(),
@@ -749,7 +750,7 @@ def follow_up_sheet_job(svc: WarlockService, rig_job_id: str) -> str | None:
     if not isinstance(block, Mapping):
         return None
     source = str(params.get("source_job") or "")
-    if not rigging.is_valid_id(source):
+    if not store.is_valid_id(source):
         return None
     wanted = {k: v for k, v in block.items() if k != "sheet_id"}
     window_start = float(finished_at) - FOLLOW_UP_WINDOW_S
@@ -954,8 +955,8 @@ def send_to_troupe(
     }
     if bones is not None:
         try:
-            params["bones"] = rigging.validate_joints(
-                {"bones": list(bones)}, rigging.get_template(rig_template)
+            params["bones"] = skeleton.validate_joints(
+                {"bones": list(bones)}, templates.get_template(rig_template)
             )
         except ValueError as exc:
             raise invalid_from(exc, "Those joint positions cannot be used") from exc
@@ -1050,7 +1051,7 @@ def _charsheet_spec(
     # and the sentence is ``create_charsheet``'s own so one fact has one
     # wording.
     try:
-        rigging.get_template(sheet_template)
+        templates.get_template(sheet_template)
     except ValueError as exc:
         raise Invalid(str(exc), field="template") from exc
     if not has_clips(sheet_template):
@@ -1102,9 +1103,9 @@ def _charsheet_spec(
         raise invalid_from(exc, "That character sheet cannot be laid out", field="layout") from exc
 
     sheet_name = (name or "").strip()
-    if len(sheet_name) > rigging.MAX_SHEET_NAME:
+    if len(sheet_name) > store.MAX_SHEET_NAME:
         raise Invalid(
-            f"sheet name must be at most {rigging.MAX_SHEET_NAME} characters", field="name"
+            f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
     spec: dict[str, Any] = {
         "template": sheet_template,

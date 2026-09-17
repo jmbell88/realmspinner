@@ -4542,9 +4542,8 @@ def test_the_stage_rail_compacts_rather_than_clipping_a_stage(imgui_ctx, scale):
     pipeline with no way in.
     """
     imgui, renderer = imgui_ctx
+    from warlock.studio import create_rail, tokens
     from warlock.studio import layout as layout_mod
-    from warlock.studio import tokens
-    from warlock.studio import widgets as widgets_mod
 
     old_scale = tokens.SCALE
     tokens.set_scale(scale)
@@ -4553,7 +4552,7 @@ def test_the_stage_rail_compacts_rather_than_clipping_a_stage(imgui_ctx, scale):
         imgui.set_next_window_size((tokens.sp(layout_mod.SIDEBAR_WIDTHS["narrow"]), 200))
         imgui.begin("##narrow")
         available = imgui.get_content_region_avail().x
-        widgets_mod.stage_rail(
+        create_rail.stage_rail(
             "rail-fit", _stage_items(), "reference", done="mesh", max_width=available
         )
         lo, hi = imgui.get_item_rect_min(), imgui.get_item_rect_max()
@@ -4576,12 +4575,12 @@ def _rail_probe(imgui_ctx, rail_id, items, current, done):
     padding, the font and therefore the segment widths are all scale-dependent.
     """
     imgui, _renderer = imgui_ctx
-    from warlock.studio import widgets as widgets_mod
+    from warlock.studio import create_rail
 
     seen: dict[str, float] = {}
 
     def build():
-        out = widgets_mod.stage_rail(rail_id, items, current, done=done)
+        out = create_rail.stage_rail(rail_id, items, current, done=done)
         lo, hi = imgui.get_item_rect_min(), imgui.get_item_rect_max()
         # Just inside the right edge, so the point is in the *last* segment
         # whatever the widths are -- they follow the labels, and the labels

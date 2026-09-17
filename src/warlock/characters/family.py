@@ -126,9 +126,9 @@ class Archetype:
 
     key: str
     label: str
-    #: ``rigging.get_template`` key. Not a file path -- the registry owns it.
+    #: ``templates.get_template`` key. Not a file path -- the registry owns it.
     template: str
-    #: ``rigging.clip_library`` key. The same string today for every archetype
+    #: ``cliplib.clip_library`` key. The same string today for every archetype
     #: whose skeleton it shares; kept separate because a body plan may
     #: eventually want its own walk without wanting its own skeleton.
     clip_library: str

@@ -15,7 +15,8 @@ import logging
 import os
 from pathlib import Path
 
-from .. import rigging
+from ..kernels.rig import blender_spec, store
+from ..pipelines import blender_run
 from . import files
 from .core import WarlockService
 from .errors import Failed, Invalid, NotFound, NotReady
@@ -86,12 +87,12 @@ def get_file(
                     _staged(
                         job_dir,
                         name,
-                        lambda tmp: rigging.run_worker(
-                            rigging.fbx_spec(glb, tmp, job_dir),
+                        lambda tmp: blender_run.run_worker(
+                            blender_spec.fbx_spec(glb, tmp, job_dir),
                             timeout=svc.config.pose_timeout,
                         ),
                     )
-                except rigging.BlenderError as exc:
+                except blender_run.BlenderError as exc:
                     log.error("fbx export for %s failed: %s", job_id, exc)
                     raise Failed("could not export FBX") from exc
 
@@ -116,19 +117,19 @@ def get_file(
     # That last case is exactly the staleness a retarget's
     # ``stale_rig_artifacts`` warns about, but reachable with no retarget at
     # all -- see ``_bake_animated_glb``'s docstring for why rig_digest closes
-    # it even though ``rigging.finalize_rig`` still takes no lock of its own.
+    # it even though ``store.finalize_rig`` still takes no lock of its own.
     if name == "animated.glb" and (job_dir / "rig.glb").exists():
         with svc.convert_lock(job_id, name):
             # template and rig_digest are both read from rig.json, and both
             # moved inside this lock (defect, fixed 2026-09-13): a re-rig
-            # (rigging.finalize_rig, run from a Poser skeleton edit's
+            # (store.finalize_rig, run from a Poser skeleton edit's
             # _q_rig.py job) deletes animated.glb and replaces rig.glb/
             # rig.json without ever taking this artifact's convert_lock, so a
             # read taken before the lock could see a rig.json a re-rig was
             # mid-write on. What actually closes the staleness hole is the
             # rig_digest stamped in _bake_animated_glb below -- this move only
             # keeps this caller's own two reads of rig.json in agreement.
-            template = str((rigging.read_rig(job_dir) or {}).get("template") or "")
+            template = str((store.read_rig(job_dir) or {}).get("template") or "")
             rig_digest = _rig_digest(job_dir)
             # Re-checked inside the lock, the rule every derivation here
             # follows: whoever waited here wanted exactly this file, fresh --
@@ -146,7 +147,7 @@ def get_file(
                     # No clips for this skeleton. ``ready`` refuses first, so
                     # this is the race, and the artifact simply cannot exist.
                     raise NotReady(str(exc)) from exc
-                except rigging.BlenderError as exc:
+                except blender_run.BlenderError as exc:
                     log.error("animation bake for %s failed: %s", job_id, exc)
                     raise Failed("could not bake the animations") from exc
 
@@ -393,7 +394,7 @@ def _staged(job_dir: Path, name: str, write, *, tmp_name: str | None = None) -> 
     caller: Blender's glTF exporter appends ``.glb`` to a path that does not
     already end in it, so the default ``.animated.glb.tmp`` would be written as
     ``.animated.glb.tmp.glb`` and the rename would find nothing. That is
-    ``rigging.RIG_GLB_TMP``'s rule, met a second time.
+    ``store.RIG_GLB_TMP``'s rule, met a second time.
     """
     tmp = job_dir / (tmp_name or f".{name}.tmp")
     try:
@@ -407,7 +408,7 @@ def _staged(job_dir: Path, name: str, write, *, tmp_name: str | None = None) -> 
 def _rig_digest(job_dir: Path) -> str:
     """A hash of the rig an ``animated.glb`` bake would run against.
 
-    ``rig.json``, not ``rig.glb``: a re-rig (``rigging.finalize_rig``, run
+    ``rig.json``, not ``rig.glb``: a re-rig (``store.finalize_rig``, run
     from a Poser skeleton edit's ``_q_rig.py`` job) always rewrites
     ``rig.json``'s ``bones`` list with the mesh's actual joint positions --
     ``blender_worker._rig_meta`` builds it fresh from whatever the solve just
@@ -456,7 +457,7 @@ def _bake_animated_glb(svc: WarlockService, job_dir: Path, template: str, tmp: P
     than a closed one.
 
     ``rig_digest`` is read the same way, right beside them, for a second
-    defect fixed the same day: ``rigging.finalize_rig`` -- a re-rig from
+    defect fixed the same day: ``store.finalize_rig`` -- a re-rig from
     Poser's skeleton editor, run from ``_q_rig.py`` -- deletes
     ``animated.glb`` and replaces ``rig.glb``/``rig.json`` without ever
     taking this artifact's ``convert_lock``. A bake already in flight under
@@ -479,7 +480,7 @@ def _bake_animated_glb(svc: WarlockService, job_dir: Path, template: str, tmp: P
     loops = list(clips.loop_names(template))
     rig_digest = _rig_digest(job_dir)
     spec = clips.animate_spec(job_dir, template, tmp, job_dir)
-    rigging.run_worker(
+    blender_run.run_worker(
         spec,
         # Import, key and export, like a pose bake: the same budget rather
         # than a knob of its own.

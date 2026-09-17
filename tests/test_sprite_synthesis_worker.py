@@ -14,9 +14,10 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models, rigging
+from warlock import models
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import store as rig_store
 from warlock.queue import Worker
 
 
@@ -49,7 +50,7 @@ def _reference(worker) -> str:
 
 
 def _queue(worker, source, **overrides) -> tuple[str, str]:
-    draft_id = rigging.new_id()
+    draft_id = rig_store.new_id()
     params = {
         "source_job": source,
         "sheet_type": "turnaround",
@@ -123,16 +124,16 @@ async def test_the_draft_is_published_as_a_trio_with_the_sidecar_last(worker):
     await _run(worker, job_id)
 
     source_dir = worker.config.job_dir(source)
-    for letter in rigging.SPRITE_CANDIDATES:
-        assert rigging.sprite_draft_png_path(source_dir, draft_id, letter).exists()
-    record = rigging.read_sprite_draft(source_dir, draft_id)
+    for letter in rig_store.SPRITE_CANDIDATES:
+        assert rig_store.sprite_draft_png_path(source_dir, draft_id, letter).exists()
+    record = rig_store.read_sprite_draft(source_dir, draft_id)
     assert record is not None
     assert [c["seed"] for c in record["candidates"]] == [11, 22]
     assert [c["image"] for c in record["candidates"]] == [
         f"{draft_id}.a.png",
         f"{draft_id}.b.png",
     ]
-    assert rigging.list_sprite_drafts(source_dir) == [record]
+    assert rig_store.list_sprite_drafts(source_dir) == [record]
 
 
 @pytest.mark.asyncio
@@ -143,10 +144,10 @@ async def test_the_published_atlas_matches_the_sidecars_grid(worker):
     await _run(worker, job_id)
 
     source_dir = worker.config.job_dir(source)
-    record = rigging.read_sprite_draft(source_dir, draft_id)
+    record = rig_store.read_sprite_draft(source_dir, draft_id)
     assert record["sheet_type"] == "walk"
     assert len(record["cells"]) == 16
-    with Image.open(rigging.sprite_draft_png_path(source_dir, draft_id, "a")) as png:
+    with Image.open(rig_store.sprite_draft_png_path(source_dir, draft_id, "a")) as png:
         assert png.size == (record["columns"] * 48, record["rows"] * 48)
 
 
@@ -157,7 +158,7 @@ async def test_the_recipe_records_the_guide_and_the_conditioning(worker):
 
     await _run(worker, job_id)
 
-    recipe = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)["recipe"]
+    recipe = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)["recipe"]
     assert recipe["base_model"] == "sdxl_cfg"
     assert recipe["style_lora"] == models.PIXEL_SHEET_LORA
     assert recipe["guide_template"] == "turnaround"
@@ -176,7 +177,7 @@ async def test_a_candidate_with_warnings_is_still_published(worker):
 
     await _run(worker, job_id)
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     # The fake pipeline paints a flat colour, so every cell is "unmatted" and
     # runs off its own edges -- exactly the shape of a warned candidate.
     assert all("warnings" in c for c in record["candidates"])
@@ -196,7 +197,7 @@ async def test_each_candidate_records_the_lattice_its_own_generation_drew_on(wor
 
     await _run(worker, job_id)
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     assert record["version"] == spritesynth.SPRITE_DRAFT_VERSION
     for candidate in record["candidates"]:
         assert set(candidate["grid"]) == {"scale", "residual"}
@@ -240,7 +241,7 @@ async def test_a_base_the_pixel_lora_does_not_fit_generates_bare_and_says_so(
 
     assert row["error"] is None and row["status"] == "done"
     assert {lora for lora, _weight in pipes[0].lora_calls} == {None}
-    recipe = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)["recipe"]
+    recipe = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)["recipe"]
     assert "style_lora" not in recipe
 
 
@@ -281,8 +282,8 @@ async def test_a_cancel_publishes_nothing(worker, monkeypatch):
 
     assert worker.store.get(job_id)["status"] == "cancelled"
     source_dir = worker.config.job_dir(source)
-    assert rigging.read_sprite_draft(source_dir, draft_id) is None
-    assert rigging.list_sprite_drafts(source_dir) == []
+    assert rig_store.read_sprite_draft(source_dir, draft_id) is None
+    assert rig_store.list_sprite_drafts(source_dir) == []
 
 
 @pytest.mark.asyncio
@@ -291,18 +292,18 @@ async def test_a_discard_leaves_a_strangers_drafts_alone(worker):
     every earlier draft of the same reference, each from a different and
     successful job."""
     source = _reference(worker)
-    stranger = rigging.new_id()
+    stranger = rig_store.new_id()
     source_dir = worker.config.job_dir(source)
-    for letter in rigging.SPRITE_CANDIDATES:
-        path = rigging.sprite_draft_png_path(source_dir, stranger, letter)
+    for letter in rig_store.SPRITE_CANDIDATES:
+        path = rig_store.sprite_draft_png_path(source_dir, stranger, letter)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"png")
-    rigging.sprite_draft_path(source_dir, stranger).write_text("{}", encoding="utf-8")
+    rig_store.sprite_draft_path(source_dir, stranger).write_text("{}", encoding="utf-8")
 
     job_id, draft_id = _queue(worker, source)
     worker._discard_artifacts(worker.store.get(job_id))
 
-    assert rigging.sprite_draft_path(source_dir, stranger).exists()
+    assert rig_store.sprite_draft_path(source_dir, stranger).exists()
 
 
 def test_a_discard_with_no_draft_id_touches_nothing(worker):
@@ -373,8 +374,8 @@ async def test_a_draft_png_is_staged_rather_than_saved_onto_its_served_name(
 
     source_dir = worker.config.job_dir(source)
     served = {
-        rigging.sprite_draft_png_path(source_dir, draft_id, letter)
-        for letter in rigging.SPRITE_CANDIDATES
+        rig_store.sprite_draft_png_path(source_dir, draft_id, letter)
+        for letter in rig_store.SPRITE_CANDIDATES
     }
     assert served.isdisjoint(saved), "a served draft PNG was written in place"
     assert all(path.exists() for path in served), "and the renames still landed"
@@ -383,7 +384,7 @@ async def test_a_draft_png_is_staged_rather_than_saved_onto_its_served_name(
 
 @pytest.mark.asyncio
 async def test_a_torn_draft_sidecar_leaves_no_marker_and_no_strand(worker, monkeypatch):
-    """``rigging.list_sprite_drafts`` treats the sidecar as the completion
+    """``rig_store.list_sprite_drafts`` treats the sidecar as the completion
     marker, so a half-written one advertises a draft whose record cannot be
     parsed -- and a re-synthesis of the same draft_id would be truncating a
     marker that is already saying ready."""
@@ -405,8 +406,8 @@ async def test_a_torn_draft_sidecar_leaves_no_marker_and_no_strand(worker, monke
 
     assert row["status"] == "error"
     source_dir = worker.config.job_dir(source)
-    assert not rigging.sprite_draft_path(source_dir, draft_id).exists()
-    assert list(rigging.sprite_draft_path(source_dir, draft_id).parent.glob("*.tmp")) == []
+    assert not rig_store.sprite_draft_path(source_dir, draft_id).exists()
+    assert list(rig_store.sprite_draft_path(source_dir, draft_id).parent.glob("*.tmp")) == []
 
 
 # --- the three pixel options, end to end --------------------------------------
@@ -446,7 +447,7 @@ async def test_a_named_palette_is_the_only_colours_in_either_candidate(
     assert row["error"] is None and row["status"] == "done", row["error"]
 
     source_dir = worker.config.job_dir(source)
-    record = rigging.read_sprite_draft(source_dir, draft_id)
+    record = rig_store.read_sprite_draft(source_dir, draft_id)
     assert record["palette"] == "ramp"
     assert record["palette_source"] == "designed"
     # Of the colours and not of the file: a palette edited in place keeps its
@@ -455,8 +456,8 @@ async def test_a_named_palette_is_the_only_colours_in_either_candidate(
         tuple((int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)) for h in RAMP)
     )
     allowed = set(RAMP)
-    for letter in rigging.SPRITE_CANDIDATES:
-        path = rigging.sprite_draft_png_path(source_dir, draft_id, letter)
+    for letter in rig_store.SPRITE_CANDIDATES:
+        path = rig_store.sprite_draft_png_path(source_dir, draft_id, letter)
         with Image.open(path) as png:
             colours = {
                 f"#{r:02x}{g:02x}{b:02x}"
@@ -498,7 +499,7 @@ async def test_the_sidecar_records_the_options_that_actually_ran(worker):
     row = await _run(worker, job_id)
     assert row["error"] is None, row["error"]
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     assert record["palette"] == "" and record["palette_hash"] == ""
     assert record["palette_source"] == "derived"
     assert record["dither"] is False
@@ -546,9 +547,9 @@ async def test_an_outer_outline_is_only_ever_drawn_when_asked_for(worker):
 
     source_dir = worker.config.job_dir(source)
     assert (
-        rigging.read_sprite_draft(source_dir, default_draft)["outline"] == "inner"
+        rig_store.read_sprite_draft(source_dir, default_draft)["outline"] == "inner"
     )
-    assert rigging.read_sprite_draft(source_dir, outer_draft)["outline"] == "outer"
+    assert rig_store.read_sprite_draft(source_dir, outer_draft)["outline"] == "outer"
 
 
 # --- a planned kind: one generation per direction ----------------------------
@@ -658,7 +659,7 @@ async def test_a_big_sheet_defaults_to_one_candidate(worker):
     await _run(worker, job_id)
 
     assert worker._text2image.seeds == [11] * 8
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     assert [c["seed"] for c in record["candidates"]] == [11]
 
 
@@ -731,8 +732,8 @@ async def test_the_published_atlas_is_frames_across_by_directions_down(worker):
     await _run(worker, job_id)
 
     source_dir = worker.config.job_dir(source)
-    record = rigging.read_sprite_draft(source_dir, draft_id)
-    with Image.open(rigging.sprite_draft_png_path(source_dir, draft_id, "a")) as out:
+    record = rig_store.read_sprite_draft(source_dir, draft_id)
+    with Image.open(rig_store.sprite_draft_png_path(source_dir, draft_id, "a")) as out:
         assert out.size == (4 * 32, 8 * 32)
         assert out.size == (
             record["columns"] * record["cell_w"],
@@ -752,7 +753,7 @@ async def test_the_published_record_carries_the_animation_block(worker):
 
     await _run(worker, job_id)
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     geom = spritesynth.plan_kind("idle8", 64)
     assert record["version"] == 3
     assert record["action"] == "idle"
@@ -771,7 +772,7 @@ async def test_the_recipe_records_the_bands_and_a_guide_reading_for_each(worker)
 
     await _run(worker, job_id)
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     recipe = record["recipe"]
     assert recipe["bands"] == 8
     assert recipe["candidates"] == 1
@@ -789,7 +790,7 @@ async def test_a_legacy_draft_still_records_one_guide_reading_and_one_lattice(wo
 
     await _run(worker, job_id)
 
-    record = rigging.read_sprite_draft(worker.config.job_dir(source), draft_id)
+    record = rig_store.read_sprite_draft(worker.config.job_dir(source), draft_id)
     assert record["recipe"]["bands"] == 0
     assert isinstance(record["recipe"]["guide_edge_fraction"], float)
     assert "grids" not in record["candidates"][0]
@@ -823,8 +824,8 @@ async def test_a_cancel_between_bands_publishes_nothing(worker, monkeypatch):
 
     assert row["status"] == "cancelled"
     source_dir = worker.config.job_dir(source)
-    assert not rigging.sprite_draft_path(source_dir, draft_id).exists()
-    assert rigging.list_sprite_drafts(source_dir) == []
+    assert not rig_store.sprite_draft_path(source_dir, draft_id).exists()
+    assert rig_store.list_sprite_drafts(source_dir) == []
     # One generation, not eight: the check at the top of the band loop is what
     # stopped it, rather than the eighth ``generate`` refusing on its own.
     assert len(worker._text2image.seeds) == 1
@@ -841,9 +842,9 @@ async def test_a_single_candidate_draft_is_listed_rather_than_hidden(worker):
     await _run(worker, job_id)
 
     source_dir = worker.config.job_dir(source)
-    assert rigging.sprite_draft_png_path(source_dir, draft_id, "a").exists()
-    assert not rigging.sprite_draft_png_path(source_dir, draft_id, "b").exists()
-    listed = rigging.list_sprite_drafts(source_dir)
+    assert rig_store.sprite_draft_png_path(source_dir, draft_id, "a").exists()
+    assert not rig_store.sprite_draft_png_path(source_dir, draft_id, "b").exists()
+    listed = rig_store.list_sprite_drafts(source_dir)
     assert [d["id"] for d in listed] == [draft_id]
 
 
@@ -857,8 +858,8 @@ async def test_a_draft_missing_a_png_it_claims_is_still_not_listed(worker):
     await _run(worker, job_id)
 
     source_dir = worker.config.job_dir(source)
-    rigging.sprite_draft_png_path(source_dir, draft_id, "b").unlink()
-    assert rigging.list_sprite_drafts(source_dir) == []
+    rig_store.sprite_draft_png_path(source_dir, draft_id, "b").unlink()
+    assert rig_store.list_sprite_drafts(source_dir) == []
 
 
 @pytest.mark.asyncio

@@ -20,9 +20,9 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import rigging
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import store as rig_store
 from warlock.pipelines import pixel, pixelize, pixelsheet
 from warlock.queue import Worker
 from warlock.service import Invalid
@@ -46,8 +46,8 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "model.glb").write_bytes(b"glb")
 
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(job_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(job_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0)).save(png)
     meta = {
@@ -59,7 +59,7 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
         "poses": [{"id": None, "name": "rest"}],
         "cells": [],
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
+    rig_store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return job_id, sheet_id
 
 
@@ -164,8 +164,8 @@ def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
     """A finished render with a subject in each cell, so the restyle has a
     silhouette to remask onto rather than a full-bleed rectangle."""
     source_dir = worker.config.job_dir(source)
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     atlas = Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0))
     for row in range(rows):
@@ -189,7 +189,7 @@ def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
         "poses": [{"id": None, "name": "rest"}],
         "cells": [],
     }
-    rigging.sheet_path(source_dir, sheet_id).write_text(
+    rig_store.sheet_path(source_dir, sheet_id).write_text(
         json.dumps(meta), encoding="utf-8"
     )
     return sheet_id
@@ -261,10 +261,10 @@ async def test_the_default_request_publishes_exactly_what_quantize_shared_return
     assert spies["pixelize_atlas"] == []
     expected, expected_palette = spies["quantize_shared"][0]
     with Image.open(
-        rigging.sheet_pixel_png_path(worker.config.job_dir(source), sheet_id)
+        rig_store.sheet_pixel_png_path(worker.config.job_dir(source), sheet_id)
     ) as published:
         assert published.convert("RGBA").tobytes() == expected.convert("RGBA").tobytes()
-    record = rigging.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
+    record = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
     assert record["palette"] == expected_palette
     assert record["version"] == pixelsheet.PIXEL_SHEET_VERSION == 1
 
@@ -287,7 +287,7 @@ async def test_any_one_of_the_three_options_takes_the_new_path(worker, spies, op
     assert len(spies["pixelize_atlas"]) == 1
     published_from = spies["pixelize_atlas"][0][0]
     with Image.open(
-        rigging.sheet_pixel_png_path(worker.config.job_dir(source), sheet_id)
+        rig_store.sheet_pixel_png_path(worker.config.job_dir(source), sheet_id)
     ) as published:
         assert (
             published.convert("RGBA").tobytes()
@@ -305,14 +305,14 @@ async def test_a_named_palette_is_the_only_colours_in_the_sheet(worker):
     assert row["error"] is None, row["error"]
 
     source_dir = worker.config.job_dir(source)
-    with Image.open(rigging.sheet_pixel_png_path(source_dir, sheet_id)) as png:
+    with Image.open(rig_store.sheet_pixel_png_path(source_dir, sheet_id)) as png:
         colours = {
             f"#{r:02x}{g:02x}{b:02x}"
             for _count, (r, g, b, a) in png.convert("RGBA").getcolors(1 << 24)
             if a > 0
         }
     assert colours and colours <= set(RAMP)
-    recipe = rigging.read_sheet_pixel(source_dir, sheet_id)["restyle"]
+    recipe = rig_store.read_sheet_pixel(source_dir, sheet_id)["restyle"]
     assert recipe["palette"] == "ramp"
     assert recipe["palette_source"] == "designed"
     assert recipe["palette_hash"] == pixel.palette_digest(RAMP_RGB)
@@ -333,7 +333,7 @@ async def test_the_recipe_records_the_options_on_the_default_path_too(worker):
     row = await _run(worker, job_id)
     assert row["error"] is None, row["error"]
 
-    recipe = rigging.read_sheet_pixel(worker.config.job_dir(source), sheet_id)["restyle"]
+    recipe = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)["restyle"]
     assert recipe["palette"] == "" and recipe["palette_hash"] == ""
     assert recipe["palette_source"] == "derived"
     assert recipe["dither"] is False and recipe["outline"] == "none"

@@ -483,7 +483,7 @@ def _ask_delete(ctx: Any, job_id: str, pose_id: str, name: str) -> None:
     """Confirm before a pose goes, the way a sweep delete does.
 
     It sits one pixel from "Save GLB...", it is permanent, and it takes the
-    baked GLB with it -- ``rigging.delete_pose`` removes the .json and the
+    baked GLB with it -- ``store.delete_pose`` removes the .json and the
     <pose_id>.glb beside it, so a mis-click costs the bake as well as the
     rotations. What the message has to say is the part that is not obvious:
     the mesh itself is untouched.

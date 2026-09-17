@@ -11,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import doctor, poselib, rigging
+from warlock import doctor, poselib
 from warlock.doctor import Check
+from warlock.kernels.rig import store, templates
+from warlock.pipelines import blender_run
 from warlock.service import Conflict, Failed, Invalid, NotFound
 from warlock.service import jobs as svc_jobs
 from warlock.service import poses as svc_poses
@@ -26,7 +28,7 @@ def assets(svc):
 
 
 def _payload(name="Crouch", template="humanoid", root=None, **over):
-    bones = {b["name"]: IDENTITY for b in rigging.get_template(template).bones}
+    bones = {b["name"]: IDENTITY for b in templates.get_template(template).bones}
     body = {"name": name, "template": template, "bones": bones}
     if root is not None:
         body["root_translation"] = root
@@ -41,7 +43,7 @@ def _rigged_job(svc, assets, template="humanoid") -> str:
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "model.glb").write_bytes(b"fake-glb")
     (job_dir / "rig.glb").write_bytes(b"fake-rig")
-    t = rigging.get_template(template)
+    t = templates.get_template(template)
     (job_dir / "rig.json").write_text(
         json.dumps(
             {
@@ -62,7 +64,7 @@ def _rigged_job(svc, assets, template="humanoid") -> str:
 
 def test_create_read_list_delete(svc):
     stored = svc_poses.create_library_pose(svc, _payload())
-    assert rigging.is_valid_id(stored["id"])
+    assert store.is_valid_id(stored["id"])
     assert svc_poses.list_library(svc)["poses"] == [stored]
     assert svc_poses.list_library(svc)["poses"] == [stored]
     assert svc_poses.list_library(svc, "fish")["poses"] == []
@@ -184,7 +186,7 @@ def test_apply_snapshots_into_the_jobs_own_poses(svc, assets):
         "name": "Leap",
         "updated": stored["updated"],
     }
-    assert [p["id"] for p in rigging.list_poses(assets / job_id)] == [local["id"]]
+    assert [p["id"] for p in store.list_poses(assets / job_id)] == [local["id"]]
 
 
 def test_editing_or_deleting_the_library_pose_leaves_the_snapshot_alone(svc, assets):
@@ -193,7 +195,7 @@ def test_editing_or_deleting_the_library_pose_leaves_the_snapshot_alone(svc, ass
     job_id = _rigged_job(svc, assets)
     stored = svc_poses.create_library_pose(svc, _payload("Leap"))
     local = svc_poses.apply_library_pose(svc, job_id, stored["id"])
-    path = rigging.pose_path(assets / job_id, local["id"])
+    path = store.pose_path(assets / job_id, local["id"])
     before = path.read_bytes()
 
     svc_poses.update_library_pose(svc, stored["id"], _payload("Leap far", root=[0.5, 0, 0]))
@@ -218,7 +220,7 @@ def test_apply_to_an_unrigged_job_is_not_found(svc, assets):
 def test_apply_respects_the_per_job_pose_cap(svc, assets, monkeypatch):
     job_id = _rigged_job(svc, assets)
     stored = svc_poses.create_library_pose(svc, _payload())
-    monkeypatch.setattr(rigging, "MAX_POSES", 0)
+    monkeypatch.setattr(store, "MAX_POSES", 0)
     with pytest.raises(Conflict, match="at most"):
         svc_poses.apply_library_pose(svc, job_id, stored["id"])
 
@@ -240,7 +242,7 @@ def _fake_worker(monkeypatch):
         Path(spec["out_glb"]).write_bytes(b"armature-glb")
         return {"ok": True, "bones": 1}
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
     return calls
 
 
@@ -287,9 +289,9 @@ def test_a_failed_build_caches_nothing(svc, monkeypatch):
     _fake_probe(monkeypatch)
 
     def boom(spec, **kwargs):
-        raise rigging.BlenderError("exploded")
+        raise blender_run.BlenderError("exploded")
 
-    monkeypatch.setattr(rigging, "run_worker", boom)
+    monkeypatch.setattr(blender_run, "run_worker", boom)
     with pytest.raises(Failed):
         svc_poses.template_preview(svc, "humanoid")
     assert not poselib.preview_path(svc.config, "humanoid").exists()
@@ -361,4 +363,4 @@ def test_a_locked_file_delete_reports_as_a_failure(svc, monkeypatch):
 
 def test_deleting_a_pose_that_is_not_there_says_so(svc):
     with pytest.raises(NotFound, match="not in the library"):
-        svc_poses.delete_library_pose(svc, rigging.new_id())
+        svc_poses.delete_library_pose(svc, store.new_id())

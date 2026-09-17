@@ -10,7 +10,7 @@ import json
 import os
 import types
 
-from warlock.studio import widgets
+from warlock.studio import artifacts
 from warlock.studio.panes import inspector, sprite_panel
 
 
@@ -19,27 +19,27 @@ def _job(stage="reference", files=()):
 
 
 def test_a_reference_offers_the_2d_exports():
-    names = [n for n, _label in widgets.artifacts_for(_job())]
+    names = [n for n, _label in artifacts.artifacts_for(_job())]
     assert "icon.png" in names
     assert "sprite.png" in names
     assert "manifest.json" in names
 
 
 def test_a_reference_is_not_offered_mesh_exports_it_can_never_have():
-    names = [n for n, _label in widgets.artifacts_for(_job())]
+    names = [n for n, _label in artifacts.artifacts_for(_job())]
     assert "model.stl" not in names
     assert "model.fbx" not in names
 
 
 def test_a_mesh_offers_the_mesh_exports():
-    names = [n for n, _label in widgets.artifacts_for(_job(stage="model"))]
+    names = [n for n, _label in artifacts.artifacts_for(_job(stage="model"))]
     assert "model.glb" in names
     assert "model.stl" in names
 
 
 def test_a_mesh_is_not_offered_a_sprite_of_its_own_input():
     # input.png on a mesh job is what it was reconstructed from, not an asset.
-    names = [n for n, _label in widgets.artifacts_for(_job(stage="model"))]
+    names = [n for n, _label in artifacts.artifacts_for(_job(stage="model"))]
     assert "sprite.png" not in names
 
 
@@ -47,7 +47,7 @@ def test_every_job_can_still_take_away_its_source_image():
     # "tilesheet" included: its input.png is the finished sheet rather than a
     # source, which makes taking it away the *whole* point of the row.
     for stage in ("reference", "model", "tilesheet"):
-        names = [n for n, _label in widgets.artifacts_for(_job(stage=stage))]
+        names = [n for n, _label in artifacts.artifacts_for(_job(stage=stage))]
         assert "input.png" in names, stage
 
 
@@ -59,7 +59,7 @@ def test_every_offered_name_is_servable():
     from warlock.service import files as svc_files
 
     for stage in ("reference", "tile", "model", "tilesheet"):
-        offered = widgets.artifacts_for(_job(stage=stage))
+        offered = artifacts.artifacts_for(_job(stage=stage))
         assert offered, f"{stage} offers nothing at all"
         for name, _label in offered:
             assert name in svc_files.MEDIA, f"{stage}: {name}"
@@ -69,14 +69,14 @@ def test_a_tile_is_not_offered_the_cutout_exports():
     # A cutout is the subject lifted off its background, and a seamless texture
     # is background: an icon of one is the whole frame with a matte guessed
     # over it, which is a picture of nothing.
-    names = [n for n, _label in widgets.artifacts_for(_job(stage="tile"))]
+    names = [n for n, _label in artifacts.artifacts_for(_job(stage="tile"))]
     assert "icon.png" not in names
     assert "sprite.png" not in names
     assert not [n for n in names if n.startswith("pixel_")]
 
 
 def test_a_tile_offers_the_texture_itself_its_wrapped_view_and_its_material():
-    names = [n for n, _label in widgets.artifacts_for(_job(stage="tile"))]
+    names = [n for n, _label in artifacts.artifacts_for(_job(stage="tile"))]
     assert names == [
         "input.png",
         "input.webp",
@@ -98,7 +98,7 @@ def test_every_estimated_map_says_so_on_its_button():
     "Normal map" undoes that in the only place the user actually reads. The zip
     carries the same sentence in its README, for the same reason.
     """
-    labels = dict(widgets.artifacts_for(_job(stage="tile")))
+    labels = dict(artifacts.artifacts_for(_job(stage="tile")))
     for name in ("material_normal.png", "material_roughness.png", "material_height.png"):
         assert "est." in labels[name], labels[name]
 
@@ -116,7 +116,7 @@ def test_the_grid_offers_exactly_what_each_stage_can_derive():
     from warlock.service import files as svc_files
 
     for stage in ("reference", "tile", "tilesheet"):
-        offered = {n for n, _label in widgets.artifacts_for(_job(stage=stage))}
+        offered = {n for n, _label in artifacts.artifacts_for(_job(stage=stage))}
         # input.png is the source image every job may take away, and is served
         # rather than derived -- so it is the one name in the grid that is not
         # in the derivable set. DERIVED_IMAGE joins derived_2d_for(stage) in
@@ -135,7 +135,7 @@ def test_the_grid_offers_exactly_what_each_stage_can_derive():
     # deliberately absent no longer is), so nothing is subtracted before the
     # comparison. The 2026-09-05 audit (muse-01) found the branch this asserts
     # against missing entirely.
-    offered = {n for n, _label in widgets.artifacts_for(_job(stage="music"))}
+    offered = {n for n, _label in artifacts.artifacts_for(_job(stage="music"))}
     assert offered == set(svc_files.DERIVED_AUDIO)
 
 
@@ -150,7 +150,7 @@ def test_a_finished_take_has_a_ui_control_that_requests_its_flac_mp3_or_ogg_expo
     audio button anywhere in the grid.
     """
     job = _job(stage="music", files=["track.wav"])
-    names = [n for n, _label in widgets.artifacts_for(job)]
+    names = [n for n, _label in artifacts.artifacts_for(job)]
     assert "track.flac" in names
     assert "track.mp3" in names
     assert "track.ogg" in names
@@ -165,7 +165,7 @@ def test_a_finished_take_has_a_ui_control_that_requests_its_flac_mp3_or_ogg_expo
 def test_a_reference_is_not_offered_a_wrap_preview():
     # Nothing wraps: the ratio the preview exists to make visible is only ever
     # measured on a tile.
-    names = [n for n, _label in widgets.artifacts_for(_job())]
+    names = [n for n, _label in artifacts.artifacts_for(_job())]
     assert "wrap_preview.png" not in names
 
 

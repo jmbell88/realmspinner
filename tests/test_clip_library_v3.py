@@ -6,9 +6,10 @@ keyed by the five shipped animation names -- so a clip library could never
 carry a clip with any other name and still be timed. v3 moves timing into the
 library itself (``duration_ms`` on every clip) so any clip name can exist, and
 a v2 file (everything shipped before this parser existed) is migrated at read
-time from :data:`rigging.LEGACY_CLIP_DURATION_MS`, restated here from
-``pipelines.charsheet.ANIMATIONS`` because ``rigging`` may not import
-``pipelines`` (its own import pin, ``tests/test_poser_imports.py``).
+time from :data:`cliplib.LEGACY_CLIP_DURATION_MS`, restated here from
+``pipelines.charsheet.ANIMATIONS`` because ``kernels.rig`` (Layer 1) may not
+import ``pipelines`` (Layer 2) at all -- ``tests/test_layering.py``'s own
+rule for it.
 
 Design decision D2: ``closed`` stays the one fact about looping -- no ``loop``
 field is added alongside it.
@@ -20,7 +21,8 @@ import json
 
 import pytest
 
-from warlock import poselib, rigging
+from warlock import poselib
+from warlock.kernels.rig import cliplib
 from warlock.service import Invalid
 from warlock.service import clips as svc_clips
 
@@ -32,9 +34,9 @@ def _fresh_clip_cache():
     """Same isolation ``tests/test_clip_editing.py`` uses: the library caches
     are module globals filled once, and a test that edits one must not leak
     into the next."""
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     yield
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
 
 
 def _raw(clips: list[dict], *, version: int | None = 2, poses: list[dict] | None = None) -> dict:
@@ -63,7 +65,7 @@ def test_a_version_2_library_reads_with_the_legacy_frame_times():
     # Both spellings of "this is a v2 file": an explicit version and none at
     # all -- every file shipped before this parser existed says nothing.
     for raw in (_raw(clips, version=2), _raw(clips, version=None)):
-        parsed = rigging.parse_clip_library(raw)
+        parsed = cliplib.parse_clip_library(raw)
         by_name = {c["name"]: c["duration_ms"] for c in parsed["clips"]}
         assert by_name["idle"] == 150
         assert by_name["walk"] == 100
@@ -78,7 +80,7 @@ def test_a_version_2_library_reads_with_the_legacy_frame_times():
 def test_a_version_3_clip_without_a_frame_time_is_refused():
     raw = _raw([{"name": "walk", "keys": ["rest"], "segments": [1]}], version=3)
     with pytest.raises(ValueError, match="duration_ms"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 @pytest.mark.parametrize("bad", [85, 0, 1010])
@@ -87,7 +89,7 @@ def test_a_frame_time_off_the_animation_timebase_is_refused(bad):
         [{"name": "walk", "keys": ["rest"], "segments": [1], "duration_ms": bad}], version=3
     )
     with pytest.raises(ValueError):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 # --- the restated tables, pinned to their originals --------------------------
@@ -97,14 +99,14 @@ def test_the_restated_legacy_frame_times_are_charsheets_legacy_table():
     from warlock.pipelines import charsheet
 
     expected = {name: duration_ms for name, _frames, _loop, duration_ms in charsheet.ANIMATIONS}
-    assert expected == rigging.LEGACY_CLIP_DURATION_MS
+    assert expected == cliplib.LEGACY_CLIP_DURATION_MS
 
 
 def test_the_restated_direction_keys_are_charsheets_sixteen_directions():
     from warlock.pipelines import charsheet
 
     expected = tuple(name for name, _yaw in charsheet._DIRECTIONS_16)
-    assert expected == rigging.TROUPE_DIRECTION_KEYS
+    assert expected == cliplib.TROUPE_DIRECTION_KEYS
 
 
 def test_the_clip_duration_step_divides_the_animation_timebase():
@@ -112,7 +114,7 @@ def test_the_clip_duration_step_divides_the_animation_timebase():
 
     timebase_ms = 1000 / clips.ANIMATION_FPS
     assert timebase_ms == int(timebase_ms), "the timebase itself must be a whole ms count"
-    assert int(timebase_ms) % rigging.CLIP_DURATION_STEP_MS == 0
+    assert int(timebase_ms) % cliplib.CLIP_DURATION_STEP_MS == 0
 
 
 # --- the save door -------------------------------------------------------------
@@ -142,8 +144,8 @@ def test_saving_a_version_2_user_library_writes_version_3_with_the_times_it_was_
     clip_dir = tmp_path / "clips"
     clip_dir.mkdir()
     (clip_dir / f"{TEMPLATE}.json").write_text(json.dumps(raw_v2), encoding="utf-8")
-    monkeypatch.setattr(rigging, "CLIP_DIR", clip_dir)
-    rigging.invalidate_clips()
+    monkeypatch.setattr(cliplib, "CLIP_DIR", clip_dir)
+    cliplib.invalidate_clips()
 
     payload = _shipped_payload(svc)  # reads the v2 fixture above, migrated
     svc_clips.save(svc, TEMPLATE, payload)
@@ -151,7 +153,7 @@ def test_saving_a_version_2_user_library_writes_version_3_with_the_times_it_was_
     raw = json.loads(poselib.clip_path(svc.config, TEMPLATE).read_text(encoding="utf-8"))
     assert raw["version"] == 3
     for clip in raw["clips"]:
-        assert clip["duration_ms"] == rigging.LEGACY_CLIP_DURATION_MS.get(clip["name"], 100)
+        assert clip["duration_ms"] == cliplib.LEGACY_CLIP_DURATION_MS.get(clip["name"], 100)
 
 
 def test_a_clip_named_after_a_direction_is_refused(svc):
@@ -163,7 +165,7 @@ def test_a_clip_named_after_a_direction_is_refused(svc):
         version=3,
     )
     with pytest.raises(ValueError, match="fall_back"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
     # The save door: refused before it ever reaches the parser, with a field
     # the UI can point a control at.
@@ -183,7 +185,7 @@ def test_a_version_2_library_with_a_turn_left_clip_still_loads():
     *saved* -- see test_saving_a_turn_left_clip_asks_for_a_rename); a v2 file
     must keep reading exactly as it always did."""
     raw = _raw([{"name": "turn_left", "keys": ["rest"], "segments": [1]}], version=2)
-    parsed = rigging.parse_clip_library(raw)
+    parsed = cliplib.parse_clip_library(raw)
     assert [c["name"] for c in parsed["clips"]] == ["turn_left"]
 
     # And the same is true with no "version" key at all -- every file shipped
@@ -191,7 +193,7 @@ def test_a_version_2_library_with_a_turn_left_clip_still_loads():
     raw_unversioned = _raw(
         [{"name": "strafe_right", "keys": ["rest"], "segments": [1]}], version=None
     )
-    parsed = rigging.parse_clip_library(raw_unversioned)
+    parsed = cliplib.parse_clip_library(raw_unversioned)
     assert [c["name"] for c in parsed["clips"]] == ["strafe_right"]
 
 
@@ -219,7 +221,7 @@ def test_provisional_and_source_survive_a_save_round_trip(svc):
 
     # And the file on disk, read back through the renderer's own parser.
     raw = json.loads(poselib.clip_path(svc.config, TEMPLATE).read_text(encoding="utf-8"))
-    parsed = rigging.parse_clip_library(raw)
+    parsed = cliplib.parse_clip_library(raw)
     parsed_clip = next(c for c in parsed["clips"] if c["name"] == payload["clips"][0]["name"])
     assert parsed_clip["provisional"] is True
     assert parsed_clip["source"] == {"file": "import.png", "map": "walk", "imported": 12345}
@@ -235,7 +237,7 @@ def test_a_library_may_hold_more_than_256_key_poses():
         version=2,
         poses=poses,
     )
-    parsed = rigging.parse_clip_library(raw)
+    parsed = cliplib.parse_clip_library(raw)
     assert len(parsed["poses"]) == 300
 
 
@@ -268,10 +270,10 @@ def test_every_shipped_library_still_parses_with_its_legacy_timing(key):
     terms now that the vocabulary is open, not held to a table that was only
     ever about the five. This only checks that the five keep the times
     ``LEGACY_CLIP_DURATION_MS`` says they always had."""
-    raw = json.loads((rigging.CLIP_DIR / f"{key}.json").read_text(encoding="utf-8"))
-    parsed = rigging.parse_clip_library(raw)
+    raw = json.loads((cliplib.CLIP_DIR / f"{key}.json").read_text(encoding="utf-8"))
+    parsed = cliplib.parse_clip_library(raw)
     assert parsed["clips"], f"{key} shipped no clips to check"
     by_name = {c["name"]: c["duration_ms"] for c in parsed["clips"]}
-    for name, expected in rigging.LEGACY_CLIP_DURATION_MS.items():
+    for name, expected in cliplib.LEGACY_CLIP_DURATION_MS.items():
         assert name in by_name, f"{key} no longer ships a {name!r} clip"
         assert by_name[name] == expected

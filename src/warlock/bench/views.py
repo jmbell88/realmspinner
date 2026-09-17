@@ -93,12 +93,13 @@ def render_views(
 ) -> dict[str, Any]:
     """Render the views and write ``views.json`` beside them.
 
-    Calls ``rigging.run_worker`` synchronously on the calling thread. That is
+    Calls ``blender_run.run_worker`` synchronously on the calling thread. That is
     correct here and only here: the CLI thread is a may-block thread with no
     event loop and no frame deadline, and the run loop guarantees no trellis
     job is in flight -- one job at a time is the whole submission model.
     """
-    from .. import rigging
+    from ..kernels.rig import blender_spec
+    from ..pipelines import blender_run
 
     out_dir.mkdir(parents=True, exist_ok=True)
     # Cleared, not merged into. A resumed unit renders into a directory that
@@ -109,7 +110,7 @@ def render_views(
         stale.unlink(missing_ok=True)
     plan = view_plan(frame_size=frame_size, elevation=elevation)
     cells = worker_cells(plan, yaw_offset)
-    spec = rigging.sheet_spec(
+    spec = blender_spec.sheet_spec(
         source_glb,
         out_dir,
         cells,
@@ -117,7 +118,7 @@ def render_views(
         elevation=plan.elevation,
         lighting=plan.lighting,
     )
-    result = rigging.run_worker(spec, timeout=timeout)
+    result = blender_run.run_worker(spec, timeout=timeout)
 
     payload = sheet.sidecar(
         plan,

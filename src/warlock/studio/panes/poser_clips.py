@@ -30,7 +30,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import rigging
+from ...kernels.rig import cliplib
 from .. import controls, forms, icons, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -433,9 +433,9 @@ def _timing(ctx: Any, state: Any) -> None:
     widgets.field_label("Frame time (ms)")
     changed, duration_ms = controls.input_int(
         "##Frame time (ms)",
-        int(record.get("duration_ms") or rigging.CLIP_DURATION_STEP_MS),
-        rigging.CLIP_DURATION_STEP_MS,
-        rigging.CLIP_DURATION_STEP_MS,
+        int(record.get("duration_ms") or cliplib.CLIP_DURATION_STEP_MS),
+        cliplib.CLIP_DURATION_STEP_MS,
+        cliplib.CLIP_DURATION_STEP_MS,
         tooltip="How long each rendered frame lasts in sprite sheets and in the animated GLB.",
     )
     if changed:

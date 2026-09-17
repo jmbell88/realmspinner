@@ -1,6 +1,6 @@
 """Data regressions for the shipped clip libraries themselves.
 
-``rigging._load_clip_library``/``parse_clip_library`` validate *shape*
+``cliplib._load_clip_library``/``parse_clip_library`` validate *shape*
 (quaternions are finite unit-ish 4-vectors, bone names are legal) but have no
 opinion on whether a pose's numbers describe an anatomically sane bend --
 that is a modelling convention this test pins by data, not something the
@@ -21,7 +21,7 @@ import math
 
 import pytest
 
-from warlock import rigging
+from warlock.kernels.rig import cliplib, poses, templates
 
 
 def _angle(quat: list[float]) -> float:
@@ -41,7 +41,7 @@ def test_jump_crouch_and_land_flex_the_hip_forward_and_the_knee_back_with_the_fo
     0.52). With thigh and foot flipped too, forward kinematics puts the
     ankle back under the hips at rest height (z 0.064 against 0.060) and the
     toe on the ground."""
-    poses = rigging.clip_library("humanoid")["poses"]
+    poses = cliplib.clip_library("humanoid")["poses"]
     for pose_name in ("jump crouch", "jump land"):
         bones = poses[pose_name]["bones"]
         for side in ("L", "R"):
@@ -71,7 +71,7 @@ def test_no_authored_knee_bends_backward_past_fifteen_degrees(library):
     ``rear_lower`` is a hock, not a knee, and bends the opposite way of every
     other joint by design (its rest pose is already bent), so it would fail a
     rule that does not apply to it; blob has no legs at all."""
-    library_data = rigging.clip_library(library)
+    library_data = cliplib.clip_library(library)
     poses = library_data["poses"]
     checked = 0
     for pose in poses.values():
@@ -165,9 +165,9 @@ def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
     the toe exactly at z=0, and "jump crouch" -- already fixed under F7 --
     lands its ankle at z~0.064, matching this module's docstring.
     """
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     template_bones = {b["name"]: b for b in template.bones}
-    library_data = rigging.clip_library("humanoid")
+    library_data = cliplib.clip_library("humanoid")
     poses = library_data["poses"]
 
     # Sanity check: rest pose, no keys, toe on the ground.
@@ -191,7 +191,7 @@ def test_no_humanoid_pose_puts_an_ankle_or_toe_below_the_ground():
 
 # --- the deformation battery (templates/deform_qa/humanoid.json) -----------
 #
-# A separate file and a separate loader (rigging.deform_battery, not
+# A separate file and a separate loader (poses.deform_battery, not
 # clip_library), but the same sign convention -- and it shipped with the same
 # F7 mistake this module's first test names: every leg sign inverted.
 
@@ -202,7 +202,9 @@ def test_deform_battery_squat_flexes_the_hip_forward_and_the_knee_back():
     foot ``+0.2588`` -- every leg sign inverted, exactly the F7 mistake above,
     just in the battery instead of the clip library -- and it rendered the
     legs folded up behind the head instead of a crouch."""
-    poses = {p["name"]: p for p in rigging.deform_battery("humanoid")}
+    from warlock.kernels.rig import poses as rig_poses
+
+    poses = {p["name"]: p for p in rig_poses.deform_battery("humanoid")}
     bones = poses["squat"]["bones"]
     for side in ("L", "R"):
         thigh = _angle(bones[f"thigh.{side}"])
@@ -216,7 +218,9 @@ def test_no_deform_battery_pose_bends_a_knee_backward_past_fifteen_degrees():
     ``test_no_authored_knee_bends_backward_past_fifteen_degrees`` above:
     "elbow and knee 90" shipped shin ``-0.7071``, the knee bending backward
     the same wrong way as the squat's."""
-    poses = rigging.deform_battery("humanoid")
+    from warlock.kernels.rig import poses as rig_poses
+
+    poses = rig_poses.deform_battery("humanoid")
     checked = 0
     for pose in poses:
         bones = pose["bones"]
@@ -245,7 +249,7 @@ def test_deform_qa_humanoid_comment_cites_a_docstring_that_actually_states_the_a
     own documentation rather than its data this time."""
     import json
 
-    raw = json.loads((rigging.BATTERY_DIR / "humanoid.json").read_text(encoding="utf-8"))
+    raw = json.loads((poses.BATTERY_DIR / "humanoid.json").read_text(encoding="utf-8"))
     comment = raw["comment"]
 
     cite = "tests/test_clip_library_poses.py's docstring"
@@ -290,7 +294,7 @@ def test_the_leg_behind_at_a_contact_is_the_leg_the_next_passing_pose_lifts(libr
     pose; the two passing poses were simply each other's. "run" had the
     same swap. The bird's walk and run already obey the rule and are here
     as the control, so the check is not a statement about one skeleton."""
-    library_data = rigging.clip_library(library)
+    library_data = cliplib.clip_library(library)
     clip = next(each for each in library_data["clips"] if each["name"] == clip_name)
     poses = library_data["poses"]
     keys = clip["keys"]

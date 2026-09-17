@@ -1,6 +1,6 @@
 """The game-ready remesh: the pure module, the door, and the worker stage.
 
-Blender is faked at ``rigging.run_worker`` exactly as ``test_rig_worker.py``
+Blender is faked at ``blender_run.run_worker`` exactly as ``test_rig_worker.py``
 does; what is under test is that the queue treats a remesh as a rework of
 the *source* job -- publishes over its ``model.glb`` by rename, invalidates
 every derived export, never touches ``source.glb`` -- and that the door
@@ -15,10 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from warlock import followups, progress, rigging
+from warlock import followups, progress
 from warlock.config import Config
 from warlock.db import JobStore
-from warlock.pipelines import blender_worker, remesh
+from warlock.kernels.rig import blender_spec
+from warlock.kernels.rig import store as rig_store
+from warlock.pipelines import blender_run, blender_worker, remesh
 from warlock.queue import Worker
 from warlock.service import jobs as svc_jobs
 from warlock.service.errors import Conflict, Invalid
@@ -105,7 +107,7 @@ def test_the_derived_list_is_the_services_own():
 
 def test_the_op_is_registered_and_the_spec_names_it(tmp_path):
     assert blender_worker.OPS["remesh"] is blender_worker.op_remesh
-    spec = rigging.remesh_spec(
+    spec = blender_spec.remesh_spec(
         tmp_path / "model.glb", tmp_path / ".remesh.tmp.glb", tmp_path,
         target_faces=8000, texture_size=1024, close_holes=True, seed=3,
     )
@@ -264,7 +266,7 @@ def _fake_worker_run(monkeypatch, *, write=True, side_effect=None, hold=None):
         return {"ok": True, "method": "quadriflow", "faces": 8000, "faces_before": 300000,
                 "quads": 0.97, "texture_size": spec["texture_size"], "metallic": 0.0}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -292,7 +294,7 @@ async def test_a_remesh_publishes_over_the_source_mesh_and_drops_its_exports(
     source_dir = worker.config.job_dir(source)
     assert (source_dir / "model.glb").read_bytes() == b"new-model"
     assert (source_dir / "source.glb").read_bytes() == b"reconstruction"
-    assert not (source_dir / rigging.REMESH_GLB_TMP).exists()
+    assert not (source_dir / rig_store.REMESH_GLB_TMP).exists()
     for name in ("model.stl", "model.fbx", "textures.zip"):
         assert not (source_dir / name).exists()
     spec = calls[0]["spec"]
@@ -323,7 +325,7 @@ async def test_a_worker_that_wrote_nothing_fails_the_job_and_keeps_the_old_mesh(
 
 
 async def test_a_blender_failure_leaves_no_temp_behind(worker, monkeypatch, _no_normalize):
-    _fake_worker_run(monkeypatch, side_effect=rigging.BlenderError("boom"))
+    _fake_worker_run(monkeypatch, side_effect=blender_run.BlenderError("boom"))
     source = _mesh_job(worker)
     job_id = worker.store.create("remesh", "a crate", {"source_job": source, "target_faces": 8000})
     worker.start()
@@ -331,17 +333,17 @@ async def test_a_blender_failure_leaves_no_temp_behind(worker, monkeypatch, _no_
     await worker.shutdown()
     assert worker.store.get(job_id)["status"] == "error"
     source_dir = worker.config.job_dir(source)
-    assert not (source_dir / rigging.REMESH_GLB_TMP).exists()
+    assert not (source_dir / rig_store.REMESH_GLB_TMP).exists()
     assert (source_dir / "model.glb").read_bytes() == b"old-model"
 
 
 def test_the_cancel_sweep_names_only_the_temp(worker):
     source = _mesh_job(worker)
     source_dir = worker.config.job_dir(source)
-    (source_dir / rigging.REMESH_GLB_TMP).write_bytes(b"half")
+    (source_dir / rig_store.REMESH_GLB_TMP).write_bytes(b"half")
     job = {"id": "abc", "kind": "remesh", "params": {"source_job": source}}
     worker._discard_artifacts(job)
-    assert not (source_dir / rigging.REMESH_GLB_TMP).exists()
+    assert not (source_dir / rig_store.REMESH_GLB_TMP).exists()
     assert (source_dir / "model.glb").read_bytes() == b"old-model"
 
 

@@ -7,7 +7,7 @@ third") against this one's now-false claim.
 
 ``python -m warlock.pipelines.fetch_worker``, spawned by
 ``service.downloads``, exactly as ``blender_worker`` is spawned by
-``rigging.run_worker`` and for a closely related reason: what it does cannot be
+``blender_run.run_worker`` and for a closely related reason: what it does cannot be
 undone inside the process that does it. ``bpy`` is process-global and crashes;
 ``HF_HUB_OFFLINE`` is read by ``huggingface_hub`` **at import time**, so an
 in-process download would mean re-setting the variable and re-importing a

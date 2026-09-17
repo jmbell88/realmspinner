@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import poselib, rigging
+from warlock import poselib
+from warlock.kernels.rig import cliplib
 from warlock.service import Conflict, Failed, Invalid, NotFound
 from warlock.service import clips as svc_clips
 
@@ -33,9 +34,9 @@ TEMPLATE = "humanoid"
 def _fresh_clip_cache():
     """The library caches are module globals filled once. A test that edits one
     must not leak into the next, and neither must the shipped read."""
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     yield
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
 
 
 def _shipped(svc) -> dict:
@@ -83,7 +84,7 @@ def test_an_unreadable_user_library_is_not_presented_as_edited_shipped_clips(svc
     path = poselib.clip_path(svc.config, TEMPLATE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("not json at all", encoding="utf-8")
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
 
     with pytest.raises(Invalid) as caught:
         svc_clips.library(svc, TEMPLATE)
@@ -98,7 +99,7 @@ def test_an_unreadable_user_library_is_not_presented_as_edited_shipped_clips(svc
 def test_a_saved_library_goes_to_the_user_copy_and_not_the_package(svc):
     """The whole storage argument in one test. An installed build replaces the
     package tree wholesale on upgrade and may not even be writable."""
-    before = (rigging.CLIP_DIR / f"{TEMPLATE}.json").read_bytes()
+    before = (cliplib.CLIP_DIR / f"{TEMPLATE}.json").read_bytes()
     view = _shipped(svc)
     payload = _as_payload(view)
     payload["clips"][0]["easing"] = "ease_out"
@@ -106,7 +107,7 @@ def test_a_saved_library_goes_to_the_user_copy_and_not_the_package(svc):
 
     assert saved["edited"] is True
     assert poselib.clip_path(svc.config, TEMPLATE).is_file()
-    assert (rigging.CLIP_DIR / f"{TEMPLATE}.json").read_bytes() == before
+    assert (cliplib.CLIP_DIR / f"{TEMPLATE}.json").read_bytes() == before
 
 
 def test_the_renderer_reads_the_edit_back_immediately(svc):
@@ -119,7 +120,7 @@ def test_the_renderer_reads_the_edit_back_immediately(svc):
             clip["easing"] = "ease_out"
     svc_clips.save(svc, TEMPLATE, payload)
 
-    found = rigging.clip_library(TEMPLATE)
+    found = cliplib.clip_library(TEMPLATE)
     idle = next(c for c in found["clips"] if c["name"] == "idle")
     assert idle["easing"] == "ease_out"
 
@@ -323,7 +324,7 @@ def test_a_refused_save_leaves_the_previous_library_byte_for_byte(svc):
         svc_clips.save(svc, TEMPLATE, bad)
 
     assert path.read_bytes() == kept
-    idle = next(c for c in rigging.clip_library(TEMPLATE)["clips"] if c["name"] == "idle")
+    idle = next(c for c in cliplib.clip_library(TEMPLATE)["clips"] if c["name"] == "idle")
     assert idle["easing"] == "ease_out", "the cache must be back on the kept file too"
 
 
@@ -346,16 +347,16 @@ def test_the_saved_file_is_what_the_renderers_own_parser_reads(svc):
     payload = _as_payload(_shipped(svc))
     svc_clips.save(svc, TEMPLATE, payload)
     raw = json.loads(poselib.clip_path(svc.config, TEMPLATE).read_text(encoding="utf-8"))
-    parsed = rigging.parse_clip_library(raw)
+    parsed = cliplib.parse_clip_library(raw)
     assert {c["name"] for c in parsed["clips"]} == {c["name"] for c in payload["clips"]}
 
 
 def test_the_two_spellings_of_the_clip_directory_agree(svc):
     """``poselib.clip_dir`` is the app asking where to write and
-    ``rigging.user_clip_dir`` is the loader asking where to read. The loader may
+    ``cliplib.user_clip_dir`` is the loader asking where to read. The loader may
     not import ``config``, so they are two expressions of one path -- and this
     is what asserts they are the same one."""
-    assert poselib.clip_dir(svc.config) == rigging.user_clip_dir()
+    assert poselib.clip_dir(svc.config) == cliplib.user_clip_dir()
 
 
 # --- the scrubber -------------------------------------------------------------
@@ -444,7 +445,7 @@ def test_save_refuses_changing_the_rotation_space(svc):
 def test_save_refuses_a_clip_library_the_read_door_could_never_load_back(svc):
     """The 2026-09-13 audit, finding poser-02: ``_check_shape`` bounds keys and
     segments but not bones per pose or the serialized whole, so a save could
-    write a file bigger than ``rigging.MAX_CLIP_LIBRARY_BYTES`` -- the exact
+    write a file bigger than ``cliplib.MAX_CLIP_LIBRARY_BYTES`` -- the exact
     cap ``_load_clip_library`` enforces on read. Without this check, such a
     save lands on disk, is silently skipped by every later read, and the
     template reverts to the shipped clips with no error saying why.

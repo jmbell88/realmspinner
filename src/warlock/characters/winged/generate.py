@@ -168,12 +168,12 @@ def _to_blender(p: Any) -> np.ndarray:
 
 
 def _fit_joints(half_span: float, depth: float) -> list[dict[str, Any]]:
-    from ... import rigging
+    from ...kernels.rig import skeleton, templates
 
-    template = rigging.get_template("bird")
+    template = templates.get_template("bird")
     lo = [-half_span, -depth / 2.0, 0.0]
     hi = [half_span, depth / 2.0, 1.0]
-    return rigging.fit_template(template, lo, hi)
+    return skeleton.fit_template(template, lo, hi)
 
 
 def _joint_points(joints: list[dict[str, Any]]) -> dict[str, tuple[np.ndarray, np.ndarray]]:

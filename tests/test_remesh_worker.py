@@ -1,6 +1,6 @@
 """The remesh worker, run for real. The one thing ``test_remesh.py`` cannot ask.
 
-``test_remesh.py`` fakes Blender at ``rigging.run_worker`` -- deliberately, and
+``test_remesh.py`` fakes Blender at ``blender_run.run_worker`` -- deliberately, and
 its subject is the queue's rework contract: publish over ``model.glb`` by
 rename, invalidate the derived exports, never touch ``source.glb``. Every
 assertion there is about the *host* half, and the child is a stub that writes
@@ -36,8 +36,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock import rigging, tiercheck
-from warlock.pipelines import remesh
+from warlock import tiercheck
+from warlock.kernels.rig import blender_spec
+from warlock.pipelines import blender_run, remesh
 
 #: A real quadriflow plus three bakes is far past the suite's 120 s hang net,
 #: which is sized for the default lane's ~5 s worst case. Ten minutes is still
@@ -95,14 +96,14 @@ def remeshed(source_glb, tmp_path_factory) -> tuple[Path, dict]:
     """One real remesh. -> (the written GLB, the child's result payload)."""
     work = tmp_path_factory.mktemp("remesh-out")
     out_glb = work / "remeshed.glb"
-    spec = rigging.remesh_spec(
+    spec = blender_spec.remesh_spec(
         source_glb,
         out_glb,
         work,
         target_faces=TARGET_FACES,
         texture_size=TEXTURE_PX,
     )
-    result = rigging.run_worker(spec)
+    result = blender_run.run_worker(spec)
     return out_glb, result
 
 

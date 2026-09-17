@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 
 import warlock.config as config_mod
-from warlock import rigging
+from warlock.kernels.rig import poses, store, templates
+from warlock.pipelines import blender_run
 from warlock.service import Conflict, Failed, Invalid, NotFound
 from warlock.service import jobs as svc_jobs
 from warlock.service import poses as svc_poses
@@ -48,27 +49,27 @@ def _pose(name="idle", **bones):
 
 
 def test_a_saved_pose_round_trips(tmp_path):
-    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    assert rigging.is_valid_id(record["id"])
-    assert rigging.read_pose(tmp_path, record["id"]) == record
-    assert rigging.list_poses(tmp_path) == [record]
+    record = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    assert store.is_valid_id(record["id"])
+    assert store.read_pose(tmp_path, record["id"]) == record
+    assert store.list_poses(tmp_path) == [record]
 
 
 def test_poses_list_oldest_first(tmp_path):
     ids = [
-        rigging.save_pose(tmp_path, {"name": f"p{i}", "bones": {"hips": IDENTITY}})["id"]
+        store.save_pose(tmp_path, {"name": f"p{i}", "bones": {"hips": IDENTITY}})["id"]
         for i in range(3)
     ]
-    assert [p["id"] for p in rigging.list_poses(tmp_path)] == ids
+    assert [p["id"] for p in store.list_poses(tmp_path)] == ids
 
 
 def test_saving_over_an_id_replaces_it_and_drops_the_baked_glb(tmp_path):
-    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    glb = rigging.pose_glb_path(tmp_path, record["id"])
+    record = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    glb = store.pose_glb_path(tmp_path, record["id"])
     glb.write_bytes(b"stale")
-    rigging.save_pose(tmp_path, {"name": "crouch", "bones": {"hips": IDENTITY}}, record["id"])
-    assert len(rigging.list_poses(tmp_path)) == 1
-    assert rigging.read_pose(tmp_path, record["id"])["name"] == "crouch"
+    store.save_pose(tmp_path, {"name": "crouch", "bones": {"hips": IDENTITY}}, record["id"])
+    assert len(store.list_poses(tmp_path)) == 1
+    assert store.read_pose(tmp_path, record["id"])["name"] == "crouch"
     # The cached bake depicted the old pose; leaving it would serve a lie.
     assert not glb.exists()
 
@@ -85,17 +86,17 @@ def test_a_crash_between_the_pose_write_and_the_glb_unlink_never_leaves_a_stale_
     two statements once they are correctly ordered) to explode -- modelling
     a crash that lands after the GLB has already gone but before the new
     record replaces the old one."""
-    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    glb = rigging.pose_glb_path(tmp_path, record["id"])
+    record = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    glb = store.pose_glb_path(tmp_path, record["id"])
     glb.write_bytes(b"old-bake")
-    path = rigging.pose_path(tmp_path, record["id"])
+    path = store.pose_path(tmp_path, record["id"])
     before = path.read_text(encoding="utf-8")
 
     monkeypatch.setattr(
-        rigging, "write_json_staged", lambda *a, **k: (_ for _ in ()).throw(OSError("crash"))
+        store, "write_json_staged", lambda *a, **k: (_ for _ in ()).throw(OSError("crash"))
     )
     with pytest.raises(OSError):
-        rigging.save_pose(
+        store.save_pose(
             tmp_path, {"name": "crouch", "bones": {"hips": IDENTITY}}, record["id"]
         )
 
@@ -109,29 +110,29 @@ def test_a_crash_between_the_pose_write_and_the_glb_unlink_never_leaves_a_stale_
 
 
 def test_a_corrupt_pose_file_costs_only_itself(tmp_path):
-    good = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    (rigging.pose_dir(tmp_path) / "0123456789ab.json").write_text("{not json")
-    assert [p["id"] for p in rigging.list_poses(tmp_path)] == [good["id"]]
+    good = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    (store.pose_dir(tmp_path) / "0123456789ab.json").write_text("{not json")
+    assert [p["id"] for p in store.list_poses(tmp_path)] == [good["id"]]
 
 
 def test_listing_a_job_with_no_poses_is_empty_not_an_error(tmp_path):
-    assert rigging.list_poses(tmp_path) == []
+    assert store.list_poses(tmp_path) == []
 
 
 @pytest.mark.parametrize("bad", ["..", "../x", "not-an-id", "ABCDEF012345", ""])
 def test_pose_paths_reject_ids_that_are_not_ours(tmp_path, bad):
     """This is the only place a caller-supplied pose id becomes a path."""
     with pytest.raises(ValueError):
-        rigging.pose_path(tmp_path, bad)
+        store.pose_path(tmp_path, bad)
 
 
 def test_delete_pose_removes_both_files(tmp_path):
-    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    rigging.pose_glb_path(tmp_path, record["id"]).write_bytes(b"baked")
-    assert rigging.delete_pose(tmp_path, record["id"]) is True
-    assert rigging.list_poses(tmp_path) == []
-    assert not rigging.pose_glb_path(tmp_path, record["id"]).exists()
-    assert rigging.delete_pose(tmp_path, record["id"]) is False
+    record = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    store.pose_glb_path(tmp_path, record["id"]).write_bytes(b"baked")
+    assert store.delete_pose(tmp_path, record["id"]) is True
+    assert store.list_poses(tmp_path) == []
+    assert not store.pose_glb_path(tmp_path, record["id"]).exists()
+    assert store.delete_pose(tmp_path, record["id"]) is False
 
 
 def test_a_crash_between_deleting_the_pose_json_and_its_glb_leaves_no_permanent_orphan(
@@ -144,10 +145,10 @@ def test_a_crash_between_deleting_the_pose_json_and_its_glb_leaves_no_permanent_
     two once correctly ordered) to explode -- modelling a crash that lands
     after the GLB is already gone but before the record it depends on is
     removed."""
-    record = rigging.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
-    glb = rigging.pose_glb_path(tmp_path, record["id"])
+    record = store.save_pose(tmp_path, {"name": "idle", "bones": {"hips": IDENTITY}})
+    glb = store.pose_glb_path(tmp_path, record["id"])
     glb.write_bytes(b"baked")
-    path = rigging.pose_path(tmp_path, record["id"])
+    path = store.pose_path(tmp_path, record["id"])
 
     real_unlink = Path.unlink
 
@@ -158,7 +159,7 @@ def test_a_crash_between_deleting_the_pose_json_and_its_glb_leaves_no_permanent_
 
     monkeypatch.setattr(Path, "unlink", tracked)
     with pytest.raises(OSError):
-        rigging.delete_pose(tmp_path, record["id"])
+        store.delete_pose(tmp_path, record["id"])
 
     # The derived artifact must already be gone -- unlinked before the crash
     # -- so nothing is left as a permanent, unreachable orphan.
@@ -179,7 +180,7 @@ def test_poses_require_a_rig(svc):
 def test_a_rig_with_a_nameless_bone_refuses_cleanly_instead_of_a_keyerror(svc, assets):
     """The 2026-09-08 audit (poser-02): a rig.json that passes read_record's
     file-level guards (valid JSON, valid dict, under the byte ceiling) but
-    carries a bone with no "name" key used to crash rigging.rig_bone_names
+    carries a bone with no "name" key used to crash store.rig_bone_names
     with an uncaught KeyError, which reached list_poses/save_pose unhandled
     instead of the field-addressed refusal poselib.validate_record already
     gives an equivalently malformed *pose* record. dev/INVARIANTS.md's own
@@ -217,7 +218,7 @@ def test_applying_a_library_pose_to_a_rig_with_a_nameless_bone_refuses_cleanly(s
     ``known`` with the identical bare ``[b["name"] for b in rig.get("bones",
     [])]`` comprehension as service.rig._rig_bones, fixed alongside it for
     the same 2026-09-08 audit (poser-02)."""
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     stored = svc_poses.create_library_pose(
         svc,
         {
@@ -312,7 +313,7 @@ def test_the_pose_entry_points_reject_malformed_pose_ids(svc, assets, bad):
 
 def test_the_pose_cap_is_enforced(svc, assets, monkeypatch):
     job_id = _rigged_job(svc, assets)
-    monkeypatch.setattr(rigging, "MAX_POSES", 1)
+    monkeypatch.setattr(store, "MAX_POSES", 1)
     svc_rig.save_pose(svc, job_id, _pose("a"))
     with pytest.raises(Conflict):
         svc_rig.save_pose(svc, job_id, _pose("b"))
@@ -332,7 +333,7 @@ def _fake_bake(monkeypatch, *, side_effect=None):
         Path(spec["out_glb"]).write_bytes(b"posed-glb")
         return {"ok": True, "bones": len(spec["bones"]), "unknown": []}
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
     return calls
 
 
@@ -362,11 +363,11 @@ def test_a_posed_glb_for_an_unknown_pose_is_not_found(svc, assets):
 def test_a_failed_bake_raises_rather_than_hanging(svc, assets, monkeypatch):
     job_id = _rigged_job(svc, assets)
     record = svc_rig.save_pose(svc, job_id, _pose())
-    _fake_bake(monkeypatch, side_effect=rigging.BlenderError("boom"))
+    _fake_bake(monkeypatch, side_effect=blender_run.BlenderError("boom"))
     with pytest.raises(Failed):
         svc_rig.posed_model(svc, job_id, record["id"])
     # Nothing cached, so a retry after fixing the cause still works.
-    assert not rigging.pose_glb_path(assets / job_id, record["id"]).exists()
+    assert not store.pose_glb_path(assets / job_id, record["id"]).exists()
 
 
 def test_a_bake_that_dies_part_way_leaves_no_partial_glb(svc, assets, monkeypatch):
@@ -382,16 +383,16 @@ def test_a_bake_that_dies_part_way_leaves_no_partial_glb(svc, assets, monkeypatc
 
     def run_worker(spec, **kwargs):
         Path(spec["out_glb"]).write_bytes(b"half a gl")
-        raise rigging.BlenderError("killed")
+        raise blender_run.BlenderError("killed")
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
     with pytest.raises(Failed):
         svc_rig.posed_model(svc, job_id, record["id"])
 
-    assert not rigging.pose_glb_path(assets / job_id, record["id"]).exists()
+    assert not store.pose_glb_path(assets / job_id, record["id"]).exists()
     # And the staging file went with it: nothing sweeps a pose directory, so a
     # stranded dotfile would live as long as the job.
-    pose_dir = rigging.pose_glb_path(assets / job_id, record["id"]).parent
+    pose_dir = store.pose_glb_path(assets / job_id, record["id"]).parent
     assert [p.name for p in pose_dir.iterdir() if p.name.startswith(".")] == []
 
 
@@ -427,7 +428,7 @@ def test_a_delete_waits_for_an_in_flight_bake_and_leaves_no_orphan_glb(
         Path(spec["out_glb"]).write_bytes(b"posed-glb")
         return {"ok": True, "bones": len(spec["bones"]), "unknown": []}
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
 
     baker = threading.Thread(
         target=lambda: svc_rig.posed_model(svc, job_id, record["id"])
@@ -449,8 +450,8 @@ def test_a_delete_waits_for_an_in_flight_bake_and_leaves_no_orphan_glb(
     baker.join(timeout=5)
     deleter.join(timeout=5)
     assert deleted == [{"ok": True}]
-    assert not rigging.pose_glb_path(assets / job_id, record["id"]).exists()
-    assert not rigging.pose_path(assets / job_id, record["id"]).exists()
+    assert not store.pose_glb_path(assets / job_id, record["id"]).exists()
+    assert not store.pose_path(assets / job_id, record["id"]).exists()
 
 
 def test_a_bake_of_a_pose_deleted_first_is_not_found(svc, assets, monkeypatch):
@@ -470,11 +471,11 @@ def test_a_failed_pose_write_leaves_the_previous_pose_intact(svc, assets, monkey
     lose them."""
     job_id = _rigged_job(svc, assets)
     record = svc_rig.save_pose(svc, job_id, _pose("idle"))
-    path = rigging.pose_path(assets / job_id, record["id"])
+    path = store.pose_path(assets / job_id, record["id"])
     before = path.read_text(encoding="utf-8")
 
     monkeypatch.setattr(
-        rigging.os, "replace", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+        store.os, "replace", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
     )
     body = _pose("wave", hips=[0.0, 0.0, 0.7071068, 0.7071068])
     body["id"] = record["id"]
@@ -505,8 +506,8 @@ def test_a_snapshot_with_a_root_offset_bakes_with_the_root_kwargs(
             }
         )
     )
-    pose = rigging.validate_pose(_pose("leap"), BONES)
-    record = rigging.save_pose(
+    pose = poses.validate_pose(_pose("leap"), BONES)
+    record = store.save_pose(
         job_dir, pose, extra={"root_translation": [0.1, 0.0, -0.25]}
     )
     calls = _fake_bake(monkeypatch)
@@ -535,8 +536,8 @@ def test_a_root_offset_the_rig_cannot_scale_costs_the_offset_not_the_bake(
     """_rigged_job's rig.json has no bounds and no root -- the pre-library
     shape -- so the offset is dropped with a log line and the bake proceeds."""
     job_id = _rigged_job(svc, assets)
-    pose = rigging.validate_pose(_pose("leap"), BONES)
-    record = rigging.save_pose(
+    pose = poses.validate_pose(_pose("leap"), BONES)
+    record = store.save_pose(
         assets / job_id, pose, extra={"root_translation": [0.1, 0.0, 0.0]}
     )
     calls = _fake_bake(monkeypatch)
@@ -574,8 +575,8 @@ def test_a_malformed_root_offset_costs_the_offset_not_the_bake(
             }
         )
     )
-    pose = rigging.validate_pose(_pose("leap"), BONES)
-    record = rigging.save_pose(job_dir, pose, extra={"root_translation": root})
+    pose = poses.validate_pose(_pose("leap"), BONES)
+    record = store.save_pose(job_dir, pose, extra={"root_translation": root})
     calls = _fake_bake(monkeypatch)
 
     assert svc_rig.posed_model(svc, job_id, record["id"]).exists()
@@ -604,8 +605,8 @@ def test_a_rig_json_that_cannot_answer_costs_the_offset_not_the_bake(
             }
         )
     )
-    pose = rigging.validate_pose(_pose("leap"), BONES)
-    record = rigging.save_pose(job_dir, pose, extra={"root_translation": [0.1, 0.0, 0.0]})
+    pose = poses.validate_pose(_pose("leap"), BONES)
+    record = store.save_pose(job_dir, pose, extra={"root_translation": [0.1, 0.0, 0.0]})
     calls = _fake_bake(monkeypatch)
 
     assert svc_rig.posed_model(svc, job_id, record["id"]).exists()
@@ -617,7 +618,7 @@ def test_a_locked_pose_file_delete_reports_as_a_failure(svc, assets, monkeypatch
     job_id = _rigged_job(svc, assets)
     record = svc_rig.save_pose(svc, job_id, _pose())
     monkeypatch.setattr(
-        rigging, "delete_pose", lambda *a: (_ for _ in ()).throw(PermissionError("held"))
+        store, "delete_pose", lambda *a: (_ for _ in ()).throw(PermissionError("held"))
     )
     with pytest.raises(Failed, match="locked"):
         svc_rig.delete_pose(svc, job_id, record["id"])

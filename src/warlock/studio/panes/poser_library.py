@@ -11,7 +11,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import rigging
+from ...kernels.rig import templates
 from .. import controls, icons, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -52,7 +52,7 @@ def draw(ctx: Any) -> None:
         # source job in the Library the only way back to a different
         # skeleton).
         label = next(
-            (e["label"] for e in rigging.catalog() if e["key"] == state.template),
+            (e["label"] for e in templates.catalog() if e["key"] == state.template),
             state.template,
         )
         widgets.field_label("Skeleton")
@@ -63,7 +63,7 @@ def draw(ctx: Any) -> None:
         chosen = widgets.combo(
             "##poser-template",
             state.template,
-            [(entry["key"], entry["label"]) for entry in rigging.catalog()],
+            [(entry["key"], entry["label"]) for entry in templates.catalog()],
         )
         if chosen and chosen != state.template:
             poser_mode.set_template(ctx, chosen)
@@ -180,7 +180,7 @@ def _rerig(ctx: Any, state: Any) -> None:
     state.rerig_choice = widgets.combo(
         "##poser-rerig-template",
         state.rerig_choice or state.template,
-        [(entry["key"], entry["label"]) for entry in rigging.catalog()],
+        [(entry["key"], entry["label"]) for entry in templates.catalog()],
     )
     # Both buttons full width, stacked: a bare ``disabled_button`` sizes itself
     # to its label, so Confirm and Cancel came out different widths under each

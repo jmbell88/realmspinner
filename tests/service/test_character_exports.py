@@ -21,8 +21,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from warlock import clips, rigging
+from warlock import clips
 from warlock.kernels.geom3d import glbio
+from warlock.kernels.rig import store
 from warlock.pipelines import charsheet
 from warlock.pipelines import sheet as sheetlib
 from warlock.service import characters as svc_characters
@@ -98,9 +99,9 @@ def _build_sheet(
         box = (cell.x, cell.y, cell.x + frame_size, cell.y + frame_size)
         atlas.paste(Image.new("RGBA", (frame_size, frame_size), colors[cell.index]), box)
 
-    sheet_id = rigging.new_id()
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    sheet_id = store.new_id()
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    png_path = store.sheet_png_path(job_dir, sheet_id)
     atlas.save(png_path, "PNG")
 
     meta = sheetlib.sidecar(
@@ -116,7 +117,7 @@ def _build_sheet(
         meta["troupe"] = layout.as_dict()
     if character is not None:
         meta["character"] = character
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
 
     return job_id, sheet_id, colors
 
@@ -264,7 +265,7 @@ def test_the_frame_manifest_reports_an_hd_troupe_sheet_as_hd(svc, tmp_path):
         svc, layout, with_troupe_block=True, character={"recipe": {"pixel_art": True}}
     )
     job_dir = svc.job_dir(job_id)
-    sidecar_path = rigging.sheet_path(job_dir, sheet_id)
+    sidecar_path = store.sheet_path(job_dir, sheet_id)
     meta = json.loads(sidecar_path.read_text("utf-8"))
     # The worker's own record for this render: HD, even though the nested
     # recipe (what was asked for) still says pixel art.
@@ -284,12 +285,12 @@ def test_a_hand_made_sheet_without_a_character_layout_is_refused_not_crashed(svc
     died on a bare ``KeyError`` instead of naming the mismatch."""
     job_id = _new_job(svc)
     job_dir = svc.job_dir(job_id)
-    sheet_id = rigging.new_id()
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    sheet_id = store.new_id()
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
     # A real (if tiny) PNG, so the crash this regresses is the cell lookup and
     # not merely an unreadable image.
     Image.new("RGBA", (16, 16), (0, 0, 0, 255)).save(
-        rigging.sheet_png_path(job_dir, sheet_id), "PNG"
+        store.sheet_png_path(job_dir, sheet_id), "PNG"
     )
     meta = {
         "sheet_id": sheet_id,
@@ -299,7 +300,7 @@ def test_a_hand_made_sheet_without_a_character_layout_is_refused_not_crashed(svc
         # so the legacy table is exactly what this sheet is checked against.
         "cells": [{"index": 0, "x": 0, "y": 0, "w": 16, "h": 16}],
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), "utf-8")
 
     with pytest.raises(Invalid) as excinfo:
         svc_characters.export_frames(svc, job_id, sheet_id, dest_dir=tmp_path / "out")
@@ -348,10 +349,10 @@ def test_re_exporting_replaces_the_character_folder_whole(svc, tmp_path):
 
 def test_a_sheet_export_without_a_sheet_is_refused_on_sheet_id(svc):
     with pytest.raises(Invalid) as excinfo:
-        svc_export.run_character_export(svc, "frame_folders", rigging.new_id(), None)
+        svc_export.run_character_export(svc, "frame_folders", store.new_id(), None)
     assert excinfo.value.field == "sheet_id"
     with pytest.raises(Invalid) as excinfo2:
-        svc_export.run_character_export(svc, "sheet_package", rigging.new_id(), "")
+        svc_export.run_character_export(svc, "sheet_package", store.new_id(), "")
     assert excinfo2.value.field == "sheet_id"
 
 
@@ -400,8 +401,8 @@ def test_an_explicit_stem_names_the_export_and_is_validated(svc, tmp_path):
 def test_agent_export_stems_never_collide_across_assets_or_sheets(svc):
     job_a = _new_job(svc, name="Knight")
     job_b = _new_job(svc, name="Knight")
-    sheet1 = rigging.new_id()
-    sheet2 = rigging.new_id()
+    sheet1 = store.new_id()
+    sheet2 = store.new_id()
 
     stems = [
         svc_characters.agent_export_stem(svc, job_a),
@@ -622,7 +623,7 @@ def test_every_character_export_has_a_door_and_every_door_is_registered(svc, mon
     )
     monkeypatch.setattr(svc_derive, "get_file", lambda *a, **k: Path("animated.glb"))
 
-    job_id = rigging.new_id()
+    job_id = store.new_id()
     assert svc_export.run_character_export(svc, "animated_glb", job_id) == "A"
     assert svc_export.run_character_export(svc, "sheet_package", job_id, "sheet1") == "P"
     assert svc_export.run_character_export(svc, "godot_scene", job_id) == "G"
@@ -632,5 +633,5 @@ def test_every_character_export_has_a_door_and_every_door_is_registered(svc, mon
 
 def test_an_unknown_export_format_is_refused_on_format(svc):
     with pytest.raises(Invalid) as excinfo:
-        svc_export.run_character_export(svc, "powerpoint", rigging.new_id())
+        svc_export.run_character_export(svc, "powerpoint", store.new_id())
     assert excinfo.value.field == "format"

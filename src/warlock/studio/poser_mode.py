@@ -50,7 +50,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .. import poselib, rigging
+from .. import poselib
+from ..kernels.rig import cliplib, poses, skeleton, store, templates
 from . import dialogs, journal
 
 log = logging.getLogger(__name__)
@@ -369,7 +370,7 @@ def ensure(ctx: Any) -> PoserState:
         state = PoserState()
         ctx.state.poser = state
     if not state.template:
-        entries = rigging.catalog()
+        entries = templates.catalog()
         default = str(getattr(ctx, "rig_default", "") or "")
         keys = {e["key"] for e in entries}
         state.template = default if default in keys else (entries[0]["key"] if entries else "")
@@ -1120,7 +1121,7 @@ def apply_skeleton(ctx: Any) -> None:
     skeleton-editing session once the new rig actually lands (a queued job is
     minutes of Blender, not an inline call -- see :func:`edit_skeleton`'s own
     docstring). A refusal (``service.errors.Invalid``, always field-addressed
-    here: ``rigging.validate_skeleton`` never raises without one) is recorded
+    here: ``skeleton.validate_skeleton`` never raises without one) is recorded
     on ``state.skeleton_error`` by :func:`on_task_failed`, so the pane can put
     it under the control it names instead of only the generic red toast.
     """
@@ -1143,7 +1144,7 @@ def _skeleton_call(ctx: Any, fn: Any, *args: Any) -> tuple[bool, Any]:
 
     Every ``skel_*`` editor call is local and synchronous -- unlike
     :func:`apply_skeleton`, nothing here touches the queue -- so a refusal is
-    a :class:`rigging.RigError` raised straight out of the call, not a task
+    a :class:`store.RigError` raised straight out of the call, not a task
     landing minutes later. Cleared on success, the same "only the landing
     clears it" rule the async doors in this module already follow, applied to
     a call that lands immediately. Returns ``(ok, result)`` rather than only
@@ -1153,7 +1154,7 @@ def _skeleton_call(ctx: Any, fn: Any, *args: Any) -> tuple[bool, Any]:
     state = ensure(ctx)
     try:
         result = fn(*args)
-    except rigging.RigError as exc:
+    except store.RigError as exc:
         state.skeleton_error = {"field": exc.field or "", "message": str(exc)}
         return False, None
     state.skeleton_error = None
@@ -1371,8 +1372,8 @@ def preview_bounds(template_key: str) -> tuple[list[float], list[float]]:
     # in a GL context, and math3d is only wanted by this one function.
     from ..kernels.geom3d import math3d as m3
 
-    template = rigging.get_template(template_key)
-    fitted = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    template = templates.get_template(template_key)
+    fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
     # Converted first, then boxed. The hand-coded corner swap this replaces was
     # mathematically the same thing -- min/max commute with a signed axis
     # permutation -- but it restated the mapping, which is exactly what
@@ -1452,7 +1453,7 @@ def _land_preview_load(ctx: Any, done: Any) -> None:
 
 def bind_preview(ctx: Any, viewer: Any, template_key: str) -> None:
     """Enter the authoring session over whatever the viewer just loaded."""
-    template = rigging.get_template(template_key)
+    template = templates.get_template(template_key)
     bones = [b["name"] for b in template.bones]
     viewer.enter_pose_authoring(
         bones, [list(p) for p in template.mirror_pairs], token(template.key)
@@ -1654,7 +1655,7 @@ def _payload(ctx: Any, state: PoserState, viewer: Any, name: str) -> dict[str, A
     P4 (2026-09-13): an asset session's editor can carry a custom skeleton's
     bones (a grafted limb, a renamed pivot) that the *shared* template does
     not have -- ``poselib.validate_record`` refuses any bone name outside the
-    template's own list, by name (``rigging.validate_bones``' "unknown bone"),
+    template's own list, by name (``poses.validate_bones``' "unknown bone"),
     so contributing such a pose to the library has to drop them rather than
     fail outright: the whole point of the shared library is a pose every
     asset on this *template* can apply, and a custom bone has no template
@@ -1663,7 +1664,7 @@ def _payload(ctx: Any, state: PoserState, viewer: Any, name: str) -> dict[str, A
     count.
     """
     bones = viewer.get_pose()
-    known = {b["name"] for b in rigging.get_template(state.template).bones}
+    known = {b["name"] for b in templates.get_template(state.template).bones}
     extra = sorted(b for b in bones if b not in known)
     if extra:
         bones = {name_: quat for name_, quat in bones.items() if name_ in known}
@@ -2334,7 +2335,7 @@ def _clip_space(state: Any) -> str:
 def _convert(editor: Any, bones: dict[str, Any], space: str, how: Any) -> dict[str, list[float]]:
     """One direction of the frame conversion, per bone with a rest rotation.
 
-    ``how`` is ``rigging.node_from_delta`` or ``rigging.delta_from_node``: the
+    ``how`` is ``poses.node_from_delta`` or ``poses.delta_from_node``: the
     algebra is *there*, beside the sentence that justifies it, because the
     Blender worker needs the same rule against Blender's rest quaternions and
     the two used to write it out separately.
@@ -2353,12 +2354,12 @@ def _convert(editor: Any, bones: dict[str, Any], space: str, how: Any) -> dict[s
 
 def _to_node(editor: Any, bones: dict[str, Any], space: str) -> dict[str, list[float]]:
     """Library rotations -> the editor's node-local frame."""
-    return _convert(editor, bones, space, rigging.node_from_delta)
+    return _convert(editor, bones, space, poses.node_from_delta)
 
 
 def _from_node(editor: Any, bones: dict[str, Any], space: str) -> dict[str, list[float]]:
     """The editor's node-local frame -> library rotations."""
-    return _convert(editor, bones, space, rigging.delta_from_node)
+    return _convert(editor, bones, space, poses.delta_from_node)
 
 
 def apply_key(ctx: Any) -> None:
@@ -2604,7 +2605,7 @@ def clip_fps(duration_ms: Any) -> float:
     ``ANIMATION_FPS * duration_ms / 1000``, and this is that relationship's
     inverse, in frames of *this* clip per second rather than scene frames per
     clip frame. 0.0 for anything that will not divide, rather than raising: a
-    mid-adopt clip (the legacy v2 shape ``rigging.parse_clip_library`` migrates
+    mid-adopt clip (the legacy v2 shape ``cliplib.parse_clip_library`` migrates
     away from before this pane ever sees it) should show no hint at all, not a
     crash from a label.
     """
@@ -2620,8 +2621,8 @@ def set_duration(ctx: Any, ms: int) -> None:
 
     Snapped rather than refused -- ``set_segment``'s own precedent, applied to
     this field: a typed 83 lands on 80, the nearest multiple of
-    ``rigging.CLIP_DURATION_STEP_MS`` inside ``rigging.MIN_CLIP_DURATION_MS``-
-    ``rigging.MAX_CLIP_DURATION_MS``, rather than an error toast over one
+    ``cliplib.CLIP_DURATION_STEP_MS`` inside ``cliplib.MIN_CLIP_DURATION_MS``-
+    ``cliplib.MAX_CLIP_DURATION_MS``, rather than an error toast over one
     keystroke or a value the write door would refuse outright. This is the
     clip's *only* duration_ms door -- ``clips.animation_tracks``' bake step and
     this pane's own fps hint (:func:`clip_fps`) both read the value this
@@ -2641,9 +2642,9 @@ def set_duration(ctx: Any, ms: int) -> None:
     record = state.open_clip()
     if record is None:
         return
-    step = rigging.CLIP_DURATION_STEP_MS
+    step = cliplib.CLIP_DURATION_STEP_MS
     snapped = int(round(int(ms) / step)) * step
-    snapped = max(rigging.MIN_CLIP_DURATION_MS, min(snapped, rigging.MAX_CLIP_DURATION_MS))
+    snapped = max(cliplib.MIN_CLIP_DURATION_MS, min(snapped, cliplib.MAX_CLIP_DURATION_MS))
     if record.get("duration_ms") == snapped:
         return
     record["duration_ms"] = snapped
@@ -2892,12 +2893,12 @@ def revert_clips(ctx: Any) -> None:
 def _valid_clip_name(name: str) -> bool:
     """Whether *name* would survive ``service.clips``' own Save-time check.
 
-    ``rigging.reject_direction_named_clip`` is the same function
+    ``cliplib.reject_direction_named_clip`` is the same function
     ``service.clips._check_shape`` calls -- imported rather than restated, so
     a name this merge accepts and a name Save accepts can never disagree.
     """
     try:
-        rigging.reject_direction_named_clip(name)
+        cliplib.reject_direction_named_clip(name)
     except ValueError:
         return False
     return True
@@ -2914,7 +2915,7 @@ def _dedupe_clip_name(name: str, taken: set[str]) -> str:
     Also re-checked against :func:`_valid_clip_name` on every candidate, not
     only the first: a clash landing on ``_2``/``_3`` is vanishingly unlikely to
     also end in one of Troupe's sixteen facings, but "vanishingly unlikely" is
-    exactly the class of bug ``rigging.parse_clip_library`` exists to catch at
+    exactly the class of bug ``cliplib.parse_clip_library`` exists to catch at
     Save instead of here, and refusing the whole import at that point would be
     a much worse afternoon than looping once more here.
     """
@@ -3229,8 +3230,8 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
         # refusal here already follows.
         draft = data.get("draft") or []
         try:
-            rigging.check_skeleton_structure(draft)
-        except rigging.RigError:
+            skeleton.check_skeleton_structure(draft)
+        except store.RigError:
             ctx.toast(
                 "An unsaved skeleton edit was recovered, but it is no longer "
                 "usable. Open the rig it belongs to and edit its skeleton "

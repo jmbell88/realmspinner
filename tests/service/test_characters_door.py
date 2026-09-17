@@ -15,8 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock import doctor, rigging
+from warlock import doctor
 from warlock.characters import family as family_mod
+from warlock.kernels.rig import cliplib, store, templates
 from warlock.service import characters as svc_characters
 from warlock.service import export as svc_export
 from warlock.service import jobs as svc_jobs
@@ -43,7 +44,7 @@ def test_create_charsheet_accepts_any_template_with_a_clip_library_and_refuses_o
     A family that ships its own skeleton and its own walk cycle was turned away
     for not being the one template that happened to have a library first -- and
     the message told it so, which sent the reader to change the rig rather than
-    to author the clips. Now the door asks ``rigging.clip_library`` (which
+    to author the clips. Now the door asks ``cliplib.clip_library`` (which
     answers "no clips" rather than failing, so somebody has to ask) and the
     sheet is expanded from the rig's *own* template.
     """
@@ -63,9 +64,9 @@ def test_create_charsheet_accepts_any_template_with_a_clip_library_and_refuses_o
 
     # The same rig, once clips exist for it, is accepted -- and the row is
     # minted on its own template, because that is the skeleton on disk.
-    library = rigging.clip_library(svc_troupe.TROUPE_TEMPLATE)
+    library = cliplib.clip_library(svc_troupe.TROUPE_TEMPLATE)
     monkeypatch.setattr(
-        rigging,
+        cliplib,
         "clip_library",
         lambda key: library if key == "fish" else {"poses": {}, "clips": []},
     )
@@ -219,7 +220,7 @@ def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blend
     stored = params["bones"]
     bones = stored["bones"] if isinstance(stored, dict) else stored
     names = [b["name"] for b in bones]
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     assert names == [b["name"] for b in template.bones]
     # Real coordinates, not a stub: a skeleton collapsed to the origin would
     # satisfy every structural assertion above and skin the whole mesh to one
@@ -272,11 +273,11 @@ def test_a_re_render_of_a_subset_keeps_the_recipe_seed_byte_for_byte(svc, blende
     sheet = svc_troupe.create_charsheet(svc, made["id"], character=block)
     sheet_params = svc.store.get(sheet["id"])["params"]
     # The sheet has to exist on disk for the re-render door to read its layout.
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    rigging.sheet_path(job_dir, sheet["sheet_id"]).write_text(
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    store.sheet_path(job_dir, sheet["sheet_id"]).write_text(
         json.dumps({"troupe": sheet_params["layout"]}), "utf-8"
     )
-    rigging.sheet_png_path(job_dir, sheet["sheet_id"]).write_bytes(b"png")
+    store.sheet_png_path(job_dir, sheet["sheet_id"]).write_bytes(b"png")
 
     again = svc_troupe.rerender_charsheet(
         svc,
@@ -421,11 +422,11 @@ def test_without_blender_a_character_is_refused_in_the_rig_segments_words(svc, m
 
 
 def _sheet_on_disk(svc, job_id):
-    sheet_id = rigging.new_id()
+    sheet_id = store.new_id()
     job_dir = svc.job_dir(job_id)
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    rigging.sheet_png_path(job_dir, sheet_id).write_bytes(b"png-bytes")
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps({"cells": []}), "utf-8")
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    store.sheet_png_path(job_dir, sheet_id).write_bytes(b"png-bytes")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps({"cells": []}), "utf-8")
     return sheet_id
 
 

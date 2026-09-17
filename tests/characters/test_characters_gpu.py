@@ -44,10 +44,11 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from warlock import clips, rigging
+from warlock import clips
 from warlock.characters import instantiate as instantiate_mod
 from warlock.characters import recipe as recipe_mod
 from warlock.characters.family import get_family
+from warlock.kernels.rig import blender_spec, store
 from warlock.pipelines import charsheet, pixelize, sheetcheck
 from warlock.pipelines import sheet as sheetlib
 
@@ -140,9 +141,9 @@ def _built_and_rigged(bpy: Any, spec: recipe_mod.Recipe, out_dir: Path) -> dict[
     result = _quiet(
         blender_worker.op_rig,
         bpy,
-        rigging.rig_spec(out_dir, fam.template, bones=instance.joints),
+        blender_spec.rig_spec(out_dir, fam.template, bones=instance.joints),
     )
-    rigging.finalize_rig(out_dir)
+    store.finalize_rig(out_dir)
     return result
 
 
@@ -235,8 +236,8 @@ async def test_a_character_sheet_end_to_end_is_144_cells_of_32_colours(svc):
 
     source_dir = svc.config.job_dir(made["id"])
     sheet_id = finished["params"]["sheet_id"]
-    meta = json.loads(rigging.sheet_path(source_dir, sheet_id).read_text("utf-8"))
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    meta = json.loads(store.sheet_path(source_dir, sheet_id).read_text("utf-8"))
+    png = store.sheet_png_path(source_dir, sheet_id)
 
     # --- the layout the plan says --------------------------------------------
     #
@@ -363,7 +364,7 @@ def test_a_generated_character_imports_into_blender_with_its_material_slots(
     _quiet(
         blender_worker.op_sheet,
         bpy,
-        rigging.sheet_spec(
+        blender_spec.sheet_spec(
             tmp_path / "model.glb",
             frames,
             [{"index": 0, "yaw": 0.0, "pose": None, "bones": {}}],
@@ -477,7 +478,7 @@ def test_a_character_rig_takes_bone_heat_weights_not_envelope(species, tmp_path)
     # And the same answer in the file, because rig.json is the only record that
     # outlives the subprocess -- the pose editor, the adjust-joints pass and the
     # UI's "this rig is degraded" notice all read it and not the result dict.
-    rig = rigging.read_rig(tmp_path)
+    rig = store.read_rig(tmp_path)
     assert rig["weighting"] == result["weighting"]
     assert rig["weighting_reason"] is None
     assert len(rig["bones"]) == result["bones"]
@@ -533,7 +534,7 @@ def test_a_character_attack_apex_is_inside_every_frame(tmp_path, monkeypatch):
         result = _quiet(
             blender_worker.op_sheet,
             bpy,
-            rigging.sheet_spec(
+            blender_spec.sheet_spec(
                 tmp_path / "rig.glb",
                 frames,
                 cells,

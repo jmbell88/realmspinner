@@ -13,7 +13,7 @@ authored armature -- its rest bones and, per action, per frame, every posed
 bone's world rotation and head position -- into the plain-dict shape this
 module's :func:`transfer` takes as ``sample``. Nothing here touches ``bpy``;
 nothing here writes a file. What comes out is exactly the v3 clip-library
-shape :func:`warlock.rigging.parse_clip_library` already knows how to read,
+shape :func:`warlock.cliplib.parse_clip_library` already knows how to read,
 minus ``source`` (a service-layer provenance note the caller adds) and minus
 ``provisional`` (a caller decision, not a fact about the math).
 
@@ -37,7 +37,7 @@ in before the source's motion is applied.
 
 **Why this module may not import ``pipelines.sheet``.**
 ``tests/test_poser_imports.py`` pins every module here (``poselib``,
-``rigging``, ``clipmaps``, and now this one) to import no more of
+``clipmaps``, and now this one) to import no more of
 ``warlock`` than a short, explicit set -- and one of its own generic checks
 (``test_none_of_them_imports_the_queue_or_the_pipelines``) refuses a
 ``warlock.pipelines`` import from *any* of them, this module included. That
@@ -47,7 +47,7 @@ it, the same argument the other three modules already make. So
 ``poselib.MAX_ROOT_TRANSLATION`` are restated below rather than imported --
 each restatement says so, and each is pinned against its source of truth by
 a test in ``tests/test_cliptransfer.py`` so the two cannot drift apart
-silently the way ``rigging.LEGACY_CLIP_DURATION_MS`` is pinned against
+silently the way ``cliplib.LEGACY_CLIP_DURATION_MS`` is pinned against
 ``pipelines.charsheet.ANIMATIONS``.
 
 Quaternions are XYZW throughout, this package's convention everywhere else.
@@ -61,7 +61,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from . import clipmaps, rigging
+from . import clipmaps
+from .kernels.rig import cliplib, templates
 
 __all__ = [
     "ClipTransferError",
@@ -79,7 +80,7 @@ __all__ = [
 class ClipTransferError(ValueError):
     """A refused "Import clip" conversion, naming the field it came from.
 
-    The ``rigging.RecordError`` / ``poselib.RecordError`` shape: a
+    The ``kernels.rig.store.RigError`` / ``poselib.RecordError`` shape: a
     ``ValueError`` subclass so nothing that already catches ``ValueError``
     changes, with ``field`` carried so ``service.errors.invalid_from`` can
     point the UI at the right control.
@@ -165,10 +166,10 @@ def _slerp(a: Sequence[float], b: Sequence[float], t: float) -> list[float]:
 
 # --- small quaternion / vector math ---------------------------------------
 #
-# A private restatement of the one identity ``rigging.py`` already states
-# for ``node``/``delta`` (``node = rest . delta``), rather than an import of
-# its private ``_quat_mul``: the two moduless happen to need the same
-# arithmetic, not the same function object.
+# A private restatement of the one identity ``kernels.rig.poses`` already
+# states for ``node``/``delta`` (``node = rest . delta``), rather than an
+# import of its private ``_quat_mul``: the two modules happen to need the
+# same arithmetic, not the same function object.
 
 
 def _mul(a: Sequence[float], b: Sequence[float]) -> _Quat:
@@ -641,7 +642,7 @@ def _validate_clip_name(name: str) -> str:
     if not name:
         raise ClipTransferError("a clip needs a name", field="name")
     try:
-        rigging.reject_direction_named_clip(name)
+        cliplib.reject_direction_named_clip(name)
     except ValueError as exc:
         raise ClipTransferError(str(exc), field="name") from exc
     return name
@@ -698,7 +699,7 @@ def transfer(
             field="clip_name",
         )
     try:
-        rigging.get_template(template)
+        templates.get_template(template)
     except ValueError as exc:
         raise ClipTransferError(str(exc), field="source") from exc
 
@@ -899,7 +900,7 @@ def _transfer_action(
 
     duration = duration_ms
     if duration is None:
-        step = rigging.CLIP_DURATION_STEP_MS
+        step = cliplib.CLIP_DURATION_STEP_MS
         # ``duration_ms`` is the time PER RENDERED FRAME, not the source
         # clip's own length (``clips.animation_tracks``'s ``step =
         # ANIMATION_FPS * duration_ms / 1000``, one hop per authored frame,
@@ -918,10 +919,10 @@ def _transfer_action(
         hops = n_frames if closed else max(1, n_frames - 1)
         raw = (duration_s * 1000.0) / hops
         rounded = round(raw / step) * step
-        clamped = max(rigging.MIN_CLIP_DURATION_MS, min(rigging.MAX_CLIP_DURATION_MS, rounded))
+        clamped = max(cliplib.MIN_CLIP_DURATION_MS, min(cliplib.MAX_CLIP_DURATION_MS, rounded))
         duration = int(clamped)
     try:
-        duration = rigging.validate_clip_duration_ms(duration, name)
+        duration = cliplib.validate_clip_duration_ms(duration, name)
     except ValueError as exc:
         raise ClipTransferError(str(exc), field="frames") from exc
 

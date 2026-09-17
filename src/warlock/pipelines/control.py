@@ -118,7 +118,7 @@ def write_hint(
     """Preprocess ``src`` into ``dest`` and return the hint's provenance.
 
     Staged through a temp name and renamed, the same rule every other write
-    onto a served path follows (optimize.staged_copy, rigging.finalize_rig):
+    onto a served path follows (optimize.staged_copy, store.finalize_rig):
     the file route may read this while a rerun is rewriting it.
 
     The ``finally`` is the other half of that rule, and it is the half this had

@@ -1,6 +1,6 @@
 """``service.clip_import``: the door "Import clip" calls -- sampling an
 external animation with Blender (faked here, as ``test_pose_library_service.py``
-fakes ``rigging.run_worker`` for the template preview) and, optionally, folding
+fakes ``blender_run.run_worker`` for the template preview) and, optionally, folding
 the converted clip into a template's clip library.
 
 What is pinned:
@@ -32,8 +32,10 @@ from test_cliptransfer import (
 )
 
 from warlock import clips as pure_clips
-from warlock import cliptransfer, doctor, poselib, rigging
+from warlock import cliptransfer, doctor, poselib
 from warlock.doctor import Check
+from warlock.kernels.rig import cliplib
+from warlock.pipelines import blender_run
 from warlock.service import Conflict, Failed, Invalid, clip_import
 from warlock.service import clips as svc_clips
 
@@ -44,9 +46,9 @@ TEMPLATE = "humanoid"
 def _fresh_clip_cache():
     """The library caches are module globals filled once -- the same isolation
     ``tests/test_clip_editing.py`` and ``tests/test_clip_library_v3.py`` use."""
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     yield
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
 
 
 def _canned_payload() -> dict:
@@ -73,7 +75,7 @@ def _canned_payload() -> dict:
 
 
 def _fake_run_worker(monkeypatch, payload: dict) -> list[dict]:
-    """Stand in for ``rigging.run_worker``: write *payload* to the spec's own
+    """Stand in for ``blender_run.run_worker``: write *payload* to the spec's own
     result path (the real worker's hand-off shape) and hand it back, without
     cleaning the file up itself -- so a test that wants to see this module's
     own cleanup run is exercising it rather than the real worker's."""
@@ -86,7 +88,7 @@ def _fake_run_worker(monkeypatch, payload: dict) -> list[dict]:
         result_path.write_text(json.dumps(payload), encoding="utf-8")
         return json.loads(result_path.read_text(encoding="utf-8"))
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
     return calls
 
 
@@ -113,14 +115,14 @@ def test_analyse_writes_nothing(svc, monkeypatch, tmp_path):
     _ok_blender(monkeypatch)
     _fake_run_worker(monkeypatch, _canned_payload())
     source = _write_source(tmp_path)
-    shipped_before = (rigging.CLIP_DIR / f"{TEMPLATE}.json").read_bytes()
+    shipped_before = (cliplib.CLIP_DIR / f"{TEMPLATE}.json").read_bytes()
 
     result = clip_import.analyse(svc, TEMPLATE, str(source))
 
     assert result["template"] == TEMPLATE
     assert len(result["clips"]) == 1
     assert svc_clips.library(svc, TEMPLATE)["edited"] is False
-    assert (rigging.CLIP_DIR / f"{TEMPLATE}.json").read_bytes() == shipped_before
+    assert (cliplib.CLIP_DIR / f"{TEMPLATE}.json").read_bytes() == shipped_before
     assert not poselib.clip_path(svc.config, TEMPLATE).is_file()
     imports_dir = _imports_dir(svc)
     assert not (imports_dir.is_dir() and list(imports_dir.iterdir()))
@@ -190,8 +192,8 @@ def test_import_into_library_adds_the_clip_and_it_parses(svc, monkeypatch, tmp_p
     # The renderer's own parser accepts what was written -- the whole point
     # of routing through ``service.clips``'s private commit rather than a
     # second writer.
-    rigging.invalidate_clips()
-    rigging.parse_clip_library(json.loads(poselib.clip_path(svc.config, TEMPLATE).read_text()))
+    cliplib.invalidate_clips()
+    cliplib.parse_clip_library(json.loads(poselib.clip_path(svc.config, TEMPLATE).read_text()))
 
 
 def test_the_imported_clip_records_where_it_came_from(svc, monkeypatch, tmp_path):
@@ -229,7 +231,7 @@ def test_importing_into_a_node_space_library_is_refused(svc, monkeypatch, tmp_pa
     hazard ``service.clips.save`` already refuses by name for a hand edit
     that tries to change a library's stored ``space``. Built the way
     ``tests/test_clip_library_v3.py`` builds a fixture library: replace the
-    shipped file underneath ``rigging.CLIP_DIR`` rather than going through
+    shipped file underneath ``cliplib.CLIP_DIR`` rather than going through
     ``svc_clips.save`` (which would itself refuse changing a library's space
     away from its current one, and this needs a *node*-space library to
     exist in the first place)."""
@@ -237,13 +239,13 @@ def test_importing_into_a_node_space_library_is_refused(svc, monkeypatch, tmp_pa
     _fake_run_worker(monkeypatch, _canned_payload())
     source = _write_source(tmp_path)
 
-    raw = json.loads((rigging.CLIP_DIR / f"{TEMPLATE}.json").read_text(encoding="utf-8"))
+    raw = json.loads((cliplib.CLIP_DIR / f"{TEMPLATE}.json").read_text(encoding="utf-8"))
     raw["space"] = "node"
     clip_dir = tmp_path / "clips"
     clip_dir.mkdir()
     (clip_dir / f"{TEMPLATE}.json").write_text(json.dumps(raw), encoding="utf-8")
-    monkeypatch.setattr(rigging, "CLIP_DIR", clip_dir)
-    rigging.invalidate_clips()
+    monkeypatch.setattr(cliplib, "CLIP_DIR", clip_dir)
+    cliplib.invalidate_clips()
     assert svc_clips.library(svc, TEMPLATE)["space"] == "node"
 
     with pytest.raises(Invalid) as caught:
@@ -321,7 +323,7 @@ def test_import_into_library_refuses_a_clip_library_the_read_door_could_never_lo
     svc, monkeypatch, tmp_path
 ):
     """The 2026-09-14 audit, finding poser-01: ``service.clips.save`` gained a
-    check against ``rigging.MAX_CLIP_LIBRARY_BYTES`` on 2026-09-13 (finding
+    check against ``cliplib.MAX_CLIP_LIBRARY_BYTES`` on 2026-09-13 (finding
     poser-02) because ``_check_shape`` bounds keys and segments but not bones
     per pose or the serialized whole. ``import_into_library`` merges into the
     exact same document shape through the exact same
@@ -332,7 +334,7 @@ def test_import_into_library_refuses_a_clip_library_the_read_door_could_never_lo
     shipped clips with no error saying why.
 
     ``cliptransfer.transfer`` is faked directly (as this module fakes
-    ``rigging.run_worker`` for the Blender step) to hand back one pose with
+    ``blender_run.run_worker`` for the Blender step) to hand back one pose with
     50,000 bones -- comfortably over the 4 MiB cap once serialized, the same
     bone count ``test_clip_editing.py``'s sibling test for ``save`` uses.
     """

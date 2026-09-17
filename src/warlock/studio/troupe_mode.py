@@ -180,11 +180,11 @@ def invalidate_sheets(ctx: Any) -> None:
 
 def _read_sheets(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     """The uncached read :func:`sheets` throttles."""
-    from .. import rigging
+    from ..kernels.rig import store
 
     out = [
         record
-        for record in rigging.list_sheets(ctx.job_dir(job_id))
+        for record in store.list_sheets(ctx.job_dir(job_id))
         if (record.get("animation") or {}).get("tags")
     ]
     out.sort(key=lambda r: float(r.get("created") or 0.0), reverse=True)
@@ -604,7 +604,7 @@ def active_sheet(ctx: Any) -> dict[str, Any] | None:
     list once -- so it was three JSON reads a frame of a file that changes only
     when a sheet is rebuilt.
     """
-    from .. import rigging
+    from ..kernels.rig import store
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -616,7 +616,7 @@ def active_sheet(ctx: Any) -> dict[str, Any] | None:
         or state.sheet_cache_key != key
         or now >= state.sheet_cache_next
     ):
-        state.sheet_cache = rigging.read_sheet(ctx.job_dir(key[0]), key[1])
+        state.sheet_cache = store.read_sheet(ctx.job_dir(key[0]), key[1])
         state.sheet_cache_key = key
         state.sheet_cache_next = now + SHEETS_REFRESH
     return state.sheet_cache
@@ -957,7 +957,7 @@ def release_rerender_selection(ctx: Any) -> None:
 def scores(ctx: Any) -> Any:
     """The selected sheet's :class:`~.troupe.qa.SheetScore`, or None while it
     is being computed, absent or unscorable. Frame thread; cheap."""
-    from .. import rigging
+    from ..kernels.rig import store
 
     state = ensure(ctx)
     if not (state.job_id and state.sheet_id):
@@ -970,7 +970,7 @@ def scores(ctx: Any) -> Any:
         return None
     record = active_sheet(ctx)
     geometry = cell_geometry(record)
-    path = rigging.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
+    path = store.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
     # is_file(), not exists(): the 2026-09-08 audit's troupe-04 found exists()
     # here, which is also true of a directory and would let a stale or
     # malformed sheet path slip past this refusal only to fail later inside
@@ -1054,7 +1054,7 @@ def atlas_texture(ctx: Any) -> Any:
     12-direction sheet is the longest frame the mode drew. ``_adopt_atlas``
     is the other half; the upload stays here because the texture is GL.
     """
-    from .. import rigging
+    from ..kernels.rig import store
 
     state = ensure(ctx)
     if ctx.viewer is None or not (state.job_id and state.sheet_id):
@@ -1070,7 +1070,7 @@ def atlas_texture(ctx: Any) -> Any:
     task = atlas_key(*key)
     if ctx.busy(task):
         return None
-    path = rigging.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
+    path = store.sheet_png_path(ctx.job_dir(state.job_id), state.sheet_id)
     # is_file(), not exists(): the 2026-09-08 audit's troupe-04 found exists()
     # here too -- see the matching comment in ``scores`` above.
     if not path.is_file():

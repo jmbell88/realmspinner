@@ -781,7 +781,7 @@ ASSEMBLIES: dict[str, tuple[str, Callable[[], tuple[Part, ...]]]] = {
 }
 """Template key -> ``(label, builder)``, one entry per rig template.
 
-The keys are the *template* keys, which ``rigging.templates`` takes from each
+The keys are the *template* keys, which ``templates.templates`` takes from each
 file's stem and enforces against the key inside it -- so ``bird`` rather than
 ``winged``, and a new skeleton is a body here or a failing test. The labels are
 each template's own ``label`` field, copied for the same reason the landmarks

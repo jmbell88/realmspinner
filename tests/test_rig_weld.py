@@ -19,7 +19,8 @@ import json
 
 import pytest
 
-from warlock import meshreport, rigging
+from warlock import meshreport
+from warlock.kernels.rig import poses, store, templates
 from warlock.pipelines import blender_worker
 
 # --- the epsilon ------------------------------------------------------------
@@ -271,7 +272,7 @@ def test_the_welded_method_joins_the_weighting_vocabulary_rather_than_replacing_
 
 def test_the_welded_method_survives_the_subprocess_boundary_as_rig_json(tmp_path):
     meta = blender_worker._rig_meta(
-        rigging.get_template("humanoid"),
+        templates.get_template("humanoid"),
         bones=[],
         lo=[0.0, 0.0, 0.0],
         hi=[1.0, 1.0, 1.0],
@@ -281,14 +282,16 @@ def test_the_welded_method_survives_the_subprocess_boundary_as_rig_json(tmp_path
         fit={"method": "bbox"},
     )
     (tmp_path / "rig.json").write_text(json.dumps(meta), encoding="utf-8")
-    assert rigging.read_rig(tmp_path)["weighting"] == "automatic-welded"
+    assert store.read_rig(tmp_path)["weighting"] == "automatic-welded"
 
 
 # --- the deformation battery ------------------------------------------------
 
 
 def test_the_battery_is_template_data_not_code():
-    poses = rigging.deform_battery("humanoid")
+    from warlock.kernels.rig import poses as rig_poses
+
+    poses = rig_poses.deform_battery("humanoid")
     assert [p["name"] for p in poses] == [
         "squat",
         "arms overhead",
@@ -298,15 +301,15 @@ def test_the_battery_is_template_data_not_code():
 
 
 def test_a_template_with_no_battery_costs_the_qa_sheet_and_never_the_rig():
-    assert rigging.deform_battery("fish") == []
+    assert poses.deform_battery("fish") == []
     with pytest.raises(ValueError):
-        rigging.deform_battery("nonesuch")
+        poses.deform_battery("nonesuch")
 
 
 @pytest.mark.parametrize("key", ["humanoid"])
 def test_every_battery_pose_names_real_bones_and_is_a_unit_quaternion(key):
-    names = {b["name"] for b in rigging.get_template(key).bones}
-    for pose in rigging.deform_battery(key):
+    names = {b["name"] for b in templates.get_template(key).bones}
+    for pose in poses.deform_battery(key):
         assert pose["bones"], f"{pose['name']} poses nothing"
         for bone, quat in pose["bones"].items():
             assert bone in names, f"{pose['name']} poses {bone}, which {key} does not have"
@@ -318,8 +321,8 @@ def test_the_symmetric_battery_rows_are_exact_mirrors():
     """Authored by hand, so the sign convention is exactly the thing that goes
     wrong invisibly -- a mirrored limb that rotates the wrong way about one
     axis still looks plausible in a still. ``mirror_quaternion`` is the rule."""
-    pairs = rigging.get_template("humanoid").mirror_pairs
-    for pose in rigging.deform_battery("humanoid"):
+    pairs = templates.get_template("humanoid").mirror_pairs
+    for pose in poses.deform_battery("humanoid"):
         if pose["name"] == "torso twist":
             continue   # a twist is deliberately not symmetric
         bones = pose["bones"]
@@ -327,29 +330,30 @@ def test_the_symmetric_battery_rows_are_exact_mirrors():
             if left not in bones and right not in bones:
                 continue
             assert left in bones and right in bones, f"{pose['name']} poses half of a pair"
-            assert bones[right] == pytest.approx(rigging.mirror_quaternion(bones[left]))
+            assert bones[right] == pytest.approx(poses.mirror_quaternion(bones[left]))
 
 
 def test_every_battery_row_carries_an_id_so_a_sheet_does_not_render_one_pose():
     """A sheet row is keyed by (pose id, frame). Rows that all had no id put
     the first pose into every row of the atlas."""
-    ids = [p["id"] for p in rigging.deform_battery("humanoid")]
+    ids = [p["id"] for p in poses.deform_battery("humanoid")]
     assert len(set(ids)) == len(ids) and all(ids)
 
 
 def test_a_preset_the_user_picks_still_has_no_id():
     """It is not a saved pose, and handing the editor one would be a claim
     that it can be loaded and deleted."""
-    assert all("id" not in p for p in rigging.preset_poses("humanoid"))
+    assert all("id" not in p for p in poses.preset_poses("humanoid"))
 
 
 def test_the_battery_plans_a_grid_through_the_one_sheet_planner(tmp_path):
     """Not a second renderer: the QA sheet is the ordinary sheet pipeline with
     a different pose list, which is what keeps one set of camera conventions."""
     from warlock import queue as queue_mod
+    from warlock.kernels.rig import poses as rig_poses
     from warlock.pipelines import sheet as sheetlib
 
-    poses = rigging.deform_battery("humanoid")
+    poses = rig_poses.deform_battery("humanoid")
     layout = sheetlib.plan(
         poses,
         frame_size=queue_mod.DEFORM_QA_FRAME_SIZE,
@@ -373,9 +377,9 @@ def test_the_battery_plans_a_grid_through_the_one_sheet_planner(tmp_path):
 def test_the_qa_sheet_is_not_a_sheet_in_the_users_sheet_list(tmp_path):
     """It belongs to the rig, so it must not join list_sheets, count against
     MAX_SHEETS or be deleted by a sheet delete."""
-    rigging.rig_qa_png_path(tmp_path).write_bytes(b"png")
-    rigging.rig_qa_path(tmp_path).write_text("{}", encoding="utf-8")
-    assert rigging.list_sheets(tmp_path) == []
+    store.rig_qa_png_path(tmp_path).write_bytes(b"png")
+    store.rig_qa_path(tmp_path).write_text("{}", encoding="utf-8")
+    assert store.list_sheets(tmp_path) == []
 
 
 def test_the_qa_sheet_is_served_only_once_its_sidecar_is_written(tmp_path):
@@ -385,9 +389,9 @@ def test_the_qa_sheet_is_served_only_once_its_sidecar_is_written(tmp_path):
     from warlock.service import files
 
     job = {"status": "done", "stage": "model"}
-    rigging.rig_qa_png_path(tmp_path).write_bytes(b"png")
+    store.rig_qa_png_path(tmp_path).write_bytes(b"png")
     assert files.ready(job, tmp_path, "rig_qa.png") is False
-    rigging.rig_qa_path(tmp_path).write_text("{}", encoding="utf-8")
+    store.rig_qa_path(tmp_path).write_text("{}", encoding="utf-8")
     assert files.ready(job, tmp_path, "rig_qa.png") is True
     assert "rig_qa.png" in files.MEDIA and "rig_qa.png" in files.LISTED
 

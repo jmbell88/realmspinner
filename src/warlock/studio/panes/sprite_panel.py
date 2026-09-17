@@ -14,7 +14,7 @@ Which is why the button's label and the cost note under it are *derived* --
 were literals promising "two drafts" and "two generations" until 2026-08-29,
 both of which the panel's own Type combo could make false in either direction.
 
-Drafts are write-once (``rigging.sprite_draft_path``), which is what makes the
+Drafts are write-once (``store.sprite_draft_path``), which is what makes the
 directory-mtime stamp on the listing sound: a record can appear or disappear,
 but never change under a cached copy of itself.
 """
@@ -26,7 +26,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import rigging
+from ...kernels.rig import store
 from ...service import sprites as svc_sprites
 from ...service import validation
 from .. import asset_open, controls, forms, theme, verbs, widgets
@@ -234,10 +234,10 @@ def sprite_draft_cap_reason(
         and job.get("kind") == "sprite_synthesis"
         and (job.get("params") or {}).get("source_job") == job_id
     )
-    if len(records) + queued < rigging.MAX_SPRITE_DRAFTS:
+    if len(records) + queued < store.MAX_SPRITE_DRAFTS:
         return None
     return (
-        f"This reference already holds {rigging.MAX_SPRITE_DRAFTS} sprite "
+        f"This reference already holds {store.MAX_SPRITE_DRAFTS} sprite "
         "sheet drafts; delete one first."
     )
 
@@ -323,13 +323,13 @@ def draft_records(ctx: Any, job_id: str) -> list[dict[str, Any]]:
     Split from the drawing half so the caching rule is assertable without a GL
     context, which is the split ``sheet_panel.pixel_record`` makes.
     """
-    directory = rigging.sprite_dir(ctx.job_dir(job_id))
+    directory = store.sprite_dir(ctx.job_dir(job_id))
     stamp = stamps.stamp_ns(directory)
     cache = ctx.state.preview.setdefault("sprite_drafts", {})
     cached = cache.get(job_id)
     if cached is not None and cached[0] == stamp:
         return cached[1]
-    records = rigging.list_sprite_drafts(ctx.job_dir(job_id))
+    records = store.list_sprite_drafts(ctx.job_dir(job_id))
     if stamps.storable(stamp):
         cache[job_id] = (stamp, records)
     return records
@@ -357,13 +357,13 @@ def _draft(ctx: Any, job_id: str, record: dict[str, Any]) -> None:
         widgets.muted(f"{record.get('sheet_type', 'sheet')} - seeds {seeds}")
         if ctx.state.preview.get("sprite_focus") == draft_id:
             # Which of several drafts is the one the toast was about.
-            # ``rigging.list_sprite_drafts`` is documented oldest-first, so the
+            # ``store.list_sprite_drafts`` is documented oldest-first, so the
             # new one is at the *bottom* of a list the user did not watch grow
             # -- and arriving at the top of it, told the sheet was ready, is a
             # smaller version of the blank screen ``asset_open`` exists to fix.
             widgets.text_colored(theme.ACCENT, "just made")
         for candidate, letter in zip(
-            record.get("candidates") or [], rigging.SPRITE_CANDIDATES, strict=False
+            record.get("candidates") or [], store.SPRITE_CANDIDATES, strict=False
         ):
             _candidate(ctx, job_id, draft_id, letter, candidate)
         if controls.small_button("Delete draft"):
@@ -386,7 +386,7 @@ def _candidate(
 ) -> None:
     imgui.push_id(letter)
     try:
-        path = rigging.sprite_draft_png_path(ctx.job_dir(job_id), draft_id, letter)
+        path = store.sprite_draft_png_path(ctx.job_dir(job_id), draft_id, letter)
         texture = None
         if ctx.textures is not None:
             # ``nearest`` for the reason ``inspector._pixel`` gives: this is a

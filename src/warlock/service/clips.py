@@ -9,7 +9,7 @@ wrong place twice over: an installed build replaces that tree wholesale on
 upgrade, and it may not even be writable.
 
 **So an edit goes to the user's own copy and the shipped one becomes a factory
-default.** ``rigging.clip_library`` prefers ``data_dir/poser/clips/<template>.json``
+default.** ``cliplib.clip_library`` prefers ``data_dir/poser/clips/<template>.json``
 when it exists and falls back to the shipped file otherwise, so:
 
 * a user who has never opened the editor renders exactly what the build ships;
@@ -18,7 +18,7 @@ when it exists and falls back to the shipped file otherwise, so:
 
 **The whole file is the unit of change**, not a clip and not a key. A clip
 library is internally consistent by construction -- every clip names poses the
-same file carries -- and ``rigging.parse_clip_library`` refuses one that is not.
+same file carries -- and ``cliplib.parse_clip_library`` refuses one that is not.
 Saving a clip in isolation would let a key rename land while another clip still
 pointed at the old name, and the failure would surface in the renderer. So the
 editor works on a whole library, and :func:`save` validates the whole thing
@@ -39,7 +39,8 @@ import json
 import logging
 from typing import Any
 
-from .. import poselib, rigging
+from .. import poselib
+from ..kernels.rig import cliplib, templates
 from ..pipelines import sheet as sheetlib
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
@@ -78,9 +79,9 @@ MAX_KEYS = 64
 #: directory the user browses, this one bounds a single JSON file the renderer
 #: parses on every expansion.
 #:
-#: Raised from 256 to 1024 alongside ``rigging.MAX_CLIP_LIBRARY_POSES`` when
+#: Raised from 256 to 1024 alongside ``cliplib.MAX_CLIP_LIBRARY_POSES`` when
 #: the schema moved to v3 -- see that constant's own comment for why
-#: ``rigging.MAX_CLIP_LIBRARY_BYTES`` did not need to move with it.
+#: ``cliplib.MAX_CLIP_LIBRARY_BYTES`` did not need to move with it.
 MAX_LIBRARY_KEYS = 1024
 
 
@@ -99,7 +100,7 @@ def _template_or_invalid(template: str) -> str:
     if not key:
         raise Invalid("a clip library belongs to a skeleton template", field="template")
     try:
-        rigging.get_template(key)
+        templates.get_template(key)
     except Exception as exc:
         raise NotFound(f"{key!r} is not a skeleton template", field="template") from exc
     return key
@@ -108,7 +109,7 @@ def _template_or_invalid(template: str) -> str:
 def library(svc: WarlockService, template: str) -> dict[str, Any]:
     """The editable clip library for *template*, in the editor's own shape.
 
-    ``poses`` is a **list** here where ``rigging.clip_library`` hands back a
+    ``poses`` is a **list** here where ``cliplib.clip_library`` hands back a
     dict keyed by name: the editor shows an ordered list the user can read top
     to bottom, and a dict has no order to show. The name is still the identity
     -- clips reference keys by name -- so the list is a presentation of the same
@@ -120,19 +121,19 @@ def library(svc: WarlockService, template: str) -> dict[str, Any]:
 
     Raises :class:`Invalid` when the user's own file exists but this build can
     no longer parse it -- rather than falling back to the shipped library the
-    way ``rigging.clip_library`` (the *renderer's* door, still tolerant by
+    way ``cliplib.clip_library`` (the *renderer's* door, still tolerant by
     design) does. Presenting the fallback here instead, with ``edited: True``,
     used to tell the user their edits were intact when they were not, and the
     next Save would have silently overwritten the file this refusal names.
     """
     key = _template_or_invalid(template)
-    error = rigging.user_clip_error(key)
+    error = cliplib.user_clip_error(key)
     if error is not None:
         raise Invalid(
             f"your saved clip library for this skeleton could not be read: {error}",
             field="template",
         )
-    found = rigging.clip_library(key)
+    found = cliplib.clip_library(key)
     path = poselib.clip_path(svc.config, key)
     return {
         "template": key,
@@ -201,11 +202,11 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         # *looks* like ``<clip>_<direction>`` is a trap: Inker's tag parser
         # would read ``fall_back`` as clip ``fall`` facing ``back``.
         try:
-            rigging.reject_direction_named_clip(label)
+            cliplib.reject_direction_named_clip(label)
         except ValueError as exc:
             # Every save writes v3 (see ``_check_shape``'s own docstring and
             # the "version" line below), so this refusal is unconditional
-            # here even though ``rigging.parse_clip_library`` only applies it
+            # here even though ``cliplib.parse_clip_library`` only applies it
             # to v3 *reads* -- a v2 user library keeps whatever name it
             # already had, but there is no way to save one under this name
             # any more. The message says so, rather than just restating the
@@ -263,13 +264,13 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         # tempo, where it used to live only in ``pipelines.charsheet.ANIMATIONS``
         # keyed by the five shipped names. A clip the editor sends is always
         # required to state it -- ``library()`` always hands one back (read
-        # through ``rigging.parse_clip_library``'s v2-to-v3 migration), so a
+        # through ``cliplib.parse_clip_library``'s v2-to-v3 migration), so a
         # payload missing it is not a legacy file, it is a bug in the caller.
         duration_ms = clip.get("duration_ms")
         try:
             if duration_ms is None:
                 raise ValueError(f'"{label}" needs a duration_ms in milliseconds')
-            duration_ms = rigging.validate_clip_duration_ms(duration_ms, label)
+            duration_ms = cliplib.validate_clip_duration_ms(duration_ms, label)
         except ValueError as exc:
             raise Invalid(str(exc), field="duration_ms") from exc
         entry: dict[str, Any] = {
@@ -282,7 +283,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         }
         # Both optional and both kept verbatim once validated -- an importer or
         # an agent's note on a clip it wrote, not something this door invents
-        # or drops. ``rigging.parse_clip_library`` (called on the whole document
+        # or drops. ``cliplib.parse_clip_library`` (called on the whole document
         # right after this function returns) validates them again as the
         # renderer's own authority; this pass exists so a bad one is refused by
         # field instead of surfacing as the generic "cannot be saved".
@@ -295,7 +296,7 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
             entry["provisional"] = provisional
         if clip.get("source") is not None:
             try:
-                entry["source"] = rigging.validate_clip_source(clip["source"], label)
+                entry["source"] = cliplib.validate_clip_source(clip["source"], label)
             except ValueError as exc:
                 raise Invalid(str(exc), field="source") from exc
         validated_clips.append(entry)
@@ -370,18 +371,18 @@ def _commit_locked(svc: WarlockService, key: str, document: dict[str, Any]) -> N
     # the real file forever on an ENOSPC or an antivirus lock, and nothing
     # sweeps this directory.
     _staged_write(path, blob)
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     try:
         _check_renders(key)
     except Exception:
-        # Staged, like the publish above: ``rigging.clip_library`` reads this
+        # Staged, like the publish above: ``cliplib.clip_library`` reads this
         # same path from the render worker with no lock shared with ours, so
         # a direct ``write_bytes`` here would hand it a torn file.
         if previous is None:
             path.unlink(missing_ok=True)
         else:
             _staged_write(path, previous)
-        rigging.invalidate_clips()
+        cliplib.invalidate_clips()
         raise
 
 
@@ -390,7 +391,7 @@ def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[st
 
     Validated three times over, and each pass catches something the next
     cannot: :func:`_check_shape` for everything that can name a field,
-    ``rigging.parse_clip_library`` because it is *the renderer's own parser* and
+    ``cliplib.parse_clip_library`` because it is *the renderer's own parser* and
     an editor that can write what the renderer cannot read is the bug this
     exists to prevent, and :func:`_check_renders` for the frame table.
 
@@ -412,21 +413,21 @@ def save(svc: WarlockService, template: str, payload: dict[str, Any]) -> dict[st
             field="space",
         )
     try:
-        rigging.parse_clip_library(document)
+        cliplib.parse_clip_library(document)
     except Exception as exc:
         raise invalid_from(exc, "That clip library cannot be saved") from exc
 
     # The 2026-09-13 audit, finding poser-02: _check_shape bounds keys and
     # segments but not bones per pose or the serialized whole, so a save could
-    # exceed rigging.MAX_CLIP_LIBRARY_BYTES -- the exact cap _load_clip_library
+    # exceed cliplib.MAX_CLIP_LIBRARY_BYTES -- the exact cap _load_clip_library
     # enforces on read -- and be silently skipped forever after, the file
     # reverting to the shipped clips with no error pointing at why. Checked
     # against the same constant, at the door, before a byte reaches disk.
     size = len(json.dumps(document, indent=2).encode("utf-8"))
-    if size > rigging.MAX_CLIP_LIBRARY_BYTES:
+    if size > cliplib.MAX_CLIP_LIBRARY_BYTES:
         raise Conflict(
             f"this clip library is {size} bytes, over the "
-            f"{rigging.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
+            f"{cliplib.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
             field="poses",
         )
     with _lock(svc):
@@ -464,7 +465,7 @@ def revert(svc: WarlockService, template: str) -> dict[str, Any]:
                 "That clip library could not be reverted; a file may be "
                 "locked by another program."
             ) from exc
-        rigging.invalidate_clips()
+        cliplib.invalidate_clips()
     return library(svc, key)
 
 
@@ -489,7 +490,7 @@ def preview_frames(svc: WarlockService, template: str, clip: str) -> dict[str, A
     that pin the stored path end to end.
     """
     key = _template_or_invalid(template)
-    found = rigging.clip_library(key)
+    found = cliplib.clip_library(key)
     record = next((c for c in found.get("clips", ()) if c["name"] == clip), None)
     if record is None:
         raise NotFound(f"{clip!r} is not a clip of this skeleton", field="clip")

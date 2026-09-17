@@ -676,21 +676,21 @@ def export_package(
     than through ``staged_tree``, so it is the one door that has to check by
     hand rather than inheriting the check.
     """
-    from .. import rigging
+    from ..kernels.rig import store
     from . import export as svc_export
 
     check_job_id(job_id)
     job = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if not rigging.is_valid_id(str(sheet_id or "")):
+    if not store.is_valid_id(str(sheet_id or "")):
         raise Invalid("that is not a sheet id", field="sheet_id")
 
     dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
     if dest is None:
         raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
 
-    png = rigging.sheet_png_path(job_dir, str(sheet_id))
-    sidecar = rigging.sheet_path(job_dir, str(sheet_id))
+    png = store.sheet_png_path(job_dir, str(sheet_id))
+    sidecar = store.sheet_path(job_dir, str(sheet_id))
     if not png.exists() or not sidecar.exists():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
@@ -755,22 +755,22 @@ def export_frames(
     """
     from PIL import Image
 
-    from .. import rigging
+    from ..kernels.rig import store
     from ..pipelines import charsheet
     from . import export as svc_export
 
     check_job_id(job_id)
     job = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if not rigging.is_valid_id(str(sheet_id or "")):
+    if not store.is_valid_id(str(sheet_id or "")):
         raise Invalid("that is not a sheet id", field="sheet_id")
 
     dest = Path(dest_dir) if dest_dir is not None else svc.config.export_dir
     if dest is None:
         raise NotFound("no export folder configured (set WARLOCK_EXPORT_DIR)")
 
-    png_path = rigging.sheet_png_path(job_dir, str(sheet_id))
-    record = rigging.read_sheet(job_dir, str(sheet_id))
+    png_path = store.sheet_png_path(job_dir, str(sheet_id))
+    record = store.read_sheet(job_dir, str(sheet_id))
     if record is None or not png_path.exists():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
@@ -1010,7 +1010,7 @@ def _character_asset_row(svc: WarlockService, row: Mapping[str, Any]) -> dict[st
     function, unlike ``rigged``/``sheets``, which the door's own return shape
     states.
     """
-    from .. import rigging
+    from ..kernels.rig import store
     from . import rig as svc_rig
     from . import troupe as svc_troupe
 
@@ -1022,12 +1022,12 @@ def _character_asset_row(svc: WarlockService, row: Mapping[str, Any]) -> dict[st
 
     job_id = str(row["id"])
     job_dir = svc.job_dir(job_id)
-    rig_meta = rigging.read_rig(job_dir)
+    rig_meta = store.read_rig(job_dir)
     rigged = rig_meta is not None
     family_key = str(params.get("family") or "")
     template = _character_asset_template(job_dir, family_key, rig_meta)
     has_clips = bool(template) and svc_troupe.has_clips(template)
-    sheets = len(rigging.list_sheets(job_dir))
+    sheets = len(store.list_sheets(job_dir))
     riggable = (
         (job_dir / "model.glb").exists()
         and not rigged
@@ -1065,7 +1065,7 @@ def list_character_assets(
     walk when a caller asks for one riggable character in a library with
     thousands of other rows ahead of it.
     """
-    from .. import rigging
+    from ..kernels.rig import store
 
     if filter not in ASSET_FILTERS:
         raise Invalid(f"filter must be one of {list(ASSET_FILTERS)}", field="filter")
@@ -1079,7 +1079,7 @@ def list_character_assets(
     before: tuple[float, str] | None = None
     if cursor:
         created_text, sep, job_id = str(cursor).partition(":")
-        if not sep or not rigging.is_valid_id(job_id):
+        if not sep or not store.is_valid_id(job_id):
             raise Invalid("that is not a valid cursor", field="cursor")
         try:
             before = (float(created_text), job_id)
@@ -1153,7 +1153,7 @@ def character_job(svc: WarlockService, job_id: str) -> dict[str, Any]:
     mesh id too -- the id an agent is actually told to poll -- rather than
     only for the rig id it never receives.
     """
-    from .. import rigging
+    from ..kernels.rig import store
     from . import jobs as svc_jobs
     from . import troupe as svc_troupe
 
@@ -1164,9 +1164,9 @@ def character_job(svc: WarlockService, job_id: str) -> dict[str, Any]:
     source_job = str(raw_source) if raw_source else None
 
     mesh_id = source_job if kind in ("rig", "charsheet") and source_job else str(job_id)
-    mesh_dir = svc.job_dir(mesh_id) if rigging.is_valid_id(mesh_id) else None
+    mesh_dir = svc.job_dir(mesh_id) if store.is_valid_id(mesh_id) else None
 
-    rig_meta = rigging.read_rig(mesh_dir) if mesh_dir is not None else None
+    rig_meta = store.read_rig(mesh_dir) if mesh_dir is not None else None
     rigged = rig_meta is not None
     template: str | None = None
     if rig_meta is not None:
@@ -1205,12 +1205,12 @@ def character_job(svc: WarlockService, job_id: str) -> dict[str, Any]:
             svc_troupe.follow_up_sheet_job(svc, rig_job_id) if rig_job_id else None
         )
     follow_up_failure = (
-        svc_troupe.follow_up_failure(svc, mesh_id) if rigging.is_valid_id(mesh_id) else None
+        svc_troupe.follow_up_failure(svc, mesh_id) if store.is_valid_id(mesh_id) else None
     )
 
     sheets: list[dict[str, Any]] = []
     if mesh_dir is not None:
-        for record in rigging.list_sheets(mesh_dir):
+        for record in store.list_sheets(mesh_dir):
             troupe_block = record.get("troupe") if isinstance(record.get("troupe"), Mapping) else {}
             movement_rows = troupe_block.get("movements") or []
             directions_seen: set[str] = set()
@@ -1281,18 +1281,18 @@ def sheet_preview_png(
 
     from PIL import Image
 
-    from .. import rigging
+    from ..kernels.rig import store
     from ..pipelines import charsheet
     from ..pipelines import sheet as sheetlib
 
     check_job_id(job_id)
     svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if not rigging.is_valid_id(str(sheet_id or "")):
+    if not store.is_valid_id(str(sheet_id or "")):
         raise Invalid("that is not a sheet id", field="sheet_id")
 
-    png_path = rigging.sheet_png_path(job_dir, str(sheet_id))
-    record = rigging.read_sheet(job_dir, str(sheet_id))
+    png_path = store.sheet_png_path(job_dir, str(sheet_id))
+    record = store.read_sheet(job_dir, str(sheet_id))
     if record is None or not png_path.exists():
         raise NotFound("that sheet is no longer on disk", field="sheet_id")
 
@@ -1579,7 +1579,7 @@ def _moved_joints(
 
     **The axis swap is the load-bearing part.** ``normalize_glb`` reports its
     scale and translation in *glTF* axes (Y up), and the joints are in
-    ``rigging.validate_joints``' shape, which is *Blender* axes (Z up). The
+    ``skeleton.validate_joints``' shape, which is *Blender* axes (Z up). The
     scale is uniform and survives the swap unchanged; the translation does not,
     and applying it raw puts a character's feet through the floor along the
     wrong axis -- which looks exactly like a bad rig rather than like a

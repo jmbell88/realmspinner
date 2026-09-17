@@ -541,11 +541,12 @@ class MusicOps:
         and the sheets already work this way, and ``dependent_jobs`` is built on
         the same fact.
         """
-        from . import rigging
+        from .kernels.rig import store
+        from .pipelines import blender_run
 
         params = job["params"]
         source = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source):
+        if not store.is_valid_id(source):
             # Validated, not merely non-empty: this becomes a path, and an
             # empty one makes ``job_dir`` return the assets root.
             raise RuntimeError(f"separate job has no usable source_job: {source!r}")
@@ -601,7 +602,7 @@ class MusicOps:
 
         result = await asyncio.to_thread(
             functools.partial(
-                rigging.run_worker,
+                blender_run.run_worker,
                 spec,
                 on_progress=on_progress,
                 on_start=self._note_blender,
@@ -624,7 +625,7 @@ class MusicOps:
         # cancelled in the interim -- ``_rig``, ``_remesh``, ``_charsheet``,
         # ``_lora_train`` and ``_music`` itself (muse-01, above). ``_separate``
         # was the one kind with none: a Cancel landing after
-        # ``rigging.run_worker`` returned ``ok=True`` used to reach
+        # ``blender_run.run_worker`` returned ``ok=True`` used to reach
         # ``self._cancel.commit()`` unconditionally, publishing a split the
         # user had already asked to stop. Returning here (rather than
         # raising) leaves ``self._cancel.committed`` False, so the dispatch

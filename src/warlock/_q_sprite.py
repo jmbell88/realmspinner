@@ -32,8 +32,9 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import guidance, models, rigging
-from .pipelines import control
+from . import guidance, models
+from .kernels.rig import blender_spec, store
+from .pipelines import blender_run, control
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -68,20 +69,20 @@ class SpriteOps:
         job_id = job["id"]
         params = job["params"]
         source_id = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         sheet_id = str(params.get("sheet_id") or "")
-        if not rigging.is_valid_id(sheet_id):
+        if not store.is_valid_id(sheet_id):
             raise ValueError(f"sheet_id is not a sheet id: {sheet_id!r}")
         source_dir = self.config.job_dir(source_id)
 
-        meta = await asyncio.to_thread(rigging.read_sheet, source_dir, sheet_id)
+        meta = await asyncio.to_thread(store.read_sheet, source_dir, sheet_id)
         if meta is None:
             # Deleted between queueing and running -- the same failure `poses`
             # gets in _sheet, and for the same reason: a restyle of a sheet
             # that is gone would depict nothing.
             raise RuntimeError(f"sheet {sheet_id} no longer exists")
-        png = rigging.sheet_png_path(source_dir, sheet_id)
+        png = store.sheet_png_path(source_dir, sheet_id)
         if not png.exists():
             raise RuntimeError(f"sheet {sheet_id} has no rendered atlas")
 
@@ -285,7 +286,7 @@ class SpriteOps:
             # the same reason _rig skips finalize_rig on a cancel.
             return
 
-        out_png = rigging.sheet_pixel_png_path(source_dir, sheet_id)
+        out_png = store.sheet_pixel_png_path(source_dir, sheet_id)
         # Staged and renamed, not saved in place. ``sheets.py`` serves this
         # name as soon as a *previous* restyle's sidecar exists, and restyling
         # the same sheet again is allowed -- so a bare save tears a file that
@@ -341,7 +342,7 @@ class SpriteOps:
         # atlas that is still being written.
         await asyncio.to_thread(
             queue_mod._publish_text,
-            rigging.sheet_pixel_path(source_dir, sheet_id),
+            store.sheet_pixel_path(source_dir, sheet_id),
             json.dumps(doc, indent=2),
         )
         # Published onto the served pair, so from here a cancel cannot take the
@@ -397,10 +398,10 @@ class SpriteOps:
         job_id = job["id"]
         params = job["params"]
         source_id = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         draft_id = str(params.get("draft_id") or "")
-        if not rigging.is_valid_id(draft_id):
+        if not store.is_valid_id(draft_id):
             raise ValueError(f"draft_id is not a draft id: {draft_id!r}")
         sheet_type = str(params.get("sheet_type") or "")
         logical = int(params.get("logical_size", 64))
@@ -723,7 +724,7 @@ class SpriteOps:
                 recipe["style_lora"] = lora
                 recipe["lora_weight"] = pixel_style.default_weight
 
-            sprite_dir = rigging.sprite_dir(source_dir)
+            sprite_dir = store.sprite_dir(source_dir)
             await asyncio.to_thread(
                 functools.partial(sprite_dir.mkdir, parents=True, exist_ok=True)
             )
@@ -737,7 +738,7 @@ class SpriteOps:
             # and ``_discard_artifacts``'s sprite branch deletes by that same
             # id on the assumption that they do not.
             for letter, reduced, _ in assembled:
-                out = rigging.sprite_draft_png_path(source_dir, draft_id, letter)
+                out = store.sprite_draft_png_path(source_dir, draft_id, letter)
                 out_tmp = out.with_name(f".{out.name}.tmp")
                 try:
                     await asyncio.to_thread(reduced.save, out_tmp, "PNG")
@@ -770,10 +771,10 @@ class SpriteOps:
                 recipe=recipe,
             )
             # Last, and only after both PNGs: this file is what
-            # rigging.list_sprite_drafts treats as the completion marker.
+            # store.list_sprite_drafts treats as the completion marker.
             await asyncio.to_thread(
                 queue_mod._publish_text,
-                rigging.sprite_draft_path(source_dir, draft_id),
+                store.sprite_draft_path(source_dir, draft_id),
                 json.dumps(doc, indent=2),
             )
             # The sidecar above is the completion marker, so a cancel arriving
@@ -830,7 +831,7 @@ class SpriteOps:
         job_id = job["id"]
         params = job["params"]
         source_id = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         source_dir = self.config.job_dir(source_id)
         model_glb = source_dir / "model.glb"
@@ -884,8 +885,8 @@ class SpriteOps:
         )
         await asyncio.to_thread(
             functools.partial(
-                rigging.run_worker,
-                rigging.views_spec(model_glb, views_dir, views, size=view_px, depth=depth),
+                blender_run.run_worker,
+                blender_spec.views_spec(model_glb, views_dir, views, size=view_px, depth=depth),
                 on_progress=lambda f, label: self.progress.update(
                     job_id, phase="views", label=label, inner=f * 0.2,
                     inner_next=min(f * 0.2 + 0.03, 0.2), nominal=20.0, detail="",
@@ -975,8 +976,8 @@ class SpriteOps:
         )
         await asyncio.to_thread(
             functools.partial(
-                rigging.run_worker,
-                rigging.project_spec(
+                blender_run.run_worker,
+                blender_spec.project_spec(
                     model_glb, views_dir, views_dir, views,
                     size=view_px, texture_size=texture_size, depth=depth,
                 ),
@@ -1024,7 +1025,7 @@ class SpriteOps:
             # finalize_rig.
             return
 
-        temp = source_dir / rigging.RETEXTURE_GLB_TMP
+        temp = source_dir / store.RETEXTURE_GLB_TMP
         try:
             if not await asyncio.to_thread(
                 functools.partial(retexture.swap_base_colour, model_glb, atlas, temp)

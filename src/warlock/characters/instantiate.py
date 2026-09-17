@@ -52,7 +52,7 @@ SIDECAR_NAME = "character.json"
 class Instance:
     """What was built, in the terms the rest of the program asks in."""
 
-    #: ``rigging.validate_joints``' shape -- ``{"name", "parent", "head",
+    #: ``skeleton.validate_joints``' shape -- ``{"name", "parent", "head",
     #: "tail"}`` per bone, in template order, Blender axes, **world metres**.
     joints: list[dict[str, Any]]
     #: ``socket name -> {"bone", "position", "reach"}``, world metres.
@@ -353,17 +353,17 @@ def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
 def _check_against_template(fam: Family, joints: list[dict[str, Any]]) -> None:
     """The joints have to be the ones the rig template names, exactly.
 
-    Through ``rigging.validate_joints`` rather than by comparing name sets: that
+    Through ``skeleton.validate_joints`` rather than by comparing name sets: that
     function is the door every corrected skeleton already comes in by, and a
     generated one that would not survive it is a rig job that fails inside
     Blender instead of here.
     """
-    from .. import rigging
+    from ..kernels.rig import skeleton, templates
 
-    template = rigging.get_template(fam.template)
+    template = templates.get_template(fam.template)
     payload = {"bones": [{"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in joints]}
     try:
-        rigging.validate_joints(payload, template)
+        skeleton.validate_joints(payload, template)
     except ValueError as exc:
         raise CharacterError(
             f"{fam.label}'s baked skeleton does not fit the {fam.template} template: {exc}",

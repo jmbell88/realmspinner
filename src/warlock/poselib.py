@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import rigging
+from .kernels.rig import poses, store, templates
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ UNIT_HI = (0.5, 0.5, 1.0)
 # pose. Blender axes, character-height units, per component.
 MAX_ROOT_TRANSLATION = 2.0
 
-# Same ceiling and same reasoning as rigging.MAX_POSES: far above any
+# Same ceiling and same reasoning as store.MAX_POSES: far above any
 # hand-authored set, low enough that a scripted client cannot turn the library
 # into a million files.
 MAX_LIBRARY_POSES = 500
@@ -78,7 +78,7 @@ def validate_root_translation(raw: Any) -> list[float]:
     False and the range message would then blame a value that is not a
     number. Shared rather than restated: the 2026-09-07 audit (poser-05)
     found this same field handled by two other doors with a bare
-    ``float(v)`` and neither check -- ``rigging.parse_clip_library`` and the
+    ``float(v)`` and neither check -- ``cliplib.parse_clip_library`` and the
     clip editor's own shape check -- so ``[nan, 1e30, 0.0]`` round-tripped
     through a clip's key poses when the identical field on a library pose
     already refused it here.
@@ -121,7 +121,7 @@ def preview_dir(config: Any) -> Path:
 
 
 def clip_dir(config: Any) -> Path:
-    """Where an edited clip library lives. See ``rigging.user_clip_dir``.
+    """Where an edited clip library lives. See ``cliplib.user_clip_dir``.
 
     Spelled here as well as there because the two callers are different: this
     is the app asking where to write, that is the loader asking where to read,
@@ -134,7 +134,7 @@ def clip_dir(config: Any) -> Path:
 def clip_path(config: Any, template_key: str) -> Path:
     """The editable clip library for one template.
 
-    Named by template key, which ``rigging._load_clip_library`` reads back as
+    Named by template key, which ``cliplib._load_clip_library`` reads back as
     the file *stem* -- so the two halves of that round trip are one expression
     here rather than a convention two modules each half-remember.
     """
@@ -146,17 +146,17 @@ def clip_path(config: Any, template_key: str) -> Path:
 def pose_path(config: Any, pose_id: str) -> Path:
     """The record for one library pose. Raises on an id that isn't ours.
 
-    The ``rigging.pose_path`` rule: this is the only place a caller-supplied
+    The ``store.pose_path`` rule: this is the only place a caller-supplied
     pose id becomes a path, and ``dir / pose_id`` does no sanitising of its own.
     """
-    if not rigging.is_valid_id(pose_id):
+    if not store.is_valid_id(pose_id):
         raise ValueError(f"malformed pose id {pose_id!r}")
     return library_dir(config) / f"{pose_id}.json"
 
 
 def preview_path(config: Any, template_key: str) -> Path:
     """The cached armature-only preview GLB for one template."""
-    rigging.get_template(template_key)  # the registry is the path sanitiser
+    templates.get_template(template_key)  # the registry is the path sanitiser
     return preview_dir(config) / f"{template_key}.glb"
 
 
@@ -178,21 +178,21 @@ def validate_record(payload: dict[str, Any]) -> dict[str, Any]:
     """
     template_key = str(payload.get("template") or "")
     try:
-        template = rigging.get_template(template_key)
+        template = templates.get_template(template_key)
     except ValueError as exc:
         raise RecordError(str(exc), field="template") from None
 
     name = str(payload.get("name") or "").strip()
     if not name:
         raise RecordError("pose requires a name", field="name")
-    if len(name) > rigging.MAX_POSE_NAME:
+    if len(name) > poses.MAX_POSE_NAME:
         raise RecordError(
-            f"pose name must be at most {rigging.MAX_POSE_NAME} characters", field="name"
+            f"pose name must be at most {poses.MAX_POSE_NAME} characters", field="name"
         )
 
     known = [b["name"] for b in template.bones]
     try:
-        pose = rigging.validate_pose({"name": name, "bones": payload.get("bones")}, known)
+        pose = poses.validate_pose({"name": name, "bones": payload.get("bones")}, known)
     except ValueError as exc:
         raise RecordError(str(exc)) from None
     # Exactly the template's bone set, not a subset: the module docstring's
@@ -228,10 +228,10 @@ def save_record(
 
     Passing an existing ``pose_id`` overwrites in place, keeping ``created``
     and bumping ``updated`` -- the same edit-vs-accumulate rule
-    ``rigging.save_pose`` follows. The write is staged and renamed for the same
+    ``store.save_pose`` follows. The write is staged and renamed for the same
     reason too: a save that died mid-write must not truncate the only copy.
     """
-    pose_id = pose_id or rigging.new_id()
+    pose_id = pose_id or store.new_id()
     path = pose_path(config, pose_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = read_record(config, pose_id) if path.exists() else None
@@ -246,7 +246,7 @@ def save_record(
         "created": existing.get("created", now) if existing else now,
         "updated": now,
     }
-    rigging.write_json_staged(path, stored, prefix=f".{pose_id}.")
+    store.write_json_staged(path, stored, prefix=f".{pose_id}.")
     return stored
 
 
@@ -256,7 +256,7 @@ def read_record(config: Any, pose_id: str) -> dict[str, Any] | None:
         return None
     try:
         size = path.stat().st_size
-        if size > rigging.MAX_RECORD_BYTES:
+        if size > store.MAX_RECORD_BYTES:
             log.warning("ignoring library pose at %s: %d bytes, over the ceiling", path, size)
             return None
         record = json.loads(path.read_text(encoding="utf-8"))
@@ -273,13 +273,13 @@ def read_record(config: Any, pose_id: str) -> dict[str, Any] | None:
 
 def list_records(config: Any, template: str | None = None) -> list[dict[str, Any]]:
     """Every library pose, sorted by name. A corrupt file costs itself, not
-    the list -- the ``rigging.list_poses`` precedent."""
+    the list -- the ``store.list_poses`` precedent."""
     directory = library_dir(config)
     if not directory.is_dir():
         return []
     records = []
     for path in sorted(directory.glob("*.json")):
-        if not rigging.is_valid_id(path.stem):
+        if not store.is_valid_id(path.stem):
             continue
         record = read_record(config, path.stem)
         if record is None:
@@ -353,7 +353,7 @@ def next_copy_name(name: str, taken: Any = ()) -> str:
 def mirror_root_translation(v: Any) -> list[float]:
     """Reflect a root offset across the subject's YZ plane: (x, y, z) -> (-x, y, z).
 
-    The positional half of ``rigging.mirror_quaternion``'s reflection --
+    The positional half of ``poses.mirror_quaternion``'s reflection --
     Blender axes, X the mirror normal -- so mirroring a pose that steps left
     steps right.
     """
@@ -376,14 +376,14 @@ def template_digest(template_key: str) -> str | None:
     File bytes rather than the parsed structure: the file is what op_armature's
     fit reads through the registry, and hashing the source is the cheapest
     answer that can never miss a change. Template files are named by their key
-    -- enforced at registry load (``rigging._load_templates``), not merely a
+    -- enforced at registry load (``templates._load_templates``), not merely a
     convention. None rather than a raise for a file the cached registry still
     names but the disk no longer holds: the registry loads once per process,
     so the file can vanish underneath it, and a cache-validity question must
     answer "stale", never throw out of a preview request.
     """
-    rigging.get_template(template_key)
-    path = rigging.TEMPLATE_DIR / f"{template_key}.json"
+    templates.get_template(template_key)
+    path = templates.TEMPLATE_DIR / f"{template_key}.json"
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
@@ -397,7 +397,7 @@ def read_preview_sidecar(config: Any, template_key: str) -> dict[str, Any] | Non
         return None
     try:
         size = path.stat().st_size
-        if size > rigging.MAX_RECORD_BYTES:
+        if size > store.MAX_RECORD_BYTES:
             log.warning("ignoring preview sidecar at %s: %d bytes, over the ceiling", path, size)
             return None
         record = json.loads(path.read_text(encoding="utf-8"))
@@ -445,4 +445,4 @@ def write_preview_sidecar(config: Any, template_key: str, blender_version: str) 
         "blender_version": blender_version,
         "preview_epoch": PREVIEW_EPOCH,
     }
-    rigging.write_json_staged(path, payload, prefix=f".{template_key}.")
+    store.write_json_staged(path, payload, prefix=f".{template_key}.")

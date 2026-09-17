@@ -22,7 +22,7 @@ from types import SimpleNamespace
 import pygame
 import pytest
 
-from warlock import rigging
+from warlock.kernels.rig import store
 from warlock.pipelines import charsheet
 from warlock.studio import modes as modes_mod
 from warlock.studio import troupe_mode
@@ -69,8 +69,8 @@ def _character(svc, *, sheets=1, size=32):
     svc.store.set_status(job_id, "done")
     made = []
     for index in range(sheets):
-        sheet_id = rigging.new_id()
-        path = rigging.sheet_path(job_dir, sheet_id)
+        sheet_id = store.new_id()
+        path = store.sheet_path(job_dir, sheet_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(
@@ -85,7 +85,7 @@ def _character(svc, *, sheets=1, size=32):
             ),
             "utf-8",
         )
-        rigging.sheet_png_path(job_dir, sheet_id).write_bytes(b"atlas")
+        store.sheet_png_path(job_dir, sheet_id).write_bytes(b"atlas")
         row = svc.store.create(
             "charsheet", "a hooded ranger", {"source_job": job_id, "sheet_id": sheet_id}
         )
@@ -96,7 +96,7 @@ def _character(svc, *, sheets=1, size=32):
 
 def _v2_character(svc):
     job_id, made = _character(svc)
-    path = rigging.sheet_path(svc.job_dir(job_id), made[0])
+    path = store.sheet_path(svc.job_dir(job_id), made[0])
     record = json.loads(path.read_text("utf-8"))
     record["troupe"] = charsheet.resolve_layout(
         {
@@ -486,8 +486,8 @@ def test_only_character_sheets_are_listed_under_a_character(ctx, svc):
     """A mesh can also hold ordinary pose sheets. They have no animation block,
     no direction runs and nothing this mode can play."""
     job_id, sheets = _character(svc)
-    plain = rigging.new_id()
-    rigging.sheet_path(svc.job_dir(job_id), plain).write_text(
+    plain = store.new_id()
+    store.sheet_path(svc.job_dir(job_id), plain).write_text(
         json.dumps({"id": plain, "columns": 8, "rows": 1, "frame_size": 64}), "utf-8"
     )
 
@@ -501,21 +501,21 @@ def test_the_sheet_directory_is_not_re_read_every_frame(ctx, svc, monkeypatch):
     and the cast pane calls it from its draw; ``active_sheet`` is another read
     and three panes ask for it. Between them Troupe hit the disk three or four
     times a frame for a directory that changes when a sheet is *built*."""
-    from warlock import rigging as rigging_mod
+    from warlock.kernels.rig import store
 
     job_id, listed = _character(svc, sheets=2)
     troupe_mode.select(ctx, job_id)
 
     globs: list[int] = []
     reads: list[int] = []
-    real_list, real_read = rigging_mod.list_sheets, rigging_mod.read_sheet
+    real_list, real_read = store.list_sheets, store.read_sheet
     monkeypatch.setattr(
-        rigging_mod,
+        store,
         "list_sheets",
         lambda d: (globs.append(1), real_list(d))[1],
     )
     monkeypatch.setattr(
-        rigging_mod,
+        store,
         "read_sheet",
         lambda d, i: (reads.append(1), real_read(d, i))[1],
     )
@@ -956,7 +956,7 @@ def test_sending_submits_under_its_own_key_and_does_not_switch_mode(ctx, svc):
 
 def test_a_sheet_can_be_named_from_the_form(ctx, svc):
     """**The whole path existed except the field.** The door validates
-    ``name`` against ``rigging.MAX_SHEET_NAME``, the worker writes it into the
+    ``name`` against ``store.MAX_SHEET_NAME``, the worker writes it into the
     sidecar and the chooser reads it back -- and ``build_sheet`` passed none,
     so every sheet a character had was "sheet - 32px" and two builds at one
     size were two identical rows."""
@@ -1265,9 +1265,9 @@ def _png_character(svc, size=16):
     atlas = np.zeros((size * 4, size * charsheet.COLUMNS, 4), dtype=np.uint8)
     atlas[..., :3] = 90
     atlas[..., 3] = 255
-    path = rigging.sheet_png_path(svc.job_dir(job_id), made[0])
+    path = store.sheet_png_path(svc.job_dir(job_id), made[0])
     Image.fromarray(atlas, "RGBA").save(path)
-    record_path = rigging.sheet_path(svc.job_dir(job_id), made[0])
+    record_path = store.sheet_path(svc.job_dir(job_id), made[0])
     record = json.loads(record_path.read_text("utf-8"))
     record["frame_size"] = size
     record_path.write_text(json.dumps(record), "utf-8")
@@ -1342,7 +1342,7 @@ def test_goto_points_the_preview_at_a_cell_and_stops(ctx, svc):
 def test_a_sheet_that_does_not_say_its_cell_size_is_latched_rather_than_submitted(svc):
     ctx = _SubmitCtx(svc)
     job_id, made = _v2_character(svc)
-    record_path = rigging.sheet_path(svc.job_dir(job_id), made[0])
+    record_path = store.sheet_path(svc.job_dir(job_id), made[0])
     record = json.loads(record_path.read_text("utf-8"))
     record["frame_size"] = 0
     record_path.write_text(json.dumps(record), "utf-8")
@@ -1367,7 +1367,7 @@ def test_atlas_texture_and_scores_refuse_a_sheet_path_that_is_not_a_file(svc):
     submitted and fail inside ``Image.open`` with no mention of which sheet,
     instead of being refused at the door the way ``pack()`` already is.
 
-    The 2026-09-11 audit's troupe-06 moved ``rigging.list_sheets`` from
+    The 2026-09-11 audit's troupe-06 moved ``store.list_sheets`` from
     ``exists()`` to ``is_file()`` too, so a sheet whose PNG is a directory is
     no longer *listed* at all -- ``select`` would find no match and leave
     ``state.sheet_id`` empty, and ``scores`` would return early on that before
@@ -1387,7 +1387,7 @@ def test_atlas_texture_and_scores_refuse_a_sheet_path_that_is_not_a_file(svc):
         "everything below it passes for the wrong reason"
     )
 
-    png_path = rigging.sheet_png_path(svc.job_dir(job_id), made[0])
+    png_path = store.sheet_png_path(svc.job_dir(job_id), made[0])
     png_path.unlink()
     png_path.mkdir()
 
@@ -1489,7 +1489,7 @@ def test_a_sheet_that_needs_repair_says_what_is_wrong_and_still_plays(ctx, svc):
     plays the sheet exactly as it would a clean one -- a verdict the user may
     disagree with must not take their sheet away."""
     job_id, made = _v2_character(svc)
-    path = rigging.sheet_path(svc.job_dir(job_id), made[0])
+    path = store.sheet_path(svc.job_dir(job_id), made[0])
     record = json.loads(path.read_text("utf-8"))
     record["validation"] = {
         "version": 1,

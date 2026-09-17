@@ -197,6 +197,6 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
         widgets.request_open(target.section)
     if target.section == SPRITES_SECTION and target.detail:
         # Which of several drafts is the one that just landed.
-        # ``rigging.list_sprite_drafts`` is documented oldest-first, so the new
+        # ``store.list_sprite_drafts`` is documented oldest-first, so the new
         # one is at the *bottom* of a list the user did not watch grow.
         ctx.state.preview["sprite_focus"] = target.detail

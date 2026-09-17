@@ -1,7 +1,7 @@
 """The open clip vocabulary: five new placeholder clips shipped alongside the
 legacy five, on every species' library.
 
-Schema v3 (``rigging.parse_clip_library``, ``service.clips._check_shape``) lets
+Schema v3 (``cliplib.parse_clip_library``, ``service.clips._check_shape``) lets
 a clip library carry any name, not just the five ``pipelines.charsheet.
 ANIMATIONS`` table entries a character sheet lays out. This is the first
 library to use that room: ``attack_02``, ``cast``, ``fall``, ``hit`` and
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock import rigging
+from warlock.kernels.rig import cliplib, templates
 from warlock.pipelines import charsheet, spritesynth
 from warlock.pipelines import sheet as sheetlib
 from warlock.service import clips as svc_clips
@@ -45,13 +45,13 @@ def _fresh_clip_cache():
     """Same isolation every other clip-library test file uses: the loader
     caches are module globals filled once, and a test that reads one library
     must not leak into the next."""
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     yield
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
 
 
 def _library(species: str) -> dict:
-    lib = rigging.clip_library(species)
+    lib = cliplib.clip_library(species)
     assert lib["clips"], f"{species} shipped no clips to check"
     return lib
 
@@ -133,7 +133,7 @@ def test_every_new_clip_is_marked_provisional_and_the_legacy_five_are_not(specie
 
 @pytest.mark.parametrize("species", SPECIES)
 def test_no_clip_names_a_bone_its_skeleton_lacks(species):
-    template = rigging.get_template(species)
+    template = templates.get_template(species)
     known = {b["name"] for b in template.bones}
     lib = _library(species)
     for pose in lib["poses"].values():
@@ -147,17 +147,17 @@ def test_no_clip_names_a_bone_its_skeleton_lacks(species):
 @pytest.mark.parametrize("species", SPECIES)
 def test_every_key_is_a_unit_quaternion(species):
     """Against the raw shipped JSON, not the loaded library: ``clip_library``
-    runs every pose through ``rigging.validate_bones``, which renormalises a
+    runs every pose through ``poses.validate_bones``, which renormalises a
     quaternion rather than rejecting it (see its docstring -- "a browser
     accumulating gizmo [drift]"), so checking the loaded library can never
     catch an authoring tool that shipped a non-unit quaternion. This reads
     ``templates/clips/<species>.json`` with a bare ``json.loads`` -- no
-    ``rigging`` parse at all -- so a badly-authored key pose would actually
+    ``cliplib`` parse at all -- so a badly-authored key pose would actually
     fail it.
     """
     import json
 
-    path = rigging.CLIP_DIR / f"{species}.json"
+    path = cliplib.CLIP_DIR / f"{species}.json"
     raw = json.loads(path.read_text("utf-8"))
     for pose in raw["poses"]:
         for bone, q in pose["bones"].items():
@@ -204,7 +204,7 @@ def test_death_ends_on_the_ground(species):
 @pytest.mark.parametrize("species", SPECIES)
 def test_every_shipped_library_passes_the_save_door(svc, species):
     """The whole shipped library, round-tripped through the editor's own save
-    door -- ``_check_shape``, then ``rigging.parse_clip_library`` a second time
+    door -- ``_check_shape``, then ``cliplib.parse_clip_library`` a second time
     as the renderer's own authority, and (for the Troupe template) the frame
     table check -- the same three passes a hand-authored or agent-written
     library has to clear."""

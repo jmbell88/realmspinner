@@ -16,9 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from warlock import rigging
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import poses, skeleton, templates
+from warlock.kernels.rig import store as rig_store
+from warlock.pipelines import blender_run
 from warlock.queue import Worker
 
 # No module-level asyncio mark: pyproject sets asyncio_mode = "auto", which
@@ -82,7 +84,7 @@ class _Calls(list):
 
 
 def _fake_worker_run(monkeypatch, *, result=None, side_effect=None, hold=None):
-    """Replace rigging.run_worker, recording the spec it was handed."""
+    """Replace blender_run.run_worker, recording the spec it was handed."""
     calls = _Calls()
 
     def fake(spec, *, on_progress=None, on_start=None, timeout=0.0):
@@ -110,7 +112,7 @@ def _fake_worker_run(monkeypatch, *, result=None, side_effect=None, hold=None):
         Path(spec["out_json"]).write_bytes(b'{"bones": []}')
         return result or {"ok": True, "weighting": "automatic", "bones": 19}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -175,7 +177,7 @@ async def test_rig_job_falls_back_to_the_configured_template(worker, monkeypatch
 
 
 async def test_rig_failure_is_reported_as_an_error_not_a_dead_worker(worker, monkeypatch):
-    _fake_worker_run(monkeypatch, side_effect=rigging.BlenderError("bpy exploded"))
+    _fake_worker_run(monkeypatch, side_effect=blender_run.BlenderError("bpy exploded"))
     source = _mesh_job(worker)
     rig_id = worker.store.create("rig", None, {"source_job": source})
 
@@ -234,9 +236,9 @@ async def test_cancelling_a_rig_kills_the_blender_subprocess(worker, monkeypatch
             on_start(FakeProc(killed))
         registered.set()
         hold.wait(timeout=10)
-        raise rigging.BlenderError("killed")
+        raise blender_run.BlenderError("killed")
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     source = _mesh_job(worker)
     rig_id = worker.store.create("rig", None, {"source_job": source})
 
@@ -276,9 +278,9 @@ async def test_a_cancel_before_the_handle_arrives_still_kills_blender(worker, mo
         if on_start is not None:
             on_start(FakeProc(killed))
         hold.wait(timeout=10)
-        raise rigging.BlenderError("killed")
+        raise blender_run.BlenderError("killed")
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     source = _mesh_job(worker)
     rig_id = worker.store.create("rig", None, {"source_job": source})
 
@@ -358,8 +360,8 @@ async def test_the_worker_is_never_handed_the_served_rig_paths(worker, monkeypat
     assert (source_dir / "rig.glb").read_bytes() == b"fake-rig"
     assert (source_dir / "rig.json").read_bytes() == b'{"bones": []}'
     # No temp files left behind in the source job's directory.
-    assert not (source_dir / rigging.RIG_GLB_TMP).exists()
-    assert not (source_dir / rigging.RIG_JSON_TMP).exists()
+    assert not (source_dir / rig_store.RIG_GLB_TMP).exists()
+    assert not (source_dir / rig_store.RIG_JSON_TMP).exists()
     await worker.shutdown()
 
 
@@ -446,9 +448,9 @@ async def test_a_rig_job_does_not_recursively_queue_another(worker, monkeypatch)
 
 
 def test_fbx_spec_names_the_op_and_paths(tmp_path):
-    from warlock import rigging
+    from warlock.kernels.rig import blender_spec
 
-    spec = rigging.fbx_spec(tmp_path / "model.glb", tmp_path / "model.fbx", tmp_path)
+    spec = blender_spec.fbx_spec(tmp_path / "model.glb", tmp_path / "model.fbx", tmp_path)
     assert spec["op"] == "fbx"
     assert spec["source_glb"].endswith("model.glb")
     assert spec["out_fbx"].endswith("model.fbx")
@@ -460,8 +462,8 @@ async def test_a_rig_job_passes_corrected_joints_through_to_the_worker(worker, m
     thing between the route and the worker, so it must not drop them."""
     calls = _fake_worker_run(monkeypatch)
     source = _mesh_job(worker)
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     rig_id = worker.store.create(
         "rig",
         None,
@@ -574,7 +576,7 @@ def test_a_mesh_with_no_reference_is_not_offered_to_the_detector(worker, monkeyp
     the only thing the check buys.
     """
     _fake_detection(monkeypatch)
-    source_dir = worker.config.job_dir(rigging.new_id())
+    source_dir = worker.config.job_dir(rig_store.new_id())
     source_dir.mkdir(parents=True, exist_ok=True)
 
     assert worker._wants_landmarks(source_dir, "humanoid", {}) is False
@@ -586,7 +588,7 @@ async def test_joints_the_user_corrected_are_never_second_guessed(worker, monkey
     calls = _fake_worker_run(monkeypatch)
     detections = _fake_detection(monkeypatch)
     source = _rigged_reference(worker)
-    fitted = rigging.fit_template(rigging.get_template("humanoid"), [-1, -1, 0], [1, 1, 2])
+    fitted = skeleton.fit_template(templates.get_template("humanoid"), [-1, -1, 0], [1, 1, 2])
     rig_id = worker.store.create(
         "rig", None, {"source_job": source, "bones": fitted, "adjusted": True}
     )
@@ -629,7 +631,7 @@ def test_a_rig_that_measures_its_own_joints_is_not_offered_to_the_detector(worke
     """The gate itself, direct: ``_wants_landmarks`` must read
     ``params["joints"]`` rather than only ``params["bones"]``."""
     _fake_detection(monkeypatch)
-    source_dir = worker.config.job_dir(rigging.new_id())
+    source_dir = worker.config.job_dir(rig_store.new_id())
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "input.png").write_bytes(b"a reference, of some description")
 
@@ -747,8 +749,8 @@ async def test_a_rig_renders_the_deformation_battery_beside_the_mesh(worker, mon
     # Beside model.glb, for the reason the rig itself is: it describes that
     # mesh, not the request that produced it.
     assert (source_dir / "rig_qa.png").exists()
-    meta = json.loads(rigging.rig_qa_path(source_dir).read_text(encoding="utf-8"))
-    assert meta["rows"] == len(rigging.deform_battery("humanoid"))
+    meta = json.loads(rig_store.rig_qa_path(source_dir).read_text(encoding="utf-8"))
+    assert meta["rows"] == len(poses.deform_battery("humanoid"))
     # Rendered *through* the rig, so the sheet depicts the weights under test.
     assert calls.sheets[0]["spec"]["source_glb"] == str(source_dir / "rig.glb")
     assert calls.sheets[0]["spec"]["lighting"] == "lit"
@@ -773,7 +775,7 @@ async def test_every_battery_row_is_posed_rather_than_the_first_one_four_times(
 
     cells = calls.sheets[0]["spec"]["cells"]
     assert len({tuple(sorted(c["bones"])) for c in cells}) == len(
-        rigging.deform_battery("humanoid")
+        poses.deform_battery("humanoid")
     )
     assert all(c["bones"] for c in cells), "a battery row with no rotations is the rest pose"
     await worker.shutdown()
@@ -784,7 +786,7 @@ async def test_the_deformation_battery_renders_in_delta_space(worker, monkeypatc
     no ``"space"`` key at all, so the battery rendered in the pose editor's
     ``node`` frame no matter what templates/deform_qa/humanoid.json declared
     -- broken on a *measured* rig, the same way a node-local clip would be
-    (see rigging.deform_battery and blender_worker.POSE_SPACES). ``_sheet``
+    (see poses.deform_battery and blender_worker.POSE_SPACES). ``_sheet``
     already threads a per-cell ``pose_space`` this way in ``_q_rig.py``;
     this is the battery's own copy of that wiring."""
     calls = _fake_worker_run(monkeypatch)
@@ -806,14 +808,14 @@ async def test_a_battery_that_fails_never_fails_the_rig(worker, monkeypatch):
     """Log and swallow, the ``_audit_mesh`` rule: the rig is already published,
     and a review render is the improvement nobody asked for."""
     calls = _fake_worker_run(monkeypatch)
-    real = rigging.run_worker
+    real = blender_run.run_worker
 
     def explode(spec, **kw):
         if spec.get("op") == "sheet":
             raise RuntimeError("EEVEE fell over")
         return real(spec, **kw)
 
-    monkeypatch.setattr(rigging, "run_worker", explode)
+    monkeypatch.setattr(blender_run, "run_worker", explode)
     source = _mesh_job(worker)
     rig_id = worker.store.create("rig", None, {"source_job": source})
 
@@ -940,7 +942,7 @@ async def test_a_cancel_after_the_rig_is_published_still_records_it_as_done(
 
     published = threading.Event()
     release = threading.Event()
-    real_finalize = rigging.finalize_rig
+    real_finalize = rig_store.finalize_rig
 
     def finalize(*args, **kwargs):
         out = real_finalize(*args, **kwargs)
@@ -948,7 +950,7 @@ async def test_a_cancel_after_the_rig_is_published_still_records_it_as_done(
         release.wait(10.0)
         return out
 
-    monkeypatch.setattr(rigging, "finalize_rig", finalize)
+    monkeypatch.setattr(rig_store, "finalize_rig", finalize)
 
     worker.start()
     await _wait_until(published.is_set)
@@ -1002,7 +1004,7 @@ async def test_deform_qa_docstrings_second_cancel_check_that_does_not_exist(
         Path(spec["out_json"]).write_bytes(b'{"bones": []}')
         return {"ok": True, "weighting": "automatic", "bones": 19}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     source = _mesh_job(worker)
     source_dir = worker.config.job_dir(source)
     rig_id = worker.store.create("rig", None, {"source_job": source})
@@ -1035,8 +1037,8 @@ def test_a_publish_that_lands_the_glb_but_not_the_json_leaves_no_stale_marker(
     job_dir = tmp_path
     (job_dir / "rig.glb").write_bytes(b"old")
     (job_dir / "rig.json").write_text('{"old": true}')
-    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new")
-    (job_dir / rigging.RIG_JSON_TMP).write_text('{"new": true}')
+    (job_dir / rig_store.RIG_GLB_TMP).write_bytes(b"new")
+    (job_dir / rig_store.RIG_JSON_TMP).write_text('{"new": true}')
     real_replace = os.replace
 
     def replace(src, dst):
@@ -1047,7 +1049,7 @@ def test_a_publish_that_lands_the_glb_but_not_the_json_leaves_no_stale_marker(
     monkeypatch.setattr(os, "replace", replace)
     monkeypatch.setattr(time, "sleep", lambda _s: None)
     with pytest.raises(PermissionError):
-        rigging.finalize_rig(job_dir)
+        rig_store.finalize_rig(job_dir)
     assert (job_dir / "rig.glb").read_bytes() == b"new"
     assert not (job_dir / "rig.json").exists()
-    assert (job_dir / rigging.RIG_JSON_TMP).exists()
+    assert (job_dir / rig_store.RIG_JSON_TMP).exists()

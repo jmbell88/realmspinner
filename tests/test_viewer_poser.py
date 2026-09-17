@@ -107,9 +107,9 @@ def test_the_token_can_never_be_a_job_id():
     """pose_job_id carries 'poser:<template>' in the authoring session --
     belt-and-braces under the separate Viewer instance, because a 12-hex job
     id can never contain a colon."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
-    assert not rigging.is_valid_id("poser:humanoid")
+    assert not store.is_valid_id("poser:humanoid")
 
 
 def test_enter_pose_authoring_refuses_with_no_model():

@@ -13,7 +13,8 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import fetch, rigging
+from warlock import fetch
+from warlock.kernels.rig import store
 from warlock.pipelines import spritesynth as ss
 from warlock.service import Conflict, Invalid, NotFound
 from warlock.service import jobs as svc_jobs
@@ -45,11 +46,11 @@ def _reference(svc, *, done=True, image=True):
 
 def _draft_on_disk(svc, job_id, *, draft_id=None, created=1.0, sidecar=True):
     """A finished draft's trio, written in the worker's own order."""
-    draft_id = draft_id or rigging.new_id()
+    draft_id = draft_id or store.new_id()
     job_dir = svc.job_dir(job_id)
     geom = ss.geometry("turnaround")
-    for letter in rigging.SPRITE_CANDIDATES:
-        path = rigging.sprite_draft_png_path(job_dir, draft_id, letter)
+    for letter in store.SPRITE_CANDIDATES:
+        path = store.sprite_draft_png_path(job_dir, draft_id, letter)
         path.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGBA", (128, 128), (0, 0, 0, 0)).save(path)
     if sidecar:
@@ -63,7 +64,7 @@ def _draft_on_disk(svc, job_id, *, draft_id=None, created=1.0, sidecar=True):
             candidates=[{"image": f"{draft_id}.a.png", "seed": 1}],
             recipe={},
         )
-        rigging.sprite_draft_path(job_dir, draft_id).write_text(
+        store.sprite_draft_path(job_dir, draft_id).write_text(
             json.dumps(doc), encoding="utf-8"
         )
     return draft_id
@@ -185,7 +186,7 @@ def test_a_missing_adapter_is_refused_with_its_download_line(svc, monkeypatch):
 
 
 def test_the_draft_cap_is_a_conflict_not_an_invalid(svc, weights, monkeypatch):
-    monkeypatch.setattr(rigging, "MAX_SPRITE_DRAFTS", 1)
+    monkeypatch.setattr(store, "MAX_SPRITE_DRAFTS", 1)
     job_id = _reference(svc)
     _draft_on_disk(svc, job_id)
     with pytest.raises(Conflict, match="delete one first"):
@@ -221,7 +222,7 @@ def test_a_submit_records_every_input_and_names_the_draft(svc, weights):
         "draft_id": result["draft"],
         "base_model": svc_sprites.SPRITE_BASE_MODEL,
     }
-    assert rigging.is_valid_id(result["draft"])
+    assert store.is_valid_id(result["draft"])
 
 
 def test_unspecified_seeds_are_drawn_distinct(svc, weights):
@@ -277,7 +278,7 @@ def test_a_draft_with_no_sidecar_is_not_listed_or_served(svc):
 def test_a_finished_draft_serves_both_candidates(svc):
     job_id = _reference(svc)
     draft_id = _draft_on_disk(svc, job_id)
-    for letter in rigging.SPRITE_CANDIDATES:
+    for letter in store.SPRITE_CANDIDATES:
         assert svc_sprites.sprite_draft_png(svc, job_id, draft_id, letter).exists()
 
 
@@ -312,8 +313,8 @@ def test_deleting_a_draft_takes_both_of_its_candidates(svc):
     svc_sprites.delete_sprite_draft(svc, job_id, draft_id)
     job_dir = svc.job_dir(job_id)
     assert not any(
-        rigging.sprite_draft_png_path(job_dir, draft_id, c).exists()
-        for c in rigging.SPRITE_CANDIDATES
+        store.sprite_draft_png_path(job_dir, draft_id, c).exists()
+        for c in store.SPRITE_CANDIDATES
     )
 
 
@@ -332,7 +333,7 @@ def test_the_created_stamp_orders_a_listing_written_out_of_order(svc):
     now = time.time()
     late = _draft_on_disk(svc, job_id, created=now)
     early = _draft_on_disk(svc, job_id, created=now - 1000)
-    assert [d["id"] for d in rigging.list_sprite_drafts(svc.job_dir(job_id))] == [
+    assert [d["id"] for d in store.list_sprite_drafts(svc.job_dir(job_id))] == [
         early,
         late,
     ]

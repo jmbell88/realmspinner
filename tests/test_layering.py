@@ -95,9 +95,31 @@ STRAY_MODE_FILES: dict[str, str] = {
     "studio/ants.py": "inker",
     "studio/colorwheel.py": "inker",
     "studio/layout_edit.py": "plotter",
-    "studio/probe.py": "troupe",
-    "studio/quality.py": "review",
-    "studio/artifacts.py": "create",
+    # Three files RESTRUCTURE.md's list named as mode-owned and this file
+    # copied over, all three wrong -- checked by reading them, P4,
+    # 2026-09-17. Each is now left to the L4 "shell-default" fall-through,
+    # and the edges that used to be violations because of the
+    # misattribution are gone rather than waived:
+    #
+    # * ``studio/probe.py`` is not Troupe's. Its own docstring: a per-frame
+    #   census of everything ``controls._finish_item`` saw, with the rect a
+    #   driver can click -- the half that makes a control *addressable* to
+    #   ``/exercise-mode``. Shell instrumentation. Nothing under Troupe
+    #   imports it (the one mention in ``troupe_mode.py`` is a comment
+    #   citing ``probe.record``'s reasoning), and its two importers are
+    #   ``widgets`` and ``controls``, i.e. the design system itself.
+    # * ``studio/quality.py`` is not Review's. Its docstring states the
+    #   opposite outright: one wording for what a mesh measurement is
+    #   allowed to say, read by *three* surfaces (the quality badge, the
+    #   inspector's remesh line, Review's mesh lines) precisely because
+    #   each had spelled the caveat itself -- one of them by importing
+    #   imgui-bearing ``widgets`` from inside a per-frame function.
+    # * ``studio/artifacts.py`` is not Create's. It is the headless table
+    #   of what a finished stage can hand the user, and it has three
+    #   readers across two modes and the shell: ``create_stages`` (every
+    #   frame, which is why it was lifted out of ``widgets`` on
+    #   2026-09-03), ``panes/library.py`` and ``panes/inspector.py``.
+    #   Job-artifact vocabulary, the same shape as ``quality.py``.
     # Create's real 2D/3D/character recipe engine under a stale "settings"
     # name -- RESTRUCTURE.md measured this by name: "plus its real engine
     # buried in panes/settings_2d.py (2,917 lines of non-UI plan/validate/
@@ -112,6 +134,18 @@ STRAY_MODE_FILES: dict[str, str] = {
     # bullet folds it and agent_program.py into modes/clay/agent/ together.
     "studio/agent_clay.py": "clay",
     "studio/agent_program.py": "clay",
+    # P4 split ``agent_clay.py`` (5,939 lines) into a dispatch module plus
+    # five siblings. None of them match the ``clay_*``/``*_mode`` naming
+    # convention either, for the same reason the two entries above do not,
+    # so they enrol here by hand rather than silently defaulting to L4 --
+    # which would have turned their ordinary reaches into ``clay_ops``,
+    # ``clay_mode``, ``agent_program`` and ``panes/clay_tools`` into eight
+    # phantom "shell may not import a mode" violations.
+    "studio/agent_clay_schema.py": "clay",
+    "studio/agent_clay_validate.py": "clay",
+    "studio/agent_clay_tools.py": "clay",
+    "studio/agent_clay_tools_ops.py": "clay",
+    "studio/agent_clay_tools_batch.py": "clay",
 }
 
 CORE_TOP = frozenset({
@@ -131,7 +165,17 @@ GEOM3D_TOP = frozenset({"meshaudit.py", "meshreport.py", "tiercheck.py"})
 #: P3 landed: ``viewer/{math3d,gltf,glbwrite}.py`` and ``glbio.py`` are both
 #: at ``kernels/geom3d/`` today.
 GEOM3D_PREFIX = "kernels/geom3d/"
-RIG_TOP = frozenset({"rigging.py", "clips.py", "clipmaps.py", "cliptransfer.py", "poselib.py"})
+#: P4 landed: ``rigging.py`` is gone, split into ``kernels/rig/{templates,
+#: cliplib,skeleton,poses,store,blender_spec}.py`` -- so this is a prefix
+#: now, the way GEOM3D_PREFIX and AUDIO_PREFIX already are. Leaving the bare
+#: ``"rigging.py"`` string here would not have been a *stale* entry the
+#: second test catches: it would simply have stopped matching, and every
+#: file under ``kernels/rig/`` would have fallen through to the L4
+#: "shell-default" default -- a kernel silently reclassified as UI, which is
+#: the one direction this pin exists to refuse. The four top-level names
+#: stay until the wave that moves them.
+RIG_PREFIX = "kernels/rig/"
+RIG_TOP = frozenset({"clips.py", "clipmaps.py", "cliptransfer.py", "poselib.py"})
 #: P3 landed: ``sirens/wavout.py`` is at ``kernels/audio/wavout.py`` today.
 AUDIO_PREFIX = "kernels/audio/"
 #: P3 landed: ``manual/{loader,parser,targets}.py`` are at ``kernels/manual/``
@@ -199,7 +243,7 @@ def classify(rel: str) -> Layer:
         return Layer(1, "kernel:pixel")
     if rel.startswith("kernels/grid2d/"):
         return Layer(1, "kernel:grid2d")
-    if rel in RIG_TOP:
+    if rel in RIG_TOP or rel.startswith(RIG_PREFIX):
         return Layer(1, "kernel:rig")
     if rel.startswith(AUDIO_PREFIX):
         return Layer(1, "kernel:audio")
@@ -447,8 +491,14 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.main", "warlock.studio.create_brief"),
     ("warlock.studio.main", "warlock.studio.mason_viewport"),
     ("warlock.studio.main", "warlock.studio.poser_viewport"),
-    ("warlock.studio.main", "warlock.studio.probe"),
     ("warlock.studio.main", "warlock.studio.review_panes"),
+    # No ``main -> create_rail`` row, though P4 moved Create's stage rail out
+    # of ``widgets.py`` and ``main._stage_rail`` now calls it: that import is
+    # function-scope (``from . import create_rail, create_stages`` inside the
+    # method), and this walk is module-scope only, for the reasons the module
+    # docstring gives. Named here because an entry *was* added on the
+    # reasoning that it would be an edge, and the pin refused it as stale --
+    # which is the pin working.
     ("warlock.studio.panes.landing", "warlock.studio.create_stages"),
 })
 
@@ -472,17 +522,20 @@ _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.packwright.wpack", "warlock.studio.plotter.pngio"),
 })
 
-# P4 -- the god-file split. RESTRUCTURE.md: "widgets.py (3,423) sheds
-# Create's stage rail and Review's grade buttons." controls.py's Troupe probe
-# reference is the same shape, in the same design-system layer, not named as
-# its own bullet but resolved the same way.
-_P4_GOD_FILE_SPLIT: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.widgets", "warlock.studio.artifacts"),
-    ("warlock.studio.widgets", "warlock.studio.probe"),
-    ("warlock.studio.widgets", "warlock.studio.quality"),
-    ("warlock.studio.controls", "warlock.studio.probe"),
-    ("warlock.studio.panes.inspector", "warlock.studio.quality"),
-})
+# P4 -- the god-file split. The group this comment used to head is empty and
+# gone (2026-09-17). One of its five pairs was a real edge and the move
+# removed it: ``widgets.py`` re-exported ``artifacts.ARTIFACTS*`` and
+# ``artifacts_for`` under its own name, and that alias -- not any drawing --
+# was the whole of the dependency, so deleting the five aliases and pointing
+# the callers at ``artifacts`` directly ended it. The other four were never
+# violations: they only looked like ones because ``probe.py`` and
+# ``quality.py`` were mis-filed as mode-owned (see STRAY_MODE_FILES, where
+# the evidence for each is written out). RESTRUCTURE.md's own P4 bullet
+# asked for Review's grade buttons to leave ``widgets`` too; the callers
+# refused it -- ``grade_buttons`` and ``tag_toggles`` are drawn by
+# ``panes/inspector.py``'s "Was this any good?" section on any mesh job,
+# Create's Mesh stage included, not only by Review -- so they stayed, and
+# the plan line was corrected rather than obeyed.
 
 # P5 -- the pilot four. Two shapes: Familiar's UI half folding into
 # studio/assistant/ (its Clay-preview and Create-doors reach), and Inker's
@@ -544,7 +597,6 @@ _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.panes.candidates_panel", "warlock.studio.panes.library"),
     ("warlock.studio.panes.candidates_panel", "warlock.studio.review_mode"),
     ("warlock.studio.panes.library", "warlock.studio.review_mode"),
-    ("warlock.studio.panes.library", "warlock.studio.artifacts"),
 })
 
 # Not owned by any phase as dev/RESTRUCTURE.md is written today -- real,
@@ -620,7 +672,6 @@ _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
 EXCEPTIONS: frozenset[tuple[str, str]] = (
     _P2_SHELL_DISPATCH
     | _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP
-    | _P4_GOD_FILE_SPLIT
     | _P5_PILOT_FOUR
     | _P6_REMAINING_MODES
     | _P10_MUSE_FOLDS_INTO_CREATE

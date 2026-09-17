@@ -13,7 +13,7 @@ sibling and not its subclass, because the two share no line worth the import.
 **Where the ``quadruped`` template forces the silhouette.** The shipped skeleton
 puts ``head``'s tail at the normalized ``(0, -0.5, 1.0)`` -- the *front-top
 corner* of the bounding box. That is not a stylistic choice this module could
-make differently: ``rigging.fit_template`` is bbox-proportional, so whatever the
+make differently: ``skeleton.fit_template`` is bbox-proportional, so whatever the
 mesh is, that landmark lands on that corner, and the containment bar says the
 landmark has to be in solid geometry. A sphere tangent to two perpendicular
 planes misses their shared corner by ``r*(sqrt(2)-1)`` however it is placed, so
@@ -198,13 +198,13 @@ def _to_blender(p: Any) -> np.ndarray:
 
 def _fit_joints(half_width: float, length: float) -> list[dict[str, Any]]:
     """The shipped quadruped landmarks, fitted to the group's box."""
-    from ... import rigging
+    from ...kernels.rig import skeleton, templates
 
-    template = rigging.get_template("quadruped")
+    template = templates.get_template("quadruped")
     # Blender's y is glTF's -z, so a box centred on z = 0 has y from -L/2 to L/2.
     lo = [-half_width, -length / 2.0, 0.0]
     hi = [half_width, length / 2.0, 1.0]
-    return rigging.fit_template(template, lo, hi)
+    return skeleton.fit_template(template, lo, hi)
 
 
 def _joint_points(joints: list[dict[str, Any]]) -> dict[str, tuple[np.ndarray, np.ndarray]]:

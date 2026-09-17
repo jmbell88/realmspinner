@@ -17,8 +17,9 @@ are kept apart on purpose. A test pins that no ``service`` module imports this
 one.
 
 The module imports nothing from imgui and draws nothing. The rail that renders
-it is :func:`warlock.studio.widgets.stage_rail`; the panes each stage maps to
-are wired in :mod:`.main`.
+it is :func:`warlock.studio.create_rail.stage_rail` -- its own module (P4 of
+the restructure), split out precisely so this one stays headless while that
+one draws; the panes each stage maps to are wired in :mod:`.main`.
 """
 
 from __future__ import annotations

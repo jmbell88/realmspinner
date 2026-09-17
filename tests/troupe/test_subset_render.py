@@ -291,7 +291,7 @@ def _gradient_render(monkeypatch):
     quantise pass ran; a gradient could not survive it."""
     from pathlib import Path
 
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     def fake(spec, **kwargs):
         frames_dir = Path(spec["frames_dir"])
@@ -312,7 +312,7 @@ def _gradient_render(monkeypatch):
             "framing": {"extent": 2.24, "margin": spec.get("margin") or 1.12},
         }
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
 
 
 async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch):
@@ -324,7 +324,7 @@ async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch)
     base did."""
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _gradient_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -349,7 +349,7 @@ async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch)
             "a ranger",
             {
                 "source_job": source,
-                "sheet_id": rigging.new_id(),
+                "sheet_id": rig_store.new_id(),
                 "logical_size": 16,
                 "pixel_art": False,
                 "layout": layout,
@@ -382,7 +382,7 @@ async def test_an_hd_subset_rerender_does_not_pin_a_palette(worker, monkeypatch)
     assert "palette" not in report and "palette_name" not in report
 
     rerun_sheet = worker.store.get(rerun)["params"]["sheet_id"]
-    png = rigging.sheet_png_path(source_dir, rerun_sheet)
+    png = rig_store.sheet_png_path(source_dir, rerun_sheet)
     with Image.open(png) as opened:
         opened.load()
         atlas = np.asarray(opened.convert("RGBA"))

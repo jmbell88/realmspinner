@@ -18,9 +18,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock import models, rigging
+from warlock import models
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import blender_spec
+from warlock.kernels.rig import store as rig_store
+from warlock.pipelines import blender_run
 from warlock.pipelines import sheet as sheetlib
 from warlock.queue import Worker
 from warlock.service import Conflict, Invalid, NotFound
@@ -428,8 +431,8 @@ def test_extrude_edges_zero_margin_is_a_no_op():
 
 def _write_sheet(job_dir, sheet_id, *, png=True, created=0.0):
     if png:
-        Image.new("RGBA", (8, 8)).save(rigging.sheet_png_path(job_dir, sheet_id))
-    rigging.sheet_path(job_dir, sheet_id).write_text(
+        Image.new("RGBA", (8, 8)).save(rig_store.sheet_png_path(job_dir, sheet_id))
+    rig_store.sheet_path(job_dir, sheet_id).write_text(
         json.dumps({"id": sheet_id, "created": created, "rows": 1, "columns": 8,
                     "frame_size": 64, "lighting": "flat", "elevation": 30.0})
     )
@@ -438,24 +441,24 @@ def _write_sheet(job_dir, sheet_id, *, png=True, created=0.0):
 def test_a_sidecar_without_its_png_is_not_listed(tmp_path):
     """The PNG is written first and the sidecar last, so a sidecar alone means
     a half-cleaned directory, not a finished sheet."""
-    rigging.sheet_dir(tmp_path).mkdir(parents=True)
+    rig_store.sheet_dir(tmp_path).mkdir(parents=True)
     _write_sheet(tmp_path, "a" * 12, png=False)
     _write_sheet(tmp_path, "b" * 12, created=1.0)
-    assert [s["id"] for s in rigging.list_sheets(tmp_path)] == ["b" * 12]
+    assert [s["id"] for s in rig_store.list_sheets(tmp_path)] == ["b" * 12]
 
 
 def test_delete_sheet_removes_both_files(tmp_path):
-    rigging.sheet_dir(tmp_path).mkdir(parents=True)
+    rig_store.sheet_dir(tmp_path).mkdir(parents=True)
     _write_sheet(tmp_path, "a" * 12)
-    assert rigging.delete_sheet(tmp_path, "a" * 12) is True
-    assert rigging.list_sheets(tmp_path) == []
-    assert rigging.delete_sheet(tmp_path, "a" * 12) is False
+    assert rig_store.delete_sheet(tmp_path, "a" * 12) is True
+    assert rig_store.list_sheets(tmp_path) == []
+    assert rig_store.delete_sheet(tmp_path, "a" * 12) is False
 
 
 @pytest.mark.parametrize("bad", ["..", "../x", "not-an-id", ""])
 def test_sheet_paths_reject_ids_that_are_not_ours(tmp_path, bad):
     with pytest.raises(ValueError):
-        rigging.sheet_path(tmp_path, bad)
+        rig_store.sheet_path(tmp_path, bad)
 
 
 # --- the service surface ----------------------------------------------------
@@ -494,7 +497,7 @@ def test_a_sheet_can_be_queued_for_an_unrigged_mesh(svc, assets):
     assert job["params"]["source_job"] == job_id
     assert job["params"]["poses"] == []
     # Allocated up front so a cancelled job knows what to clean up.
-    assert rigging.is_valid_id(job["params"]["sheet_id"])
+    assert rig_store.is_valid_id(job["params"]["sheet_id"])
 
 
 def test_a_sheet_needs_a_finished_mesh(svc):
@@ -505,7 +508,7 @@ def test_a_sheet_needs_a_finished_mesh(svc):
 
 def test_a_posed_sheet_needs_a_rig(svc, assets):
     job_id = _mesh_job(svc, assets)
-    rigging.save_pose(assets / job_id, {"name": "idle", "bones": {"hips": IDENTITY}}, "a" * 12)
+    rig_store.save_pose(assets / job_id, {"name": "idle", "bones": {"hips": IDENTITY}}, "a" * 12)
     with pytest.raises(Invalid, match="rigged"):
         svc_sheets.create_sheet(svc, job_id, poses=["a" * 12])
 
@@ -513,7 +516,7 @@ def test_a_posed_sheet_needs_a_rig(svc, assets):
 def test_a_sheet_names_the_poses_it_will_render(svc, assets):
     job_id = _mesh_job(svc, assets, rigged=True)
     ids = [
-        rigging.save_pose(assets / job_id, {"name": n, "bones": {"hips": IDENTITY}})["id"]
+        rig_store.save_pose(assets / job_id, {"name": n, "bones": {"hips": IDENTITY}})["id"]
         for n in ("idle", "run")
     ]
     out = svc_sheets.create_sheet(svc, job_id, poses=ids, lighting="lit")
@@ -526,8 +529,8 @@ def test_an_overlong_sheet_name_is_rejected(svc, assets):
     """Capped like a pose name; it is a label the UI has to render."""
     job_id = _mesh_job(svc, assets)
     with pytest.raises(Invalid, match="at most"):
-        svc_sheets.create_sheet(svc, job_id, name="x" * (rigging.MAX_SHEET_NAME + 1))
-    assert svc_sheets.create_sheet(svc, job_id, name="x" * rigging.MAX_SHEET_NAME)
+        svc_sheets.create_sheet(svc, job_id, name="x" * (rig_store.MAX_SHEET_NAME + 1))
+    assert svc_sheets.create_sheet(svc, job_id, name="x" * rig_store.MAX_SHEET_NAME)
 
 
 def test_a_sheet_of_a_deleted_pose_is_not_found(svc, assets):
@@ -552,7 +555,7 @@ def test_an_unrenderable_sheet_is_refused_before_it_costs_a_queue_slot(svc, asse
 
 def test_finished_sheets_are_listed_read_and_deleted(svc, assets):
     job_id = _mesh_job(svc, assets)
-    rigging.sheet_dir(assets / job_id).mkdir(parents=True)
+    rig_store.sheet_dir(assets / job_id).mkdir(parents=True)
     _write_sheet(assets / job_id, "a" * 12)
 
     listed = svc_sheets.list_sheets(svc, job_id)["sheets"]
@@ -576,13 +579,13 @@ def test_deleting_a_sheet_with_an_in_flight_rerender_is_refused(svc, assets):
     case already gets.
     """
     job_id = _mesh_job(svc, assets)
-    rigging.sheet_dir(assets / job_id).mkdir(parents=True)
+    rig_store.sheet_dir(assets / job_id).mkdir(parents=True)
     _write_sheet(assets / job_id, "a" * 12)
 
     svc.store.create(
         "charsheet",
         "a knight",
-        {"source_job": job_id, "sheet_id": rigging.new_id(), "base_sheet": "a" * 12},
+        {"source_job": job_id, "sheet_id": rig_store.new_id(), "base_sheet": "a" * 12},
     )
 
     with pytest.raises(Conflict, match="re-render") as excinfo:
@@ -605,8 +608,8 @@ def test_a_clip_sheet_records_its_two_ends_not_the_expanded_frames(svc, assets):
     """params carries the ends so the queue rebuilds the frames from the same
     interpolate() this validated against -- one source of truth."""
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
-    b = rigging.save_pose(
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
+    b = rig_store.save_pose(
         assets / job_id, {"name": "B", "bones": {"hips": [0.0, 0.0, 0.7071068, 0.7071068]}}
     )
     out = svc_sheets.create_sheet(
@@ -619,23 +622,23 @@ def test_a_clip_sheet_records_its_two_ends_not_the_expanded_frames(svc, assets):
 
 def test_a_clip_needs_both_ends(svc, assets):
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
     with pytest.raises(Invalid, match="both"):
         svc_sheets.create_sheet(svc, job_id, clip_from=a["id"])
 
 
 def test_a_clip_needs_a_rig(svc, assets):
     job_id = _mesh_job(svc, assets)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
-    b = rigging.save_pose(assets / job_id, {"name": "B", "bones": {"hips": IDENTITY}}, "b" * 12)
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
+    b = rig_store.save_pose(assets / job_id, {"name": "B", "bones": {"hips": IDENTITY}}, "b" * 12)
     with pytest.raises(Invalid, match="rigged"):
         svc_sheets.create_sheet(svc, job_id, clip_from=a["id"], clip_to=b["id"])
 
 
 def test_a_clip_frame_count_over_the_limit_is_refused(svc, assets):
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
-    b = rigging.save_pose(assets / job_id, {"name": "B", "bones": {"hips": IDENTITY}}, "b" * 12)
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
+    b = rig_store.save_pose(assets / job_id, {"name": "B", "bones": {"hips": IDENTITY}}, "b" * 12)
     with pytest.raises(Invalid):
         svc_sheets.create_sheet(
             svc, job_id, clip_from=a["id"], clip_to=b["id"], clip_frames=999
@@ -644,7 +647,7 @@ def test_a_clip_frame_count_over_the_limit_is_refused(svc, assets):
 
 def test_a_clip_end_that_no_longer_exists_is_not_found(svc, assets):
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}}, "a" * 12)
     with pytest.raises(NotFound):
         svc_sheets.create_sheet(svc, job_id, clip_from=a["id"], clip_to="b" * 12)
 
@@ -652,7 +655,7 @@ def test_a_clip_end_that_no_longer_exists_is_not_found(svc, assets):
 def _offset_pose(job_dir, name, pose_id=None):
     """A library-pose snapshot: carries a root offset the way save_pose's
     ``extra`` channel writes one."""
-    return rigging.save_pose(
+    return rig_store.save_pose(
         job_dir,
         {"name": name, "bones": {"hips": IDENTITY}},
         pose_id,
@@ -665,15 +668,15 @@ def test_a_clip_end_with_a_root_offset_is_accepted_and_interpolated(svc, assets)
     translation is now interpolated instead -- it is what a vertical bob is --
     so the door has nothing left to refuse here and the clip is built."""
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
     b = _offset_pose(assets / job_id, "B")
 
     assert svc_sheets.create_sheet(svc, job_id, clip_from=a["id"], clip_to=b["id"])["id"]
     assert svc_sheets.create_sheet(svc, job_id, clip_from=b["id"], clip_to=a["id"])["id"]
 
     records = sheetlib.interpolate(
-        rigging.read_pose(assets / job_id, a["id"]),
-        rigging.read_pose(assets / job_id, b["id"]),
+        rig_store.read_pose(assets / job_id, a["id"]),
+        rig_store.read_pose(assets / job_id, b["id"]),
         4,
     )
     # Every frame of an offset-carrying clip records one -- frame 0 at A's own
@@ -687,7 +690,7 @@ def test_a_bad_frame_count_rings_the_slider_even_beside_an_offset_pose(svc, asse
     it wraps -- ringing a select for a message about frames would be the same
     mismatch the other way round."""
     job_id = _mesh_job(svc, assets, rigged=True)
-    a = rigging.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
+    a = rig_store.save_pose(assets / job_id, {"name": "A", "bones": {"hips": IDENTITY}})
     b = _offset_pose(assets / job_id, "B")
     with pytest.raises(Invalid, match="frames") as exc:
         svc_sheets.create_sheet(
@@ -732,7 +735,7 @@ def _fake_render(monkeypatch, *, side_effect=None, hold=None):
             ).save(frames_dir / f"{cell['index']:04d}.png")
         return {"ok": True, "frames": [c["index"] for c in spec["cells"]]}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -763,8 +766,8 @@ async def test_a_sheet_job_writes_into_the_source_jobs_directory(worker, monkeyp
     calls = _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    pose = rigging.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
-    sheet_id = rigging.new_id()
+    pose = rig_store.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "sheet",
         None,
@@ -779,10 +782,10 @@ async def test_a_sheet_job_writes_into_the_source_jobs_directory(worker, monkeyp
         await worker.shutdown()
 
     assert worker.store.get(job_id)["error"] is None
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     with Image.open(png) as atlas:
         assert atlas.size == (8 * 64, 64)
-    meta = rigging.read_sheet(source_dir, sheet_id)
+    meta = rig_store.read_sheet(source_dir, sheet_id)
     assert meta["rows"] == 1 and meta["columns"] == 8
     assert meta["poses"] == [{"id": pose["id"], "name": "idle"}]
     # The pose's rotations ride along with the cell: the worker has no access
@@ -799,7 +802,7 @@ async def test_an_unrigged_sheet_renders_the_plain_mesh(worker, monkeypatch):
     source = _source_job(worker)
     job_id = worker.store.create(
         "sheet", None,
-        {"source_job": source, "sheet_id": rigging.new_id(), "poses": [], "frame_size": 64},
+        {"source_job": source, "sheet_id": rig_store.new_id(), "poses": [], "frame_size": 64},
     )
     worker.start()
     try:
@@ -827,8 +830,8 @@ async def test_a_sheets_atlas_is_packed_to_a_staging_name(worker, monkeypatch):
     _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    sheet_id = rigging.new_id()
-    served = rigging.sheet_png_path(source_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    served = rig_store.sheet_png_path(source_dir, sheet_id)
 
     targets: list[Path] = []
     real_atlas = q_rig.RigOps._render_sheet_atlas
@@ -867,7 +870,7 @@ async def test_cancelling_a_sheet_never_deletes_the_source_mesh(worker, monkeypa
     _fake_render(monkeypatch, hold=hold)
     source = _source_job(worker)
     source_dir = worker.config.job_dir(source)
-    sheet_id = rigging.new_id()
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "sheet", None,
         {"source_job": source, "sheet_id": sheet_id, "poses": [], "frame_size": 64},
@@ -885,8 +888,8 @@ async def test_cancelling_a_sheet_never_deletes_the_source_mesh(worker, monkeypa
         await worker.shutdown()
 
     assert (source_dir / "model.glb").exists()
-    assert not rigging.sheet_png_path(source_dir, sheet_id).exists()
-    assert not rigging.sheet_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_png_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_path(source_dir, sheet_id).exists()
 
 
 @pytest.mark.asyncio
@@ -905,23 +908,23 @@ async def test_cancelling_a_sheet_stops_before_the_render_it_has_not_started(
     """
     import threading
 
-    import warlock.rigging as rigging_mod
+    from warlock.kernels.rig import store as rig_store
 
     hold = threading.Event()
     registered = threading.Event()
-    real_read_pose = rigging_mod.read_pose
+    real_read_pose = rig_store.read_pose
 
     def blocking_read_pose(source_dir, pose_id):
         registered.set()
         hold.wait(timeout=10)
         return real_read_pose(source_dir, pose_id)
 
-    monkeypatch.setattr(rigging, "read_pose", blocking_read_pose)
+    monkeypatch.setattr(rig_store, "read_pose", blocking_read_pose)
     calls = _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    pose = rigging.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
-    sheet_id = rigging.new_id()
+    pose = rig_store.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "sheet", None,
         {"source_job": source, "sheet_id": sheet_id, "poses": [pose["id"]], "frame_size": 64},
@@ -938,8 +941,8 @@ async def test_cancelling_a_sheet_stops_before_the_render_it_has_not_started(
         await worker.shutdown()
 
     assert not calls, "the render must not run once a cancel landed before it started"
-    assert not rigging.sheet_png_path(source_dir, sheet_id).exists()
-    assert not rigging.sheet_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_png_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_path(source_dir, sheet_id).exists()
 
 
 @pytest.mark.asyncio
@@ -948,7 +951,7 @@ async def test_a_sheet_of_a_vanished_pose_fails_the_job_not_the_worker(worker, m
     source = _source_job(worker, rigged=True)
     job_id = worker.store.create(
         "sheet", None,
-        {"source_job": source, "sheet_id": rigging.new_id(), "poses": ["a" * 12]},
+        {"source_job": source, "sheet_id": rig_store.new_id(), "poses": ["a" * 12]},
     )
     worker.start()
     try:
@@ -968,8 +971,8 @@ async def test_a_clip_job_gives_every_row_its_own_frames_rotations(worker, monke
     calls = _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    a = rigging.save_pose(source_dir, {"name": "A", "bones": {"hips": IDENTITY}})
-    b = rigging.save_pose(
+    a = rig_store.save_pose(source_dir, {"name": "A", "bones": {"hips": IDENTITY}})
+    b = rig_store.save_pose(
         source_dir, {"name": "B", "bones": {"hips": [0.0, 0.0, 0.7071068, 0.7071068]}}
     )
     job_id = worker.store.create(
@@ -977,7 +980,7 @@ async def test_a_clip_job_gives_every_row_its_own_frames_rotations(worker, monke
         None,
         {
             "source_job": source,
-            "sheet_id": rigging.new_id(),
+            "sheet_id": rig_store.new_id(),
             "frame_size": 64,
             "yaws": 2,
             "clip": {"from": a["id"], "to": b["id"], "frames": 4},
@@ -1002,14 +1005,14 @@ async def test_a_clip_whose_pose_was_deleted_fails_the_job(worker, monkeypatch):
     _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    a = rigging.save_pose(source_dir, {"name": "A", "bones": {"hips": IDENTITY}})
+    a = rig_store.save_pose(source_dir, {"name": "A", "bones": {"hips": IDENTITY}})
     job_id = worker.store.create(
         "sheet",
         None,
         {
             "source_job": source,
-            "sheet_id": rigging.new_id(),
-            "clip": {"from": a["id"], "to": rigging.new_id(), "frames": 2},
+            "sheet_id": rig_store.new_id(),
+            "clip": {"from": a["id"], "to": rig_store.new_id(), "frames": 2},
         },
     )
 
@@ -1040,7 +1043,7 @@ def test_root_offsets_key_on_pose_and_frame_and_scale_through_the_rig():
     # Scaled by the rig's own height, exactly as the pose's bake scales it --
     # one meaning per pose is the whole point of carrying the offset here.
     assert roots == {
-        ("a" * 12, 0): rigging.root_offset_world([0.0, 0.1, 0.5], rig_meta["bounds"])
+        ("a" * 12, 0): blender_spec.root_offset_world([0.0, 0.1, 0.5], rig_meta["bounds"])
     }
 
 
@@ -1252,7 +1255,7 @@ def _sheet_spec_for(tmp_path, cells, **kwargs):
     glb = tmp_path / "model.glb"
     glb.write_bytes(b"fake-glb")
     frames = tmp_path / "frames"
-    return rigging.sheet_spec(
+    return blender_spec.sheet_spec(
         glb, frames, cells, frame_size=64, elevation=0.0, lighting="flat", **kwargs
     )
 
@@ -1386,12 +1389,12 @@ def test_sheet_spec_emits_margin_and_sockets_only_when_given(tmp_path):
     """Additive keys, the rule every optional worker-spec field follows: an
     omitted one leaves the spec byte-identical to the one this function has
     always produced, so a render that asks for neither cannot change."""
-    plain = rigging.sheet_spec(
+    plain = blender_spec.sheet_spec(
         tmp_path / "m.glb", tmp_path / "f", [], frame_size=64, elevation=0.0, lighting="flat"
     )
     assert "margin" not in plain and "sockets" not in plain
 
-    both = rigging.sheet_spec(
+    both = blender_spec.sheet_spec(
         tmp_path / "m.glb",
         tmp_path / "f",
         [],
@@ -1432,7 +1435,7 @@ def test_a_rendered_sheet_actually_contains_eight_distinct_views(tmp_path, light
 
     layout = sheetlib.plan([], frame_size=64, elevation=25.0, lighting=lighting)
     frames_dir = tmp_path / "frames"
-    spec = rigging.sheet_spec(
+    spec = blender_spec.sheet_spec(
         tmp_path / "model.glb",
         frames_dir,
         [{"index": c.index, "yaw": c.yaw, "pose": None, "bones": {}} for c in layout.cells],
@@ -1475,14 +1478,14 @@ def test_a_rigged_subject_is_framed_by_its_own_size(tmp_path):
     bpy.context.object.scale = (0.3, 0.2, 1.0)   # 0.6 x 0.4 x 2.0
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
-    blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid"))
-    rigging.finalize_rig(tmp_path)
+    blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid"))
+    rig_store.finalize_rig(tmp_path)
 
     layout = sheetlib.plan([], frame_size=128, elevation=0.0)
     frames_dir = tmp_path / "frames"
     blender_worker.op_sheet(
         bpy,
-        rigging.sheet_spec(
+        blender_spec.sheet_spec(
             tmp_path / "rig.glb",
             frames_dir,
             [{"index": c.index, "yaw": c.yaw, "pose": None, "bones": {}} for c in layout.cells],
@@ -1524,7 +1527,7 @@ def test_the_reported_pivot_sits_at_the_subjects_feet_in_every_direction(tmp_pat
 
     layout = sheetlib.plan([], frame_size=128, elevation=0.0)
     frames_dir = tmp_path / "frames"
-    spec = rigging.sheet_spec(
+    spec = blender_spec.sheet_spec(
         tmp_path / "model.glb",
         frames_dir,
         [{"index": c.index, "yaw": c.yaw, "pose": None, "bones": {}} for c in layout.cells],
@@ -1562,8 +1565,8 @@ def test_the_reported_pivot_sits_at_the_subjects_feet_in_every_direction(tmp_pat
 def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
     """A finished render on disk, with a subject in each cell."""
     source_dir = worker.config.job_dir(source)
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     atlas = Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0))
     for row in range(rows):
@@ -1596,7 +1599,7 @@ def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
             for column in range(columns)
         ],
     }
-    rigging.sheet_path(source_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
+    rig_store.sheet_path(source_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return sheet_id
 
 
@@ -1625,12 +1628,12 @@ async def test_a_restyle_writes_its_pair_beside_the_render(worker):
     row = await _run(worker, job_id)
 
     assert row["error"] is None and row["status"] == "done"
-    png = rigging.sheet_pixel_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_pixel_png_path(source_dir, sheet_id)
     with Image.open(png) as out:
         # 8 columns x 128px, reduced by 128/32 = 4.
         assert out.size == (8 * 32, 32)
         arr = np.asarray(out.convert("RGBA"))
-    doc = rigging.read_sheet_pixel(source_dir, sheet_id)
+    doc = rig_store.read_sheet_pixel(source_dir, sheet_id)
     assert doc["frame_size"] == 32 and doc["columns"] == 8
     assert doc["restyle"]["seed"] == 3
     assert len(doc["palette"]) <= 8
@@ -1664,12 +1667,12 @@ async def test_the_render_survives_a_cancelled_restyle(worker):
         await worker.shutdown()
 
     assert worker.store.get(job_id)["status"] == "cancelled"
-    assert not rigging.sheet_pixel_path(source_dir, sheet_id).exists()
-    assert not rigging.sheet_pixel_png_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_pixel_path(source_dir, sheet_id).exists()
+    assert not rig_store.sheet_pixel_png_path(source_dir, sheet_id).exists()
     # The render it was derived from is minutes of Blender belonging to a
     # different, successful job.
-    assert rigging.sheet_png_path(source_dir, sheet_id).exists()
-    assert rigging.sheet_path(source_dir, sheet_id).exists()
+    assert rig_store.sheet_png_path(source_dir, sheet_id).exists()
+    assert rig_store.sheet_path(source_dir, sheet_id).exists()
     assert (source_dir / "model.glb").exists()
 
 
@@ -1678,7 +1681,7 @@ async def test_a_restyle_of_a_deleted_sheet_fails_rather_than_inventing_one(work
     source = _source_job(worker)
     job_id = worker.store.create(
         "pixel_sheet", "a knight",
-        {"source_job": source, "sheet_id": rigging.new_id(), "logical_size": 32},
+        {"source_job": source, "sheet_id": rig_store.new_id(), "logical_size": 32},
     )
     row = await _run(worker, job_id)
     assert row["status"] == "error"
@@ -1852,7 +1855,7 @@ async def test_a_torn_restyle_png_never_reaches_the_served_name(worker, monkeypa
     source = _source_job(worker)
     sheet_id = _rendered_sheet(worker, source)
     source_dir = worker.config.job_dir(source)
-    png = rigging.sheet_pixel_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_pixel_png_path(source_dir, sheet_id)
 
     real = Image.Image.save
 
@@ -1872,7 +1875,7 @@ async def test_a_torn_restyle_png_never_reaches_the_served_name(worker, monkeypa
 
     assert row["status"] == "error"
     assert not png.exists()
-    assert rigging.read_sheet_pixel(source_dir, sheet_id) is None
+    assert rig_store.read_sheet_pixel(source_dir, sheet_id) is None
     assert list(png.parent.glob("*.tmp")) == []
 
 
@@ -1902,9 +1905,9 @@ async def test_a_torn_restyle_sidecar_leaves_no_marker_and_no_strand(worker, mon
     row = await _run(worker, job_id)
 
     assert row["status"] == "error"
-    assert not rigging.sheet_pixel_path(source_dir, sheet_id).exists()
-    assert rigging.read_sheet_pixel(source_dir, sheet_id) is None
-    assert list(rigging.sheet_pixel_path(source_dir, sheet_id).parent.glob("*.tmp")) == []
+    assert not rig_store.sheet_pixel_path(source_dir, sheet_id).exists()
+    assert rig_store.read_sheet_pixel(source_dir, sheet_id) is None
+    assert list(rig_store.sheet_pixel_path(source_dir, sheet_id).parent.glob("*.tmp")) == []
 
 
 @pytest.mark.asyncio
@@ -1914,8 +1917,8 @@ async def test_a_torn_sheet_sidecar_leaves_no_marker_and_no_strand(worker, monke
     calls = _fake_render(monkeypatch)
     source = _source_job(worker, rigged=True)
     source_dir = worker.config.job_dir(source)
-    pose = rigging.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
-    sheet_id = rigging.new_id()
+    pose = rig_store.save_pose(source_dir, {"name": "idle", "bones": {"hips": IDENTITY}})
+    sheet_id = rig_store.new_id()
 
     real = Path.write_text
 
@@ -1936,8 +1939,8 @@ async def test_a_torn_sheet_sidecar_leaves_no_marker_and_no_strand(worker, monke
 
     assert row["status"] == "error"
     assert calls, "the render never ran"
-    assert not rigging.sheet_path(source_dir, sheet_id).exists()
-    assert list(rigging.sheet_path(source_dir, sheet_id).parent.glob("*.tmp")) == []
+    assert not rig_store.sheet_path(source_dir, sheet_id).exists()
+    assert list(rig_store.sheet_path(source_dir, sheet_id).parent.glob("*.tmp")) == []
 
 
 @pytest.mark.asyncio
@@ -1965,8 +1968,8 @@ async def test_a_cancelled_restyle_spares_an_earlier_successful_one(worker):
     # Fabricated rather than run, because ``_run`` shuts the worker down in its
     # finally and the cancel below needs a live one -- and what is under test is
     # the discard branch, which cannot tell how the pair got there.
-    png = rigging.sheet_pixel_png_path(source_dir, sheet_id)
-    doc = rigging.sheet_pixel_path(source_dir, sheet_id)
+    png = rig_store.sheet_pixel_png_path(source_dir, sheet_id)
+    doc = rig_store.sheet_pixel_path(source_dir, sheet_id)
     png.write_bytes(b"an earlier restyle the user chose to keep")
     doc.write_text('{"restyle": {"seed": 3}}', encoding="utf-8")
     kept_png, kept_doc = png.read_bytes(), doc.read_bytes()

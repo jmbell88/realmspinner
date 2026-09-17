@@ -1282,7 +1282,7 @@ def test_a_failed_fbx_export_leaves_no_partial_file_to_serve(svc, assets, monkey
     shutdown would leave a truncated FBX that every later request serves,
     with no way for a retry to get past it.
     """
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     job_id = svc_jobs.create_job(svc, kind="text", prompt="x")["id"]
     job_dir = assets / job_id
@@ -1292,9 +1292,9 @@ def test_a_failed_fbx_export_leaves_no_partial_file_to_serve(svc, assets, monkey
 
     def run_worker(spec, **kwargs):
         Path(spec["out_fbx"]).write_bytes(b"Kaydara FB")
-        raise rigging.BlenderError("killed")
+        raise blender_run.BlenderError("killed")
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
     with pytest.raises(Failed):
         svc_derive.get_file(svc, job_id, "model.fbx")
 

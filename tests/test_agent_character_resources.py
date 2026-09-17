@@ -1,7 +1,7 @@
 """``agent_character_resources``: the one static vocabulary resource and the
 per-sheet dynamic pair.
 
-``rigging.shipped_clip_*``/``clips.shipped_clip_timing`` and
+``cliplib.shipped_clip_*``/``clips.shipped_clip_timing`` and
 ``service.characters.ASSET_FILTERS`` are real on this branch now -- see
 ``tests/test_agent_character.py``'s own module docstring for the same
 finding -- so nothing in this file stubs them any more."""

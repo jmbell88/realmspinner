@@ -25,7 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import models, rigging
+from .. import models
+from ..kernels.rig import store
 from ._jobs_create import resolve_profile
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid
@@ -537,9 +538,9 @@ def stale_rig_artifacts(job_dir: Path) -> list[str]:
     out = [n for n in ("rig.glb", "rig.json", "animated.glb") if (job_dir / n).exists()]
     if out:
         out += sorted(
-            f"{rigging.POSE_DIR_NAME}/{p.name}" for p in rigging.pose_dir(job_dir).glob("*.glb")
+            f"{store.POSE_DIR_NAME}/{p.name}" for p in store.pose_dir(job_dir).glob("*.glb")
         )
         out += sorted(
-            f"{rigging.SHEET_DIR_NAME}/{p.name}" for p in rigging.sheet_dir(job_dir).glob("*.png")
+            f"{store.SHEET_DIR_NAME}/{p.name}" for p in store.sheet_dir(job_dir).glob("*.png")
         )
     return out

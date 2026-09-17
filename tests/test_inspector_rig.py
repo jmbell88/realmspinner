@@ -140,10 +140,10 @@ def test_the_rig_file_is_read_once_and_then_cached(svc, monkeypatch):
     _settled(monkeypatch, svc.job_dir(job_id))
     reads: list[Any] = []
 
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
-    real = rigging.read_rig
-    monkeypatch.setattr(rigging, "read_rig", lambda d: (reads.append(d), real(d))[1])
+    real = store.read_rig
+    monkeypatch.setattr(store, "read_rig", lambda d: (reads.append(d), real(d))[1])
 
     for _ in range(10):
         inspector.rig_meta(ctx, job)
@@ -159,10 +159,10 @@ def test_a_rig_written_a_moment_ago_is_not_cached_at_all(svc, monkeypatch):
     job = _job(svc, job_id)
     reads: list[Any] = []
 
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
-    real = rigging.read_rig
-    monkeypatch.setattr(rigging, "read_rig", lambda d: (reads.append(d), real(d))[1])
+    real = store.read_rig
+    monkeypatch.setattr(store, "read_rig", lambda d: (reads.append(d), real(d))[1])
 
     for _ in range(3):
         assert inspector.rig_meta(ctx, job)["weighting"] == "automatic"

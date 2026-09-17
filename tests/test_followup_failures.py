@@ -99,7 +99,7 @@ async def test_maybe_queue_sheet_after_rig_refuses_a_malformed_source_job_before
 ):
     """service-04: the three other ``source_job``-to-path sites in
     ``_q_jobs.py`` (``_discard_artifacts``'s two branches) validate with
-    ``rigging.is_valid_id`` before joining the string onto a path;
+    ``store.is_valid_id`` before joining the string onto a path;
     ``_maybe_queue_sheet_after_rig`` only checked truthiness, so a malformed
     id reached ``config.job_dir()`` -- a bare ``data_dir / job_id`` with no
     containment check -- as a live filesystem probe.

@@ -298,7 +298,7 @@ def interpolate(
     name, on the correctness argument that a snapshotted library pose carrying
     a root offset would render a clip disagreeing with the pose's own bake. The
     machinery to honour it instead was already everywhere else --
-    ``rigging.root_offset_world``, ``queue._sheet_root_offsets`` (keyed by
+    ``blender_spec.root_offset_world``, ``queue._sheet_root_offsets`` (keyed by
     ``(pose id, frame)``, which is per *frame* and so already clip-shaped), and
     ``op_sheet``'s per-cell ``root_offset`` -- so the guard was costing the one
     thing a walk cycle needs most, a vertical bob, for a disagreement that no
@@ -454,7 +454,7 @@ def _expand(
     ``clip_id`` names the row outright. Derived from the keys' own ids when it
     is not given, which is right for :func:`interpolate`: its two poses are
     *pose library* rows, and those carry an ``id``. It is wrong for a clip
-    library, whose key poses are built by ``rigging._load_clip_library`` as
+    library, whose key poses are built by ``cliplib._load_clip_library`` as
     ``{"name", "bones"[, "root_translation"]}`` with no ``id`` at all -- so the
     join collapsed to ``":" * (len(keys) - 1)`` and every clip with the same
     number of keys shared one identity. ``walk`` and ``run`` both have four,

@@ -108,13 +108,14 @@ class MeshPostOps:
         derived export (geometry changed) *and* every surface export (the
         atlas is new). The rig is reported stale at the door, never deleted.
         """
-        from . import rigging, tiercheck
-        from .pipelines import postprocess, remesh
+        from . import tiercheck
+        from .kernels.rig import blender_spec, store
+        from .pipelines import blender_run, postprocess, remesh
 
         job_id = job["id"]
         params = job["params"]
         source_id = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         source_dir = self.config.job_dir(source_id)
         model_glb = source_dir / "model.glb"
@@ -134,7 +135,7 @@ class MeshPostOps:
                 await asyncio.to_thread(retexture.atlas_size, model_glb)
                 or remesh.DEFAULT_TEXTURE_PX
             )
-        temp = source_dir / rigging.REMESH_GLB_TMP
+        temp = source_dir / store.REMESH_GLB_TMP
         job_dir = self.config.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,8 +154,8 @@ class MeshPostOps:
         try:
             result = await asyncio.to_thread(
                 functools.partial(
-                    rigging.run_worker,
-                    rigging.remesh_spec(
+                    blender_run.run_worker,
+                    blender_spec.remesh_spec(
                         model_glb,
                         temp,
                         job_dir,

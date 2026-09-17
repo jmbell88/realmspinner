@@ -708,19 +708,19 @@ def test_optimize_needs_a_source_reconstruction(svc):
 
 def test_a_retarget_reports_the_rig_artifacts_it_made_stale(svc):
     """Reported, never deleted: a rig and its poses are user work."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _finished_job(svc)
     job_dir = svc.job_dir(job_id)
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "rig.glb").write_bytes(b"x")
     (job_dir / "rig.json").write_text("{}")
-    rigging.pose_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    (rigging.pose_dir(job_dir) / "abcdef012345.glb").write_bytes(b"x")
+    store.pose_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    (store.pose_dir(job_dir) / "abcdef012345.glb").write_bytes(b"x")
 
     stale = svc_jobs.stale_rig_artifacts(job_dir)
     assert "rig.glb" in stale and "rig.json" in stale
-    assert f"{rigging.POSE_DIR_NAME}/abcdef012345.glb" in stale
+    assert f"{store.POSE_DIR_NAME}/abcdef012345.glb" in stale
     # Nothing was removed.
     assert (job_dir / "rig.glb").exists()
 
@@ -1029,15 +1029,15 @@ def test_a_retexture_does_not_make_the_rig_stale(svc):
     geometry -- the one place this differs from a retarget, and the reason it
     is a written assertion rather than a comment somebody could "fix".
     """
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id, job_dir = _retexturable(svc)
     (job_dir / "rig.glb").write_bytes(b"x")
     (job_dir / "rig.json").write_text("{}")
-    rigging.pose_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    (rigging.pose_dir(job_dir) / "abcdef012345.glb").write_bytes(b"x")
-    rigging.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
-    (rigging.sheet_dir(job_dir) / "abcdef012345.png").write_bytes(b"x")
+    store.pose_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    (store.pose_dir(job_dir) / "abcdef012345.glb").write_bytes(b"x")
+    store.sheet_dir(job_dir).mkdir(parents=True, exist_ok=True)
+    (store.sheet_dir(job_dir) / "abcdef012345.png").write_bytes(b"x")
 
     assert svc_jobs.stale_surface_artifacts(job_dir) == []
     assert svc_jobs.retexture_job(svc, job_id, "rusted iron")["stale"] == []

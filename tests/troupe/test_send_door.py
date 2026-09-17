@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import rigging
+from warlock.kernels.rig import cliplib, templates
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Invalid
 from warlock.studio import asset_exits, troupe_mode
@@ -228,15 +228,15 @@ def test_a_missing_specific_clip_on_an_otherwise_clip_bearing_template_is_refuse
     no ``field=`` for the Skeleton control (``troupe_send._skeleton``) that
     asked the question.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib
 
-    library = rigging.clip_library("quadruped")
+    library = cliplib.clip_library("quadruped")
     trimmed = {
         "poses": library["poses"],
         "clips": [c for c in library["clips"] if c["name"] != "jump"],
     }
     monkeypatch.setattr(
-        rigging, "clip_library", lambda key: trimmed if key == "quadruped" else library
+        cliplib, "clip_library", lambda key: trimmed if key == "quadruped" else library
     )
     # Still non-empty -- the guarded ``has_clips`` refusal does not catch this.
     assert svc_troupe.has_clips("quadruped")
@@ -267,8 +267,8 @@ def test_a_custom_skeleton_warns_how_many_bones_its_clips_will_skip(ctx, svc):
     carry every bone the template's clip library animates -- the send dialog
     says so, by name, rather than a walk cycle discovered thinner after the
     render."""
-    template = rigging.get_template("humanoid")
-    library = rigging.clip_library("humanoid")
+    template = templates.get_template("humanoid")
+    library = cliplib.clip_library("humanoid")
     animated: set[str] = set()
     for pose in library["poses"].values():
         animated.update(pose["bones"])
@@ -313,12 +313,12 @@ def test_ask_does_not_touch_disk_when_the_mesh_is_not_rigged(ctx, svc, monkeypat
     synchronously from a button handler on the frame thread, which is
     deliberate for a rigged mesh (see the comment in ``ask``) -- but an
     unrigged mesh must not pay for a disk read it has no rig to make."""
-    import warlock.rigging as rigging_module
+    from warlock.kernels.rig import store
 
     def _boom(*_a, **_kw):
         raise AssertionError("read_rig must not be called for an unrigged mesh")
 
-    monkeypatch.setattr(rigging_module, "read_rig", _boom)
+    monkeypatch.setattr(store, "read_rig", _boom)
     job = _mesh(svc, rigged=False)
     assert troupe_send.ask(ctx, job)
     assert ctx.state.troupe_send.rigged is False
@@ -327,7 +327,7 @@ def test_ask_does_not_touch_disk_when_the_mesh_is_not_rigged(ctx, svc, monkeypat
 
 def test_ask_treats_an_oversized_rig_json_as_no_warning_rather_than_a_crash(ctx, svc):
     """The frame-thread read ``ask`` does for a rigged mesh (troupe-03, see the
-    comment in ``ask``) is bounded by ``rigging.read_record``'s own
+    comment in ``ask``) is bounded by ``store.read_record``'s own
     ``MAX_RECORD_BYTES`` ceiling -- a rig.json over that size is refused by
     the reader rather than loaded, and ``ask`` must survive that as a missed
     warning, not an unhandled exception on the frame thread."""

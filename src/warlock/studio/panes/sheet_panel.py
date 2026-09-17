@@ -14,8 +14,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from ... import models, rigging
+from ... import models
 from ...core.safeio import atomic
+from ...kernels.rig import store
 from ...service import sheets as svc_sheets
 from ...service import validation
 from .. import asset_open, controls, dialogs, forms, icons, theme, verbs, widgets
@@ -306,7 +307,7 @@ def _controls(
         "name",
         "Name",
         form["name"],
-        max_length=rigging.MAX_SHEET_NAME,
+        max_length=store.MAX_SHEET_NAME,
         hint="Optional",
     )
 
@@ -401,10 +402,10 @@ def sheet_cap_reason(
             or (job.get("kind") == "rig" and (job.get("params") or {}).get("troupe_sheet"))
         )
     )
-    if len(saved) + queued < rigging.MAX_SHEETS:
+    if len(saved) + queued < store.MAX_SHEETS:
         return None
     return (
-        f"This asset already holds the maximum of {rigging.MAX_SHEETS} sheets; "
+        f"This asset already holds the maximum of {store.MAX_SHEETS} sheets; "
         "delete one first."
     )
 
@@ -732,7 +733,7 @@ def pixel_record(ctx: Any, job_id: str, sheet_id: str) -> dict[str, Any] | None:
     which is the split ``blender_worker._rig_bones`` is: the rule worth pinning
     is the one an imgui frame cannot reach.
     """
-    path = rigging.sheet_pixel_path(ctx.job_dir(job_id), sheet_id)
+    path = store.sheet_pixel_path(ctx.job_dir(job_id), sheet_id)
     stamp = stamps.stamp_ns(path)
     if stamp is None:
         return None
@@ -740,7 +741,7 @@ def pixel_record(ctx: Any, job_id: str, sheet_id: str) -> dict[str, Any] | None:
     cached = cache.get(sheet_id)
     if cached is not None and cached[0] == stamp:
         return cached[1]
-    record = rigging.read_sheet_pixel(ctx.job_dir(job_id), sheet_id)
+    record = store.read_sheet_pixel(ctx.job_dir(job_id), sheet_id)
     if stamps.storable(stamp):
         cache[sheet_id] = (stamp, record)
     return record

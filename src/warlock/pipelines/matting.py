@@ -453,7 +453,7 @@ def _request(payload: dict[str, Any], key: str) -> None:
         # Killing it is the only way back to a known state.
         #
         # Not a bare ``finally`` -- the analogous guard in
-        # ``rigging.run_worker`` is one because its child is one-shot, and this
+        # ``blender_run.run_worker`` is one because its child is one-shot, and this
         # child is persistent by design: reaping it on the success path would
         # pay the model load again on every image.
         try:
@@ -556,7 +556,7 @@ def _infer(image: PILImage, model: Any):
     **in the child**. Keeping it here rather than in ``matting_worker`` keeps
     the preprocessing beside the constants it reads and beside the docstring
     that argues for them -- the worker imports it, exactly as
-    ``blender_worker`` imports ``rigging.fit_template`` so the two halves can
+    ``blender_worker`` imports ``skeleton.fit_template`` so the two halves can
     never disagree.
     """
     import numpy as np

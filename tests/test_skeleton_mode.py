@@ -14,9 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import rigging
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.geom3d.gltf import Model, Node
+from warlock.kernels.rig import skeleton, store
 from warlock.studio.viewer import bonelines
 from warlock.studio.viewer.pose import PoseEditor
 
@@ -260,7 +260,7 @@ def test_skel_add_child_continues_the_parents_own_direction():
 def test_skel_add_child_refuses_an_unknown_parent_without_pushing(skel):
     before = len(skel.history)
     draft_before = [dict(b) for b in skel.draft]
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         skel.skel_add_child("no_such_bone")
     assert exc.value.field == "parent"
     assert len(skel.history) == before
@@ -271,7 +271,7 @@ def test_skel_add_child_refuses_an_unknown_parent_without_pushing(skel):
 def test_skel_add_child_refuses_past_the_bone_cap():
     editor = _editor()
     bones = [{"name": "root", "parent": None, "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.0, 1.0]}]
-    for i in range(1, rigging.MAX_SKELETON_BONES):
+    for i in range(1, skeleton.MAX_SKELETON_BONES):
         bones.append(
             {
                 "name": f"bone{i}",
@@ -280,14 +280,14 @@ def test_skel_add_child_refuses_past_the_bone_cap():
                 "tail": [0.0, 0.0, float(i + 1)],
             }
         )
-    assert len(bones) == rigging.MAX_SKELETON_BONES
+    assert len(bones) == skeleton.MAX_SKELETON_BONES
     editor.enter_skeleton_mode({"bones": bones, "root": "root", "mirror_pairs": []})
     before = len(editor.history)
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         editor.skel_add_child("root")
     assert exc.value.field == "bones"
     assert len(editor.history) == before
-    assert len(editor.draft) == rigging.MAX_SKELETON_BONES
+    assert len(editor.draft) == skeleton.MAX_SKELETON_BONES
 
 
 def test_skel_split_pushes_one_step_and_undoes(skel):
@@ -304,7 +304,7 @@ def test_skel_split_pushes_one_step_and_undoes(skel):
 
 def test_skel_split_refuses_an_unknown_bone_without_pushing(skel):
     before = len(skel.history)
-    with pytest.raises(rigging.RigError):
+    with pytest.raises(store.RigError):
         skel.skel_split("no_such_bone")
     assert len(skel.history) == before
 
@@ -339,7 +339,7 @@ def test_skel_remove_pivot_reparents_children_and_selects_the_parent(skel):
 
 def test_skel_remove_pivot_refuses_an_unknown_bone_without_pushing(skel):
     before = len(skel.history)
-    with pytest.raises(rigging.RigError):
+    with pytest.raises(store.RigError):
         skel.skel_remove_pivot("no_such_bone")
     assert len(skel.history) == before
 
@@ -378,7 +378,7 @@ def test_skel_remove_subtree_removes_the_whole_branch_and_selects_the_parent(ske
 
 def test_skel_remove_subtree_refuses_the_root_without_pushing(skel):
     before = len(skel.history)
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         skel.skel_remove_subtree("hip")
     assert exc.value.field == "root"
     assert len(skel.history) == before
@@ -401,7 +401,7 @@ def test_skel_rename_pushes_one_step_and_undoes(skel):
 
 def test_skel_rename_refuses_a_bad_name_with_field_name_and_pushes_nothing(skel):
     before = len(skel.history)
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         skel.skel_rename("upper_arm.L", "not a legal name!")
     assert exc.value.field == "name"
     assert len(skel.history) == before
@@ -410,7 +410,7 @@ def test_skel_rename_refuses_a_bad_name_with_field_name_and_pushes_nothing(skel)
 
 def test_skel_rename_refuses_a_duplicate_with_field_name(skel):
     before = len(skel.history)
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         skel.skel_rename("upper_arm.L", "upper_arm.R")
     assert exc.value.field == "name"
     assert len(skel.history) == before
@@ -443,7 +443,7 @@ def test_skel_attach_limb_mirror_adds_a_pair_for_each_grafted_bone(skel):
 def test_skel_attach_limb_refuses_past_the_bone_cap():
     editor = _editor()
     bones = [{"name": "root", "parent": None, "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.0, 1.0]}]
-    for i in range(1, rigging.MAX_SKELETON_BONES - 1):
+    for i in range(1, skeleton.MAX_SKELETON_BONES - 1):
         bones.append(
             {
                 "name": f"bone{i}",
@@ -456,7 +456,7 @@ def test_skel_attach_limb_refuses_past_the_bone_cap():
     before_len = len(editor.draft)
     before_history = len(editor.history)
     # "antenna" adds 2 bones, which would cross MAX_SKELETON_BONES by one.
-    with pytest.raises(rigging.RigError) as exc:
+    with pytest.raises(store.RigError) as exc:
         editor.skel_attach_limb("antenna", "root", "L", False)
     assert exc.value.field == "bones"
     assert len(editor.history) == before_history

@@ -274,7 +274,7 @@ def _character_options(ctx: Any) -> dict[str, Any]:
     gate, but it does touch ``ctx.state.preview``'s own cache slot, which is
     frame-thread state exactly like the Clay scene capture is.
     """
-    from .. import rigging
+    from ..kernels.rig import cliplib
     from .panes import settings_character
 
     raw = settings_character.options(ctx)
@@ -283,7 +283,7 @@ def _character_options(ctx: Any) -> dict[str, Any]:
         for f in raw["families"]
     ]
     templates = {a["template"] for a in raw["archetypes"]}
-    movements = sorted({name for t in templates for name in rigging.shipped_clip_names(t)})
+    movements = sorted({name for t in templates for name in cliplib.shipped_clip_names(t)})
     return {
         "families": families,
         "movements": movements,

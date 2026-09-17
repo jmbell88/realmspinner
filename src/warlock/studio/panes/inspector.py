@@ -19,7 +19,18 @@ from ...service import derive as svc_derive
 from ...service import files as svc_files
 from ...service import jobs as svc_jobs
 from ...service import system as svc_system
-from .. import asset_open, controls, create_stages, fonts, forms, quality, theme, verbs, widgets
+from .. import (
+    artifacts,
+    asset_open,
+    controls,
+    create_stages,
+    fonts,
+    forms,
+    quality,
+    theme,
+    verbs,
+    widgets,
+)
 from ..app_ctx import derive_key, pixel_prefs
 from ..manual import render as manual_render
 from ..tokens import sp
@@ -428,9 +439,9 @@ def rig_meta(ctx: Any, job: Any) -> dict[str, Any] | None:
     hit = cache.get(job_id)
     if hit is not None and hit[0] == stamp:
         return hit[1]
-    from ... import rigging
+    from ...kernels.rig import store
 
-    meta = rigging.read_rig(job_dir)
+    meta = store.read_rig(job_dir)
     if stamps.storable(stamp):
         cache[job_id] = (stamp, meta)
     return meta
@@ -1536,7 +1547,7 @@ def downloads(ctx: Any, job: Any) -> None:
     cutouts = job.get("stage") == "reference"
     if not imgui.begin_table("downloads", 2):
         return
-    for name, label in widgets.artifacts_for(job):
+    for name, label in artifacts.artifacts_for(job):
         # job["files"] is the sanctioned answer; a raw exists() check here used
         # to re-enable buttons the service would then refuse.
         ready = name in files

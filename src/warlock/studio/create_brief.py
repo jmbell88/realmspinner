@@ -57,7 +57,18 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from . import anchors, controls, create_assets, dialogs, focus, icons, theme, tokens, widgets
+from . import (
+    anchors,
+    controls,
+    create_assets,
+    create_rail,
+    dialogs,
+    focus,
+    icons,
+    theme,
+    tokens,
+    widgets,
+)
 from .tokens import sp
 
 #: The pane's height in design pixels, on the Reference stage -- see
@@ -73,7 +84,7 @@ BAR_H = 96.0
 
 #: The pane's height at the four stages that draw the rail alone -- see
 #: :func:`bar_height`. Also measured by the same test, for the same reason:
-#: the rail's own content is ~25 dp (see ``widgets.stage_rail``'s
+#: the rail's own content is ~25 dp (see ``create_rail.stage_rail``'s
 #: ``row_height`` note) but the pane it sits in also has to fit imgui's
 #: trailing ``item_spacing`` past it.
 RAIL_ONLY_H = 65.0
@@ -166,8 +177,8 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
     busy = ctx.busy("submit")
 
     items = _rail_items_for_measurement()
-    rail_full_w = widgets.stage_rail_width(items, state.create_stage)
-    rail_floor_w = widgets.stage_rail_width(items, state.create_stage, max_width=0.0)
+    rail_full_w = create_rail.stage_rail_width(items, state.create_stage)
+    rail_floor_w = create_rail.stage_rail_width(items, state.create_stage, max_width=0.0)
     rail_w, prompt_w, show_count, reset_compact = _row_widths(
         hide_count, rail_full_w, rail_floor_w
     )
@@ -189,8 +200,9 @@ def draw(ctx: Any, rail: Callable[..., None]) -> None:
 
 def _rail_items_for_measurement() -> list[tuple[str, str, str, str | None]]:
     """The rail's five ``(key, label, icon, reason)`` entries, for
-    :func:`widgets.stage_rail_width` alone -- **not** what ``App._stage_rail``
-    hands ``widgets.stage_rail`` to actually *draw* the rail.
+    :func:`create_rail.stage_rail_width` alone -- **not** what
+    ``App._stage_rail`` hands ``create_rail.stage_rail`` to actually *draw*
+    the rail.
 
     That real list carries each stage's live availability and its done-set,
     which need a job and (for Rig) a filesystem read this module has no
@@ -234,12 +246,12 @@ def _row_widths(
     2. The **count** is dropped -- ``_generate_tooltip`` restates its value
        once its pills are gone.
     3. The **rail** is handed whatever is left as its own ``max_width`` and
-       walks its own three rungs (``widgets.stage_rail``: checks+labels,
+       walks its own three rungs (``create_rail.stage_rail``: checks+labels,
        labels, icons). Every rung keeps every stage clickable and tooltipped,
        which is what makes it the right thing to give away next -- unlike the
        count or Reset, nothing about the rail actually disappears; it only
        gets terser. ``rail_full_w`` and ``rail_floor_w`` come from
-       ``widgets.stage_rail_width`` (see :func:`_rail_items_for_measurement`),
+       ``create_rail.stage_rail_width`` (see :func:`_rail_items_for_measurement`),
        never guessed: 304 was a guess once, and wrong the moment a label
        changed.
     4. **Reset** drops to icon-only, its label moved to a tooltip, only if
@@ -273,7 +285,7 @@ def _row_widths(
 
     # Rung 3: the prompt is pinned at its floor and the rail gives up the
     # width it would have kept -- handed only what's left, which is where
-    # ``widgets.stage_rail``'s own laddering takes over.
+    # ``create_rail.stage_rail``'s own laddering takes over.
     prompt = sp(PROMPT_MIN_W)
     rail_w = avail - fixed - count_w - reset_full - prompt - gaps_for(show_count)
     reset_compact = False

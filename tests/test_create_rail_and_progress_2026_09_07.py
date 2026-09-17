@@ -116,18 +116,18 @@ def test_optional_hints_name_only_the_optional_stages():
 
 
 def test_the_stage_rail_ticks_a_set_not_a_single_furthest_key():
-    """``widgets.stage_rail`` takes ``done`` as a container of keys now, and a
-    finished, unrigged prop's set has three members with a gap in the
+    """``create_rail.stage_rail`` takes ``done`` as a container of keys now,
+    and a finished, unrigged prop's set has three members with a gap in the
     pipeline order -- which a single "furthest reached" key cannot express at
     all. A regression here is a signature the rail cannot be fed the right
     answer through, whatever ``create_stages`` computes."""
     import inspect
 
-    from warlock.studio import widgets
+    from warlock.studio import create_rail
 
-    signature = inspect.signature(widgets.stage_rail)
+    signature = inspect.signature(create_rail.stage_rail)
     assert "optional" in signature.parameters
-    source = inspect.getsource(widgets.stage_rail)
+    source = inspect.getsource(create_rail.stage_rail)
     assert "done_index" not in source, "the old furthest-key comparison is still there"
     assert "key in done_keys" in source
 

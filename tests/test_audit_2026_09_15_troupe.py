@@ -19,7 +19,7 @@ import zlib
 import pytest
 from PIL import Image
 
-from warlock import rigging
+from warlock.kernels.rig import store
 from warlock.service import sprites as svc_sprites
 from warlock.service import troupe as svc_troupe
 from warlock.service.errors import Conflict, Invalid
@@ -40,10 +40,10 @@ def _mesh_with_sheet(svc, *, frame_size=64, frames=2):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "model.glb").write_bytes(b"glb")
 
-    sheet_id = rigging.new_id()
+    sheet_id = store.new_id()
     columns, rows = 2, 1
     atlas = Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 255))
-    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    png_path = store.sheet_png_path(job_dir, sheet_id)
     png_path.parent.mkdir(parents=True, exist_ok=True)
     atlas.save(png_path, format="PNG")
 
@@ -70,7 +70,7 @@ def _mesh_with_sheet(svc, *, frame_size=64, frames=2):
         "troupe": {"version": 3, "columns": columns, "movements": movements, "runs": runs,
                    "cell_count": len(cells)},
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
     return mesh_id, sheet_id
 
 
@@ -94,7 +94,7 @@ def test_sheet_preview_png_refuses_before_allocating_from_a_corrupted_sidecars_f
     """
     mesh_id, sheet_id = _mesh_with_sheet(svc, frame_size=64, frames=2)
     job_dir = svc.job_dir(mesh_id)
-    sidecar_path = rigging.sheet_path(job_dir, sheet_id)
+    sidecar_path = store.sheet_path(job_dir, sheet_id)
     sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
     # Corrupted after the fact, the way a hand-edited or truncated sidecar
     # would be -- ``create_charsheet`` would never itself write a movement
@@ -159,7 +159,7 @@ def test_sheet_preview_png_refuses_before_decoding_an_oversized_atlas_png(svc, m
     """
     mesh_id, sheet_id = _mesh_with_sheet(svc, frame_size=64, frames=2)
     job_dir = svc.job_dir(mesh_id)
-    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    png_path = store.sheet_png_path(job_dir, sheet_id)
     png_path.write_bytes(_giant_header_png())
 
     calls: list[bool] = []
@@ -196,10 +196,10 @@ def _reference(svc):
 def _draft_mid_publish(svc, job_id):
     """The worker's own publish order, stopped halfway: both PNGs written,
     the sidecar (``list_sprite_drafts``' completion marker) not yet."""
-    draft_id = rigging.new_id()
+    draft_id = store.new_id()
     job_dir = svc.job_dir(job_id)
-    for letter in rigging.SPRITE_CANDIDATES:
-        path = rigging.sprite_draft_png_path(job_dir, draft_id, letter)
+    for letter in store.SPRITE_CANDIDATES:
+        path = store.sprite_draft_png_path(job_dir, draft_id, letter)
         path.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(path)
     return draft_id
@@ -231,8 +231,8 @@ def test_deleting_a_sprite_draft_while_its_synthesis_is_still_publishing_leaves_
 
     job_dir = svc.job_dir(job_id)
     assert all(
-        rigging.sprite_draft_png_path(job_dir, draft_id, c).exists()
-        for c in rigging.SPRITE_CANDIDATES
+        store.sprite_draft_png_path(job_dir, draft_id, c).exists()
+        for c in store.SPRITE_CANDIDATES
     )
 
 

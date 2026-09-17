@@ -12,7 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import poselib, rigging
+from warlock import poselib
+from warlock.kernels.rig import store, templates
 
 
 def _config(tmp_path):
@@ -25,7 +26,7 @@ def _full_bones(template="humanoid"):
     A record must carry the whole skeleton (the retargeting premise in the
     module docstring), so the payload helper mirrors the only writer.
     """
-    return {b["name"]: [0.0, 0.0, 0.0, 1.0] for b in rigging.get_template(template).bones}
+    return {b["name"]: [0.0, 0.0, 0.0, 1.0] for b in templates.get_template(template).bones}
 
 
 def _payload(**over):
@@ -46,7 +47,7 @@ def test_a_record_round_trips(tmp_path):
     config = _config(tmp_path)
     record = poselib.validate_record(_payload())
     stored = poselib.save_record(config, record)
-    assert rigging.is_valid_id(stored["id"])
+    assert store.is_valid_id(stored["id"])
     assert stored["created"] == stored["updated"]
 
     back = poselib.read_record(config, stored["id"])
@@ -76,8 +77,8 @@ def test_a_failed_write_leaves_the_existing_record_intact(tmp_path, monkeypatch)
     """The mkstemp+replace staging: a save that dies mid-write must not
     truncate the only copy, and must not leave its temp behind.
 
-    Patched through ``rigging`` because that is where the staged writer lives
-    now (``rigging.write_json_staged``, one copy for three callers); ``os`` is
+    Patched through ``store`` because that is where the staged writer lives
+    now (``store.write_json_staged``, one copy for three callers); ``os`` is
     one module object either way, so this intercepts the same function the
     previous spelling did.
     """
@@ -87,7 +88,7 @@ def test_a_failed_write_leaves_the_existing_record_intact(tmp_path, monkeypatch)
     def boom(src, dest):
         raise OSError("disk full")
 
-    monkeypatch.setattr(rigging.os, "replace", boom)
+    monkeypatch.setattr(store.os, "replace", boom)
     with pytest.raises(OSError):
         poselib.save_record(config, poselib.validate_record(_payload(name="B")), stored["id"])
     monkeypatch.undo()
@@ -99,7 +100,7 @@ def test_a_failed_write_leaves_the_existing_record_intact(tmp_path, monkeypatch)
 def test_a_corrupt_file_costs_itself_not_the_list(tmp_path):
     config = _config(tmp_path)
     good = poselib.save_record(config, poselib.validate_record(_payload()))
-    bad_id = rigging.new_id()
+    bad_id = store.new_id()
     poselib.library_dir(config).joinpath(f"{bad_id}.json").write_text("{not json")
     assert [r["id"] for r in poselib.list_records(config)] == [good["id"]]
 
@@ -107,7 +108,7 @@ def test_a_corrupt_file_costs_itself_not_the_list(tmp_path):
 def test_a_record_that_is_not_utf8_returns_none_rather_than_raising(tmp_path):
     config = _config(tmp_path)
     poselib.save_record(config, poselib.validate_record(_payload()))
-    bad_id = rigging.new_id()
+    bad_id = store.new_id()
     poselib.library_dir(config).joinpath(f"{bad_id}.json").write_bytes(b"\xff\xfe nope")
     assert poselib.read_record(config, bad_id) is None
     assert len(poselib.list_records(config)) == 1
@@ -117,7 +118,7 @@ def test_a_record_that_is_a_json_array_returns_none(tmp_path):
     """It parses, so the old guard let it through -- and every caller above
     does record["bones"] on it."""
     config = _config(tmp_path)
-    bad_id = rigging.new_id()
+    bad_id = store.new_id()
     poselib.library_dir(config).mkdir(parents=True, exist_ok=True)
     poselib.library_dir(config).joinpath(f"{bad_id}.json").write_text(
         json.dumps(["Crouch"]), encoding="utf-8"
@@ -129,7 +130,7 @@ def test_a_record_that_is_a_json_array_returns_none(tmp_path):
 def test_an_oversized_record_is_refused_without_being_parsed(tmp_path, monkeypatch):
     config = _config(tmp_path)
     stored = poselib.save_record(config, poselib.validate_record(_payload()))
-    monkeypatch.setattr(rigging, "MAX_RECORD_BYTES", 32)
+    monkeypatch.setattr(store, "MAX_RECORD_BYTES", 32)
     assert poselib.read_record(config, stored["id"]) is None
 
 
@@ -183,7 +184,7 @@ def test_pose_path_rejects_traversal_and_malformed_ids(tmp_path, bad):
 
 def test_the_library_lives_under_data_dir_poser(tmp_path):
     config = _config(tmp_path)
-    pose_id = rigging.new_id()
+    pose_id = store.new_id()
     assert poselib.pose_path(config, pose_id) == tmp_path / "poser" / "poses" / f"{pose_id}.json"
     assert poselib.preview_path(config, "humanoid") == (
         tmp_path / "poser" / "previews" / "humanoid.glb"
@@ -296,7 +297,7 @@ def test_next_copy_name_counts_up_and_skips_taken():
 
 
 def test_the_library_cap_matches_the_per_job_one():
-    assert poselib.MAX_LIBRARY_POSES == rigging.MAX_POSES == 500
+    assert poselib.MAX_LIBRARY_POSES == store.MAX_POSES == 500
 
 
 # --- mirroring --------------------------------------------------------------
@@ -370,8 +371,8 @@ def test_a_vanished_template_file_answers_stale_not_a_raise(tmp_path, monkeypatc
     FileNotFoundError out of service.poses.template_preview unframed."""
     config = _config(tmp_path)
     _seed_preview(config)
-    rigging.get_template("humanoid")  # the registry is loaded and cached
-    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path / "gone")
+    templates.get_template("humanoid")  # the registry is loaded and cached
+    monkeypatch.setattr(templates, "TEMPLATE_DIR", tmp_path / "gone")
     assert poselib.template_digest("humanoid") is None
     assert poselib.preview_valid(config, "humanoid", "bpy 4.5.0") is False
 
@@ -381,14 +382,14 @@ def test_template_digest_tracks_the_file_bytes(tmp_path, monkeypatch):
         "key": "humanoid", "label": "H", "root": "a",
         "bones": [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
     }))
-    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path)
-    monkeypatch.setattr(rigging, "_templates", None)
+    monkeypatch.setattr(templates, "TEMPLATE_DIR", tmp_path)
+    monkeypatch.setattr(templates, "_templates", None)
     first = poselib.template_digest("humanoid")
     (tmp_path / "humanoid.json").write_text(
         (tmp_path / "humanoid.json").read_text() + " "
     )
     assert poselib.template_digest("humanoid") != first
-    monkeypatch.setattr(rigging, "_templates", None)
+    monkeypatch.setattr(templates, "_templates", None)
 
 
 def test_the_sidecar_records_all_three_invalidation_axes(tmp_path):

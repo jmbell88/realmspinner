@@ -31,9 +31,10 @@ import json
 
 import pytest
 
-from warlock import clipmaps, cliptransfer, rigging
+from warlock import clipmaps, cliptransfer
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.geom3d.gltf import Model, Node
+from warlock.kernels.rig import skeleton, templates
 from warlock.service import Conflict
 from warlock.service import jobs as svc_jobs
 from warlock.service import rig as svc_rig
@@ -70,7 +71,7 @@ class _FakeCtx:
 
 
 def _armature_model() -> Model:
-    names = [b["name"] for b in rigging.get_template("humanoid").bones]
+    names = [b["name"] for b in templates.get_template("humanoid").bones]
     nodes = [Node(name="rig", children=list(range(1, len(names) + 1)))]
     for i, name in enumerate(names):
         nodes.append(Node(name=name, translation=m3.vec3(0.0, 0.1 * i, 0.0)))
@@ -103,7 +104,7 @@ def _clip_library() -> dict:
 
 def _clip_ctx() -> tuple[_FakeCtx, poser_mode.PoserState]:
     ctx = _FakeCtx()
-    bones = [b["name"] for b in rigging.get_template("humanoid").bones]
+    bones = [b["name"] for b in templates.get_template("humanoid").bones]
     ctx.poser_viewer = _FakeViewer(_armature_model(), bones)
     state = poser_mode.ensure(ctx)
     poser_mode.adopt_clips(ctx, _clip_library())
@@ -151,8 +152,8 @@ def _finished_mesh_job(svc, assets) -> str:
 def _rigged_job(svc, assets) -> tuple[str, list[dict]]:
     job_id = _finished_mesh_job(svc, assets)
     job_dir = assets / job_id
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     (job_dir / "rig.json").write_text(
         json.dumps(
             {
@@ -189,7 +190,7 @@ def test_edit_skeleton_refuses_while_another_rig_job_is_already_in_flight(svc, a
     """The same door, the same missing check, on ``edit_skeleton`` -- the
     finding names both."""
     job_id, fitted = _rigged_job(svc, assets)
-    edited = rigging.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
+    edited = skeleton.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
     first = svc_rig.edit_skeleton(svc, job_id, {"bones": edited})
     assert svc_rig.rig_in_flight(svc, job_id) == first["id"]
 
@@ -203,7 +204,7 @@ def test_edit_skeleton_refuses_while_another_rig_job_is_already_in_flight(svc, a
 
 
 def _target_sample() -> dict:
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     bones = {}
     for b in template.bones:
         bones[b["name"]] = {
@@ -239,7 +240,7 @@ _MIXAMO_SINGLE = {
 
 
 def _baseline_source_bones() -> dict:
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     target = {b["name"]: b for b in template.bones}
     bones = {}
     for tname, sname in _MIXAMO_SINGLE.items():

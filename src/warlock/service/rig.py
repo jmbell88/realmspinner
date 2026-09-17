@@ -17,7 +17,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import doctor, poselib, rigging
+from .. import doctor, poselib
+from ..kernels.rig import blender_spec, poses, skeleton, store, templates
+from ..pipelines import blender_run
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
 from .validation import check_job_id, check_pose_id, valid_template
@@ -34,7 +36,7 @@ def rig_templates(svc: WarlockService) -> dict[str, Any]:
         "available": check.ok,
         "detail": check.detail,
         "default": svc.config.rig_template,
-        "templates": rigging.catalog(),
+        "templates": templates.catalog(),
     }
 
 
@@ -46,7 +48,7 @@ def template_presets(key: str) -> dict[str, Any]:
     by the time anything else sees them.
     """
     try:
-        return {"poses": rigging.preset_poses(key)}
+        return {"poses": poses.preset_poses(key)}
     except ValueError as exc:
         raise invalid_from(
             exc, "That skeleton has no pose library", field="rig_template"
@@ -130,7 +132,7 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
 
     A rig whose ``skeleton`` is already ``"custom"`` (built by
     :func:`edit_skeleton`) is checked against *its own* structure, not the
-    base template's -- ``rigging.validate_joints`` only ever accepts a joint
+    base template's -- ``skeleton.validate_joints`` only ever accepts a joint
     move that keeps the structure it is handed, so validating against the
     template here would refuse a plain joint move on a rig with, say, an
     extra tail bone the template never had. ``skeleton``/``root``/
@@ -139,18 +141,18 @@ def adjust_joints(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
     """
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    rig = rigging.read_rig(job_dir)
+    rig = store.read_rig(job_dir)
     if rig is None or not (job_dir / "model.glb").exists():
         raise Invalid("job is not rigged")
-    template = rigging.get_template(str(rig.get("template") or svc.config.rig_template))
+    template = templates.get_template(str(rig.get("template") or svc.config.rig_template))
     is_custom = rig.get("skeleton") == "custom"
     try:
         if is_custom:
-            rigging.validate_rig_bones(rig.get("bones", []))
+            store.validate_rig_bones(rig.get("bones", []))
             structure = rig["bones"]
         else:
             structure = template
-        bones = rigging.validate_joints(payload, structure)
+        bones = skeleton.validate_joints(payload, structure)
     except (ValueError, KeyError, TypeError) as exc:
         raise invalid_from(exc, "Those joint positions cannot be used") from exc
 
@@ -187,28 +189,28 @@ def edit_skeleton(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> 
 
     ``adjust_joints``'s shape, for a caller that may have added or removed a
     pivot, split a bone, renamed one or grafted a limb preset on -- anything
-    :func:`rigging.validate_skeleton` accepts, not only a joint moved within
+    :func:`skeleton.validate_skeleton` accepts, not only a joint moved within
     the base template's own structure. The queue is serial, exactly like
     every other rig job: two edits queued against the same source job can
-    never race each other's temp names (``rigging.RIG_GLB_TMP``/
+    never race each other's temp names (``store.RIG_GLB_TMP``/
     ``RIG_JSON_TMP``), because only one rig job ever runs at a time.
 
     ``rig.json`` keeps naming the *base* template this rig started from
     (``rig["template"]``) even once its shape has diverged from it --
-    ``rigging.clip_coverage`` and the pose library both need to know which
+    ``skeleton.clip_coverage`` and the pose library both need to know which
     template's poses/clips this rig might still play.
     """
     source = svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    rig = rigging.read_rig(job_dir)
+    rig = store.read_rig(job_dir)
     if rig is None or not (job_dir / "model.glb").exists():
         raise Invalid("job is not rigged")
-    base = rigging.get_template(str(rig.get("template") or svc.config.rig_template))
+    base = templates.get_template(str(rig.get("template") or svc.config.rig_template))
     bounds = rig.get("bounds")
     try:
         if not isinstance(bounds, dict) or "min" not in bounds or "max" not in bounds:
-            raise rigging.RigError("rig.json has no usable bounds", field="bounds")
-        result = rigging.validate_skeleton(payload, base=base, bounds=bounds)
+            raise store.RigError("rig.json has no usable bounds", field="bounds")
+        result = skeleton.validate_skeleton(payload, base=base, bounds=bounds)
     except ValueError as exc:
         raise invalid_from(exc, "That skeleton cannot be used") from exc
 
@@ -242,25 +244,25 @@ def limb_presets() -> list[dict[str, Any]]:
     Read-only and job-independent, like :func:`rig_templates`'s own
     ``templates`` list: ``{key, label, bone_count}`` is enough for a menu. The
     coordinate frame a preset is authored in, and what ``side``/``mirror``
-    mean, are documented on :func:`rigging.attach_limb`, which is what
+    mean, are documented on :func:`skeleton.attach_limb`, which is what
     actually places one -- this is only the catalogue.
     """
     return [
         {"key": p["key"], "label": p["label"], "bone_count": len(p["bones"])}
-        for p in rigging.limb_presets().values()
+        for p in templates.limb_presets().values()
     ]
 
 
 def get_rig(svc: WarlockService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
-    rig = rigging.read_rig(svc.job_dir(job_id))
+    rig = store.read_rig(svc.job_dir(job_id))
     if rig is None:
         raise NotFound("job is not rigged")
     try:
         # The 2026-09-08 audit (poser-02): a rig.json that passes read_record's
         # file-level guards but carries a bone with no "name" used to reach a
         # caller as an uncaught KeyError instead of a field-addressed refusal.
-        rigging.validate_rig_bones(rig.get("bones", []))
+        store.validate_rig_bones(rig.get("bones", []))
     except ValueError as exc:
         raise invalid_from(exc, "That rig cannot be read") from exc
     return rig
@@ -268,7 +270,7 @@ def get_rig(svc: WarlockService, job_id: str) -> dict[str, Any]:
 
 def _rig_bones(svc: WarlockService, job_id: str) -> list[str]:
     try:
-        bones = rigging.rig_bone_names(svc.job_dir(job_id))
+        bones = store.rig_bone_names(svc.job_dir(job_id))
     except ValueError as exc:
         # rig_bone_names now validates the bone list itself (poser-02); see
         # get_rig's own comment above for the incident.
@@ -282,10 +284,16 @@ def list_poses(svc: WarlockService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     bones = _rig_bones(svc, job_id)
     job_dir = svc.job_dir(job_id)
-    poses = []
-    for record in rigging.list_poses(job_dir):
+    # Named for what it is rather than for the return key it fills: the
+    # ``kernels.rig.poses`` module is imported into this same file, and a
+    # local variable named the same reads fine but shadows it for the rest
+    # of this function -- ``poses.validate_bones(raw)`` below silently meant
+    # ``list.validate_bones`` once this was called ``poses``, an
+    # ``AttributeError`` only a real run surfaces.
+    kept = []
+    for record in store.list_poses(job_dir):
         # The same "costs you that pose, not the app" rule every sibling
-        # loader in rigging.py follows: a listing must survive one hand-edited
+        # loader in kernels.rig follows: a listing must survive one hand-edited
         # file, unlike posed_model, which addresses a single pose and can
         # refuse it outright (poser-01, the 2026-09-11 audit).
         raw = record.get("bones")
@@ -295,7 +303,7 @@ def list_poses(svc: WarlockService, job_id: str) -> dict[str, Any]:
             )
             continue
         try:
-            rigging.validate_bones(raw)
+            poses.validate_bones(raw)
         except ValueError:
             log.warning(
                 "pose %s/%s has an unusable bones map; omitting it from the list",
@@ -303,8 +311,8 @@ def list_poses(svc: WarlockService, job_id: str) -> dict[str, Any]:
                 record.get("id"),
             )
             continue
-        poses.append(record)
-    return {"bones": bones, "poses": poses}
+        kept.append(record)
+    return {"bones": bones, "poses": kept}
 
 
 def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -313,7 +321,7 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
     known = _rig_bones(svc, job_id)
     job_dir = svc.job_dir(job_id)
     try:
-        pose = rigging.validate_pose(payload, known)
+        pose = poses.validate_pose(payload, known)
     except ValueError as exc:
         raise invalid_from(exc, "That pose cannot be saved") from exc
 
@@ -338,13 +346,13 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
     pose_id = str(payload["id"]) if payload.get("id") else None
     if pose_id is not None:
         check_pose_id(pose_id)
-        if not rigging.pose_path(job_dir, pose_id).exists():
+        if not store.pose_path(job_dir, pose_id).exists():
             raise NotFound("no such pose")
         # Under the pose's bake lock: an in-flight bake of the old rotations
         # must finish (and be deleted here) before the new rotations land, or
         # the stale GLB gets cached under this id.
         with svc.convert_lock(job_id, f"pose:{pose_id}"):
-            return rigging.save_pose(job_dir, pose, pose_id, extra=extra or None)
+            return store.save_pose(job_dir, pose, pose_id, extra=extra or None)
     # The cap is a check-then-write, so the count and the write that depends on
     # it happen under one hold -- exactly the rule the library's own cap in
     # service/poses.py states. Lock-free, two callers saving at once both read
@@ -353,9 +361,9 @@ def save_pose(svc: WarlockService, job_id: str, payload: dict[str, Any]) -> dict
     # being guarded is the *set* of poses, not any one of them; it is a
     # different lock from the f"pose:{id}" bake locks and never nests with one.
     with svc.convert_lock(job_id, "poses"):
-        if len(rigging.list_poses(job_dir)) >= rigging.MAX_POSES:
-            raise Conflict(f"a job may hold at most {rigging.MAX_POSES} poses")
-        return rigging.save_pose(job_dir, pose, pose_id, extra=extra or None)
+        if len(store.list_poses(job_dir)) >= store.MAX_POSES:
+            raise Conflict(f"a job may hold at most {store.MAX_POSES} poses")
+        return store.save_pose(job_dir, pose, pose_id, extra=extra or None)
 
 
 def delete_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[str, Any]:
@@ -366,7 +374,7 @@ def delete_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[str, Any
     # was gone, leaving an orphan GLB nothing could ever reach or clean up.
     with svc.convert_lock(job_id, f"pose:{pose_id}"):
         try:
-            deleted = rigging.delete_pose(svc.job_dir(job_id), pose_id)
+            deleted = store.delete_pose(svc.job_dir(job_id), pose_id)
         except OSError as exc:
             # The wrap lives here, not in rigging: the storage half may not
             # import service, and a file another program is holding open is a
@@ -384,7 +392,7 @@ def _pose_or_not_found(job_dir: Path, pose_id: str) -> dict[str, Any]:
     """The semantic read door for a job's own saved pose.
 
     ``service.poses._record_or_not_found``'s shape, for a job-scoped pose
-    instead of a library one: ``rigging.read_pose`` only gives ``read_record``'s
+    instead of a library one: ``store.read_pose`` only gives ``read_record``'s
     three file-level guards (valid JSON, valid dict, under the byte ceiling),
     never the bones check a *library* pose gets through
     ``poselib.validate_record``. A hand-edited pose file missing "bones" used
@@ -399,14 +407,14 @@ def _pose_or_not_found(job_dir: Path, pose_id: str) -> dict[str, Any]:
     the record's own shape (a non-empty bones map of valid quaternions) is
     re-verified here.
     """
-    record = rigging.read_pose(job_dir, pose_id)
+    record = store.read_pose(job_dir, pose_id)
     if record is None:
         raise NotFound("no such pose")
     raw = record.get("bones")
     if not isinstance(raw, dict) or not raw:
         raise Invalid("pose has no bones", field="bones")
     try:
-        bones = rigging.validate_bones(raw)
+        bones = poses.validate_bones(raw)
     except ValueError as exc:
         raise invalid_from(exc, "That pose cannot be read", field="bones") from exc
     return dict(record, bones=bones)
@@ -438,25 +446,25 @@ def _pose_bake_spec(job_dir: Path, pose_id: str, pose: dict[str, Any]) -> dict[s
         if not all(math.isfinite(v) for v in values):
             values = []
     if values and any(values):
-        rig = rigging.read_rig(job_dir) or {}
+        rig = store.read_rig(job_dir) or {}
         bounds, bone = rig.get("bounds"), rig.get("root")
         if isinstance(bounds, dict) and "min" in bounds and "max" in bounds and bone:
             try:
-                return rigging.pose_spec(
+                return blender_spec.pose_spec(
                     job_dir,
                     pose_id,
                     pose["bones"],
                     root_bone=str(bone),
-                    root_offset=rigging.root_offset_world(values, bounds),
+                    root_offset=blender_spec.root_offset_world(values, bounds),
                 )
             except (TypeError, ValueError, IndexError):
                 # IndexError as well as the plan's two: a two-element "min" is
                 # exactly as plausible a hand edit as a string one, and
                 # root_offset_world indexes [2] for the height.
                 log.warning("pose %s has a root offset rig.json cannot scale", pose_id)
-                return rigging.pose_spec(job_dir, pose_id, pose["bones"])
+                return blender_spec.pose_spec(job_dir, pose_id, pose["bones"])
         log.warning("pose %s carries a root offset but rig.json cannot scale it", pose_id)
-    return rigging.pose_spec(job_dir, pose_id, pose["bones"])
+    return blender_spec.pose_spec(job_dir, pose_id, pose["bones"])
 
 
 def posed_model(svc: WarlockService, job_id: str, pose_id: str) -> Path:
@@ -469,7 +477,7 @@ def posed_model(svc: WarlockService, job_id: str, pose_id: str) -> Path:
     check_job_id(job_id)
     check_pose_id(pose_id)
     job_dir = svc.job_dir(job_id)
-    path = rigging.pose_glb_path(job_dir, pose_id)
+    path = store.pose_glb_path(job_dir, pose_id)
     # Existence is only checked under the lock, and the pose is *read* under it
     # too -- a delete landing between the read and the bake would otherwise
     # recreate the GLB with no .json beside it.
@@ -490,9 +498,9 @@ def posed_model(svc: WarlockService, job_id: str, pose_id: str) -> Path:
             tmp = path.with_name(f".{pose_id}.tmp.glb")
             spec["out_glb"] = str(tmp)
             try:
-                rigging.run_worker(spec, timeout=svc.config.pose_timeout)
+                blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
                 os.replace(tmp, path)
-            except rigging.BlenderError as exc:
+            except blender_run.BlenderError as exc:
                 log.error("posing %s/%s failed: %s", job_id, pose_id, exc)
                 raise Failed("could not bake this pose") from exc
             except OSError as exc:

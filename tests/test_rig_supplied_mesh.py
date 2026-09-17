@@ -242,15 +242,15 @@ def test_a_full_rig_job_exports_a_standing_mesh(tmp_path):
     trimesh = pytest.importorskip("trimesh")
     import bpy
 
-    from warlock import rigging
+    from warlock.kernels.rig import blender_spec, store
     from warlock.pipelines import blender_worker
 
     assert FIXTURE.is_file(), f"missing fixture: {FIXTURE}"
     (tmp_path / "model.glb").write_bytes(FIXTURE.read_bytes())
 
-    result = blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid"))
+    result = blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid"))
     assert result["ok"] is True
-    rigging.finalize_rig(tmp_path)
+    store.finalize_rig(tmp_path)
 
     # scene.dump bakes every node's transform into the vertices it returns --
     # the mesh's own plus, for a skinned export, whatever the skeleton nodes

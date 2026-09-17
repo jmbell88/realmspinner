@@ -13,7 +13,7 @@ its sprite sheets belong to the mesh they depict, not to the job that asked for
 them -- which is what makes the staged-write and completion-marker rules in
 here load-bearing rather than tidy.
 
-``bpy`` never runs in this process: ``rigging.run_worker`` spawns
+``bpy`` never runs in this process: ``blender_run.run_worker`` spawns
 ``pipelines/blender_worker.py``, and ``_note_blender`` (which stays on
 ``Worker``) holds the live ``Popen`` so a cancel can kill it.
 
@@ -35,8 +35,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import rigging
-from .pipelines import pose2d
+from .kernels.rig import blender_spec, store
+from .pipelines import blender_run, pose2d
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -97,7 +97,7 @@ class RigOps:
         # temps into, and job_dir("") is the assets root -- the whole reason
         # check_job_id and pose_path exist is to keep params off the filesystem
         # unchecked.
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         source_dir = self.config.job_dir(source_id)
         template = str(params.get("template") or self.config.rig_template)
@@ -129,7 +129,7 @@ class RigOps:
                 queue_mod._landmark_bones, self.config, source_dir, template
             )
 
-        spec = rigging.rig_spec(
+        spec = blender_spec.rig_spec(
             source_dir,
             template,
             params.get("bones"),
@@ -153,7 +153,7 @@ class RigOps:
         try:
             result = await asyncio.to_thread(
                 functools.partial(
-                    rigging.run_worker,
+                    blender_run.run_worker,
                     spec,
                     on_progress=on_progress,
                     on_start=self._note_blender,
@@ -168,7 +168,7 @@ class RigOps:
                 # weighting/bone_count of a discarded rig must not end up in
                 # the params of a job recorded as cancelled.
                 return
-            await asyncio.to_thread(rigging.finalize_rig, source_dir)
+            await asyncio.to_thread(store.finalize_rig, source_dir)
             # Published onto the served rig.glb/rig.json. From here a cancel
             # cannot take the artifact back -- ``_discard_artifacts`` removes
             # only the temps, because a cancelled *re*-rig must not destroy an
@@ -184,7 +184,7 @@ class RigOps:
             # cancel it removes the half-written temps and never touches the
             # served rig.glb/rig.json, which may belong to an earlier,
             # successful rig job.
-            await asyncio.to_thread(rigging.discard_rig_temps, source_dir)
+            await asyncio.to_thread(store.discard_rig_temps, source_dir)
         # Recorded on the rig job so the history row can say "envelope
         # weights" without the UI having to fetch rig.json for every card.
         params["weighting"] = result.get("weighting")
@@ -227,7 +227,7 @@ class RigOps:
         says only that the solve produced numbers, and the way to see whether
         those numbers deform the mesh sensibly is to look at it bent.
 
-        The poses are template data (``rigging.deform_battery``) and the render
+        The poses are template data (``poses.deform_battery``) and the render
         is the ordinary sheet path -- ``sheetlib.plan``/``pack``/``sidecar``
         around ``op_sheet`` -- because a second renderer is a second set of
         camera conventions to keep in agreement with the first. The output is
@@ -236,9 +236,10 @@ class RigOps:
         sheet delete.
         """
         from . import queue as queue_mod
+        from .kernels.rig import poses as rig_poses
         from .pipelines import sheet as sheetlib
 
-        poses = rigging.deform_battery(template)
+        poses = rig_poses.deform_battery(template)
         rig_glb = source_dir / "rig.glb"
         if not poses or not self.config.deform_qa or not rig_glb.exists():
             return None
@@ -289,7 +290,7 @@ class RigOps:
                 inner_next=min(frac + 0.1, 1.0), nominal=20.0, detail="",
             )
 
-        png = rigging.rig_qa_png_path(source_dir)
+        png = store.rig_qa_png_path(source_dir)
         # Both halves of the QA sheet are staged and renamed in. The sidecar is
         # the completion marker (files.ready keys on the .json, not the .png),
         # so on a *re-rig* the previous run's sidecar already says "ready" while
@@ -297,7 +298,7 @@ class RigOps:
         # that window gets a torn sheet that nothing marks as suspect. Renaming
         # both keeps the marker's promise true at every instant.
         png_tmp = png.with_name(f".{png.name}.tmp")
-        qa_json = rigging.rig_qa_path(source_dir)
+        qa_json = store.rig_qa_path(source_dir)
         json_tmp = qa_json.with_name(f".{qa_json.name}.tmp")
         try:
             result, _trims = await self._render_sheet_atlas(
@@ -382,7 +383,7 @@ class RigOps:
         # temps into, and job_dir("") is the assets root -- the whole reason
         # check_job_id and pose_path exist is to keep params off the filesystem
         # unchecked.
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         source_dir = self.config.job_dir(source_id)
         # Refused, never minted. ``_discard_artifacts``'s sheet branch unlinks
@@ -398,12 +399,12 @@ class RigOps:
         # follow-up queuers in _q_jobs) and the resubmit path all mint one; a
         # row without one is a bug in a door, and a refusal names it.
         sheet_id = str(params.get("sheet_id") or "")
-        if not rigging.is_valid_id(sheet_id):
+        if not store.is_valid_id(sheet_id):
             raise ValueError(f"sheet_id is not a sheet id: {sheet_id!r}")
 
         records = []
         for pose_id in params.get("poses") or []:
-            record = await asyncio.to_thread(rigging.read_pose, source_dir, str(pose_id))
+            record = await asyncio.to_thread(store.read_pose, source_dir, str(pose_id))
             if record is None:
                 # Deleted between queueing and running. Failing beats quietly
                 # rendering a sheet with a row missing that the user asked for.
@@ -417,7 +418,7 @@ class RigOps:
             # pipelines/sheet.py), and storing the expanded frames would be a
             # second copy that could disagree with it.
             ends = [
-                await asyncio.to_thread(rigging.read_pose, source_dir, str(clip[k]))
+                await asyncio.to_thread(store.read_pose, source_dir, str(clip[k]))
                 for k in ("from", "to")
             ]
             if any(e is None for e in ends):
@@ -461,7 +462,7 @@ class RigOps:
         roots: dict[tuple[Any, int], list[float]] = {}
         root_bone: Any = None
         if any(float(v) for r in records for v in (r.get("root_translation") or ())):
-            rig_meta = await asyncio.to_thread(rigging.read_rig, source_dir)
+            rig_meta = await asyncio.to_thread(store.read_rig, source_dir)
             roots, root_bone = queue_mod._sheet_root_offsets(records, rig_meta)
         cells = []
         for c in layout.cells:
@@ -469,10 +470,9 @@ class RigOps:
                 "index": c.index,
                 # The guard makes "no front set renders byte-identical to
                 # before" an inspectable fact rather than an arithmetic claim
-                # about ``(x + 0.0) % 360.0`` -- ``rigging.py:1488-1491`` and
-                # ``_q_jobs.py:358-365`` already make the same call. Re-rounded
-                # to 4dp so the offset does not put float noise into the spec
-                # sent to Blender.
+                # about ``(x + 0.0) % 360.0`` -- ``_q_jobs.py:358-365`` already
+                # makes the same call. Re-rounded to 4dp so the offset does
+                # not put float noise into the spec sent to Blender.
                 "yaw": c.yaw if not front_yaw else round((c.yaw + front_yaw) % 360.0, 4),
                 "pose": c.pose,
                 "frame": c.frame,
@@ -508,7 +508,7 @@ class RigOps:
                 inner_next=min(frac + 0.05, 1.0), nominal=20.0, detail="",
             )
 
-        png = rigging.sheet_png_path(source_dir, sheet_id)
+        png = store.sheet_png_path(source_dir, sheet_id)
         # Packed to a staging name and renamed in, exactly as ``_deform_qa``
         # eighteen lines up already does and for its stated reason: the sidecar
         # is the completion marker, so an *existing* sheet's sidecar goes on
@@ -571,7 +571,7 @@ class RigOps:
         )
         await asyncio.to_thread(
             queue_mod._publish_text,
-            rigging.sheet_path(source_dir, sheet_id),
+            store.sheet_path(source_dir, sheet_id),
             json.dumps(meta, indent=2),
         )
         # The sidecar above is the completion marker, so a cancel arriving in
@@ -604,7 +604,7 @@ class RigOps:
         """Render one cell per frame into a scratch directory and pack them.
 
         The whole of what ``_sheet`` and ``_deform_qa`` share: a temporary
-        directory, ``rigging.sheet_spec``, one ``run_worker`` under the sheet
+        directory, ``blender_spec.sheet_spec``, one ``run_worker`` under the sheet
         timeout, and ``sheetlib.pack`` over the frames it wrote. Blender only
         ever renders one square transparent frame per cell into a scratch
         directory that goes away either way; the grid and the packing are pure
@@ -623,7 +623,7 @@ class RigOps:
 
         with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
             frames_dir = Path(tmp)
-            spec = rigging.sheet_spec(
+            spec = blender_spec.sheet_spec(
                 glb,
                 frames_dir,
                 cells,
@@ -633,7 +633,7 @@ class RigOps:
             )
             result = await asyncio.to_thread(
                 functools.partial(
-                    rigging.run_worker,
+                    blender_run.run_worker,
                     spec,
                     on_progress=on_progress,
                     on_start=self._note_blender,

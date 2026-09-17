@@ -44,7 +44,7 @@ reimplement Clay's 200k-triangle confirm or Troupe's skeleton question; it
 calls the function that already asks them, so an exit taken from here behaves
 exactly as the one that already shipped from wherever it shipped first.
 
-**A near miss is not the same as absent.** ``widgets.stage_rail``'s own
+**A near miss is not the same as absent.** ``create_rail.stage_rail``'s own
 docstring already makes the argument this borrows: "'Rig' missing entirely is
 a feature the user concludes does not exist; 'Rig -- Blender is not installed'
 is an answer." So a destination this asset is one step away from -- a mesh with

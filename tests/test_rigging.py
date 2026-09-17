@@ -12,10 +12,13 @@ import math
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
-from warlock import rigging
+import warlock
+from warlock.kernels.rig import blender_spec, cliplib, poses, skeleton, store, templates
+from warlock.pipelines import blender_run
 
 # --- template registry ------------------------------------------------------
 
@@ -33,12 +36,42 @@ EXPECTED_TEMPLATES = {
 
 
 def test_both_templates_load():
-    keys = set(rigging.templates())
+    keys = set(templates.templates())
     assert {"humanoid", "quadruped"} <= keys
 
 
 def test_every_shipped_template_parses():
-    assert set(rigging.templates()) == EXPECTED_TEMPLATES
+    assert set(templates.templates()) == EXPECTED_TEMPLATES
+
+
+def test_template_dir_resolves_to_the_real_directory():
+    """The depth-sensitive climb in ``templates.py`` lands on the shipped data.
+
+    P4 (2026-09-17) moved this code from ``src/warlock/rigging.py``, which
+    reached its package data with one ``.parent``, to
+    ``src/warlock/kernels/rig/templates.py``, which needs three. Getting that
+    count wrong raises nothing: ``TEMPLATE_DIR.glob("*.json")`` over a
+    directory that does not exist yields nothing, ``_load_templates`` logs
+    and moves on, and the registry comes back *empty* -- so Poser offers no
+    skeletons and every caller sees "no templates shipped" rather than a
+    traceback. The same climb is what ``kernels/manual/loader.py`` is warned
+    about in ``dev/RESTRUCTURE.md``'s hazards list.
+
+    Pinned two ways on purpose: the expected directory is derived from the
+    installed package root rather than restated as a parent count (a test
+    that restates the climb passes for any climb), and the registry is
+    asserted non-empty, which is the symptom a wrong climb actually shows.
+    """
+    expected = Path(warlock.__file__).resolve().parent / "templates"
+    assert expected == templates.TEMPLATE_DIR
+    assert templates.TEMPLATE_DIR.is_dir()
+    assert (templates.TEMPLATE_DIR / "humanoid.json").is_file()
+    assert templates.templates()
+    # The four subdirectories every other loader in the package derives from
+    # TEMPLATE_DIR -- poses, clips and limbs each back a shipped library, so
+    # a climb that landed one level off would empty those too, silently.
+    for name in ("poses", "clips", "limbs", "deform_qa"):
+        assert (templates.TEMPLATE_DIR / name).is_dir(), name
 
 
 def test_the_blank_template_is_hidden_from_the_catalogue_but_still_resolves():
@@ -48,11 +81,11 @@ def test_the_blank_template_is_hidden_from_the_catalogue_but_still_resolves():
     ``catalog()`` -- what every normal skeleton picker offers -- must omit
     it, since fitting it automatically produces one bare bone and nothing
     posable."""
-    assert "blank" in rigging.templates()
-    assert rigging.get_template("blank").hidden is True
-    assert "blank" not in {t["key"] for t in rigging.catalog()}
+    assert "blank" in templates.templates()
+    assert templates.get_template("blank").hidden is True
+    assert "blank" not in {t["key"] for t in templates.catalog()}
     # Every non-hidden shipped template is still offered, unaffected.
-    assert {t["key"] for t in rigging.catalog()} == EXPECTED_TEMPLATES - {"blank"}
+    assert {t["key"] for t in templates.catalog()} == EXPECTED_TEMPLATES - {"blank"}
 
 
 @pytest.mark.parametrize("key", sorted(EXPECTED_TEMPLATES))
@@ -60,7 +93,7 @@ def test_template_is_well_formed(key):
     """Parsing already rejects unknown parents and bad roots; this pins the
     things _parse_template does not check and that a hand-authored file gets
     wrong: bones inside the unit box, and mirror pairs naming real bones."""
-    template = rigging.get_template(key)
+    template = templates.get_template(key)
     names = {b["name"] for b in template.bones}
     for bone in template.bones:
         for end in ("head", "tail"):
@@ -74,14 +107,14 @@ def test_template_is_well_formed(key):
 
 @pytest.mark.parametrize("key", sorted(EXPECTED_TEMPLATES))
 def test_fitting_produces_no_zero_length_bones(key):
-    fitted = rigging.fit_template(rigging.get_template(key), [-1, -1, 0], [1, 1, 2])
+    fitted = skeleton.fit_template(templates.get_template(key), [-1, -1, 0], [1, 1, 2])
     for bone in fitted:
-        assert rigging._distance(bone["head"], bone["tail"]) > 0
+        assert skeleton._distance(bone["head"], bone["tail"]) > 0
 
 
 @pytest.mark.parametrize("key", sorted(EXPECTED_TEMPLATES))
 def test_template_hierarchy_is_well_formed(key):
-    t = rigging.get_template(key)
+    t = templates.get_template(key)
     names = {b["name"] for b in t.bones}
     assert len(names) == len(t.bones)
     assert t.root in names
@@ -98,7 +131,7 @@ def test_template_hierarchy_is_well_formed(key):
 def test_mirror_pairs_are_actually_mirrored(key):
     """A .L/.R pair must be reflections in X, or the future mirror-pose button
     silently produces a lopsided pose."""
-    t = rigging.get_template(key)
+    t = templates.get_template(key)
     by_name = {b["name"]: b for b in t.bones}
     for left, right in t.mirror_pairs:
         for end in ("head", "tail"):
@@ -111,11 +144,11 @@ def test_mirror_pairs_are_actually_mirrored(key):
 
 def test_get_template_rejects_unknown():
     with pytest.raises(ValueError, match="unknown skeleton template"):
-        rigging.get_template("dragon")
+        templates.get_template("dragon")
 
 
 def test_catalog_shape():
-    entries = rigging.catalog()
+    entries = templates.catalog()
     assert all(set(e) == {"key", "label"} for e in entries)
 
 
@@ -131,9 +164,9 @@ def test_malformed_template_is_skipped_not_fatal(tmp_path, monkeypatch):
         )
     )
     (tmp_path / "broken.json").write_text('{"key": "broken"}')
-    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path)
-    monkeypatch.setattr(rigging, "_templates", None)
-    assert set(rigging.templates()) == {"good"}
+    monkeypatch.setattr(templates, "TEMPLATE_DIR", tmp_path)
+    monkeypatch.setattr(templates, "_templates", None)
+    assert set(templates.templates()) == {"good"}
 
 
 def test_a_template_whose_key_mismatches_its_filename_is_skipped(tmp_path, monkeypatch):
@@ -152,14 +185,14 @@ def test_a_template_whose_key_mismatches_its_filename_is_skipped(tmp_path, monke
             }
         )
     )
-    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path)
-    monkeypatch.setattr(rigging, "_templates", None)
-    assert rigging.templates() == {}
+    monkeypatch.setattr(templates, "TEMPLATE_DIR", tmp_path)
+    monkeypatch.setattr(templates, "_templates", None)
+    assert templates.templates() == {}
 
 
 def test_a_path_unsafe_template_key_is_rejected():
     with pytest.raises(ValueError, match="not a safe path component"):
-        rigging._parse_template(
+        templates._parse_template(
             {
                 "key": "../evil",
                 "label": "X",
@@ -174,7 +207,7 @@ def test_a_parented_root_is_rejected():
     rest frame, which is sound exactly while no parent's pose sits above it --
     so the registry refuses the template rather than the worker guessing."""
     with pytest.raises(ValueError, match="must be parentless"):
-        rigging._parse_template(
+        templates._parse_template(
             {
                 "key": "x",
                 "label": "X",
@@ -188,7 +221,7 @@ def test_a_parented_root_is_rejected():
 
 
 def test_every_shipped_template_root_is_parentless():
-    for key, template in rigging.templates().items():
+    for key, template in templates.templates().items():
         parent = next(b["parent"] for b in template.bones if b["name"] == template.root)
         assert parent is None, f"{key}: root {template.root!r} is parented"
 
@@ -203,7 +236,7 @@ def test_a_template_with_a_disconnected_parent_cycle_is_rejected():
     here, at load, the same guarantee ``check_skeleton_structure`` and
     ``validate_skeleton`` already give a caller-supplied skeleton."""
     with pytest.raises(ValueError, match="cycle"):
-        rigging._parse_template(
+        templates._parse_template(
             {
                 "key": "x",
                 "label": "X",
@@ -224,7 +257,7 @@ def test_a_template_with_a_disconnected_parent_cycle_is_rejected():
 
 def test_template_with_unknown_parent_is_rejected():
     with pytest.raises(ValueError, match="unknown parent"):
-        rigging._parse_template(
+        templates._parse_template(
             {
                 "key": "x",
                 "label": "X",
@@ -238,9 +271,9 @@ def test_template_with_unknown_parent_is_rejected():
 
 
 def test_fit_maps_normalized_coords_onto_the_bbox():
-    t = rigging.get_template("humanoid")
+    t = templates.get_template("humanoid")
     lo, hi = [-1.0, -0.5, 0.0], [1.0, 0.5, 4.0]
-    fitted = rigging.fit_template(t, lo, hi)
+    fitted = skeleton.fit_template(t, lo, hi)
     by_name = {b["name"]: b for b in fitted}
     # head's tail is z=1.0 normalized -> the top of the bbox; hips sit on the
     # bbox centre in x and y.
@@ -252,8 +285,8 @@ def test_fit_maps_normalized_coords_onto_the_bbox():
 
 
 def test_fit_respects_an_off_origin_bbox():
-    t = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(t, [10.0, 20.0, 30.0], [11.0, 21.0, 31.0])
+    t = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(t, [10.0, 20.0, 30.0], [11.0, 21.0, 31.0])
     for bone in fitted:
         for point in (bone["head"], bone["tail"]):
             assert 9.9 <= point[0] <= 11.1
@@ -265,20 +298,20 @@ def test_fit_respects_an_off_origin_bbox():
 def test_fit_never_produces_a_zero_length_bone(key):
     """Blender deletes zero-length bones on leaving edit mode, taking their
     children with them -- so a flat bbox must not be able to produce one."""
-    t = rigging.get_template(key)
+    t = templates.get_template(key)
     for lo, hi in [
         ([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]),
         ([-1.0, 0.0, 0.0], [1.0, 0.0, 2.0]),  # zero depth
         ([0.0, 0.0, 0.0], [0.0, 0.0, 2.0]),  # a line
         ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),  # a point
     ]:
-        for bone in rigging.fit_template(t, lo, hi):
-            assert rigging._distance(bone["head"], bone["tail"]) > 0.0
+        for bone in skeleton.fit_template(t, lo, hi):
+            assert skeleton._distance(bone["head"], bone["tail"]) > 0.0
 
 
 def test_fit_preserves_parent_names():
-    t = rigging.get_template("quadruped")
-    fitted = rigging.fit_template(t, [-1, -2, 0], [1, 2, 1])
+    t = templates.get_template("quadruped")
+    fitted = skeleton.fit_template(t, [-1, -2, 0], [1, 2, 1])
     assert [b["parent"] for b in fitted] == [b["parent"] for b in t.bones]
 
 
@@ -286,29 +319,29 @@ def test_fit_preserves_parent_names():
 
 
 def test_validate_joints_accepts_a_full_corrected_skeleton():
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     payload = {
         "bones": [
             {"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in fitted
         ]
     }
-    out = rigging.validate_joints(payload, template)
+    out = skeleton.validate_joints(payload, template)
     assert [b["name"] for b in out] == [b["name"] for b in template.bones]
     assert out[0]["parent"] == template.bones[0]["parent"]
 
 
 def test_validate_joints_rejects_a_missing_bone():
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     with pytest.raises(ValueError):
-        rigging.validate_joints(
+        skeleton.validate_joints(
             {"bones": [{"name": "hips", "head": [0, 0, 0], "tail": [0, 0, 1]}]}, template
         )
 
 
 def test_validate_joints_rejects_an_unknown_bone():
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     payload = {
         "bones": [
             {"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in fitted
@@ -316,11 +349,11 @@ def test_validate_joints_rejects_an_unknown_bone():
         + [{"name": "wing.L", "head": [0, 0, 0], "tail": [0, 0, 1]}]
     }
     with pytest.raises(ValueError, match="unknown bone"):
-        rigging.validate_joints(payload, template)
+        skeleton.validate_joints(payload, template)
 
 
 def test_validate_joints_rejects_a_zero_length_bone():
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     payload = {
         "bones": [
             {"name": b["name"], "head": [0.0, 0.0, 0.0], "tail": [0.0, 0.0, 0.0]}
@@ -328,26 +361,26 @@ def test_validate_joints_rejects_a_zero_length_bone():
         ]
     }
     with pytest.raises(ValueError):
-        rigging.validate_joints(payload, template)
+        skeleton.validate_joints(payload, template)
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_validate_joints_rejects_non_finite_coordinates(bad):
     """NaN makes the zero-length comparison False, so it used to reach rig.json
     and only fail inside Blender."""
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     bones = [{"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in fitted]
     bones[0] = dict(bones[0], head=[bad, 0.0, 0.0])
     with pytest.raises(ValueError, match="not numeric"):
-        rigging.validate_joints({"bones": bones}, template)
+        skeleton.validate_joints({"bones": bones}, template)
 
 
 def test_rig_spec_carries_corrected_bones_when_given_them(tmp_path):
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
-    assert "bones" not in rigging.rig_spec(tmp_path, "humanoid")
-    assert rigging.rig_spec(tmp_path, "humanoid", fitted)["bones"] == fitted
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    assert "bones" not in blender_spec.rig_spec(tmp_path, "humanoid")
+    assert blender_spec.rig_spec(tmp_path, "humanoid", fitted)["bones"] == fitted
 
 
 # --- image-informed landmarks ------------------------------------------------
@@ -362,7 +395,7 @@ def test_rig_spec_carries_corrected_bones_when_given_them(tmp_path):
 def _landmarks() -> list[dict]:
     """A normalized bone list shaped like a template's, with one joint moved
     somewhere the shipped template would never put it."""
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     moved = []
     for bone in template.bones:
         bone = {k: list(v) if isinstance(v, list) else v for k, v in bone.items()}
@@ -373,7 +406,7 @@ def _landmarks() -> list[dict]:
 
 
 def test_rig_spec_leaves_out_the_landmark_fields_when_there_are_none(tmp_path):
-    spec = rigging.rig_spec(tmp_path, "humanoid")
+    spec = blender_spec.rig_spec(tmp_path, "humanoid")
     assert "template_bones" not in spec
     assert "fit" not in spec
 
@@ -381,7 +414,7 @@ def test_rig_spec_leaves_out_the_landmark_fields_when_there_are_none(tmp_path):
 def test_rig_spec_carries_landmarks_and_how_they_were_found(tmp_path):
     bones = _landmarks()
     fit = {"method": "pose2d", "model": "vitpose", "confidence": 0.81}
-    spec = rigging.rig_spec(tmp_path, "humanoid", template_bones=bones, fit=fit)
+    spec = blender_spec.rig_spec(tmp_path, "humanoid", template_bones=bones, fit=fit)
     assert spec["template_bones"] == bones
     assert spec["fit"] == fit
 
@@ -392,13 +425,13 @@ def test_the_worker_fits_the_landmark_template_not_the_shipped_one(tmp_path):
     scaled onto the mesh bbox by the same fit_template every rig uses."""
     from warlock.pipelines import blender_worker
 
-    spec = rigging.rig_spec(
+    spec = blender_spec.rig_spec(
         tmp_path, "humanoid", template_bones=_landmarks(), fit={"method": "pose2d"}
     )
     bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
     informed = {b["name"]: b for b in bones}["forearm.L"]["head"]
     shipped = {b["name"]: b for b in blender_worker._rig_bones(
-        rigging.rig_spec(tmp_path, "humanoid"), [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]
+        blender_spec.rig_spec(tmp_path, "humanoid"), [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]
     )[0]}["forearm.L"]["head"]
     assert informed != shipped
     # 0.40 of a 2-unit-wide bbox centred on 0, and 0.20 of a 2-unit-tall one
@@ -411,7 +444,7 @@ def test_a_rig_with_no_landmarks_records_the_bbox_fit(tmp_path):
     from warlock.pipelines import blender_worker
 
     _, fit = blender_worker._rig_bones(
-        rigging.rig_spec(tmp_path, "humanoid"), [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]
+        blender_spec.rig_spec(tmp_path, "humanoid"), [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]
     )
     assert fit == {"method": "bbox"}
 
@@ -420,9 +453,9 @@ def test_joints_the_user_moved_still_beat_the_landmarks(tmp_path):
     """Adjust-joints is the user overruling the fit, whichever fit it was."""
     from warlock.pipelines import blender_worker
 
-    template = rigging.get_template("humanoid")
-    corrected = rigging.fit_template(template, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0])
-    spec = rigging.rig_spec(
+    template = templates.get_template("humanoid")
+    corrected = skeleton.fit_template(template, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0])
+    spec = blender_spec.rig_spec(
         tmp_path, "humanoid", bones=corrected, template_bones=_landmarks()
     )
     bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
@@ -436,12 +469,13 @@ def test_landmarks_that_are_not_this_templates_bones_are_ignored(tmp_path):
     so it falls back to the fit that is always available and says so."""
     from warlock.pipelines import blender_worker
 
-    spec = rigging.rig_spec(
+    spec = blender_spec.rig_spec(
         tmp_path, "humanoid", template_bones=[{"name": "tentacle", "parent": None,
                                                "head": [0, 0, 0], "tail": [0, 0, 1]}]
     )
     bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
-    assert [b["name"] for b in bones] == [b["name"] for b in rigging.get_template("humanoid").bones]
+    expected = templates.get_template("humanoid").bones
+    assert [b["name"] for b in bones] == [b["name"] for b in expected]
     assert fit == {"method": "bbox"}
 
 
@@ -452,14 +486,14 @@ def test_mirror_quaternion_reflects_across_the_yz_plane():
     # A rotation about Z becomes the opposite rotation about Z under an X mirror.
     half = math.radians(30) / 2
     q = [0.0, 0.0, math.sin(half), math.cos(half)]
-    assert rigging.mirror_quaternion(q) == pytest.approx(
+    assert poses.mirror_quaternion(q) == pytest.approx(
         [0.0, 0.0, -math.sin(half), math.cos(half)]
     )
 
 
 def test_mirroring_twice_is_the_identity():
     q = [0.1830, 0.2588, 0.3536, 0.8810]
-    twice = rigging.mirror_quaternion(rigging.mirror_quaternion(q))
+    twice = poses.mirror_quaternion(poses.mirror_quaternion(q))
     assert twice == pytest.approx(q)
 
 
@@ -467,13 +501,13 @@ def test_a_rotation_about_x_survives_mirroring():
     """A limb swinging forward/back mirrors to the same swing, not its opposite."""
     half = math.radians(40) / 2
     q = [math.sin(half), 0.0, 0.0, math.cos(half)]
-    assert rigging.mirror_quaternion(q) == pytest.approx(q)
+    assert poses.mirror_quaternion(q) == pytest.approx(q)
 
 
 def test_mirror_pose_fills_in_the_other_side_and_leaves_centre_bones_alone():
     pairs = [["upper_arm.L", "upper_arm.R"]]
     posed = {"upper_arm.L": [0.0, 0.5, 0.0, 0.8660], "spine": [0.1, 0.0, 0.0, 0.9950]}
-    out = rigging.mirror_pose(posed, pairs)
+    out = poses.mirror_pose(posed, pairs)
     assert out["upper_arm.R"] == pytest.approx([0.0, -0.5, 0.0, 0.8660])
     assert out["spine"] == pytest.approx([0.1, 0.0, 0.0, 0.9950])
 
@@ -482,22 +516,22 @@ def test_mirror_pose_fills_in_the_other_side_and_leaves_centre_bones_alone():
 
 
 def test_preset_poses_validate_against_their_template():
-    for key in rigging.templates():
-        bone_names = [b["name"] for b in rigging.get_template(key).bones]
-        for preset in rigging.preset_poses(key):
+    for key in templates.templates():
+        bone_names = [b["name"] for b in templates.get_template(key).bones]
+        for preset in poses.preset_poses(key):
             # The same validation a browser-saved pose goes through: unknown
             # bones and non-unit quaternions are rejected identically, so a
             # shipped preset can never be a thing the API would refuse.
-            rigging.validate_pose(preset, bone_names)
+            poses.validate_pose(preset, bone_names)
 
 
 def test_a_template_with_no_preset_file_returns_an_empty_list():
-    assert rigging.preset_poses("serpent") == []
+    assert poses.preset_poses("serpent") == []
 
 
 def test_unknown_template_presets_raise():
     with pytest.raises(ValueError):
-        rigging.preset_poses("not-a-template")
+        poses.preset_poses("not-a-template")
 
 
 def test_the_deformation_battery_declares_delta_space():
@@ -510,7 +544,9 @@ def test_the_deformation_battery_declares_delta_space():
     legs up behind the head and "arms overhead" pointing the arms straight
     forward) -- see blender_worker.POSE_SPACES for why a node-local value
     bakes in the rest orientation of the skeleton it was authored against."""
-    poses = rigging.deform_battery("humanoid")
+    from warlock.kernels.rig import poses as rig_poses
+
+    poses = rig_poses.deform_battery("humanoid")
     assert poses, "the humanoid battery should not be empty"
     for pose in poses:
         assert pose.get("space") == "delta", f"{pose['name']!r} has no delta space"
@@ -529,7 +565,7 @@ def test_parse_clip_library_rejects_duplicate_pose_names():
         "clips": [],
     }
     with pytest.raises(ValueError, match="duplicate pose names"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 def test_parse_clip_library_rejects_duplicate_clip_names():
@@ -541,7 +577,7 @@ def test_parse_clip_library_rejects_duplicate_clip_names():
         ],
     }
     with pytest.raises(ValueError, match="duplicate clip names"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 # --- the read-door ceilings the 2026-09-11 audit added (poser-03/poser-04) --
@@ -561,8 +597,8 @@ def test_an_oversized_template_is_skipped_not_fully_read(tmp_path, monkeypatch):
     costs a log line instead of a read once it is over the ceiling, the same
     way an oversized pose.json already does. A malformed file would be
     skipped either way and prove nothing about the size guard specifically."""
-    monkeypatch.setattr(rigging, "TEMPLATE_DIR", tmp_path)
-    monkeypatch.setattr(rigging, "MAX_TEMPLATE_BYTES", 200)
+    monkeypatch.setattr(templates, "TEMPLATE_DIR", tmp_path)
+    monkeypatch.setattr(templates, "MAX_TEMPLATE_BYTES", 200)
     (tmp_path / "giant.json").write_text(
         json.dumps(
             {
@@ -582,21 +618,21 @@ def test_an_oversized_template_is_skipped_not_fully_read(tmp_path, monkeypatch):
     )
     # _load_templates, not the cached templates(): the module-level cache
     # would otherwise still hold whatever earlier tests already loaded.
-    assert rigging._load_templates() == {}
+    assert templates._load_templates() == {}
 
 
 def test_an_oversized_pose_library_file_is_skipped_not_fully_read(tmp_path, monkeypatch):
-    monkeypatch.setattr(rigging, "MAX_TEMPLATE_BYTES", 32)
+    monkeypatch.setattr(templates, "MAX_TEMPLATE_BYTES", 32)
     (tmp_path / "humanoid.json").write_text(
         json.dumps({"poses": [{"name": "x" * 200, "bones": {}}]}), encoding="utf-8"
     )
-    assert rigging._load_pose_library(tmp_path) == {}
+    assert poses._load_pose_library(tmp_path) == {}
 
 
 def test_an_oversized_clip_library_file_is_skipped_not_fully_read(tmp_path, monkeypatch):
     """poser-03: same gap, the one directory of the three that is genuinely
-    user-editable (rigging.user_clip_dir's own docstring)."""
-    monkeypatch.setattr(rigging, "MAX_CLIP_LIBRARY_BYTES", 32)
+    user-editable (cliplib.user_clip_dir's own docstring)."""
+    monkeypatch.setattr(cliplib, "MAX_CLIP_LIBRARY_BYTES", 32)
     (tmp_path / "humanoid.json").write_text(
         json.dumps(
             {
@@ -606,7 +642,7 @@ def test_an_oversized_clip_library_file_is_skipped_not_fully_read(tmp_path, monk
         ),
         encoding="utf-8",
     )
-    assert rigging._load_clip_library(tmp_path) == {}
+    assert cliplib._load_clip_library(tmp_path) == {}
 
 
 def test_an_oversized_user_clip_library_is_refused_before_being_read(tmp_path):
@@ -620,18 +656,18 @@ def test_an_oversized_user_clip_library_is_refused_before_being_read(tmp_path):
     the ``"at most 1024 key poses"`` text below moves if that cap ever does."""
     raw = {
         "poses": [
-            {"name": f"p{i}", "bones": {}} for i in range(rigging.MAX_CLIP_LIBRARY_POSES + 1)
+            {"name": f"p{i}", "bones": {}} for i in range(cliplib.MAX_CLIP_LIBRARY_POSES + 1)
         ],
         "clips": [{"name": "idle", "keys": ["p0"], "segments": [1]}],
     }
     with pytest.raises(ValueError, match="at most 1024 key poses"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
     # And the read door built on it: a library this shape sitting on disk --
     # exactly where service.clips.save would have written a user's edited
-    # library, under rigging.user_clip_dir() -- costs itself, not the app.
+    # library, under cliplib.user_clip_dir() -- costs itself, not the app.
     (tmp_path / "humanoid.json").write_text(json.dumps(raw), encoding="utf-8")
-    assert rigging._load_clip_library(tmp_path) == {}
+    assert cliplib._load_clip_library(tmp_path) == {}
 
 
 def test_a_clips_key_list_over_the_cap_is_refused():
@@ -643,13 +679,13 @@ def test_a_clips_key_list_over_the_cap_is_refused():
         "clips": [
             {
                 "name": "long",
-                "keys": ["p0"] * (rigging.MAX_CLIP_KEYS + 1),
-                "segments": [1] * rigging.MAX_CLIP_KEYS,
+                "keys": ["p0"] * (cliplib.MAX_CLIP_KEYS + 1),
+                "segments": [1] * cliplib.MAX_CLIP_KEYS,
             }
         ],
     }
     with pytest.raises(ValueError, match="at most 64 keys"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
@@ -673,11 +709,11 @@ def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
 
     # Warm the cache first -- the crash only reaches the vulnerable line when
     # the None-check is skipped because the library is already loaded.
-    monkeypatch.setattr(rigging, "_clips", None)
-    rigging.shipped_clip_library("humanoid")
-    assert rigging._clips is not None
+    monkeypatch.setattr(cliplib, "_clips", None)
+    cliplib.shipped_clip_library("humanoid")
+    assert cliplib._clips is not None
 
-    source_lines, start_line = inspect.getsourcelines(rigging.shipped_clip_library)
+    source_lines, start_line = inspect.getsourcelines(cliplib.shipped_clip_library)
     target_line = next(
         start_line + offset
         for offset, line in enumerate(source_lines)
@@ -691,16 +727,16 @@ def test_shipped_clips_survive_a_cache_invalidation_mid_read(monkeypatch):
         if (
             not fired
             and event == "line"
-            and frame.f_code is rigging.shipped_clip_library.__code__
+            and frame.f_code is cliplib.shipped_clip_library.__code__
             and frame.f_lineno == target_line
         ):
             fired = True
-            rigging.invalidate_clips()
+            cliplib.invalidate_clips()
         return tracer
 
     sys_mod.settrace(tracer)
     try:
-        result = rigging.shipped_clip_library("humanoid")
+        result = cliplib.shipped_clip_library("humanoid")
     finally:
         sys_mod.settrace(None)
 
@@ -726,7 +762,7 @@ FRAME_COUNTS = (1, 2, 4, 6, 8, 12)
 
 
 def test_the_authored_clip_libraries_are_exactly_the_four_families():
-    with_clips = {k for k in rigging.templates() if rigging.clip_library(k)["clips"]}
+    with_clips = {k for k in templates.templates() if cliplib.clip_library(k)["clips"]}
     assert with_clips == set(AUTHORED_CLIP_LIBRARIES)
 
 
@@ -744,7 +780,7 @@ def test_every_template_with_a_clip_library_expands_to_the_frame_table(key, fram
     would trip ``MAX_CELLS`` for a reason this test is not about."""
     from warlock import clips
 
-    library = rigging.clip_library(key)
+    library = cliplib.clip_library(key)
     names = [c["name"] for c in library["clips"]]
     layout = {
         "movements": [{"name": name, "frames": frames, "directions": 1} for name in names]
@@ -775,7 +811,7 @@ def test_every_authored_clip_library_is_delta_space(key):
     the same numbers read the other way contort the skeleton silently -- and a
     library that said nothing at all would be read as ``node``, which is what
     ``parse_clip_library`` defaults to for the files written before the field."""
-    library = rigging.clip_library(key)
+    library = cliplib.clip_library(key)
     assert library["space"] == "delta"
     # Per file, so every clip in it agrees, and the records the renderer sees
     # carry it too -- ``_blend`` treats a missing bone differently in each
@@ -830,7 +866,7 @@ def test_a_quadruped_walk_moves_the_diagonal_pairs_out_of_phase():
 #   pose(b) = pose(parent) @ rest(parent)^-1 @ rest(b) @ basis(b)
 #
 # with ``rest(parent)^-1 @ rest(b) @ basis(b)`` being exactly
-# ``rigging.node_from_delta`` applied to the parent-relative rest -- the one
+# ``poses.node_from_delta`` applied to the parent-relative rest -- the one
 # definition both ends of the pose feature already share -- and the bone's own
 # rest frame coming from ``vec_roll_to_mat3`` with roll 0, which is what
 # ``_build_armature`` leaves every bone at. Which way a bone's local X points
@@ -900,25 +936,25 @@ def _joint_points(key, bones=None, root_translation=None):
     ``fit_template`` maps onto a real mesh, so a height of 1.0 makes the
     root offset (which is in character-height units) directly comparable.
     """
-    fitted = rigging.fit_template(rigging.get_template(key), [-0.5, -0.5, 0.0], [0.5, 0.5, 1.0])
+    fitted = skeleton.fit_template(templates.get_template(key), [-0.5, -0.5, 0.0], [0.5, 0.5, 1.0])
     by_name = {b["name"]: b for b in fitted}
     rest, posed = {}, {}
     points = []
     for bone in fitted:
         head, tail = bone["head"], bone["tail"]
-        length = rigging._distance(head, tail)
+        length = skeleton._distance(head, tail)
         direction = [(t - h) / length for h, t in zip(head, tail, strict=True)]
         rest[bone["name"]] = _bone_frame(direction)
         delta = (bones or {}).get(bone["name"]) or [0.0, 0.0, 0.0, 1.0]
         parent = bone["parent"]
         if parent is None:
-            rotation = rigging.node_from_delta(rest[bone["name"]], delta)
+            rotation = poses.node_from_delta(rest[bone["name"]], delta)
             origin = list(head)
         else:
             inverse = [-v for v in rest[parent][:3]] + [rest[parent][3]]
             relative = _compose(inverse, rest[bone["name"]])
             parent_rotation, parent_origin = posed[parent]
-            rotation = _compose(parent_rotation, rigging.node_from_delta(relative, delta))
+            rotation = _compose(parent_rotation, poses.node_from_delta(relative, delta))
             offset = [h - p for h, p in zip(head, by_name[parent]["head"], strict=True)]
             moved = _rotate(parent_rotation, _rotate(inverse, offset))
             origin = [p + m for p, m in zip(parent_origin, moved, strict=True)]
@@ -935,8 +971,8 @@ def test_the_forward_kinematics_this_file_uses_leaves_a_rest_pose_where_it_found
     to reproduce ``fit_template``'s own joints, or every claim built on it is
     measuring the arithmetic rather than the clip."""
     for key in AUTHORED_CLIP_LIBRARIES:
-        fitted = rigging.fit_template(
-            rigging.get_template(key), [-0.5, -0.5, 0.0], [0.5, 0.5, 1.0]
+        fitted = skeleton.fit_template(
+            templates.get_template(key), [-0.5, -0.5, 0.0], [0.5, 0.5, 1.0]
         )
         expected = [p for bone in fitted for p in (bone["head"], bone["tail"])]
         for got, want in zip(_joint_points(key), expected, strict=True):
@@ -951,7 +987,7 @@ def test_every_one_shot_attack_leaves_the_rest_bounding_box(key):
     the box the character stands in, which is precisely why the sheet renderer
     frames a row from the *union* of its cells rather than from the rest pose.
     Asserted on the expansion through ``fit_template`` and
-    ``rigging.node_from_delta``, with no bpy, so it stays in the default lane.
+    ``poses.node_from_delta``, with no bpy, so it stays in the default lane.
     """
     from warlock import clips
 
@@ -973,14 +1009,14 @@ def test_every_one_shot_attack_leaves_the_rest_bounding_box(key):
 
 
 def test_validate_pose_accepts_a_unit_quaternion():
-    pose = rigging.validate_pose({"name": "idle", "bones": {"hips": [0, 0, 0, 1]}})
+    pose = poses.validate_pose({"name": "idle", "bones": {"hips": [0, 0, 0, 1]}})
     assert pose == {"name": "idle", "bones": {"hips": [0.0, 0.0, 0.0, 1.0]}}
 
 
 def test_validate_pose_renormalizes_drifted_quaternions():
     """Accumulated gizmo drags leave the unit sphere by float noise; refusing
     the save over that would be indefensible."""
-    pose = rigging.validate_pose({"name": "wave", "bones": {"hips": [0, 0, 0, 2.0]}})
+    pose = poses.validate_pose({"name": "wave", "bones": {"hips": [0, 0, 0, 2.0]}})
     assert pose["bones"]["hips"] == pytest.approx([0.0, 0.0, 0.0, 1.0])
 
 
@@ -1003,26 +1039,26 @@ def test_validate_pose_renormalizes_drifted_quaternions():
 )
 def test_validate_pose_rejects_bad_payloads(payload, match):
     with pytest.raises(ValueError, match=match):
-        rigging.validate_pose(payload)
+        poses.validate_pose(payload)
 
 
 def test_validate_pose_rejects_unknown_bones_when_told_the_skeleton():
     with pytest.raises(ValueError, match="unknown bone"):
-        rigging.validate_pose({"name": "a", "bones": {"tentacle": [0, 0, 0, 1]}}, ["hips"])
+        poses.validate_pose({"name": "a", "bones": {"tentacle": [0, 0, 0, 1]}}, ["hips"])
 
 
 # --- ids and paths ----------------------------------------------------------
 
 
 def test_new_id_is_accepted_by_its_own_validator():
-    assert rigging.is_valid_id(rigging.new_id())
+    assert store.is_valid_id(store.new_id())
 
 
 @pytest.mark.parametrize(
     "bad", ["..", "../../etc", "ABCDEF012345", "0123456789ab/x", "", "0123456789abc"]
 )
 def test_traversal_and_malformed_ids_are_rejected(bad):
-    assert not rigging.is_valid_id(bad)
+    assert not store.is_valid_id(bad)
 
 
 # --- the worker boundary ----------------------------------------------------
@@ -1030,29 +1066,29 @@ def test_traversal_and_malformed_ids_are_rejected(bad):
 
 def test_rig_spec_validates_the_template_before_spawning_anything(tmp_path):
     with pytest.raises(ValueError):
-        rigging.rig_spec(tmp_path, "dragon")
+        blender_spec.rig_spec(tmp_path, "dragon")
 
 
 def test_rig_spec_paths_all_land_in_the_job_dir(tmp_path):
-    spec = rigging.rig_spec(tmp_path, "humanoid")
+    spec = blender_spec.rig_spec(tmp_path, "humanoid")
     assert spec["op"] == "rig"
     for key in ("source_glb", "out_glb", "out_json", "result_path"):
         assert tmp_path in type(tmp_path)(spec[key]).parents
 
 
 def test_read_rig_returns_none_without_a_rig(tmp_path):
-    assert rigging.read_rig(tmp_path) is None
-    assert rigging.rig_bone_names(tmp_path) is None
+    assert store.read_rig(tmp_path) is None
+    assert store.rig_bone_names(tmp_path) is None
 
 
 def test_read_rig_survives_corrupt_json(tmp_path):
     (tmp_path / "rig.json").write_text("{not json")
-    assert rigging.read_rig(tmp_path) is None
+    assert store.read_rig(tmp_path) is None
 
 
 def test_read_rig_round_trips(tmp_path):
     (tmp_path / "rig.json").write_text(json.dumps({"bones": [{"name": "hips"}]}))
-    assert rigging.rig_bone_names(tmp_path) == ["hips"]
+    assert store.rig_bone_names(tmp_path) == ["hips"]
 
 
 # --- why the weights are what they are --------------------------------------
@@ -1162,7 +1198,7 @@ def test_rig_meta_round_trips_the_weighting_reason_through_rig_json(tmp_path):
     """
     from warlock.pipelines import blender_worker
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
         template,
         bones=[{"name": "hips", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
@@ -1175,7 +1211,7 @@ def test_rig_meta_round_trips_the_weighting_reason_through_rig_json(tmp_path):
     )
     (tmp_path / "rig.json").write_text(json.dumps(meta), encoding="utf-8")
 
-    rig = rigging.read_rig(tmp_path)
+    rig = store.read_rig(tmp_path)
     assert rig["weighting"] == "envelope"
     assert rig["weighting_reason"] == "bone-heat weighting failed: produced no vertex weights"
     # Additive: no version bump travels with it, because every reader is
@@ -1187,7 +1223,7 @@ def test_a_successful_rig_records_no_reason(tmp_path):
     from warlock.pipelines import blender_worker
 
     meta = blender_worker._rig_meta(
-        rigging.get_template("humanoid"),
+        templates.get_template("humanoid"),
         bones=[],
         lo=[0.0, 0.0, 0.0],
         hi=[1.0, 1.0, 1.0],
@@ -1223,24 +1259,46 @@ def test_the_inspector_calls_envelope_a_degraded_outcome():
 def test_rigging_stays_importable_with_no_bpy_anywhere():
     """The host half may never import bpy -- it is process-global, not thread
     safe, and takes the interpreter down rather than raising on the kind of
-    geometry trellis produces. A stub that raises on import proves it."""
+    geometry trellis produces. A stub that raises on import proves it.
+
+    The host half is six files now (P4 of ``dev/RESTRUCTURE.md`` split the
+    former single ``rigging.py``), plus ``pipelines/blender_run.py`` for the
+    subprocess-running half -- so both halves of this test walk all seven
+    instead of reading one file's text.
+    """
     import pathlib
     import re
 
-    source = pathlib.Path(rigging.__file__).read_text(encoding="utf-8")
-    # Statements only -- the module's own prose argues about bpy at length.
-    assert not re.search(r"^\s*(import bpy|from bpy)", source, re.MULTILINE)
+    import warlock.kernels.rig as rig_pkg
+    import warlock.pipelines.blender_run as blender_run_mod
+
+    host_files = [
+        pathlib.Path(rig_pkg.__file__).parent / name
+        for name in (
+            "templates.py", "cliplib.py", "skeleton.py", "poses.py",
+            "store.py", "blender_spec.py",
+        )
+    ] + [pathlib.Path(blender_run_mod.__file__)]
+    for host_file in host_files:
+        source = host_file.read_text(encoding="utf-8")
+        # Statements only -- the module's own prose argues about bpy at length.
+        assert not re.search(r"^\s*(import bpy|from bpy)", source, re.MULTILINE), host_file
     # And transitively, which the scan cannot see. In a subprocess rather than
-    # by reloading in-process: reloading rigging mints new function objects and
-    # breaks the identity tests/test_viewer_pose.py asserts about
+    # by reloading in-process: reloading these modules mints new function
+    # objects and breaks the identity tests/test_viewer_pose.py asserts about
     # ``mirror_quaternion``. ``sys.modules['bpy'] = None`` makes any attempt to
     # import it raise, so a hidden import fails loudly instead of succeeding on
-    # a machine that happens to have Blender.
+    # a machine that happens to have Blender. Each submodule is imported by
+    # name -- ``kernels/rig/__init__.py`` deliberately re-exports nothing (the
+    # package's own no-shim rule), so importing the package alone would not
+    # exercise any of them.
     proc = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; sys.modules['bpy'] = None; import warlock.rigging",
+            "import sys; sys.modules['bpy'] = None; "
+            "from warlock.kernels.rig import templates, cliplib, skeleton, poses, store, "
+            "blender_spec; import warlock.pipelines.blender_run",
         ],
         capture_output=True,
         text=True,
@@ -1251,9 +1309,9 @@ def test_rigging_stays_importable_with_no_bpy_anywhere():
 def test_run_worker_failure_is_a_blender_error_not_a_traceback(tmp_path):
     """Whether bpy is installed or not, rigging a mesh that isn't there must
     surface as one typed error carrying the worker's output."""
-    spec = rigging.rig_spec(tmp_path, "humanoid")
-    with pytest.raises(rigging.BlenderError):
-        rigging.run_worker(spec, timeout=300)
+    spec = blender_spec.rig_spec(tmp_path, "humanoid")
+    with pytest.raises(blender_run.BlenderError):
+        blender_run.run_worker(spec, timeout=300)
 
 
 def test_run_worker_kills_a_worker_that_hangs_without_closing_stdout(tmp_path, monkeypatch):
@@ -1270,11 +1328,11 @@ def test_run_worker_kills_a_worker_that_hangs_without_closing_stdout(tmp_path, m
         # Holds stdout open and never exits, exactly like a wedged worker.
         return real_popen([sys.executable, "-c", "import time; time.sleep(120)"], **kw)
 
-    monkeypatch.setattr(rigging.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(blender_run.subprocess, "Popen", fake_popen)
     started: list[subprocess.Popen] = []
     began = time.monotonic()
-    with pytest.raises(rigging.BlenderError, match="timed out"):
-        rigging.run_worker(
+    with pytest.raises(blender_run.BlenderError, match="timed out"):
+        blender_run.run_worker(
             {"op": "rig", "result_path": str(tmp_path / "r.json")},
             timeout=1.0,
             on_start=started.append,
@@ -1306,13 +1364,13 @@ def test_run_worker_never_waits_unbounded_after_a_kill(tmp_path, monkeypatch):
         def kill(self):
             pass
 
-    monkeypatch.setattr(rigging.subprocess, "Popen", lambda *_a, **_kw: StuckProcess())
-    monkeypatch.setattr(rigging.winjob, "assign", lambda _pid: None)
-    monkeypatch.setattr(rigging.winjob, "track", lambda _pid, _label: None)
-    monkeypatch.setattr(rigging.winjob, "untrack", lambda _pid: None)
+    monkeypatch.setattr(blender_run.subprocess, "Popen", lambda *_a, **_kw: StuckProcess())
+    monkeypatch.setattr(blender_run.winjob, "assign", lambda _pid: None)
+    monkeypatch.setattr(blender_run.winjob, "track", lambda _pid, _label: None)
+    monkeypatch.setattr(blender_run.winjob, "untrack", lambda _pid: None)
 
-    with pytest.raises(rigging.BlenderError, match="timed out"):
-        rigging.run_worker(
+    with pytest.raises(blender_run.BlenderError, match="timed out"):
+        blender_run.run_worker(
             {"op": "rig", "result_path": str(tmp_path / "r.json")}, timeout=0.01
         )
 
@@ -1329,7 +1387,7 @@ def test_run_worker_honours_a_result_already_queued_when_the_deadline_elapses(
     ``threading.Thread`` is faked to run the reader synchronously, so the
     EOF sentinel is already sitting in ``lines`` before the wait loop's
     first ``remaining <= 0`` check ever runs -- exactly the race described
-    at rigging.py's run_worker. Before the fix this raised
+    at blender_run.run_worker. Before the fix this raised
     ``TimeoutExpired`` and deleted the result the worker had already
     written; now the drain-before-raise must let it through.
     """
@@ -1370,11 +1428,11 @@ def test_run_worker_honours_a_result_already_queued_when_the_deadline_elapses(
         def join(self, timeout=None):
             pass
 
-    monkeypatch.setattr(rigging.subprocess, "Popen", lambda *_a, **_kw: DoneProcess())
-    monkeypatch.setattr(rigging, "threading", type("T", (), {"Thread": SyncThread}))
-    monkeypatch.setattr(rigging.winjob, "assign", lambda _pid: None)
-    monkeypatch.setattr(rigging.winjob, "track", lambda _pid, _label: None)
-    monkeypatch.setattr(rigging.winjob, "untrack", lambda _pid: None)
+    monkeypatch.setattr(blender_run.subprocess, "Popen", lambda *_a, **_kw: DoneProcess())
+    monkeypatch.setattr(blender_run, "threading", type("T", (), {"Thread": SyncThread}))
+    monkeypatch.setattr(blender_run.winjob, "assign", lambda _pid: None)
+    monkeypatch.setattr(blender_run.winjob, "track", lambda _pid, _label: None)
+    monkeypatch.setattr(blender_run.winjob, "untrack", lambda _pid: None)
 
     def on_start(_proc):
         # Stands in for the worker having already written its result --
@@ -1384,7 +1442,7 @@ def test_run_worker_honours_a_result_already_queued_when_the_deadline_elapses(
 
     # A deadline already in the past: the very first "remaining <= 0" check
     # must fire, with the sentinel already queued by the synchronous reader.
-    payload = rigging.run_worker(
+    payload = blender_run.run_worker(
         {"op": "rig", "result_path": str(result_path)},
         timeout=-1.0,
         on_start=on_start,
@@ -1393,8 +1451,8 @@ def test_run_worker_honours_a_result_already_queued_when_the_deadline_elapses(
 
 
 def test_run_worker_rejects_an_unknown_op(tmp_path):
-    with pytest.raises(rigging.BlenderError, match="code 2"):
-        rigging.run_worker(
+    with pytest.raises(blender_run.BlenderError, match="code 2"):
+        blender_run.run_worker(
             {"op": "sculpt", "result_path": str(tmp_path / "r.json")}, timeout=60
         )
 
@@ -1579,7 +1637,7 @@ def test_op_rig_validate_joints_failure_falls_back_to_the_bbox_fit(monkeypatch, 
     def rejecting_validate(_measured, _template):
         raise ValueError("joints payload is missing bone(s)")
 
-    monkeypatch.setattr(rigging, "validate_joints", rejecting_validate)
+    monkeypatch.setattr(skeleton, "validate_joints", rejecting_validate)
 
     seen_spec = {}
 
@@ -1645,7 +1703,7 @@ def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adju
     monkeypatch.setattr(jointfit, "payload", lambda _points: {"bones": []})
 
     measured_bones = _humanoid_rig_bones()
-    monkeypatch.setattr(rigging, "validate_joints", lambda _measured, _template: measured_bones)
+    monkeypatch.setattr(skeleton, "validate_joints", lambda _measured, _template: measured_bones)
     monkeypatch.setattr(blender_worker, "_build_armature", lambda _bpy, _bones: object())
     monkeypatch.setattr(blender_worker, "_skin", lambda *a, **k: ("automatic", None))
     monkeypatch.setattr(blender_worker, "_export", lambda *a, **k: None)
@@ -1691,17 +1749,17 @@ def test_end_to_end_rig_of_a_generated_cube(tmp_path):
     source = tmp_path / "model.glb"
     bpy.ops.export_scene.gltf(filepath=str(source), export_format="GLB")
 
-    spec = rigging.rig_spec(tmp_path, "humanoid")
+    spec = blender_spec.rig_spec(tmp_path, "humanoid")
     result = blender_worker.op_rig(bpy, spec)
     # The worker writes temp names; publishing them is the queue's job.
-    rigging.finalize_rig(tmp_path)
+    store.finalize_rig(tmp_path)
     assert result["ok"] is True
     # ``automatic-welded`` joined this list when weld-before-heat landed, and a
     # cube reaches it: the glTF export splits every vertex by normal, so even
     # this mesh arrives with 24 vertices and welds back to 8 before the solve.
     assert result["weighting"] in ("automatic", "automatic-welded", "envelope")
     assert (tmp_path / "rig.glb").exists()
-    rig = rigging.read_rig(tmp_path)
+    rig = store.read_rig(tmp_path)
     assert rig["template"] == "humanoid"
     assert len(rig["bones"]) == result["bones"]
     # Which fit produced those joints, recorded beside them: a rig fitted to
@@ -1730,16 +1788,16 @@ def test_a_landmark_informed_rig_builds_the_armature_from_the_landmarks(tmp_path
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
 
     landmarks = _landmarks()  # forearm.L's head moved to [0.40, 0.0, 0.20]
-    spec = rigging.rig_spec(
+    spec = blender_spec.rig_spec(
         tmp_path,
         "humanoid",
         template_bones=landmarks,
         fit={"method": "pose2d", "model": "vitpose", "confidence": 0.77},
     )
     blender_worker.op_rig(bpy, spec)
-    rigging.finalize_rig(tmp_path)
+    store.finalize_rig(tmp_path)
 
-    rig = rigging.read_rig(tmp_path)
+    rig = store.read_rig(tmp_path)
     assert rig["fit"]["method"] == "pose2d"
     assert rig["fit"]["confidence"] == 0.77
     assert rig["adjusted"] is False, "a measured fit is not a correction the user made"
@@ -1761,17 +1819,17 @@ def test_pose_spec_without_root_kwargs_is_byte_identical_to_the_old_shape(tmp_pa
     exactly the dict every pose bake has always sent, key for key."""
     pose_id = "0123456789ab"
     bones = {"hips": [0.0, 0.0, 0.0, 1.0]}
-    assert rigging.pose_spec(tmp_path, pose_id, bones) == {
+    assert blender_spec.pose_spec(tmp_path, pose_id, bones) == {
         "op": "pose",
         "rig_glb": str(tmp_path / "rig.glb"),
-        "out_glb": str(rigging.pose_glb_path(tmp_path, pose_id)),
-        "result_path": str(rigging.pose_dir(tmp_path) / f".{pose_id}.result.json"),
+        "out_glb": str(store.pose_glb_path(tmp_path, pose_id)),
+        "result_path": str(store.pose_dir(tmp_path) / f".{pose_id}.result.json"),
         "bones": bones,
     }
 
 
 def test_pose_spec_adds_no_keys_for_a_zero_offset(tmp_path):
-    spec = rigging.pose_spec(
+    spec = blender_spec.pose_spec(
         tmp_path, "0123456789ab", {}, root_bone="hips", root_offset=[0.0, 0.0, 0.0]
     )
     assert "root_bone" not in spec
@@ -1779,7 +1837,7 @@ def test_pose_spec_adds_no_keys_for_a_zero_offset(tmp_path):
 
 
 def test_pose_spec_carries_a_nonzero_root_offset(tmp_path):
-    spec = rigging.pose_spec(
+    spec = blender_spec.pose_spec(
         tmp_path, "0123456789ab", {}, root_bone="hips", root_offset=[0.1, 0, -0.2]
     )
     assert spec["root_bone"] == "hips"
@@ -1787,23 +1845,23 @@ def test_pose_spec_carries_a_nonzero_root_offset(tmp_path):
 
 
 def test_save_pose_merges_extra_into_the_record(tmp_path):
-    pose = rigging.validate_pose({"name": "snap", "bones": {"hips": [0, 0, 0, 1]}})
-    record = rigging.save_pose(
+    pose = poses.validate_pose({"name": "snap", "bones": {"hips": [0, 0, 0, 1]}})
+    record = store.save_pose(
         tmp_path,
         pose,
         extra={"root_translation": [0.1, 0.0, 0.0], "source_pose": {"id": "abc"}},
     )
-    back = rigging.read_pose(tmp_path, record["id"])
+    back = store.read_pose(tmp_path, record["id"])
     assert back["root_translation"] == [0.1, 0.0, 0.0]
     assert back["source_pose"] == {"id": "abc"}
     assert back["name"] == "snap"
 
 
 def test_save_pose_extra_may_not_override_what_the_record_owns(tmp_path):
-    pose = rigging.validate_pose({"name": "snap", "bones": {"hips": [0, 0, 0, 1]}})
+    pose = poses.validate_pose({"name": "snap", "bones": {"hips": [0, 0, 0, 1]}})
     for key in ("id", "name", "bones", "created"):
         with pytest.raises(ValueError, match="may not override"):
-            rigging.save_pose(tmp_path, pose, extra={key: "x"})
+            store.save_pose(tmp_path, pose, extra={key: "x"})
 
 
 # --- pose storage against a hand-edited job directory ------------------------
@@ -1814,32 +1872,32 @@ def test_save_pose_extra_may_not_override_what_the_record_owns(tmp_path):
 
 
 def _pose_file(job_dir, pose_id: str):
-    directory = job_dir / rigging.POSE_DIR_NAME
+    directory = job_dir / store.POSE_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
     return directory / f"{pose_id}.json"
 
 
 def test_a_pose_that_is_not_utf8_costs_itself(tmp_path):
-    pose_id = rigging.new_id()
+    pose_id = store.new_id()
     _pose_file(tmp_path, pose_id).write_bytes(b"\xff\xfe not text at all")
-    assert rigging.read_pose(tmp_path, pose_id) is None
-    assert rigging.list_poses(tmp_path) == []
+    assert store.read_pose(tmp_path, pose_id) is None
+    assert store.list_poses(tmp_path) == []
 
 
 def test_a_pose_that_is_a_json_array_costs_itself(tmp_path):
     """json.loads succeeds; every caller then does record["bones"] on a list."""
-    pose_id = rigging.new_id()
+    pose_id = store.new_id()
     _pose_file(tmp_path, pose_id).write_text(json.dumps([1, 2, 3]), encoding="utf-8")
-    assert rigging.read_pose(tmp_path, pose_id) is None
+    assert store.read_pose(tmp_path, pose_id) is None
 
 
 def test_an_oversized_pose_is_refused_without_being_parsed(tmp_path, monkeypatch):
-    monkeypatch.setattr(rigging, "MAX_RECORD_BYTES", 32)
-    pose_id = rigging.new_id()
+    monkeypatch.setattr(store, "MAX_RECORD_BYTES", 32)
+    pose_id = store.new_id()
     _pose_file(tmp_path, pose_id).write_text(
         json.dumps({"id": pose_id, "name": "x" * 200, "bones": {}}), encoding="utf-8"
     )
-    assert rigging.read_pose(tmp_path, pose_id) is None
+    assert store.read_pose(tmp_path, pose_id) is None
 
 
 # The same three guards on the three readers that never had them. ``read_sheet``,
@@ -1851,19 +1909,19 @@ def test_an_oversized_pose_is_refused_without_being_parsed(tmp_path, monkeypatch
 
 
 def _reader_cases(job_dir):
-    sheet_id, draft_id = rigging.new_id(), rigging.new_id()
+    sheet_id, draft_id = store.new_id(), store.new_id()
     return (
         (
-            rigging.sheet_path(job_dir, sheet_id),
-            lambda: rigging.read_sheet(job_dir, sheet_id),
+            store.sheet_path(job_dir, sheet_id),
+            lambda: store.read_sheet(job_dir, sheet_id),
         ),
         (
-            rigging.sheet_pixel_path(job_dir, sheet_id),
-            lambda: rigging.read_sheet_pixel(job_dir, sheet_id),
+            store.sheet_pixel_path(job_dir, sheet_id),
+            lambda: store.read_sheet_pixel(job_dir, sheet_id),
         ),
         (
-            rigging.sprite_draft_path(job_dir, draft_id),
-            lambda: rigging.read_sprite_draft(job_dir, draft_id),
+            store.sprite_draft_path(job_dir, draft_id),
+            lambda: store.read_sprite_draft(job_dir, draft_id),
         ),
     )
 
@@ -1883,7 +1941,7 @@ def test_a_sidecar_that_is_a_json_array_costs_itself(tmp_path):
 
 
 def test_an_oversized_sidecar_is_refused_without_being_parsed(tmp_path, monkeypatch):
-    monkeypatch.setattr(rigging, "MAX_RECORD_BYTES", 32)
+    monkeypatch.setattr(store, "MAX_RECORD_BYTES", 32)
     for path, read in _reader_cases(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"name": "x" * 200}), encoding="utf-8")
@@ -1893,37 +1951,37 @@ def test_an_oversized_sidecar_is_refused_without_being_parsed(tmp_path, monkeypa
 def test_a_pose_whose_id_disagrees_with_its_filename_lists_under_the_stem(tmp_path):
     """The stem is the address every caller uses, so the stem wins: the pose
     stays readable and deletable instead of naming a file that isn't there."""
-    pose_id = rigging.new_id()
+    pose_id = store.new_id()
     _pose_file(tmp_path, pose_id).write_text(
         json.dumps({"id": "somethingelse", "name": "drift", "bones": {}, "created": 1.0}),
         encoding="utf-8",
     )
-    [listed] = rigging.list_poses(tmp_path)
+    [listed] = store.list_poses(tmp_path)
     assert listed["id"] == pose_id
-    assert rigging.delete_pose(tmp_path, listed["id"]) is True
+    assert store.delete_pose(tmp_path, listed["id"]) is True
 
 
 def test_a_string_created_stamp_does_not_break_the_whole_list(tmp_path):
-    for pose_id, created in ((rigging.new_id(), 2.0), (rigging.new_id(), "yesterday")):
+    for pose_id, created in ((store.new_id(), 2.0), (store.new_id(), "yesterday")):
         _pose_file(tmp_path, pose_id).write_text(
             json.dumps({"id": pose_id, "name": "p", "bones": {}, "created": created}),
             encoding="utf-8",
         )
-    assert len(rigging.list_poses(tmp_path)) == 2
+    assert len(store.list_poses(tmp_path)) == 2
 
 
 def test_a_rig_json_that_is_not_an_object_costs_itself(tmp_path):
     (tmp_path / "rig.json").write_text(json.dumps(["hips"]), encoding="utf-8")
-    assert rigging.read_rig(tmp_path) is None
-    assert rigging.rig_bone_names(tmp_path) is None
+    assert store.read_rig(tmp_path) is None
+    assert store.rig_bone_names(tmp_path) is None
 
 
 def test_an_oversized_rig_json_is_refused_without_being_parsed(tmp_path, monkeypatch):
-    monkeypatch.setattr(rigging, "MAX_RECORD_BYTES", 32)
+    monkeypatch.setattr(store, "MAX_RECORD_BYTES", 32)
     (tmp_path / "rig.json").write_text(
         json.dumps({"bones": [{"name": "hips"}] * 20}), encoding="utf-8"
     )
-    assert rigging.read_rig(tmp_path) is None
+    assert store.read_rig(tmp_path) is None
 
 
 def test_list_sheets_skips_a_sidecar_whose_png_name_is_a_directory(tmp_path):
@@ -1932,46 +1990,46 @@ def test_list_sheets_skips_a_sidecar_whose_png_name_is_a_directory(tmp_path):
     presence check everywhere else in this area (sheet.pack,
     pixelize.reduce_frames, troupe_mode.scores/atlas_texture), fixed to
     ``.is_file()`` by the 2026-09-07/2026-09-08 audits for the same reason."""
-    sheet_id = rigging.new_id()
-    rigging.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
-    rigging.sheet_path(tmp_path, sheet_id).write_text(
+    sheet_id = store.new_id()
+    store.sheet_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    store.sheet_path(tmp_path, sheet_id).write_text(
         json.dumps({"id": sheet_id, "created": 1.0}), encoding="utf-8"
     )
     # A directory where the completed sheet's PNG belongs -- exists() is True
     # for this, is_file() is not.
-    rigging.sheet_png_path(tmp_path, sheet_id).mkdir()
-    assert rigging.list_sheets(tmp_path) == []
+    store.sheet_png_path(tmp_path, sheet_id).mkdir()
+    assert store.list_sheets(tmp_path) == []
 
 
 def test_root_offset_world_scales_by_the_rig_height():
     bounds = {"min": [-1.0, -1.0, 0.0], "max": [1.0, 1.0, 2.0]}
-    assert rigging.root_offset_world([0.1, 0.0, -0.25], bounds) == pytest.approx(
+    assert blender_spec.root_offset_world([0.1, 0.0, -0.25], bounds) == pytest.approx(
         [0.2, 0.0, -0.5]
     )
 
 
 def test_root_offset_world_degenerate_height_falls_back_to_the_largest_extent():
     bounds = {"min": [-3.0, -1.0, 1.0], "max": [3.0, 1.0, 1.0]}  # flat in z
-    assert rigging.root_offset_world([0.5, 0.0, 0.0], bounds) == pytest.approx([3.0, 0.0, 0.0])
+    assert blender_spec.root_offset_world([0.5, 0.0, 0.0], bounds) == pytest.approx([3.0, 0.0, 0.0])
 
 
 def test_root_offset_world_point_box_degrades_to_as_authored():
     bounds = {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]}
-    assert rigging.root_offset_world([0.5, -0.5, 0.25], bounds) == [0.5, -0.5, 0.25]
+    assert blender_spec.root_offset_world([0.5, -0.5, 0.25], bounds) == [0.5, -0.5, 0.25]
 
 
 def test_root_offset_world_zero_stays_zero():
     bounds = {"min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 5.0]}
-    assert rigging.root_offset_world([0.0, 0.0, 0.0], bounds) == [0.0, 0.0, 0.0]
+    assert blender_spec.root_offset_world([0.0, 0.0, 0.0], bounds) == [0.0, 0.0, 0.0]
 
 
 def test_armature_spec_validates_the_template_before_spawning_anything(tmp_path):
     with pytest.raises(ValueError, match="unknown skeleton template"):
-        rigging.armature_spec("dragon", tmp_path / "a.glb", tmp_path)
+        blender_spec.armature_spec("dragon", tmp_path / "a.glb", tmp_path)
 
 
 def test_armature_spec_shape(tmp_path):
-    spec = rigging.armature_spec("humanoid", tmp_path / ".preview.tmp.glb", tmp_path)
+    spec = blender_spec.armature_spec("humanoid", tmp_path / ".preview.tmp.glb", tmp_path)
     assert spec == {
         "op": "armature",
         "template": "humanoid",
@@ -1984,8 +2042,8 @@ def test_armature_specs_for_different_templates_use_different_result_files(tmp_p
     """The preview lock is per template, so two templates may build at once --
     and ``run_worker`` unlinks and then watches the result path, so a shared
     name would let each build eat the other's answer."""
-    a = rigging.armature_spec("humanoid", tmp_path / "a.glb", tmp_path)
-    b = rigging.armature_spec("fish", tmp_path / "b.glb", tmp_path)
+    a = blender_spec.armature_spec("humanoid", tmp_path / "a.glb", tmp_path)
+    b = blender_spec.armature_spec("fish", tmp_path / "b.glb", tmp_path)
     assert a["result_path"] != b["result_path"]
 
 
@@ -2061,8 +2119,8 @@ def test_a_posed_glb_carries_back_exactly_the_rotations_it_was_given(tmp_path):
     bpy.context.object.scale = (0.3, 0.2, 1.0)
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
-    blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid"))
-    rigging.finalize_rig(tmp_path)
+    blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid"))
+    store.finalize_rig(tmp_path)
 
     # A parent and its child, so bone-chain accumulation is exercised too.
     want = {
@@ -2096,8 +2154,8 @@ def test_posing_a_bone_the_rig_lacks_is_reported_not_fatal(tmp_path):
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
-    blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid"))
-    rigging.finalize_rig(tmp_path)
+    blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid"))
+    store.finalize_rig(tmp_path)
 
     result = blender_worker.op_pose(
         bpy,
@@ -2127,7 +2185,7 @@ def test_a_glb_round_trips_through_the_worker_into_a_real_fbx(tmp_path):
     trimesh.Scene(trimesh.creation.box(extents=(1.0, 2.0, 1.0))).export(source)
     out = tmp_path / "model.fbx"
 
-    rigging.run_worker(rigging.fbx_spec(source, out, tmp_path), timeout=300)
+    blender_run.run_worker(blender_spec.fbx_spec(source, out, tmp_path), timeout=300)
 
     assert out.exists()
     # "Kaydara FBX Binary" is the magic every FBX reader looks for.
@@ -2214,7 +2272,7 @@ def test_op_armature_exports_a_meshless_skeleton(tmp_path):
 
     out = tmp_path / ".preview.tmp.glb"
     result = blender_worker.op_armature(
-        bpy, rigging.armature_spec("humanoid", out, tmp_path)
+        bpy, blender_spec.armature_spec("humanoid", out, tmp_path)
     )
     assert result["ok"] is True
     assert out.exists()
@@ -2227,7 +2285,7 @@ def test_op_armature_exports_a_meshless_skeleton(tmp_path):
     assert "meshes" not in doc
     assert not any("mesh" in n or "skin" in n for n in doc["nodes"])
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     bone_names = {b["name"] for b in template.bones}
     named = [n["name"] for n in doc["nodes"] if n.get("name") in bone_names]
     assert sorted(named) == sorted(bone_names), "one node per template bone, named exactly"
@@ -2252,7 +2310,7 @@ def test_op_armature_exports_a_meshless_skeleton(tmp_path):
     # root_translation mean character-height units literally. Blender world
     # (x, y, z) reads back as glTF (x, z, -y).
     world = _world_positions(doc)
-    for bone in rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI):
+    for bone in skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI):
         bx, by, bz = bone["head"]
         assert world[bone["name"]] == pytest.approx([bx, bz, -by], abs=1e-4), bone["name"]
 
@@ -2271,22 +2329,22 @@ def test_op_pose_bakes_the_root_offset_and_only_when_asked(tmp_path):
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0)
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
-    blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid"))
-    rigging.finalize_rig(tmp_path)
+    blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid"))
+    store.finalize_rig(tmp_path)
 
     rest_id, moved_id, ignored_id = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
-    spec = rigging.pose_spec(tmp_path, rest_id, {})
+    spec = blender_spec.pose_spec(tmp_path, rest_id, {})
     assert "root_offset" not in spec
     blender_worker.op_pose(bpy, spec)
 
     offset = [0.15, -0.1, 0.2]
     blender_worker.op_pose(
         bpy,
-        rigging.pose_spec(tmp_path, moved_id, {}, root_bone="hips", root_offset=offset),
+        blender_spec.pose_spec(tmp_path, moved_id, {}, root_bone="hips", root_offset=offset),
     )
 
-    rest = _glb_node_translations(rigging.pose_glb_path(tmp_path, rest_id))["hips"]
-    moved = _glb_node_translations(rigging.pose_glb_path(tmp_path, moved_id))["hips"]
+    rest = _glb_node_translations(store.pose_glb_path(tmp_path, rest_id))["hips"]
+    moved = _glb_node_translations(store.pose_glb_path(tmp_path, moved_id))["hips"]
     # The exporter emits the root joint's frame in glTF axes, so the world
     # displacement _apply_root_translation guarantees reads back as
     # (dx, dz, -dy) -- measured, and exactly the m3.blender_delta_to_gltf
@@ -2297,11 +2355,11 @@ def test_op_pose_bakes_the_root_offset_and_only_when_asked(tmp_path):
     # A root the rig lacks is reported, never fatal -- the _apply_pose rule.
     blender_worker.op_pose(
         bpy,
-        rigging.pose_spec(
+        blender_spec.pose_spec(
             tmp_path, ignored_id, {}, root_bone="tail_99", root_offset=[0.5, 0.0, 0.0]
         ),
     )
-    ignored = _glb_node_translations(rigging.pose_glb_path(tmp_path, ignored_id))["hips"]
+    ignored = _glb_node_translations(store.pose_glb_path(tmp_path, ignored_id))["hips"]
     assert ignored == pytest.approx(rest, abs=1e-6)
 
 
@@ -2320,12 +2378,12 @@ def test_op_rig_builds_the_armature_from_supplied_joints_not_the_fit(tmp_path):
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     # A skeleton fitted to a box ten times the sphere: every joint lands
     # somewhere the sphere's own fit never would.
-    override = rigging.fit_template(template, [-10, -10, 0], [10, 10, 20])
-    blender_worker.op_rig(bpy, rigging.rig_spec(tmp_path, "humanoid", override))
-    rigging.finalize_rig(tmp_path)
+    override = skeleton.fit_template(template, [-10, -10, 0], [10, 10, 20])
+    blender_worker.op_rig(bpy, blender_spec.rig_spec(tmp_path, "humanoid", override))
+    store.finalize_rig(tmp_path)
 
     rig = json.loads((tmp_path / "rig.json").read_text(encoding="utf-8"))
     assert rig["adjusted"] is True
@@ -2346,13 +2404,13 @@ def test_a_garbage_result_from_an_exit_zero_worker_is_a_blender_error(tmp_path, 
         result.write_text("half a resu", encoding="utf-8")
         return real_popen([sys.executable, "-c", "pass"], **kw)
 
-    monkeypatch.setattr(rigging.subprocess, "Popen", fake_popen)
-    with pytest.raises(rigging.BlenderError, match="unreadable result"):
-        rigging.run_worker({"op": "rig", "result_path": str(result)}, timeout=30)
+    monkeypatch.setattr(blender_run.subprocess, "Popen", fake_popen)
+    with pytest.raises(blender_run.BlenderError, match="unreadable result"):
+        blender_run.run_worker({"op": "rig", "result_path": str(result)}, timeout=30)
     assert not result.exists()
 
 
-# --- the skeleton editor (P1: rigging.py, pure) -------------------------------
+# --- the skeleton editor (P1: kernels/rig/skeleton.py, pure) ------------------
 #
 # Poser's skeleton editor: move/add/remove pivots, split a bone, graft a limb
 # preset. Everything here is pure -- list[dict] in, a new list[dict] out -- so
@@ -2367,12 +2425,12 @@ def test_max_skeleton_bones_matches_the_viewer_shader_uniform():
     silently fails to animate."""
     from warlock.studio.viewer.programs import MAX_JOINTS
 
-    assert rigging.MAX_SKELETON_BONES == MAX_JOINTS
+    assert skeleton.MAX_SKELETON_BONES == MAX_JOINTS
 
 
 def _humanoid_rig_bones():
-    template = rigging.get_template("humanoid")
-    return rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    return skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
 
 
 def _humanoid_bounds():
@@ -2381,8 +2439,8 @@ def _humanoid_bounds():
 
 class TestValidateSkeleton:
     def test_the_unedited_fit_reports_as_template(self):
-        base = rigging.get_template("humanoid")
-        result = rigging.validate_skeleton(
+        base = templates.get_template("humanoid")
+        result = skeleton.validate_skeleton(
             {
                 "bones": _humanoid_rig_bones(),
                 "mirror_pairs": [list(p) for p in base.mirror_pairs],
@@ -2395,31 +2453,31 @@ class TestValidateSkeleton:
         assert {tuple(p) for p in result["mirror_pairs"]} == set(base.mirror_pairs)
 
     def test_a_renamed_bone_is_custom(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[0] = dict(bones[0], name="pelvis")
         for b in bones[1:]:
             if b["parent"] == "hips":
                 b["parent"] = "pelvis"
-        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        result = skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
         assert result["skeleton"] == "custom"
 
     def test_an_extra_bone_is_custom(self):
-        base = rigging.get_template("humanoid")
-        bones = rigging.add_bone(
+        base = templates.get_template("humanoid")
+        bones = skeleton.add_bone(
             _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
         )
-        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        result = skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
         assert result["skeleton"] == "custom"
         assert any(b["name"] == "tail_01" for b in result["bones"])
 
     def test_rejects_an_empty_skeleton(self):
-        base = rigging.get_template("humanoid")
-        with pytest.raises(rigging.RigError, match="non-empty"):
-            rigging.validate_skeleton({"bones": []}, base=base, bounds=_humanoid_bounds())
+        base = templates.get_template("humanoid")
+        with pytest.raises(store.RigError, match="non-empty"):
+            skeleton.validate_skeleton({"bones": []}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_too_many_bones(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = [
             {
                 "name": f"b{i}",
@@ -2427,109 +2485,109 @@ class TestValidateSkeleton:
                 "head": [0, 0, float(i)],
                 "tail": [0, 0, float(i) + 1],
             }
-            for i in range(rigging.MAX_SKELETON_BONES + 1)
+            for i in range(skeleton.MAX_SKELETON_BONES + 1)
         ]
-        with pytest.raises(rigging.RigError, match="at most") as exc:
-            rigging.validate_skeleton(
+        with pytest.raises(store.RigError, match="at most") as exc:
+            skeleton.validate_skeleton(
                 {"bones": bones}, base=base, bounds={"min": [0, 0, 0], "max": [0, 0, 100]}
             )
         assert exc.value.field == "bones"
 
     def test_rejects_a_bad_name(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[0] = dict(bones[0], name="has a space")
-        with pytest.raises(rigging.RigError, match="not usable"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="not usable"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_a_name_over_63_bytes(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[0] = dict(bones[0], name="x" * 64)
-        with pytest.raises(rigging.RigError, match="not usable"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="not usable"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_a_duplicate_name(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[1] = dict(bones[1], name=bones[0]["name"])
-        with pytest.raises(rigging.RigError, match="duplicate"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="duplicate"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_an_unknown_parent(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[1] = dict(bones[1], parent="nonexistent")
-        with pytest.raises(rigging.RigError, match="unknown parent"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="unknown parent"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_two_roots(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[1] = dict(bones[1], parent=None)
-        with pytest.raises(rigging.RigError, match="exactly one root") as exc:
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="exactly one root") as exc:
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
         assert exc.value.field == "root"
 
     def test_rejects_a_cycle(self):
         """A single root satisfies the root check; the cycle is a *second*,
         disconnected pair of bones pointing at each other."""
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = [
             {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
             {"name": "a", "parent": "b", "head": [0, 0, 1], "tail": [0, 0, 2]},
             {"name": "b", "parent": "a", "head": [0, 0, 2], "tail": [0, 0, 3]},
         ]
-        with pytest.raises(rigging.RigError, match="cycle"):
-            rigging.validate_skeleton(
+        with pytest.raises(store.RigError, match="cycle"):
+            skeleton.validate_skeleton(
                 {"bones": bones}, base=base, bounds={"min": [0, 0, 0], "max": [0, 0, 3]}
             )
 
     def test_rejects_a_zero_length_bone(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[0] = dict(bones[0], tail=list(bones[0]["head"]))
-        with pytest.raises(rigging.RigError, match="zero-length"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="zero-length"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_rejects_a_joint_far_outside_the_mesh(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
         bones[0] = dict(bones[0], head=[1000.0, 1000.0, 1000.0])
-        with pytest.raises(rigging.RigError, match="far outside"):
-            rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        with pytest.raises(store.RigError, match="far outside"):
+            skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
 
     def test_accepts_a_limb_reaching_past_the_bbox_diagonal(self):
         """A deliberately extended limb (a tail, a reaching wing) is expected
         to stick out past the mesh's own bounds -- the box is widened by its
         own diagonal before anything is checked against it."""
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
-        bones = rigging.add_bone(bones, "hips", "tail_01", [0, -0.1, 0.5], [0, -1.5, 0.5])
-        result = rigging.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
+        bones = skeleton.add_bone(bones, "hips", "tail_01", [0, -0.1, 0.5], [0, -1.5, 0.5])
+        result = skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
         assert any(b["name"] == "tail_01" for b in result["bones"])
 
     def test_mirror_pairs_must_name_real_distinct_bones(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
-        with pytest.raises(rigging.RigError, match="does not have"):
-            rigging.validate_skeleton(
+        with pytest.raises(store.RigError, match="does not have"):
+            skeleton.validate_skeleton(
                 {"bones": bones, "mirror_pairs": [["hips", "nonexistent"]]},
                 base=base,
                 bounds=_humanoid_bounds(),
             )
-        with pytest.raises(rigging.RigError, match="itself"):
-            rigging.validate_skeleton(
+        with pytest.raises(store.RigError, match="itself"):
+            skeleton.validate_skeleton(
                 {"bones": bones, "mirror_pairs": [["hips", "hips"]]},
                 base=base,
                 bounds=_humanoid_bounds(),
             )
 
     def test_a_bone_cannot_be_in_two_mirror_pairs(self):
-        base = rigging.get_template("humanoid")
+        base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
-        with pytest.raises(rigging.RigError, match="more than one"):
-            rigging.validate_skeleton(
+        with pytest.raises(store.RigError, match="more than one"):
+            skeleton.validate_skeleton(
                 {
                     "bones": bones,
                     "mirror_pairs": [
@@ -2548,7 +2606,7 @@ class TestValidateSkeleton:
 def test_add_bone_appends_and_never_mutates_the_input():
     bones = _humanoid_rig_bones()
     before = [dict(b) for b in bones]
-    out = rigging.add_bone(bones, "hips", "tail_01", [0, 0, 0], [0, -1, 0])
+    out = skeleton.add_bone(bones, "hips", "tail_01", [0, 0, 0], [0, -1, 0])
     assert bones == before, "add_bone must not mutate its input"
     assert len(out) == len(bones) + 1
     assert out[-1] == {
@@ -2558,19 +2616,19 @@ def test_add_bone_appends_and_never_mutates_the_input():
 
 def test_add_bone_rejects_a_duplicate_name():
     bones = _humanoid_rig_bones()
-    with pytest.raises(rigging.RigError, match="duplicate"):
-        rigging.add_bone(bones, "hips", bones[0]["name"], [0, 0, 0], [0, 0, 1])
+    with pytest.raises(store.RigError, match="duplicate"):
+        skeleton.add_bone(bones, "hips", bones[0]["name"], [0, 0, 0], [0, 0, 1])
 
 
 def test_add_bone_rejects_an_unknown_parent():
     bones = _humanoid_rig_bones()
-    with pytest.raises(rigging.RigError, match="unknown parent"):
-        rigging.add_bone(bones, "nonexistent", "new", [0, 0, 0], [0, 0, 1])
+    with pytest.raises(store.RigError, match="unknown parent"):
+        skeleton.add_bone(bones, "nonexistent", "new", [0, 0, 0], [0, 0, 1])
 
 
 def test_split_bone_inserts_a_child_at_the_midpoint():
     bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]}]
-    out = rigging.split_bone(bones, "a", "a2")
+    out = skeleton.split_bone(bones, "a", "a2")
     by_name = {b["name"]: b for b in out}
     assert by_name["a"]["tail"] == pytest.approx([0, 0, 1])
     assert by_name["a2"]["parent"] == "a"
@@ -2583,7 +2641,7 @@ def test_split_bone_moves_children_onto_the_new_half():
         {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]},
         {"name": "child", "parent": "a", "head": [0, 0, 2], "tail": [0, 0, 3]},
     ]
-    out = rigging.split_bone(bones, "a", "a2")
+    out = skeleton.split_bone(bones, "a", "a2")
     by_name = {b["name"]: b for b in out}
     assert by_name["child"]["parent"] == "a2"
 
@@ -2594,7 +2652,7 @@ def test_remove_pivot_reparents_children_and_keeps_their_heads():
         {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
         {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
     ]
-    out = rigging.remove_pivot(bones, "b")
+    out = skeleton.remove_pivot(bones, "b")
     names = {b["name"] for b in out}
     assert names == {"a", "c"}
     by_name = {b["name"]: b for b in out}
@@ -2607,7 +2665,7 @@ def test_remove_pivot_promotes_the_sole_child_when_removing_the_root():
         {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
         {"name": "child", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
     ]
-    out = rigging.remove_pivot(bones, "root")
+    out = skeleton.remove_pivot(bones, "root")
     by_name = {b["name"]: b for b in out}
     assert by_name["child"]["parent"] is None
 
@@ -2618,8 +2676,8 @@ def test_remove_pivot_refuses_the_root_with_more_than_one_child():
         {"name": "a", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
         {"name": "b", "parent": "root", "head": [0, 0, 1], "tail": [1, 0, 1]},
     ]
-    with pytest.raises(rigging.RigError, match="exactly one child") as exc:
-        rigging.remove_pivot(bones, "root")
+    with pytest.raises(store.RigError, match="exactly one child") as exc:
+        skeleton.remove_pivot(bones, "root")
     assert exc.value.field == "root"
 
 
@@ -2630,14 +2688,14 @@ def test_remove_subtree_takes_every_descendant():
         {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
         {"name": "d", "parent": "a", "head": [0, 0, 1], "tail": [1, 0, 1]},
     ]
-    out = rigging.remove_subtree(bones, "b")
+    out = skeleton.remove_subtree(bones, "b")
     assert {b["name"] for b in out} == {"a", "d"}
 
 
 def test_remove_subtree_refuses_the_root():
     bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
-    with pytest.raises(rigging.RigError, match="root"):
-        rigging.remove_subtree(bones, "a")
+    with pytest.raises(store.RigError, match="root"):
+        skeleton.remove_subtree(bones, "a")
 
 
 def test_rename_bone_updates_children_and_pairs():
@@ -2646,7 +2704,7 @@ def test_rename_bone_updates_children_and_pairs():
         {"name": "hand.L", "parent": "arm.L", "head": [1, 0, 0], "tail": [1.3, 0, 0]},
     ]
     pairs = [("arm.L", "arm.R")]
-    out_bones, out_pairs = rigging.rename_bone(bones, pairs, "arm.L", "upper_arm.L")
+    out_bones, out_pairs = skeleton.rename_bone(bones, pairs, "arm.L", "upper_arm.L")
     by_name = {b["name"]: b for b in out_bones}
     assert "upper_arm.L" in by_name
     assert by_name["hand.L"]["parent"] == "upper_arm.L"
@@ -2658,26 +2716,26 @@ def test_rename_bone_rejects_a_collision():
         {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
         {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
     ]
-    with pytest.raises(rigging.RigError, match="duplicate"):
-        rigging.rename_bone(bones, [], "a", "b")
+    with pytest.raises(store.RigError, match="duplicate"):
+        skeleton.rename_bone(bones, [], "a", "b")
 
 
 def test_prune_pairs_drops_pairs_naming_a_gone_bone():
     bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
     pairs = [("a", "b"), ("c", "d")]
-    assert rigging.prune_pairs(bones, pairs) == []
+    assert skeleton.prune_pairs(bones, pairs) == []
 
 
 def test_mirror_partner_name():
-    assert rigging.mirror_partner_name("hand.L") == "hand.R"
-    assert rigging.mirror_partner_name("hand.R") == "hand.L"
-    assert rigging.mirror_partner_name("spine") is None
+    assert skeleton.mirror_partner_name("hand.L") == "hand.R"
+    assert skeleton.mirror_partner_name("hand.R") == "hand.L"
+    assert skeleton.mirror_partner_name("spine") is None
 
 
 def test_unique_name_disambiguates():
     bones = [{"name": "tail_01", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
-    assert rigging.unique_name(bones, "tail_01") == "tail_01.2"
-    assert rigging.unique_name(bones, "wing") == "wing"
+    assert skeleton.unique_name(bones, "tail_01") == "tail_01.2"
+    assert skeleton.unique_name(bones, "wing") == "wing"
 
 
 # --- limb presets --------------------------------------------------------------
@@ -2687,11 +2745,11 @@ EXPECTED_LIMB_PRESETS = {"arm", "leg", "tail", "wing", "antenna"}
 
 
 def test_every_shipped_limb_preset_loads():
-    assert set(rigging.limb_presets()) == EXPECTED_LIMB_PRESETS
+    assert set(templates.limb_presets()) == EXPECTED_LIMB_PRESETS
 
 
 def test_no_limb_preset_key_collides_with_a_template_key():
-    assert not (set(rigging.limb_presets()) & set(rigging.templates()))
+    assert not (set(templates.limb_presets()) & set(templates.templates()))
 
 
 def test_a_limb_preset_with_a_disconnected_parent_cycle_is_skipped_not_fatal(tmp_path, monkeypatch):
@@ -2728,8 +2786,8 @@ def test_a_limb_preset_with_a_disconnected_parent_cycle_is_skipped_not_fatal(tmp
             }
         )
     )
-    monkeypatch.setattr(rigging, "LIMB_DIR", tmp_path)
-    assert set(rigging._load_limb_presets()) == {"good"}
+    monkeypatch.setattr(templates, "LIMB_DIR", tmp_path)
+    assert set(templates._load_limb_presets()) == {"good"}
 
 
 def test_a_limb_preset_with_out_of_order_bones_is_rejected():
@@ -2742,7 +2800,7 @@ def test_a_limb_preset_with_out_of_order_bones_is_rejected():
     presets already get.
     """
     with pytest.raises(ValueError, match="listed before its parent"):
-        rigging._parse_limb_preset(
+        templates._parse_limb_preset(
             {
                 "key": "x",
                 "label": "X",
@@ -2759,19 +2817,19 @@ def test_limb_dir_is_not_swept_up_by_the_template_loader():
     """``_load_templates`` globs ``TEMPLATE_DIR / "*.json"`` non-recursively;
     ``templates/limbs/`` is a subdirectory precisely so a preset never shows up
     in the skeleton template catalogue."""
-    assert "arm" not in rigging.templates()
-    assert "leg" not in rigging.templates()
+    assert "arm" not in templates.templates()
+    assert "leg" not in templates.templates()
 
 
 @pytest.mark.parametrize("preset", sorted(EXPECTED_LIMB_PRESETS))
 def test_every_preset_attaches_to_the_humanoid_chest_as_a_valid_skeleton(preset):
-    base = rigging.get_template("humanoid")
+    base = templates.get_template("humanoid")
     bones = _humanoid_rig_bones()
     is_centre = preset == "tail"
-    out_bones, out_pairs = rigging.attach_limb(
+    out_bones, out_pairs = skeleton.attach_limb(
         bones, [], preset, "chest", None if is_centre else "L", mirror=not is_centre
     )
-    result = rigging.validate_skeleton(
+    result = skeleton.validate_skeleton(
         {"bones": out_bones, "mirror_pairs": out_pairs}, base=base, bounds=_humanoid_bounds()
     )
     assert result["skeleton"] == "custom"
@@ -2780,7 +2838,7 @@ def test_every_preset_attaches_to_the_humanoid_chest_as_a_valid_skeleton(preset)
 
 def test_attach_limb_mirror_names_both_sides_and_pairs_them():
     bones = _humanoid_rig_bones()
-    out_bones, out_pairs = rigging.attach_limb(bones, [], "wing", "chest", "L", mirror=True)
+    out_bones, out_pairs = skeleton.attach_limb(bones, [], "wing", "chest", "L", mirror=True)
     names = {b["name"] for b in out_bones}
     assert "wing_base.L" in names
     assert "wing_base.R" in names
@@ -2789,20 +2847,20 @@ def test_attach_limb_mirror_names_both_sides_and_pairs_them():
 
 def test_attach_limb_refuses_mirroring_a_centre_limb():
     bones = _humanoid_rig_bones()
-    with pytest.raises(rigging.RigError, match="no side to mirror"):
-        rigging.attach_limb(bones, [], "tail", "hips", None, mirror=True)
+    with pytest.raises(store.RigError, match="no side to mirror"):
+        skeleton.attach_limb(bones, [], "tail", "hips", None, mirror=True)
 
 
 def test_attach_limb_rejects_an_unknown_parent():
     bones = _humanoid_rig_bones()
-    with pytest.raises(rigging.RigError, match="unknown parent"):
-        rigging.attach_limb(bones, [], "arm", "nonexistent", "L", mirror=False)
+    with pytest.raises(store.RigError, match="unknown parent"):
+        skeleton.attach_limb(bones, [], "arm", "nonexistent", "L", mirror=False)
 
 
 def test_attach_limb_rejects_an_unknown_preset():
     bones = _humanoid_rig_bones()
     with pytest.raises(ValueError, match="unknown limb preset"):
-        rigging.attach_limb(bones, [], "tentacle", "chest", "L", mirror=False)
+        skeleton.attach_limb(bones, [], "tentacle", "chest", "L", mirror=False)
 
 
 # --- clip coverage -------------------------------------------------------------
@@ -2811,19 +2869,19 @@ def test_attach_limb_rejects_an_unknown_preset():
 def test_clip_coverage_is_empty_for_an_unedited_template_rig():
     bones = _humanoid_rig_bones()
     rig = {"bones": bones}
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     if library["poses"]:
-        assert rigging.clip_coverage(rig, "humanoid") == []
+        assert skeleton.clip_coverage(rig, "humanoid") == []
 
 
 def test_clip_coverage_names_bones_a_custom_rig_dropped():
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     if not library["poses"]:
         pytest.skip("humanoid ships no clip library to test coverage against")
     animated_bone = next(iter(next(iter(library["poses"].values()))["bones"]))
-    bones = rigging.remove_pivot(_humanoid_rig_bones(), animated_bone)
+    bones = skeleton.remove_pivot(_humanoid_rig_bones(), animated_bone)
     rig = {"bones": bones}
-    assert animated_bone in rigging.clip_coverage(rig, "humanoid")
+    assert animated_bone in skeleton.clip_coverage(rig, "humanoid")
 
 
 # --- rig_spec: skeleton/root/mirror_pairs (P2) --------------------------------
@@ -2832,14 +2890,14 @@ def test_clip_coverage_names_bones_a_custom_rig_dropped():
 def test_rig_spec_leaves_out_skeleton_fields_by_default(tmp_path):
     """Byte-identical to before the skeleton editor existed: an ordinary rig
     or joint-move spec must not gain any of the three new keys."""
-    spec = rigging.rig_spec(tmp_path, "humanoid")
+    spec = blender_spec.rig_spec(tmp_path, "humanoid")
     assert "skeleton" not in spec
     assert "root" not in spec
     assert "mirror_pairs" not in spec
 
 
 def test_rig_spec_carries_a_custom_skeletons_structure(tmp_path):
-    spec = rigging.rig_spec(
+    spec = blender_spec.rig_spec(
         tmp_path, "humanoid", skeleton="custom", root="hips", mirror_pairs=[("a.L", "a.R")]
     )
     assert spec["skeleton"] == "custom"
@@ -2855,12 +2913,12 @@ def test_check_skeleton_structure_returns_the_root():
         {"name": "a", "parent": None},
         {"name": "b", "parent": "a"},
     ]
-    assert rigging.check_skeleton_structure(bones) == "a"
+    assert skeleton.check_skeleton_structure(bones) == "a"
 
 
 def test_check_skeleton_structure_rejects_a_bad_parent():
-    with pytest.raises(rigging.RigError, match="unknown parent"):
-        rigging.check_skeleton_structure([{"name": "a", "parent": "nonexistent"}])
+    with pytest.raises(store.RigError, match="unknown parent"):
+        skeleton.check_skeleton_structure([{"name": "a", "parent": "nonexistent"}])
 
 
 def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(capsys):
@@ -2869,7 +2927,7 @@ def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(ca
     rule ``template_bones`` already follows for a mismatched landmark set."""
     from warlock.pipelines import blender_worker
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     broken = [{"name": "a", "parent": "nonexistent", "head": [0, 0, 0], "tail": [0, 0, 1]}]
     spec = {"template": "humanoid", "bones": broken, "skeleton": "custom"}
     bones, fit = blender_worker._rig_bones(spec, [-1.0, -1.0, 0.0], [1.0, 1.0, 2.0])
@@ -2882,7 +2940,7 @@ def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(ca
 def test_a_valid_custom_skeleton_is_used_unchanged():
     from warlock.pipelines import blender_worker
 
-    custom = rigging.add_bone(
+    custom = skeleton.add_bone(
         _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
     )
     spec = {"template": "humanoid", "bones": custom, "skeleton": "custom"}
@@ -2894,7 +2952,7 @@ def test_a_valid_custom_skeleton_is_used_unchanged():
 def test_rig_meta_carries_a_custom_skeletons_root_and_pairs():
     from warlock.pipelines import blender_worker
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
         template,
         bones=[{"name": "pelvis", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
@@ -2918,7 +2976,7 @@ def test_rig_meta_defaults_to_the_template_shape():
     move today, must write exactly what it always wrote."""
     from warlock.pipelines import blender_worker
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     meta = blender_worker._rig_meta(
         template,
         bones=[],
@@ -2947,15 +3005,15 @@ def test_op_rig_records_a_custom_skeleton_end_to_end(tmp_path):
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
 
-    custom = rigging.add_bone(
+    custom = skeleton.add_bone(
         _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
     )
-    spec = rigging.rig_spec(
+    spec = blender_spec.rig_spec(
         tmp_path, "humanoid", custom, skeleton="custom", root="hips",
         mirror_pairs=[("upper_arm.L", "upper_arm.R")],
     )
     blender_worker.op_rig(bpy, spec)
-    rigging.finalize_rig(tmp_path)
+    store.finalize_rig(tmp_path)
 
     rig = json.loads((tmp_path / "rig.json").read_text(encoding="utf-8"))
     assert rig["skeleton"] == "custom"
@@ -2972,14 +3030,14 @@ def test_finalize_rig_deletes_a_stale_pose_bake(tmp_path):
     longer has; existence is ``posed_model``'s whole freshness test, so a
     stale bake left behind would be served, silently wrong, forever."""
     job_dir = tmp_path
-    poses_dir = job_dir / rigging.POSE_DIR_NAME
+    poses_dir = job_dir / store.POSE_DIR_NAME
     poses_dir.mkdir()
     (poses_dir / "abc123456789.glb").write_bytes(b"stale bake")
     (poses_dir / "abc123456789.json").write_text('{"name": "a pose"}', encoding="utf-8")
-    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
-    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+    (job_dir / store.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / store.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
 
-    rigging.finalize_rig(job_dir)
+    store.finalize_rig(job_dir)
 
     assert not (poses_dir / "abc123456789.glb").exists()
     # The pose *record* survives -- only its cached bake is invalidated.
@@ -2989,16 +3047,16 @@ def test_finalize_rig_deletes_a_stale_pose_bake(tmp_path):
 def test_finalize_rig_deletes_a_stale_animated_glb(tmp_path):
     job_dir = tmp_path
     (job_dir / "animated.glb").write_bytes(b"stale clip bake")
-    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
-    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+    (job_dir / store.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / store.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
 
-    rigging.finalize_rig(job_dir)
+    store.finalize_rig(job_dir)
 
     assert not (job_dir / "animated.glb").exists()
 
 
 def test_finalize_rig_is_fine_with_no_poses_dir_at_all(tmp_path):
     job_dir = tmp_path
-    (job_dir / rigging.RIG_GLB_TMP).write_bytes(b"new-rig")
-    (job_dir / rigging.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
-    rigging.finalize_rig(job_dir)  # must not raise
+    (job_dir / store.RIG_GLB_TMP).write_bytes(b"new-rig")
+    (job_dir / store.RIG_JSON_TMP).write_text("{}", encoding="utf-8")
+    store.finalize_rig(job_dir)  # must not raise

@@ -21,9 +21,10 @@ import time
 import pytest
 from PIL import Image
 
-from warlock import models, rigging
+from warlock import models
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import store as rig_store
 from warlock.queue import Worker
 from warlock.service import Invalid
 from warlock.service import jobs as svc_jobs
@@ -50,8 +51,8 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "model.glb").write_bytes(b"glb")
 
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(job_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(job_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0)).save(png)
     meta = {
@@ -70,7 +71,7 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
         "poses": [{"id": None, "name": "rest"}],
         "cells": [],
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
+    rig_store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return job_id, sheet_id
 
 
@@ -115,8 +116,8 @@ def worker(tmp_path, fake_pipelines):
 def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
     """A finished render on disk, with a subject in each cell."""
     source_dir = worker.config.job_dir(source)
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    sheet_id = rig_store.new_id()
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     atlas = Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0))
     for row in range(rows):
@@ -137,7 +138,7 @@ def _rendered_sheet(worker, source, *, frame_size=128, columns=8, rows=1):
         "poses": [{"id": None, "name": "rest"}],
         "cells": [],
     }
-    rigging.sheet_path(source_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
+    rig_store.sheet_path(source_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return sheet_id
 
 
@@ -198,7 +199,7 @@ async def test_a_stored_klein_base_restyles_bare_and_the_sidecar_says_so(
     assert row["error"] is None and row["status"] == "done"
     assert len(pipes) == 1
     assert {lora for lora, _weight in pipes[0].lora_calls} == {None}
-    doc = rigging.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
+    doc = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
     assert doc["restyle"]["base_model"] == "flux_klein_distilled"
     assert "style_lora" not in doc["restyle"]
 
@@ -220,7 +221,7 @@ async def test_the_default_base_still_records_the_style_that_ran(worker):
     assert row["error"] is None and row["status"] == "done"
     pipe = worker._text2image
     assert {lora for lora, _weight in pipe.lora_calls} == {models.PIXEL_SHEET_LORA}
-    doc = rigging.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
+    doc = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
     assert doc["restyle"]["style_lora"] == models.PIXEL_SHEET_LORA
 
 
@@ -243,7 +244,7 @@ async def test_the_recipe_records_one_lattice_per_band(worker):
     row = await _run(worker, job_id)
 
     assert row["error"] is None and row["status"] == "done"
-    doc = rigging.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
+    doc = rig_store.read_sheet_pixel(worker.config.job_dir(source), sheet_id)
     assert doc["version"] == pixelsheet.PIXEL_SHEET_VERSION
     grids = doc["restyle"]["grids"]
     assert len(grids) == doc["restyle"]["bands"]

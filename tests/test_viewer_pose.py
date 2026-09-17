@@ -14,8 +14,8 @@ import math
 import numpy as np
 import pytest
 
-from warlock import rigging
 from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.rig import poses
 from warlock.studio.viewer import gizmo as gizmolib
 from warlock.studio.viewer import markers, picking
 from warlock.studio.viewer.camera import Camera, screen_ray
@@ -63,7 +63,7 @@ def editor():
 def test_the_mirror_is_the_one_in_rigging_not_a_copy_of_it():
     """The browser kept its own and a comment insisting they stay identical.
     This is that comment made unnecessary."""
-    assert mirror_quaternion is rigging.mirror_quaternion
+    assert mirror_quaternion is poses.mirror_quaternion
 
 
 def test_mirroring_flips_the_components_perpendicular_to_the_mirror_normal():

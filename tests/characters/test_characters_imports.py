@@ -44,7 +44,8 @@ ARCHETYPE_PACKAGES = {"humanoid", "quadruped", "winged", "amorphous"}
 #: manifoldness asserted -- so a generator that grew an import its siblings did
 #: not would be a body plan that had stopped being built the shared way.
 _GENERATOR_IMPORTS = {
-    "warlock.rigging",
+    "warlock.kernels.rig.templates",
+    "warlock.kernels.rig.skeleton",
     "warlock.kernels.mesh.adjacency",
     "warlock.kernels.mesh.document",
     "warlock.kernels.mesh.elements",
@@ -79,11 +80,13 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # in words. One direction alone would let a preset the table gained become
     # a framing nobody can ask for.
     "resolve.py": set(),
-    # The glTF pair to write with, and ``rigging`` to check the baked skeleton
-    # against the template it claims to fit -- through the same
-    # ``validate_joints`` a hand-corrected rig comes in by.
+    # The glTF pair to write with, and the rig kernel's template registry to
+    # check the baked skeleton against the template it claims to fit --
+    # through the same ``skeleton.validate_joints`` a hand-corrected rig
+    # comes in by.
     "instantiate.py": {
-        "warlock.rigging",
+        "warlock.kernels.rig.templates",
+        "warlock.kernels.rig.skeleton",
         "warlock.kernels.geom3d.glbwrite",
         "warlock.kernels.geom3d.gltf",
     },
@@ -101,8 +104,9 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     },
     "__init__.py": set(),
     "humanoid/__init__.py": set(),
-    # ``rigging`` for the template it grows the body around, the glTF pair to
-    # bake with, and Clay -- the last of which is function-scope only, which
+    # The rig kernel's template registry and skeleton fitter for the template
+    # it grows the body around, the glTF pair to bake with, and Clay -- the
+    # last of which is function-scope only, which
     # ``test_clay_is_only_ever_imported_inside_a_function`` is what enforces.
     "humanoid/generate.py": set(_GENERATOR_IMPORTS),
     "quadruped/__init__.py": set(),

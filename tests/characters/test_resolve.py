@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from warlock import rigging
 from warlock.characters import family as family_mod
 from warlock.characters.family import Family
 from warlock.characters.resolve import (
@@ -35,6 +34,7 @@ from warlock.characters.resolve import (
     resolve,
     vocabulary,
 )
+from warlock.kernels.rig import cliplib
 from warlock.pipelines import charsheet
 
 FAMILIES = family_mod.families()
@@ -260,7 +260,7 @@ def test_every_action_key_the_vocabulary_emits_is_a_real_animation_or_a_shipped_
     something some template can actually play.
     """
     legacy = {name for name, *_rest in charsheet.ANIMATIONS}
-    shipped = set(rigging.shipped_clip_names("humanoid"))
+    shipped = set(cliplib.shipped_clip_names("humanoid"))
     assert key in legacy | shipped
 
 
@@ -283,7 +283,7 @@ def test_the_action_orders_tail_is_the_shipped_clip_order():
     legacy = tuple(name for name, *_rest in charsheet.ANIMATIONS)
     tail = _ACTION_ORDER[len(legacy) :]
     shipped_tail = tuple(
-        name for name in rigging.shipped_clip_names("humanoid") if name not in legacy
+        name for name in cliplib.shipped_clip_names("humanoid") if name not in legacy
     )
     assert tail == shipped_tail
     assert set(_ACTION_ORDER) == set(ACTION_WORDS)

@@ -61,7 +61,8 @@ def test_every_template_bone_is_measured(tpose):
 
 
 def test_the_payload_is_in_template_order_and_the_shape_the_validator_takes():
-    from warlock.rigging import get_template, validate_joints
+    from warlock.kernels.rig.skeleton import validate_joints
+    from warlock.kernels.rig.templates import get_template
 
     payload = jointfit.payload(_body(0.2))
     assert [b["name"] for b in payload["bones"]] == list(jointfit.BONES)

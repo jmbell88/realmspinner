@@ -19,16 +19,16 @@ def test_the_node_delta_conversion_is_one_function():
     """It was written twice -- once against the viewer's rest quaternions and
     once against Blender's -- and neither knew about the other. The multiply is
     one line; the order and which side is conjugated are what drift."""
-    from warlock import rigging
+    from warlock.kernels.rig import poses
 
     rest = [0.0, 0.0, 0.3826834, 0.9238795]  # 45 degrees about Z
     delta = [0.0, 0.0, 0.3826834, 0.9238795]
 
-    node = rigging.node_from_delta(rest, delta)
+    node = poses.node_from_delta(rest, delta)
     assert node == pytest.approx([0.0, 0.0, 0.7071068, 0.7071068])
 
     # And back, exactly: the pair are inverses.
-    assert rigging.delta_from_node(rest, node) == pytest.approx(delta)
+    assert poses.delta_from_node(rest, node) == pytest.approx(delta)
 
 
 def test_both_ends_of_the_conversion_call_it():
@@ -37,9 +37,9 @@ def test_both_ends_of_the_conversion_call_it():
     from warlock.pipelines import blender_worker
     from warlock.studio import poser_mode
 
-    assert "rigging.delta_from_node" in inspect.getsource(blender_worker)
-    assert "rigging.node_from_delta" in inspect.getsource(poser_mode)
-    assert "rigging.delta_from_node" in inspect.getsource(poser_mode)
+    assert "poses.delta_from_node" in inspect.getsource(blender_worker)
+    assert "poses.node_from_delta" in inspect.getsource(poser_mode)
+    assert "poses.delta_from_node" in inspect.getsource(poser_mode)
 
 
 # --- what a file is allowed to contain ----------------------------------------
@@ -49,7 +49,7 @@ def test_a_clip_librarys_quaternions_are_checked():
     """They were taken verbatim: a 3-element list raised out of the middle of
     ``sheet._blend`` naming neither the file nor the bone, and a NaN was
     interpolated into a clip and written to disk."""
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib
 
     raw = {
         "space": "delta",
@@ -57,28 +57,28 @@ def test_a_clip_librarys_quaternions_are_checked():
         "clips": [{"name": "c", "keys": ["a"], "segments": [1], "closed": False}],
     }
     with pytest.raises(ValueError, match="spine"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
     raw["poses"][0]["bones"]["spine"] = [float("nan"), 0.0, 0.0, 1.0]
     with pytest.raises(ValueError, match="not numeric"):
-        rigging.parse_clip_library(raw)
+        cliplib.parse_clip_library(raw)
 
 
 def test_a_clips_rest_key_may_hold_no_bones_at_all():
     """Which is why ``validate_bones`` is split out rather than being a flag on
     ``validate_pose``: a *saved pose* with no bones is a mistake and a clip's
     rest key is exactly that map."""
-    from warlock import rigging
+    from warlock.kernels.rig import poses
 
-    assert rigging.validate_bones({}) == {}
+    assert poses.validate_bones({}) == {}
     with pytest.raises(ValueError):
-        rigging.validate_pose({"name": "p", "bones": {}})
+        poses.validate_pose({"name": "p", "bones": {}})
 
 
 def test_a_drifted_quaternion_is_renormalised_rather_than_refused():
-    from warlock import rigging
+    from warlock.kernels.rig import poses
 
-    out = rigging.validate_bones({"spine": [0.0, 0.0, 0.0, 1.0000001]})
+    out = poses.validate_bones({"spine": [0.0, 0.0, 0.0, 1.0000001]})
     assert sum(v * v for v in out["spine"]) == pytest.approx(1.0)
 
 

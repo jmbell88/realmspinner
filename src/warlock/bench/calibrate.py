@@ -82,7 +82,8 @@ def sweep_job(
     on_event: Any = None,
 ) -> dict[str, Any]:
     """Render and score the whole grid for one finished job."""
-    from .. import rigging
+    from ..kernels.rig import blender_spec
+    from ..pipelines import blender_run
 
     say = on_event or (lambda msg: None)
     model = job_dir / "model.glb"
@@ -106,7 +107,7 @@ def sweep_job(
         frames = out_dir / f"e{elevation:06.2f}".replace(".", "_")
         frames.mkdir(parents=True, exist_ok=True)
         angles = sweep_cells(yaws)
-        spec = rigging.sheet_spec(
+        spec = blender_spec.sheet_spec(
             model,
             frames,
             angles,
@@ -114,7 +115,7 @@ def sweep_job(
             elevation=elevation,
             lighting=views_mod.VIEW_LIGHTING,
         )
-        rigging.run_worker(spec, timeout=1800.0)
+        blender_run.run_worker(spec, timeout=1800.0)
         for entry in angles:
             render = frames / f"{entry['index']:04d}.png"
             if not render.exists():

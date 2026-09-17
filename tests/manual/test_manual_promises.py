@@ -136,14 +136,14 @@ def test_packwright_manual_does_not_promise_a_gitignored_examples_directory():
 
 
 def test_templates_table_lists_all_eight_shipped_skeletons_including_blob():
-    """rigging.catalog() offers every shipped template unfiltered to both
+    """templates.catalog() offers every shipped template unfiltered to both
     skeleton pickers, including blob.json ("Blob (amorphous)"), the eighth
     template added alongside the other seven. The chapter's table and its
     "seven" still enumerate only the original seven.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import templates
 
-    catalog = rigging.catalog()
+    catalog = templates.catalog()
     assert len(catalog) == 8, f"sanity: expected eight shipped templates, found {len(catalog)}"
 
     text = _chapter("25-rigging-and-posing.md")
@@ -162,7 +162,7 @@ def test_templates_table_lists_all_eight_shipped_skeletons_including_blob():
     )
     assert "eight" in lowered, (
         "docs/manual/25-rigging-and-posing.md's Templates section still says "
-        "the app fits one of seven shipped templates; rigging.catalog() "
+        "the app fits one of seven shipped templates; templates.catalog() "
         "offers eight"
     )
 

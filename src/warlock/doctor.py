@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import fetch, guidance, memlog, models, native, packs, rigging, vram, winjob
+from . import fetch, guidance, memlog, models, native, packs, vram, winjob
 from .config import Config
+from .kernels.rig import templates
 
 # Cheap: matting itself imports nothing heavier than models and reference, both
 # of which keep torch, cv2 and numpy inside the functions that need them. It is
@@ -25,7 +26,8 @@ from .pipelines import matting
 # Same reasoning: ``service.evidence`` imports json, shutil and ``provenance``
 # and nothing else, so naming the archive's size here costs no import weight.
 #
-# ``validation`` costs only ``rigging``, ``vram`` and its own ``errors`` module
+# ``validation`` costs only ``kernels.rig`` (``store``/``templates``), ``vram``
+# and its own ``errors`` module
 # -- ``install_remedy`` is the one sentence this file needs from it, and a
 # second copy of that sentence's wording is exactly the kind of drift this
 # import avoids.
@@ -332,10 +334,10 @@ def _probe_blender() -> Check:
     # Any template at all, not a hardcoded pair: templates are files, adding one
     # is the supported way to add a skeleton, and naming two of them here made
     # renaming or removing either a silent rigging outage.
-    if not rigging.templates():
+    if not templates.templates():
         return Check(
             "Blender (rigging)", False,
-            f"no skeleton templates found in {rigging.TEMPLATE_DIR}",
+            f"no skeleton templates found in {templates.TEMPLATE_DIR}",
             fatal=False,
         )
     try:
@@ -1224,7 +1226,7 @@ def _separation_checks(config: Config) -> list[Check]:
 def _pose_checks(config: Config, *, probe_slow: bool = True) -> list[Check]:
     """The rig's joint-placement weights, non-fatal -- and only the weights.
 
-    Missing, every humanoid rig still happens: ``rigging.fit_template`` scales
+    Missing, every humanoid rig still happens: ``skeleton.fit_template`` scales
     the template onto the mesh bounding box, which is what every rig did before
     this model existed and is still right for a reference standing in a T-pose.
     What is lost is joint placement on the ones that are *not*, and that is a

@@ -3707,7 +3707,8 @@ def _sheet_kind_job(worker):
 
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
+    from warlock.pipelines import blender_run
 
     def fake_render(spec, *, on_progress=None, on_start=None, timeout=0.0):
         frames_dir = Path(spec["frames_dir"])
@@ -3718,20 +3719,20 @@ def _sheet_kind_job(worker):
         return {"ok": True}
 
     def setup(monkeypatch):
-        monkeypatch.setattr(rigging, "run_worker", fake_render)
+        monkeypatch.setattr(blender_run, "run_worker", fake_render)
         source = worker.store.create("text", "a knight", {"seed": 1})
         source_dir = worker.config.job_dir(source)
         source_dir.mkdir(parents=True, exist_ok=True)
         (source_dir / "model.glb").write_bytes(b"fake-glb")
         worker.store.set_status(source, "done")
-        sheet_id = rigging.new_id()
+        sheet_id = rig_store.new_id()
         job_id = worker.store.create(
             "sheet", None,
             {"source_job": source, "sheet_id": sheet_id, "poses": [], "frame_size": 64},
         )
         artifacts = [
-            rigging.sheet_png_path(source_dir, sheet_id),
-            rigging.sheet_path(source_dir, sheet_id),
+            rig_store.sheet_png_path(source_dir, sheet_id),
+            rig_store.sheet_path(source_dir, sheet_id),
         ]
         return job_id, artifacts
 
@@ -3741,7 +3742,7 @@ def _sheet_kind_job(worker):
 def _sprite_synthesis_kind_job(worker):
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     def setup(monkeypatch):
         source = worker.store.create(
@@ -3755,7 +3756,7 @@ def _sprite_synthesis_kind_job(worker):
         )
         image.save(source_dir / "input.png")
         worker.store.set_status(source, "done")
-        draft_id = rigging.new_id()
+        draft_id = rig_store.new_id()
         job_id = worker.store.create(
             "sprite_synthesis", "a knight",
             {
@@ -3764,7 +3765,7 @@ def _sprite_synthesis_kind_job(worker):
                 "draft_id": draft_id, "base_model": "sdxl_cfg",
             },
         )
-        artifacts = [rigging.sprite_draft_path(source_dir, draft_id)]
+        artifacts = [rig_store.sprite_draft_path(source_dir, draft_id)]
         return job_id, artifacts
 
     return setup

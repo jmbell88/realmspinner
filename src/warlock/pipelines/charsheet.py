@@ -142,9 +142,9 @@ MAX_FRAMES = sheet.MAX_CLIP_FRAMES
 FPS_CHOICES: tuple[int, ...] = (6, 8, 10, 12, 15, 24, 30)
 
 #: A v3 movement's own ``loop``/``duration_ms`` are held to the same bounds a
-#: clip library's ``duration_ms`` is (``rigging.MIN_CLIP_DURATION_MS`` /
+#: clip library's ``duration_ms`` is (``cliplib.MIN_CLIP_DURATION_MS`` /
 #: ``MAX_CLIP_DURATION_MS`` / ``CLIP_DURATION_STEP_MS``), restated rather than
-#: imported for the same reason ``rigging.LEGACY_CLIP_DURATION_MS`` restates
+#: imported for the same reason ``cliplib.LEGACY_CLIP_DURATION_MS`` restates
 #: ``ANIMATIONS``: the two modules do not import each other.
 MIN_MOVEMENT_DURATION_MS = 10
 MAX_MOVEMENT_DURATION_MS = 1000
@@ -238,7 +238,7 @@ class ClipTiming:
 
     Passed to :func:`resolve_layout` as its ``timing`` argument -- the
     service door's own answer to "what does this rig call a walk", built by
-    ``clips.clip_timing`` from ``rigging.clip_library``. Naming it lets a
+    ``clips.clip_timing`` from ``cliplib.clip_library``. Naming it lets a
     layout resolve any clip a rig's library defines, not just the five
     :data:`ANIMATIONS` names. See
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
@@ -312,9 +312,9 @@ def _validate_movement_duration_ms(
 def _reject_direction_named_movement(name: str) -> None:
     """Raise if *name* ends in ``_<direction>`` for one of Troupe's 16 facings.
 
-    Restated from ``rigging.reject_direction_named_clip`` -- ``pipelines``
+    Restated from ``cliplib.reject_direction_named_clip`` -- ``pipelines``
     and the poser modules do not import each other, the same reason
-    :data:`_ANIMATION_BY_NAME`'s legacy table is restated in ``rigging``
+    :data:`_ANIMATION_BY_NAME`'s legacy table is restated in ``cliplib``
     rather than shared. A movement name is exactly the same trap a clip name
     is: Inker's tag parser reads ``walk_front`` as clip ``walk`` facing
     ``front``, whether the name came from a clip library or a layout.
@@ -481,7 +481,7 @@ def resolve_layout(
     *(c)* a legacy :data:`ANIMATIONS` name -- always this path for a v2
     payload; *(d)* otherwise refused. A movement named after one of Troupe's
     sixteen facings (``walk_front``, and so on) is refused outright, the same
-    trap ``rigging.reject_direction_named_clip`` guards a clip name against.
+    trap ``cliplib.reject_direction_named_clip`` guards a clip name against.
 
     A v3 payload may also carry a top-level ``fps`` (one of
     :data:`FPS_CHOICES`): every movement's ``duration_ms`` becomes

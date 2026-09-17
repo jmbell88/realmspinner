@@ -31,12 +31,12 @@ import numpy as np
 import pytest
 
 from warlock import clips as clipslib
-from warlock import rigging
 from warlock.characters import Recipe
 from warlock.characters import family as familylib
 from warlock.characters.amorphous import generate
 from warlock.characters.instantiate import instantiate
 from warlock.kernels.geom3d import gltf
+from warlock.kernels.rig import cliplib, skeleton, templates
 from warlock.pipelines import charsheet
 
 ARCHETYPE = "amorphous"
@@ -302,8 +302,8 @@ def test_the_generated_mesh_fits_the_blob_template_exactly(silhouette, rebuilt):
     ``build`` closed on the wrong number and every joint is off by that much."""
     baked = rebuilt[silhouette]
     lo, hi = baked.bounds
-    fitted = rigging.fit_template(
-        rigging.get_template("blob"),
+    fitted = skeleton.fit_template(
+        templates.get_template("blob"),
         [float(lo[0]), -float(hi[2]), 0.0],
         [float(hi[0]), -float(lo[2]), 1.0],
     )
@@ -414,8 +414,8 @@ def test_the_amorphous_archetype_uses_the_shipped_template_and_clip_library():
     ghost be rows rather than programmes."""
     arch = familylib.get_archetype(ARCHETYPE)
     assert (arch.template, arch.clip_library) == ("blob", "blob")
-    assert "slime" not in rigging.templates()
-    library = rigging.clip_library("blob")
+    assert "slime" not in templates.templates()
+    library = cliplib.clip_library("blob")
     assert {c["name"] for c in library["clips"]} >= {"idle", "walk", "run", "attack", "jump"}
     assert library["space"] == "delta"
 
@@ -447,5 +447,5 @@ def test_every_species_instantiates_grounded_at_its_own_height(species, tmp_path
     lo, hi = positions.min(axis=0), positions.max(axis=0)
     assert lo[1] == pytest.approx(0.0, abs=1e-5), "not grounded"
     assert hi[1] - lo[1] == pytest.approx(fam.height_m, rel=1e-5)
-    assert inst.bone_names == [b["name"] for b in rigging.get_template("blob").bones]
+    assert inst.bone_names == [b["name"] for b in templates.get_template("blob").bones]
     assert set(inst.materials) == set(familylib.get_archetype(ARCHETYPE).regions)

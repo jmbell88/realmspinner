@@ -224,7 +224,7 @@ def test_a_recipe_may_ask_for_a_clip_beyond_the_legacy_five():
 
 def test_a_recipe_clip_named_after_a_direction_is_refused():
     """``walk_front`` reads to Inker's tag parser as clip ``walk`` facing
-    ``front`` -- the same trap ``rigging.reject_direction_named_clip`` and
+    ``front`` -- the same trap ``cliplib.reject_direction_named_clip`` and
     ``charsheet._reject_direction_named_movement`` both guard against, applied
     here to the name before it ever reaches either."""
     with pytest.raises(CharacterError) as excinfo:

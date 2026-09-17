@@ -258,7 +258,7 @@ def test_the_workers_view_direction_matches_this_modules():
     """`blender_worker` keeps its own copy and must not drift from this one.
 
     The worker runs in a bpy interpreter and imports nothing from the host half
-    by design, which is the same split `rigging.fit_template` sits on -- and it
+    by design, which is the same split `skeleton.fit_template` sits on -- and it
     gets the same treatment: the duplicate is pinned by a test rather than by a
     comment asking the two to stay identical. A drift here would rotate every
     weight map relative to the colours it weights, which looks like a bad
@@ -285,17 +285,17 @@ def test_the_workers_view_direction_matches_this_modules():
 
 
 def test_the_specs_carry_the_views_they_are_given():
-    from warlock import rigging
+    from warlock.kernels.rig import blender_spec
     from warlock.pipelines import blender_worker
 
     views = list(retexture.VIEWS)
-    v = rigging.views_spec(
+    v = blender_spec.views_spec(
         __import__("pathlib").Path("m.glb"),
         __import__("pathlib").Path("d"),
         views,
         size=512,
     )
-    p = rigging.project_spec(
+    p = blender_spec.project_spec(
         __import__("pathlib").Path("m.glb"),
         __import__("pathlib").Path("d"),
         __import__("pathlib").Path("o"),
@@ -885,15 +885,15 @@ def test_depth_hint_with_an_unreadable_input_is_a_false(tmp_path):
 def test_the_specs_default_to_no_depth_and_carry_the_ask():
     """Off unless asked, so every other caller of the two ops keeps meaning
     exactly what it meant before the depth pass existed."""
-    from warlock import rigging
+    from warlock.kernels.rig import blender_spec
 
     path = Path("m.glb")
     views = list(retexture.VIEWS)
-    v = rigging.views_spec(path, Path("d"), views, size=512)
-    p = rigging.project_spec(path, Path("d"), Path("o"), views, size=512, texture_size=1024)
+    v = blender_spec.views_spec(path, Path("d"), views, size=512)
+    p = blender_spec.project_spec(path, Path("d"), Path("o"), views, size=512, texture_size=1024)
     assert v["depth"] is False and p["depth"] is False
-    v = rigging.views_spec(path, Path("d"), views, size=512, depth=True)
-    p = rigging.project_spec(
+    v = blender_spec.views_spec(path, Path("d"), views, size=512, depth=True)
+    p = blender_spec.project_spec(
         path, Path("d"), Path("o"), views, size=512, texture_size=1024, depth=True
     )
     assert v["depth"] is True and p["depth"] is True

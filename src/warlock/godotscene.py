@@ -144,7 +144,7 @@ def _validate_clip_name(name: str) -> None:
         raise ValueError(f"clip name {name!r} contains a char that breaks a StringName literal")
     # The 2026-09-14 audit (troupe-01) found that a clip name containing "/"
     # -- refused nowhere upstream (service.clips._check_shape and
-    # rigging.parse_clip_library only refuse direction-suffix collisions,
+    # cliplib.parse_clip_library only refuse direction-suffix collisions,
     # duplicates and empty names) -- is embedded verbatim as an unquoted
     # Godot property-path segment in ``states/{name}/node`` and
     # ``states/{name}/position``. A "/" there splits the key into more path

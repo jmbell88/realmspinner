@@ -79,12 +79,12 @@ DIRECTION_CHOICES: tuple[int, ...] = (1, 4, 8, 16)
 #: A well-formed clip name -- lowercase letters, digits and underscores, the
 #: same alphabet every shipped and authored clip name already uses. Existence
 #: (is this actually a clip the rig's library defines) is not decided here:
-#: this module may not import ``rigging`` or ``clips``, so that question waits
+#: this module may not import ``kernels.rig`` or ``clips``, so that question waits
 #: for ``service.characters._plan``, which has the archetype's library in
 #: hand. See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
 _CLIP_NAME_RE = re.compile(r"[a-z0-9_]+")
 
-#: The most a name may be, matching ``rigging.validate_pose``'s cap so a
+#: The most a name may be, matching ``poses.validate_pose``'s cap so a
 #: character and a pose cannot disagree about what a long name is.
 MAX_NAME = 64
 

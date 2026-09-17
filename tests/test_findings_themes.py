@@ -566,7 +566,13 @@ def test_the_remesh_line_is_not_a_ranking():
 def test_one_caveat_wording_in_one_headless_place():
     from warlock.studio import quality, review_mode, widgets
 
-    assert widgets.AUDIT_UNINFORMATIVE is quality.AUDIT_UNINFORMATIVE
+    # No re-export: P4 of the restructure killed ``widgets.AUDIT_UNINFORMATIVE``
+    # (a straight alias of ``quality.AUDIT_UNINFORMATIVE``), which is the shim
+    # that kept the ``widgets -> quality`` edge alive for no reason -- widgets
+    # still reads the threshold, but through ``quality.AUDIT_UNINFORMATIVE``
+    # directly, inside ``quality_badge``, the one place left that needs it.
+    assert not hasattr(widgets, "AUDIT_UNINFORMATIVE")
+    assert "quality.AUDIT_UNINFORMATIVE" in inspect_source(widgets.quality_badge)
     assert quality.caveat_for(0.001) == quality.UNINFORMATIVE_CAVEAT
     assert quality.caveat_for(0.5) == ""
     assert quality.caveat_for(None) == ""

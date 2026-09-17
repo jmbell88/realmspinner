@@ -240,7 +240,7 @@ def _character_options_from_service(svc: Any) -> dict[str, Any]:
     ``WARLOCK_HOME``), so this reads only the registries, never the real
     library.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib
     from warlock.service import characters as svc_characters
 
     raw = svc_characters.character_options(svc)
@@ -249,7 +249,7 @@ def _character_options_from_service(svc: Any) -> dict[str, Any]:
         for f in raw["families"]
     ]
     templates = {a["template"] for a in raw["archetypes"]}
-    movements = sorted({name for t in templates for name in rigging.shipped_clip_names(t)})
+    movements = sorted({name for t in templates for name in cliplib.shipped_clip_names(t)})
     return {
         "families": families,
         "movements": movements,

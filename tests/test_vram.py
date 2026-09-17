@@ -479,9 +479,9 @@ def _spawn_sites(tree):
     """Each ``subprocess.Popen``/``run`` call paired with the scope that owns it.
 
     The scope is the *innermost* enclosing function, or the module for a call at
-    top level. A nested ``def`` counts as inside its parent, because ``rigging``
-    assigns from an ``on_start`` callback the spawning function hands off and
-    that is the same guarantee one frame down.
+    top level. A nested ``def`` counts as inside its parent, because
+    ``blender_run`` assigns from an ``on_start`` callback the spawning function
+    hands off and that is the same guarantee one frame down.
     """
     found = []
 
@@ -574,7 +574,7 @@ def test_the_spawn_scan_still_sees_the_call_sites_it_is_guarding():
         "pipelines/music_client.py",
         "pipelines/t2i_client.py",
         "pipelines/trellis.py",
-        "rigging.py",
+        "pipelines/blender_run.py",
         "service/downloads.py",
         "service/packs.py",
         "service/updates.py",

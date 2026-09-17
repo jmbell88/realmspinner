@@ -1099,7 +1099,7 @@ def _overflow(ctx: Any, job: Any) -> None:
     # about what was on it. A near-miss entry (``exit_.reason`` set) is drawn
     # dimmed rather than left off, carrying its reason as the tooltip a
     # disabled menu row shows on hover -- the same "not hidden" argument
-    # ``widgets.stage_rail``'s docstring makes about a blocked stage segment.
+    # ``create_rail.stage_rail``'s docstring makes about a blocked stage segment.
     from .. import asset_exits
 
     for exit_ in asset_exits.exits_for(ctx, job):
@@ -1390,7 +1390,7 @@ def run_action(ctx: Any, job: Any, action: str) -> None:
         )
     elif action == "rig_manual":
         # The blank template (one root bone, hidden from every normal
-        # skeleton picker -- rigging.catalog() filters it out) fitted onto the
+        # skeleton picker -- templates.catalog() filters it out) fitted onto the
         # mesh through the exact same queued Blender pass every automatic rig
         # already runs, so bounds and the root bone's placement are real
         # Blender output rather than host-side coordinate math this app has

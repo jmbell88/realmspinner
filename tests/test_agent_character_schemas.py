@@ -74,20 +74,20 @@ Mutate = Callable[[Args], Args]
 
 @pytest.fixture(autouse=True)
 def _stub_doors(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.service import _jobs_lifecycle
     from warlock.service import characters as svc_characters
     from warlock.service import export as svc_export
     from warlock.service import rig as svc_rig
     from warlock.service import troupe as svc_troupe
 
-    # rigging.shipped_clip_templates/shipped_clip_library/shipped_clip_names
+    # cliplib.shipped_clip_templates/shipped_clip_library/shipped_clip_names
     # and clips.shipped_clip_timing are real on this branch (see
     # tests/test_agent_character.py's own module docstring for the same
     # finding) and none of this file's own tests call
-    # rigging.set_user_clip_dir, so there is no user library for a
+    # cliplib.set_user_clip_dir, so there is no user library for a
     # user-first door to disagree with the shipped one about -- a swap onto
-    # the user-first rigging.clip_library/clips.clip_timing here would be a
+    # the user-first cliplib.clip_library/clips.clip_timing here would be a
     # pure no-op. Nothing left in this fixture needs one.
     monkeypatch.setattr(
         svc_characters,
@@ -123,7 +123,7 @@ def _stub_doors(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
             "kind": "character",
         },
     )
-    monkeypatch.setattr(rigging, "read_rig", lambda job_dir: None)
+    monkeypatch.setattr(store, "read_rig", lambda job_dir: None)
     monkeypatch.setattr(svc_rig, "rig_in_flight", lambda svc, jid: None, raising=False)
     monkeypatch.setattr(
         svc_rig,
@@ -393,17 +393,17 @@ def _all_cases() -> list[tuple[str, Mutate, str]]:
     # reads only module-level registries. Movements is read straight off
     # the shipped clip vocabulary so the fixture above need not be active
     # at collection time.
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib, templates
 
     templates = tuple(
-        row["key"] for row in rigging.catalog() if rigging.clip_library(row["key"]).get("clips")
+        row["key"] for row in templates.catalog() if cliplib.clip_library(row["key"]).get("clips")
     )
     movements_vocab = tuple(
         sorted(
             {
                 n
                 for t in templates
-                for n in (c["name"] for c in rigging.clip_library(t)["clips"])
+                for n in (c["name"] for c in cliplib.clip_library(t)["clips"])
             }
         )
     )

@@ -81,13 +81,13 @@ def _error_for(state: Any, field: str) -> str:
 
 
 def _editor(ctx: Any, state: Any, viewer: Any) -> None:
-    from ... import rigging
+    from ...kernels.rig import skeleton
 
     editor = viewer.editor
     count = len(editor.draft)
     widgets.text_colored(
-        theme.ACCENT if count <= rigging.MAX_SKELETON_BONES else theme.ERR,
-        f"{count} / {rigging.MAX_SKELETON_BONES} bones",
+        theme.ACCENT if count <= skeleton.MAX_SKELETON_BONES else theme.ERR,
+        f"{count} / {skeleton.MAX_SKELETON_BONES} bones",
     )
     selected = editor.selected_bone()
     _rename(ctx, state, editor, selected)

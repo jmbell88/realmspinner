@@ -160,12 +160,12 @@ def _to_blender(p: Any) -> np.ndarray:
 
 
 def _fit_joints(half_width: float, half_depth: float) -> list[dict[str, Any]]:
-    from ... import rigging
+    from ...kernels.rig import skeleton, templates
 
-    template = rigging.get_template("blob")
+    template = templates.get_template("blob")
     lo = [-half_width, -half_depth, 0.0]
     hi = [half_width, half_depth, 1.0]
-    return rigging.fit_template(template, lo, hi)
+    return skeleton.fit_template(template, lo, hi)
 
 
 def _joint_points(joints: list[dict[str, Any]]) -> dict[str, tuple[np.ndarray, np.ndarray]]:

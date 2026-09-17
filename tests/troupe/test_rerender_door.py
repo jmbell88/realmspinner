@@ -130,7 +130,7 @@ def test_the_runs_come_back_named(svc):
 
 
 def test_a_name_may_be_given_and_is_capped(svc):
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _rigged_mesh(svc)
     _row_id, sheet_id = _published(svc, job_id)
@@ -146,7 +146,7 @@ def test_a_name_may_be_given_and_is_capped(svc):
             job_id,
             sheet_id=sheet_id,
             subset=_runs(1),
-            name="x" * (rigging.MAX_SHEET_NAME + 1),
+            name="x" * (store.MAX_SHEET_NAME + 1),
         )
     assert caught.value.field == "name"
 
@@ -170,12 +170,12 @@ def test_every_refusal_names_the_field_it_is_about(svc):
 
 
 def test_a_sheet_that_is_not_on_disk_is_refused(svc):
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _rigged_mesh(svc)
     with pytest.raises(NotFound) as caught:
         svc_troupe.rerender_charsheet(
-            svc, job_id, sheet_id=rigging.new_id(), subset=_runs(1)
+            svc, job_id, sheet_id=store.new_id(), subset=_runs(1)
         )
     assert caught.value.field == "sheet_id"
 

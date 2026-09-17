@@ -2,9 +2,9 @@
 
 Every fixture here is a **synthetic** sample built to satisfy the input
 contract ``cliptransfer.transfer`` documents, not a real Blender export --
-this module claims (like ``rigging``, ``poselib`` and ``clipmaps`` before it)
-to be decidable with no Blender at all, so this suite is what stands on that
-claim.
+this module claims (like ``kernels.rig``, ``poselib`` and ``clipmaps`` before
+it) to be decidable with no Blender at all, so this suite is what stands on
+that claim.
 
 The baseline fixture (``_baseline_source_bones`` with no overrides) copies
 the shipped ``humanoid`` template's own rest positions onto Mixamo-named
@@ -23,10 +23,11 @@ import re
 
 import pytest
 
-from warlock import clipmaps, cliptransfer, rigging
+from warlock import clipmaps, cliptransfer
+from warlock.kernels.rig import cliplib, templates
 from warlock.pipelines import sheet
 
-TEMPLATE = rigging.get_template("humanoid")
+TEMPLATE = templates.get_template("humanoid")
 TARGET_BONES = {b["name"]: b for b in TEMPLATE.bones}
 
 #: The shipped ``mixamo.json`` clip map's own table, restated here (not
@@ -531,7 +532,7 @@ def test_the_output_parses_through_the_renderers_own_clip_library_parser():
         "poses": poses,
         "clips": [result["clip"]],
     }
-    parsed = rigging.parse_clip_library(library)
+    parsed = cliplib.parse_clip_library(library)
     assert parsed["clips"][0]["name"] == result["clip"]["name"]
     assert set(parsed["poses"]) == {p["name"] for p in poses}
 
@@ -554,7 +555,7 @@ def test_an_action_name_becomes_a_legal_clip_name():
     [result] = cliptransfer.transfer(sample, template="humanoid", frames=2, root_motion="none")
     name = result["clip"]["name"]
     assert re.fullmatch(r"[a-z0-9_]+", name)
-    rigging.reject_direction_named_clip(name)  # must not raise
+    cliplib.reject_direction_named_clip(name)  # must not raise
 
     action2 = _one_frame_action("Walk_back", rest)
     sample2 = _make_sample(source_bones, [action2])
@@ -573,7 +574,7 @@ def test_an_imported_clip_keeps_its_source_length():
     -- not ``(N / fps) * 1000``, which is roughly the *whole source clip's*
     length and used to make an imported clip play N times too slowly.
     """
-    step = rigging.CLIP_DURATION_STEP_MS
+    step = cliplib.CLIP_DURATION_STEP_MS
     for duration_s, n_frames in ((1.0, 10), (2.5, 25)):
         source_bones = _baseline_source_bones()
         rest = _rest_frame_bones(source_bones)
@@ -605,7 +606,7 @@ def test_the_duration_is_a_legal_clip_duration():
     action = {"name": "Long", "fps": 24.0, "frame_start": 0, "frame_end": 47, "frames": frames}
     sample = _make_sample(source_bones, [action])
     [result] = cliptransfer.transfer(sample, template="humanoid", root_motion="none")
-    rigging.validate_clip_duration_ms(result["clip"]["duration_ms"], result["clip"]["name"])
+    cliplib.validate_clip_duration_ms(result["clip"]["duration_ms"], result["clip"]["name"])
 
     [explicit] = cliptransfer.transfer(
         sample, template="humanoid", root_motion="none", duration_ms=250

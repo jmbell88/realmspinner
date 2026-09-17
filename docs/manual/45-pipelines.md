@@ -130,10 +130,10 @@ non-manifold geometry — which is exactly what a reconstruction frequently prod
 library that cannot be caught takes the window, the queue and the store with it.
 
 So it runs out of process, as `python -m warlock.pipelines.blender_worker`, mirroring the pattern
-the reconstruction engine already established. `rigging.py` is the host side and stays importable
+the reconstruction engine already established. `kernels/rig/` is the host side and stays importable
 with no Blender anywhere, which is why the app runs perfectly well on a machine with no `bpy`
 installed and simply hides the rig controls. `pipelines/blender_worker.py` is the only module that
-imports `bpy`, and it imports `rigging.fit_template` from the host side rather than reimplementing
+imports `bpy`, and it imports `skeleton.fit_template` from the host side rather than reimplementing
 it, so the two ends can never disagree about where a joint goes.
 
 The threading rules are untouched by any of this: launching the worker is a blocking call, and every

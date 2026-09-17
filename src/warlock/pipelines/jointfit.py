@@ -1,6 +1,6 @@
 """Measure humanoid joints off a mesh, instead of scaling a template to its box.
 
-``rigging.fit_template`` is bbox-proportional and approximate by design, and the
+``skeleton.fit_template`` is bbox-proportional and approximate by design, and the
 approximation holds only while the mesh is standing in roughly the template's
 own pose. The shipped humanoid template is a fairly steep **A-pose**; a user's
 base mesh is as likely to be a **T-pose**, and on one the fitted arm chain runs
@@ -189,7 +189,7 @@ def measure(points: Any) -> dict[str, tuple[list[float], list[float]]]:
 
 
 def payload(points: Any) -> dict[str, Any]:
-    """``measure`` in the shape ``rigging.validate_joints`` takes.
+    """``measure`` in the shape ``skeleton.validate_joints`` takes.
 
     The whole skeleton and not a patch, which is that function's own rule: a
     partial correction leaves the caller and the worker disagreeing about which

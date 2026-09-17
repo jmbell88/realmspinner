@@ -588,9 +588,9 @@ def test_a_pose_delete_does_not_clear_the_dirty_flag():
 
 def test_a_reference_image_can_be_saved():
     """A promoted job copies input.png and then had no way to give it back."""
-    from warlock.studio import widgets
+    from warlock.studio import artifacts
 
-    assert "input.png" in dict(widgets.ARTIFACTS)
+    assert "input.png" in dict(artifacts.ARTIFACTS)
 
 
 # --- copying a recipe back into the form --------------------------------------

@@ -17,10 +17,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock import doctor, rigging
+from warlock import doctor
 from warlock.doctor import Check
 from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.geom3d.gltf import Model, Node
+from warlock.kernels.rig import cliplib, templates
+from warlock.pipelines import blender_run
 from warlock.service import poses as svc_poses
 from warlock.studio import poser_mode
 from warlock.studio.viewer.pose import PoseEditor
@@ -271,14 +273,14 @@ class FakeViewer:
 def _full_bones(template="humanoid"):
     """Every bone at identity -- validate_record requires the whole skeleton,
     which is what get_pose(), the library's only real writer, produces."""
-    return {b["name"]: [0.0, 0.0, 0.0, 1.0] for b in rigging.get_template(template).bones}
+    return {b["name"]: [0.0, 0.0, 0.0, 1.0] for b in templates.get_template(template).bones}
 
 
 def _armature_model() -> Model:
     """One node per humanoid bone under a 'rig' object node -- flat, because
     the editor needs only names and positions here, and a save built off this
     must carry the template's *whole* skeleton (validate_record's bar)."""
-    names = [b["name"] for b in rigging.get_template("humanoid").bones]
+    names = [b["name"] for b in templates.get_template("humanoid").bones]
     nodes = [Node(name="rig", children=list(range(1, len(names) + 1)))]
     for i, name in enumerate(names):
         nodes.append(Node(name=name, translation=m3.vec3(0.0, 0.1 * i, 0.0)))
@@ -287,7 +289,7 @@ def _armature_model() -> Model:
 
 def _bound_viewer() -> FakeViewer:
     viewer = FakeViewer(
-        _armature_model(), [b["name"] for b in rigging.get_template("humanoid").bones]
+        _armature_model(), [b["name"] for b in templates.get_template("humanoid").bones]
     )
     viewer.editor.root = "hips"
     return viewer
@@ -302,7 +304,7 @@ def _fake_blender(monkeypatch) -> None:
         Path(spec["out_glb"]).write_bytes(b"armature-glb")
         return {"ok": True}
 
-    monkeypatch.setattr(rigging, "run_worker", run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", run_worker)
 
 
 # --- entering ----------------------------------------------------------------
@@ -968,7 +970,7 @@ def test_rerig_control_is_gated_by_the_pane_s_own_blender_check():
 
 
 def _humanoid_bones():
-    return [dict(b) for b in rigging.get_template("humanoid").bones]
+    return [dict(b) for b in templates.get_template("humanoid").bones]
 
 
 def _custom_rig_meta():
@@ -999,10 +1001,10 @@ def _opened_asset_for_skeleton(svc, monkeypatch, **rig_meta):
     is the first thing here that does.
     """
     ctx, viewer, job_id = _opened_asset(svc, monkeypatch, **rig_meta)
-    names = [b["name"] for b in rigging.get_template("humanoid").bones]
+    names = [b["name"] for b in templates.get_template("humanoid").bones]
     viewer.editor.bind(_armature_model(), names)
     viewer.editor.root = next(
-        b["name"] for b in rigging.get_template("humanoid").bones if b["parent"] is None
+        b["name"] for b in templates.get_template("humanoid").bones if b["parent"] is None
     )
     return ctx, viewer, job_id
 
@@ -1070,7 +1072,7 @@ def test_apply_skeleton_records_a_field_addressed_refusal(svc, monkeypatch):
 
     ctx, viewer, job_id = _opened_asset_for_skeleton(svc, monkeypatch, **_custom_rig_meta())
     poser_mode.enter_skeleton_edit(ctx)
-    # ``rigging.validate_skeleton`` derives the root from the bones' own
+    # ``skeleton.validate_skeleton`` derives the root from the bones' own
     # ``parent`` fields, not from the payload's own ``root`` -- so a second
     # parentless bone, poked straight into the draft rather than through a
     # ``skel_*`` door (none of which can produce this on their own), is what
@@ -1377,7 +1379,7 @@ def test_save_pose_to_asset_round_trips_the_root_offset(svc):
     not just asserted present in the payload dict -- that door used to drop
     the field on the floor even when it was sent."""
     job_id = _rigged_job(
-        svc, bones=[{"name": b["name"]} for b in rigging.get_template("humanoid").bones]
+        svc, bones=[{"name": b["name"]} for b in templates.get_template("humanoid").bones]
     )
     ctx = FakeCtx(svc)
     state = poser_mode.ensure(ctx)
@@ -1652,7 +1654,7 @@ def test_sync_preview_binds_once_and_not_again(svc, tmp_path):
     )
     assert viewer.loaded == [glb]
     assert viewer.token == "poser:humanoid"
-    assert viewer.editor.root == rigging.get_template("humanoid").root
+    assert viewer.editor.root == templates.get_template("humanoid").root
     assert viewer.framed is not None
 
     assert poser_mode.sync_preview(ctx, viewer) is True
@@ -1779,7 +1781,7 @@ def test_a_recovered_pose_restores_joint_corrections(tmp_path):
 
 
 def _skeleton_rig_for_journal():
-    bones = [dict(b) for b in rigging.get_template("humanoid").bones]
+    bones = [dict(b) for b in templates.get_template("humanoid").bones]
     root = next(b["name"] for b in bones if b["parent"] is None)
     return {"bones": bones, "root": root, "mirror_pairs": []}
 
@@ -1963,9 +1965,9 @@ def test_frame_time_snaps_to_the_library_step():
     poser_mode.set_duration(ctx, 83)
     assert state.open_clip()["duration_ms"] == 80
     poser_mode.set_duration(ctx, 3)
-    assert state.open_clip()["duration_ms"] == rigging.MIN_CLIP_DURATION_MS
+    assert state.open_clip()["duration_ms"] == cliplib.MIN_CLIP_DURATION_MS
     poser_mode.set_duration(ctx, 5000)
-    assert state.open_clip()["duration_ms"] == rigging.MAX_CLIP_DURATION_MS
+    assert state.open_clip()["duration_ms"] == cliplib.MAX_CLIP_DURATION_MS
 
 
 def test_the_frame_time_control_writes_duration_ms_and_a_save_round_trips(monkeypatch):
@@ -2519,9 +2521,9 @@ def test_node_space_libraries_are_passed_through_untouched():
 
 
 def test_the_shipped_humanoid_library_is_delta_so_the_conversion_is_load_bearing():
-    from warlock import rigging
+    from warlock.kernels.rig import cliplib
 
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     assert library["space"] == "delta"
 
 

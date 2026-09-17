@@ -6,7 +6,7 @@ refused for is checked here, before the row exists, for the reason
 should cost the request, not a place in the queue and two SDXL generations.
 
 Nothing here reads a draft's *pixels*. The listing and the reads are
-``rigging``'s pure file helpers behind the id guards, so the pane can call them
+``store``'s pure file helpers behind the id guards, so the pane can call them
 on the frame thread behind a stamp.
 """
 
@@ -16,7 +16,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import models, rigging
+from .. import models
+from ..kernels.rig import store
 from ..pipelines import spritesynth
 from .core import WarlockService
 from .errors import Conflict, Invalid, NotFound
@@ -615,7 +616,7 @@ def create_sprite_synthesis(
 
     _check_weights(svc)
 
-    draft_id = rigging.new_id()
+    draft_id = store.new_id()
     params = {
         # Inputs only, exactly as ``create_pixel_sheet`` says: what actually
         # ran is recorded in the draft's own sidecar recipe, so nothing here is
@@ -654,9 +655,9 @@ def create_sprite_synthesis(
             if j["kind"] == "sprite_synthesis"
             and (j.get("params") or {}).get("source_job") == job_id
         )
-        if len(rigging.list_sprite_drafts(job_dir)) + queued >= rigging.MAX_SPRITE_DRAFTS:
+        if len(store.list_sprite_drafts(job_dir)) + queued >= store.MAX_SPRITE_DRAFTS:
             raise Conflict(
-                f"this reference already has {rigging.MAX_SPRITE_DRAFTS} sprite "
+                f"this reference already has {store.MAX_SPRITE_DRAFTS} sprite "
                 "sheet drafts; delete one first"
             )
         new_id = svc.store.create(
@@ -668,13 +669,13 @@ def create_sprite_synthesis(
 
 def list_sprite_drafts(svc: WarlockService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
-    return {"drafts": rigging.list_sprite_drafts(svc.job_dir(job_id))}
+    return {"drafts": store.list_sprite_drafts(svc.job_dir(job_id))}
 
 
 def get_sprite_draft(svc: WarlockService, job_id: str, draft_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     check_sprite_draft_id(draft_id)
-    record = rigging.read_sprite_draft(svc.job_dir(job_id), draft_id)
+    record = store.read_sprite_draft(svc.job_dir(job_id), draft_id)
     if record is None:
         raise NotFound("no such sprite draft")
     return record
@@ -691,11 +692,11 @@ def sprite_draft_png(
     """
     check_job_id(job_id)
     check_sprite_draft_id(draft_id)
-    if candidate not in rigging.SPRITE_CANDIDATES:
+    if candidate not in store.SPRITE_CANDIDATES:
         raise NotFound("no such sprite candidate")
     job_dir = svc.job_dir(job_id)
-    path = rigging.sprite_draft_png_path(job_dir, draft_id, candidate)
-    if not path.exists() or not rigging.sprite_draft_path(job_dir, draft_id).exists():
+    path = store.sprite_draft_png_path(job_dir, draft_id, candidate)
+    if not path.exists() or not store.sprite_draft_path(job_dir, draft_id).exists():
         raise NotFound("no such sprite draft")
     return path
 
@@ -739,6 +740,6 @@ def delete_sprite_draft(
                 " finish before deleting it",
                 field="draft_id",
             )
-        if not rigging.delete_sprite_draft(svc.job_dir(job_id), draft_id):
+        if not store.delete_sprite_draft(svc.job_dir(job_id), draft_id):
             raise NotFound("no such sprite draft")
     return {"deleted": draft_id}

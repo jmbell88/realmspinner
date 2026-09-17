@@ -1,6 +1,6 @@
 """Hybrid Demucs in a short-lived child: one mix in, four stems out.
 
-Reads a JSON spec on stdin (see ``rigging.run_worker``). Writes its result to
+Reads a JSON spec on stdin (see ``blender_run.run_worker``). Writes its result to
 ``spec["result_path"]`` and progress to stdout as ``[separate] <frac> <label>``.
 
 **Why a one-shot child, when both existing model workers are resident.** Both
@@ -50,7 +50,7 @@ CHECKPOINT = "hdemucs_high_trained.pt"
 
 
 def _emit(fraction: float, label: str) -> None:
-    """One progress line, in the format ``rigging.run_worker`` parses."""
+    """One progress line, in the format ``blender_run.run_worker`` parses."""
     print(f"[separate] {fraction:.3f} {label}", flush=True)
 
 
@@ -207,7 +207,7 @@ def main() -> int:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
     # The 2026-09-07 audit (pipelines-01) found this returned 1 on a *handled*
-    # failure -- exactly what rigging.run_worker treats as a crash, so it
+    # failure -- exactly what blender_run.run_worker treats as a crash, so it
     # deleted result_path and raised "exited with code 1" before ever reading
     # the sentence just written into it, making _q_music.py's own
     # result.get("error") handler unreachable dead code. The failure is on

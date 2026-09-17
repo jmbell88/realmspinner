@@ -215,9 +215,9 @@ class _SheetCtx:
 
 
 def _write_sidecar(root, frame_size):
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
-    path = rigging.sheet_pixel_path(root, SHEET_ID)
+    path = store.sheet_pixel_path(root, SHEET_ID)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"frame_size": frame_size, "palette": ["000000"]}), encoding="utf-8"

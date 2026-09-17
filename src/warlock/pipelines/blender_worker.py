@@ -1,17 +1,18 @@
 """The ``bpy`` side of rigging. Runs as a subprocess, never inside the app.
 
 Invoked as ``python -m warlock.pipelines.blender_worker`` with a JSON spec
-on stdin (see ``rigging.run_worker``). Writes its result to
+on stdin (see ``blender_run.run_worker``). Writes its result to
 ``spec["result_path"]`` and progress to stdout as ``[blender] <frac> <label>``.
 
-Why a subprocess at all is argued in ``rigging.py``'s docstring; the short
-version is that ``bpy`` is process-global, not thread-safe, and can take the
-interpreter down rather than raise on the kind of non-manifold geometry
-trellis-server routinely produces.
+Why a subprocess at all is argued in ``kernels.rig``'s own docstring (the
+package the former single ``rigging.py`` split into, P4 of
+``dev/RESTRUCTURE.md``); the short version is that ``bpy`` is process-global,
+not thread-safe, and can take the interpreter down rather than raise on the
+kind of non-manifold geometry trellis-server routinely produces.
 
-Everything that does not need Blender lives in ``rigging.py`` and is imported
-from there, so the host and this process can never disagree about where a
-joint goes.
+Everything that does not need Blender lives under ``kernels.rig`` and is
+imported from there, so the host and this process can never disagree about
+where a joint goes.
 """
 
 from __future__ import annotations
@@ -25,12 +26,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .. import meshreport, poselib, rigging
-from . import sheet
+from .. import meshreport, poselib
+from ..kernels.rig import poses, skeleton, templates
+from . import blender_run, sheet
 
 
 def progress(frac: float, label: str) -> None:
-    print(f"{rigging.PROGRESS_PREFIX} {frac:.3f} {label}", flush=True)
+    print(f"{blender_run.PROGRESS_PREFIX} {frac:.3f} {label}", flush=True)
 
 
 # --- scene helpers ----------------------------------------------------------
@@ -514,7 +516,7 @@ def _apply_root_translation(arm_obj: Any, bone_name: Any, offset_world: Sequence
         # The inverse below carries the offset through the bone's *rest* frame
         # only; a parented bone composes through its parent's pose, which this
         # arithmetic never sees. Every shipped template's root is parentless
-        # (enforced at registry load in rigging._parse_template), so this is a
+        # (enforced at registry load in templates._parse_template), so this is a
         # foreign or hand-edited rig.json -- it costs the offset, not the bake,
         # the same rule as an unknown bone above.
         print(f"root offset bone {bone_name!r} has a parent; skipping the offset", flush=True)
@@ -563,14 +565,14 @@ def _apply_pose(
         if delta:
             x, y, z, w = node
         else:
-            # ``rigging.delta_from_node``, not a local ``inverted() @``: a pose
+            # ``poses.delta_from_node``, not a local ``inverted() @``: a pose
             # bone's ``rotation_quaternion`` *is* a rotation from rest, and the
             # host's pose editor makes the same conversion against the viewer's
             # rest quaternions. The order and which side is conjugated are the
             # parts that drift, and a drifted one contorts a skeleton silently
             # -- so there is one definition and both ends call it.
             rest = _rest_local_rotation(pbone.bone)
-            x, y, z, w = rigging.delta_from_node(
+            x, y, z, w = poses.delta_from_node(
                 [rest.x, rest.y, rest.z, rest.w], node
             )
         pbone.rotation_quaternion = Quaternion((w, x, y, z))
@@ -1046,7 +1048,7 @@ def _rig_bones(
     spec: dict[str, Any], lo: Sequence[float], hi: Sequence[float]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The joints to build the armature from, and the record of where they
-    came from. See ``rigging.rig_spec`` for the order of preference.
+    came from. See ``blender_spec.rig_spec`` for the order of preference.
 
     Its own function because it is the only decision in ``op_rig``, and
     everything around it needs Blender -- so this is what a test can reach on a
@@ -1060,7 +1062,7 @@ def _rig_bones(
 
     A *custom* skeleton (``spec["skeleton"] == "custom"``, from ``service.rig.
     edit_skeleton``) gets the same treatment as ``template_bones``, for the
-    same reason: it was already checked host-side by ``rigging.
+    same reason: it was already checked host-side by ``skeleton.
     validate_skeleton`` before this job was queued, but the spec crossed a
     pipe as plain JSON to get here, and re-trusting a structure this process
     did not itself check would build an armature whose parents do not resolve
@@ -1069,22 +1071,22 @@ def _rig_bones(
     list returned here *is* ``spec["bones"]`` in the success case), so this
     stays a 2-tuple like every other call site expects.
     """
-    template = rigging.get_template(spec["template"])
+    template = templates.get_template(spec["template"])
     if spec.get("bones"):
         if spec.get("skeleton") == "custom":
             try:
-                rigging.check_skeleton_structure(spec["bones"])
+                skeleton.check_skeleton_structure(spec["bones"])
             except ValueError as exc:
                 print(
                     f"custom skeleton structure is unusable, using the bbox fit: {exc}",
                     flush=True,
                 )
-                return rigging.fit_template(template, lo, hi), {
+                return skeleton.fit_template(template, lo, hi), {
                     "method": "bbox",
                     "fallback_reason": str(exc),
                 }
         # Caller-supplied joints win over any fit. They are already validated
-        # host-side (rigging.validate_joints / rigging.validate_skeleton), so
+        # host-side (skeleton.validate_joints / skeleton.validate_skeleton), so
         # this is a straight substitution rather than a second, disagreeing
         # check.
         return spec["bones"], spec.get("fit") or {"method": "manual"}
@@ -1101,7 +1103,7 @@ def _rig_bones(
     if informed:
         template = dataclasses.replace(template, bones=tuple(landmarks))
     fit = spec.get("fit") or {"method": "pose2d" if informed else "bbox"}
-    return rigging.fit_template(template, lo, hi), fit
+    return skeleton.fit_template(template, lo, hi), fit
 
 
 def _rig_meta(
@@ -1162,7 +1164,7 @@ def _rig_meta(
 
 
 def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
-    template = rigging.get_template(spec["template"])
+    template = templates.get_template(spec["template"])
     source = Path(spec["source_glb"])
     if not source.exists():
         raise RuntimeError(f"no mesh to rig at {source}")
@@ -1198,7 +1200,7 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             # crashed the worker instead of falling back. It belongs in the
             # same try as the measurement it validates: both failures mean
             # the same thing, "costs the measurement, never the rig".
-            validated = rigging.validate_joints(measured, template)
+            validated = skeleton.validate_joints(measured, template)
         except ValueError as exc:
             # Costs the measurement, never the rig: the bbox fit is still a
             # rig, and a mesh this cannot read is exactly the mesh whose
@@ -1269,7 +1271,7 @@ def op_pose(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
         print(f"pose names {len(unknown)} bone(s) this rig does not have: {unknown}", flush=True)
     if spec.get("root_offset"):
         # Only present when a library pose carried a nonzero root translation
-        # (rigging.pose_spec adds the keys conditionally), so a spec without it
+        # (blender_spec.pose_spec adds the keys conditionally), so a spec without it
         # bakes exactly what it always did.
         _apply_root_translation(arm_obj, spec.get("root_bone"), spec["root_offset"])
 
@@ -1377,11 +1379,11 @@ def op_armature(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     purpose: the preview's bone frames and a real bake's must be the same
     frames, and sharing the code path is what makes that divergence-proof.
     """
-    template = rigging.get_template(spec["template"])
+    template = templates.get_template(spec["template"])
 
     progress(0.10, "Building armature")
     _reset_scene(bpy)
-    bones = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    bones = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
     _build_armature(bpy, bones)
 
     progress(0.60, "Exporting armature")
@@ -1395,7 +1397,7 @@ def _clip_sample_matches(
 ) -> bool:
     """Whether ``name`` names a bone a shipped clip map's chain claims.
 
-    ``rigging.clip_sample_spec`` hands over every map's strip pattern and
+    ``blender_spec.clip_sample_spec`` hands over every map's strip pattern and
     chain names, not just the one that will eventually match -- so this only
     has to recognise a *naming family*, never resolve one. ``clipmaps.match``
     does the actual scoring, host-side, later, against what this op reports.
@@ -1547,9 +1549,9 @@ def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     best.animation_data.action = None
 
     progress(0.92, "Building target rest frames")
-    template = rigging.get_template(spec["template"])
+    template = templates.get_template(spec["template"])
     _reset_scene(bpy)  # the source armature is gone from here on -- see op_armature
-    target_bones_fitted = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    target_bones_fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
     target_arm = _build_armature(bpy, target_bones_fitted)
     target_bones: dict[str, Any] = {}
     for b in target_arm.data.bones:
@@ -1781,10 +1783,10 @@ def _view_direction(yaw: float, pitch: float) -> tuple[float, float, float]:
 
     ``pipelines.retexture.view_matrix`` is the same arithmetic and is the one a
     test can reach without bpy; this is the worker's copy, which imports
-    nothing from the host half by design -- this module runs inside a bpy
-    interpreter and `rigging.py`'s split is what keeps that one-way.
+    nothing from the host half by design -- the layer split (Layer 1's
+    ``kernels.rig`` has no process control) is what keeps that one-way.
     ``tests/test_retexture.py`` pins the two against each other, which is the
-    same treatment ``rigging.fit_template`` gets for the same reason.
+    same treatment ``skeleton.fit_template`` gets for the same reason.
     """
     import math
 

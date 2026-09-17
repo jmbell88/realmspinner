@@ -13,8 +13,9 @@ import re
 import secrets
 from typing import Any
 
-from .. import packs, rigging, vram
+from .. import packs, vram
 from ..generation import MAX_REFERENCE_COUNT as MAX_REFERENCE_COUNT
+from ..kernels.rig import store, templates
 from .errors import Invalid, NotFound, invalid_from
 
 ALLOWED_RESOLUTIONS = {512, 1024, 1536}
@@ -754,24 +755,24 @@ def check_job_id(job_id: str) -> None:
 
 def check_pose_id(pose_id: str) -> None:
     """Same guard, same reasoning, for the ids that name files inside a job dir."""
-    if not rigging.is_valid_id(pose_id):
+    if not store.is_valid_id(pose_id):
         raise NotFound("no such pose")
 
 
 def check_sheet_id(sheet_id: str) -> None:
-    if not rigging.is_valid_id(sheet_id):
+    if not store.is_valid_id(sheet_id):
         raise NotFound("no such sheet")
 
 
 def check_sprite_draft_id(draft_id: str) -> None:
-    if not rigging.is_valid_id(draft_id):
+    if not store.is_valid_id(draft_id):
         raise NotFound("no such sprite draft")
 
 
 def valid_template(key: str | None, default: str) -> str:
     """A known skeleton template key. None falls back to the config default."""
     try:
-        return rigging.get_template(key or default).key
+        return templates.get_template(key or default).key
     except ValueError as exc:
         raise invalid_from(exc, "That skeleton is not available", field="rig_template") from exc
 

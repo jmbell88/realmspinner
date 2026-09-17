@@ -4340,13 +4340,13 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
         and the brief now share one row, drawn through ``create_brief``) --
         ``max_width`` and ``row_height`` are that row's own give-way ladder
         and vertical alignment, computed there and passed straight through to
-        ``widgets.stage_rail``. This method still owns building ``items`` and
+        ``create_rail.stage_rail``. This method still owns building ``items`` and
         still owns the one call to ``create_stages.go``; nothing about *that*
         moved.
         """
         from imgui_bundle import imgui
 
-        from . import create_stages, widgets
+        from . import create_rail, create_stages
         from .panes import inspector
 
         job = ctx.job()
@@ -4365,7 +4365,7 @@ class App(ClayViewport, MasonViewport, PoserViewport, ReviewPanes):
             )
             for stage in create_stages.STAGES
         ]
-        picked = widgets.stage_rail(
+        picked = create_rail.stage_rail(
             "create-stages",
             items,
             ctx.state.create_stage,

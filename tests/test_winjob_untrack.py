@@ -15,8 +15,8 @@ import sys
 
 import pytest
 
-from warlock import rigging, winjob
-from warlock.pipelines import matting
+from warlock import winjob
+from warlock.pipelines import blender_run, matting
 
 
 @pytest.fixture
@@ -36,8 +36,8 @@ def tracked_pids(monkeypatch):
 def test_a_failed_rig_worker_leaves_no_registry_entry(tmp_path, tracked_pids):
     """The nonzero-exit path: the worker refuses the op and dies, and the
     registry must not go on saying it is alive."""
-    with pytest.raises(rigging.BlenderError, match="code 2"):
-        rigging.run_worker(
+    with pytest.raises(blender_run.BlenderError, match="code 2"):
+        blender_run.run_worker(
             {"op": "sculpt", "result_path": str(tmp_path / "r.json")}, timeout=60
         )
     assert tracked_pids, "the worker was never tracked at all"
@@ -53,9 +53,9 @@ def test_a_timed_out_rig_worker_leaves_no_registry_entry(tmp_path, monkeypatch, 
     def fake_popen(_cmd, **kw):
         return real_popen([sys.executable, "-c", "import time; time.sleep(120)"], **kw)
 
-    monkeypatch.setattr(rigging.subprocess, "Popen", fake_popen)
-    with pytest.raises(rigging.BlenderError, match="timed out"):
-        rigging.run_worker(
+    monkeypatch.setattr(blender_run.subprocess, "Popen", fake_popen)
+    with pytest.raises(blender_run.BlenderError, match="timed out"):
+        blender_run.run_worker(
             {"op": "rig", "result_path": str(tmp_path / "r.json")}, timeout=1.0
         )
     assert tracked_pids

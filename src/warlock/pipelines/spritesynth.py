@@ -764,7 +764,7 @@ def action_subject(prompt: str, action: str, direction: str) -> str:
 #
 # Troupe's reference stage wants an orthographic T-pose character reference
 # rather than a dynamic illustration, because both the reconstruction and the
-# bbox-proportional ``rigging.fit_template`` are far more reliable against one:
+# bbox-proportional ``skeleton.fit_template`` are far more reliable against one:
 # limb separation and silhouette are what a single-view reconstruction has to
 # get right, and a folded arm is the failure it cannot recover from.
 #
@@ -855,7 +855,7 @@ def render_tpose_guide(variant: str) -> PILImage:
 MAX_SEED = 2**31 - 1
 
 #: The candidate letters, in the order :func:`candidate_seed` steps through
-#: them. ``rigging.SPRITE_CANDIDATES`` is the same tuple and is deliberately not
+#: them. ``store.SPRITE_CANDIDATES`` is the same tuple and is deliberately not
 #: imported: that module knows about paths and this one may not.
 CANDIDATES: tuple[str, ...] = ("a", "b")
 
@@ -1151,7 +1151,7 @@ def _parse_template(raw: dict[str, Any], geom: SheetGeometry) -> GuideTemplate:
 def load_guide_template(sheet_type: str) -> GuideTemplate:
     """Read and validate ``templates/sprite_guides/<type>.json``.
 
-    Raises rather than degrading, unlike ``rigging._load_templates``: there is
+    Raises rather than degrading, unlike ``templates._load_templates``: there is
     exactly one template per sheet type, so skipping a bad one would leave the
     feature with no guide at all and generate four unposed characters -- an
     error is the useful outcome, and the templates ship with the package.

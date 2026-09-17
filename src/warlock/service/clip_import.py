@@ -1,6 +1,6 @@
 """Import clip: posing a template rig from an externally authored animation.
 
-**A door, not a job kind.** The heavy step is a Blender subprocess (``rigging.
+**A door, not a job kind.** The heavy step is a Blender subprocess (``blender_run.
 run_worker`` with ``op="clip_sample"``), but it samples a handful of actions --
 a few seconds of CPU, no GPU, no VRAM admission to reason about -- and it
 writes nothing durable of its own: the sampled transforms live only long
@@ -32,7 +32,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .. import cliptransfer, doctor, rigging
+from .. import cliptransfer, doctor
+from ..kernels.rig import blender_spec, cliplib, store
+from ..pipelines import blender_run
 from . import clips as _clips
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, invalid_from
@@ -110,12 +112,12 @@ def analyse(
 
     directory = _imports_dir(svc)
     directory.mkdir(parents=True, exist_ok=True)
-    result_path = directory / f".{rigging.new_id()}.clip_sample.json"
+    result_path = directory / f".{store.new_id()}.clip_sample.json"
     try:
-        spec = rigging.clip_sample_spec(source, key, result_path)
+        spec = blender_spec.clip_sample_spec(source, key, result_path)
         try:
-            payload = rigging.run_worker(spec, timeout=svc.config.pose_timeout)
-        except rigging.BlenderError as exc:
+            payload = blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
+        except blender_run.BlenderError as exc:
             log.error("sampling %s for %s failed: %s", source, key, exc)
             raise Failed("That file could not be read by Blender") from exc
         if not payload.get("ok", False):
@@ -262,14 +264,14 @@ def import_into_library(
         payload = {"space": current["space"], "poses": poses, "clips": clip_rows}
         document = _clips._check_shape({**payload, "template": key})
         try:
-            rigging.parse_clip_library(document)
+            cliplib.parse_clip_library(document)
         except Exception as exc:
             raise invalid_from(exc, "That clip library cannot be saved") from exc
 
         # The 2026-09-14 audit, finding poser-01: this door merges into the
         # same document shape service.clips.save writes, through the same
         # _check_shape/_commit_locked pair, but save gained a check against
-        # rigging.MAX_CLIP_LIBRARY_BYTES on 2026-09-13 (finding poser-02) that
+        # cliplib.MAX_CLIP_LIBRARY_BYTES on 2026-09-13 (finding poser-02) that
         # this door never did -- so a source file with enough bones (a dense
         # facial or cloth rig baked into the animation) could still commit a
         # library the read door (_load_clip_library) then refuses forever,
@@ -277,10 +279,10 @@ def import_into_library(
         # same constant, same place in the sequence save uses it: after the
         # renderer's own parser accepts the document, before a byte commits.
         size = len(json.dumps(document, indent=2).encode("utf-8"))
-        if size > rigging.MAX_CLIP_LIBRARY_BYTES:
+        if size > cliplib.MAX_CLIP_LIBRARY_BYTES:
             raise Conflict(
                 f"this clip library is {size} bytes, over the "
-                f"{rigging.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
+                f"{cliplib.MAX_CLIP_LIBRARY_BYTES}-byte limit the reader enforces",
                 field="poses",
             )
         _clips._commit_locked(svc, key, document)

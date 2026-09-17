@@ -14,7 +14,7 @@ lock at all; ``os.replace`` gives a concurrent reader old-or-new, never torn.
 
 **Applying is a copy, and that is the provenance model.** ``apply_library_pose``
 snapshots the record into the job's own ``poses/`` directory through the
-ordinary ``rigging.save_pose`` path, so editing or deleting the library pose
+ordinary ``store.save_pose`` path, so editing or deleting the library pose
 afterwards can never change what an asset bakes -- immutability is automatic
 rather than enforced.
 """
@@ -27,7 +27,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .. import doctor, poselib, rigging
+from .. import doctor, poselib
+from ..kernels.rig import blender_spec, poses, store, templates
+from ..pipelines import blender_run
 from .core import WarlockService
 from .errors import Conflict, Failed, Invalid, NotFound, invalid_from
 from .validation import check_pose_id
@@ -182,7 +184,7 @@ def library_for_job(svc: WarlockService, job_id: str) -> dict[str, Any]:
     from .validation import check_job_id
 
     check_job_id(job_id)
-    rig = rigging.read_rig(svc.job_dir(job_id)) or {}
+    rig = store.read_rig(svc.job_dir(job_id)) or {}
     template = str(rig.get("template") or "")
     if not template:
         return {"template": None, "poses": []}
@@ -192,7 +194,7 @@ def library_for_job(svc: WarlockService, job_id: str) -> dict[str, Any]:
 def apply_library_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[str, Any]:
     """Snapshot a library pose into a rigged job's own poses/ directory.
 
-    No bake happens here: the snapshot goes through ``rigging.save_pose`` like
+    No bake happens here: the snapshot goes through ``store.save_pose`` like
     any hand-made pose, and the GLB derives lazily on first request through the
     untouched ``posed_model`` path. ``source_pose`` rides along as provenance
     -- which library pose, as of which edit -- and ``root_translation`` is
@@ -200,21 +202,21 @@ def apply_library_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[s
     """
     svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    rig = rigging.read_rig(job_dir)
+    rig = store.read_rig(job_dir)
     if rig is None:
         raise NotFound("That asset is not rigged yet.")
     record = _record_or_not_found(svc, pose_id)
 
     if str(rig.get("template") or "") != record["template"]:
-        label = rigging.get_template(record["template"]).label
+        label = templates.get_template(record["template"]).label
         raise Conflict(f"That pose was authored for the {label} skeleton.")
 
     try:
         # The 2026-09-08 audit (poser-02): a rig.json with a nameless bone
         # crashed this bare comprehension with an uncaught KeyError, the same
         # shape of hole service.rig._rig_bones had until the same fix.
-        known = rigging.validate_rig_bones(rig.get("bones", []))
-        pose = rigging.validate_pose(
+        known = store.validate_rig_bones(rig.get("bones", []))
+        pose = poses.validate_pose(
             {"name": record["name"], "bones": record["bones"]}, known
         )
     except ValueError as exc:
@@ -232,9 +234,9 @@ def apply_library_pose(svc: WarlockService, job_id: str, pose_id: str) -> dict[s
     # is the *set*, not any one pose, and a different string here would be two
     # locks that never exclude each other.
     with svc.convert_lock(job_id, "poses"):
-        if len(rigging.list_poses(job_dir)) >= rigging.MAX_POSES:
-            raise Conflict(f"a job may hold at most {rigging.MAX_POSES} poses")
-        return rigging.save_pose(
+        if len(store.list_poses(job_dir)) >= store.MAX_POSES:
+            raise Conflict(f"a job may hold at most {store.MAX_POSES} poses")
+        return store.save_pose(
             job_dir,
             pose,
             extra={
@@ -258,7 +260,7 @@ def template_preview(svc: WarlockService, template: str) -> Path:
     so a half-written GLB is never both present and claimed valid.
     """
     try:
-        key = rigging.get_template(str(template or "")).key
+        key = templates.get_template(str(template or "")).key
     except ValueError as exc:
         raise invalid_from(exc, "That skeleton is not available", field="rig_template") from exc
     check = doctor.blender_check()
@@ -274,11 +276,11 @@ def template_preview(svc: WarlockService, template: str) -> Path:
         # The .glb suffix is load-bearing: Blender's exporter appends one to
         # any filepath without it (the RIG_GLB_TMP rule).
         tmp = directory / f".{key}.tmp.glb"
-        spec = rigging.armature_spec(key, tmp, directory)
+        spec = blender_spec.armature_spec(key, tmp, directory)
         try:
-            rigging.run_worker(spec, timeout=svc.config.pose_timeout)
+            blender_run.run_worker(spec, timeout=svc.config.pose_timeout)
             os.replace(tmp, path)
-        except rigging.BlenderError as exc:
+        except blender_run.BlenderError as exc:
             log.error("building the %s pose preview failed: %s", key, exc)
             raise Failed("could not build the pose preview") from exc
         except OSError as exc:

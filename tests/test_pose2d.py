@@ -18,7 +18,7 @@ import dataclasses
 
 import pytest
 
-from warlock import rigging
+from warlock.kernels.rig import skeleton, templates
 from warlock.pipelines import pose2d
 
 # x0, y0, x1, y1 -- 200 wide, 400 tall, centred on x=200. Chosen so every
@@ -74,7 +74,7 @@ def _keypoints(pixels: dict[str, tuple[float, float]], **scores: float):
 
 def _fit(pixels=None, **scores):
     return pose2d.refit(
-        rigging.get_template("humanoid"),
+        templates.get_template("humanoid"),
         _keypoints(pixels or STANDING, **scores),
         BBOX,
     )
@@ -85,7 +85,7 @@ def _by_name(bones):
 
 
 def _template_bone(name: str) -> dict:
-    return _by_name(rigging.get_template("humanoid").bones)[name]
+    return _by_name(templates.get_template("humanoid").bones)[name]
 
 
 # --- the direct anchors -----------------------------------------------------
@@ -243,7 +243,7 @@ def test_depth_comes_from_the_template_for_every_joint():
 
 
 def test_every_template_bone_comes_back_with_its_parentage():
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     fitted = _fit()
     assert [b["name"] for b in fitted] == [b["name"] for b in template.bones]
     assert [b["parent"] for b in fitted] == [b["parent"] for b in template.bones]
@@ -253,10 +253,10 @@ def test_the_result_survives_the_bbox_scaling_the_worker_applies():
     """The whole seam: refit produces a Template the worker fits exactly as it
     fits the shipped one, so the output has to satisfy the same validation a
     hand-adjusted skeleton does."""
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     informed = dataclasses.replace(template, bones=tuple(_fit()))
-    fitted = rigging.fit_template(informed, [-1.0, -0.5, 0.0], [1.0, 0.5, 2.0])
-    assert rigging.validate_joints({"bones": fitted}, template)
+    fitted = skeleton.fit_template(informed, [-1.0, -0.5, 0.0], [1.0, 0.5, 2.0])
+    assert skeleton.validate_joints({"bones": fitted}, template)
 
 
 # --- the sanity gates -------------------------------------------------------
@@ -298,7 +298,7 @@ def test_a_template_the_mapping_does_not_know_is_refused():
     """The COCO-17 skeleton says nothing about a quadruped, and there is no
     honest partial answer -- the caller falls back to the bbox fit."""
     assert (
-        pose2d.refit(rigging.get_template("quadruped"), _keypoints(STANDING), BBOX)
+        pose2d.refit(templates.get_template("quadruped"), _keypoints(STANDING), BBOX)
         is None
     )
     assert "quadruped" not in pose2d.POSE_FIT_TEMPLATES
@@ -306,7 +306,7 @@ def test_a_template_the_mapping_does_not_know_is_refused():
 
 
 def test_a_degenerate_bbox_is_refused_rather_than_dividing_by_zero():
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     assert pose2d.refit(template, _keypoints(STANDING), (5, 5, 5, 5)) is None
 
 

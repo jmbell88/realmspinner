@@ -23,9 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import rigging
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import store as rig_store
+from warlock.pipelines import blender_run
 from warlock.queue import Worker
 
 pytestmark = pytest.mark.asyncio
@@ -83,7 +84,7 @@ def _always_clipped_render(monkeypatch, worker, *, cancel_after_first: bool):
             "framing": {"extent": 2.24, "margin": spec.get("margin") or 1.12},
         }
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -110,7 +111,7 @@ def _queue_charsheet(worker, source):
         "a ranger",
         {
             "source_job": source,
-            "sheet_id": rigging.new_id(),
+            "sheet_id": rig_store.new_id(),
             "logical_size": 16,
             "colors": 8,
             "layout": _TINY_LAYOUT,

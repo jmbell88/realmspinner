@@ -334,7 +334,7 @@ def staged_copy_all(pairs: list[tuple[Path, Path]]) -> None:
     The pair case is why this exists rather than a loop over :func:`staged_copy`
     at each call site. A character sheet is a PNG **and** its JSON sidecar, and
     a reader that finds one without the other has an asset it cannot interpret
-    -- ``rigging.list_sheets`` states the same rule for the directory this app
+    -- ``store.list_sheets`` states the same rule for the directory this app
     serves, where the sidecar is written last as the completion marker. Copying
     one at a time puts a disk-full between them; staging both and then replacing
     both narrows the window to two renames.

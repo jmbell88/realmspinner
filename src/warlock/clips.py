@@ -10,7 +10,7 @@ what a walk is.
 
 It is not in ``pipelines.charsheet`` because that module is deliberately
 filesystem-free -- it decides what cell 137 depicts and never reads a file to
-do it -- and not in ``rigging`` because that module imports nothing from
+do it -- and not in ``kernels.rig`` because that package imports nothing from
 ``pipelines`` and this needs ``sheet.interpolate_clip``.
 """
 
@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from . import rigging
+from .kernels.rig import blender_spec, cliplib, store, templates
 from .pipelines import charsheet, sheet
 
 log = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def expand_clips(
         if isinstance(layout, charsheet.LayoutSpec)
         else charsheet.resolve_layout(layout, timing=clip_timing(template_key))
     )
-    library = rigging.clip_library(template_key)
+    library = cliplib.clip_library(template_key)
     by_name = {c["name"]: c for c in library["clips"]}
     records: dict[str, list[dict[str, Any]]] = {}
     for movement in resolved.movements:
@@ -61,7 +61,7 @@ def expand_clips(
         clip = by_name.get(animation)
         if clip is None:
             raise KeyError(animation)
-        keys = rigging.clip_keys(template_key, animation)
+        keys = cliplib.clip_keys(template_key, animation)
         records[animation] = sheet.resample_clip(
             keys,
             clip["segments"],
@@ -114,26 +114,26 @@ def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
     ``resolve_layout``'s ``timing`` door: the service layer builds this once
     per rig and passes it down, so a layout can name any clip the library
     defines instead of one of :data:`charsheet.ANIMATIONS`' five. User-first,
-    like :func:`~warlock.rigging.clip_library` itself -- see
+    like :func:`~warlock.cliplib.clip_library` itself -- see
     :func:`shipped_clip_timing` for the agent-facing library that never moves
     under a hand edit.
     """
-    return _timing_of(rigging.clip_library(template_key))
+    return _timing_of(cliplib.clip_library(template_key))
 
 
 def shipped_clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
     """:func:`clip_timing`'s shape, off the *shipped* library only.
 
-    ``rigging.shipped_clip_library``'s reason applied to timing: the agent
+    ``cliplib.shipped_clip_library``'s reason applied to timing: the agent
     catalogue's movement/frame-bound vocabulary must not move the moment a
     user edits their own copy of a template's clips.
     """
-    return _timing_of(rigging.shipped_clip_library(template_key))
+    return _timing_of(cliplib.shipped_clip_library(template_key))
 
 
 def loop_names(template_key: str) -> tuple[str, ...]:
     """The names of a template's closed (looping) clips, library order."""
-    library = rigging.clip_library(template_key)
+    library = cliplib.clip_library(template_key)
     return tuple(str(c["name"]) for c in library["clips"] if c["closed"])
 
 
@@ -147,7 +147,7 @@ def library_digest(template_key: str) -> str:
     so a stale bake (the library edited since) is detectable without
     re-baking to find out.
     """
-    library = rigging.clip_library(template_key)
+    library = cliplib.clip_library(template_key)
     canonical = json.dumps(
         {"library": library, "animation_fps": ANIMATION_FPS},
         sort_keys=True,
@@ -176,12 +176,12 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     same host/worker split ``fit_template`` establishes and what keeps the
     interpolation under test with no ``bpy``.
     """
-    library = rigging.clip_library(template_key)
+    library = cliplib.clip_library(template_key)
     tracks: list[dict[str, Any]] = []
     for clip in library["clips"]:
         name = str(clip["name"])
         frames = sheet.interpolate_clip(
-            rigging.clip_keys(template_key, name),
+            cliplib.clip_keys(template_key, name),
             clip["segments"],
             closed=bool(clip["closed"]),
             easing=str(clip["easing"]),
@@ -233,7 +233,7 @@ def _attach_root_offsets(tracks: list[dict[str, Any]], job_dir: Path) -> None:
     ``clips.py`` may not import ``queue.py`` (``queue`` imports ``_q_troupe``,
     which imports ``clips`` -- a cycle), so this is this module's own copy of
     ``queue._sheet_root_offsets``'s arithmetic against
-    ``rigging.root_offset_world``, and tolerant the same way
+    ``blender_spec.root_offset_world``, and tolerant the same way
     ``service.rig._pose_bake_spec`` is: a rig.json this job directory does not
     have yet, or one built before bounds/root were recorded, costs every
     frame's offset rather than the bake. The 2026-09-08 audit (poser-01)'s own
@@ -245,7 +245,7 @@ def _attach_root_offsets(tracks: list[dict[str, Any]], job_dir: Path) -> None:
     )
     if not carries_root:
         return
-    rig_meta = rigging.read_rig(job_dir) or {}
+    rig_meta = store.read_rig(job_dir) or {}
     bounds, root_bone = rig_meta.get("bounds"), rig_meta.get("root")
     if not (isinstance(bounds, dict) and "min" in bounds and "max" in bounds and root_bone):
         log.warning("a clip carries a root offset but %s cannot scale it", job_dir / "rig.json")
@@ -256,7 +256,7 @@ def _attach_root_offsets(tracks: list[dict[str, Any]], job_dir: Path) -> None:
             if not root_translation:
                 continue
             try:
-                offset = rigging.root_offset_world(root_translation, bounds)
+                offset = blender_spec.root_offset_world(root_translation, bounds)
             except (TypeError, ValueError, IndexError):
                 log.warning("a clip has a root offset rig.json cannot scale")
                 continue
@@ -269,23 +269,24 @@ def animate_spec(
 ) -> dict[str, Any]:
     """The worker spec for baking every authored clip into one animated GLB.
 
-    ``rigging.pose_spec``'s shape one step up: a pose is one set of bone
+    ``blender_spec.pose_spec``'s shape one step up: a pose is one set of bone
     rotations, and this is a named sequence of them per clip, resolved **here**
     rather than in Blender. :func:`animation_tracks` does the interpolation on the host, so
     the timing stays under test with no ``bpy`` and the worker only does the
     thing only Blender can do -- keying an armature and writing glTF animation
     samplers.
 
-    Here rather than beside ``pose_spec`` in ``rigging`` for that module's own
-    pinned reason (``tests/test_poser_imports``): it may not import
-    ``pipelines``, and resolving frames needs ``sheet.interpolate_clip``. Which
-    is the argument this module was created on.
+    Here rather than beside ``pose_spec`` in ``kernels.rig.blender_spec`` for
+    that module's own pinned reason (``tests/test_poser_imports``): it may not
+    import ``pipelines``, and resolving frames needs
+    ``sheet.interpolate_clip``. Which is the argument this module was created
+    on.
 
     Raises ``ValueError`` for a template with no clips, before a subprocess is
     spent: an animated GLB with no animations in it is a file that answers the
     question wrongly rather than not at all.
     """
-    rigging.get_template(template_key)  # fail here, not three seconds into a subprocess
+    templates.get_template(template_key)  # fail here, not three seconds into a subprocess
     tracks = animation_tracks(template_key)
     if not tracks:
         raise ValueError(f"nothing is authored for the {template_key} rig")

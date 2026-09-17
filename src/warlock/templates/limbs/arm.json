@@ -1,7 +1,7 @@
 {
   "key": "arm",
   "label": "Arm (upper arm, forearm, hand)",
-  "comment": "Local frame, units of the parent bone's own length: x is rigging._limb_frame's sideways axis (flipped for side='R'), y continues the parent bone's own head->tail direction, z is the remaining orthogonal axis. An arm mostly extends sideways (x) and back along the parent's direction (negative y, which is 'down' when the parent points up, as a chest or shoulder bone does).",
+  "comment": "Local frame, units of the parent bone's own length: x is skeleton._limb_frame's sideways axis (flipped for side='R'), y continues the parent bone's own head->tail direction, z is the remaining orthogonal axis. An arm mostly extends sideways (x) and back along the parent's direction (negative y, which is 'down' when the parent points up, as a chest or shoulder bone does).",
   "bones": [
     {"name": "upper_arm", "parent": null,        "head": [0.0, 0.0, 0.0], "tail": [1.0, -0.6, 0.0]},
     {"name": "forearm",   "parent": "upper_arm", "head": [1.0, -0.6, 0.0], "tail": [2.0, -1.1, 0.0]},

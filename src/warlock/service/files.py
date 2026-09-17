@@ -988,14 +988,14 @@ def _rig_has_clips(job_dir: Path) -> bool:
 
     Read off ``rig.json``, which is where the template is recorded and the only
     place it is -- ``create_charsheet`` asks the same question of the same file.
-    Through ``rigging`` rather than ``service.troupe``: that module imports this
-    one, and a listing loop must not depend on a door.
+    Through ``kernels.rig`` rather than ``service.troupe``: that module imports
+    this one, and a listing loop must not depend on a door.
     """
-    from .. import rigging
+    from ..kernels.rig import cliplib, store
 
     try:
-        template = str((rigging.read_rig(job_dir) or {}).get("template") or "")
-        return bool(rigging.clip_library(template).get("clips"))
+        template = str((store.read_rig(job_dir) or {}).get("template") or "")
+        return bool(cliplib.clip_library(template).get("clips"))
     except (ValueError, OSError):
         return False
 

@@ -26,7 +26,8 @@ import logging
 import shutil
 from typing import TYPE_CHECKING, Any
 
-from . import followups, models, rigging
+from . import followups, models
+from .kernels.rig import store
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -203,7 +204,7 @@ class JobOps:
         drawing it was made from, to reroll or edit or synthesise again with
         different options.
         """
-        from . import rigging
+        from .kernels.rig import store
         from .pipelines import spritesynth
 
         params = job["params"]
@@ -255,10 +256,10 @@ class JobOps:
             # Minted here because the door that normally mints it is not on this
             # path. ``_discard_artifacts`` names this job's drafts by it, so a
             # cancel deletes exactly its own trio and no earlier draft of the
-            # same character. Through ``rigging.new_id`` rather than a second
+            # same character. Through ``store.new_id`` rather than a second
             # copy of its two-line body: the format is that module's, and
             # ``check_sprite_draft_id`` validates against it.
-            "draft_id": rigging.new_id(),
+            "draft_id": store.new_id(),
             # ``service.sprites.SPRITE_BASE_MODEL``, restated because the queue
             # may not import the service -- and *pinned*, deliberately not
             # inherited from the character's row. A synthesis is a pixel-art
@@ -340,7 +341,7 @@ class JobOps:
             # this path -- ``_maybe_queue_sprite_sheet``'s draft id, exactly.
             # ``_discard_artifacts`` names this job's atlas by it, so a cancel
             # deletes its own sheet and no earlier one of the same character.
-            "sheet_id": rigging.new_id(),
+            "sheet_id": store.new_id(),
             "template": params.get("rig_template") or self.config.rig_template,
             "logical_size": block.get("logical_size"),
             "colors": block.get("colors"),
@@ -421,7 +422,7 @@ class JobOps:
         # written into a newly minted charsheet job's own params (the
         # 2026-09-11 audit, finding service-04).
         source_job = str(params.get("source_job") or "")
-        if not rigging.is_valid_id(source_job):
+        if not store.is_valid_id(source_job):
             return
         source_dir = self.config.job_dir(source_job)
         if not (source_dir / "rig.glb").exists():
@@ -435,7 +436,7 @@ class JobOps:
             # that normally mints it is not on this path, and
             # ``_discard_artifacts`` names this job's atlas by it, so a cancel
             # deletes its own sheet and no earlier one of the same character.
-            "sheet_id": rigging.new_id(),
+            "sheet_id": store.new_id(),
             **{key: value for key, value in block.items() if key != "sheet_id"},
         }
         try:
@@ -469,7 +470,7 @@ class JobOps:
             # completion gate, so removing it is what makes the rest unreadable
             # to ``files.ready`` even if an unlink below fails.
             source = str(params.get("source_job") or "")
-            if not rigging.is_valid_id(source):
+            if not store.is_valid_id(source):
                 return
             stems = self.config.job_dir(source) / "stems"
             # **muse-04 (2026-09-15 audit).** This used to hand-list the four
@@ -515,7 +516,7 @@ class JobOps:
             # the assets root, so the cleanup would go looking for temps in the
             # directory that holds every job.
             source = str(params.get("source_job") or "")
-            if not rigging.is_valid_id(source):
+            if not store.is_valid_id(source):
                 return
             job_dir = self.config.job_dir(source)
             if job["kind"] == "rig":
@@ -523,18 +524,18 @@ class JobOps:
                 # only renames them into rig.glb/rig.json on success. The
                 # served names may belong to an earlier, successful rig job
                 # (a cancelled re-rig must not destroy the rig it corrects).
-                paths = [job_dir / rigging.RIG_GLB_TMP, job_dir / rigging.RIG_JSON_TMP]
+                paths = [job_dir / store.RIG_GLB_TMP, job_dir / store.RIG_JSON_TMP]
             elif job["kind"] == "retexture":
                 # Only the temp, for the rig's reason exactly: the served
                 # model.glb in that directory is a different, successful job's
                 # mesh -- either still its original skin, or one an *earlier*
                 # re-texture published. A cancel must not destroy either.
                 # This job's own renders and bakes go with it below.
-                paths = [job_dir / rigging.RETEXTURE_GLB_TMP]
+                paths = [job_dir / store.RETEXTURE_GLB_TMP]
             elif job["kind"] == "remesh":
                 # The re-texture's rule, one temp: the served model.glb is a
                 # different job's mesh until the rename that a cancel precedes.
-                paths = [job_dir / rigging.REMESH_GLB_TMP]
+                paths = [job_dir / store.REMESH_GLB_TMP]
                 with contextlib.suppress(OSError):
                     shutil.rmtree(self.config.job_dir(job["id"]) / "views")
             elif job["kind"] == "sprite_synthesis":
@@ -545,15 +546,15 @@ class JobOps:
                 # here to delete at all: the trio is written in one go at the
                 # very end, after the last cancel check.
                 draft_id = str(params.get("draft_id") or "")
-                if not rigging.is_valid_id(draft_id):
+                if not store.is_valid_id(draft_id):
                     return
-                paths = [rigging.sprite_draft_path(job_dir, draft_id)] + [
-                    rigging.sprite_draft_png_path(job_dir, draft_id, c)
-                    for c in rigging.SPRITE_CANDIDATES
+                paths = [store.sprite_draft_path(job_dir, draft_id)] + [
+                    store.sprite_draft_png_path(job_dir, draft_id, c)
+                    for c in store.SPRITE_CANDIDATES
                 ]
             else:
                 sheet_id = str(params.get("sheet_id") or "")
-                if not rigging.is_valid_id(sheet_id):
+                if not store.is_valid_id(sheet_id):
                     return
                 if job["kind"] == "pixel_sheet":
                     # Only the staging names, for the rig's reason exactly.
@@ -567,8 +568,8 @@ class JobOps:
                     # and renames, and commits the cancel token once the
                     # sidecar lands, so a cancel can only ever arrive with the
                     # served pair belonging to somebody else.
-                    png = rigging.sheet_pixel_png_path(job_dir, sheet_id)
-                    doc = rigging.sheet_pixel_path(job_dir, sheet_id)
+                    png = store.sheet_pixel_png_path(job_dir, sheet_id)
+                    doc = store.sheet_pixel_path(job_dir, sheet_id)
                     paths = [
                         png.with_name(f".{png.name}.tmp"),
                         doc.with_name(f".{doc.name}.tmp"),
@@ -580,9 +581,9 @@ class JobOps:
                     # ``_q_troupe._charsheet`` now refuse a row that arrives
                     # without one rather than minting a replacement, which is
                     # what turns that from an observation into an invariant.
-                    png = rigging.sheet_png_path(job_dir, sheet_id)
+                    png = store.sheet_png_path(job_dir, sheet_id)
                     paths = [
-                        rigging.sheet_path(job_dir, sheet_id),
+                        store.sheet_path(job_dir, sheet_id),
                         png,
                         # Both kinds pack to a staging name and rename in, so a
                         # cancel or a kill mid-pack leaves one of these.

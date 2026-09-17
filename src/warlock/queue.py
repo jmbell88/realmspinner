@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import errors, fetch, leases, memlog, models, rigging, vectors, vram, winjob
+from . import errors, fetch, leases, memlog, models, vectors, vram, winjob
 from ._q_generate import GenerateOps
 from ._q_jobs import JobOps
 from ._q_lora import LoraOps
@@ -49,6 +49,7 @@ from ._q_tilesheet import TileSheetOps
 from ._q_troupe import TroupeOps
 from .config import Config
 from .db import JobStore
+from .kernels.rig import blender_spec, templates
 from .pipelines import pose2d, reference
 from .pipelines.llama import LlamaServer
 from .pipelines.trellis import TrellisServer, TrellisStopFailed
@@ -772,7 +773,7 @@ def _landmark_bones(
         keypoints = pose2d.detect(image, report.bbox, config)
         if keypoints is None:
             return (None, None)
-        bones = pose2d.refit(rigging.get_template(template_key), keypoints, report.bbox)
+        bones = pose2d.refit(templates.get_template(template_key), keypoints, report.bbox)
         if bones is None:
             return (None, None)
         # The confidences of the landmarks the fit actually rests on, not of
@@ -879,7 +880,7 @@ def _sheet_root_offsets(
             )
         return roots, None
     for r in offset_records:
-        roots[(r.get("id"), r.get("frame", 0))] = rigging.root_offset_world(
+        roots[(r.get("id"), r.get("frame", 0))] = blender_spec.root_offset_world(
             r["root_translation"], bounds
         )
     return roots, root_bone
@@ -1479,7 +1480,7 @@ class Worker(
         )
 
     def _note_blender(self, proc: Any) -> None:
-        """``rigging.run_worker``'s ``on_start``: remember the live Popen.
+        """``blender_run.run_worker``'s ``on_start``: remember the live Popen.
 
         Every Blender stage passed the same two-line closure. There is no
         polite abort -- bpy is inside a C solve and checks nothing -- so

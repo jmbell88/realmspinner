@@ -11,7 +11,7 @@ downstream -- the picker, ``lora_fits``, ``_ensure_adapter`` -- learns a second
 path.
 
 This module holds the numbers and the spec; the training loop is
-``lora_train_worker.py`` and runs under ``rigging.run_worker``'s generic
+``lora_train_worker.py`` and runs under ``blender_run.run_worker``'s generic
 child-process contract (spec on stdin, ``[train] frac label`` on stdout,
 result JSON at ``result_path``). Pure: stdlib only.
 """

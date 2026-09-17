@@ -6,7 +6,7 @@ bone ended up and the gizmo rotates the bone; in **joints** mode the marker
 position is a property of the armature's rest pose that the viewer's copy of
 the rig cannot express -- so the marker is the handle and the server re-skins.
 
-The mirror comes from :func:`warlock.rigging.mirror_pose`, imported rather than
+The mirror comes from :func:`warlock.poses.mirror_pose`, imported rather than
 reimplemented. The browser had its own copy with a comment insisting the two
 stay identical, which is exactly the kind of sign convention that is wrong in a
 way you cannot see: a mirrored arm rotating the wrong way about one axis still
@@ -22,13 +22,14 @@ from typing import Any
 
 import numpy as np
 
-from ... import poselib, rigging
+from ... import poselib
 from ...core.undo import Edit, UndoStack
 from ...kernels.geom3d import math3d as m3
 from ...kernels.geom3d.gltf import Model
+from ...kernels.rig import poses, skeleton, store
 
 # Re-exported so nothing downstream is tempted to write the sign flip out again.
-mirror_quaternion = rigging.mirror_quaternion
+mirror_quaternion = poses.mirror_quaternion
 
 
 @dataclass
@@ -152,7 +153,7 @@ class PoseEditor:
         # adds has no node, so it cannot be posed or joint-corrected the way
         # ``fitted``/``moved`` above assume. ``draft`` is
         # ``{name, parent, head, tail}`` dicts, Blender axes, the exact shape
-        # ``rigging.py``'s pure editors take and return. ``draft_root`` is the
+        # ``kernels.rig.skeleton``'s pure editors take and return. ``draft_root`` is the
         # edited skeleton's root name; ``draft_pairs`` its mirror pairs.
         self.draft: list[dict[str, Any]] = []
         self.draft_pairs: list[list[str]] = []
@@ -439,7 +440,7 @@ class PoseEditor:
         # *loading* a different pose, and a mirror is still the same one --
         # dirty yes, identity no. Without it, Mirror silently turned the next
         # Save into Save-as.
-        self.apply(rigging.mirror_pose(self.pose(), self.mirror_pairs), pose_id=self.current)
+        self.apply(poses.mirror_pose(self.pose(), self.mirror_pairs), pose_id=self.current)
         if self.root is not None:
             # The positional half of the same reflection: a pose that steps
             # left must step right when mirrored.
@@ -619,7 +620,7 @@ class PoseEditor:
 
     # -- skeleton editing ----------------------------------------------------
     #
-    # A DRAFT bone list -- ``rigging.py``'s pure ``{name, parent, head, tail}``
+    # A DRAFT bone list -- ``kernels.rig.skeleton``'s pure ``{name, parent, head, tail}``
     # shape -- edited in place. A bone this session adds has no glTF node, so
     # unlike joints mode (which moves a marker that already has one) the mesh
     # cannot be reposed to show it: the mesh stays at rest throughout, and the
@@ -627,7 +628,7 @@ class PoseEditor:
     # and the handles below.
     #
     # Every mutator is a thin, undoable wrapper over the corresponding pure
-    # function in ``rigging.py`` -- never a second implementation of the edit,
+    # function in ``kernels.rig.skeleton`` -- never a second implementation of the edit,
     # only of the bookkeeping (``draft_dirty``, ``selected``, the handle cache)
     # around it. A :class:`RigError` from one of those raises *before* any of
     # that bookkeeping runs, which is what keeps ``@_undoable``'s "no state
@@ -709,9 +710,9 @@ class PoseEditor:
         return len(doomed)
 
     def _check_skeleton_cap(self, count: int) -> None:
-        if count > rigging.MAX_SKELETON_BONES:
-            raise rigging.RigError(
-                f"a skeleton may hold at most {rigging.MAX_SKELETON_BONES} bones, "
+        if count > skeleton.MAX_SKELETON_BONES:
+            raise store.RigError(
+                f"a skeleton may hold at most {skeleton.MAX_SKELETON_BONES} bones, "
                 f"not {count}",
                 field="bones",
             )
@@ -724,7 +725,7 @@ class PoseEditor:
         self._check_skeleton_cap(len(self.draft) + 1)
         by_name = {b["name"]: b for b in self.draft}
         if parent not in by_name:
-            raise rigging.RigError(f"unknown parent {parent!r}", field="parent")
+            raise store.RigError(f"unknown parent {parent!r}", field="parent")
         parent_bone = by_name[parent]
         head = np.asarray(parent_bone["tail"], dtype="f8")
         direction = head - np.asarray(parent_bone["head"], dtype="f8")
@@ -734,8 +735,8 @@ class PoseEditor:
         else:
             direction = direction / length
         tail = head + direction * (0.5 * length)
-        new_name = rigging.unique_name(self.draft, "bone")
-        self.draft = rigging.add_bone(self.draft, parent, new_name, head, tail)
+        new_name = skeleton.unique_name(self.draft, "bone")
+        self.draft = skeleton.add_bone(self.draft, parent, new_name, head, tail)
         self.draft_dirty = True
         self.selected = new_name
         self._recompute_skeleton_handles()
@@ -744,8 +745,8 @@ class PoseEditor:
     @_undoable
     def skel_split(self, name: str) -> str:
         self._check_skeleton_cap(len(self.draft) + 1)
-        new_name = rigging.unique_name(self.draft, name)
-        self.draft = rigging.split_bone(self.draft, name, new_name)
+        new_name = skeleton.unique_name(self.draft, name)
+        self.draft = skeleton.split_bone(self.draft, name, new_name)
         self.draft_dirty = True
         self.selected = new_name
         self._recompute_skeleton_handles()
@@ -755,15 +756,15 @@ class PoseEditor:
     def skel_remove_pivot(self, name: str) -> None:
         by_name = {b["name"]: b for b in self.draft}
         if name not in by_name:
-            raise rigging.RigError(f"unknown bone {name!r}", field="name")
+            raise store.RigError(f"unknown bone {name!r}", field="name")
         parent_name = by_name[name]["parent"]
         if parent_name is None:
             children = [b["name"] for b in self.draft if b["parent"] == name]
             next_selected = children[0] if len(children) == 1 else None
         else:
             next_selected = parent_name
-        self.draft = rigging.remove_pivot(self.draft, name)
-        self.draft_pairs = rigging.prune_pairs(self.draft, self.draft_pairs)
+        self.draft = skeleton.remove_pivot(self.draft, name)
+        self.draft_pairs = skeleton.prune_pairs(self.draft, self.draft_pairs)
         if self.draft_root == name and next_selected is not None:
             self.draft_root = next_selected
         self.draft_dirty = True
@@ -774,11 +775,11 @@ class PoseEditor:
     def skel_remove_subtree(self, name: str) -> int:
         by_name = {b["name"]: b for b in self.draft}
         if name not in by_name:
-            raise rigging.RigError(f"unknown bone {name!r}", field="name")
+            raise store.RigError(f"unknown bone {name!r}", field="name")
         parent_name = by_name[name]["parent"]
         count = self.subtree_size(name)
-        self.draft = rigging.remove_subtree(self.draft, name)
-        self.draft_pairs = rigging.prune_pairs(self.draft, self.draft_pairs)
+        self.draft = skeleton.remove_subtree(self.draft, name)
+        self.draft_pairs = skeleton.prune_pairs(self.draft, self.draft_pairs)
         self.draft_dirty = True
         self.selected = parent_name
         self._recompute_skeleton_handles()
@@ -787,15 +788,15 @@ class PoseEditor:
     @_undoable
     def skel_rename(self, old: str, new: str) -> None:
         # Pre-checked here, with ``field="name"``, ahead of
-        # ``rigging.rename_bone``'s own checks (``field="new"``): every other
+        # ``skeleton.rename_bone``'s own checks (``field="new"``): every other
         # skel_* refusal names the argument the *UI* labels "name", and a
         # rename dialog has exactly one field for the user to blame.
-        if not rigging.BONE_NAME_RE.match(new):
-            raise rigging.RigError(f"bone name {new!r} is not usable", field="name")
+        if not skeleton.BONE_NAME_RE.match(new):
+            raise store.RigError(f"bone name {new!r} is not usable", field="name")
         names = {b["name"] for b in self.draft}
         if new != old and new in names:
-            raise rigging.RigError(f"duplicate bone name {new!r}", field="name")
-        bones, pairs = rigging.rename_bone(self.draft, self.draft_pairs, old, new)
+            raise store.RigError(f"duplicate bone name {new!r}", field="name")
+        bones, pairs = skeleton.rename_bone(self.draft, self.draft_pairs, old, new)
         self.draft = bones
         self.draft_pairs = [list(p) for p in pairs]
         if self.draft_root == old:
@@ -812,7 +813,7 @@ class PoseEditor:
         self, preset_key: str, parent: str, side: str | None, mirror: bool
     ) -> list[str]:
         before = len(self.draft)
-        bones, pairs = rigging.attach_limb(
+        bones, pairs = skeleton.attach_limb(
             self.draft, self.draft_pairs, preset_key, parent, side, mirror
         )
         self._check_skeleton_cap(len(bones))
@@ -836,7 +837,7 @@ class PoseEditor:
                 return b
             if b == name:
                 return a
-        partner = rigging.mirror_partner_name(name)
+        partner = skeleton.mirror_partner_name(name)
         names = {b["name"] for b in self.draft}
         return partner if partner in names else None
 

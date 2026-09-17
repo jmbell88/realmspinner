@@ -176,9 +176,9 @@ def clip_paths(tmp_path_factory):
 
 
 def _spec(source: Path, tmp_path: Path, **overrides) -> dict:
-    from warlock import rigging
+    from warlock.kernels.rig import blender_spec
 
-    spec = rigging.clip_sample_spec(source, "humanoid", tmp_path / ".clip_result.json")
+    spec = blender_spec.clip_sample_spec(source, "humanoid", tmp_path / ".clip_result.json")
     spec.pop("result_path", None)  # op_clip_sample never reads it; only run_worker/main do
     spec.update(overrides)
     return spec
@@ -241,14 +241,15 @@ def test_clip_sample_reports_the_warlock_target_rest_frames_from_the_armature_bu
 ):
     import bpy
 
-    from warlock import poselib, rigging
+    from warlock import poselib
+    from warlock.kernels.rig import skeleton, templates
     from warlock.pipelines import blender_worker as bw
 
     result = _run(_spec(clip_paths["glb"], tmp_path))
     assert result["ok"] is True, result
     assert result["target"]["template"] == "humanoid"
 
-    template = rigging.get_template("humanoid")
+    template = templates.get_template("humanoid")
     expected_names = {b["name"] for b in template.bones}
     assert set(result["target"]["bones"]) == expected_names
 
@@ -257,7 +258,7 @@ def test_clip_sample_reports_the_warlock_target_rest_frames_from_the_armature_bu
     # whole point of sharing _build_armature is that there is one definition
     # of a bone's roll, not two that can drift apart.
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    fitted = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
+    fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
     reference_arm = bw._build_armature(bpy, fitted)
     for bone in reference_arm.data.bones:
         got = result["target"]["bones"][bone.name]

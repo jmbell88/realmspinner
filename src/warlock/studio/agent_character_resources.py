@@ -70,15 +70,15 @@ def owns_uri(uri: str) -> bool:
 
 def _vocabulary_json() -> dict[str, Any]:
     from .. import clips as clips_mod
-    from .. import rigging
     from ..characters import family as family_mod
+    from ..kernels.rig import cliplib
     from ..pipelines import charsheet, pixelize
     from ..service import export as svc_export
     from ..service import troupe as svc_troupe
 
     movements: dict[str, list[dict[str, Any]]] = {}
-    for template in rigging.shipped_clip_templates():
-        library = rigging.shipped_clip_library(template)
+    for template in cliplib.shipped_clip_templates():
+        library = cliplib.shipped_clip_library(template)
         timing = clips_mod.shipped_clip_timing(template)
         rows = []
         for clip in library.get("clips", ()):

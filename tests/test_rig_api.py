@@ -7,7 +7,9 @@ import json
 
 import pytest
 
-from warlock import doctor, rigging
+from warlock import doctor
+from warlock.kernels.rig import skeleton, store, templates
+from warlock.pipelines import blender_run
 from warlock.service import Invalid, NotFound, NotReady
 from warlock.service import derive as svc_derive
 from warlock.service import jobs as svc_jobs
@@ -158,7 +160,7 @@ def test_a_rig_with_a_nameless_bone_is_refused_not_a_keyerror(svc, assets):
     """The 2026-09-08 audit (poser-02): rig.json passes read_record's three
     file-level guards (valid JSON, valid dict, under the byte ceiling) with a
     bone entry that has no "name" key, and get_rig used to let
-    rigging.rig_bone_names' bare ``[b["name"] for b in ...]`` crash out as an
+    store.rig_bone_names' bare ``[b["name"] for b in ...]`` crash out as an
     uncaught KeyError instead of a field-addressed refusal -- one field
     deeper than the pose-record case dev/INVARIANTS.md already names as
     fixed. tests/test_poses_api.py covers the same fix for list_poses,
@@ -211,12 +213,12 @@ def test_rig_glb_is_not_ready_when_absent(svc, assets):
 
 def _rigged_job(svc, assets) -> tuple[str, list[dict]]:
     """A job with a rig on disk, and the fitted bones the editor would show."""
-    from warlock import rigging
+    from warlock.kernels.rig import skeleton, templates
 
     job_id = _finished_mesh_job(svc, assets)
     job_dir = assets / job_id
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     (job_dir / "rig.json").write_text(
         json.dumps({"template": "humanoid", "bones": fitted}), encoding="utf-8"
     )
@@ -303,7 +305,7 @@ def test_rerigging_without_blender_is_refused_at_the_door(svc, assets, monkeypat
 # The library pose door (service.poses._record_or_not_found) re-validates a
 # saved pose's bones on every read, because a pose is a file in a directory
 # any other program can edit. A job-scoped pose (this module's list_poses/
-# save_pose/posed_model) never got that second half: rigging.read_pose only
+# save_pose/posed_model) never got that second half: store.read_pose only
 # gives read_record's three file-level guards (valid JSON, valid dict, under
 # the byte ceiling), so a hand-edited pose file missing "bones" reached
 # _pose_bake_spec's ``pose["bones"]`` as a bare KeyError, and one with a
@@ -331,14 +333,14 @@ def test_a_job_pose_file_missing_bones_is_refused_cleanly_not_a_key_error(svc, a
     # Case 1: "bones" stripped entirely, exactly like a library pose record
     # test_pose_library_service.py's own broken-pose case corrupts.
     record = svc_rig.save_pose(svc, job_id, {"name": "idle", "bones": {"hips": IDENTITY}})
-    pose_path = rigging.pose_path(job_dir, record["id"])
+    pose_path = store.pose_path(job_dir, record["id"])
     on_disk = json.loads(pose_path.read_text(encoding="utf-8"))
     del on_disk["bones"]
     pose_path.write_text(json.dumps(on_disk), encoding="utf-8")
 
     called = []
     monkeypatch.setattr(
-        rigging, "run_worker", lambda spec, **kw: called.append(spec) or {}
+        blender_run, "run_worker", lambda spec, **kw: called.append(spec) or {}
     )
     with pytest.raises(Invalid) as caught:
         svc_rig.posed_model(svc, job_id, record["id"])
@@ -349,7 +351,7 @@ def test_a_job_pose_file_missing_bones_is_refused_cleanly_not_a_key_error(svc, a
     # Case 2: "bones" present but a malformed quaternion (wrong length) --
     # must be refused before it is forwarded into the worker spec, not baked.
     record2 = svc_rig.save_pose(svc, job_id, {"name": "wave", "bones": {"hips": IDENTITY}})
-    pose_path2 = rigging.pose_path(job_dir, record2["id"])
+    pose_path2 = store.pose_path(job_dir, record2["id"])
     on_disk2 = json.loads(pose_path2.read_text(encoding="utf-8"))
     on_disk2["bones"] = {"hips": [1.0, 2.0, 3.0]}
     pose_path2.write_text(json.dumps(on_disk2), encoding="utf-8")
@@ -363,14 +365,19 @@ def test_a_job_pose_file_missing_bones_is_refused_cleanly_not_a_key_error(svc, a
 # --- the skeleton editor (P3: service/rig.py) --------------------------------
 
 
-def _rigged_job_full(svc, assets, *, skeleton=None, root=None, mirror_pairs=None, bones=None):
+def _rigged_job_full(svc, assets, *, skeleton_field=None, root=None, mirror_pairs=None, bones=None):
     """A rig.json with everything ``edit_skeleton``/``adjust_joints`` read:
     bounds (for ``validate_skeleton``'s far-outside check) and, optionally, a
-    skeleton already recorded as custom."""
+    skeleton already recorded as custom.
+
+    ``skeleton_field`` names rig.json's own ``"skeleton"`` value
+    (``"template"``/``"custom"``) -- not called plain ``skeleton``, which
+    would shadow the ``kernels.rig.skeleton`` module this function also
+    calls into (``skeleton.fit_template`` below)."""
     job_id = _finished_mesh_job(svc, assets)
     job_dir = assets / job_id
-    template = rigging.get_template("humanoid")
-    fitted = bones if bones is not None else rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    template = templates.get_template("humanoid")
+    fitted = bones if bones is not None else skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
     rig = {
         "version": 1,
         "template": "humanoid",
@@ -378,7 +385,7 @@ def _rigged_job_full(svc, assets, *, skeleton=None, root=None, mirror_pairs=None
         "root": root or template.root,
         "mirror_pairs": [list(p) for p in template.mirror_pairs],
         "bounds": {"min": [-1, -1, 0], "max": [1, 1, 2]},
-        "skeleton": skeleton or "template",
+        "skeleton": skeleton_field or "template",
     }
     (job_dir / "rig.json").write_text(json.dumps(rig), encoding="utf-8")
     (job_dir / "rig.glb").write_bytes(b"fake-rig")
@@ -387,7 +394,7 @@ def _rigged_job_full(svc, assets, *, skeleton=None, root=None, mirror_pairs=None
 
 def test_editing_the_skeleton_queues_a_rerig(svc, assets):
     job_id, fitted = _rigged_job_full(svc, assets)
-    edited = rigging.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
+    edited = skeleton.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
     out = svc_rig.edit_skeleton(svc, job_id, {"bones": edited})
     assert out["skeleton"] == "custom"
     rig_job = svc.store.get(out["id"])
@@ -450,11 +457,11 @@ def test_adjusting_joints_on_a_custom_rig_is_accepted(svc, assets):
     here would refuse a rig with, say, an extra tail bone the template never
     had. The queued job must carry the custom shape forward rather than
     silently resetting the rig back to template shape."""
-    template = rigging.get_template("humanoid")
-    fitted = rigging.fit_template(template, [-1, -1, 0], [1, 1, 2])
-    custom_bones = rigging.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
+    template = templates.get_template("humanoid")
+    fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
+    custom_bones = skeleton.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
     job_id, bones = _rigged_job_full(
-        svc, assets, skeleton="custom", root="hips", bones=custom_bones
+        svc, assets, skeleton_field="custom", root="hips", bones=custom_bones
     )
     payload = {"bones": [{"name": b["name"], "head": b["head"], "tail": b["tail"]} for b in bones]}
     out = svc_rig.adjust_joints(svc, job_id, payload)

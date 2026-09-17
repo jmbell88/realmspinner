@@ -185,7 +185,7 @@ def test_a_remesh_is_not_refused_for_image_model_weights(svc, monkeypatch):
 
 def _sprite_job(svc) -> str:
     """A finished ``sprite_synthesis`` row carrying the params its door writes."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
     from warlock.service import sprites as svc_sprites
 
     ref = _reference(svc)
@@ -196,7 +196,7 @@ def _sprite_job(svc) -> str:
         "colors": 32,
         "seed_a": 11,
         "seed_b": 12,
-        "draft_id": rigging.new_id(),
+        "draft_id": store.new_id(),
         "base_model": svc_sprites.SPRITE_BASE_MODEL,
     }
     job_id = svc.store.create("sprite_synthesis", "a barrel", params)
@@ -210,13 +210,13 @@ def test_a_sprite_reroll_mints_a_fresh_draft_id(svc):
     by the worker -- so DERIVED_PARAMS never stripped it. Copied verbatim, a
     cancelled reroll made ``_discard_artifacts`` delete the original job's
     published trio, and a finished one silently overwrote it."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _sprite_job(svc)
     old = svc.store.get(job_id)["params"]["draft_id"]
     new = svc_jobs.rerun_job(svc, job_id, mode="reroll")
     minted = svc.store.get(new["id"])["params"]["draft_id"]
-    assert rigging.is_valid_id(minted)
+    assert store.is_valid_id(minted)
     assert minted != old
 
 
@@ -248,12 +248,12 @@ def test_a_sprite_reroll_readmits_the_weights(svc, monkeypatch):
 
 def _pixel_sheet_job(svc) -> str:
     """A finished ``pixel_sheet`` row carrying the params its door writes."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     render = _reference(svc)  # stands in for the sheet render's source job
     params = {
         "source_job": render,
-        "sheet_id": rigging.new_id(),
+        "sheet_id": store.new_id(),
         "logical_size": 32,
         "colors": 32,
         "strength": 0.5,
@@ -271,14 +271,14 @@ def test_a_pixel_sheet_reroll_keeps_its_sheet_id(svc):
     worker records it about its artifact; on this kind it is the input naming
     which sheet the restyle depicts. Stripped, every reroll of a pixel sheet
     dispatched straight into ``sheet_id is not a sheet id: ''``."""
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     job_id = _pixel_sheet_job(svc)
     wanted = svc.store.get(job_id)["params"]["sheet_id"]
     new = svc_jobs.rerun_job(svc, job_id, mode="reroll")
     kept = svc.store.get(new["id"])["params"]["sheet_id"]
     assert kept == wanted
-    assert rigging.is_valid_id(kept)
+    assert store.is_valid_id(kept)
 
 
 # --- the seeds DERIVED_PARAMS deliberately does not carry ---------------------

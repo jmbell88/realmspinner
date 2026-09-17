@@ -59,7 +59,9 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import clips, rigging
+from . import clips
+from .kernels.rig import blender_spec, store
+from .pipelines import blender_run
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -81,14 +83,14 @@ class TroupeOps:
         # Validated before it becomes a path, the rule every id that reaches
         # the filesystem from params follows: ``job_dir("")`` is the assets
         # root, and this directory is what the Blender worker is pointed at.
-        if not rigging.is_valid_id(source_id):
+        if not store.is_valid_id(source_id):
             raise ValueError(f"source_job is not a job id: {source_id!r}")
         source_dir = self.config.job_dir(source_id)
         # Refused rather than minted, for the reason ``_q_rig._sheet`` states
         # in full: ``_discard_artifacts`` deletes this kind's *served* pair by
         # this id, which is only safe while every door mints a fresh one.
         sheet_id = str(params.get("sheet_id") or "")
-        if not rigging.is_valid_id(sheet_id):
+        if not store.is_valid_id(sheet_id):
             raise ValueError(f"sheet_id is not a sheet id: {sheet_id!r}")
 
         rig_glb = source_dir / "rig.glb"
@@ -112,11 +114,11 @@ class TroupeOps:
         base_png: Path | None = None
         base_margin: float | None = None
         if subset:
-            if not rigging.is_valid_id(base_sheet):
+            if not store.is_valid_id(base_sheet):
                 raise ValueError(f"base_sheet is not a sheet id: {base_sheet!r}")
             wanted = set(charsheet.subset_indices(subset, troupe_layout))
-            base_png = rigging.sheet_png_path(source_dir, base_sheet)
-            base_record = rigging.read_sheet(source_dir, base_sheet)
+            base_png = store.sheet_png_path(source_dir, base_sheet)
+            base_record = store.read_sheet(source_dir, base_sheet)
             if not base_png.exists() or not base_record:
                 raise RuntimeError(
                     "the sheet this re-render copies from is no longer on disk"
@@ -180,10 +182,9 @@ class TroupeOps:
                 "index": c.index,
                 # The guard makes "no front set renders byte-identical to
                 # before" an inspectable fact rather than an arithmetic claim
-                # about ``(x + 0.0) % 360.0`` -- ``rigging.py:1488-1491`` and
-                # ``_q_jobs.py:358-365`` already make the same call. Re-rounded
-                # to 4dp so the offset does not put float noise into a
-                # published sidecar.
+                # about ``(x + 0.0) % 360.0`` -- ``_q_jobs.py:358-365`` already
+                # makes the same call. Re-rounded to 4dp so the offset does
+                # not put float noise into a published sidecar.
                 "yaw": c.yaw if not front_yaw else round((c.yaw + front_yaw) % 360.0, 4),
                 "pose": c.pose,
                 "frame": c.frame,
@@ -214,7 +215,7 @@ class TroupeOps:
                 inner_next=min(frac + 0.05, 1.0), nominal=60.0, detail="",
             )
 
-        png = rigging.sheet_png_path(source_dir, sheet_id)
+        png = store.sheet_png_path(source_dir, sheet_id)
         # The staging name ``_publish_text`` and every other served write use.
         atlas_path = png.with_name(f".{png.name}.render")
         reduce_mode = str(params.get("reduce_mode", "box"))
@@ -599,7 +600,7 @@ class TroupeOps:
                     entry["sockets"] = here
         await asyncio.to_thread(
             queue_mod._publish_text,
-            rigging.sheet_path(source_dir, sheet_id),
+            store.sheet_path(source_dir, sheet_id),
             json.dumps(meta, indent=2),
         )
         # The sidecar is the completion marker, so the sheet is *visible* from
@@ -668,7 +669,7 @@ class TroupeOps:
         flat = [r for rows in records.values() for r in rows]
         if not any(float(v) for r in flat for v in (r.get("root_translation") or ())):
             return {}, None
-        rig_meta = await asyncio.to_thread(rigging.read_rig, source_dir)
+        rig_meta = await asyncio.to_thread(store.read_rig, source_dir)
         return queue_mod._sheet_root_offsets(flat, rig_meta)
 
     async def _render_charsheet(
@@ -717,7 +718,7 @@ class TroupeOps:
             scratch = Path(tmp)
             frames_dir = scratch / "render"
             frames_dir.mkdir()
-            spec = rigging.sheet_spec(
+            spec = blender_spec.sheet_spec(
                 glb,
                 frames_dir,
                 cells,
@@ -735,7 +736,7 @@ class TroupeOps:
             )
             result = await asyncio.to_thread(
                 functools.partial(
-                    rigging.run_worker,
+                    blender_run.run_worker,
                     spec,
                     on_progress=on_progress,
                     on_start=self._note_blender,
@@ -846,7 +847,7 @@ def _read_character(source_dir: Path) -> dict[str, Any] | None:
 
 
 def _socket_specs(character: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """The archetype's sockets in the shape ``rigging.sheet_spec`` wants.
+    """The archetype's sockets in the shape ``blender_spec.sheet_spec`` wants.
 
     Off the **archetype** rather than off ``character.json``'s own ``sockets``
     block, and the difference matters: the sidecar records each socket's world
@@ -1033,7 +1034,7 @@ def _camera_meta(
     meta = {
         "preset": preset,
         "elevation": elevation,
-        # Orthographic throughout: ``rigging.sheet_spec`` frames every cell with
+        # Orthographic throughout: ``blender_spec.sheet_spec`` frames every cell with
         # an ortho camera, which is what makes a sprite the same size wherever
         # it sits on the atlas.
         "projection": "orthographic",

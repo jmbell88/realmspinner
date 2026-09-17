@@ -26,9 +26,9 @@ from typing import Any
 import pytest
 
 from warlock import db as db_mod
-from warlock import rigging
 from warlock.config import Config
 from warlock.db import JobStore
+from warlock.kernels.rig import store as rig_store
 from warlock.queue import Worker
 
 
@@ -239,15 +239,15 @@ PUBLISHERS = [
     ("warlock._q_troupe", "_charsheet", "_publish_text"),
     # muse-02 (the 2026-09-15 audit): ``_music`` and ``_separate`` publish and
     # commit correctly -- ``client.generate`` writes ``track.wav`` before
-    # ``self._cancel.commit()``, and ``rigging.run_worker`` writes the stem
+    # ``self._cancel.commit()``, and ``blender_run.run_worker`` writes the stem
     # WAVs before it -- but neither was ever a row here, so this scan never
     # looked at either. ``_music``'s call is named by ``client.generate``, the
     # write that actually lands the served ``track.wav``; ``_separate``'s by
-    # ``rigging.run_worker``, the call that produces the served stems (the
+    # ``blender_run.run_worker``, the call that produces the served stems (the
     # sidecar ``_write_stems_sidecar`` writes after the commit is metadata
     # about them, not the artifact itself -- see that function's docstring).
     ("warlock._q_music", "_music", "client.generate"),
-    ("warlock._q_music", "_separate", "rigging.run_worker"),
+    ("warlock._q_music", "_separate", "blender_run.run_worker"),
 ]
 
 
@@ -367,7 +367,7 @@ async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
     )
     monkeypatch.setattr(sheetlib, "measure_trim", lambda _image: None)
 
-    sheet_id = rigging.new_id()
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "charsheet",
         None,
@@ -394,8 +394,8 @@ async def test_a_cancel_after_a_character_sheet_is_published_records_it_as_done(
 
     row = worker.store.get(job_id)
     assert row["status"] == "done", row["error"]
-    assert rigging.sheet_path(source_dir, sheet_id).exists()
-    assert rigging.sheet_png_path(source_dir, sheet_id).exists()
+    assert rig_store.sheet_path(source_dir, sheet_id).exists()
+    assert rig_store.sheet_png_path(source_dir, sheet_id).exists()
     assert charsheet  # imported for the fakes above to be the right shapes
 
 
@@ -405,7 +405,7 @@ async def test_separate_job_discards_stems_when_cancelled_after_the_split_finish
     """service-queue-02 (the 2026-09-16 audit): ``_separate`` never checked
     ``self._cancel.event.is_set()`` anywhere in its body, and called
     ``self._cancel.commit()`` unconditionally the instant
-    ``rigging.run_worker`` reported ``ok=True`` -- before
+    ``blender_run.run_worker`` reported ``ok=True`` -- before
     ``_write_stems_sidecar`` writes ``stems.json``, the completion gate. Every
     sibling stage that finishes with a served-name write (``_rig``,
     ``_remesh``, ``_charsheet``, ``_lora_train`` and ``_music`` itself,
@@ -415,11 +415,11 @@ async def test_separate_job_discards_stems_when_cancelled_after_the_split_finish
     natural completion could publish a split the user had already asked to
     stop.
 
-    The cancel is set from inside the fake ``rigging.run_worker`` -- the
+    The cancel is set from inside the fake ``blender_run.run_worker`` -- the
     instant it would return ``ok=True`` -- which is exactly the race window
     the fix closes.
     """
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     source = worker.store.create("music", "dark ambient", {}, stage="music")
     source_dir = worker.config.job_dir(source)
@@ -439,7 +439,7 @@ async def test_separate_job_discards_stems_when_cancelled_after_the_split_finish
             worker._cancel.event.set()
         return {"ok": True, "files": list(spec["sources"]), "rate": 44100}
 
-    monkeypatch.setattr(rigging, "run_worker", fake_run_worker)
+    monkeypatch.setattr(blender_run, "run_worker", fake_run_worker)
 
     split_id = worker.store.create("separate", "x", {"source_job": source})
 

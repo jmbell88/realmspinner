@@ -22,10 +22,11 @@ import math
 
 import pytest
 
-from warlock import clips, rigging
+from warlock import clips
 from warlock.config import Config
 from warlock.db import JobStore
-from warlock.pipelines import charsheet, spritesynth
+from warlock.kernels.rig import store as rig_store
+from warlock.pipelines import blender_run, charsheet, spritesynth
 from warlock.queue import Worker
 from warlock.service import jobs as svc_jobs
 from warlock.service import troupe as svc_troupe
@@ -818,17 +819,17 @@ def test_a_cancelled_sheet_takes_its_own_render_and_nothing_else(worker):
     between the pack and the publish is the pixel-art pass -- and it is named
     off the sheet id this row minted, so a cancel cannot take an earlier
     sheet of the same character with it."""
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     source = worker.store.create("image", "a ranger", {}, stage="model")
     job_dir = worker.config.job_dir(source)
-    mine, theirs = rigging.new_id(), rigging.new_id()
+    mine, theirs = rig_store.new_id(), rig_store.new_id()
     for sheet_id in (mine, theirs):
-        png = rigging.sheet_png_path(job_dir, sheet_id)
+        png = rig_store.sheet_png_path(job_dir, sheet_id)
         png.parent.mkdir(parents=True, exist_ok=True)
         png.write_bytes(b"atlas")
-        rigging.sheet_path(job_dir, sheet_id).write_text("{}", "utf-8")
-    staged = rigging.sheet_png_path(job_dir, mine)
+        rig_store.sheet_path(job_dir, sheet_id).write_text("{}", "utf-8")
+    staged = rig_store.sheet_png_path(job_dir, mine)
     render = staged.with_name(f".{staged.name}.render")
     render.write_bytes(b"unquantised")
 
@@ -840,8 +841,8 @@ def test_a_cancelled_sheet_takes_its_own_render_and_nothing_else(worker):
         }
     )
     assert not render.exists()
-    assert not rigging.sheet_png_path(job_dir, mine).exists()
-    assert rigging.sheet_png_path(job_dir, theirs).exists()
+    assert not rig_store.sheet_png_path(job_dir, mine).exists()
+    assert rig_store.sheet_png_path(job_dir, theirs).exists()
 
 
 # -- the render --------------------------------------------------------------
@@ -871,7 +872,7 @@ def _fake_render(monkeypatch, *, clips="never", grey=False, socket_at=None):
 
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     calls: list[dict] = []
 
@@ -912,7 +913,7 @@ def _fake_render(monkeypatch, *, clips="never", grey=False, socket_at=None):
             }
         return result
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -925,7 +926,7 @@ async def test_the_sheet_renders_big_and_packs_small(worker, monkeypatch):
 
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     calls = _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -936,7 +937,7 @@ async def test_the_sheet_renders_big_and_packs_small(worker, monkeypatch):
     (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
     worker.store.set_status(source, "done")
 
-    sheet_id = rigging.new_id()
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "charsheet",
         "a ranger",
@@ -964,7 +965,7 @@ async def test_the_sheet_renders_big_and_packs_small(worker, monkeypatch):
     assert calls[0]["spec"]["frame_size"] == charsheet.RENDER_SIZE
     assert len(calls[0]["spec"]["cells"]) == len(charsheet.frame_table())
 
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     with Image.open(png) as atlas:
         assert atlas.size == (charsheet.COLUMNS * 32, 32 * (256 // charsheet.COLUMNS))
     # The un-quantised render is not left beside the sheet it produced.
@@ -986,7 +987,7 @@ async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monk
     """
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
     from warlock.pipelines import charsheet as cs
 
     front = 137.0
@@ -999,7 +1000,7 @@ async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monk
     (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
     worker.store.set_status(source, "done")
 
-    sheet_id = rigging.new_id()
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "charsheet",
         "a ranger",
@@ -1031,7 +1032,7 @@ async def test_a_front_turns_every_camera_yaw_and_no_direction_name(worker, monk
     # a dropped offset would leave the canonical angles and pass nothing here.
     assert [c["yaw"] for c in calls[0]["spec"]["cells"]] != [c.yaw for c in table]
 
-    meta = json.loads(rigging.sheet_path(source_dir, sheet_id).read_text("utf-8"))
+    meta = json.loads(rig_store.sheet_path(source_dir, sheet_id).read_text("utf-8"))
     canonical = cs.resolve_layout().as_dict()["runs"]
     # The run table stays the layout's own, unrotated -- and so do the tags,
     # which are what playback actually reads.
@@ -1049,7 +1050,7 @@ async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch
     renderer knew and the importer could not guess."""
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -1060,7 +1061,7 @@ async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch
     (source_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
     worker.store.set_status(source, "done")
 
-    sheet_id = rigging.new_id()
+    sheet_id = rig_store.new_id()
     job_id = worker.store.create(
         "charsheet",
         "a ranger",
@@ -1087,7 +1088,7 @@ async def test_the_sidecar_carries_the_engine_side_animation(worker, monkeypatch
         await worker.shutdown()
 
     assert worker.store.get(job_id)["error"] is None
-    meta = rigging.read_sheet(source_dir, sheet_id)
+    meta = rig_store.read_sheet(source_dir, sheet_id)
     tags = {t["name"]: t for t in meta["animation"]["tags"]}
     assert len(tags) == 5
     assert tags["idle_front"]["loop"] is True
@@ -1135,7 +1136,7 @@ async def test_an_unrigged_source_fails_the_sheet_rather_than_rendering_it(
     worker, monkeypatch
 ):
     """256 copies of one T-pose is the alternative."""
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     source = worker.store.create("image", "a ranger", {}, stage="model")
@@ -1147,7 +1148,7 @@ async def test_an_unrigged_source_fails_the_sheet_rather_than_rendering_it(
     job_id = worker.store.create(
         "charsheet",
         "a ranger",
-        {"source_job": source, "sheet_id": rigging.new_id(), "logical_size": 32},
+        {"source_job": source, "sheet_id": rig_store.new_id(), "logical_size": 32},
     )
     worker.start()
     try:
@@ -1172,7 +1173,7 @@ async def _run_charsheet(worker, **params):
     """A finished character sheet job. -> ``(job id, source id, source dir)``."""
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     source = worker.store.create("image", "a ranger", {}, stage="model")
     source_dir = worker.config.job_dir(source)
@@ -1187,7 +1188,7 @@ async def _run_charsheet(worker, **params):
         "a ranger",
         {
             "source_job": source,
-            "sheet_id": rigging.new_id(),
+            "sheet_id": rig_store.new_id(),
             "logical_size": 16,
             "colors": 8,
             "layout": _TINY_LAYOUT,
@@ -1209,7 +1210,7 @@ async def test_a_clipped_first_render_is_reframed_once_and_recorded(worker, monk
     its window, and the answer is one wider render -- not a shrug, and not a
     loop. The first spec carries no ``margin`` at all, so a sheet that frames
     correctly is rendered by exactly the spec this stage has always sent."""
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
     from warlock.pipelines import sheet as sheetlib
 
     calls = _fake_render(monkeypatch, clips="until_wider")
@@ -1221,7 +1222,7 @@ async def test_a_clipped_first_render_is_reframed_once_and_recorded(worker, monk
     assert calls[1]["spec"]["margin"] == pytest.approx(sheetlib.FRAME_MARGIN * 1.25)
 
     sheet_id = worker.store.get(job_id)["params"]["sheet_id"]
-    meta = rigging.read_sheet(source_dir, sheet_id)
+    meta = rig_store.read_sheet(source_dir, sheet_id)
     assert meta["validation"]["reframed"] is True
     assert meta["validation"]["clipped"] == []
     assert meta["validation"]["ok"] is True
@@ -1235,7 +1236,7 @@ async def test_a_render_that_still_clips_is_published_and_flagged_not_failed(
     may not share -- an intentionally edge-to-edge portrait sheet is "clipped"
     by this measure -- would be the worse answer. And the retry happens once:
     a second clipped result publishes rather than re-rendering forever."""
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
     from warlock.pipelines import sheetcheck
 
     calls = _fake_render(monkeypatch, clips="always")
@@ -1246,8 +1247,8 @@ async def test_a_render_that_still_clips_is_published_and_flagged_not_failed(
     assert len(calls) == 2
 
     sheet_id = row["params"]["sheet_id"]
-    assert rigging.sheet_png_path(source_dir, sheet_id).exists()
-    meta = rigging.read_sheet(source_dir, sheet_id)
+    assert rig_store.sheet_png_path(source_dir, sheet_id).exists()
+    meta = rig_store.read_sheet(source_dir, sheet_id)
     verdict = meta["validation"]
     assert verdict["ok"] is False
     assert verdict["clipped"]
@@ -1264,7 +1265,7 @@ async def test_a_subset_re_render_is_framed_the_way_its_base_sheet_was(worker, m
     """
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
     from warlock.pipelines import sheet as sheetlib
 
     layout = {
@@ -1289,7 +1290,7 @@ async def test_a_subset_re_render_is_framed_the_way_its_base_sheet_was(worker, m
             "a ranger",
             {
                 "source_job": source,
-                "sheet_id": rigging.new_id(),
+                "sheet_id": rig_store.new_id(),
                 "logical_size": 16,
                 "colors": 8,
                 "layout": layout,
@@ -1305,7 +1306,7 @@ async def test_a_subset_re_render_is_framed_the_way_its_base_sheet_was(worker, m
         )
         assert worker.store.get(first)["error"] is None
         base_sheet = worker.store.get(first)["params"]["sheet_id"]
-        meta = rigging.read_sheet(source_dir, base_sheet)
+        meta = rig_store.read_sheet(source_dir, base_sheet)
         # The sidecar records what was rendered, not what was asked for.
         assert meta["camera"]["frame_margin"] == pytest.approx(
             sheetlib.FRAME_MARGIN * 1.25
@@ -1445,7 +1446,7 @@ def test_the_sheet_cap_counts_every_door_that_reserves_a_slot(svc, monkeypatch):
     from warlock.service import sheets as svc_sheets
     from warlock.service.errors import Conflict
 
-    monkeypatch.setattr(rigging, "MAX_SHEETS", 1)
+    monkeypatch.setattr(rig_store, "MAX_SHEETS", 1)
     plain = _plain_mesh(svc)
     svc_troupe.send_to_troupe(svc, plain, logical_size=64)
     with pytest.raises(Conflict, match="at most 1 sheet"):
@@ -1479,7 +1480,7 @@ async def test_a_failed_character_sheet_leaves_no_orphaned_render(worker):
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "rig.glb").write_bytes(b"not a glb")
 
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     atlas = png.with_name(f".{png.name}.render")
     atlas.parent.mkdir(parents=True, exist_ok=True)
     atlas.write_bytes(b"a partially written render")
@@ -1487,7 +1488,7 @@ async def test_a_failed_character_sheet_leaves_no_orphaned_render(worker):
     # Named, not blind: an unreadable ``rig.glb`` is refused by the Blender
     # worker, and asserting *which* failure keeps this test honest if the
     # fixture ever stops reaching the render at all.
-    with pytest.raises(rigging.BlenderError):
+    with pytest.raises(blender_run.BlenderError):
         await worker._charsheet(
             {
                 "id": "c" * 12,
@@ -1563,7 +1564,7 @@ async def _run_character_sheets(worker, requests):
     ``requests`` are ``{"character": ..., **params}``; the return is
     ``[(job id, source id, source dir)]`` in the order given.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     out = []
     for request in requests:
@@ -1574,7 +1575,7 @@ async def _run_character_sheets(worker, requests):
             "an elemental",
             {
                 "source_job": source,
-                "sheet_id": rigging.new_id(),
+                "sheet_id": rig_store.new_id(),
                 "logical_size": 32,
                 "colors": 16,
                 "layout": _TINY_LAYOUT,
@@ -1629,15 +1630,15 @@ async def test_flame_composite_precedes_quantisation(worker, monkeypatch):
     """
     import numpy as np
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     job_id, _source, source_dir = await _run_character_sheet(worker)
 
     row = worker.store.get(job_id)
     assert row["error"] is None
-    meta = rigging.read_sheet(source_dir, row["params"]["sheet_id"])
-    png = rigging.sheet_png_path(source_dir, row["params"]["sheet_id"])
+    meta = rig_store.read_sheet(source_dir, row["params"]["sheet_id"])
+    png = rig_store.sheet_png_path(source_dir, row["params"]["sheet_id"])
     cells = _cells(png, meta)
 
     assert any(
@@ -1669,7 +1670,7 @@ async def test_a_flame_behind_the_body_is_occluded_and_one_in_front_is_not(
     means invisible and the assertion is about pixels rather than about
     ordering in the abstract.
     """
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     def projection(cell):
         return {
@@ -1687,8 +1688,8 @@ async def test_a_flame_behind_the_body_is_occluded_and_one_in_front_is_not(
 
     row = worker.store.get(job_id)
     assert row["error"] is None
-    meta = rigging.read_sheet(source_dir, row["params"]["sheet_id"])
-    cells = _cells(rigging.sheet_png_path(source_dir, row["params"]["sheet_id"]), meta)
+    meta = rig_store.read_sheet(source_dir, row["params"]["sheet_id"])
+    cells = _cells(rig_store.sheet_png_path(source_dir, row["params"]["sheet_id"]), meta)
 
     behind = {i: int(_warm(c).sum()) for i, c in cells.items() if i % 2 == 0}
     front = {i: int(_warm(c).sum()) for i, c in cells.items() if i % 2 == 1}
@@ -1715,7 +1716,7 @@ async def test_the_flame_animates_with_the_cell_frame_and_is_identical_across_tw
     """
     import numpy as np
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # The same character twice, in one run of the queue: a ``Worker`` that has
@@ -1725,8 +1726,8 @@ async def test_the_flame_animates_with_the_cell_frame_and_is_identical_across_tw
     )
 
     first_sheet = worker.store.get(first)["params"]["sheet_id"]
-    first_png = rigging.sheet_png_path(dir1, first_sheet)
-    cells = _cells(first_png, rigging.read_sheet(dir1, first_sheet))
+    first_png = rig_store.sheet_png_path(dir1, first_sheet)
+    cells = _cells(first_png, rig_store.read_sheet(dir1, first_sheet))
 
     frames = [np.asarray(cells[i]) for i in sorted(cells)]
     assert len(frames) >= 2
@@ -1734,7 +1735,7 @@ async def test_the_flame_animates_with_the_cell_frame_and_is_identical_across_tw
         not np.array_equal(frames[0], other) for other in frames[1:]
     ), "every cell of the movement drew the same flame"
 
-    second_png = rigging.sheet_png_path(
+    second_png = rig_store.sheet_png_path(
         dir2, worker.store.get(second)["params"]["sheet_id"]
     )
     assert second_png.read_bytes() == first_png.read_bytes()
@@ -1758,8 +1759,8 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     import numpy as np
     from PIL import Image
 
-    from warlock import rigging
     from warlock.kernels.pixel import sheetin
+    from warlock.kernels.rig import store as rig_store
     from warlock.studio import troupe_mode
 
     calls = _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
@@ -1768,7 +1769,7 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
         worker, [{}, {"character": None}]
     )
     row = worker.store.get(job_id)
-    meta = rigging.read_sheet(source_dir, row["params"]["sheet_id"])
+    meta = rig_store.read_sheet(source_dir, row["params"]["sheet_id"])
 
     assert meta["version"] == 1
     assert meta["camera"]["projection"] == "orthographic"
@@ -1789,7 +1790,7 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
 
     # --- and a sheet from before any of this existed ------------------------
     sheet_id = worker.store.get(plain_id)["params"]["sheet_id"]
-    old = rigging.read_sheet(plain_dir, sheet_id)
+    old = rig_store.read_sheet(plain_dir, sheet_id)
     assert "character" not in old
     assert all("sockets" not in c for c in old["cells"])
     # The spec is byte-identical too: no ``character.json`` means the worker is
@@ -1799,7 +1800,7 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     asked = [call for call in calls if "sockets" in call["spec"]]
     assert len(calls) == 2 and len(asked) == 1
 
-    with Image.open(rigging.sheet_png_path(plain_dir, sheet_id)) as opened:
+    with Image.open(rig_store.sheet_png_path(plain_dir, sheet_id)) as opened:
         opened.load()
         atlas = np.asarray(opened.convert("RGBA"))
     doc = sheetin.document_from_sheet(atlas, old["cells"], old.get("animation"))
@@ -1825,8 +1826,8 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
     """
     import json
 
-    from warlock import rigging
     from warlock.characters import effects as effects_mod
+    from warlock.kernels.rig import store as rig_store
 
     layout = {
         "version": 2,
@@ -1860,7 +1861,7 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
             "an elemental",
             {
                 "source_job": source,
-                "sheet_id": rigging.new_id(),
+                "sheet_id": rig_store.new_id(),
                 "logical_size": 32,
                 "colors": 16,
                 "layout": layout,
@@ -1905,12 +1906,12 @@ async def test_a_subset_rerender_of_a_character_reuses_its_seed_and_composites_o
 
     rerun_sheet = worker.store.get(rerun)["params"]["sheet_id"]
     cells_a = _cells(
-        rigging.sheet_png_path(source_dir, base_sheet),
-        rigging.read_sheet(source_dir, base_sheet),
+        rig_store.sheet_png_path(source_dir, base_sheet),
+        rig_store.read_sheet(source_dir, base_sheet),
     )
     cells_b = _cells(
-        rigging.sheet_png_path(source_dir, rerun_sheet),
-        rigging.read_sheet(source_dir, rerun_sheet),
+        rig_store.sheet_png_path(source_dir, rerun_sheet),
+        rig_store.read_sheet(source_dir, rerun_sheet),
     )
     for index in (0, 1, 2):
         assert np.array_equal(
@@ -1933,7 +1934,7 @@ async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata
     """
     import json
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     layout = {
         "version": 2,
@@ -1959,7 +1960,7 @@ async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata
             "an elemental",
             {
                 "source_job": source,
-                "sheet_id": rigging.new_id(),
+                "sheet_id": rig_store.new_id(),
                 "logical_size": 32,
                 "colors": 16,
                 "layout": layout,
@@ -1975,7 +1976,7 @@ async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata
         )
         assert worker.store.get(first)["error"] is None
         base_sheet = worker.store.get(first)["params"]["sheet_id"]
-        base_meta = rigging.read_sheet(source_dir, base_sheet)
+        base_meta = rig_store.read_sheet(source_dir, base_sheet)
         assert all("sockets" in c for c in base_meta["cells"]), "fixture regressed"
 
         rerun = _queue(
@@ -1990,7 +1991,7 @@ async def test_a_subset_rerender_carries_forward_the_base_sheets_socket_metadata
 
     assert worker.store.get(rerun)["error"] is None
     rerun_sheet = worker.store.get(rerun)["params"]["sheet_id"]
-    meta = rigging.read_sheet(source_dir, rerun_sheet)
+    meta = rig_store.read_sheet(source_dir, rerun_sheet)
     base_cells = {int(c["index"]): c for c in base_meta["cells"]}
     cells = {int(c["index"]): c for c in meta["cells"]}
     # Cells 0-2 (idle) were copied byte-for-byte from the base sheet this run;
@@ -2024,7 +2025,7 @@ def _fake_hd_render(monkeypatch):
     import numpy as np
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     calls: list[dict] = []
 
@@ -2048,7 +2049,7 @@ def _fake_hd_render(monkeypatch):
             "framing": {"extent": 2.24, "margin": spec.get("margin") or 1.12},
         }
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     return calls
 
 
@@ -2060,7 +2061,7 @@ async def test_an_hd_sheet_is_published_without_palette_mapping(worker, monkeypa
     import numpy as np
     from PIL import Image
 
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_hd_render(monkeypatch)
     # ``colors`` rides along to prove it is inert on this path -- an ordinary
@@ -2069,7 +2070,7 @@ async def test_an_hd_sheet_is_published_without_palette_mapping(worker, monkeypa
     job_id, _source, source_dir = await _run_charsheet(worker, pixel_art=False, colors=8)
 
     sheet_id = worker.store.get(job_id)["params"]["sheet_id"]
-    png = rigging.sheet_png_path(source_dir, sheet_id)
+    png = rig_store.sheet_png_path(source_dir, sheet_id)
     with Image.open(png) as opened:
         opened.load()
         atlas = np.asarray(opened.convert("RGBA"))
@@ -2088,7 +2089,7 @@ async def test_an_hd_sidecar_says_so_and_a_pixel_art_sidecar_says_nothing(
     ``"pixel_art": False`` so a reader can tell without re-deriving it from the
     pixels, and a pixel-art sheet stays the byte-identical sidecar it always
     published -- no key at all, not ``true``."""
-    from warlock import rigging
+    from warlock.kernels.rig import store as rig_store
 
     _fake_render(monkeypatch)
     (hd_job, _s1, hd_dir), (px_job, _s2, px_dir) = await _run_character_sheets(
@@ -2098,8 +2099,8 @@ async def test_an_hd_sidecar_says_so_and_a_pixel_art_sidecar_says_nothing(
             {"character": None},
         ],
     )
-    hd_meta = rigging.read_sheet(hd_dir, worker.store.get(hd_job)["params"]["sheet_id"])
-    px_meta = rigging.read_sheet(px_dir, worker.store.get(px_job)["params"]["sheet_id"])
+    hd_meta = rig_store.read_sheet(hd_dir, worker.store.get(hd_job)["params"]["sheet_id"])
+    px_meta = rig_store.read_sheet(px_dir, worker.store.get(px_job)["params"]["sheet_id"])
     assert hd_meta["pixel_art"] is False
     assert "pixel_art" not in px_meta
 
@@ -2112,7 +2113,8 @@ async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
     (``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``): the
     sidecar's ``animation`` block has to tag every run the layout actually
     named."""
-    from warlock import clips, rigging
+    from warlock import clips
+    from warlock.kernels.rig import store as rig_store
     from warlock.pipelines import charsheet as cs
 
     _fake_render(monkeypatch)
@@ -2130,7 +2132,7 @@ async def test_a_sheet_with_the_new_clips_tags_every_run(worker, monkeypatch):
     job_id, _source, source_dir = await _run_charsheet(worker, layout=layout)
 
     sheet_id = worker.store.get(job_id)["params"]["sheet_id"]
-    meta = rigging.read_sheet(source_dir, sheet_id)
+    meta = rig_store.read_sheet(source_dir, sheet_id)
     tags = {t["name"] for t in meta["animation"]["tags"]}
     expected = {
         f"{animation}_{direction}"

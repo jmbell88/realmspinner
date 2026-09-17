@@ -6,7 +6,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import models, rigging
+from .. import models
+from ..kernels.rig import store
 from .core import WarlockService
 from .errors import Conflict, Invalid, NotFound, invalid_from
 from .validation import (
@@ -56,7 +57,7 @@ def sheet_options() -> dict[str, Any]:
 
 def list_sheets(svc: WarlockService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
-    return {"sheets": rigging.list_sheets(svc.job_dir(job_id))}
+    return {"sheets": store.list_sheets(svc.job_dir(job_id))}
 
 
 
@@ -90,8 +91,8 @@ def check_sheet_cap(svc: WarlockService, job_id: str, job_dir: Path) -> None:
     reserves a slot: the artifact lands minutes after the row is minted, so
     counting files alone let N rapid submits all read the same count.
     """
-    if len(rigging.list_sheets(job_dir)) + queued_sheets(svc, job_id) >= rigging.MAX_SHEETS:
-        raise Conflict(f"a job may hold at most {rigging.MAX_SHEETS} sheets")
+    if len(store.list_sheets(job_dir)) + queued_sheets(svc, job_id) >= store.MAX_SHEETS:
+        raise Conflict(f"a job may hold at most {store.MAX_SHEETS} sheets")
 
 def create_sheet(
     svc: WarlockService,
@@ -124,7 +125,7 @@ def create_sheet(
     records = []
     for pose_id in pose_ids:
         check_pose_id(pose_id)
-        record = rigging.read_pose(job_dir, pose_id)
+        record = store.read_pose(job_dir, pose_id)
         if record is None:
             raise NotFound(f"no such pose {pose_id}")
         records.append(record)
@@ -145,7 +146,7 @@ def create_sheet(
             )
         for pose_id in (clip_from, clip_to):
             check_pose_id(pose_id)
-        ends = [rigging.read_pose(job_dir, pid) for pid in (clip_from, clip_to)]
+        ends = [store.read_pose(job_dir, pid) for pid in (clip_from, clip_to)]
         if any(e is None for e in ends):
             raise NotFound("no such pose")
         if not (job_dir / "rig.glb").exists():
@@ -177,14 +178,14 @@ def create_sheet(
         raise invalid_from(exc, "That sprite sheet cannot be laid out") from exc
 
     sheet_name = (name or "").strip()
-    if len(sheet_name) > rigging.MAX_SHEET_NAME:
+    if len(sheet_name) > store.MAX_SHEET_NAME:
         raise Invalid(
-            f"sheet name must be at most {rigging.MAX_SHEET_NAME} characters", field="name"
+            f"sheet name must be at most {store.MAX_SHEET_NAME} characters", field="name"
         )
 
     params = {
         "source_job": job_id,
-        "sheet_id": rigging.new_id(),
+        "sheet_id": store.new_id(),
         "poses": pose_ids,
         "elevation": sheetlib.DEFAULT_ELEVATION if elevation is None else elevation,
         "frame_size": frame_size or sheetlib.DEFAULT_FRAME_SIZE,
@@ -218,7 +219,7 @@ def create_sheet(
 def get_sheet(svc: WarlockService, job_id: str, sheet_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
-    record = rigging.read_sheet(svc.job_dir(job_id), sheet_id)
+    record = store.read_sheet(svc.job_dir(job_id), sheet_id)
     if record is None:
         raise NotFound("no such sheet")
     return record
@@ -228,10 +229,10 @@ def sheet_png(svc: WarlockService, job_id: str, sheet_id: str) -> Path:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
     job_dir = svc.job_dir(job_id)
-    path = rigging.sheet_png_path(job_dir, sheet_id)
+    path = store.sheet_png_path(job_dir, sheet_id)
     # The sidecar is the completion marker (the worker writes the PNG first),
     # so PNG existence alone can serve a partial file mid-save.
-    if not path.exists() or not rigging.sheet_path(job_dir, sheet_id).exists():
+    if not path.exists() or not store.sheet_path(job_dir, sheet_id).exists():
         raise NotFound("no such sheet")
     return path
 
@@ -296,7 +297,7 @@ def delete_sheet(svc: WarlockService, job_id: str, sheet_id: str) -> dict[str, A
                 " finish before deleting the sheet",
                 field="sheet_id",
             )
-        if not rigging.delete_sheet(svc.job_dir(job_id), sheet_id):
+        if not store.delete_sheet(svc.job_dir(job_id), sheet_id):
             raise NotFound("no such sheet")
     return {"ok": True}
 
@@ -454,8 +455,8 @@ def create_pixel_sheet(
     # uses: whichever door gets the lock first either finishes cleanly or
     # leaves the other a fresh, correct answer to check against.
     with svc.convert_lock(job_id, "sheets"):
-        meta = rigging.read_sheet(job_dir, sheet_id)
-        if meta is None or not rigging.sheet_png_path(job_dir, sheet_id).exists():
+        meta = store.read_sheet(job_dir, sheet_id)
+        if meta is None or not store.sheet_png_path(job_dir, sheet_id).exists():
             raise NotFound("no such sheet")
 
         # Through the shared checker, in the same sentences on the same fields as
@@ -554,7 +555,7 @@ def create_pixel_sheet(
 def get_pixel_sheet(svc: WarlockService, job_id: str, sheet_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
-    record = rigging.read_sheet_pixel(svc.job_dir(job_id), sheet_id)
+    record = store.read_sheet_pixel(svc.job_dir(job_id), sheet_id)
     if record is None:
         raise NotFound("no such pixel sheet")
     return record
@@ -564,9 +565,9 @@ def sheet_pixel_png(svc: WarlockService, job_id: str, sheet_id: str) -> Path:
     check_job_id(job_id)
     check_sheet_id(sheet_id)
     job_dir = svc.job_dir(job_id)
-    path = rigging.sheet_pixel_png_path(job_dir, sheet_id)
+    path = store.sheet_pixel_png_path(job_dir, sheet_id)
     # The sidecar is the completion marker here too: the worker writes the PNG
     # first, so existence alone can serve a partial file mid-save.
-    if not path.exists() or not rigging.sheet_pixel_path(job_dir, sheet_id).exists():
+    if not path.exists() or not store.sheet_pixel_path(job_dir, sheet_id).exists():
         raise NotFound("no such pixel sheet")
     return path

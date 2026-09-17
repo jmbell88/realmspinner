@@ -98,7 +98,7 @@ def training_images(tmp_path_factory):
 @pytest.fixture(scope="module")
 def trained(base_dir, training_images, tmp_path_factory):
     """One real training run. -> (the adapter directory, the result payload)."""
-    from warlock import rigging
+    from warlock.pipelines import blender_run
 
     work = tmp_path_factory.mktemp("lora-train-out")
     out_dir = work / "adapter"
@@ -111,7 +111,7 @@ def trained(base_dir, training_images, tmp_path_factory):
         steps=lora_train.MIN_STEPS,
         seed=0,
     )
-    result = rigging.run_worker(
+    result = blender_run.run_worker(
         spec,
         module="warlock.pipelines.lora_train_worker",
         marker=lora_train.MARKER,

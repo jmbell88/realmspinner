@@ -445,7 +445,7 @@ _PRIORITY: tuple[str, ...] = ("family", "camera", "theme", "action", "creature",
 #: pins that prefix); the rest are the shipped clip libraries' own order for
 #: the five names beyond that closed table (every shipped template agrees on
 #: it -- ``test_the_action_orders_tail_is_the_shipped_clip_order`` pins it
-#: against ``rigging.shipped_clip_names``).
+#: against ``cliplib.shipped_clip_names``).
 _ACTION_ORDER: tuple[str, ...] = (
     "idle", "walk", "run", "attack", "jump",
     "attack_02", "cast", "fall", "hit", "death",

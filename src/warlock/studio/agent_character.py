@@ -25,7 +25,7 @@ cross the same GL boundary this module exists to avoid.
 **Registries, not a hand-kept menu.** Every enum a schema declares --
 families, themes, movements, rig templates, sheet templates, cameras,
 colours -- is read fresh off the same registries the human panes read
-(``characters.family``, ``rigging``, ``clips``, ``pipelines.charsheet``,
+(``characters.family``, ``kernels.rig``, ``clips``, ``pipelines.charsheet``,
 ``pipelines.pixelize``, ``service.troupe``/``export``/``characters``) every
 time :func:`tools` or a handler runs, through :func:`_enums`. A species or a
 shipped clip added tomorrow needs no edit here. ``size`` is the one
@@ -36,10 +36,10 @@ that same range (``_Enums.size_range``) instead of a ladder, and
 resource.
 
 **Movements are the *shipped* vocabulary, never a user's edited one.**
-``rigging.shipped_clip_library``/``shipped_clip_names`` read only the
+``cliplib.shipped_clip_library``/``shipped_clip_names`` read only the
 package's own ``templates/clips`` tree, not ``data_dir/poser/clips`` --
 unlike Poser's editor, which prefers a user's file whole (see
-``rigging.clip_library``'s own docstring). A user who renames a clip in
+``cliplib.clip_library``'s own docstring). A user who renames a clip in
 Poser must not move what tools/list reports the very next connection,
 because a *different* agent talking to a *different* user's install would
 then see a schema that disagrees with this one for no reason either could
@@ -220,23 +220,23 @@ class _Enums:
 
 
 def _enums() -> _Enums:
-    from .. import rigging
     from ..characters import family as family_mod
+    from ..kernels.rig import cliplib, templates
     from ..pipelines import charsheet, pixelize
     from ..service import characters as svc_characters
     from ..service import export as svc_export
     from ..service import troupe as svc_troupe
 
     families = family_mod.families()
-    sheet_templates = tuple(rigging.shipped_clip_templates())
+    sheet_templates = tuple(cliplib.shipped_clip_templates())
     movements = tuple(
-        sorted({name for t in sheet_templates for name in rigging.shipped_clip_names(t)})
+        sorted({name for t in sheet_templates for name in cliplib.shipped_clip_names(t)})
     )
     return _Enums(
         families=tuple(sorted(families)),
         themes=tuple(sorted({t.key for fam in families.values() for t in fam.themes})),
         movements=movements,
-        rig_templates=tuple(r["key"] for r in rigging.catalog()),
+        rig_templates=tuple(r["key"] for r in templates.catalog()),
         sheet_templates=sheet_templates,
         directions=tuple(sorted(charsheet.DIRECTION_PRESETS)),
         facings=tuple(charsheet.COMPASS_16),
@@ -279,13 +279,13 @@ def _clip_rows(template: str, *, shipped_only: bool) -> list[dict[str, Any]]:
     otherwise whatever ``clips.clip_timing`` reports (a user's own edit,
     when there is one)."""
     from .. import clips as clips_mod
-    from .. import rigging
+    from ..kernels.rig import cliplib
 
     if shipped_only:
-        library = rigging.shipped_clip_library(template)
+        library = cliplib.shipped_clip_library(template)
         timing = clips_mod.shipped_clip_timing(template)
     else:
-        library = rigging.clip_library(template)
+        library = cliplib.clip_library(template)
         timing = clips_mod.clip_timing(template)
     rows = []
     for clip in library.get("clips", ()):
@@ -801,8 +801,8 @@ def call(svc: Any, session: Session, name: str, arguments: dict) -> dict:
 
 def _h_character_options(svc: Any, session: Session, args: Args) -> dict:
     del session, args
-    from .. import rigging
     from ..characters import family as family_mod
+    from ..kernels.rig import cliplib
     from ..pipelines import charsheet, pixelize
     from ..service import export as svc_export
     from ..service import palettes
@@ -824,7 +824,7 @@ def _h_character_options(svc: Any, session: Session, args: Args) -> dict:
 
     clip_vocabulary = {
         template: _clip_rows(template, shipped_only=True)
-        for template in rigging.shipped_clip_templates()
+        for template in cliplib.shipped_clip_templates()
     }
 
     rig_info = svc_rig.rig_templates(svc)
@@ -880,12 +880,12 @@ def _h_character_assets(svc: Any, session: Session, args: Args) -> dict:
 def _h_character_clips(svc: Any, session: Session, args: Args) -> dict:
     del session
     from .. import clips as clips_mod
-    from .. import rigging
+    from ..kernels.rig import cliplib
     from ..service import clips as svc_clips
 
     template = args["template"]
     library = svc_clips.library(svc, template)
-    shipped_names = set(rigging.shipped_clip_names(template))
+    shipped_names = set(cliplib.shipped_clip_names(template))
     timing = clips_mod.clip_timing(template)
     rows = []
     for clip in library["clips"]:
@@ -1025,7 +1025,7 @@ def _h_character_create(svc: Any, session: Session, args: Args) -> dict:
 
 
 def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
-    from .. import rigging
+    from ..kernels.rig import store
     from ..service import rig as svc_rig
     from ..service.validation import check_job_id
 
@@ -1038,7 +1038,7 @@ def _h_character_rig(svc: Any, session: Session, args: Args) -> dict:
     check_job_id(job_id)
     svc.require_job(job_id)
     job_dir = svc.job_dir(job_id)
-    if rigging.read_rig(job_dir) is not None:
+    if store.read_rig(job_dir) is not None:
         return fail("an agent adds rigs; it never replaces one", field="job_id")
 
     if svc_rig.rig_in_flight(svc, job_id):

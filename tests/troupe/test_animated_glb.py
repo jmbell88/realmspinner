@@ -22,9 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips, rigging
+from warlock import clips
 from warlock.kernels.geom3d import glbio
-from warlock.pipelines import charsheet
+from warlock.kernels.rig import blender_spec, cliplib
+from warlock.pipelines import blender_run, charsheet
 from warlock.pipelines import sheet as sheetlib
 from warlock.service import NotReady, derive, files
 from warlock.studio import artifacts
@@ -42,14 +43,14 @@ def test_a_track_carries_the_authors_own_timing_not_troupes():
     because a sheet has cells to fill. An exported animation has no grid, so it
     keeps the clip's own segment lengths -- otherwise the file would carry
     Troupe's layout as if it were the animation."""
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     by_name = {clip["name"]: clip for clip in library["clips"]}
     tracks = {track["name"]: track for track in clips.animation_tracks("humanoid")}
     assert set(tracks) == set(by_name)
 
     for name, clip in by_name.items():
         authored = sheetlib.interpolate_clip(
-            rigging.clip_keys("humanoid", name),
+            cliplib.clip_keys("humanoid", name),
             clip["segments"],
             closed=bool(clip["closed"]),
             easing=str(clip["easing"]),
@@ -75,14 +76,14 @@ def test_animated_glb_carries_the_clips_own_root_translation(tmp_path):
     """
     authored = {
         clip["name"]: sheetlib.interpolate_clip(
-            rigging.clip_keys("humanoid", clip["name"]),
+            cliplib.clip_keys("humanoid", clip["name"]),
             clip["segments"],
             closed=bool(clip["closed"]),
             easing=str(clip["easing"]),
             space=str(clip["space"]),
             clip_id=clip["name"],
         )
-        for clip in rigging.clip_library("humanoid")["clips"]
+        for clip in cliplib.clip_library("humanoid")["clips"]
     }
     tracks = {track["name"]: track for track in clips.animation_tracks("humanoid")}
     jump = tracks["jump"]
@@ -126,7 +127,7 @@ def test_the_timing_has_one_home_the_clip_library():
     ``fall``, ``hit``, ``death`` -- has nowhere else to get its timing from. A
     second copy of either field would be one edit from disagreeing about how
     fast a walk cycle is."""
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     tracks = {track["name"]: track for track in clips.animation_tracks("humanoid")}
     assert set(tracks) == {str(clip["name"]) for clip in library["clips"]}
     for clip in library["clips"]:
@@ -160,7 +161,7 @@ def test_the_spec_refuses_a_skeleton_with_nothing_authored(tmp_path):
     # Not ``len(charsheet.ANIMATIONS)`` (five, and stale the moment the clip
     # library grows past it) -- the library itself is the count that matters,
     # since 2026-09-12 opened the vocabulary past those five names.
-    assert len(spec["clips"]) == len(rigging.clip_library("humanoid")["clips"])
+    assert len(spec["clips"]) == len(cliplib.clip_library("humanoid")["clips"])
 
 
 def test_blender_does_no_interpolation():
@@ -250,7 +251,7 @@ def test_the_bake_is_staged_under_a_name_the_exporter_will_not_rename():
     """Blender's glTF exporter appends ``.glb`` to a path that does not end in
     it, so ``_staged``'s default ``.animated.glb.tmp`` would be written as
     ``.animated.glb.tmp.glb`` and the rename would find nothing --
-    ``rigging.RIG_GLB_TMP``'s rule, met a second time. A child dying part way
+    ``store.RIG_GLB_TMP``'s rule, met a second time. A child dying part way
     through a bake is exactly what staging protects against, whatever decides
     whether to bake at all -- see the digest tests below for that half now
     that existence alone is no longer the freshness test (D6)."""
@@ -265,7 +266,7 @@ def test_the_bake_is_staged_under_a_name_the_exporter_will_not_rename():
 def _minimal_glb() -> bytes:
     """The smallest byte string ``glbio.split_glb`` accepts: a header and an
     empty JSON chunk, no BIN. Stands in for a real Blender export in the
-    tests below, which monkeypatch ``rigging.run_worker`` rather than
+    tests below, which monkeypatch ``blender_run.run_worker`` rather than
     requiring ``bpy`` -- these tests are about the staleness bookkeeping
     around the bake, not the bake itself (that is
     ``test_every_authored_clip_comes_back_as_a_named_glTF_animation`` and its
@@ -275,7 +276,7 @@ def _minimal_glb() -> bytes:
 
 
 def _stub_run_worker(monkeypatch, calls: list[int]) -> None:
-    """Replace ``rigging.run_worker`` with one that writes a minimal valid
+    """Replace ``blender_run.run_worker`` with one that writes a minimal valid
     GLB to ``spec["out_glb"]`` instead of shelling out to Blender, and counts
     how many times it ran -- the number every test below actually asserts."""
 
@@ -284,7 +285,7 @@ def _stub_run_worker(monkeypatch, calls: list[int]) -> None:
         Path(spec["out_glb"]).write_bytes(_minimal_glb())
         return {}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
 
 
 def test_an_animated_glb_records_the_library_it_was_baked_from(svc, monkeypatch):
@@ -398,7 +399,7 @@ def test_a_bake_stamped_before_rig_digests_existed_is_rebaked_once(svc, monkeypa
 
 
 def test_a_bake_that_raced_a_rerig_is_rebaked_on_the_next_request(svc, monkeypatch):
-    """Defect, fixed 2026-09-13: ``rigging.finalize_rig`` -- run from a
+    """Defect, fixed 2026-09-13: ``store.finalize_rig`` -- run from a
     re-rig job in ``_q_rig.py`` after a Poser skeleton edit -- deletes
     ``animated.glb`` and replaces ``rig.glb``/``rig.json`` without ever taking
     this artifact's ``convert_lock``. A bake already in flight under the lock
@@ -407,11 +408,11 @@ def test_a_bake_that_raced_a_rerig_is_rebaked_on_the_next_request(svc, monkeypat
     ``_animation_stale`` read it as fresh forever after, and the skeleton
     edit never reached a download.
 
-    ``rigging.run_worker`` is monkeypatched to make the re-rig itself,
+    ``blender_run.run_worker`` is monkeypatched to make the re-rig itself,
     mid-call -- exactly where the race lands it -- rather than relying on
     timing: it writes the finished (old-skeleton) GLB, same as
     ``_stub_run_worker``, and only then overwrites rig.glb/rig.json and
-    unlinks animated.glb, the way ``rigging.finalize_rig`` does.
+    unlinks animated.glb, the way ``store.finalize_rig`` does.
     """
     calls: list[int] = []
     job_id = _rigged(svc)
@@ -432,7 +433,7 @@ def test_a_bake_that_raced_a_rerig_is_rebaked_on_the_next_request(svc, monkeypat
             (job_dir / "animated.glb").unlink(missing_ok=True)
         return {}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
 
     derive.get_file(svc, job_id, "animated.glb")
     assert calls == [1], "the first request always bakes: nothing is on disk yet"
@@ -480,7 +481,7 @@ def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
         ),
         "utf-8",
     )
-    rigging.set_user_clip_dir(edited_dir)
+    cliplib.set_user_clip_dir(edited_dir)
     try:
         assert clips.library_digest("humanoid") != _stamp_digest(
             svc, job_id
@@ -492,7 +493,7 @@ def test_an_animated_glb_baked_before_a_clip_edit_is_rebaked_on_next_request(
         )["warlock_animation"]
         assert stamp["clips_digest"] == clips.library_digest("humanoid")
     finally:
-        rigging.set_user_clip_dir(None)
+        cliplib.set_user_clip_dir(None)
 
 
 def _stamp_digest(svc, job_id: str) -> str:
@@ -539,11 +540,11 @@ def test_a_clip_edit_during_a_bake_leaves_the_file_stale(svc, monkeypatch, tmp_p
             ),
             "utf-8",
         )
-        rigging.set_user_clip_dir(edited_dir)
+        cliplib.set_user_clip_dir(edited_dir)
         Path(spec["out_glb"]).write_bytes(_minimal_glb())
         return {}
 
-    monkeypatch.setattr(rigging, "run_worker", fake)
+    monkeypatch.setattr(blender_run, "run_worker", fake)
     try:
         derive.get_file(svc, job_id, "animated.glb")
         edited_digest = clips.library_digest("humanoid")
@@ -558,14 +559,14 @@ def test_a_clip_edit_during_a_bake_leaves_the_file_stale(svc, monkeypatch, tmp_p
         assert stamp["clips_digest"] == original_digest
         assert stamp["clips_digest"] != edited_digest
     finally:
-        rigging.set_user_clip_dir(None)
+        cliplib.set_user_clip_dir(None)
 
 
 def test_a_skeleton_with_no_resolvable_clip_library_is_a_refusal_not_a_traceback(tmp_path):
     """Defect, fixed 2026-09-13: ``_animation_stale`` called
     ``clips.library_digest`` outside the door's own ``ValueError`` handling,
     so a template this build cannot resolve a clip library for (an unknown
-    key -- ``rigging.get_template`` raises ``ValueError`` for one) escaped as
+    key -- ``templates.get_template`` raises ``ValueError`` for one) escaped as
     a bare traceback instead of the same :class:`~warlock.service.NotReady`
     refusal ``files.py``'s readiness door already gives for "nothing
     authored", worded identically so the two do not disagree."""
@@ -676,8 +677,8 @@ def test_every_authored_clip_comes_back_as_a_named_glTF_animation(svc, tmp_path)
 
     job_id = _rigged(svc, rig=False)
     job_dir = svc.job_dir(job_id)
-    rigging.run_worker(
-        rigging.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
+    blender_run.run_worker(
+        blender_spec.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
         timeout=600,
     )
     assert (job_dir / "rig.glb").exists()
@@ -711,8 +712,8 @@ def test_the_bake_applies_the_clips_root_translation_to_the_root_bone(svc, tmp_p
 
     job_id = _rigged(svc, rig=False)
     job_dir = svc.job_dir(job_id)
-    rigging.run_worker(
-        rigging.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
+    blender_run.run_worker(
+        blender_spec.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
         timeout=600,
     )
     assert (job_dir / "rig.glb").exists()

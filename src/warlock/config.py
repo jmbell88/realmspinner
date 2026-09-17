@@ -572,7 +572,7 @@ class Config:
         not in ("0", "false", "off", "no")
     )
     # Skeleton template a rig request falls back to when it doesn't name one.
-    # Validated against rigging.templates() at request time, not here -- config
+    # Validated against templates.templates() at request time, not here -- config
     # is imported by everything and must not pull the template registry in.
     rig_template: str = field(
         default_factory=lambda: os.environ.get("WARLOCK_RIG_TEMPLATE", "humanoid")

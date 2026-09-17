@@ -932,7 +932,7 @@ def _stderr_tail(lines: deque[str], reader: threading.Thread) -> str:
 def _kill_and_reap(proc: subprocess.Popen[str]) -> None:
     """Kill the child and collect it, without being able to hang doing so.
 
-    ``rigging.run_worker``'s rule, and it belongs here for the same reason: a
+    ``blender_run.run_worker``'s rule, and it belongs here for the same reason: a
     kill without a wait leaves the child unreaped and the pump thread blocked
     on a pipe that never closes -- but an *unbounded* wait means the caller
     that was already timing out or unwinding now blocks indefinitely on a
@@ -953,7 +953,7 @@ def _run_worker(
     """One child, one repository. Raises ``Invalid`` with the child's own words.
 
     The spec goes over stdin and the answer comes back through a file, matching
-    ``rigging.run_worker`` -- stdout carries progress lines and a stray print
+    ``blender_run.run_worker`` -- stdout carries progress lines and a stray print
     from ``huggingface_hub`` must not be able to corrupt the result.
 
     ``publish=False`` stops the child with its staging tree complete and
@@ -970,7 +970,7 @@ def _run_worker(
         # a broken venv, an import error, the ``json.loads(sys.stdin.read())``
         # that sits outside its own try -- writes no result file, so the only
         # report was "the fetch worker exited with code 1" and its traceback
-        # went to the void. ``rigging.run_worker`` already keeps a tail of the
+        # went to the void. ``blender_run.run_worker`` already keeps a tail of the
         # child's stderr for exactly this reason (SVC-05). Written here rather
         # than inline in the call because ``tests/test_vram.py``'s spawn scan
         # reads a 15-line window after each ``Popen(`` looking for the
@@ -1028,7 +1028,7 @@ def _run_worker(
         writer.start()
 
         # stdout is drained on a helper thread so the *whole* fetch has a
-        # deadline, not just the wait() after EOF -- ``rigging.run_worker``'s
+        # deadline, not just the wait() after EOF -- ``blender_run.run_worker``'s
         # pattern, and here for a sharper reason: the child's _Sampler emits a
         # progress line every half second whether or not bytes are arriving, so
         # a child parked on a stalled socket never closes stdout at all. Reading
@@ -1056,7 +1056,7 @@ def _run_worker(
                     # already queued (the EOF sentinel, or a final line)
                     # before calling this a timeout, or a download that
                     # already moved and verified its files gets reported as
-                    # having timed out. Mirrors rigging.run_worker.
+                    # having timed out. Mirrors blender_run.run_worker.
                     try:
                         raw = lines.get_nowait()
                     except queue.Empty:

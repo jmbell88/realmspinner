@@ -209,11 +209,11 @@ class _TroupeCtx(_Threaded):
 
 
 def _sheet(ctx: _TroupeCtx) -> tuple[str, str]:
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     state = troupe_mode.ensure(ctx)
-    state.job_id, state.sheet_id = "job1", rigging.new_id()
-    _png(rigging.sheet_png_path(ctx.job_dir("job1"), state.sheet_id), (16, 8))
+    state.job_id, state.sheet_id = "job1", store.new_id()
+    _png(store.sheet_png_path(ctx.job_dir("job1"), state.sheet_id), (16, 8))
     return "job1", state.sheet_id
 
 
@@ -235,12 +235,12 @@ def test_the_troupe_atlas_is_decoded_on_a_task_and_uploaded_when_it_lands(tmp_pa
 
 
 def test_a_decoded_atlas_for_a_sheet_no_longer_on_screen_is_dropped(tmp_path):
-    from warlock import rigging
+    from warlock.kernels.rig import store
 
     ctx = _TroupeCtx(tmp_path)
     key = _sheet(ctx)
     troupe_mode.atlas_texture(ctx)
-    troupe_mode.ensure(ctx).sheet_id = rigging.new_id()
+    troupe_mode.ensure(ctx).sheet_id = store.new_id()
     troupe_mode.on_task_done(ctx, _Done(ctx.submitted[-1], ctx.result, tag=key))
     assert ctx.viewer.ctx.uploads == []
     assert "troupe_texture" not in ctx.state.preview

@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips, rigging
+from warlock import clips
+from warlock.kernels.rig import cliplib
 from warlock.pipelines import charsheet as cs
 from warlock.pipelines import sheet as sheetlib
 
@@ -109,14 +110,14 @@ def test_the_legacy_five_clips_are_present_with_their_original_frames_loop_and_t
     ``death`` and whatever else an author adds), but the five original clips
     must still mean exactly what they meant before -- this holds whether or
     not the new ones have landed alongside them in the shipped library."""
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     by_name = {c["name"]: c for c in library["clips"]}
     legacy_keys: set[str] = set()
     for name, frames, loop, duration_ms in cs.ANIMATIONS:
         clip = by_name[name]
         assert clip["closed"] == loop, name
         assert clip["duration_ms"] == duration_ms, name
-        keys = rigging.clip_keys("humanoid", name)
+        keys = cliplib.clip_keys("humanoid", name)
         out = sheetlib.interpolate_clip(
             keys, clip["segments"], closed=clip["closed"], easing=clip["easing"]
         )
@@ -128,7 +129,7 @@ def test_the_legacy_five_clips_are_present_with_their_original_frames_loop_and_t
 def test_the_walk_and_run_carry_a_vertical_bob():
     """The thing the root-translation refusal was costing."""
     for name in ("walk", "run"):
-        keys = rigging.clip_keys("humanoid", name)
+        keys = cliplib.clip_keys("humanoid", name)
         heights = [k.get("root_translation", [0, 0, 0])[2] for k in keys]
         assert max(heights) > 0 > min(heights), name
 
@@ -139,11 +140,11 @@ def test_a_clip_naming_a_pose_the_file_lacks_costs_that_library(tmp_path, caplog
         '"clips": [{"name": "c", "keys": ["a", "ghost"], "segments": [1, 1]}]}',
         encoding="utf-8",
     )
-    assert rigging._load_clip_library(tmp_path) == {}
+    assert cliplib._load_clip_library(tmp_path) == {}
 
 
 def test_a_template_with_no_clips_gets_an_empty_library():
-    assert rigging.clip_library("fish") == {"poses": {}, "clips": [], "space": "node"}
+    assert cliplib.clip_library("fish") == {"poses": {}, "clips": [], "space": "node"}
 
 
 # --- the plan ----------------------------------------------------------------
@@ -152,8 +153,8 @@ def test_a_template_with_no_clips_gets_an_empty_library():
 def _records():
     return {
         name: sheetlib.interpolate_clip(
-            rigging.clip_keys("humanoid", name),
-            next(c for c in rigging.clip_library("humanoid")["clips"] if c["name"] == name)[
+            cliplib.clip_keys("humanoid", name),
+            next(c for c in cliplib.clip_library("humanoid")["clips"] if c["name"] == name)[
                 "segments"
             ],
             closed=loop,
@@ -249,7 +250,7 @@ def test_one_frame_movements_sample_the_first_pose() -> None:
         {"version": 2, "movements": [{"key": "attack", "frames": 1, "directions": 1}]}
     )
     records = clips.expand_clips("humanoid", layout)
-    source = rigging.clip_keys("humanoid", "attack")[0]
+    source = cliplib.clip_keys("humanoid", "attack")[0]
     assert len(records["attack"]) == 1
     for bone, rotation in source["bones"].items():
         assert records["attack"][0]["bones"][bone] == pytest.approx(rotation, abs=1e-4)
@@ -678,7 +679,7 @@ def test_the_shipped_clips_are_authored_as_deltas_from_rest():
     rest orientation of the skeleton it was authored against, so the same
     numbers on a rig whose joints were measured rather than fitted produce a
     different -- and in practice broken -- pose."""
-    library = rigging.clip_library("humanoid")
+    library = cliplib.clip_library("humanoid")
     assert library["space"] == "delta"
     assert {c["space"] for c in library["clips"]} == {"delta"}
 
@@ -690,7 +691,7 @@ def test_a_clip_library_that_says_nothing_is_read_as_node_local(tmp_path):
         '"closed": true}]}',
         encoding="utf-8",
     )
-    library = rigging._load_clip_library(tmp_path)["old"]
+    library = cliplib._load_clip_library(tmp_path)["old"]
     assert library["space"] == "node"
     assert library["clips"][0]["space"] == "node"
 

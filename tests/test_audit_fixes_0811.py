@@ -15,7 +15,7 @@ from __future__ import annotations
 import inspect
 
 from warlock import queue as queue_mod
-from warlock import rigging
+from warlock.kernels.rig import store
 
 
 def test_the_retexture_staging_file_is_cleaned_up_on_every_path():
@@ -25,9 +25,9 @@ def test_the_retexture_staging_file_is_cleaned_up_on_every_path():
     to leave a stale half-skinned GLB next to model.glb until the next
     re-texture happened to overwrite it."""
     source = inspect.getsource(queue_mod.Worker._retexture)
-    at = source.index("rigging.RETEXTURE_GLB_TMP")
+    at = source.index("store.RETEXTURE_GLB_TMP")
     window = source[at : at + 1000]
     assert "finally:" in window, "the staging name is not wrapped in a cleanup"
     assert "unlink" in window, "the cleanup does not remove the staging file"
     # Named here as well, so renaming the constant cannot quietly unpin this.
-    assert rigging.RETEXTURE_GLB_TMP.endswith(".tmp.glb")
+    assert store.RETEXTURE_GLB_TMP.endswith(".tmp.glb")

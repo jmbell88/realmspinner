@@ -1,7 +1,7 @@
 """Where the subject's joints actually are, read off the reference image.
 
 Every generated mesh is a reconstruction of one image, and until now the rig
-fitter never looked at it: ``rigging.fit_template`` scales a template's
+fitter never looked at it: ``skeleton.fit_template`` scales a template's
 normalized landmarks onto the mesh bounding box and nothing else, so a
 reference that is not standing in a T-pose gets a T-pose skeleton laid over it.
 A 2D pose estimator run on that same image gives the shoulders, elbows, hips,
@@ -47,7 +47,7 @@ from .. import models
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
 
-    from ..rigging import Template
+    from ..kernels.rig.templates import Template
 
 log = logging.getLogger(__name__)
 
@@ -169,7 +169,7 @@ def refit(
     The return value is a drop-in replacement for ``template.bones``: the same
     names, the same parentage, the same normalized space (Blender axes, x/y
     spanning -0.5..0.5 about the bbox centre, z spanning 0 at the floor to 1 at
-    the crown). So the worker keeps running ``rigging.fit_template`` on it
+    the crown). So the worker keeps running ``skeleton.fit_template`` on it
     exactly as it runs the shipped one, and the bbox scaling stays owned by the
     worker rather than being reimplemented here.
 

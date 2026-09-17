@@ -13,7 +13,7 @@ import threading
 import pytest
 from PIL import Image
 
-from warlock import rigging
+from warlock.kernels.rig import store
 from warlock.service import jobs as svc_jobs
 from warlock.service import sheets as svc_sheets
 from warlock.service.errors import Conflict, Invalid, NotFound
@@ -27,8 +27,8 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "model.glb").write_bytes(b"glb")
 
-    sheet_id = rigging.new_id()
-    png = rigging.sheet_png_path(job_dir, sheet_id)
+    sheet_id = store.new_id()
+    png = store.sheet_png_path(job_dir, sheet_id)
     png.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGBA", (frame_size * columns, frame_size * rows), (0, 0, 0, 0)).save(png)
     meta = {
@@ -47,7 +47,7 @@ def _sheet_on_disk(svc, *, frame_size=128, columns=8, rows=1):
         "poses": [{"id": None, "name": "rest"}],
         "cells": [],
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(meta), encoding="utf-8")
     return job_id, sheet_id
 
 
@@ -85,14 +85,14 @@ def test_a_restyle_is_queued_as_its_own_job_against_the_render(svc):
 def test_a_missing_sheet_is_a_404_not_a_queued_job(svc):
     job_id, _sheet_id = _sheet_on_disk(svc)
     with pytest.raises(NotFound):
-        svc_sheets.create_pixel_sheet(svc, job_id, rigging.new_id())
+        svc_sheets.create_pixel_sheet(svc, job_id, store.new_id())
 
 
 def test_a_sheet_with_no_atlas_yet_is_not_restylable(svc):
     # The sidecar is the completion marker, but a half-cleaned directory can
     # carry one with no PNG.
     job_id, sheet_id = _sheet_on_disk(svc)
-    rigging.sheet_png_path(svc.job_dir(job_id), sheet_id).unlink()
+    store.sheet_png_path(svc.job_dir(job_id), sheet_id).unlink()
     with pytest.raises(NotFound):
         svc_sheets.create_pixel_sheet(svc, job_id, sheet_id)
 
@@ -137,8 +137,8 @@ def test_the_pixel_pair_is_invisible_to_the_sheet_listing(svc):
     to know this feature exists."""
     job_id, sheet_id = _sheet_on_disk(svc)
     job_dir = svc.job_dir(job_id)
-    rigging.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
-    rigging.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
+    store.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
+    store.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
 
     listed = svc_sheets.list_sheets(svc, job_id)["sheets"]
     assert [s["id"] for s in listed] == [sheet_id]
@@ -147,11 +147,11 @@ def test_the_pixel_pair_is_invisible_to_the_sheet_listing(svc):
 def test_the_png_is_not_served_until_the_sidecar_lands(svc):
     job_id, sheet_id = _sheet_on_disk(svc)
     job_dir = svc.job_dir(job_id)
-    rigging.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
+    store.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
     with pytest.raises(NotFound):
         svc_sheets.sheet_pixel_png(svc, job_id, sheet_id)
 
-    rigging.sheet_pixel_path(job_dir, sheet_id).write_text(
+    store.sheet_pixel_path(job_dir, sheet_id).write_text(
         json.dumps({"version": 1}), encoding="utf-8"
     )
     assert svc_sheets.sheet_pixel_png(svc, job_id, sheet_id).exists()
@@ -163,14 +163,14 @@ def test_deleting_a_sheet_takes_its_restyle_with_it(svc):
     # sprite sheet of a sheet that is gone.
     job_id, sheet_id = _sheet_on_disk(svc)
     job_dir = svc.job_dir(job_id)
-    rigging.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
-    rigging.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
+    store.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
+    store.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
 
     svc_sheets.delete_sheet(svc, job_id, sheet_id)
 
-    assert not rigging.sheet_pixel_path(job_dir, sheet_id).exists()
-    assert not rigging.sheet_pixel_png_path(job_dir, sheet_id).exists()
-    assert not rigging.sheet_path(job_dir, sheet_id).exists()
+    assert not store.sheet_pixel_path(job_dir, sheet_id).exists()
+    assert not store.sheet_pixel_png_path(job_dir, sheet_id).exists()
+    assert not store.sheet_path(job_dir, sheet_id).exists()
 
 
 def test_deleting_a_sheet_while_its_restyle_is_running_does_not_resurrect_it(svc):
@@ -180,8 +180,8 @@ def test_deleting_a_sheet_while_its_restyle_is_running_does_not_resurrect_it(svc
     # delete must refuse rather than let that row resurrect what it removes.
     job_id, sheet_id = _sheet_on_disk(svc)
     job_dir = svc.job_dir(job_id)
-    rigging.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
-    rigging.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
+    store.sheet_pixel_png_path(job_dir, sheet_id).write_bytes(b"png")
+    store.sheet_pixel_path(job_dir, sheet_id).write_text("{}", encoding="utf-8")
 
     svc.store.create(
         "pixel_sheet",
@@ -193,8 +193,8 @@ def test_deleting_a_sheet_while_its_restyle_is_running_does_not_resurrect_it(svc
     with pytest.raises(Conflict):
         svc_sheets.delete_sheet(svc, job_id, sheet_id)
 
-    assert rigging.sheet_path(job_dir, sheet_id).exists()
-    assert rigging.sheet_pixel_png_path(job_dir, sheet_id).exists()
+    assert store.sheet_path(job_dir, sheet_id).exists()
+    assert store.sheet_pixel_png_path(job_dir, sheet_id).exists()
 
 
 def test_a_malformed_sheet_id_never_reaches_the_filesystem(svc):
@@ -286,7 +286,7 @@ def test_deleting_a_sheet_racing_a_pixel_sheet_request_refuses_cleanly_or_serial
     t_delete.join(5)
 
     create_result = results.get("create")
-    sheet_gone = not rigging.sheet_path(svc.job_dir(job_id), sheet_id).exists()
+    sheet_gone = not store.sheet_path(svc.job_dir(job_id), sheet_id).exists()
     create_succeeded = isinstance(create_result, dict)
 
     assert not (create_succeeded and sheet_gone), (

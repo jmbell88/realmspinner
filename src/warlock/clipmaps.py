@@ -12,8 +12,8 @@ correspond to which template bones, and matching a mapping table against a
 skeleton the app has never seen before. The Blender sampling op that reads an
 external animation's transforms and the rotation math that expresses them
 against the template rig are later steps -- deliberately not here, so this
-stays importable and testable with no Blender, exactly like ``rigging.py``'s
-own template registry.
+stays importable and testable with no Blender, exactly like
+``kernels.rig.templates``' own template registry.
 
 **A clip map's ``bones`` entry is an ordered chain, not a single name**,
 because one external rig's bone sometimes has to collapse onto one template
@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from . import rigging
+from .kernels.rig import templates
 
 log = logging.getLogger(__name__)
 
@@ -62,19 +62,19 @@ __all__ = [
 ]
 
 #: Shipped clip maps, one file per external rig family. A sibling of
-#: ``rigging.CLIP_DIR`` (the Troupe pose-clip library) rather than the same
+#: ``cliplib.CLIP_DIR`` (the Troupe pose-clip library) rather than the same
 #: directory: that one holds *poses*, keyed by template, and this holds
 #: *bone-name tables*, keyed by external rig -- conflating the two would put
-#: an external-rig JSON file in a glob that ``rigging._load_clip_library``
+#: an external-rig JSON file in a glob that ``cliplib._load_clip_library``
 #: already walks and tries to parse as a pose library.
-CLIP_MAP_DIR = rigging.TEMPLATE_DIR / "clip_maps"
+CLIP_MAP_DIR = templates.TEMPLATE_DIR / "clip_maps"
 
 
 class ClipMapError(ValueError):
     """A clip map, or a skeleton matched against one, that cannot be trusted.
 
     Always raised with one sentence naming the specific problem -- which field,
-    which bone -- the same contract ``rigging.RigError``'s message follows,
+    which bone -- the same contract ``store.RigError``'s message follows,
     so a refusal at either the parse door or the match door is legible without
     a traceback.
     """
@@ -105,7 +105,7 @@ def parse_clip_map(raw: Mapping[str, Any], *, source: str) -> ClipMap:
 
     ``source`` names what this came from in every error message; when the map
     is loaded from a shipped file it is that file's stem, and the map's own
-    ``key`` must equal it -- the rule ``rigging._load_templates`` applies to a
+    ``key`` must equal it -- the rule ``templates._load_templates`` applies to a
     skeleton template's key and filename, for the same reason: the Poser UI
     interpolates a clip map's key into a control's id, and a key naming a
     different file than the one that produced it would make an error message
@@ -136,7 +136,7 @@ def parse_clip_map(raw: Mapping[str, Any], *, source: str) -> ClipMap:
     if not isinstance(template_key, str) or not template_key:
         raise ClipMapError(f"{source}: clip map has no template")
     try:
-        template = rigging.get_template(template_key)
+        template = templates.get_template(template_key)
     except ValueError as exc:
         raise ClipMapError(f"{source}: {exc}") from exc
     template_bones = {b["name"] for b in template.bones}
@@ -205,10 +205,10 @@ _clip_maps: dict[str, ClipMap] | None = None
 
 
 def load_clip_maps() -> dict[str, ClipMap]:
-    """Every shipped clip map, key -> :class:`ClipMap`. Cached like ``rigging.templates()``.
+    """Every shipped clip map, key -> :class:`ClipMap`. Cached like ``templates.templates()``.
 
     **A malformed file costs you that entry, not the loader** -- the same rule
-    ``rigging._load_templates`` follows, for the same reason: a hand-edited or
+    ``templates._load_templates`` follows, for the same reason: a hand-edited or
     future third-party clip map dropped beside the shipped two must not be
     able to take Poser's whole "Import clip" feature down with it.
     """
@@ -217,7 +217,7 @@ def load_clip_maps() -> dict[str, ClipMap]:
         found: dict[str, ClipMap] = {}
         for path in sorted(CLIP_MAP_DIR.glob("*.json")):
             try:
-                raw = rigging._read_json_capped(path, rigging.MAX_TEMPLATE_BYTES)
+                raw = templates._read_json_capped(path, templates.MAX_TEMPLATE_BYTES)
                 clip_map = parse_clip_map(raw, source=path.stem)
                 found[clip_map.key] = clip_map
             except Exception:

@@ -292,13 +292,13 @@ def rerun_job(
         # ``_discard_artifacts`` has an id to name this run's atlas by; without
         # one a cancel leaves the staged render behind, having nothing to look
         # for.
-        from .. import rigging as rigging_mod
+        from ..kernels.rig import store
 
-        params["sheet_id"] = rigging_mod.new_id()
+        params["sheet_id"] = store.new_id()
     if kind == "sprite_synthesis":
         # Reroll only: remesh forced ``kind`` to "image" above (and a sprite
         # job has no input.png, so it is refused there anyway).
-        from .. import rigging
+        from ..kernels.rig import store
 
         # The worker samples from ``seed_a``/``seed_b``; the generic ``seed``
         # above is never read by this kind, so copying the pair verbatim made
@@ -316,7 +316,7 @@ def rerun_job(
         # not in DERIVED_PARAMS and used to be copied verbatim. Carried over,
         # a cancelled reroll made ``_discard_artifacts`` delete the original
         # job's published trio, and a finished one silently overwrote it.
-        params["draft_id"] = rigging.new_id()
+        params["draft_id"] = store.new_id()
     if kind == "tile_sheet":
         # Reroll only: remesh is refused for this kind by name, above.
         #

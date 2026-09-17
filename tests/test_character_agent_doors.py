@@ -17,8 +17,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock import rigging
 from warlock.characters import family as family_mod
+from warlock.kernels.rig import cliplib, store
 from warlock.service import characters as svc_characters
 from warlock.service import rig as svc_rig
 from warlock.service import troupe as svc_troupe
@@ -57,7 +57,7 @@ def _rig_row(
 
 
 def _charsheet_row(svc, mesh_id: str, *, sheet_id=None, extra=None, base_sheet=None) -> str:
-    params = {"source_job": mesh_id, "sheet_id": sheet_id or rigging.new_id()}
+    params = {"source_job": mesh_id, "sheet_id": sheet_id or store.new_id()}
     if extra:
         params.update(extra)
     if base_sheet:
@@ -83,7 +83,7 @@ def _build_sheet(svc, mesh_id: str, *, sheet_id: str | None = None) -> str:
     the real render pipeline."""
     from PIL import Image
 
-    sheet_id = sheet_id or rigging.new_id()
+    sheet_id = sheet_id or store.new_id()
     job_dir = svc.job_dir(mesh_id)
     frame = 8
     atlas = Image.new("RGBA", (frame * 2, frame * 2), (0, 0, 0, 255))
@@ -91,7 +91,7 @@ def _build_sheet(svc, mesh_id: str, *, sheet_id: str | None = None) -> str:
     positions = [(0, 0), (frame, 0), (0, frame), (frame, frame)]
     for color, (x, y) in zip(colors, positions, strict=True):
         atlas.paste(Image.new("RGBA", (frame, frame), color), (x, y))
-    png_path = rigging.sheet_png_path(job_dir, sheet_id)
+    png_path = store.sheet_png_path(job_dir, sheet_id)
     png_path.parent.mkdir(parents=True, exist_ok=True)
     atlas.save(png_path, format="PNG")
 
@@ -141,7 +141,7 @@ def _build_sheet(svc, mesh_id: str, *, sheet_id: str | None = None) -> str:
             "cell_count": 4,
         },
     }
-    rigging.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
+    store.sheet_path(job_dir, sheet_id).write_text(json.dumps(sidecar), encoding="utf-8")
     return sheet_id
 
 
@@ -247,7 +247,7 @@ def test_follow_up_sheet_job_finds_the_sheet_a_rig_minted(svc):
     rig_id = _rig_row(svc, mesh_id, troupe_sheet=block, status="done")
     _touch_created_at(svc, rig_id, 100.0)
     _touch_finished_at(svc, rig_id, 100.0)
-    sheet_id = rigging.new_id()
+    sheet_id = store.new_id()
     charsheet_id = _charsheet_row(svc, mesh_id, sheet_id=sheet_id, extra=dict(block))
     # Inside FOLLOW_UP_WINDOW_S of the rig's finished_at -- the ordinary case,
     # where the worker mints the sheet a few awaits after the rig's own
@@ -264,12 +264,12 @@ def test_follow_up_sheet_job_ignores_a_rerender_of_that_sheet(svc):
     _touch_created_at(svc, rig_id, 100.0)
     _touch_finished_at(svc, rig_id, 100.0)
 
-    real_sheet = rigging.new_id()
+    real_sheet = store.new_id()
     real = _charsheet_row(svc, mesh_id, sheet_id=real_sheet, extra=dict(block))
     _touch_created_at(svc, real, 130.0)
 
     rerender = _charsheet_row(
-        svc, mesh_id, sheet_id=rigging.new_id(), extra=dict(block), base_sheet=real_sheet
+        svc, mesh_id, sheet_id=store.new_id(), extra=dict(block), base_sheet=real_sheet
     )
     # Even minted "sooner" than the real follow-up, a re-render must never win.
     _touch_created_at(svc, rerender, 110.0)
@@ -292,7 +292,7 @@ def test_follow_up_sheet_job_ignores_an_identical_sheet_made_long_after_the_rig(
     _touch_created_at(svc, rig_id, 900.0)
     _touch_finished_at(svc, rig_id, 1000.0)
 
-    later = _charsheet_row(svc, mesh_id, sheet_id=rigging.new_id(), extra=dict(block))
+    later = _charsheet_row(svc, mesh_id, sheet_id=store.new_id(), extra=dict(block))
     _touch_created_at(svc, later, 1000.0 + svc_troupe.FOLLOW_UP_WINDOW_S + 1.0)
 
     assert svc_troupe.follow_up_sheet_job(svc, rig_id) is None
@@ -312,7 +312,7 @@ def test_a_failed_rig_has_no_follow_up_sheet(svc):
     _touch_created_at(svc, rig_id, 90.0)
     _touch_finished_at(svc, rig_id, 100.0)
 
-    unrelated = _charsheet_row(svc, mesh_id, sheet_id=rigging.new_id(), extra=dict(block))
+    unrelated = _charsheet_row(svc, mesh_id, sheet_id=store.new_id(), extra=dict(block))
     _touch_created_at(svc, unrelated, 105.0)
 
     assert svc_troupe.follow_up_sheet_job(svc, rig_id) is None
@@ -383,7 +383,7 @@ def test_list_character_assets_filters_and_pages_by_cursor(svc):
 
 def test_character_job_reports_a_charsheet_rows_own_sheet_id(svc):
     mesh_id = _mesh(svc)
-    sheet_id = rigging.new_id()
+    sheet_id = store.new_id()
     charsheet_id = _charsheet_row(svc, mesh_id, sheet_id=sheet_id)
 
     result = svc_characters.character_job(svc, charsheet_id)
@@ -404,7 +404,7 @@ def test_character_job_on_a_mesh_names_the_sheet_its_rig_queued(svc):
     block = {"template": "humanoid", "logical_size": 32}
     rig_id = _rig_row(svc, mesh_id, troupe_sheet=block, status="done")
     _touch_finished_at(svc, rig_id, 100.0)
-    sheet_id = rigging.new_id()
+    sheet_id = store.new_id()
     charsheet_id = _charsheet_row(svc, mesh_id, sheet_id=sheet_id, extra=dict(block))
     _touch_created_at(svc, charsheet_id, 105.0)
 
@@ -488,20 +488,20 @@ def charsheet_compass(direction_key: str) -> str:
 def test_shipped_clip_names_ignore_a_user_edited_library(svc):
     from warlock import poselib
 
-    shipped = rigging.shipped_clip_names("humanoid")
+    shipped = cliplib.shipped_clip_names("humanoid")
     assert "walk" in shipped
 
     user_dir = poselib.clip_dir(svc.config)
     user_dir.mkdir(parents=True, exist_ok=True)
     edited = user_dir / "humanoid.json"
     edited.write_text(json.dumps({"version": 3, "poses": [], "clips": []}), encoding="utf-8")
-    rigging.invalidate_clips()
+    cliplib.invalidate_clips()
     try:
-        assert rigging.clip_library("humanoid")["clips"] == []
-        assert rigging.shipped_clip_names("humanoid") == shipped
+        assert cliplib.clip_library("humanoid")["clips"] == []
+        assert cliplib.shipped_clip_names("humanoid") == shipped
     finally:
         edited.unlink()
-        rigging.invalidate_clips()
+        cliplib.invalidate_clips()
 
 
 # --- _package_stem -------------------------------------------------------------

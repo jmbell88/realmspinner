@@ -4,9 +4,9 @@ them one.
 ``studio/clay/presets.py`` is pure -- numpy and nothing else -- so the labels
 and the landmarks it is built on are hard-coded there rather than read out of
 ``warlock/templates/``. That is only safe while something compares the two, and
-this file is that something: the *test* may import ``warlock.rigging``, and it
-fails the moment a template is renamed, a bone is renamed, or a part drifts off
-the joint it was roughed out on.
+this file is that something: the *test* may import ``warlock.kernels.rig``, and
+it fails the moment a template is renamed, a bone is renamed, or a part drifts
+off the joint it was roughed out on.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from warlock.kernels.geom3d import math3d as m3
 from warlock.kernels.mesh import presets
 from warlock.kernels.mesh.mesh import bounds, transformed, validate
 from warlock.kernels.mesh.primitives import GENERATORS
-from warlock.rigging import templates
+from warlock.kernels.rig.templates import templates
 
 #: How far a part's centre may sit from its bone's midpoint, in the templates'
 #: normalised units (the figure is one unit tall). Every part here is placed
@@ -56,7 +56,7 @@ def test_there_is_a_body_for_every_skeleton():
     and neither is visible from inside one of the two files.
 
     A hidden template is not a skeleton a figure feeds: ``blank`` is Poser's
-    manual-rig bootstrap, one root bone reached only by key, and ``rigging.
+    manual-rig bootstrap, one root bone reached only by key, and ``templates.
     catalog`` leaves it out of every picker for the same reason.
     """
     assert set(presets.ASSEMBLIES) == {k for k, t in templates().items() if not t.hidden}
