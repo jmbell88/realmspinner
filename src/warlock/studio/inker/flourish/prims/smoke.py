@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+import warlock.native as native
+
 from . import (
     POSITION,
     Param,
@@ -84,6 +86,9 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
     ja = hashed(seed + 1, count)
     jr = hashed(seed + 2, count)
     jd = hashed(seed + 3, count)
+    # Only read when the kernel is taken: the float32 scale every blob's fbm
+    # offsets are relative to, matching native.smoke_blob's ``nscale_f32``.
+    nscale_f32 = float(np.float32(max(float(nscale), 1e-3)))
     for i in alive:
         a_i = float(age[i])
         u = float(u_all[i])
@@ -96,20 +101,53 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
         win = window(ctx, px, py, radius * (1.0 + 0.8 * rag))
         if win is None:
             continue
-        d = np.sqrt((win.x - px) ** 2 + (win.y - py) ** 2) / np.float32(radius)
-        if rag > 0.0:
-            n = fbm_plane(
-                ctx,
-                seed + int(i),
-                scale=nscale,
-                dx=-px / nscale + float(ja[i]) * 37.0,
-                dy=-py / nscale + a_i * 0.4,
-                octaves=3,
-                win=win,
+
+        handled = False
+        if native.available():
+            dx_f32 = float(np.float32(-px / nscale + float(ja[i]) * 37.0))
+            dy_f32 = float(np.float32(-py / nscale + a_i * 0.4))
+            alpha_mul = float(np.float32(float(alpha_curve.at(u)) * col[3]))
+            rgb_n = col[:3] * np.float32(1.0 - darken * u)
+            handled = native.smoke_blob(
+                out_rgb,
+                out_a,
+                ctx.width,
+                ctx.height,
+                win.y0,
+                win.y1,
+                win.x0,
+                win.x1,
+                float(ctx.scale),
+                float(px),
+                float(py),
+                float(radius),
+                float(rag),
+                int(seed + int(i)),
+                dx_f32,
+                dy_f32,
+                nscale_f32,
+                alpha_mul,
+                float(rgb_n[0]),
+                float(rgb_n[1]),
+                float(rgb_n[2]),
             )
-            d = d * (1.0 + (n - 0.5) * 1.6 * rag)
-        cov = np.clip(1.0 - d, 0.0, 1.0)
-        cov = cov * cov * np.float32(float(alpha_curve.at(u)) * col[3])
-        rgb = col[:3] * np.float32(1.0 - darken * u)
-        over_into(out_rgb[win.rows, win.cols], out_a[win.rows, win.cols], rgb, cov)
+        if not handled:
+            # The numpy reference: never deleted, and what runs whenever the
+            # kernel is unavailable or refuses this blob's scratch.
+            d = np.sqrt((win.x - px) ** 2 + (win.y - py) ** 2) / np.float32(radius)
+            if rag > 0.0:
+                n = fbm_plane(
+                    ctx,
+                    seed + int(i),
+                    scale=nscale,
+                    dx=-px / nscale + float(ja[i]) * 37.0,
+                    dy=-py / nscale + a_i * 0.4,
+                    octaves=3,
+                    win=win,
+                )
+                d = d * (1.0 + (n - 0.5) * 1.6 * rag)
+            cov = np.clip(1.0 - d, 0.0, 1.0)
+            cov = cov * cov * np.float32(float(alpha_curve.at(u)) * col[3])
+            rgb = col[:3] * np.float32(1.0 - darken * u)
+            over_into(out_rgb[win.rows, win.cols], out_a[win.rows, win.cols], rgb, cov)
     return premultiply(out_rgb, out_a)

@@ -45,26 +45,74 @@ def _matching_run(panel: np.ndarray, *, axis: int) -> tuple[int, int] | None:
     as ``(start, end)``, exclusive, in the panel's own coordinates -- which is
     already "relative to the bounds origin", :mod:`.slices`' convention for a
     centre, so the caller hands it straight to :func:`~._doc_slices.fit_center`.
+
+    **One reduction, not one ``np.array_equal`` call per column pair.** The
+    2026-09-17 native-kernel review (batch 11) measured the original
+    per-column Python loop at 54 ms on a 2048px panel (4090 ``np.array_equal``
+    calls across both axes, gate >16 ms, guide-drag on the frame thread) --
+    almost all of it per-call overhead, since each call compares only a thin
+    strip. A first vectorised pass (``np.all(panel[:, 1:] == panel[:, :-1],
+    axis=(0, 2))``, or the row equivalent) asked the identical elementwise
+    question of every adjacent pair at once, in C, but still compared all
+    four RGBA bytes separately -- 38 ms at 2048px, no better than the same
+    per-channel shape bench_native.py's own reference variant used, because
+    reducing over the channel axis does not shrink the data actually moved.
+
+    **Packed instead, for the RGBA case that dominates real art.** Four uint8
+    bytes and one uint32 compare for equality identically -- two pixels are
+    the same RGBA exactly when their packed words match, regardless of byte
+    order, since a reinterpretation of the same four bytes is the same four
+    bytes on both sides of ``==``. Comparing packed words instead of four
+    separate byte planes is a quarter of the data touched by the reduction,
+    which is where the real cost was (the review measured the per-channel
+    bool reduction itself, not call overhead, at this size). Any other shape
+    -- a bare 2-D plane, a 1- or 2-channel panel, or a channel count that does
+    not pack evenly into a word -- keeps the plain per-channel reduction,
+    since there is no lossless single-word packing for it.
     """
     size = panel.shape[1] if axis == 1 else panel.shape[0]
     if size < 4:
         # Two 1px corners plus at least a 2px interior pair to compare -- below
         # that there is no room for a centre that still leaves both corners.
         return None
-    best: tuple[int, int] | None = None
-    run_start: int | None = None
-    for i in range(1, size - 2):
-        line = panel[:, i] if axis == 1 else panel[i, :]
-        neighbour = panel[:, i + 1] if axis == 1 else panel[i + 1, :]
-        if np.array_equal(line, neighbour):
-            if run_start is None:
-                run_start = i
-            end = i + 2  # exclusive: the run covers columns run_start..i+1
-            if best is None or (end - run_start) > (best[1] - best[0]):
-                best = (run_start, end)
+    if panel.ndim == 3 and panel.shape[2] == 4 and panel.dtype == np.uint8:
+        packed = np.ascontiguousarray(panel).view(np.uint32).reshape(panel.shape[0], panel.shape[1])
+        if axis == 1:
+            adjacent_equal = np.all(packed[:, 1:] == packed[:, :-1], axis=0)
         else:
-            run_start = None
-    return best
+            adjacent_equal = np.all(packed[1:, :] == packed[:-1, :], axis=1)
+    else:
+        # Reduce over every axis except the one being walked -- a "column" (or
+        # "row") is the whole slice along the other axes (height and channel,
+        # or width and channel), so two are equal exactly when all of that
+        # agrees.
+        reduce_axes = tuple(d for d in range(panel.ndim) if d != axis)
+        if axis == 1:
+            adjacent_equal = np.all(panel[:, 1:] == panel[:, :-1], axis=reduce_axes)
+        else:
+            adjacent_equal = np.all(panel[1:, :] == panel[:-1, :], axis=reduce_axes)
+    # ``adjacent_equal[i]`` says whether line ``i`` matches line ``i + 1``, for
+    # every ``i`` in ``[0, size - 1)``. The loop only ever asked this for
+    # ``i`` in ``[1, size - 2)`` -- the interior pairs -- so that is the exact
+    # slice to run-length decode.
+    interior = adjacent_equal[1 : size - 2]
+    if not interior.any():
+        return None
+    hits = np.flatnonzero(interior)
+    breaks = np.flatnonzero(np.diff(hits) != 1)
+    run_starts = np.concatenate(([0], breaks + 1))
+    run_ends = np.concatenate((breaks, [len(hits) - 1]))
+    lengths = hits[run_ends] - hits[run_starts] + 1
+    # ``argmax`` returns the *first* index at the maximum -- the same
+    # leftmost-run-wins tie-break the loop's strict ``>`` comparison made.
+    best = int(np.argmax(lengths))
+    # ``hits`` holds positions into ``interior``, i.e. ``i - 1`` for the
+    # original loop index ``i``; the run covers loop indices
+    # ``run_start .. run_start + length - 1`` and its ``end`` is two past the
+    # last one, exactly as ``end = i + 2`` was for the loop's final ``i``.
+    run_start = int(hits[run_starts[best]]) + 1
+    length = int(lengths[best])
+    return run_start, run_start + length + 1
 
 
 def fit(

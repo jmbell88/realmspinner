@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 
@@ -785,3 +787,202 @@ def test_fill_hole_refuses_a_ring_past_the_dissolve_sized_ceiling(monkeypatch) -
     monkeypatch.setattr(dis, "MAX_DISSOLVED_RING", 4)
     with pytest.raises(el.OpError, match="corners, past the"):
         ops.fill_hole(m, el.ElementSel(edges=boundary[:1]))
+
+
+# --- _region_offsets / _face_normals_subset, batch 11 ------------------------
+#
+# The 2026-09-17 native-kernel review replaced _region_offsets's grouping
+# (ops_dissolve._Union) with scipy.sparse.csgraph.connected_components, and
+# its whole-mesh face_normals(mesh)[faces] call with
+# ops._face_normals_subset, which computes Newell normals for the selected
+# faces only.
+
+
+class _OldUnionForRegionOffsets:
+    """A verbatim copy of the removed ops_dissolve._Union, scoped to this
+    test module so the parity helper below can use it without depending on
+    ops_dissolve still exporting it."""
+
+    def __init__(self, n: int) -> None:
+        self.parent = list(range(n))
+
+    def find(self, x: int) -> int:
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
+        return x
+
+    def union(self, a: int, b: int) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.parent[ra] = rb
+
+
+def _grid(nx: int, nz: int) -> bm.Mesh:
+    """An nx by nz grid of quads in the XZ plane."""
+    xs = np.arange(nx + 1, dtype="f4")
+    zs = np.arange(nz + 1, dtype="f4")
+    positions = np.stack(
+        [np.repeat(xs, nz + 1), np.zeros((nx + 1) * (nz + 1), dtype="f4"), np.tile(zs, nx + 1)],
+        axis=1,
+    )
+
+    def v(i: int, j: int) -> int:
+        return i * (nz + 1) + j
+
+    faces = [
+        [v(i, j), v(i, j + 1), v(i + 1, j + 1), v(i + 1, j)] for i in range(nx) for j in range(nz)
+    ]
+    return bm.Mesh(
+        positions=positions,
+        loops=np.array([c for f in faces for c in f], dtype="i4"),
+        starts=topo.starts_from_counts([4] * len(faces)),
+        material=np.zeros(len(faces), dtype="i4"),
+        smooth=np.zeros(len(faces), dtype=bool),
+    )
+
+
+def _region_offsets_via(
+    mesh: bm.Mesh, faces: np.ndarray, offset: float, *, old: bool
+) -> np.ndarray:
+    a = adj.adjacency(mesh)
+    cap_corners = topo.corner_spans(mesh.starts, faces)
+    used = np.unique(mesh.loops[cap_corners])
+    if not old:
+        return ops._region_offsets(mesh, a, faces, cap_corners, used, offset)
+    # Rebuilt with a locally-scoped union-find rather than
+    # ops_dissolve._Union, which batch 11 deleted.
+    n_faces = bm.face_count(mesh)
+    chosen = np.zeros(n_faces, dtype=bool)
+    chosen[faces] = True
+    if offset == 0.0:
+        return np.zeros((len(used), 3))
+    union = _OldUnionForRegionOffsets(n_faces)
+    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
+    for corner in interior.tolist():
+        other = int(a.corner_face[a.twin[corner]])
+        if chosen[other]:
+            union.union(int(a.corner_face[corner]), other)
+    region_of = np.array([union.find(int(f)) for f in faces.tolist()], dtype="i8")
+    _roots, region_id = np.unique(region_of, return_inverse=True)
+    normals = bm.face_normals(mesh)[faces]
+    sums = np.zeros((len(_roots), 3))
+    np.add.at(sums, region_id, normals)
+    directions = ops._unit(sums) * offset
+    lookup = np.full(n_faces, -1, dtype="i8")
+    lookup[faces] = region_id
+    corner_region = lookup[a.corner_face[cap_corners].astype("i8")]
+    corner_vertex = mesh.loops[cap_corners].astype("i8")
+    pairs = np.unique(np.stack([corner_vertex, corner_region], axis=1), axis=0)
+    n_verts = len(mesh.positions)
+    vert_sum = np.zeros((n_verts, 3))
+    vert_count = np.zeros(n_verts)
+    np.add.at(vert_sum, pairs[:, 0], directions[pairs[:, 1]])
+    np.add.at(vert_count, pairs[:, 0], 1.0)
+    vertex_direction = np.zeros((n_verts, 3))
+    touched = vert_count > 0
+    vertex_direction[touched] = vert_sum[touched] / vert_count[touched][:, None]
+    return vertex_direction[used]
+
+
+def test_region_offsets_matches_the_old_union_find_on_box_opposite_caps() -> None:
+    """The 2026-09-08 clay-03 case itself: two disjoint regions whose normals
+    cancel, so the grouping is what makes each region move at all."""
+    m = prim.box()
+    faces = np.array([0, 1], dtype="i8")
+    old = _region_offsets_via(m, faces, 0.5, old=True)
+    new = _region_offsets_via(m, faces, 0.5, old=False)
+    assert np.array_equal(old, new)
+
+
+def test_region_offsets_matches_the_old_union_find_on_several_grid_regions() -> None:
+    """A 6x6 grid, three disjoint 2x2 blocks selected -- several regions in
+    one call, each needing its own mean normal."""
+    m = _grid(6, 6)
+    faces = np.array([0, 1, 6, 7, 14, 15, 20, 21, 28, 29, 34, 35], dtype="i8")
+    old = _region_offsets_via(m, faces, 0.75, old=True)
+    new = _region_offsets_via(m, faces, 0.75, old=False)
+    assert np.array_equal(old, new)
+
+
+def test_region_offsets_matches_the_old_union_find_at_zero_offset() -> None:
+    """Zero offset short-circuits before any grouping at all -- both paths
+    must agree that nothing moves."""
+    m = prim.box()
+    faces = np.array([0, 1, 2], dtype="i8")
+    old = _region_offsets_via(m, faces, 0.0, old=True)
+    new = _region_offsets_via(m, faces, 0.0, old=False)
+    assert np.array_equal(old, new)
+    assert not old.any()
+
+
+def test_face_normals_subset_is_bit_identical_to_the_whole_mesh_pass() -> None:
+    """_face_normals_subset must match face_normals(mesh)[faces] exactly --
+    same doubles, not merely close -- on an n-gon mesh with non-planar faces
+    and random positions, where a Newell sum genuinely depends on every
+    corner rather than degenerating to a cross product."""
+    rng = np.random.default_rng(0)
+    counts = [5, 4, 6, 3, 7, 4, 5]
+    total = sum(counts)
+    positions = rng.uniform(-1.0, 1.0, size=(total, 3)).astype("f4")
+    # Loops just walk 0..total-1 face by face, so every corner uses a
+    # distinct, randomly-placed vertex -- no two faces share geometry, and no
+    # face is planar.
+    loops = np.arange(total, dtype="i4")
+    starts = topo.starts_from_counts(counts)
+    mesh = bm.Mesh(
+        positions=positions,
+        loops=loops,
+        starts=starts,
+        material=np.zeros(len(counts), dtype="i4"),
+        smooth=np.zeros(len(counts), dtype=bool),
+    )
+    for faces in (
+        np.arange(len(counts), dtype="i8"),
+        np.array([0, 2, 4, 6], dtype="i8"),
+        np.array([3], dtype="i8"),
+        np.array([5, 1], dtype="i8"),  # out of ascending order on purpose
+    ):
+        want = bm.face_normals(mesh)[faces]
+        got = ops._face_normals_subset(mesh, faces)
+        assert np.array_equal(got, want), f"mismatch for faces={faces.tolist()}"
+
+
+def test_face_normals_subset_on_an_empty_selection() -> None:
+    m = prim.box()
+    out = ops._face_normals_subset(m, np.empty(0, dtype="i8"))
+    assert out.shape == (0, 3)
+
+
+# --- perf: the 2026-09-17 native-kernel review (batch 11) --------------------
+
+
+def test_region_offsets_on_a_large_mesh_finishes_well_under_the_old_time() -> None:
+    """The measured case (isolated, the way dev/scripts/bench_native.py's
+    ``clay_extrude_regions`` case does it): select every face of a 200k-face
+    mesh and ask ``_region_offsets`` for its displacement with a non-zero
+    offset. The old ``_Union`` grouping plus a whole-mesh ``face_normals``
+    call measured 922 ms here (dev/measurements/
+    2026-09-17-native-batch-11-candidates.md); replaced with
+    ``connected_components`` and :func:`ops._face_normals_subset`. The fixed
+    code measures ~215 ms on a select-all (the Newell pass over every face is
+    what remains, `2026-09-17-native-batch-11-landed.md`), so the bound is
+    0.5 s: the unfixed code fails it by 1.8x and the fixed code passes with
+    2.3x of room for a loaded xdist worker."""
+    import math
+
+    side = max(1, int(round(math.sqrt(200_000))))
+    mesh = _grid(side, side)
+    faces = np.arange(bm.face_count(mesh), dtype="i8")
+    a = adj.adjacency(mesh)  # warm the cache, as a real extrude would have already
+    cap_corners = topo.corner_spans(mesh.starts, faces)
+    used = np.unique(mesh.loops[cap_corners])
+    from scipy.sparse import coo_matrix as _warm_coo  # noqa: F401
+    from scipy.sparse.csgraph import connected_components as _warm_cc  # noqa: F401
+
+    start = time.perf_counter()
+    displacement = ops._region_offsets(mesh, a, faces, cap_corners, used, 1.0)
+    elapsed = time.perf_counter() - start
+
+    assert displacement.shape == (len(used), 3)
+    assert elapsed < 0.5, f"took {elapsed:.3f}s -- still the old union-find/whole-mesh normals?"

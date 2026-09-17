@@ -28,7 +28,7 @@ import numpy as np
 from . import ops_dissolve, topo
 from .adjacency import adjacency, boundary_ring_from
 from .elements import ElementSel, OpError, empty
-from .mesh import Mesh, accumulate, face_count, face_normals, reversed_corner_perm
+from .mesh import Mesh, _newell, accumulate, face_count, face_normals, reversed_corner_perm
 
 __all__ = [
     "bridge_edges",
@@ -127,6 +127,33 @@ def flip_normals(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
 # --- extrude ----------------------------------------------------------------
 
 
+def _face_normals_subset(mesh: Mesh, faces: np.ndarray) -> np.ndarray:
+    """Newell normals for *faces* only -- bit-identical to
+    ``face_normals(mesh)[faces]``, without computing the whole mesh's.
+
+    A face's raw Newell normal is a reduction over that face's own corners
+    alone (see :func:`~.mesh._newell_some`'s own docstring for the same
+    argument), so gathering only the wanted faces' corners and reducing over
+    them lands on the exact same doubles, in the exact same left-to-right
+    summation order, as a full-mesh ``np.add.reduceat`` pass would produce for
+    those rows. The 2026-09-17 native-kernel review (batch 11) measured
+    ``face_normals(mesh)[faces]`` at ~74 ms of the 922 ms shipped
+    ``clay_extrude_regions`` case (200k faces, one selected region) --
+    almost all of it spent computing normals for faces nobody selected.
+    """
+    faces = np.asarray(faces, dtype="i8").reshape(-1)
+    if len(faces) == 0:
+        return np.zeros((0, 3), dtype="f8")
+    a = adjacency(mesh)
+    starts = mesh.starts.astype("i8")
+    counts = starts[faces + 1] - starts[faces]
+    corners = topo.corner_spans(mesh.starts, faces)
+    loops_sub = mesh.loops[corners]
+    loops_next_sub = mesh.loops[a.next_corner[corners]]
+    starts_head = np.concatenate([[0], np.cumsum(counts)[:-1]]).astype("i8")
+    return _newell(mesh.positions, loops_sub, loops_next_sub, starts_head)
+
+
 def _region_offsets(
     mesh: Mesh,
     a: Any,
@@ -140,11 +167,13 @@ def _region_offsets(
     The 2026-09-08 audit's clay-03: computing one mean normal over the whole
     selection cancels to zero whenever two selected regions face opposite
     ways, and a non-zero offset then silently moved nothing. Grouped by
-    connected region instead -- the same union-find-over-shared-edges grouping
-    :func:`~.ops_dissolve.dissolve_faces` already does, reused rather than
-    duplicated -- each disjoint block of selected faces gets its own mean
-    normal, so opposite blocks in one selection still move, each along its
-    own direction.
+    connected region instead -- the same shared-edge grouping
+    :func:`~.ops_dissolve.dissolve_faces` uses (``scipy.sparse.csgraph.
+    connected_components`` since the 2026-09-17 native-kernel review, batch
+    11 -- see :func:`~.ops_dissolve._group_by_label` for why the Python
+    union-find this replaced was a frame-thread cost) -- each disjoint block
+    of selected faces gets its own mean normal, so opposite blocks in one
+    selection still move, each along its own direction.
     """
     if offset == 0.0:
         return np.zeros((len(used), 3))
@@ -152,16 +181,23 @@ def _region_offsets(
     n_faces = face_count(mesh)
     chosen = np.zeros(n_faces, dtype=bool)
     chosen[faces] = True
-    union = ops_dissolve._Union(n_faces)
-    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
-    for corner in interior.tolist():
-        other = int(a.corner_face[a.twin[corner]])
-        if chosen[other]:
-            union.union(int(a.corner_face[corner]), other)
-    region_of = np.array([union.find(int(f)) for f in faces.tolist()], dtype="i8")
-    _roots, region_id = np.unique(region_of, return_inverse=True)
 
-    normals = face_normals(mesh)[faces]
+    interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
+    other = a.corner_face[a.twin[interior]].astype("i8")
+    mask = chosen[other]
+    fa = a.corner_face[interior[mask]].astype("i8")
+    fb = other[mask]
+
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
+    labels = connected_components(graph, directed=False)[1]
+    region_of = labels[faces]
+    _roots, region_id = np.unique(region_of, return_inverse=True)
+    region_id = region_id.reshape(-1)
+
+    normals = _face_normals_subset(mesh, faces)
     sums = np.zeros((len(_roots), 3))
     np.add.at(sums, region_id, normals)
     directions = _unit(sums) * offset
@@ -176,12 +212,27 @@ def _region_offsets(
     # two *different* regions meet (only possible at a shared corner, since a
     # shared edge would have unioned them) averages both directions rather
     # than one arbitrarily outweighing the other.
-    pairs = np.unique(np.stack([corner_vertex, corner_region], axis=1), axis=0)
+    #
+    # ``np.unique(pairs, axis=0)`` goes through a structured-void view and a
+    # lexsort -- the 2026-09-17 native-kernel review (batch 11) measured it at
+    # ~280 ms of this function's 465 ms on a 200k-face select-all, once the
+    # union-find and the whole-mesh normals were already fixed. Packed into
+    # one scalar per pair instead, the same trick ``adjacency.py`` already
+    # uses for its own edge keys (its own comment names the identical
+    # 777 ms/130 ms gap): ``vertex * n_regions + region`` is order-preserving
+    # exactly because ``region`` is already renumbered ``0..n_regions - 1``,
+    # so sorting the packed key sorts by ``(vertex, region)`` lexicographically
+    # too, and ``np.unique`` over a 1-D array of scalars needs no structured
+    # view at all.
+    n_regions = len(_roots)
+    pair_keys = np.unique(corner_vertex * n_regions + corner_region)
+    pair_vertex = pair_keys // n_regions
+    pair_region = pair_keys % n_regions
     n_verts = len(mesh.positions)
     vert_sum = np.zeros((n_verts, 3))
     vert_count = np.zeros(n_verts)
-    np.add.at(vert_sum, pairs[:, 0], directions[pairs[:, 1]])
-    np.add.at(vert_count, pairs[:, 0], 1.0)
+    np.add.at(vert_sum, pair_vertex, directions[pair_region])
+    np.add.at(vert_count, pair_vertex, 1.0)
     vertex_direction = np.zeros((n_verts, 3))
     touched = vert_count > 0
     vertex_direction[touched] = vert_sum[touched] / vert_count[touched][:, None]

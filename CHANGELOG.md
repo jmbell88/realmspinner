@@ -166,6 +166,18 @@ are in the commit each one names.
   not answer in time, so a retry waited behind a request nobody was waiting for.
 - **The Familiar pane's drag handle is in the manual.** Chapter 20 now says the
   expanded pane can be dragged taller or shorter and keeps the height.
+- **A RotSprite rotate drag no longer stalls the editor.** Turning a lifted
+  selection with RotSprite re-renders on every mouse move and cost 0.3 s a
+  move at 256 px square and 1.3 s at the 512 px cap; with the optional native
+  kernels built (`native\build.ps1`) it is now about 10 ms and 30 ms, and the
+  bytes are identical to before. Without the kernels the numpy path is
+  unchanged.
+- **Merge Faces, Extrude and the nine-slice guides are quicker on big meshes
+  and panels.** Dissolving every face of a 200k-face import went from 0.67 s
+  to about 70 ms and extruding them from 0.92 s to about 0.2 s, with the same
+  mesh to the byte; a nine-slice guide drag on a 2048 px panel is faster by
+  the same rule. Flourish's smoke primitive bakes about four and a half times
+  faster with the native kernels built.
 
 ## 0.0.47 — 2026-09-14
 

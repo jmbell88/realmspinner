@@ -35,6 +35,7 @@ from collections.abc import Callable
 
 import numpy as np
 
+from ... import native
 from . import composite
 
 #: The axes :func:`flip` accepts, and the list a menu is built from. One owner:
@@ -322,13 +323,28 @@ def rotsprite(pixels: np.ndarray, degrees: float, *, expand: bool = False) -> np
     than usual here, because a free transform re-renders from the lifted pixels
     on every mouse-move and a wobbling result would look like a bug in the
     drag rather than in the filter.
+
+    Takes ``native.rotsprite_u8`` when it is loaded -- the numpy path below
+    was measured at 294 ms per move at 256^2 against a 16 ms gate
+    (dev/measurements/2026-09-13-native-batch-10-candidates.md S5) and is
+    superlinear, so it is the one drag on the frame thread this module cannot
+    otherwise make cheap. Angles that are a multiple of 90 are Pillow's own
+    fast path (a plain transpose, already exact and already cheap) and are
+    deliberately routed around the kernel rather than through it -- see the
+    comment beside ``warlockc_rotsprite_u8`` in ``native/warlockc.h``.
     """
-    big = pixels
-    for _ in range(ROTSPRITE_ROUNDS):
-        big = epx(big)
-    turned = rotate(big, degrees, expand=True, resample="nearest")
-    half = ROTSPRITE_SCALE // 2
-    small = np.ascontiguousarray(turned[half::ROTSPRITE_SCALE, half::ROTSPRITE_SCALE])
+    small = None
+    if native.available() and degrees % 360.0 not in (0.0, 90.0, 180.0, 270.0):
+        small = native.rotsprite_u8(pixels, degrees)
+    if small is None:
+        big = pixels
+        for _ in range(ROTSPRITE_ROUNDS):
+            big = epx(big)
+        turned = rotate(big, degrees, expand=True, resample="nearest")
+        half = ROTSPRITE_SCALE // 2
+        small = np.ascontiguousarray(
+            turned[half::ROTSPRITE_SCALE, half::ROTSPRITE_SCALE]
+        )
     if expand:
         return small
     # ``expand=False`` means "the same frame as it went in", which for a turn

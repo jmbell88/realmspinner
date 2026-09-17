@@ -7,8 +7,10 @@ never downloaded -- which means the honest default is that it is *absent*, and
 every caller has to work without it.
 
 So this module is pure in the way :mod:`~warlock.vram` and :mod:`~warlock.memlog`
-are pure: stdlib only, no imports from ``service``, ``queue`` or ``studio``,
-and a missing or unusable DLL is ``None`` rather than an exception. The call
+are pure: stdlib and numpy only, no imports from ``service``, ``queue`` or
+``studio`` (and no PIL -- the RotSprite wrapper transcribes the six lines of
+``Image.rotate`` it needs rather than importing them), and a missing or
+unusable DLL is ``None`` rather than an exception. The call
 sites read::
 
     if native.available():
@@ -38,15 +40,19 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import math
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 log = logging.getLogger(__name__)
 
 # Must match WARLOCKC_ABI in native/warlockc.h.
-ABI = 10
+ABI = 11
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DLL = _PROJECT_ROOT / "vendor" / "warlockc" / "warlockc.dll"
@@ -214,6 +220,32 @@ def _bind(lib: ctypes.CDLL) -> None:
         u8,  # scratch, one zeroed byte per lattice edge
         i32, i64,  # points, capacity in vertices
         i32, i64,  # loop lengths, capacity in loops
+    ]
+
+    lib.warlockc_rotsprite_u8.restype = ctypes.c_int32
+    lib.warlockc_rotsprite_u8.argtypes = [
+        u8,  # src, h * w * channels bytes, tightly packed
+        ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,  # h, w, channels
+        ctypes.c_double, ctypes.c_double, ctypes.c_double,
+        ctypes.c_double, ctypes.c_double, ctypes.c_double,  # a0..a5
+        ctypes.c_int32, ctypes.c_int32,  # out_h, out_w
+        u8, ctypes.c_size_t,  # scratch, scratch_len
+        u8,  # out
+    ]
+
+    lib.warlockc_smoke_blob.restype = ctypes.c_int32
+    lib.warlockc_smoke_blob.argtypes = [
+        f, f,  # out_rgb, out_a -- full-frame, contiguous
+        ctypes.c_int32, ctypes.c_int32,  # frame_w, frame_h
+        ctypes.c_int32, ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,  # y0 y1 x0 x1
+        ctypes.c_float,  # scale
+        ctypes.c_double, ctypes.c_double,  # px, py
+        ctypes.c_double, ctypes.c_double,  # radius, rag
+        ctypes.c_int64,  # fbm_seed
+        ctypes.c_float, ctypes.c_float, ctypes.c_float,  # dx_f32, dy_f32, nscale_f32
+        ctypes.c_float,  # alpha_mul
+        ctypes.c_float, ctypes.c_float, ctypes.c_float,  # r, g, b
+        f, ctypes.c_size_t,  # scratch, scratch_len (floats)
     ]
 
 
@@ -601,6 +633,225 @@ def contours(
             ctypes.c_int64(loop_lens.size),
         )
     )
+
+
+def _pillow_rotate_matrix(
+    w: int, h: int, degrees: float
+) -> tuple[tuple[float, float, float, float, float, float], int, int]:
+    """The six affine coefficients and expanded size Pillow 12.3.0's
+    ``Image.rotate(degrees, expand=True)`` computes for a ``w`` by ``h``
+    image, transcribed operand for operand from ``PIL/Image.py`` (the
+    ``center is None`` / ``translate is None`` branch, which is the only one
+    :func:`rotsprite_u8`'s caller ever uses) rather than re-derived -- see the
+    comment beside ``warlockc_rotsprite_u8`` in ``native/warlockc.h`` for why
+    that matters. This needs no Pillow import: it is pure trigonometry, the
+    same six lines ``Image.rotate`` runs before handing the matrix to C.
+    """
+    angle = -math.radians(degrees % 360.0)
+    cx, cy = w / 2.0, h / 2.0
+    matrix = [
+        round(math.cos(angle), 15),
+        round(math.sin(angle), 15),
+        0.0,
+        round(-math.sin(angle), 15),
+        round(math.cos(angle), 15),
+        0.0,
+    ]
+
+    def transform(x: float, y: float, m: list[float]) -> tuple[float, float]:
+        a, b, c, d, e, f = m
+        return a * x + b * y + c, d * x + e * y + f
+
+    matrix[2], matrix[5] = transform(-cx, -cy, matrix)
+    matrix[2] += cx
+    matrix[5] += cy
+
+    xs = []
+    ys = []
+    for x, y in ((0, 0), (w, 0), (w, h), (0, h)):
+        tx, ty = transform(x, y, matrix)
+        xs.append(tx)
+        ys.append(ty)
+    nw = math.ceil(max(xs)) - math.floor(min(xs))
+    nh = math.ceil(max(ys)) - math.floor(min(ys))
+    matrix[2], matrix[5] = transform(-(nw - w) / 2.0, -(nh - h) / 2.0, matrix)
+    return (matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]), nw, nh
+
+
+# RotSprite's scratch, kept across calls rather than allocated fresh every
+# mouse-move. A fresh ``np.empty`` of this size is not free even though numpy
+# never zeroes it: Windows still has to page-fault the whole thing in on first
+# touch, and a free-transform drag calls this once per move -- one page-fault
+# storm every ~16 ms. Grown to the largest request seen and never shrunk;
+# ``rotsprite_fits``/``ROTSPRITE_MAX_PIXELS`` bound the worst case at
+# 80 * 512 * 512 * 4 = 83,886,080 bytes (~80 MiB), so this never grows without
+# limit. Guarded by a lock because the buffer is shared process-wide and nothing
+# here stops two callers overlapping -- held for the whole kernel call, not just
+# the resize, since the kernel writes into this exact array by pointer.
+_rotsprite_scratch: Any = None
+_rotsprite_scratch_lock = threading.Lock()
+
+
+def rotsprite_u8(pixels: Any, degrees: float) -> Any | None:
+    """RotSprite's three EPX rounds and Pillow-exact nearest rotation, fused.
+
+    ``pixels`` is (h, w) uint8 (a selection mask) or (h, w, 4) uint8 (RGBA),
+    need not be contiguous -- this copies. Returns the same array
+    ``transform.rotsprite``'s numpy path produces before any
+    ``expand=False`` cropping (the ``[4::8, 4::8]`` centre-of-block
+    downsample of the rotated 8x plane), or None if the scratch buffer this
+    call needs was refused -- never reached at the sizes
+    ``transform.rotsprite_fits`` allows, so this is a fall-back seam and not
+    a live path, exactly like :func:`contours`.
+
+    Angles that are a multiple of 90 are Pillow fast paths (plain
+    transposes) and are the caller's job to route around this kernel
+    entirely -- see ``transform.rotsprite``.
+    """
+    handle = lib()
+    if handle is None:  # pragma: no cover - callers check available() first
+        raise RuntimeError("warlockc is not loaded")
+    pixels = np.ascontiguousarray(pixels, dtype=np.uint8)
+    h, w = int(pixels.shape[0]), int(pixels.shape[1])
+    channels = 1 if pixels.ndim == 2 else int(pixels.shape[2])
+    if channels not in (1, 4) or h == 0 or w == 0:
+        # The kernel dispatches on "4 or not 4"; an RGB plane would be walked
+        # as bytes and come back scrambled rather than refused. The numpy path
+        # handles any width, so decline here and let it.
+        return None
+    (a0, a1, a2, a3, a4, a5), nw, nh = _pillow_rotate_matrix(8 * w, 8 * h, degrees)
+    out_h = len(range(4, nh, 8))
+    out_w = len(range(4, nw, 8))
+    out_shape = (out_h, out_w) if channels == 1 else (out_h, out_w, channels)
+    out = np.empty(out_shape, dtype=np.uint8)
+    needed = 80 * h * w * channels
+    global _rotsprite_scratch
+    with _rotsprite_scratch_lock:
+        if _rotsprite_scratch is None or _rotsprite_scratch.size < needed:
+            _rotsprite_scratch = np.empty(needed, dtype=np.uint8)
+        scratch = _rotsprite_scratch
+        result = handle.warlockc_rotsprite_u8(
+            _ptr(pixels, ctypes.c_uint8),
+            ctypes.c_int32(h),
+            ctypes.c_int32(w),
+            ctypes.c_int32(channels),
+            ctypes.c_double(a0),
+            ctypes.c_double(a1),
+            ctypes.c_double(a2),
+            ctypes.c_double(a3),
+            ctypes.c_double(a4),
+            ctypes.c_double(a5),
+            ctypes.c_int32(out_h),
+            ctypes.c_int32(out_w),
+            _ptr(scratch, ctypes.c_uint8),
+            ctypes.c_size_t(scratch.nbytes),
+            _ptr(out, ctypes.c_uint8),
+        )
+    if result != 0:
+        return None
+    return out
+
+
+# Smoke's fbm scratch, kept across calls the same way ``_rotsprite_scratch``
+# is: a smoke layer's per-blob loop calls this once per live particle (up to
+# 80 in the batch 11 gate case), and a fresh ``np.empty`` big enough for the
+# largest blob's window would page-fault on every one of them. Grown to the
+# largest request seen and never shrunk; guarded by a lock for the same
+# reason ``_rotsprite_scratch_lock`` is -- the kernel writes into this exact
+# array by pointer for the whole call, not just while it is being resized.
+_smoke_scratch: Any = None
+_smoke_scratch_lock = threading.Lock()
+
+
+def smoke_blob(
+    out_rgb: Any,
+    out_a: Any,
+    frame_w: int,
+    frame_h: int,
+    y0: int,
+    y1: int,
+    x0: int,
+    x1: int,
+    scale: float,
+    px: float,
+    py: float,
+    radius: float,
+    rag: float,
+    fbm_seed: int,
+    dx_f32: float,
+    dy_f32: float,
+    nscale_f32: float,
+    alpha_mul: float,
+    r_rgb: float,
+    g_rgb: float,
+    b_rgb: float,
+) -> bool:
+    """One Flourish smoke blob's per-pixel work, fused: distance plane,
+    optional fbm raggedness blend, coverage, and ``over_into`` onto
+    ``out_rgb``/``out_a`` in place at ``[y0:y1, x0:x1]``.
+
+    ``out_rgb`` is ``(frame_h, frame_w, 3)`` float32 and ``out_a`` is
+    ``(frame_h, frame_w)`` float32, both C-contiguous -- the accumulator
+    planes ``smoke.render`` builds once per layer. ``px``/``py``/``radius``/
+    ``rag`` are the blob's own float64 values exactly as numpy computes them
+    (see ``smoke.c``'s precision note on why that matters for bit-parity);
+    ``dx_f32``/``dy_f32``/``nscale_f32``/``alpha_mul``/``r_rgb``/``g_rgb``/
+    ``b_rgb`` are the float32-rounded scalars the caller already derives the
+    same way the numpy path does.
+
+    Returns ``False`` when the fbm scratch this call needed was refused --
+    reachable in principle the way :func:`rotsprite_u8`'s ``None`` is, never
+    at the window sizes a Flourish recipe produces -- in which case the
+    caller falls back to the numpy body for that one blob.
+    """
+    handle = lib()
+    if handle is None:  # pragma: no cover - callers check available() first
+        raise RuntimeError("warlockc is not loaded")
+    win_h, win_w = y1 - y0, x1 - x0
+    needed = 0
+    if rag > 0.0 and win_h > 0 and win_w > 0:
+        s = int(scale)
+        r = s // 2
+        w_coarse_full = frame_w // s
+        h_coarse_full = frame_h // s
+        cy0, cy1 = y0 // s, -(-y1 // s)
+        cx0, cx1 = x0 // s, -(-x1 // s)
+        ch, cw = cy1 - cy0, cx1 - cx0
+        big_h, big_w = ch * s, cw * s
+        max_dim = max(big_h, big_w)
+        needed = ch * cw + big_h * big_w + (max_dim + 2 * r) + (max_dim + 2 * r + 1) + big_h
+        del w_coarse_full, h_coarse_full  # not needed on the Python side, kept for clarity
+    global _smoke_scratch
+    with _smoke_scratch_lock:
+        if _smoke_scratch is None or _smoke_scratch.size < needed:
+            _smoke_scratch = np.empty(max(needed, 1), dtype=np.float32)
+        scratch = _smoke_scratch
+        result = handle.warlockc_smoke_blob(
+            _ptr(out_rgb, ctypes.c_float),
+            _ptr(out_a, ctypes.c_float),
+            ctypes.c_int32(frame_w),
+            ctypes.c_int32(frame_h),
+            ctypes.c_int32(y0),
+            ctypes.c_int32(y1),
+            ctypes.c_int32(x0),
+            ctypes.c_int32(x1),
+            ctypes.c_float(scale),
+            ctypes.c_double(px),
+            ctypes.c_double(py),
+            ctypes.c_double(radius),
+            ctypes.c_double(rag),
+            ctypes.c_int64(fbm_seed),
+            ctypes.c_float(dx_f32),
+            ctypes.c_float(dy_f32),
+            ctypes.c_float(nscale_f32),
+            ctypes.c_float(alpha_mul),
+            ctypes.c_float(r_rgb),
+            ctypes.c_float(g_rgb),
+            ctypes.c_float(b_rgb),
+            _ptr(scratch, ctypes.c_float),
+            ctypes.c_size_t(scratch.size),
+        )
+    return result == 0
 
 
 def bvh_build(

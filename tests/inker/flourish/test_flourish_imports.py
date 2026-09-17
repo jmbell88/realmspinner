@@ -37,6 +37,10 @@ ALLOWED_ROOTS = {"numpy", "warlock"}
 #: ``(module, imported name)`` for every import that leaves the package.
 OUTWARD_IMPORTS = {
     ("bake.py", "warlock.pipelines"),
+    # smoke's per-blob kernel: the same native-loader door
+    # tests/inker/test_inker_imports.py's ``transform.py`` entry already
+    # names, with the numpy body kept beside it as the reference.
+    ("smoke.py", "warlock.native"),
 }
 #: Modules that may import Pillow, and only inside a function.
 LAZY_PILLOW = {"bake.py"}

@@ -32,6 +32,7 @@
 #ifndef WARLOCKC_H
 #define WARLOCKC_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(_WIN32)
@@ -51,7 +52,7 @@ extern "C" {
  * routinely carries a stale locally-built DLL next to newer sources -- without
  * this guard that DLL would silently compute the old behaviour, which is the
  * one failure mode a fallback path must never have. */
-#define WARLOCKC_ABI 10
+#define WARLOCKC_ABI 11
 
 WARLOCKC_API int32_t warlockc_abi(void);
 
@@ -411,6 +412,76 @@ WARLOCKC_API void warlockc_palette_nearest_f64(const double *queries,
                                                const double *palette,
                                                int32_t *out, int64_t n,
                                                int64_t n_palette);
+
+/* RotSprite's EPX-then-nearest-rotate core --
+ * warlock.studio.inker.transform.rotsprite, entered from a free-transform
+ * drag every mouse-move on the frame thread. Measured at 294 ms per move at
+ * 256^2 against a 16 ms gate, superlinear (22.5x the cost for 4x the pixels)
+ * -- dev/measurements/2026-09-13-native-batch-10-candidates.md S5.
+ *
+ * Runs three EPX rounds over `src` (h by w by `channels`, `channels` is 1 for
+ * a selection mask or 4 for RGBA -- the two shapes transform.epx already
+ * accepts) into caller-owned `scratch`, then nearest-samples the rotated,
+ * expanded 8x plane at the `[4::8, 4::8]` centre-of-block points straight
+ * into `out` (out_h by out_w by `channels`). Allocates nothing; -1 means
+ * `scratch_len` was too small and nothing has been written to `out` -- the
+ * caller falls back to numpy rather than guessing a bigger buffer, same
+ * contract as warlockc_contours and warlockc_bvh_build. See rotsprite.c for
+ * the scratch layout.
+ *
+ * `a0..a5` are the six affine coefficients of Pillow 12.3.0's
+ * `Image.rotate(expand=True)` (PIL/Image.py, no `center`/`translate`
+ * override) for an h*8 by w*8 source, computed in Python because that
+ * function is Python, not C; `out_h`/`out_w` are
+ * `len(range(4, NH, 8))`/`len(range(4, NW, 8))` for Pillow's own expanded
+ * size NW by NH. The sampler inside reproduces Pillow's fixed-point nearest
+ * affine path (src/libImaging/Geometry.c, ImagingTransformAffine's nearest
+ * branch: `FIX`/`FLOOR`, the half-pixel-centre fold into A2/A5, the
+ * incremental per-row stepping) operand for operand rather than re-deriving
+ * it from the formula. **A Pillow upgrade that changes that rounding is
+ * meant to fail `tests/inker/test_rotsprite_native.py`, not to silently
+ * drift from this file** -- the angles 0/90/180/270 are Pillow fast paths
+ * (plain transposes) and are deliberately never routed through this kernel;
+ * `transform.rotsprite` takes the numpy path for them instead. */
+WARLOCKC_API int32_t warlockc_rotsprite_u8(const uint8_t *src, int32_t h,
+                                           int32_t w, int32_t channels,
+                                           double a0, double a1, double a2,
+                                           double a3, double a4, double a5,
+                                           int32_t out_h, int32_t out_w,
+                                           uint8_t *scratch, size_t scratch_len,
+                                           uint8_t *out);
+
+/* One Flourish smoke blob's per-pixel work: distance plane, optional fbm
+ * raggedness blend, coverage, and over_into into the caller's `out_rgb`/
+ * `out_a` (full-frame, contiguous float32, C order) at [y0:y1, x0:x1] --
+ * warlock.studio.inker.flourish.prims.smoke.render's per-blob loop body.
+ * Measured at 388 ms/frame for an 80-blob layer against the Flourish bake
+ * path's 100 ms gate (dev/measurements/2026-09-13-native-batch-10-candidates.md
+ * S4); batch 11's prototype got that to 80.6 ms, bit-identical.
+ *
+ * All the scalar prep that is the same regardless of pixel (the blob centre
+ * `px`/`py`, kept float64 as numpy actually computes it, `radius`, the fbm
+ * `dx_f32`/`dy_f32` offsets, `alpha_mul` and the `r_rgb`/`g_rgb`/`b_rgb`
+ * triple) is computed in Python with the exact same numpy expressions the
+ * shipped code uses; this kernel only does the per-pixel array math:
+ * distance -> fbm blend -> coverage -> over_into. See smoke.c for the two
+ * precision findings (the float64 distance/coverage chain under a float32
+ * fbm plane; over_into's two separate float32 roundings on rgb against
+ * out_a's one).
+ *
+ * `scratch` backs the fbm plane (a coarse grid at `nscale_f32` px/cell over
+ * the window, upsampled by `scale` and box-blurred once) when `rag > 0.0`;
+ * when `rag <= 0.0` no fbm is built and `scratch`/`scratch_len` are unused.
+ * Allocates nothing; -1 means the scratch was too small and nothing has been
+ * written to `out_rgb`/`out_a` -- the caller falls back to numpy rather than
+ * guessing a bigger buffer, the same contract as warlockc_contours,
+ * warlockc_bvh_build and warlockc_rotsprite_u8 above. */
+WARLOCKC_API int32_t warlockc_smoke_blob(
+    float *out_rgb, float *out_a, int32_t frame_w, int32_t frame_h,
+    int32_t y0, int32_t y1, int32_t x0, int32_t x1, float scale, double px,
+    double py, double radius, double rag, int64_t fbm_seed, float dx_f32,
+    float dy_f32, float nscale_f32, float alpha_mul, float r_rgb,
+    float g_rgb, float b_rgb, float *scratch, size_t scratch_len);
 
 #ifdef __cplusplus
 }

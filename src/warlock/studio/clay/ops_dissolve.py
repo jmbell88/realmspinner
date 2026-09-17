@@ -56,39 +56,44 @@ from .mesh import Mesh, face_count, face_normals
 __all__ = ["dissolve_edges", "dissolve_faces", "dissolve_verts", "merge_groups"]
 
 
-class _Union:
-    """Union-find over face indices, kept tiny and local on purpose."""
+def _group_by_label(labels: np.ndarray, subset: np.ndarray) -> list[np.ndarray]:
+    """Group an ascending *subset* of face indices by ``labels[subset]``.
 
-    def __init__(self, n: int) -> None:
-        self.parent = list(range(n))
-
-    def find(self, x: int) -> int:
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, a: int, b: int) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[ra] = rb
-
-    def groups(self, subset: np.ndarray | None = None) -> list[list[int]]:
-        """Group indices by root, over *subset* rather than every index.
-
-        The 2026-09-08 audit's second run (clay-08) found this enumerating
-        ``range(len(self.parent))`` -- every face in the whole mesh -- for all three
-        dissolve ops, so dissolving one edge on a 408,321-face mesh cost 654 ms of Python
-        ``find()`` calls the selection never asked for; a face `union()` never
-        touched keeps its own singleton root anyway, so it never needed
-        visiting. Callers now pass the exact set a `union()` call could have
-        moved.
-        """
-        out: dict[int, list[int]] = {}
-        indices = range(len(self.parent)) if subset is None else subset
-        for i in indices:
-            out.setdefault(self.find(int(i)), []).append(int(i))
-        return list(out.values())
+    This module used to group faces with a hand-rolled Python union-find
+    (``_Union``, removed 2026-09-17). Its ``groups()`` scanned *subset*
+    ascending and inserted each face under its root's list the first time that
+    root was seen, so the groups came back **ordered by their smallest
+    member**, each group's own members **ascending** (insertion order equalled
+    scan order). ``_Union`` itself had already been narrowed once, on
+    2026-09-08 (clay-08): it originally enumerated ``range(len(self.parent))``
+    -- every face in the whole mesh, not the selection -- so dissolving one
+    edge on a 408,321-face mesh cost 654 ms of Python ``find()`` calls the
+    selection never asked for. Narrowing to *subset* fixed that, but the
+    ``union()`` loop feeding it was still one Python call per interior corner,
+    which the 2026-09-17 native-kernel review (batch 11) measured at 665 ms on
+    a 200k-face select-all dissolve, 1.79M ``find()`` calls. Replaced with
+    ``scipy.sparse.csgraph.connected_components`` (already used three lines
+    away in ``ops_topo.py`` and in ``select.py``/``analyze.py``) for the
+    union-find itself, and this function for the grouping step, which is
+    exactly the ``_Union.groups`` contract above but vectorised: no
+    ``.tolist()`` loop, no dict.
+    """
+    if len(subset) == 0:
+        return []
+    sub_labels = labels[subset]
+    # Compact each label to the rank of its *first appearance* while scanning
+    # subset ascending -- the same order ``_Union.groups``'s dict-insertion
+    # produced, since every caller here passes an ascending, deduplicated
+    # subset.
+    _, first_index, inverse = np.unique(sub_labels, return_index=True, return_inverse=True)
+    rank = np.empty(len(first_index), dtype="i8")
+    rank[np.argsort(first_index, kind="stable")] = np.arange(len(first_index), dtype="i8")
+    order_id = rank[inverse.reshape(-1)]
+    order = np.argsort(order_id, kind="stable")
+    sorted_subset = subset[order]
+    sorted_id = order_id[order]
+    splits = np.flatnonzero(np.diff(sorted_id)) + 1
+    return list(np.split(sorted_subset, splits))
 
 
 #: The largest outline a dissolve will produce. ``ops_subdiv`` refuses past
@@ -321,7 +326,6 @@ def dissolve_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     ids = _check_edges(mesh, sel.edges)
 
     a = adjacency(mesh)
-    union = _Union(face_count(mesh))
     # The corner list is sorted by edge **once** and each selected edge's pair
     # of faces is found by bisection. It used to be ``corner_face[corner_edge
     # == e]`` inside the loop -- a full scan of every corner in the mesh per
@@ -332,17 +336,21 @@ def dissolve_edges(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     faces_by_edge = a.corner_face[order]
     lo = np.searchsorted(by_edge, ids, side="left")
     hi = np.searchsorted(by_edge, ids, side="right")
-    touched: list[int] = []
-    for start, stop in zip(lo.tolist(), hi.tolist(), strict=True):
-        # ``_check_edges`` has already refused anything but a manifold pair, so
-        # the slice is exactly two.
-        pair = faces_by_edge[start:stop]
-        union.union(int(pair[0]), int(pair[-1]))
-        touched.extend(pair.tolist())
-    # Only the faces a selected edge actually names can end up grouped with
-    # anything -- see ``_Union.groups``'s docstring for the incident.
-    subset = np.unique(np.asarray(touched, dtype="i8")) if touched else np.empty(0, dtype="i8")
-    return merge_groups(mesh, [np.array(g) for g in union.groups(subset)])
+    # ``_check_edges`` has already refused anything but a manifold pair, so
+    # each ``[lo, hi)`` slice is exactly two faces -- fa/fb below is that pair,
+    # gathered for every selected edge at once rather than one Python slice
+    # per edge.
+    fa = faces_by_edge[lo].astype("i8")
+    fb = faces_by_edge[hi - 1].astype("i8")
+    subset = np.unique(np.concatenate([fa, fb])) if len(fa) else np.empty(0, dtype="i8")
+
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    n_faces = face_count(mesh)
+    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
+    labels = connected_components(graph, directed=False)[1]
+    return merge_groups(mesh, _group_by_label(labels, subset))
 
 
 def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
@@ -350,19 +358,25 @@ def dissolve_faces(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     if len(sel.faces) == 0:
         raise OpError("Select the faces to dissolve into one.")
     a = adjacency(mesh)
-    chosen = np.zeros(face_count(mesh), dtype=bool)
+    n_faces = face_count(mesh)
+    chosen = np.zeros(n_faces, dtype=bool)
     chosen[sel.faces] = True
 
-    union = _Union(face_count(mesh))
     interior = np.flatnonzero(chosen[a.corner_face] & (a.twin >= 0))
-    for corner in interior.tolist():
-        other = int(a.corner_face[a.twin[corner]])
-        if chosen[other]:
-            union.union(int(a.corner_face[corner]), other)
+    other = a.corner_face[a.twin[interior]].astype("i8")
+    mask = chosen[other]
+    fa = a.corner_face[interior[mask]].astype("i8")
+    fb = other[mask]
 
-    # Every union() above is between two ``chosen`` faces, so the selection
-    # itself is the exact set worth enumerating -- see ``_Union.groups``.
-    groups = [np.array(g) for g in union.groups(np.flatnonzero(chosen))]
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
+    labels = connected_components(graph, directed=False)[1]
+
+    # Every edge above joins two ``chosen`` faces, so the selection itself is
+    # the exact set worth grouping -- see ``_group_by_label``.
+    groups = _group_by_label(labels, np.flatnonzero(chosen))
     return merge_groups(mesh, groups)
 
 
@@ -371,7 +385,10 @@ def dissolve_verts(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
     if len(sel.verts) == 0:
         raise OpError("Select a vertex to dissolve.")
     a = adjacency(mesh)
-    union = _Union(face_count(mesh))
+    n_faces = face_count(mesh)
+    touched = np.zeros(n_faces, dtype=bool)
+    fa_parts: list[np.ndarray] = []
+    fb_parts: list[np.ndarray] = []
     for v in sel.verts.astype("i8").tolist():
         if v >= len(mesh.positions):
             raise OpError(f"Vertex {v} is not part of this mesh.")
@@ -392,12 +409,20 @@ def dissolve_verts(mesh: Mesh, sel: ElementSel) -> tuple[Mesh, ElementSel]:
                 "have no single order. Fix that edge first."
             )
         faces = a.corner_face[corners].astype("i8")
-        for f in faces[1:].tolist():
-            union.union(int(faces[0]), f)
+        touched[faces] = True
+        if len(faces) > 1:
+            fa_parts.append(np.full(len(faces) - 1, faces[0], dtype="i8"))
+            fb_parts.append(faces[1:])
 
-    touched = np.zeros(face_count(mesh), dtype=bool)
-    touched[a.corner_face[np.concatenate([a.vertex_corners(int(v)) for v in sel.verts])]] = True
-    # Only the faces in each vertex's fan could have been unioned -- see
-    # ``_Union.groups``.
-    groups = [np.array(g) for g in union.groups(np.flatnonzero(touched))]
+    fa = np.concatenate(fa_parts) if fa_parts else np.empty(0, dtype="i8")
+    fb = np.concatenate(fb_parts) if fb_parts else np.empty(0, dtype="i8")
+
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    graph = coo_matrix((np.ones(len(fa), dtype="i1"), (fa, fb)), shape=(n_faces, n_faces))
+    labels = connected_components(graph, directed=False)[1]
+    # Only the faces in each vertex's fan could have ended up grouped with
+    # anything -- see ``_group_by_label``.
+    groups = _group_by_label(labels, np.flatnonzero(touched))
     return merge_groups(mesh, groups)

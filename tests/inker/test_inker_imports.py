@@ -135,6 +135,10 @@ OUTWARD_IMPORTS = {
     ("tiles.py", "warlock.studio.tilegrid"),
     ("tiles.py", "warlock.studio.tilegrid.tileset"),
     ("undo.py", "warlock.studio.undo"),
+    # RotSprite's kernel: the same native-loader door composite.py, dither.py,
+    # index_plane.py and selection.py already use, with the numpy path kept
+    # beside it as the reference.
+    ("transform.py", "warlock.native"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
