@@ -622,7 +622,7 @@ def _harmonies(ctx: Any, state: Any) -> None:
     one as the foreground; a right-click keeps it as a swatch, which is the
     gesture the swatch row above already uses.
     """
-    from ..inker import indexed as ix
+    from ...kernels.pixel import indexed as ix
 
     imgui.dummy((0, sp(tokens.SP_2)))
     if not widgets.header("Shades", default_open=False, persist_key="inker/shades"):

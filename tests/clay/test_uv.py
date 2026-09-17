@@ -13,9 +13,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as prim
-from warlock.studio.clay import uv as uv_mod
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as prim
+from warlock.kernels.mesh import uv as uv_mod
 
 
 def _bare(mesh: bm.Mesh) -> bm.Mesh:
@@ -250,8 +250,8 @@ def test_the_unwrap_op_keeps_the_generator():
     """A box that has been unwrapped is still describable as "box, size 1":
     nothing about its geometry changed, so editing the size must still
     rebuild it rather than being refused as a frozen mesh."""
+    from warlock.kernels.mesh import document as bd
     from warlock.studio import clay_ops
-    from warlock.studio.clay import document as bd
 
     doc = bd.ClayDoc()
     obj = doc.add_object(
@@ -265,8 +265,8 @@ def test_the_unwrap_op_keeps_the_generator():
 
 
 def test_the_unwrap_op_is_one_undo_step_per_object():
+    from warlock.kernels.mesh import document as bd
     from warlock.studio import clay_ops
-    from warlock.studio.clay import document as bd
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="B", mesh=_bare(prim.box())))

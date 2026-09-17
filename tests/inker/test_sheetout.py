@@ -16,11 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import sheetout
+from warlock.kernels.pixel.animation import Tag
+from warlock.kernels.pixel.document import Document
 from warlock.pipelines import sheet as sheetlib
-from warlock.studio import inker
-from warlock.studio.inker import sheetout
-from warlock.studio.inker.animation import Tag
-from warlock.studio.inker.document import Document
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -809,7 +809,7 @@ def test_a_default_inker_sidecar_is_byte_for_byte_what_it_always_was():
 
 
 def _layout(kind):
-    from warlock.studio.inker.animation import DirectionalLayout
+    from warlock.kernels.pixel.animation import DirectionalLayout
 
     return DirectionalLayout.of(kind)
 
@@ -854,7 +854,7 @@ def test_no_layout_is_byte_for_byte_the_grid_it_always_was():
 
 
 def test_the_layout_rides_the_sidecars_animation_block():
-    from warlock.studio.inker.animation import DIRECTION_ORDER
+    from warlock.kernels.pixel.animation import DIRECTION_ORDER
 
     layout = _layout("turnaround")
     plan = sheetout.plan_frames(4, 10, 10, layout=layout)

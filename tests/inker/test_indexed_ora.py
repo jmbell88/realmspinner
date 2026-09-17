@@ -24,9 +24,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.studio.inker import Document
-from warlock.studio.inker import index_plane as ixp
-from warlock.studio.inker.ora import WARLOCK_MEMBER, read_ora, write_ora
+from warlock.kernels.pixel import Document
+from warlock.kernels.pixel import index_plane as ixp
+from warlock.kernels.pixel.ora import WARLOCK_MEMBER, read_ora, write_ora
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)
@@ -349,7 +349,7 @@ def test_the_crash_journal_carries_the_indices(tmp_path):
     """The journal's payload is ``ora_bytes(doc)``, so recovery becomes honest
     for free -- but "for free" is a claim worth a test, because it is only true
     while the ORA writer is the one that carries index planes."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = _doc()
     blob = inker.ora_bytes(doc)
@@ -367,7 +367,7 @@ def test_the_crash_journal_carries_the_indices(tmp_path):
 
 @pytest.mark.parametrize("count", [1, 2, 255, 256])
 def test_every_legal_palette_size_encodes_and_decodes(tmp_path, count):
-    from warlock.studio.inker.ora import _png_indexed, _read_indexed_png
+    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     palette = [(i, (i * 7) % 256, (i * 13) % 256, 255) for i in range(count)]
     plane = (np.arange(16).reshape(4, 4) % count).astype(np.uint8)
@@ -383,7 +383,7 @@ def test_every_legal_palette_size_encodes_and_decodes(tmp_path, count):
 
 
 def test_reading_an_rgba_png_as_an_index_plane_answers_none():
-    from warlock.studio.inker.ora import _png, _read_indexed_png
+    from warlock.kernels.pixel.ora import _png, _read_indexed_png
 
     data = _png(np.zeros((4, 4, 4), np.uint8))
     assert _read_indexed_png(data, (4, 4)) is None
@@ -393,14 +393,14 @@ def test_a_plane_of_the_wrong_size_is_refused_rather_than_placed():
     """A P-PNG whose dimensions do not match the canvas is a file we did not
     write. Placing it would guess an offset; answering None re-infers from the
     pixels, which the RGBA path has already placed correctly."""
-    from warlock.studio.inker.ora import _png_indexed, _read_indexed_png
+    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     data = _png_indexed(np.zeros((2, 2), np.uint8), [BLACK, RED], 0)
     assert _read_indexed_png(data, (4, 4)) is None
 
 
 def test_the_encoder_and_index_plane_agree_about_the_hole():
-    from warlock.studio.inker.ora import _png_indexed, _read_indexed_png
+    from warlock.kernels.pixel.ora import _png_indexed, _read_indexed_png
 
     plane = np.asarray([[0, 1]], dtype=np.uint8)
     got = _read_indexed_png(_png_indexed(plane, [BLACK, RED], 0), (2, 1))

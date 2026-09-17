@@ -13,8 +13,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import undo as engine
-from warlock.studio.inker import undo as inker_undo
+from warlock.core import undo as engine
+from warlock.kernels.pixel import undo as inker_undo
 
 ENGINE_NAMES = (
     "Edit",
@@ -31,7 +31,7 @@ ENGINE_NAMES = (
 def test_the_engine_lives_outside_the_raster_editor() -> None:
     for name in ENGINE_NAMES:
         assert hasattr(engine, name), name
-    assert engine.__name__ == "warlock.studio.undo"
+    assert engine.__name__ == "warlock.core.undo"
 
 
 def test_the_engine_imports_nothing_from_the_raster_editor() -> None:
@@ -48,10 +48,10 @@ def test_the_engine_imports_nothing_from_the_raster_editor() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert not alias.name.startswith("warlock.studio.inker"), alias.name
+                assert not alias.name.startswith("warlock.kernels.pixel"), alias.name
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, f"relative import: {'.' * node.level}{node.module}"
-            assert not (node.module or "").startswith("warlock.studio.inker"), node.module
+            assert not (node.module or "").startswith("warlock.kernels.pixel"), node.module
 
 
 def test_inker_re_exports_the_same_objects_not_copies() -> None:

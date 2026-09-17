@@ -15,7 +15,7 @@ studio-level modules (``clay_mode.py``, ``clay_view.py``) already sit
 alongside imgui/moderngl imports without being under a "pure" package, so
 this is that same shelf, not a new one.
 
-See :mod:`~warlock.studio.clay.scratch` for the clone/diff/transplant
+See :mod:`~warlock.kernels.mesh.scratch` for the clone/diff/transplant
 mechanics this module drives, and :func:`build`/:func:`run_scratch`'s own
 docstrings for the sandboxed ``ctx`` a scratch run executes an agent tool
 call against.
@@ -87,9 +87,9 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
+from ..kernels.mesh import document as bd
+from ..kernels.mesh import scratch as clay_scratch
 from . import agent_clay, clay_mode
-from .clay import document as bd
-from .clay import scratch as clay_scratch
 from .clay_state import ClayState, ClayTab
 
 #: Tools a scratch run refuses before ``agent_clay.call`` is ever reached.

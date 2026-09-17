@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_mode, inker_state
 from warlock.studio.inker_state import InkerDoc, InkerState, PaintView
 from warlock.studio.panes import inker_canvas
 
@@ -823,8 +824,8 @@ def test_a_cancelled_palette_picker_changes_nothing(monkeypatch):
 def test_exporting_builds_the_bytes_before_the_picker(monkeypatch, tmp_path):
     """``save_as``'s rule: serialising after an unbounded modal would write
     whatever the user changed while it was open."""
+    from warlock.kernels.pixel import gpl
     from warlock.studio import dialogs, inker_mode
-    from warlock.studio.inker import gpl
 
     out = tmp_path / "out.gpl"
 
@@ -870,7 +871,7 @@ class _Confirms:
 
 
 def _dirty_tab(state, title="a"):
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     tab = InkerDoc(doc=doc, title=title, saved_head=doc.history.head)
@@ -908,7 +909,8 @@ def _leave_behind(root, title, kind="inker"):
 
 
 def test_a_clean_document_is_never_journalled(tmp_path):
-    from warlock.studio import inker, inker_mode, journal
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, journal
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1103,7 +1105,8 @@ def test_a_recovered_document_opens_untitled_and_dirty(tmp_path):
     """The file it was copied from may still be on disk with its own contents,
     so adopting the path would arm Ctrl+S to overwrite something the user has
     not looked at."""
-    from warlock.studio import inker, inker_mode, journal
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, journal
 
     ctx = _AutosaveCtx(tmp_path)
     state = inker_mode.ensure(ctx)
@@ -1361,7 +1364,8 @@ def test_rotating_backwards_is_the_other_direction():
 def test_neither_rotation_nor_flip_is_an_edit():
     """No pixels move, so there is nothing to undo and nothing to save -- which
     is the reason both live on the view rather than on the document."""
-    from warlock.studio import inker, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_state
 
     doc = inker.Document.blank(8, 8)
     head, rev = doc.history.head, doc.rev
@@ -1628,7 +1632,7 @@ def test_an_irregular_grid_seeds_nothing():
             sheet[y:y + height, x:x + width, :3] = 200
             x += width + 2
         y += height + 1
-    from warlock.studio.tilegrid import slicing
+    from warlock.kernels.grid2d import slicing
 
     assert slicing.detect_grid(sheet) is not None
     assert inker_mode._suggest_grid(sheet) is None
@@ -1686,7 +1690,7 @@ def test_the_mirrors_survive_a_restart():
     pixel grid, the layer edges and the tile numbers, which is why this is a
     test and not just a fix.
     """
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
 
     ctx = _Ctx()
     state = inker_mode.ensure(ctx)
@@ -1704,7 +1708,7 @@ def test_the_mirrors_survive_a_restart():
 def test_a_settings_file_from_before_symmetry_was_saved_opens_unchanged():
     """No migration and no version bump: the three keys are simply absent, so
     every ``get`` falls back to the field's own default."""
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
 
     ctx = _Ctx()
     ctx.settings.set(
@@ -1723,7 +1727,7 @@ def test_a_hand_edited_symmetry_block_is_ignored_rather_than_fatal():
     """Validated, not trusted -- the module's doctrine for a file a person can
     open. Read *through* ``axes_of``/``compose`` rather than assigned raw,
     which is also what normalises a legacy spelling."""
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
 
     ctx = _Ctx()
     ctx.settings.set(
@@ -2089,7 +2093,7 @@ def test_every_task_key_inker_submits_is_answered():
 def test_the_suffix_decides_the_format_written(tmp_path, suffix, reader):
     """The picker's filter does not say which entry was selected, so the
     filename is the only thing the user actually said."""
-    from warlock.studio.inker import gpl
+    from warlock.kernels.pixel import gpl
 
     out = tmp_path / f"p{suffix}"
     inker_mode._write_palette(out, [(1, 2, 3, 255)], "Warlock")
@@ -2129,7 +2133,7 @@ def test_the_swatch_strip_is_one_cell_per_colour_in_order():
 def test_the_strip_reads_back_as_the_same_palette_it_was_written_from():
     """The round trip that makes the export the other half of ``Image...``:
     what comes back out has to be what went in, in the same order."""
-    from warlock.studio.inker import dither
+    from warlock.kernels.pixel import dither
 
     colours = [(10, 20, 30, 255), (40, 50, 60, 255), (200, 100, 0, 255)]
     strip = inker_mode.palette_strip(colours, inker_mode.PALETTE_STRIP_CELL)
@@ -2260,7 +2264,7 @@ def test_paste_from_os_refuses_an_oversized_clipboard_image(monkeypatch):
     """
     from PIL import Image, ImageGrab
 
-    from warlock.studio import pixelguard
+    from warlock.core.safeio import pixelguard
 
     monkeypatch.setattr(ImageGrab, "grabclipboard", lambda: Image.new("RGBA", (64, 64)))
     monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 1024)

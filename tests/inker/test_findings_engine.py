@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker import selection
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
+from warlock.kernels.pixel import selection
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
 
 
 def _animated(frames: int = 2, *, link: bool = True) -> Document:
@@ -329,7 +329,7 @@ def test_every_remappable_modifier_has_a_reader():
 
 
 def test_a_lossy_aseprite_write_is_reported_rather_than_called_a_save():
-    from warlock.studio.inker import aseout
+    from warlock.kernels.pixel import aseout
 
     plain = Document.blank(4, 4)
     assert aseout.dropped_by_aseprite(plain) == []
@@ -347,7 +347,7 @@ def test_dropped_by_aseprite_reports_a_non_default_group_opacity():
     opacity byte as 255 (``aseout.py``'s ``_layer_chunk``, and docs/COMPAT.md's
     "Group opacity" row), so a group dimmed below full opacity must show up
     here or the save loses it with no warning at all."""
-    from warlock.studio.inker import aseout
+    from warlock.kernels.pixel import aseout
 
     doc = Document.blank(4, 4)
     doc.stack[0].pixels[:, :] = (255, 0, 0, 255)
@@ -394,7 +394,7 @@ def test_a_frame_duration_is_clamped_on_every_write():
     """``__post_init__`` clamped the value a frame was *born* with, so the two
     importers that set it from a file could put a number past the format's
     ``<H`` on one -- and ``aseout`` then died packing it."""
-    from warlock.studio.inker.animation import MAX_DURATION_MS, MIN_DURATION_MS, Frame
+    from warlock.kernels.pixel.animation import MAX_DURATION_MS, MIN_DURATION_MS, Frame
 
     frame = Frame()
     frame.duration_ms = 10**9
@@ -408,7 +408,7 @@ def test_a_frame_duration_is_clamped_on_every_write():
 def test_a_cel_is_built_from_the_copied_down_set_rather_than_a_hand_list():
     import inspect
 
-    from warlock.studio.inker import animation, ora
+    from warlock.kernels.pixel import animation, ora
 
     assert "track.props()" in inspect.getsource(ora)
     props = animation.Track(name="x", background=True, reference=True).props()
@@ -421,7 +421,7 @@ def test_the_transparent_slot_has_one_answer_for_every_reader():
     a table row that does not exist while its cels decoded against slot 0."""
     import inspect
 
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     body = inspect.getsource(asein)
     assert "_lut(sprite.palette or [], sprite.transparent_index)" not in body
@@ -431,7 +431,7 @@ def test_the_transparent_slot_has_one_answer_for_every_reader():
 def test_both_document_writers_stage_through_the_one_helper():
     import inspect
 
-    from warlock.studio.inker import aseout, ora
+    from warlock.kernels.pixel import aseout, ora
 
     for module in (aseout, ora):
         body = inspect.getsource(module)
@@ -442,8 +442,8 @@ def test_both_document_writers_stage_through_the_one_helper():
 def test_a_text_stamp_cannot_ask_for_an_unbounded_surface():
     """The surface is measured from the string in the field at the size in the
     field, and nothing stood between a 4000-point paste and ``Image.new``."""
+    from warlock.kernels.pixel import textstamp
     from warlock.studio import fonts
-    from warlock.studio.inker import textstamp
 
     font = str(fonts.FONT_DIR / "Inter-Regular.ttf")
     # ``MAX_SIZE`` caps the point size; the *string* was never capped, and at
@@ -467,7 +467,7 @@ def test_a_text_stamp_cannot_ask_for_an_unbounded_surface():
 def test_the_brush_footprint_is_where_the_engine_will_stamp():
     """The cursor was a circle at the raw mouse position, which says how wide
     the brush is and nothing about which pixels it will hit."""
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
 
     # A pixel nib anchors on the pixel it is on: odd centred, even down-right.
     assert brush.footprint((4.5, 4.5), 1, "pixel") == (4, 4, 5, 5)
@@ -518,7 +518,7 @@ def test_an_idle_filter_popup_writes_nothing():
 
 
 def test_a_selection_change_drops_the_written_filter_signature():
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     doc = Document.blank(8, 8)
     doc.select_all()
@@ -582,7 +582,7 @@ def test_the_mirror_preview_draws_runs_rather_than_pixels():
 def test_the_gif_palette_map_is_over_distinct_colours():
     import numpy as np
 
-    from warlock.studio.inker import gifout
+    from warlock.kernels.pixel import gifout
 
     palette = [(0, 0, 0, 255), (255, 0, 0, 255), (0, 255, 0, 255)]
     frame = np.zeros((2, 2, 4), dtype=np.uint8)

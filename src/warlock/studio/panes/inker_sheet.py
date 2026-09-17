@@ -18,8 +18,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import sheetscope
 from .. import controls, inker_ops, inker_sheet, widgets
-from ..inker import sheetscope
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_colors

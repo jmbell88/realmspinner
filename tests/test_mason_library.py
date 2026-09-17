@@ -22,12 +22,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import gltf
 from warlock.service import files as svc_files
 from warlock.studio import mason_assets, mason_mode
 from warlock.studio.mason import document as md
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import refs as mason_refs
-from warlock.studio.viewer import gltf
 
 
 class _Cache:

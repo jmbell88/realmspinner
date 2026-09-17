@@ -22,6 +22,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from _pure_packages import dotted_root, siblings_of
+
 from warlock.studio import muse
 
 ENGINE = Path(muse.__file__).parent
@@ -103,16 +105,28 @@ def test_the_engine_never_imports_the_queue():
 def test_the_engine_never_imports_another_editor():
     """A take has nothing to say about a bitmap, a mesh, a tile map or a song.
 
-    ``sirens`` is on this list beside the other four, which is the one that
-    would be tempting: ``wavout`` lives there and Muse's *exporter* uses it. But
+    ``sirens`` is among the siblings this bans, which is the one that would be
+    tempting: ``wavout`` used to live there and Muse's *exporter* uses it. But
     that exporter is ``studio/muse_io.py``, outside this package -- and the
-    reason is that ``wavout`` is a RIFF encoder misfiled under ``sirens/``
-    because Sirens was its first caller, not a fact about what a take is.
+    reason is that ``wavout`` was a RIFF encoder misfiled under ``sirens/``
+    because Sirens was its first caller, not a fact about what a take is (P3
+    of ``dev/RESTRUCTURE.md`` has since moved it to ``kernels/audio/``, one
+    more reason it was never Muse's to reach for through ``sirens``).
+
+    Derived over :func:`_pure_packages.siblings_of` rather than the
+    ``("inker", "clay", "plotter", "packwright", "sirens", "tilegrid")`` this
+    used to hard-code -- three of those renamed or moved to
+    ``warlock.kernels.*`` in the same restructure, and a literal
+    ``"warlock.studio.inker"`` check bans an import string nothing in the
+    tree has written since.
     """
-    for path in _modules():
-        for name in _outward(path):
-            for other in ("inker", "clay", "plotter", "packwright", "sirens", "tilegrid"):
-                assert f"warlock.studio.{other}" not in name, f"{path.name} imports {name}"
+    for other in siblings_of("muse"):
+        root = dotted_root(other)
+        for path in _modules():
+            for name in _outward(path):
+                assert not (name == root or name.startswith(root + ".")), (
+                    f"{path.name} imports {name}"
+                )
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():

@@ -16,7 +16,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_ops, inker_sheet, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_ops, inker_sheet, inker_state
 from warlock.studio import state as state_mod
 
 SIZE = (32, 32)
@@ -437,7 +438,8 @@ def test_a_refused_paste_does_not_switch_the_tool():
     ``run`` discards the ``False`` so nothing was said either."""
     from types import SimpleNamespace
 
-    from warlock.studio import inker, inker_ops, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_ops, inker_state
 
     state = inker_state.InkerState()
     state.set_tool("brush")
@@ -455,7 +457,7 @@ def test_selecting_used_colours_is_one_undo_step():
     pushes a ``SelectionEdit`` of its own -- so a sixty-colour palette cost
     sixty-one Ctrl+Z to put back and walked the composite sixty times. One
     gesture is one step, the rule the timeline's row ops already follow."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     palette = [(index * 8, 0, 0, 255) for index in range(12)]
@@ -482,7 +484,7 @@ def test_inker_ops_run_turns_a_tile_alignment_refusal_into_a_toast_not_a_crash()
     carries no ``try`` either) and tore the session down. Before the fix this
     call raised ``ValueError`` straight through ``run``.
     """
-    from warlock.studio.inker.tiles import strip
+    from warlock.kernels.pixel.tiles import strip
 
     doc = inker.Document.blank(100, 16)
     tile = np.zeros((16, 16, 4), dtype=np.uint8)
@@ -498,7 +500,7 @@ def test_inker_ops_run_turns_a_tile_alignment_refusal_into_a_toast_not_a_crash()
 
 
 def test_selecting_slots_with_nothing_to_select_refuses():
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     assert doc.select_slots([]) is False

@@ -32,12 +32,12 @@ import json
 import pytest
 
 from warlock import clipmaps, cliptransfer, rigging
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Model, Node
 from warlock.service import Conflict
 from warlock.service import jobs as svc_jobs
 from warlock.service import rig as svc_rig
 from warlock.studio import poser_mode
-from warlock.studio.viewer import math3d as m3
-from warlock.studio.viewer.gltf import Model, Node
 from warlock.studio.viewer.pose import PoseEditor
 
 # --- poser-01: capture_key must clear dirty/moved like every sibling -------

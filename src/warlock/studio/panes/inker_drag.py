@@ -99,7 +99,7 @@ def _shape_drag(state: Any, anchor, point):
 
 
 def _release(ctx: Any, state: Any, tab: Any, point) -> None:
-    from ..inker import SelectionMask
+    from ...kernels.pixel import SelectionMask
 
     doc = tab.doc
     anchor = state.drag_anchor or point

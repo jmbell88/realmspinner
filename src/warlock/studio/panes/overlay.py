@@ -290,7 +290,8 @@ def _texture_losses(viewer: Any) -> None:
 
 
 def _screenshot(ctx: Any) -> None:
-    from .. import atomic, dialogs
+    from ...core.safeio import atomic
+    from .. import dialogs
 
     image = ctx.viewer.screenshot()
 
@@ -641,7 +642,7 @@ def _clay_box(ctx: Any) -> None:
     ``clay_props`` rule: the pane never names a generator), so a rename in
     ``primitives.GENERATORS`` cannot leave this button pointing at nothing.
     """
-    from ..clay import primitives as bp
+    from ...kernels.mesh import primitives as bp
     from . import clay_tools
 
     tab = ctx.state.clay.active if getattr(ctx.state, "clay", None) else None
@@ -661,8 +662,8 @@ def _mason_box(ctx: Any) -> None:
     than spelled here, so a rename in ``primitives.GENERATORS`` cannot leave
     this button pointing at nothing.
     """
+    from ...kernels.mesh import primitives as bp
     from .. import mason_mode
-    from ..clay import primitives as bp
 
     mason_mode.place_primitive(ctx, next(iter(bp.GENERATORS)))
 

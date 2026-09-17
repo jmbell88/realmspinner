@@ -123,7 +123,7 @@ def facing_afford(recipe: Any, directions: int) -> str:
     the same ``check_bake_cost`` the submit path uses so the two can never
     disagree about which combinations are legal.
     """
-    from .inker.flourish import recipe as flourish_recipe
+    from ..kernels.pixel.flourish import recipe as flourish_recipe
 
     try:
         flourish_recipe.check_bake_cost(recipe, directions)
@@ -251,8 +251,8 @@ def submit_render(
     hold yet (``InkerState.flourish_pending_asset``): the bake needs it now,
     and it lands in the document only once the render this call starts comes
     back, through :meth:`Document.apply_flourish`'s own ``new_assets``."""
-    from .inker.flourish import bake as flourish_bake
-    from .inker.flourish import recipe as flourish_recipe
+    from ..kernels.pixel.flourish import bake as flourish_bake
+    from ..kernels.pixel.flourish import recipe as flourish_recipe
 
     try:
         flourish_recipe.check_bake_cost(recipe)
@@ -279,8 +279,8 @@ def submit_render(
 
 
 def submit_insert(ctx: Any, tab: Any, recipe: Any) -> SubmitResult:
-    from .inker.flourish import bake as flourish_bake
-    from .inker.flourish import recipe as flourish_recipe
+    from ..kernels.pixel.flourish import bake as flourish_bake
+    from ..kernels.pixel.flourish import recipe as flourish_recipe
 
     try:
         flourish_recipe.check_bake_cost(recipe)
@@ -436,8 +436,8 @@ def snippet_info(tab: Any, tag_name: str) -> dict[str, Any] | None:
     document's title), the frames the tag spans, the rate from the tag's
     first frame, the loop flag, and the origin -- the canvas centre, which is
     where ``bake`` puts an effect by construction."""
-    from .inker import sheetout
-    from .inker.flourish import engines
+    from ..kernels.pixel import sheetout
+    from ..kernels.pixel.flourish import engines
 
     anim = getattr(tab.doc, "anim", None)
     if anim is None:
@@ -463,7 +463,7 @@ def snippet_info(tab: Any, tag_name: str) -> dict[str, Any] | None:
 
 
 def snippet_text(tab: Any, tag_name: str, engine: str) -> str:
-    from .inker.flourish import engines
+    from ..kernels.pixel.flourish import engines
 
     info = snippet_info(tab, tag_name)
     if info is None:
@@ -490,7 +490,7 @@ def _texture_target(state: Any, tab: Any, group: int | None) -> Any:
 
 
 def _has_texture_slot(state: Any, tab: Any, group: int | None) -> bool:
-    from .inker.flourish import prims
+    from ..kernels.pixel.flourish import prims
 
     target = _texture_target(state, tab, group)
     return target is not None and "texture" in prims.params_of(target.kind)
@@ -622,7 +622,7 @@ def _assign_texture(state: Any, tab: Any, group: int, asset_id: str) -> bool:
     """Point the inspector's current layer at ``asset_id`` when it can take
     one, as a pending edit -- the render that lands it is one step. -> whether
     it did."""
-    from .inker.flourish import prims
+    from ..kernels.pixel.flourish import prims
 
     recipe = current_recipe(state, tab, group)
     if recipe is None or not recipe.layers:
@@ -858,7 +858,7 @@ def ask_words(recipe: Any, text: str, *, model_dir: Path | None) -> tuple[Any, l
     is one and it answers, the keyword mapper otherwise -- always something,
     and the source says which, because a change the user cannot attribute is
     a change they cannot trust."""
-    from .inker.flourish import keywords
+    from ..kernels.pixel.flourish import keywords
 
     if model_dir is not None:
         diff, why = run_text_model(recipe, text, model_dir)
@@ -878,7 +878,7 @@ def run_text_model(recipe: Any, text: str, model_dir: Path) -> tuple[dict[str, A
     import sys
 
     from .. import winjob
-    from .inker.flourish import keywords
+    from ..kernels.pixel.flourish import keywords
 
     request = {
         "model_dir": str(model_dir),
@@ -1008,7 +1008,7 @@ def phase_names(state: Any, tab: Any) -> list[str]:
 
 def _phase_span(state_held: Any, anim: Any, phase_name: str) -> tuple[int, int] | None:
     """The flat frame span of one phase of the effect, from its tag."""
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     for tag in anim.tags:
         if tag.name == phase_name or tag.name.startswith(phase_name + "/"):
@@ -1031,8 +1031,8 @@ def submit_restyle(
     collects them and ``land_restyle`` interpolates the rest and lands a
     snapshot track. Opt-in, never default: whether this beats the procedural
     frames is a measurement, not a setting."""
-    from .inker import sheetout
-    from .inker.flourish import keyframes
+    from ..kernels.pixel import sheetout
+    from ..kernels.pixel.flourish import keyframes
 
     group = active_group(state, tab)
     if group is None or tab.busy:
@@ -1172,7 +1172,7 @@ def decode_restyle(
     """Task thread: read every anchor, key it out, interpolate the span."""
     from PIL import Image
 
-    from .inker.flourish import keyframes
+    from ..kernels.pixel.flourish import keyframes
 
     if recipe is None or size is None:
         return None

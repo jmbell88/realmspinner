@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..kernels.geom3d import math3d as m3
 from .viewer import bonelines as bonelineslib
-from .viewer import math3d as m3
 from .viewer import picking
 from .viewer import pose as poselib_pose
 

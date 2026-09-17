@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import glbio
+from .kernels.geom3d import glbio
 
 log = logging.getLogger(__name__)
 

@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
+from warlock.kernels.pixel.sheetin import document_from_sheet
 from warlock.studio import inker_ops, inker_sheet, inker_state, probe, widgets
-from warlock.studio.inker.sheetin import document_from_sheet
 from warlock.studio.panes import inker_sheet as strip
 
 CELL = 16
@@ -78,7 +78,7 @@ def test_every_strip_op_is_registered_in_the_sheet_menu():
 
 
 def test_the_strip_is_absent_on_an_ordinary_animation(ui, monkeypatch):
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

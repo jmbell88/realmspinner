@@ -13,8 +13,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from warlock.studio import inker, inker_mode
-from warlock.studio.inker.tiles import blank_strip
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel.tiles import blank_strip
+from warlock.studio import inker_mode
 from warlock.studio.inker_state import InkerDoc, InkerState
 
 

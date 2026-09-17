@@ -15,8 +15,8 @@ import json
 import zipfile
 from pathlib import Path
 
-from warlock.studio.inker import ora
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import ora
+from warlock.kernels.pixel.document import Document
 
 
 def _rewrite_member(path: Path, member: str, data: bytes) -> None:

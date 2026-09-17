@@ -27,7 +27,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, inker, inker_mode, inker_ops, inker_state, widgets
+from ...kernels import pixel as inker
+from .. import controls, icons, inker_mode, inker_ops, inker_state, widgets
 from ..tokens import sp
 
 PARAM_POPUP = "inker-op-params"

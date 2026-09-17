@@ -112,8 +112,8 @@ from typing import Any
 
 import numpy as np
 
-from .. import npyguard, pixelguard, zipguard
-from ..viewer import gltf
+from ...core.safeio import npyguard, pixelguard, zipguard
+from ...kernels.geom3d import gltf
 from . import nodes as nd
 from .document import MasonDoc
 from .refs import LibraryRef, PrimitiveRef, Ref, primitive_ref

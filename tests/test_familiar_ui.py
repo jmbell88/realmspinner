@@ -16,11 +16,11 @@ from types import SimpleNamespace
 import pytest
 
 from warlock import models
+from warlock.familiar import retrieval
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.service import familiar as svc_familiar
 from warlock.studio import clay_mode, docmodes, familiar_ui
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
-from warlock.studio.familiar import retrieval
 from warlock.studio.state import ManualState
 from warlock.studio.tasks import Done
 
@@ -202,7 +202,7 @@ def test_closing_a_tab_drops_its_thread_through_the_registered_listener():
         familiar_ui.install(ctx)
         assert ctx.familiar_threads.drop in docmodes.TAB_CLOSED
 
-        from warlock.studio.familiar.threads import Turn
+        from warlock.familiar.threads import Turn
 
         ctx.familiar_threads.append(("clay", "tab-1"), Turn("user", "hi"))
         assert ctx.familiar_threads.get(("clay", "tab-1"))

@@ -13,10 +13,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.manual import loader, parser
+from ...kernels.manual.targets import HELP_TARGETS, TROUBLESHOOTING
 from .. import controls, fonts, icons, theme, tokens, widgets
 from ..tokens import sp
-from . import loader, parser
-from .targets import HELP_TARGETS, TROUBLESHOOTING
 
 log = logging.getLogger(__name__)
 

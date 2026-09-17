@@ -40,8 +40,8 @@ import hashlib
 import numpy as np
 import pytest
 
-from warlock.studio.inker import asein, aseout, ora
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import asein, aseout, ora
+from warlock.kernels.pixel.document import Document
 
 
 def _animated(frames: int = 2, tracks: int = 3) -> Document:

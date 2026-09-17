@@ -13,12 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.layers import Layer
-from warlock.studio.inker.selection import FloatingBuffer, SelectionMask
-from warlock.studio.inker.tiles import TilemapCel, materialize, strip
-from warlock.studio.tilegrid import gid
-from warlock.studio.undo import CompoundEdit
+from warlock.core.undo import CompoundEdit
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.layers import Layer
+from warlock.kernels.pixel.selection import FloatingBuffer, SelectionMask
+from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

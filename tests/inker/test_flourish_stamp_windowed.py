@@ -15,17 +15,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.inker.flourish.prims import (
-    color,
-    hashed,
-    particles,
-    ramp,
-    sprite,
-    stamp,
-    val,
-)
-from warlock.studio.inker.flourish.recipe import Layer, Phase
-from warlock.studio.inker.flourish.render import FrameCtx
+from warlock.kernels.pixel.flourish.prims import color, hashed, particles, ramp, sprite, stamp, val
+from warlock.kernels.pixel.flourish.recipe import Layer, Phase
+from warlock.kernels.pixel.flourish.render import FrameCtx
 
 
 def _ctx(width: int = 64, height: int = 64, scale: float = 2.0, frame: int = 4) -> FrameCtx:

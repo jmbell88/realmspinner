@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio import inker
+from warlock.kernels import pixel as inker
 
 SIZE = (16, 16)
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.tilegrid import blob, wang
+from warlock.kernels.grid2d import blob, wang
 
 
 def _corner_set() -> wang.WangSet:
@@ -245,8 +245,8 @@ def test_the_blob_preset_matches_the_xml_a_tsx_export_actually_writes() -> None:
     """
     import xml.etree.ElementTree as ET
 
+    from warlock.kernels.grid2d.tileset import TerrainSpec
     from warlock.studio.plotter.tsx import write_wangsets
-    from warlock.studio.tilegrid.tileset import TerrainSpec
 
     terrains = (
         TerrainSpec(name="wet grass", fill=(106, 153, 78, 255), outline=(63, 91, 46, 255)),

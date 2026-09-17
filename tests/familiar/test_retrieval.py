@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from warlock.studio.familiar import retrieval
-from warlock.studio.manual import loader, parser
+from warlock.familiar import retrieval
+from warlock.kernels.manual import loader, parser
 
 
 @pytest.fixture(scope="module")

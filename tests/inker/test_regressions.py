@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
-from warlock.studio.inker.undo import PatchEdit
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
+from warlock.kernels.pixel.undo import PatchEdit
 
 
 def _doc(width: int = 16, height: int = 16) -> Document:
@@ -373,7 +373,7 @@ def test_the_composite_matches_a_from_scratch_flatten_after_an_undo():
 
     fresh = np.zeros_like(doc.composite)
     width, height = doc.size
-    from warlock.studio.inker import composite as cp
+    from warlock.kernels.pixel import composite as cp
 
     fresh[:] = cp.to_uint8(doc.stack.composite_region((0, 0, width, height)))
     assert np.array_equal(doc.composite, fresh)

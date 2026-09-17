@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from warlock import native
-from warlock.studio.inker import dither
+from warlock.kernels.pixel import dither
 
 needs_dll = pytest.mark.skipif(not native.available(), reason="warlockc.dll not built")
 

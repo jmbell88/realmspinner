@@ -17,9 +17,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import groups as gp
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
+from warlock.kernels.pixel import groups as gp
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)

@@ -28,9 +28,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
-from warlock.studio.inker import brush
-from warlock.studio.inker.selection import SelectionMask
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import brush
+from warlock.kernels.pixel.selection import SelectionMask
+from warlock.studio import inker_mode, inker_state
 from warlock.studio.panes import inker_canvas, inker_tools
 
 SIZE = (48, 48)

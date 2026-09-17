@@ -25,15 +25,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.inker import asein, aseout
-from warlock.studio.inker import groups as gp
-from warlock.studio.inker import index_plane as ixp
-from warlock.studio.inker.animation import DIRECTIONS, Frame, Tag, Track
-from warlock.studio.inker.composite import BLEND_MODES
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.slices import SliceKey
-from warlock.studio.inker.tiles import TilemapCel, materialize, strip
-from warlock.studio.tilegrid import gid
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel import asein, aseout
+from warlock.kernels.pixel import groups as gp
+from warlock.kernels.pixel import index_plane as ixp
+from warlock.kernels.pixel.animation import DIRECTIONS, Frame, Tag, Track
+from warlock.kernels.pixel.composite import BLEND_MODES
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.slices import SliceKey
+from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)
@@ -649,7 +649,7 @@ def test_a_play_once_tag_round_trips_to_the_same_playback():
     identical to the original ``loop=False, repeat=0`` tag: one pass, then
     stopped at the span's end.
     """
-    from warlock.studio.inker import animation
+    from warlock.kernels.pixel import animation
 
     doc = _animated()
     doc.anim.tags.append(Tag(name="once", start=0, end=1, loop=False, repeat=0))
@@ -1075,7 +1075,7 @@ def test_a_tilemap_track_whose_cel_holds_no_refs_is_refused_by_name():
     """A layer declared kind 2 whose cel is an ordinary raster one would be
     read back through ``_build_tilemap_cel`` with no refs at all -- an empty
     grid where a drawing was. Refused rather than emptied."""
-    from warlock.studio.inker.layers import Layer
+    from warlock.kernels.pixel.layers import Layer
 
     doc = _tilemap_animated()
     anim = doc.anim

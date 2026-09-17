@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives
 from warlock.studio.viewer import picking as pk
 
 

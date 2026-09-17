@@ -13,9 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from ..service import derive as svc_derive
 from ..service import files as svc_files
-from . import atomic, dialogs
+from . import dialogs
 from .state import AppState
 
 log = logging.getLogger(__name__)

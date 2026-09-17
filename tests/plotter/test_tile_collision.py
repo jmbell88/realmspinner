@@ -9,7 +9,7 @@ the whole time -- had no author.
 
 Two halves, tested two ways.
 
-* The arithmetic is in :mod:`warlock.studio.tilegrid.picking`, which is
+* The arithmetic is in :mod:`warlock.kernels.grid2d.picking`, which is
   headless and pure, and is asserted directly.
 * The *gesture* is in ``plotter_tileset_editor._collision_input``, and every
   test of it below goes through that real dispatch with the shared synthetic
@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import pytest
 
+from warlock.kernels.grid2d import picking
+from warlock.kernels.grid2d.tileset import TileEllipse, TilePolygon, TileRect
 from warlock.studio.panes import plotter_tileset_editor as editor
-from warlock.studio.tilegrid import picking
-from warlock.studio.tilegrid.tileset import TileEllipse, TilePolygon, TileRect
 
 from ._drive import TileScene
 
@@ -435,8 +435,8 @@ def test_the_gesture_runs_on_the_mode_state_the_app_actually_builds(
 
     import numpy as np
 
-    from warlock.studio.tilegrid.picking import TileView
-    from warlock.studio.tilegrid.tileset import Tileset
+    from warlock.kernels.grid2d.picking import TileView
+    from warlock.kernels.grid2d.tileset import Tileset
 
     from ._drive import Mouse
 

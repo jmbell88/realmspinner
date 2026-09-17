@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker.flourish import noise
+from warlock.kernels.pixel.flourish import noise
 
 
 def test_lattice_values_are_in_range_and_seed_dependent():

@@ -25,10 +25,10 @@ import ast
 import sys
 from pathlib import Path
 
-from warlock.studio.inker import flourish
+from warlock.kernels.pixel import flourish
 
 ENGINE = Path(flourish.__file__).parent
-PACKAGE = "warlock.studio.inker.flourish"
+PACKAGE = "warlock.kernels.pixel.flourish"
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 DETERMINISM_ROOTS = {"scipy"}
@@ -131,7 +131,7 @@ def test_the_only_third_party_import_is_numpy():
 
 
 def test_every_primitive_is_registered_and_complete():
-    from warlock.studio.inker.flourish import prims
+    from warlock.kernels.pixel.flourish import prims
 
     on_disk = {p.stem for p in (ENGINE / "prims").glob("*.py") if p.stem != "__init__"}
     assert on_disk == set(prims.KINDS)

@@ -32,10 +32,11 @@ from typing import Any
 
 import numpy as np
 
-from .. import npyguard, zipguard
+from ...core.safeio import npyguard, zipguard
+from ...kernels.audio import wavout
 from . import document as D
 from . import instruments as inst
-from . import notes, synth, wavout
+from . import notes, synth
 
 VERSION = 1
 MANIFEST = "song.json"

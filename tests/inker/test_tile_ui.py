@@ -15,11 +15,12 @@ from types import MethodType, SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
+from warlock.kernels import pixel as inker
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
+from warlock.studio import inker_mode, inker_state
 from warlock.studio import state as state_mod
-from warlock.studio.inker.tiles import TilemapCel, materialize, strip
 from warlock.studio.panes import inker_canvas, inker_tiles, inker_tools
-from warlock.studio.tilegrid import gid
 
 SIZE = (32, 32)
 RED = (255, 0, 0, 255)
@@ -451,7 +452,7 @@ def test_a_two_column_atlas_gives_tile_one_the_right_half_of_the_top_row() -> No
     """The arithmetic the picker now delegates to, pinned on the shape that
     broke it: one column is the case that made the hand-rolled slice look
     correct."""
-    from warlock.studio.tilegrid.tileset import Tileset
+    from warlock.kernels.grid2d.tileset import Tileset
 
     grid = Tileset(
         name="grid", pixels=np.zeros((16, 16, 4), dtype=np.uint8), tile_w=8, tile_h=8

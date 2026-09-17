@@ -19,13 +19,13 @@ from PIL import Image
 
 from warlock import guidance, models, vectors
 from warlock.guidance import GuidanceError
+from warlock.kernels.pixel import inpaint
 from warlock.pipelines import seam
 from warlock.pipelines.conditioning import Conditioning
 from warlock.pipelines.t2i_client import _conditioning_payload
 from warlock.pipelines.text2image_worker import _conditioning as rebuild
 from warlock.service import jobs as svc_jobs
 from warlock.service.errors import Invalid
-from warlock.studio.inker import inpaint
 
 
 def _png(size=(16, 16), colour=(120, 60, 30)) -> bytes:
@@ -158,7 +158,7 @@ def test_the_crop_grows_by_the_margin_and_sends_a_stride_aligned_size():
 
 
 def test_apply_pixels_lands_by_uid_as_one_undo_step():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(32, 32)
     layer = doc.stack.active

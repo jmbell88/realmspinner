@@ -14,8 +14,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import imgui_backend, inker, inker_mode, inker_state
-from warlock.studio.inker import brush, tiling
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import brush, tiling
+from warlock.studio import imgui_backend, inker_mode, inker_state
 from warlock.studio.panes import inker_canvas, inker_tools
 
 SIZE = (32, 32)

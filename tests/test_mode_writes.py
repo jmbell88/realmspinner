@@ -42,9 +42,17 @@ _WRITE = re.compile(r"\bstate\.mode\s*=(?!=)")
 
 
 def test_every_mode_switch_goes_through_set_mode():
+    """2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose. ``AppState.mode`` is the shell's own field (L4 per
+    dev/RESTRUCTURE.md's layer table); nothing that moved out in P3 (or that
+    will move in P4-P7) holds a reference to it, so this is genuinely a claim
+    about panes/the frame loop, not about the app's code in general.
+    """
+    files = sorted(ROOT.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {ROOT} -- did the sweep root break?"
     offenders = [
         f"{path.relative_to(ROOT).as_posix()}:{n}"
-        for path in sorted(ROOT.rglob("*.py"))
+        for path in files
         if path.name != "state.py"
         and path.relative_to(ROOT).as_posix() not in ALLOWED
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)

@@ -89,7 +89,7 @@ def test_skin_weights_are_renormalised_and_a_dead_vertex_is_pinned():
     """The shader sums ``joint * weight`` with no division, so a vertex whose
     weights sum to 0 collapsed onto the origin and the mesh grew a spike to the
     world centre."""
-    from warlock.studio.viewer import gltf
+    from warlock.kernels.geom3d import gltf
 
     raw = np.array([[0.5, 0.25, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]], dtype="f4")
     weights = raw.copy()
@@ -138,7 +138,7 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
     """
     import inspect
 
-    from warlock.studio.clay import select
+    from warlock.kernels.mesh import select
 
     body = inspect.getsource(select.sel_from_verts)
     assert "_face_corner_mask" in body
@@ -148,7 +148,7 @@ def test_select_more_uses_the_one_definition_of_a_selected_face():
 def test_dissolve_edges_does_not_rescan_the_mesh_per_edge():
     import inspect
 
-    from warlock.studio.clay import ops_dissolve
+    from warlock.kernels.mesh import ops_dissolve
 
     body = inspect.getsource(ops_dissolve.dissolve_edges)
     assert "a.corner_edge == e" not in body
@@ -158,7 +158,7 @@ def test_dissolve_edges_does_not_rescan_the_mesh_per_edge():
 def test_a_bevel_copies_the_faces_it_does_not_touch():
     import inspect
 
-    from warlock.studio.clay import ops_bevel
+    from warlock.kernels.mesh import ops_bevel
 
     body = inspect.getsource(ops_bevel)
     assert "if not per_face[face]:" in body

@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio.plotter import tsx, wmap
 from warlock.studio.plotter.tilemap import (
     Capsule,
@@ -33,8 +35,6 @@ from warlock.studio.plotter.tilemap import (
     TileShape,
     new_uid,
 )
-from warlock.studio.tilegrid import gid
-from warlock.studio.tilegrid.tileset import Tileset
 
 from ._semantics import doc_facts
 
@@ -1201,7 +1201,7 @@ def test_an_older_fixture_saves_forward_as_version_3(stem):
 
 
 def _terrain_pixels(k: int, tile: int = 8, terrains: int = 1) -> np.ndarray:
-    from warlock.studio.tilegrid import blob
+    from warlock.kernels.grid2d import blob
 
     array = np.zeros((terrains * k * k * tile, blob.TILE_COUNT * tile, 4), np.uint8)
     array[..., 3] = 255
@@ -1209,7 +1209,7 @@ def _terrain_pixels(k: int, tile: int = 8, terrains: int = 1) -> np.ndarray:
 
 
 def _terrain_doc(k: int) -> MapDoc:
-    from warlock.studio.tilegrid.tileset import TerrainSpec
+    from warlock.kernels.grid2d.tileset import TerrainSpec
 
     doc = MapDoc(6, 4, 8, 8)
     doc.add_tileset(
@@ -1280,7 +1280,7 @@ def test_per_tile_metadata_gates_version_six_and_round_trips():
     """The same argument one version up: ``tiles`` is written unconditionally,
     so a document carrying it while declaring version 5 would hand an old reader
     a file it drops half of without a word."""
-    from warlock.studio.tilegrid.tileset import (
+    from warlock.kernels.grid2d.tileset import (
         TileEllipse,
         TileFrame,
         TileMeta,
@@ -1367,7 +1367,7 @@ def test_foreign_wangsets_gate_version_eight_and_round_trip():
     """A version 7 reader would drop the set and leave a tileset that paints as
     plain tiles while the map around it is full of cells only that set
     explains."""
-    from warlock.studio.tilegrid.wang import WangColour, WangSet
+    from warlock.kernels.grid2d.wang import WangColour, WangSet
 
     doc = _doc()
     ts = doc.tilesets[0].tileset

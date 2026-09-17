@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio import inker, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_state
 
 
 def test_every_option_is_reachable_from_some_tools_bar():

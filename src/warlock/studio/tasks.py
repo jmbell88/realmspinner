@@ -28,8 +28,8 @@ from concurrent.futures.thread import _threads_queues
 from dataclasses import dataclass
 from typing import Any
 
+from ..kernels.mesh.elements import OpError
 from ..service.errors import Failed, ServiceError
-from .clay.elements import OpError
 
 log = logging.getLogger(__name__)
 

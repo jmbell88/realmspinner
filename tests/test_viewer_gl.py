@@ -20,9 +20,10 @@ import numpy as np
 import pytest
 import trimesh
 
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
 from warlock.studio.viewer import env as envlib
-from warlock.studio.viewer import glctx, gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.studio.viewer import glctx
 from warlock.studio.viewer import scene as scenelib
 from warlock.studio.viewer.camera import Camera
 from warlock.studio.viewer.render import DrawItem, Renderer

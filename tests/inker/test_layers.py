@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import composite as cp
-from warlock.studio.inker.layers import Layer, LayerStack
+from warlock.kernels.pixel import composite as cp
+from warlock.kernels.pixel.layers import Layer, LayerStack
 
 
 def _solid(w, h, rgba):
@@ -168,7 +168,7 @@ def test_compositing_a_region_touches_only_that_region():
 
 
 def _stacked_doc():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(8, 8)
     doc.stack[0].pixels[:, :] = (255, 0, 0, 255)
@@ -229,7 +229,7 @@ def test_undoing_a_delete_selects_the_layer_it_brought_back():
     ``LayerStack.insert``. A review flagged the move as an unrecorded mutation;
     it is the behaviour every editor has, and the selection is view state, so a
     redo does not owe the user the index they had."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(8, 8)
     doc.add_layer()

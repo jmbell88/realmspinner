@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..tilegrid.tileset import RGBA
+from ...kernels.grid2d.tileset import RGBA
 from ._map_model import DECORATION_FIELDS, OPAQUE_WHITE, GroupLayer, Layer
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

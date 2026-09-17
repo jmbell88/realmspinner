@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio import inker
-from warlock.studio.inker import brush
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import brush
 
 SIZE = (40, 40)
 RED = (255, 0, 0, 255)

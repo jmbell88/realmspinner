@@ -12,7 +12,8 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker, inker_ops, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_ops, inker_state
 from warlock.studio import state as state_mod
 
 

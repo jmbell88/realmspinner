@@ -18,8 +18,8 @@ import inspect
 import pytest
 from _ui_context import imgui_context
 
+from warlock.kernels.mesh import document as bd
 from warlock.studio import clay_mode, clay_ops, icons, probe, theme, tokens, widgets
-from warlock.studio.clay import document as bd
 from warlock.studio.panes import clay_tools
 
 

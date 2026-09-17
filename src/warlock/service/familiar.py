@@ -34,8 +34,8 @@ from typing import Any
 import httpx
 
 from .. import models
+from ..familiar import character_plan, contract, doors, retrieval, router
 from ..pipelines import llama, llama_client
-from ..studio.familiar import character_plan, contract, doors, retrieval, router
 from . import familiar_log
 from .errors import ServiceError
 

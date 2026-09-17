@@ -17,8 +17,8 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import Tileset, TilesetRef
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import Tileset, TilesetRef
 from . import project
 from .edits import (
     Edit,

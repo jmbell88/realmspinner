@@ -199,7 +199,7 @@ def test_a_save_leaves_no_temp_file_behind(svc):
 
 
 def _ora(size=(64, 64), layers=2) -> bytes:
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(*size)
     doc.stack[0].pixels[:, :] = (200, 30, 30, 255)

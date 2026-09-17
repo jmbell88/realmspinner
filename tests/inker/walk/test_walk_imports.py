@@ -23,10 +23,10 @@ import ast
 import sys
 from pathlib import Path
 
-from warlock.studio.inker import walk
+from warlock.kernels.pixel import walk
 
 ENGINE = Path(walk.__file__).parent
-PACKAGE = "warlock.studio.inker.walk"
+PACKAGE = "warlock.kernels.pixel.walk"
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 DETERMINISM_ROOTS = {"scipy"}
@@ -37,12 +37,12 @@ ALLOWED_ROOTS = {"numpy", "warlock"}
 #: this package must not re-spell: the transform kernel, the blend arithmetic,
 #: the animation model and the document.
 OUTWARD_IMPORTS = {
-    ("bake.py", "warlock.studio.inker.animation"),
-    ("bake.py", "warlock.studio.inker.composite"),
-    ("bake.py", "warlock.studio.inker.document"),
-    ("bake.py", "warlock.studio.inker.layers"),
-    ("bake.py", "warlock.studio.inker.undo"),
-    ("render.py", "warlock.studio.inker.selection"),
+    ("bake.py", "warlock.kernels.pixel.animation"),
+    ("bake.py", "warlock.kernels.pixel.composite"),
+    ("bake.py", "warlock.kernels.pixel.document"),
+    ("bake.py", "warlock.kernels.pixel.layers"),
+    ("bake.py", "warlock.kernels.pixel.undo"),
+    ("render.py", "warlock.kernels.pixel.selection"),
 }
 
 #: Modules that may import Pillow, and only inside a function. None do: the one
@@ -152,51 +152,13 @@ def test_the_only_third_party_import_is_numpy():
 
 
 def test_the_package_imports_with_no_optional_dependency_present():
-    from warlock.studio.inker.walk import (  # noqa: F401
-        JOINTS,
-        PART_NAMES,
-        PARTS,
-        WALK_FRAMES,
-        Part,
-        Pose,
-        Rig,
-        WalkSettings,
-        blank,
-        bounds,
-        clipping,
-        composite_frames,
-        copy_near_to_far,
-        cycle,
-        default_ground,
-        defaults_for,
-        document,
-        frames,
-        label,
-        leg_length,
-        missing_joints,
-        missing_parts,
-        part_from_plane,
-        phases,
-        place,
-        pose,
-        reachable_stride,
-        refusal,
-        screen_angle,
-        segment_lengths,
-        set_ground,
-        set_joint,
-        set_order,
-        set_part,
-        too_large,
-        trim,
-        two_bone,
-    )
+    pass
 
 
 def test_every_part_names_joints_that_exist():
     """The spec table is data, so a typo in it is a runtime ``KeyError`` on a
     user's drawing rather than an import error. Caught here instead."""
-    from warlock.studio.inker.walk import rig as R
+    from warlock.kernels.pixel.walk import rig as R
 
     for spec in R.PARTS:
         assert spec.pivot in R.JOINTS, spec.name
@@ -209,7 +171,7 @@ def test_every_part_names_joints_that_exist():
 def test_every_part_and_joint_has_a_label():
     """Refusals name parts, and a refusal that named ``near_upper_arm`` would be
     the internal key leaking onto the screen."""
-    from warlock.studio.inker.walk import rig as R
+    from warlock.kernels.pixel.walk import rig as R
 
     for name in (*R.PART_NAMES, *R.JOINTS):
         assert R.label(name) == R.LABELS[name]

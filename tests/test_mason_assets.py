@@ -15,9 +15,9 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import gltf
 from warlock.studio import mason_assets
 from warlock.studio.mason import refs as mason_refs
-from warlock.studio.viewer import gltf
 
 
 class _Done:
@@ -85,7 +85,7 @@ def test_a_primitive_ref_resolves_synchronously() -> None:
 
 
 def test_the_same_primitive_ref_twice_is_one_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    from warlock.studio.clay import primitives as clay_primitives
+    from warlock.kernels.mesh import primitives as clay_primitives
 
     calls = {"n": 0}
     real_box = clay_primitives.GENERATORS["box"][1]
@@ -150,7 +150,7 @@ def test_an_unknown_generator_resolves_to_empty_and_is_recorded_missing() -> Non
 def test_a_primitive_builder_that_raises_resolves_to_empty_without_raising(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from warlock.studio.clay import primitives as clay_primitives
+    from warlock.kernels.mesh import primitives as clay_primitives
 
     def exploding(**kwargs: Any):
         raise ValueError("bad params")

@@ -27,9 +27,9 @@ from typing import Any
 
 import numpy as np
 
-from .inker import walk
-from .inker.walk import gait
-from .inker.walk import rig as R
+from ..kernels.pixel import walk
+from ..kernels.pixel.walk import gait
+from ..kernels.pixel.walk import rig as R
 
 #: How close, in *screen* pixels, a click has to be to grab a joint. Screen
 #: rather than document pixels so the grab is the same size for the hand at

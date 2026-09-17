@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .clay import document as bd
-from .viewer import gltf
+from ..kernels.geom3d import gltf
+from ..kernels.mesh import document as bd
 from .viewer import scene as scenelib
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

@@ -63,8 +63,8 @@ def test_a_render_at_the_same_size_forgets_nothing(viewer, monkeypatch) -> None:
 
 def _a_model() -> Any:
     """A real ``gltf.Model``, built the way the Clay viewport builds one."""
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))

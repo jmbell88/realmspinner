@@ -35,20 +35,47 @@ ROOT = Path(__file__).resolve().parents[1]
 PIPELINES = ROOT / "src" / "warlock" / "pipelines"
 
 
+#: 2026-09-17, P3 of ``dev/RESTRUCTURE.md``: Clay's and Inker's own engines
+#: moved out of ``studio/clay/`` and ``studio/inker/`` into
+#: ``warlock/kernels/mesh/`` and ``warlock/kernels/pixel/`` -- named for the
+#: domain they model, the way a shared kernel is, rather than for the one mode
+#: that happens to be their only caller today. ``pure_packages()`` correctly
+#: reports ``mesh`` and ``pixel`` now, not ``clay``/``inker``, which is right
+#: for every sibling-ban pin that reads it (a pin bans *packages*, and the
+#: package is really named ``mesh``). CLAUDE.md's and CONTRIBUTING.md's prose
+#: is not about packages, though -- it is about *modes*, told to a contributor
+#: by the name they already know the workspace by, and nobody browsing
+#: CONTRIBUTING.md's list is looking for "mesh". This is the one, narrow
+#: bridge between the two vocabularies, recorded here rather than left for
+#: :func:`editor_packages` to get quietly wrong by matching on identity: every
+#: other engine still directly under ``studio/`` (``mason``, ``muse``,
+#: ``packwright``, ``plotter``, ``sirens``, ``troupe``) is still named for its
+#: mode, so it needs no entry here at all -- adding one "just in case" would be
+#: exactly the unread hand list this file's sibling derivation exists to
+#: avoid.
+_ENGINE_TO_MODE = {
+    "mesh": "clay",
+    "pixel": "inker",
+}
+
+
 def editor_packages() -> tuple[str, ...]:
     """The "headless editor packages" CLAUDE.md's Architecture bullet names.
 
     ``pure_packages()`` is broader than that bullet on purpose: it also finds
-    ``tilegrid`` (a shared leaf ``plotter``/``packwright``/``inker`` import,
-    not a workspace of its own) and ``tour`` (pure data, explicitly *not* a
-    mode per its own CLAUDE.md bullet). What CLAUDE.md's bullet and
-    CONTRIBUTING.md's list both mean by "headless editor package" is narrower:
-    a pure package that is also one of the workspaces in
-    ``studio/modes.py``'s ``MODES`` -- so that set, not the raw derivation, is
-    what a doc's prose list is held to.
+    ``tilegrid``'s successor ``grid2d`` and the rest of the shared kernels
+    (``geom3d``, ``audio``, ``manual`` -- none of them a workspace of its own)
+    and ``tour`` (pure data, explicitly *not* a mode per its own CLAUDE.md
+    bullet). What CLAUDE.md's bullet and CONTRIBUTING.md's list both mean by
+    "headless editor package" is narrower: a pure package that is also one of
+    the workspaces in ``studio/modes.py``'s ``MODES``, once :data:`_ENGINE_TO_MODE`
+    translates Clay's and Inker's engines back to the mode name a contributor
+    actually reads -- so that set, not the raw derivation, is what a doc's
+    prose list is held to.
     """
     mode_keys = {key for key, _, _, _ in MODES}
-    return tuple(name for name in pure_packages() if name in mode_keys)
+    named = (_ENGINE_TO_MODE.get(name, name) for name in pure_packages())
+    return tuple(sorted(name for name in named if name in mode_keys))
 
 
 def _imports_download_sibling(path: Path) -> bool:
@@ -106,6 +133,14 @@ def test_editor_packages_are_the_eight_this_test_was_written_for():
     above: a ninth headless workspace enrolling itself should make this fail
     first, legibly, rather than surface as a confusing diff inside the
     CONTRIBUTING.md assertion below.
+
+    Still eight after 2026-09-17's P3 move, and deliberately the same eight
+    names -- ``_ENGINE_TO_MODE`` exists so that Clay's and Inker's engines
+    changing address (and name) inside ``warlock/kernels/`` does not also
+    change what a contributor reads in a doc. If this count ever does move,
+    say so in this test's name and docstring rather than just editing the
+    tuple below -- that was the instruction this test itself was written to
+    satisfy the last time the set changed.
     """
     assert editor_packages() == (
         "clay",

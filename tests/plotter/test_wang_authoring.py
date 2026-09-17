@@ -10,7 +10,7 @@ was to import a file Tiled wrote. The single ``wangset`` reference anywhere in
 Two halves, tested two ways, which is ``test_tile_collision``'s split and its
 reason:
 
-* The table edits are in :mod:`warlock.studio.tilegrid.wang`, headless and
+* The table edits are in :mod:`warlock.kernels.grid2d.wang`, headless and
   pure, and are asserted directly.
 * The *gestures* are in ``plotter_tileset_editor``, and every test of one below
   goes through the real handler -- the click dispatch with the shared synthetic
@@ -30,9 +30,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock.kernels.grid2d import blob, wang
+from warlock.kernels.grid2d.tileset import TerrainSpec
 from warlock.studio.panes import plotter_tileset_editor as editor
-from warlock.studio.tilegrid import blob, wang
-from warlock.studio.tilegrid.tileset import TerrainSpec
 
 from ._drive import TileScene
 

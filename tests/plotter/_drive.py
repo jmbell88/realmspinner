@@ -85,9 +85,9 @@ class TileScene:
     ) -> None:
         import numpy as np
 
+        from warlock.kernels.grid2d.picking import TileView
+        from warlock.kernels.grid2d.tileset import Tileset
         from warlock.studio.panes.plotter_tileset_editor import COLLISION_VIEW
-        from warlock.studio.tilegrid.picking import TileView
-        from warlock.studio.tilegrid.tileset import Tileset
 
         pixels = np.zeros((tile, tile * tiles, 4), dtype=np.uint8)
         pixels[..., 3] = 255
@@ -167,7 +167,7 @@ class TileScene:
         aimed at its own idea of the position would pass while the drawn grip
         sat somewhere unclickable.
         """
-        from warlock.studio.tilegrid import picking
+        from warlock.kernels.grid2d import picking
 
         return picking.box_handles(self.selected())[name]
 

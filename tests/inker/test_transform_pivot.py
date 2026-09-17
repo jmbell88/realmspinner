@@ -30,9 +30,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_state
-from warlock.studio.inker import _doc_selection
-from warlock.studio.inker.selection import SelectionMask, render_transform_about
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import _doc_selection
+from warlock.kernels.pixel.selection import SelectionMask, render_transform_about
+from warlock.studio import inker_state
 from warlock.studio.panes import inker_canvas
 
 SIZE = (32, 24)

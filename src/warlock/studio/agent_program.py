@@ -60,9 +60,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..kernels.mesh import presets
+from ..kernels.mesh import primitives as bp
 from . import clay_ops
-from .clay import presets
-from .clay import primitives as bp
 
 __all__ = [
     "EXPR_MAX_CHARS",

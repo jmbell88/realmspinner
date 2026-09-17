@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 import moderngl
 import numpy as np
 
-from .clay.topo import corner_spans as _corner_spans
-from .clay.topo import flat_next as _flat_next
-from .viewer import math3d as m3
+from ..kernels.geom3d import math3d as m3
+from ..kernels.mesh.topo import corner_spans as _corner_spans
+from ..kernels.mesh.topo import flat_next as _flat_next
 from .viewer.render import DrawItem
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -300,7 +300,7 @@ class OverlayOps:
         composed by the caller each frame. The hover draws are
         :meth:`_hover_specs`, on their own key.
         """
-        from .clay.adjacency import adjacency, cached_triangulation
+        from ..kernels.mesh.adjacency import adjacency, cached_triangulation
 
         adj = adjacency(obj.mesh)
         add, specs = self._collect(overlay, hover=False)
@@ -336,7 +336,7 @@ class OverlayOps:
         """
         if hover < 0:
             return []
-        from .clay.adjacency import adjacency, cached_triangulation
+        from ..kernels.mesh.adjacency import adjacency, cached_triangulation
 
         add, specs = self._collect(overlay, hover=True)
         # Bounds-checked, not trusted: ``sync`` clears a stale hover when it

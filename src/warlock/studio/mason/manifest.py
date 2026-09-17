@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..viewer import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from .gltfout import ExportedNode, SceneExport
 from .nodes import CameraNode, LightNode, TerrainNode
 from .refs import LibraryRef, PrimitiveRef, Ref

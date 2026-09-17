@@ -23,9 +23,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import walk
+from ...kernels.pixel.walk import rig as R
 from .. import icons, inker_walk, theme, widgets
-from ..inker import walk
-from ..inker.walk import rig as R
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_textures

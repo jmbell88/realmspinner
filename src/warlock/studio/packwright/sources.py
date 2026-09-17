@@ -37,7 +37,7 @@ import numpy as np
 # message, which is now a parameter. The edge is already pinned in both
 # directions -- ``tsxout`` imports the same module for the .tsx writer -- so
 # this adds no dependency the package did not already have.
-from ..tilegrid.tileset import frozen_rgba
+from ...kernels.grid2d.tileset import frozen_rgba
 
 
 @dataclass(frozen=True, slots=True)

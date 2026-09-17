@@ -46,9 +46,11 @@ from test_inker_mode import _PaletteCtx
 from test_sirens_mode import FakeCtx as SirensCtx
 from test_sirens_mode import _tab as sirens_tab
 
+from warlock.kernels import pixel as inker
+from warlock.kernels.mesh import document as clay_document
+from warlock.kernels.mesh import serialize as clay_serialize
 from warlock.studio import (
     clay_mode,
-    inker,
     inker_mode,
     muse_io,
     muse_mode,
@@ -56,8 +58,6 @@ from warlock.studio import (
     packwright_io,
     troupe_mode,
 )
-from warlock.studio.clay import document as clay_document
-from warlock.studio.clay import serialize as clay_serialize
 from warlock.studio.inker_state import InkerDoc
 from warlock.studio.packwright import wpack
 from warlock.studio.packwright.document import PackDoc
@@ -333,8 +333,8 @@ def test_clay_export_asset_encodes_off_the_frame_thread(svc, monkeypatch):
     (``glbwrite.write_glb``) on the calling thread, ahead of ``wblk_bytes``.
     Both encodes now run inside ``run()``, against a real service so the job
     it mints and the sidecar it writes are checked as well as the thread."""
+    from warlock.kernels.geom3d import glbwrite
     from warlock.service import files as svc_files
-    from warlock.studio.viewer import glbwrite
 
     ctx = _ClayCtx()
     ctx.svc = svc
@@ -717,7 +717,7 @@ class _FamiliarCtx(_Threaded):
     submitted closure rather than running one on a real, joined worker."""
 
     def __init__(self) -> None:
-        from warlock.studio.familiar import threads as familiar_threads_mod
+        from warlock.familiar import threads as familiar_threads_mod
 
         doc = clay_document.ClayDoc()
         tab = clay_mode.ClayTab(doc=doc)

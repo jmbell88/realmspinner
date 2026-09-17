@@ -921,7 +921,8 @@ def export_godot(
     name -- see :func:`export_package`'s own paragraph about it. Reaches
     ``staged_tree`` unchanged, which is what actually validates it.
     """
-    from .. import glbio, godotscene
+    from .. import godotscene
+    from ..kernels.geom3d import glbio
     from . import derive as svc_derive
     from . import export as svc_export
 

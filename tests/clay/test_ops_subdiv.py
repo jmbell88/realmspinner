@@ -5,12 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.clay import adjacency as adj
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops_subdiv as sub
-from warlock.studio.clay import primitives as prim
-from warlock.studio.clay import topo
+from warlock.kernels.mesh import adjacency as adj
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops_subdiv as sub
+from warlock.kernels.mesh import primitives as prim
+from warlock.kernels.mesh import topo
 
 from .topo_asserts import assert_closed, assert_consistently_oriented
 

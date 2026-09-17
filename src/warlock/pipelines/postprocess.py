@@ -21,7 +21,7 @@ from typing import Any
 
 import trimesh
 
-from .. import glbio
+from ..kernels.geom3d import glbio
 
 log = logging.getLogger(__name__)
 

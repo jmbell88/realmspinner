@@ -8,7 +8,7 @@ reaches, which flag a hidden ancestor overrides, where the six copies of one
 prefab actually land and what a sculpt brush costs the undo budget is assertable
 with no window and no GPU.
 
-The outward set is :mod:`warlock.studio.undo` -- the history engine the raster
+The outward set is :mod:`warlock.core.undo` -- the history engine the raster
 editor, Clay and Plotter already share -- four modules of the viewer, the
 container-level GLB reader, and the four guard leaves. It is pinned exactly by
 ``tests/mason/test_mason_imports.py``, which was written before this package

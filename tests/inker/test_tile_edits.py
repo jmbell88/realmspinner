@@ -13,12 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import transform as tf
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
-from warlock.studio.inker.tiles import TilemapCel, materialize, strip
-from warlock.studio.tilegrid import gid
-from warlock.studio.undo import CompoundEdit
+from warlock.core.undo import CompoundEdit
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel import transform as tf
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
+from warlock.kernels.pixel.tiles import TilemapCel, materialize, strip
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -247,7 +247,7 @@ def test_place_tiles_reads_the_id_through_the_gid_mask():
     and a flipped tile 9 is not."""
     doc = _doc()
     _slot, cel = _still_tilemap(doc, RED)
-    from warlock.studio.tilegrid import gid
+    from warlock.kernels.grid2d import gid
 
     assert doc.place_tiles(cel.uid, (0, 0), np.array([[1 | gid.FLIP_D]], dtype=np.uint32))
     with pytest.raises(ValueError, match="outside"):

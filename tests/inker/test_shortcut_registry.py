@@ -83,7 +83,8 @@ def test_manifest_covers_every_registered_surface_exactly_once():
 def test_quick_tools_restore_on_key_up():
     import pygame
 
-    from warlock.studio import inker, inker_mode, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, inker_state
 
     state = inker_state.InkerState(tool="brush")
     state.add(inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="quick", title="Quick"))

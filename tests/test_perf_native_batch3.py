@@ -49,7 +49,7 @@ def _without_native(fn):
 def test_the_palette_kernel_is_at_least_twice_the_numpy_path() -> None:
     """High-entropy 512 square: tens of thousands of distinct colours against a
     few dozen swatches, which is the case the N x P x 3 temporary dominates."""
-    from warlock.studio.inker import indexed as ix
+    from warlock.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(1)
     pixels = np.zeros((512, 512, 4), dtype=np.uint8)
@@ -75,7 +75,7 @@ def test_the_palette_curve_stays_flat_in_palette_size() -> None:
     for a problem that is not arithmetic. It must *stop* being flat once the
     work really is the arithmetic -- so a large palette costs meaningfully more
     than a small one, and a low-colour image does not regress."""
-    from warlock.studio.inker import indexed as ix
+    from warlock.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(2)
     pixels = np.zeros((512, 512, 4), dtype=np.uint8)
@@ -95,7 +95,7 @@ def test_the_palette_curve_stays_flat_in_palette_size() -> None:
 def test_a_low_colour_image_does_not_regress() -> None:
     """The distinct-colour reduction is what makes pixel art cheap, and the
     kernel must not have moved that: a 512 square of eight colours stays fast."""
-    from warlock.studio.inker import indexed as ix
+    from warlock.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(3)
     swatches = rng.integers(0, 256, (8, 3), dtype=np.uint8)
@@ -162,8 +162,8 @@ def test_the_picking_tree_beats_the_full_sweep() -> None:
     """A complexity change rather than a constant factor: the full sweep's cost
     is the mesh, and a 200k-triangle import is a quarter of a million
     Moller-Trumbore evaluations per mouse move."""
-    from warlock.studio.clay import mesh as bm
-    from warlock.studio.clay import primitives
+    from warlock.kernels.mesh import mesh as bm
+    from warlock.kernels.mesh import primitives
     from warlock.studio.viewer import picking as pk
 
     mesh = primitives.uv_sphere(segments=200, rings=160)

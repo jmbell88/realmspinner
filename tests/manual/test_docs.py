@@ -8,7 +8,7 @@ rendering wrong in the app or on GitHub.
 import re
 from pathlib import Path
 
-from warlock.studio.manual import loader, parser
+from warlock.kernels.manual import loader, parser
 
 EXPECTED_KEYS = [
     "00-index",
@@ -167,7 +167,7 @@ def test_index_sections_match_the_loaders_parts():
 
 
 def test_help_targets_resolve():
-    from warlock.studio.manual.targets import HELP_TARGETS
+    from warlock.kernels.manual.targets import HELP_TARGETS
 
     assert HELP_TARGETS, "the context-help map must not be empty"
     anchors = {
@@ -215,7 +215,7 @@ def test_help_button_call_sites_match_help_targets():
     with no HELP_TARGETS entry is a dead button, and a HELP_TARGETS entry with
     no call site is dead data.
     """
-    from warlock.studio.manual.targets import HELP_TARGETS
+    from warlock.kernels.manual.targets import HELP_TARGETS
 
     studio_dir = Path(__file__).resolve().parents[2] / "src/warlock/studio"
     # ``help_button_inline`` counts too: it is the same button and the same

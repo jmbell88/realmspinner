@@ -27,10 +27,10 @@ from test_asein import _header as _ase_header
 from test_asein import _layer as _ase_layer
 from test_asein import _string as _ase_string
 
-from warlock.studio.inker import asein, aseout, ora
-from warlock.studio.inker.animation import Note
-from warlock.studio.inker.asein import _UD_PROPERTIES, _UD_TEXT
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import asein, aseout, ora
+from warlock.kernels.pixel.animation import Note
+from warlock.kernels.pixel.asein import _UD_PROPERTIES, _UD_TEXT
+from warlock.kernels.pixel.document import Document
 
 RED = (208, 68, 68, 255)
 BLUE = (72, 126, 208, 255)

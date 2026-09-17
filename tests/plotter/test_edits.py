@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.grid2d import gid
+from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
 from warlock.studio.plotter.edits import (
     LayerAddEdit,
     LayerRemoveEdit,
@@ -27,8 +29,6 @@ from warlock.studio.plotter.tilemap import (
     TileLayer,
     new_uid,
 )
-from warlock.studio.tilegrid import gid
-from warlock.studio.tilegrid.tileset import Tileset, TilesetRef
 
 
 def _tileset(tiles: int = 4) -> Tileset:

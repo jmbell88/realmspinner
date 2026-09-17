@@ -31,8 +31,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
-from warlock.studio.inker import _doc_paint
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import _doc_paint
+from warlock.studio import inker_mode, inker_state
 from warlock.studio.panes import inker_canvas, inker_gestures, inker_tools
 
 SIZE = (32, 32)
@@ -860,7 +861,7 @@ def test_a_repeated_vertex_or_a_cursor_on_the_last_point_still_agrees():
 
 
 def test_a_radius_rounds_the_corners_and_keeps_the_middle():
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(32, 32)
     doc.shape("rect", (4, 4), (28, 28), (255, 0, 0, 255), 1, filled=True, radius=8)
@@ -871,7 +872,7 @@ def test_a_radius_rounds_the_corners_and_keeps_the_middle():
 
 
 def test_a_radius_of_zero_is_the_rectangle_it_always_was():
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     plain = inker.Document.blank(24, 24)
     plain.shape("rect", (2, 2), (20, 20), (255, 0, 0, 255), 1, filled=True)
@@ -884,7 +885,7 @@ def test_a_radius_past_half_the_shorter_side_is_clamped_rather_than_refused():
     """Pillow draws a stadium for an over-large radius rather than refusing, so
     the clamp is what keeps the number on screen and the shape drawn in
     agreement."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(32, 32)
     assert doc.shape(

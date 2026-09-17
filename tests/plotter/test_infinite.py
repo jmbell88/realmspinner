@@ -22,10 +22,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid as gidlib
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio.plotter import tilemap, tmx, tools, wmap
 from warlock.studio.plotter.tilemap import new_uid
-from warlock.studio.tilegrid import gid as gidlib
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 def _pixels() -> np.ndarray:

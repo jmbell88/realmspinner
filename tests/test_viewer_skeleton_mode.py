@@ -14,10 +14,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Model, Node
 from warlock.studio._viewer_pose import PoseOps
-from warlock.studio.viewer import math3d as m3
 from warlock.studio.viewer import picking
-from warlock.studio.viewer.gltf import Model, Node
 from warlock.studio.viewer.pose import PoseEditor
 from warlock.studio.viewer_embed import Viewer
 

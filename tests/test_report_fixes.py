@@ -18,7 +18,7 @@ import zlib
 import pytest
 
 from warlock import leases
-from warlock.studio import zipguard
+from warlock.core.safeio import zipguard
 
 # --- the zip claimed-size ceiling was bypassable -------------------------------
 
@@ -101,8 +101,8 @@ def test_every_container_door_reads_through_the_bounded_reader():
     from pathlib import Path
 
     doors = [
-        Path("src/warlock/studio/inker/ora.py"),
-        Path("src/warlock/studio/clay/serialize.py"),
+        Path("src/warlock/kernels/pixel/ora.py"),
+        Path("src/warlock/kernels/mesh/serialize.py"),
         Path("src/warlock/studio/packwright/wpack.py"),
         Path("src/warlock/studio/plotter/wmap.py"),
     ]
@@ -185,7 +185,7 @@ def test_a_cel_that_inflates_past_its_rectangle_is_refused():
     called bare ``zlib.decompress`` three times and checked the size in
     ``_decode``, which runs after the allocation it would have prevented.
     """
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     # A 4x4 RGBA cel is 64 bytes. This stream inflates to 8 MiB.
     payload = b"\0" * (8 << 20)
@@ -196,14 +196,14 @@ def test_a_cel_that_inflates_past_its_rectangle_is_refused():
 def test_a_chunk_declaring_more_than_the_ceiling_is_refused_outright():
     """The second line of defence: the rectangle itself is two u16s, so an
     honest-looking 65535x65535 RGBA cel still asks for 17 GiB."""
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     with pytest.raises(ValueError, match="past the"):
         asein._inflate(zlib.compress(b"x"), 65535 * 65535 * 4, "a cel on layer 0")
 
 
 def test_an_honest_cel_still_inflates():
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     payload = bytes(range(64))
     assert asein._inflate(zlib.compress(payload), 64, "a cel on layer 0") == payload
@@ -364,7 +364,7 @@ def test_saving_a_png_in_place_is_staged_and_replaced(tmp_path, monkeypatch):
     The helper has since moved out of ``inker_mode`` and into ``studio.atomic``
     -- see ``tests/test_atomic_writes.py`` for why it had to stop being one
     module's private idiom -- but the property is this one and stays here."""
-    from warlock.studio import atomic
+    from warlock.core.safeio import atomic
 
     target = tmp_path / "drawing.png"
     target.write_bytes(b"the user's only copy")
@@ -385,7 +385,7 @@ def test_saving_a_png_in_place_is_staged_and_replaced(tmp_path, monkeypatch):
 
 
 def test_a_successful_atomic_write_replaces_and_leaves_no_temp(tmp_path):
-    from warlock.studio import atomic
+    from warlock.core.safeio import atomic
 
     target = tmp_path / "drawing.png"
     target.write_bytes(b"old")
@@ -397,7 +397,7 @@ def test_a_successful_atomic_write_replaces_and_leaves_no_temp(tmp_path):
 def test_write_ora_leaves_no_staging_file_when_the_encode_fails(tmp_path, monkeypatch):
     """Not data loss -- ``replace`` only runs on success -- but ``plotter_io``,
     ``packwright_io`` and ``journal`` all unlink theirs and this one did not."""
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     class Boom:
         def __getattr__(self, name):

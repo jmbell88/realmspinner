@@ -193,9 +193,9 @@ def test_camera_far_is_clamped_to_at_least_the_grid_size_plus_distance(gl):
     """``Camera.frame`` sizes the far plane off the *subject*'s own radius,
     which cuts a large fixed grid in half for a small prop -- the clamp
     ``ClayView.draw`` applies every frame."""
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import clay_view
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
 
     view = clay_view.ClayView(gl, None)
     try:
@@ -214,9 +214,9 @@ def test_render_png_restores_the_live_grid_span_and_divisions(gl):
     """An agent's render must not resize the grid the user is looking at in
     the live viewport -- ``render_png``'s ``finally`` restores both halves of
     the identity ``Grid.set_span`` rebuilds on."""
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import clay_view
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
 
     view = clay_view.ClayView(gl, None)
     try:

@@ -27,6 +27,8 @@ import dataclasses
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio.plotter import scene
 from warlock.studio.plotter.tilemap import (
     GroupLayer,
@@ -37,8 +39,6 @@ from warlock.studio.plotter.tilemap import (
     TileLayer,
     new_uid,
 )
-from warlock.studio.tilegrid import gid
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 def _tileset(name: str = "t", tiles: int = 4) -> Tileset:

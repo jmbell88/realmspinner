@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import agent_clay, clay_mode, familiar_preview
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
 
 
 def _payload(result: dict):

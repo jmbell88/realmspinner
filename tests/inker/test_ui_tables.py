@@ -16,8 +16,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_state
-from warlock.studio.inker import animation, brush, selection, transform
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import animation, brush, selection, transform
+from warlock.studio import inker_state
 from warlock.studio.panes import inker_canvas, inker_timeline, inker_tools
 
 
@@ -235,7 +236,7 @@ def test_the_palette_sort_combo_offers_every_key_the_engine_implements():
     """Both directions, which is the whole point: a key the pane offers and the
     engine does not fails on the first click, and one the engine has and the
     pane does not is a feature no user can reach."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
     from warlock.studio.panes import inker_colors
 
     keys = tuple(key for key, _label in inker_colors.SORT_LABELS)
@@ -254,8 +255,8 @@ def test_the_convert_popup_offers_every_method_the_engine_implements():
     """The dither combo is built from ``dither.METHODS`` at the call site rather
     than written out, so this asserts the tuple is the one thing there is to
     offer -- and that the default is one of them."""
-    from warlock.studio import inker
-    from warlock.studio.inker import dither
+    from warlock.kernels import pixel as inker
+    from warlock.kernels.pixel import dither
 
     assert inker.DITHER_METHODS == dither.METHODS
     assert dither.METHODS[0] == "nearest"
@@ -263,7 +264,7 @@ def test_the_convert_popup_offers_every_method_the_engine_implements():
 
 
 def test_the_gradient_dither_option_defaults_to_off_and_names_a_real_matrix():
-    from warlock.studio.inker import dither
+    from warlock.kernels.pixel import dither
 
     assert inker_state.TOOL_OPTION_DEFAULTS["gradient_dither"] == "none"
     assert set(dither.ORDERED) <= set(dither.METHODS)
@@ -589,7 +590,7 @@ def test_the_timeline_builds_its_two_lists_once_per_draw():
 
 def test_depth_still_answers_without_a_hoisted_order():
     """The callers outside the grid pass nothing and must still work."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
     from warlock.studio.panes import inker_timeline
 
     doc = inker.Document.blank(4, 4)

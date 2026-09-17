@@ -13,9 +13,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import sheetout
-from warlock.studio.inker.animation import Tag
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import sheetout
+from warlock.kernels.pixel.animation import Tag
+from warlock.kernels.pixel.document import Document
 
 
 def _paint(doc: Document, colour: tuple[int, int, int, int]) -> None:
@@ -107,7 +107,7 @@ def test_a_partial_span_drops_a_directional_layout():
     """A layout says "these frames are four directions of a walk in this fixed
     grid", which is a statement about the whole timeline. Half of one is a
     clip, and the row-wrapped grid is the honest answer for a clip."""
-    from warlock.studio.inker.animation import DirectionalLayout
+    from warlock.kernels.pixel.animation import DirectionalLayout
 
     doc = _clip(16)
     doc.anim.layout = DirectionalLayout.of("walk")

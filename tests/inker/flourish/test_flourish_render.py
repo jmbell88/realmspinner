@@ -20,11 +20,11 @@ import numpy as np
 import pytest
 from _recipes import ASSETS, FIREBALL, solo
 
-from warlock.studio.inker import flourish
-from warlock.studio.inker.flourish import prims
+from warlock.kernels.pixel import flourish
+from warlock.kernels.pixel.flourish import prims
 
 DIGESTS = Path(__file__).with_name("digests.json")
-render_mod = importlib.import_module("warlock.studio.inker.flourish.render")
+render_mod = importlib.import_module("warlock.kernels.pixel.flourish.render")
 
 
 def _digest(frames: list[np.ndarray]) -> str:
@@ -176,7 +176,7 @@ def test_sprite_flicker_samples_one_lattice_point_not_a_full_frame_plane(monkeyp
     ``prims.upsample``, so patching that to explode proves the fixed
     primitive never builds the plane at all -- it still renders, and the
     flicker still darkens the alpha."""
-    from warlock.studio.inker.flourish import prims as P
+    from warlock.kernels.pixel.flourish import prims as P
 
     def _boom(*_a, **_k):
         raise AssertionError("sprite.render must not upsample a full-frame plane for flicker")

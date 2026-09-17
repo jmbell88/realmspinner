@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio import inker
-from warlock.studio.inker import filters
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import filters
 
 
 def _flat(colour, size=(4, 4)) -> np.ndarray:

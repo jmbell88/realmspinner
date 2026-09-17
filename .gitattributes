@@ -8,5 +8,10 @@ tests/inker/fixtures/palettes/* -text
 # A frozen prompt card is hashed for its exact bytes: the card a model trained
 # on is identified by sha256, and a CRLF checkout (core.autocrlf=true, the Git
 # for Windows default) would change the hash and the prompt the model sees.
-src/warlock/studio/familiar/cards/* -text
+# (The package moved from studio/ to warlock/familiar/ in P3 of the
+# restructure, 2026-09-17. The pattern did not move with it for half a
+# day, during which the cards were `text: auto` again -- and the two
+# tests that guard this exemption did not notice, because they built the
+# old path as a string literal. They derive it from the package now.)
+src/warlock/familiar/cards/* -text
 dev/measurements/data/clay-assistant/*/card.txt -text

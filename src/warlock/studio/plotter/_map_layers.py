@@ -32,8 +32,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import colour_text, frozen_rgba, rgba_colour
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import colour_text, frozen_rgba, rgba_colour
 from ._map_model import (
     DRAW_ORDERS,
     GroupLayer,

@@ -7,9 +7,9 @@ import json
 import pytest
 from _recipes import FIREBALL
 
-from warlock.studio.inker import flourish
-from warlock.studio.inker.flourish import prims
-from warlock.studio.inker.flourish import recipe as R
+from warlock.kernels.pixel import flourish
+from warlock.kernels.pixel.flourish import prims
+from warlock.kernels.pixel.flourish import recipe as R
 
 
 def test_a_loaded_recipe_round_trips_through_json():
@@ -172,7 +172,7 @@ def test_unity_snippet_class_name_does_not_start_with_a_digit():
     import keyword
     import re
 
-    from warlock.studio.inker.flourish import engines
+    from warlock.kernels.pixel.flourish import engines
 
     info = engines.describe(
         name="3D Explosion",

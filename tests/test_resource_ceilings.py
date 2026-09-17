@@ -194,9 +194,9 @@ def test_the_frame_texture_count_is_bounded_for_a_tiny_document(monkeypatch):
 
 def _grid(levels: int):
     """A cube subdivided *levels* times: 6, 24, 96, 384 faces."""
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import ops_subdiv
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import ops_subdiv
+    from warlock.kernels.mesh import primitives as bp
 
     mesh = bp.box()
     for _ in range(levels):
@@ -207,8 +207,8 @@ def _grid(levels: int):
 def test_smooth_refuses_to_multiply_past_the_triangle_budget(monkeypatch):
     """Catmull-Clark is four times the faces per press, and ``MAX_TRIANGLES``
     gated the import door only."""
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import ops_subdiv
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import ops_subdiv
 
     mesh = _grid(2)
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 16)
@@ -218,9 +218,9 @@ def test_smooth_refuses_to_multiply_past_the_triangle_budget(monkeypatch):
 
 def test_the_budget_stops_the_second_press_as_well_as_the_first(monkeypatch):
     """Per level, not once: each level is its own allocation."""
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import mesh as bm
-    from warlock.studio.clay import ops_subdiv
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import mesh as bm
+    from warlock.kernels.mesh import ops_subdiv
 
     mesh = _grid(0)
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 40)
@@ -231,8 +231,8 @@ def test_the_budget_stops_the_second_press_as_well_as_the_first(monkeypatch):
 
 
 def test_linear_subdivide_shares_the_budget(monkeypatch):
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import ops_subdiv
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import ops_subdiv
 
     monkeypatch.setattr(ops_subdiv, "MAX_SUBDIVIDED_FACES", 4)
     with pytest.raises(el.OpError, match="Subdividing"):

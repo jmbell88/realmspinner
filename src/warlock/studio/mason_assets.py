@@ -26,9 +26,9 @@ from typing import Any
 
 import numpy as np
 
-from . import sizeguard
+from ..core.safeio import sizeguard
+from ..kernels.geom3d import gltf
 from .mason import refs as mason_refs
-from .viewer import gltf
 
 log = logging.getLogger(__name__)
 
@@ -229,9 +229,9 @@ class AssetSource:
         one thing every task-thread and frame-thread caller of this module
         must be able to rely on.
         """
-        from .clay import document as bd
-        from .clay.document import Obj
-        from .clay.primitives import GENERATORS
+        from ..kernels.mesh import document as bd
+        from ..kernels.mesh.document import Obj
+        from ..kernels.mesh.primitives import GENERATORS
 
         entry = GENERATORS.get(ref.generator)
         if entry is None:

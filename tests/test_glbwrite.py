@@ -20,9 +20,9 @@ import struct
 import numpy as np
 import pytest
 
-from warlock.glbio import read_glb
-from warlock.studio.viewer import glbwrite, gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import glbwrite, gltf
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.glbio import read_glb
 
 
 def _quad(offset: float = 0.0, *, uvs: bool = False) -> gltf.Primitive:
@@ -398,9 +398,9 @@ def _clay_document():
     bytes this file pins, which is a dependency's version rather than this
     writer's behaviour -- and the claim below is about *this* writer.
     """
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import mesh as bm
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import mesh as bm
+    from warlock.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc(
         materials=[
@@ -464,7 +464,7 @@ def test_an_existing_clay_document_writes_the_same_bytes_as_before_lights_arrive
     """
     import hashlib
 
-    from warlock.studio.clay import document as bd
+    from warlock.kernels.mesh import document as bd
 
     data = glbwrite.write_glb(bd.to_model(_clay_document()))
     assert hashlib.sha256(data).hexdigest() == _CLAY_GLB_SHA256

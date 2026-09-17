@@ -10,10 +10,11 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import inker, inker_flourish, inker_ops, inker_state, probe
-from warlock.studio.inker import sheetout
-from warlock.studio.inker.flourish import bake as B
-from warlock.studio.inker.flourish import engines, presets
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import sheetout
+from warlock.kernels.pixel.flourish import bake as B
+from warlock.kernels.pixel.flourish import engines, presets
+from warlock.studio import inker_flourish, inker_ops, inker_state, probe
 from warlock.studio.panes import inker_flourish as pane
 
 

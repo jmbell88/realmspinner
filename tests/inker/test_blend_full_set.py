@@ -29,8 +29,8 @@ import pytest
 from PIL import Image
 
 from warlock import native
-from warlock.studio import inker
-from warlock.studio.inker import composite as cp
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import composite as cp
 
 # The twelve that were there before, and the seven appended after them.
 OLD_MODES = (

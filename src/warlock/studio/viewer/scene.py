@@ -14,8 +14,8 @@ from typing import Any
 import moderngl
 import numpy as np
 
-from . import math3d as m3
-from .gltf import Material, Model, Node, Primitive
+from ...kernels.geom3d import math3d as m3
+from ...kernels.geom3d.gltf import Material, Model, Node, Primitive
 from .programs import MAX_JOINTS
 
 log = logging.getLogger(__name__)

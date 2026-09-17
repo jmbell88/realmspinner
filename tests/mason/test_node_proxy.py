@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
 from warlock.studio.mason.scene import NodePool
-from warlock.studio.viewer import gltf
-from warlock.studio.viewer import math3d as m3
 
 
 def _translation(x: float) -> np.ndarray:

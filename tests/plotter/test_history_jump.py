@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.grid2d import gid
 from warlock.studio.plotter.tilemap import MapDoc
-from warlock.studio.tilegrid import gid
 
 #: Adding the layer is itself an undoable step, so every count below is
 #: measured from here rather than from zero.

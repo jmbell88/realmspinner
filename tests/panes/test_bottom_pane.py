@@ -217,8 +217,8 @@ def test_the_expanded_pane_renders_bubbles_the_handle_and_autoscrolls(monkeypatc
     from _ui_context import imgui_context
 
     from warlock import models
+    from warlock.familiar import threads as threads_mod
     from warlock.studio import familiar_ui
-    from warlock.studio.familiar import threads as threads_mod
     from warlock.studio.settings import Settings
 
     config = _familiar_config(tmp_path)

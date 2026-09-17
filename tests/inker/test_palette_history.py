@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
-from warlock.studio.inker.undo import CompoundEdit, PaletteEdit, ReplayEdit
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
+from warlock.kernels.pixel.undo import CompoundEdit, PaletteEdit, ReplayEdit
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)

@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh import scratch as clay_scratch
+from warlock.kernels.mesh import serialize
 from warlock.studio import clay_mode, familiar_preview
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import scratch as clay_scratch
-from warlock.studio.clay import serialize
 
 
 class _FakeCtx:
@@ -116,7 +116,7 @@ def test_apply_with_material_removal_keeps_face_indices_right():
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="multi", mesh=bp.box()))
     extra = doc.add_material()
     third_material = doc.materials[doc.add_material()]
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     faces = obj.mesh.material.copy()
     third_index = next(i for i, m in enumerate(doc.materials) if m is third_material)

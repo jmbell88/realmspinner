@@ -24,8 +24,8 @@ import re
 
 import pytest
 
-from warlock.studio.clay import primitives
-from warlock.studio.manual import loader
+from warlock.kernels.manual import loader
+from warlock.kernels.mesh import primitives
 
 # The two chapters that write the shapes out, and the heading of the section in
 # each that does the writing. The search is scoped to that section rather than

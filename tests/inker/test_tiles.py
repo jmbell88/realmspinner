@@ -13,11 +13,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import composite as cp
-from warlock.studio.inker.anim_edits import charged, pixel_bytes
-from warlock.studio.inker.animation import TRACK_PROPS, Track
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.tiles import (
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel import composite as cp
+from warlock.kernels.pixel.anim_edits import charged, pixel_bytes
+from warlock.kernels.pixel.animation import TRACK_PROPS, Track
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.tiles import (
     TilemapCel,
     TilesetSlot,
     blank_strip,
@@ -29,7 +30,6 @@ from warlock.studio.inker.tiles import (
     strip,
     with_tiles,
 )
-from warlock.studio.tilegrid import gid
 
 RED = (255, 0, 0, 255)
 GREEN = (0, 255, 0, 255)

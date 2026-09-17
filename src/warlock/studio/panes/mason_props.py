@@ -28,12 +28,12 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.geom3d import math3d as m3
 from .. import controls, icons, mason_mode, tokens, widgets
 from ..manual import render as manual_render
 from ..mason import gltfout
 from ..mason import scene as mscene
 from ..tokens import sp
-from ..viewer import math3d as m3
 
 
 def draw(ctx: Any) -> None:

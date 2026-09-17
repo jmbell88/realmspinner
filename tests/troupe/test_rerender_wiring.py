@@ -13,8 +13,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel.sheetin import document_from_sheet
 from warlock.studio import inker_mode, inker_ops, inker_sheet, troupe_mode
-from warlock.studio.inker.sheetin import document_from_sheet
 
 
 class _Ctx:

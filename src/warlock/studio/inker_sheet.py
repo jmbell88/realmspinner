@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from .inker import mirror, sheetscope
+from ..kernels.pixel import mirror, sheetscope
 
 __all__ = [
     "NO_SHEET",
@@ -365,7 +365,7 @@ def merge(ctx: Any, tab: Any, incoming: Sequence[np.ndarray]) -> bool:
     and "flagged 2 conflicts" are the two things the reader has to act on and a
     single number hides the second inside the first.
     """
-    from .inker import sheetmerge
+    from ..kernels.pixel import sheetmerge
 
     doc = tab.doc
     track_uid = active_track_uid(tab)
@@ -454,7 +454,7 @@ def resolve_keep(ctx: Any, tab: Any, frames: Sequence[int]) -> bool:
     already holds the render, so resolving is only the flag coming off. Pushed
     as its own step so it can be undone like everything else.
     """
-    from .inker.undo import SheetBaseEdit
+    from ..kernels.pixel.undo import SheetBaseEdit
 
     doc = _doc(tab)
     base = getattr(doc, "sheet_base", None)

@@ -19,6 +19,7 @@ from typing import Any, NamedTuple
 from imgui_bundle import imgui
 
 from ... import followups, vectors
+from ...core.safeio import atomic
 from ...service import derive as svc_derive
 from ...service import export as svc_export
 from ...service import jobs as svc_jobs
@@ -27,7 +28,6 @@ from ...service.errors import ServiceError
 from .. import (
     app_ctx,
     artifacts,
-    atomic,
     controls,
     dialogs,
     icons,

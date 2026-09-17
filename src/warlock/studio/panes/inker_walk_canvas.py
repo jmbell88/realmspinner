@@ -24,9 +24,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import walk
+from ...kernels.pixel.walk import rig as R
 from .. import icons, inker_state, inker_walk, theme, toolbar, widgets
-from ..inker import walk
-from ..inker.walk import rig as R
 from ..tokens import sp
 
 #: Radius the joint dots are drawn at, in design pixels.

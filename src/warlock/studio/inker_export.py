@@ -25,8 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from ..pipelines import sheet as sheetlib
-from . import atomic, dialogs, icons, inker_mode
+from . import dialogs, icons, inker_mode
 from .inker_state import InkerDoc
 
 
@@ -215,9 +216,9 @@ def export_slices(
     def run() -> dict[str, Any] | None:
         from PIL import Image
 
+        from ..kernels.pixel import nineslice
+        from ..kernels.pixel.transform import upscale
         from ..service.errors import invalid_from
-        from .inker import nineslice
-        from .inker.transform import upscale
 
         dest = recorded or dialogs.save_file(
             "Export slices as PNGs",
@@ -472,7 +473,7 @@ def export_tag(ctx: Any, tab: InkerDoc | None, kind: str, index: int) -> None:
     anim = None if tab is None else tab.doc.anim
     if tab is None or anim is None or not 0 <= index < len(anim.tags):
         return
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     tag = anim.tags[index]
     _begin_export(
@@ -499,7 +500,7 @@ def export_per_tag(
     the 2026-09-13 audit) can re-run a per-tag export against the recorded
     destination with no dialog, same as a plain export already did.
     """
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     tab = tab or inker_mode.active(ctx)
     anim = None if tab is None else tab.doc.anim
@@ -540,7 +541,7 @@ def export_per_layer(
 
     ``repeat`` -- see :func:`export_per_tag`.
     """
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     tab = tab or inker_mode.active(ctx)
     if tab is None or tab.doc.anim is None:
@@ -653,7 +654,7 @@ def _begin_export(
     (one unlabelled leg over ``span``). Everything after this point -- the
     stepper, the lock, the submit -- is the same code for both.
     """
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     tab = tab or inker_mode.active(ctx)
     state = ctx.state.inker
@@ -776,7 +777,7 @@ def _split_stems(
     only answer that cannot silently be believed. A template that renders two
     labels the same collides here for the identical reason.
     """
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     default = (
         sheetout.DEFAULT_LAYER_TEMPLATE
@@ -832,7 +833,7 @@ def pump_export(ctx: Any) -> None:
     export = None if state is None else state.export
     if export is None:
         return
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     tab = export.tab
     if tab not in state.docs or tab.doc.anim is None:
@@ -936,8 +937,8 @@ def pump_undo_trim(ctx: Any) -> None:
 
 def _submit_export(ctx: Any, export: _Export) -> None:
     """The work list is read; hand it to a task. Frame thread."""
-    from .inker import gifout, sheetout
-    from .inker.transform import upscale
+    from ..kernels.pixel import gifout, sheetout
+    from ..kernels.pixel.transform import upscale
 
     tab, suggested = export.tab, export.suggested
     doc = tab.doc
@@ -1440,7 +1441,7 @@ def door_state(door: Door, tab: Any) -> tuple[bool, str]:
         if not tags:
             return (False, door.refusal)
     elif door.key == "per-layer":
-        from .inker import sheetout
+        from ..kernels.pixel import sheetout
 
         if len(sheetout.layer_splits(tab.doc)) <= 1:
             return (False, door.refusal)

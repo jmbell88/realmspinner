@@ -52,8 +52,8 @@ from typing import Any
 
 import numpy as np
 
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import Tileset, TilesetRef, colour_text
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import Tileset, TilesetRef, colour_text
 from . import project
 from .pngio import png_bytes
 from .props import (

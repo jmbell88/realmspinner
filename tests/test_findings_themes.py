@@ -66,8 +66,8 @@ def test_clay_greys_a_refused_op_with_the_gate_that_refused_it():
     currently refused. ``reason_for`` is asserted here with no imgui frame,
     the same way ``plotter_menu._layer_reason`` and
     ``inker_mode._no_document_reason`` are above."""
+    from warlock.kernels.mesh import document as bd
     from warlock.studio import clay_ops
-    from warlock.studio.clay import document as bd
 
     doc = bd.ClayDoc()
     join = clay_ops.get("join")
@@ -235,7 +235,7 @@ def test_a_primitive_measures_its_own_box_once():
     did not, but the ``min``/``max`` behind it did, on every frame."""
     import numpy as np
 
-    from warlock.studio.viewer.gltf import Primitive
+    from warlock.kernels.geom3d.gltf import Primitive
 
     prim = Primitive(
         positions=np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]], dtype="f4"),

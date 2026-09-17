@@ -200,7 +200,7 @@ def test_add_oneshot_at_the_pattern_ceiling_does_not_leak_an_open_gesture():
     ``UNDO_MAX_DEPTH`` more (unrelated, ungestured) edits left the stack at
     its full pushed length instead of capped.
     """
-    from warlock.studio.undo import UNDO_MAX_DEPTH
+    from warlock.core.undo import UNDO_MAX_DEPTH
 
     doc = _song()
     while len(doc.patterns) < D.MAX_PATTERNS:

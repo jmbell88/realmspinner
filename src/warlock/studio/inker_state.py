@@ -23,8 +23,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from ..kernels.grid2d import gid
 from . import docmodes
-from .tilegrid import gid
 
 MIN_ZOOM = 0.05
 MAX_ZOOM = 32.0
@@ -614,7 +614,7 @@ def widgets_for(tool: str, doc: Any = None, state: Any = None) -> tuple[str, ...
     full set, which is what the coverage test wants.
     """
 
-    from .inker.brush import ANGLED_NIBS, PIXEL_NIBS
+    from ..kernels.pixel.brush import ANGLED_NIBS, PIXEL_NIBS
 
     nib = "soft"
     if state is not None:
@@ -3212,7 +3212,7 @@ def step_size(size: int, delta: int) -> int:
     size keeps every press feel proportional, which is what every paint program
     does.
     """
-    from .inker import clamp_brush
+    from ..kernels.pixel import clamp_brush
 
     step = max(1, int(abs(size) * 0.12))
     return clamp_brush(size + (step if delta > 0 else -step))

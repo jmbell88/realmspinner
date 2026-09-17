@@ -13,10 +13,10 @@ import numpy as np
 from imgui_bundle import imgui
 from scipy.spatial.transform import Rotation
 
+from ...kernels.geom3d import math3d as m3
 from .. import controls, forms, poser_mode, theme, tokens, widgets
 from ..manual import render as manual_render
 from ..tokens import sp
-from ..viewer import math3d as m3
 from . import poser_skeleton
 
 # Blender's own default pose-bone Euler order -- ``blender_worker.py`` never

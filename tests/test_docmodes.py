@@ -364,12 +364,25 @@ def _modules_calling_docmodes_close_tab() -> set[str]:
     (the ``docmodes.close_tab(...)`` shape, not a same-named local wrapper
     such as ``clay_mode.close_tab`` itself) -- found by walking the AST rather
     than hand-listed, so a future mode that grows a document tab enrols
-    itself here the same way it enrols in ``_pure_packages``."""
+    itself here the same way it enrols in ``_pure_packages``.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose -- ``docmodes.close_tab`` is L4 shell API, and the
+    ``*_mode.py`` callers it exists to find are the mode-UI half that P3 left
+    in place (only the engines moved to ``kernels/``). The caller's own
+    ``expected_at_least`` floor already guards the failure this pass is
+    about: a broken root would return an empty set and fail that assertion,
+    not pass it.
+    """
     import ast
 
     studio_dir = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+    files = sorted(studio_dir.rglob("*.py"))
+    assert len(files) > 200, (
+        f"only {len(files)} files under {studio_dir} -- did the sweep root break?"
+    )
     modules: set[str] = set()
-    for path in studio_dir.rglob("*.py"):
+    for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if (

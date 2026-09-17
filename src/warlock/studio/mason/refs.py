@@ -34,7 +34,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from ..viewer import gltf
+from ...kernels.geom3d import gltf
 
 
 def _normalize(param: str, value: Any) -> Any:

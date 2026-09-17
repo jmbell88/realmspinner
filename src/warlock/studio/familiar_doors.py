@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .familiar.doors import Destination
+from ..familiar.doors import Destination
 
 #: Palette command keys :func:`destinations` treats as places to send
 #: someone, beyond the derived ``go:<mode>``/``tour:<key>`` rows. Every

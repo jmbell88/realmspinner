@@ -17,8 +17,8 @@ import ast
 import re
 from pathlib import Path
 
+from warlock.kernels.manual import loader, parser
 from warlock.studio import modes
-from warlock.studio.manual import loader, parser
 from warlock.studio.tour import TOURS
 from warlock.studio.tour.steps import CONDITIONS
 
@@ -213,7 +213,15 @@ def test_the_marker_regex_actually_matches_the_call_sites():
     Both directions above are built from one regex over the source. If it
     stopped matching -- a rename, a keyword argument, a wrapper -- every
     assertion would pass by finding nothing, in both directions at once.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): ``SRC`` stays
+    scoped to ``studio/`` on purpose -- ``anchors.mark`` marks a widget inside
+    an imgui pane, and none of P3's moves took imgui with them. The file-count
+    floor is the other half of the guard this pass is about: the regex not
+    matching and the root not matching look identical from ``found == set()``.
     """
+    files = sorted(SRC.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {SRC} -- did the sweep root break?"
     found = _marked_in_source()
     assert found, "anchors.mark call sites are no longer being found"
     sample = ast.parse(

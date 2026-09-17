@@ -16,19 +16,28 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import clay
+from _pure_packages import dotted_root, siblings_of
+
+from warlock.kernels import mesh as clay
 
 ENGINE = Path(clay.__file__).parent
-PACKAGE = "warlock.studio.clay"
+PACKAGE = "warlock.kernels.mesh"
 
 #: ``(module, imported name)`` for every import that leaves the package.
-#: :mod:`~warlock.studio.undo` is the history engine the raster editor already
+#: :mod:`~warlock.core.undo` is the history engine the raster editor already
 #: shares -- it was extracted out of the raster editor *for* Clay, so a pure
 #: Clay reaching back into the raster editor for its own history would defeat
-#: the move. ``viewer.gltf`` and ``viewer.math3d`` are the ``sheetout.py``
+#: the move. 2026-09-17: P3 of ``dev/RESTRUCTURE.md`` moved this module from
+#: ``studio/undo.py`` to ``warlock/core/undo.py``, which resolves the reason
+#: this entry needed defending in the first place -- a kernel reaching down
+#: into ``core`` is just the ordinary shape of the layer table now, not a
+#: reach back into the shell for a tool the raster editor happens to also
+#: use. ``geom3d.gltf`` and ``geom3d.math3d`` are the ``sheetout.py``
 #: argument: a Clay material **is** a ``gltf.Material`` rather than a parallel
 #: type that would need a conversion function and a place for the two to drift,
-#: and quaternions are XYZW in exactly one place in this project.
+#: and quaternions are XYZW in exactly one place in this project. Both lived
+#: at ``studio/viewer/{gltf,math3d}.py`` until the same P3 move put them in
+#: the kernel they always logically were, alongside ``glbio``.
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
     # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
@@ -39,49 +48,59 @@ OUTWARD_IMPORTS = {
     # seventeen. ``zipguard`` said so first and the rest are the same sentence
     # about a different declared number -- an image's pixel count, a ``.npy``
     # header's shape, an XML document's DTD and nesting depth. Shared leaves,
-    # not sibling engines, so this package is free to reach for them.
-    ("serialize.py", "warlock.studio.zipguard"),
-    ("serialize.py", "warlock.studio.npyguard"),
-    ("serialize.py", "warlock.studio.pixelguard"),
-    ("document.py", "warlock.studio.undo"),
-    ("drag.py", "warlock.studio.viewer"),
-    ("document.py", "warlock.studio.viewer"),
-    ("edits.py", "warlock.studio.undo"),
+    # not sibling engines, so this package is free to reach for them. P3
+    # folded the three modules into one ``core/safeio/`` package and
+    # ``serialize.py`` reaches all three through a single ``from ... import``
+    # line, so there is exactly one outward edge to record now, not three.
+    ("serialize.py", "warlock.core.safeio"),
+    ("document.py", "warlock.core.undo"),
+    ("drag.py", "warlock.kernels.geom3d"),
+    ("document.py", "warlock.kernels.geom3d"),
+    ("edits.py", "warlock.core.undo"),
     # Added deliberately on 2026-09-06 (the audit's clay-01): deleting or
     # duplicating a multi-object selection pushed one step per object, so one
     # ``Delete`` took three ``Ctrl+Z`` presses and the first landed on a state
     # the user had never made. Bundling the gesture needs ``CompoundEdit``, from
     # the same shared history engine ``document.py`` and ``edits.py`` already
     # reach for -- not a fourth private notion of what one step is.
-    ("selection.py", "warlock.studio.undo"),
-    ("glbimport.py", "warlock.studio.viewer"),
+    ("selection.py", "warlock.core.undo"),
     # H01: the declared-count preflight reads a GLB's JSON chunk before
     # ``gltf.load`` decodes anything, and ``glbio.split_glb`` is the one
-    # container-level parser this project has -- the same one ``viewer.gltf``
-    # itself is built on. A second, private JSON-chunk parser here would be a
-    # second place for the container format to be read slightly differently.
-    ("glbimport.py", "warlock.glbio"),
-    ("ops.py", "warlock.studio.viewer"),
-    ("serialize.py", "warlock.studio.viewer"),
+    # container-level parser this project has -- the same one ``gltf``
+    # itself is built on, both now siblings inside ``kernels/geom3d/``. One
+    # entry, not two: ``glbimport.py`` reaches ``geom3d`` for ``glbio``,
+    # ``gltf`` and ``math3d`` through relative imports of the same package.
+    ("glbimport.py", "warlock.kernels.geom3d"),
+    ("ops.py", "warlock.kernels.geom3d"),
     # Added deliberately on 2026-09-06 (the audit's clay-08): grounding a
     # figure preset has to know where its *built* geometry ends, not just
     # where its bone landmark sits, so ``presets.build`` places each part
-    # through ``viewer.math3d.compose`` the same way ``drag.py``, ``ops.py``
+    # through ``math3d.compose`` the same way ``drag.py``, ``ops.py``
     # and ``document.py`` already do -- one quaternion convention, not a
     # second one invented for this file.
-    ("presets.py", "warlock.studio.viewer"),
+    ("presets.py", "warlock.kernels.geom3d"),
     # analyze.py composes each object's world transform the same way
-    # ops.py/document.py/presets.py already do, via viewer.math3d.compose --
+    # ops.py/document.py/presets.py already do, via ``math3d.compose`` --
     # not a second quaternion convention for a module that otherwise never
     # touches the viewport.
-    ("analyze.py", "warlock.studio.viewer"),
+    ("analyze.py", "warlock.kernels.geom3d"),
+    # serialize.py writes a material override straight out as a
+    # ``gltf.Material`` -- the same "the export is the definition" reasoning
+    # as the rest of this list, for the one file that also reaches
+    # ``core.safeio`` above.
+    ("serialize.py", "warlock.kernels.geom3d"),
 }
 
-#: Which modules of the viewer, since the entry above is recorded at package
-#: granularity the way ``test_packwright_imports`` records ``pipelines``. The
-#: viewer package also holds the GL-side loader and the renderer's programs, and
-#: reaching for one of those is the import this pin exists to catch.
-VIEWER_MODULES = {"gltf", "math3d"}
+#: Which modules of ``kernels.geom3d``, since the entry above is recorded at
+#: package granularity the way ``test_packwright_imports`` records
+#: ``pipelines``. ``gltf``/``math3d`` lived under ``studio/viewer/`` until P3
+#: moved them; ``glbio`` was already a standalone top-level module
+#: (``warlock/glbio.py``) that the same move put in the same kernel package,
+#: and ``glbimport.py``'s H01 preflight is what reaches for it (see
+#: :data:`OUTWARD_IMPORTS`). The viewer package that remains still holds the
+#: GL-side loader and the renderer's programs, and reaching for one of those
+#: is the import this pin exists to catch.
+VIEWER_MODULES = {"gltf", "math3d", "glbio"}
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 
@@ -170,15 +189,34 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
             assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
 
 
+#: ``geom3d`` is a shared kernel leaf this package legitimately imports (see
+#: :data:`OUTWARD_IMPORTS`), not a peer engine -- the same exception
+#: ``tests/mason/test_mason_imports.py`` and ``tests/inker/test_inker_imports.py``
+#: record for the same import.
+SHARED_LEAVES = frozenset({"geom3d"})
+
+
 def test_the_engine_never_imports_the_other_pure_packages():
-    """Four packages that are pure for the same reason are not four packages
-    that may reach for each other: the raster editor's undo lives in
-    ``studio.undo`` precisely so Clay does not have to import the raster
-    editor."""
-    for path in _modules():
-        for name in _outward(path):
-            for other in ("inker", "plotter", "packwright"):
-                assert f"warlock.studio.{other}" not in name, f"{path.name} imports {name}"
+    """Packages that are pure for the same reason are not packages that may
+    reach for each other: the raster editor's undo lives in ``core.undo``
+    precisely so Clay does not have to import the raster editor.
+
+    Derived over :func:`_pure_packages.siblings_of` rather than the
+    ``("inker", "plotter", "packwright")`` this used to hard-code: that list
+    predates P3 of ``dev/RESTRUCTURE.md`` and would have gone silently vacuous
+    for ``inker`` the day it renamed to ``warlock.kernels.pixel`` -- a literal
+    check for ``"warlock.studio.inker"`` bans an import string nothing in the
+    tree has written since. :func:`_pure_packages.dotted_root` looks up each
+    sibling's real import prefix instead of assuming it still hangs off
+    ``warlock.studio``.
+    """
+    for other in siblings_of("mesh", allowed=SHARED_LEAVES):
+        root = dotted_root(other)
+        for path in _modules():
+            for name in _outward(path):
+                assert not (name == root or name.startswith(root + ".")), (
+                    f"{path.name} imports {name}"
+                )
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():
@@ -191,14 +229,20 @@ def test_the_only_outward_imports_are_the_ones_written_down():
     assert found == OUTWARD_IMPORTS
 
 
-def test_only_two_modules_of_the_viewer_are_reached_for():
+def test_only_three_modules_of_geom3d_are_reached_for():
     """The allowlist above is at package granularity; this says *which*
-    modules, the way ``test_packwright_imports`` does for ``pipelines``."""
+    modules, the way ``test_packwright_imports`` does for ``pipelines``.
+
+    Named for three now, not two: checks ``geom3d``, not ``viewer`` --
+    P3 of ``dev/RESTRUCTURE.md`` moved ``gltf``/``math3d`` there and put
+    ``glbio`` (already its own module) in the same kernel package, and this
+    package no longer imports ``studio.viewer`` at all.
+    """
     reached = {
         alias.name
         for path in _modules()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("viewer")
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("geom3d")
         for alias in node.names
     }
     assert reached == VIEWER_MODULES

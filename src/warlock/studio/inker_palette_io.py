@@ -24,8 +24,9 @@ from typing import Any
 
 import numpy as np
 
-from . import atomic, dialogs, inker_mode, sizeguard
-from .inker import gpl
+from ..core.safeio import atomic, sizeguard
+from ..kernels.pixel import gpl
+from . import dialogs, inker_mode
 
 
 def _write_palette(path: Any, colours: list[tuple[int, int, int, int]], name: str) -> None:
@@ -272,7 +273,7 @@ def palette_from_image(ctx: Any) -> None:
     dialog in this module is: a native picker is modal to the OS, and a JPEG the
     size of a phone photo is not a frame's worth of work either.
     """
-    from .inker import dither
+    from ..kernels.pixel import dither
 
     inker_mode.ensure(ctx)
     tab = inker_mode.active(ctx)
@@ -284,7 +285,7 @@ def palette_from_image(ctx: Any) -> None:
         if path is None:
             return None
 
-        from . import pixelguard
+        from ..core.safeio import pixelguard
 
         # A picked file, so the same ceiling as the sheet import above.
         pixels = pixelguard.decode_rgba(path, Path(path).name)

@@ -39,10 +39,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.mesh import document as bd
+from ...kernels.mesh import ops
+from ...kernels.mesh import primitives as bp
 from .. import clay_mode, clay_ops, controls, icons, tokens, tool_palette, widgets
-from ..clay import document as bd
-from ..clay import ops
-from ..clay import primitives as bp
 from ..manual import render as manual_render
 from ..tokens import sp
 
@@ -225,7 +225,7 @@ def _figures(ctx: Any, state: Any, doc: Any) -> None:
     primitive button does, so the options block below always names whichever
     was placed last, from either row.
     """
-    from ..clay import presets
+    from ...kernels.mesh import presets
 
     if not presets.ASSEMBLIES:
         return
@@ -308,7 +308,7 @@ def _options_for(name: str) -> tuple[str, tuple[tuple[str, str], ...], str] | No
             (key.replace("_", " "), _format_default(value)) for key, value in defaults.items()
         )
         return name.replace("_", " ").title(), rows, _PRIMITIVE_NOTE
-    from ..clay import presets
+    from ...kernels.mesh import presets
 
     figure = presets.ASSEMBLIES.get(name)
     if figure is not None:
@@ -347,7 +347,7 @@ def add_primitive(ctx: Any, doc: Any, name: str) -> Any:
     faces meet each other), so a list here would only be a second, driftable
     statement of what the rule already decides.
     """
-    from ..clay import shading
+    from ...kernels.mesh import shading
 
     defaults, build = bp.GENERATORS[name]
     obj = bd.Obj(
@@ -400,7 +400,7 @@ def add_assembly(ctx: Any, doc: Any, key: str) -> list[Any]:
     measured in ``tests/clay/test_shading.py``, and a figure-proportions
     question this change is scoped out of touching.
     """
-    from ..clay import presets, shading
+    from ...kernels.mesh import presets, shading
 
     label, _builder = presets.ASSEMBLIES[key]
     objs: list[Any] = []

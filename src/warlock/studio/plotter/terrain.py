@@ -49,9 +49,9 @@ from typing import Any
 
 import numpy as np
 
-from ..tilegrid import blob
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import TerrainSpec, TilesetRef
+from ...kernels.grid2d import blob
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import TerrainSpec, TilesetRef
 from .tools import Region, flood_mask
 
 #: What an empty cell, or one belonging to some other tileset, ranks as. Below
@@ -393,7 +393,7 @@ def _wang_cell(
     constraints collapses a fill from one scan-and-sort per cell to one per
     *distinct* neighbourhood, which on a large open area is a handful.
     """
-    from ..tilegrid import wang as wanglib
+    from ...kernels.grid2d import wang as wanglib
 
     if field is None:
         field = wang_field(work, ref, wangset)

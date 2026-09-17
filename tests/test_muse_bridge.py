@@ -20,9 +20,10 @@ import wave
 
 import pytest
 
+from warlock.kernels.audio import wavout
 from warlock.service import _jobs_music as door
 from warlock.service.errors import Invalid
-from warlock.studio.sirens import synth, wavout
+from warlock.studio.sirens import synth
 
 
 @pytest.fixture(autouse=True)

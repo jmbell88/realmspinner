@@ -86,6 +86,7 @@ from typing import Any
 
 import numpy as np
 
+from ..kernels.geom3d import math3d as m3
 from ._view_frame import Composite, FrameOps
 from .mason import ops as mops
 from .mason import pick as mpick
@@ -94,7 +95,6 @@ from .mason import terrain as mterrain
 from .mason.refs import ref_key
 from .mason_marks import SceneMarks
 from .viewer import capture, glctx
-from .viewer import math3d as m3
 from .viewer import scene as scenelib
 from .viewer.camera import Camera, screen_ray
 from .viewer.gizmo import RotateGizmo, ScaleGizmo, TranslateGizmo
@@ -437,7 +437,7 @@ class MasonView(FrameOps):
         """
         from dataclasses import replace as _replace
 
-        from .viewer import gltf
+        from ..kernels.geom3d import gltf
 
         if placed.material is not None:
             prims = [_replace(p, material=placed.material) for p in prims]
@@ -489,7 +489,7 @@ class MasonView(FrameOps):
         self._release_terrain()
         from dataclasses import replace as _replace
 
-        from .viewer import gltf
+        from ..kernels.geom3d import gltf
 
         primitive = mterrain.terrain_mesh(terrain)
         if override is not None:

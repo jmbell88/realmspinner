@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-from .. import zipguard
+from ...core.safeio import zipguard
 from ..plotter.pngio import png_bytes
 from .document import PackDoc, Source, new_uid
 from .layout import PackSettings

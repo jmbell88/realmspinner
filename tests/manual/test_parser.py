@@ -2,8 +2,8 @@
 
 import pytest
 
-from warlock.studio.manual import parser
-from warlock.studio.manual.parser import (
+from warlock.kernels.manual import parser
+from warlock.kernels.manual.parser import (
     CodeBlock,
     Heading,
     ListItem,
@@ -112,7 +112,8 @@ def test_a_phrase_that_appears_only_in_prose_finds_its_chapter(monkeypatch):
     "WARLOCK_VRAM_BUDGET" are each named in a paragraph and in no heading
     anywhere, so the three strings a reader is most likely to arrive with found
     nothing at all."""
-    from warlock.studio.manual import loader, render
+    from warlock.kernels.manual import loader
+    from warlock.studio.manual import render
 
     blocks = render._blocks("28-inker")
     monkeypatch.setattr(render, "_blocks", lambda key: blocks)
@@ -124,7 +125,7 @@ def test_a_phrase_that_appears_only_in_prose_finds_its_chapter(monkeypatch):
 
 
 def _is_heading(block) -> bool:
-    from warlock.studio.manual import parser
+    from warlock.kernels.manual import parser
 
     return isinstance(block, parser.Heading)
 
@@ -136,7 +137,7 @@ def test_every_block_type_contributes_its_text():
     It lives in ``loader`` rather than ``render`` because the chapter search and
     the TOC tree's section search both read it -- see ``loader.block_text``.
     """
-    from warlock.studio.manual import loader, parser
+    from warlock.kernels.manual import loader, parser
 
     span = parser.Span(kind="text", text="findable")
     cases = [

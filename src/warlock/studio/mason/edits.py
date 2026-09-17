@@ -55,8 +55,8 @@ from typing import Any
 
 import numpy as np
 
-from ..undo import Edit
-from ..viewer import gltf
+from ...core.undo import Edit
+from ...kernels.geom3d import gltf
 from .nodes import Node, _props_bytes, subtree_bytes
 from .refs import Ref
 from .terrain import Rect, Terrain

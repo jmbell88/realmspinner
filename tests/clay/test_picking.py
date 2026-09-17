@@ -12,9 +12,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio.viewer import picking
 
 # A unit quad in the z = 0 plane, spanning x and y in [0, 1].

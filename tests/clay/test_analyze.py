@@ -12,13 +12,13 @@ import math
 import numpy as np
 import pytest
 
-from warlock.studio.clay import analyze
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops as clay_ops
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay.elements import OpError
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import analyze
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops as clay_ops
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh.elements import OpError
 
 
 def _obj(mesh, *, translation=(0.0, 0.0, 0.0), rotation=None, name: str = "obj") -> bd.Obj:

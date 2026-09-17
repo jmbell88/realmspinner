@@ -19,11 +19,12 @@ from typing import Any
 
 import numpy as np
 
+from ..kernels.geom3d import gltf
+from ..kernels.geom3d import math3d as m3
 from ._viewer_pose import PoseOps
 from .viewer import bonelines as bonelineslib
-from .viewer import capture, glctx, gltf, picking
+from .viewer import capture, glctx, picking
 from .viewer import markers as markerslib
-from .viewer import math3d as m3
 from .viewer import scene as scenelib
 from .viewer import sheet as sheetlib
 from .viewer.camera import Camera, screen_ray

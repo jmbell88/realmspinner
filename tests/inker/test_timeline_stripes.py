@@ -18,7 +18,8 @@ import inspect
 
 import numpy as np
 
-from warlock.studio import inker, theme, tokens
+from warlock.kernels import pixel as inker
+from warlock.studio import theme, tokens
 from warlock.studio.panes import inker_timeline
 
 

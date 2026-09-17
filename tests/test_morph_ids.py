@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from warlock import native
-from warlock.studio.inker import selection as sel
+from warlock.kernels.pixel import selection as sel
 
 MORPH_C = Path(__file__).resolve().parents[1] / "native" / "morph.c"
 

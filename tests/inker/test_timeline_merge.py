@@ -16,7 +16,8 @@ was really being used for.
 
 from __future__ import annotations
 
-from warlock.studio import inker, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_state
 from warlock.studio.panes import inker_timeline
 
 

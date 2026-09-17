@@ -152,8 +152,10 @@ def test_invariants_asein_ud_owner_citation_matches_the_code():
     ``dev/INVARIANTS.md`` on 2026-09-16); this half only needs the source
     file, which stays public.
     """
+    # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
+    # warlock/kernels/pixel/, asein.py included.
     asein_src = (
-        ROOT / "src" / "warlock" / "studio" / "inker" / "asein.py"
+        ROOT / "src" / "warlock" / "kernels" / "pixel" / "asein.py"
     ).read_text(encoding="utf-8")
     assert "self.ud_owner" in asein_src, (
         "sanity: asein.py's _Parse no longer has a ud_owner field"

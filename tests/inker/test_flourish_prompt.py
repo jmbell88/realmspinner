@@ -12,10 +12,11 @@ from types import SimpleNamespace
 import pytest
 
 from warlock import doctor, winjob
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel.flourish import bake as B
+from warlock.kernels.pixel.flourish import keywords, presets
 from warlock.pipelines import recipe_worker
-from warlock.studio import inker, inker_flourish, inker_mode, inker_ops, inker_state
-from warlock.studio.inker.flourish import bake as B
-from warlock.studio.inker.flourish import keywords, presets
+from warlock.studio import inker_flourish, inker_mode, inker_ops, inker_state
 from warlock.studio.tasks import Done
 
 
@@ -127,7 +128,7 @@ def test_with_a_model_the_answer_is_clamped_through_the_same_funnel(tmp_path, mo
     assert seen["request"]["request"] == "make the core enormous"
     assert "uid" not in json.dumps(seen["request"]["recipe"])
     pending = state.flourish_pending[group]
-    from warlock.studio.inker.flourish import prims
+    from warlock.kernels.pixel.flourish import prims
 
     assert _core(pending).params["radius"] == prims.params_of("core")["radius"].hi
     assert pending.seed == 7

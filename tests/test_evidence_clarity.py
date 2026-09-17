@@ -111,7 +111,7 @@ def test_both_refusals_share_one_remedy_list():
 def test_the_loader_counts_images_it_could_not_use():
     """Counted per image *source*, not per material reference: ``_images``
     memoizes, so one unreadable atlas shared by six primitives is one loss."""
-    from warlock.studio.viewer import gltf
+    from warlock.kernels.geom3d import gltf
 
     reader = gltf._Reader({"images": [], "bufferViews": []}, b"")
     assert reader.skipped == 0
@@ -122,7 +122,7 @@ def test_the_loader_counts_images_it_could_not_use():
 
 
 def test_a_model_reports_its_losses():
-    from warlock.studio.viewer import gltf
+    from warlock.kernels.geom3d import gltf
 
     model = gltf.Model([], [], [], [], skipped_textures=3)
     assert model.skipped_textures == 3
@@ -131,7 +131,7 @@ def test_a_model_reports_its_losses():
 def test_a_model_defaults_to_no_losses():
     """Every existing construction site passes four arguments and must keep
     meaning "nothing was lost"."""
-    from warlock.studio.viewer import gltf
+    from warlock.kernels.geom3d import gltf
 
     assert gltf.Model([], [], [], []).skipped_textures == 0
 

@@ -23,8 +23,8 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
+from warlock.kernels.pixel.animation import Note
 from warlock.studio import inker_state, probe
-from warlock.studio.inker.animation import Note
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ class _Prompts:
 
 
 def _doc():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     doc.stack[0].name = "Art"
@@ -281,7 +281,7 @@ def test_an_empty_slot_offers_no_properties_block(ui):
 def test_a_still_documents_row_menu_offers_no_properties_block(ui):
     """A note lives on a ``Track`` and a still document has none, so the block
     is hidden rather than greyed -- there is nothing for it to promise."""
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     ctx, tab = _ctx(), _tab(doc)

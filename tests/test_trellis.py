@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from warlock.glbio import rebuild_glb
+from warlock.kernels.geom3d.glbio import rebuild_glb
 from warlock.pipelines import trellis as trellis_mod
 from warlock.pipelines.trellis import TrellisServer
 

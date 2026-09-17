@@ -24,10 +24,10 @@ from typing import Any
 
 import numpy as np
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio._view_drag import DragOps, _ElementDrag
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import primitives as bp
 
 
 class _FakeGPU:

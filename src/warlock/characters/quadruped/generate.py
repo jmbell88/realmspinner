@@ -229,7 +229,7 @@ def _basis_from_y(direction: np.ndarray) -> np.ndarray:
 
 
 def _placed(mesh: Any, rotation: np.ndarray, centre: np.ndarray) -> Any:
-    from ...studio.clay import mesh as bm
+    from ...kernels.mesh import mesh as bm
 
     matrix = np.eye(4)
     matrix[:3, :3] = rotation
@@ -239,7 +239,7 @@ def _placed(mesh: Any, rotation: np.ndarray, centre: np.ndarray) -> Any:
 
 def _capsule_between(a: Any, b: Any, radius: float, *, segments: int = SEG) -> Any:
     """A capsule whose cylindrical section runs exactly from *a* to *b*."""
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     a = np.asarray(a, dtype="f8")
     b = np.asarray(b, dtype="f8")
@@ -252,7 +252,7 @@ def _capsule_between(a: Any, b: Any, radius: float, *, segments: int = SEG) -> A
 
 
 def _sphere_at(centre: Any, radius: float, *, segments: int = SEG, rings: int = RINGS * 2) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     body = primitives.uv_sphere(radius=radius, segments=segments, rings=rings)
     return _placed(body, np.eye(3), np.asarray(centre, dtype="f8"))
@@ -260,7 +260,7 @@ def _sphere_at(centre: Any, radius: float, *, segments: int = SEG, rings: int = 
 
 def _cone_between(a: Any, b: Any, radius: float, *, segments: int = 8) -> Any:
     """A cone with its base at *a* and its apex at *b*."""
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     a = np.asarray(a, dtype="f8")
     b = np.asarray(b, dtype="f8")
@@ -271,7 +271,7 @@ def _cone_between(a: Any, b: Any, radius: float, *, segments: int = 8) -> Any:
 
 
 def _box_at(centre: Any, size: Any) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     return _placed(primitives.box(size=size), np.eye(3), np.asarray(centre, dtype="f8"))
 
@@ -492,9 +492,9 @@ def _solid(parts: list[tuple[str, Any]]) -> Any:
     the smoothing's output, it was collapsing real geometry and pinching the
     surface. 1e-7 keeps the safety net and stops it catching the animal.
     """
-    from ...studio.clay import elements, ops_boolean, ops_subdiv, ops_topo
-    from ...studio.clay import mesh as bm
-    from ...studio.clay.document import Obj
+    from ...kernels.mesh import elements, ops_boolean, ops_subdiv, ops_topo
+    from ...kernels.mesh import mesh as bm
+    from ...kernels.mesh.document import Obj
 
     objs = [Obj(uid=i + 1, name=name, mesh=m) for i, (name, m) in enumerate(parts)]
     merged = ops_boolean.union(objs)
@@ -716,8 +716,8 @@ def _fields(
 
 def build(silhouette: str) -> Baked:
     """Generate one silhouette group from scratch. Deterministic, no I/O."""
-    from ...studio.clay import adjacency
-    from ...studio.clay import mesh as bm
+    from ...kernels.mesh import adjacency
+    from ...kernels.mesh import mesh as bm
 
     try:
         group = GROUPS[silhouette]
@@ -811,8 +811,8 @@ def primitives_of(baked: Baked) -> list[tuple[int, np.ndarray, np.ndarray]]:
     One primitive per region rather than one mesh with a per-face attribute,
     because glTF has no per-face anything: a material is a primitive.
     """
-    from ...studio.clay import mesh as bm
-    from ...studio.clay import topo
+    from ...kernels.mesh import mesh as bm
+    from ...kernels.mesh import topo
 
     out: list[tuple[int, np.ndarray, np.ndarray]] = []
     source = bm.Mesh(
@@ -852,7 +852,7 @@ def bake(baked: Baked) -> tuple[bytes, dict[str, np.ndarray]]:
     Pure: the caller decides where the bytes go, which is what lets the test
     re-bake and compare without writing anything into the source tree.
     """
-    from ...studio.viewer import glbwrite, gltf
+    from ...kernels.geom3d import glbwrite, gltf
 
     parts = primitives_of(baked)
     prims: list[gltf.Primitive] = []

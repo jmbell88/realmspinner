@@ -1759,8 +1759,8 @@ async def test_the_sidecar_carries_camera_character_and_validation_and_older_sid
     from PIL import Image
 
     from warlock import rigging
+    from warlock.kernels.pixel import sheetin
     from warlock.studio import troupe_mode
-    from warlock.studio.inker import sheetin
 
     calls = _fake_render(monkeypatch, grey=True, socket_at=_SOCKET_PX)
     # A themed character and, in the same run, a mesh with no species behind it.

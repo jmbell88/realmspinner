@@ -43,7 +43,7 @@ def test_the_mason_button_never_names_a_generator():
     rather than being spelled in the pane, so a rename in
     ``primitives.GENERATORS`` cannot leave this button pointing at nothing.
     """
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio.panes import overlay
 
     source = inspect.getsource(overlay._mason_box)

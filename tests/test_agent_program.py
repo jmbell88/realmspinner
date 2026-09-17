@@ -1286,6 +1286,18 @@ class TestImportsStayPure:
 
         path = Path(mod.__file__)
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        # ``mod.__package__`` is "warlock.studio" -- this module is a leaf,
+        # not a package, so its own package is the one holding it. Resolved
+        # the way ``importlib._bootstrap._resolve_name`` resolves any level
+        # of relative import (``package.rsplit(".", level - 1)[0]``) rather
+        # than the level-1-only special case this used to hand-roll: P3 of
+        # the restructure (dev/RESTRUCTURE.md) moved ``clay/presets.py`` and
+        # ``clay/primitives.py`` to ``warlock/kernels/mesh/``, reached from
+        # here as ``from ..kernels.mesh import presets`` (level 2, climbing
+        # past ``warlock.studio`` to ``warlock``), which the old level-1
+        # assumption resolved to the wrong, never-real name
+        # ``warlock.studio.kernels.mesh.presets``.
+        package = mod.__package__ or ""
         found: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -1294,11 +1306,7 @@ class TestImportsStayPure:
                 if node.level == 0:
                     found.add(node.module or "")
                 else:
-                    # A level-1 relative import from this module's own
-                    # package (`warlock.studio`) -- `from . import clay_ops`
-                    # reaches `warlock.studio.clay_ops`, and `from .clay
-                    # import presets` reaches `warlock.studio.clay.presets`.
-                    base = "warlock.studio"
+                    base = package.rsplit(".", node.level - 1)[0]
                     prefix = f"{base}.{node.module}" if node.module else base
                     found.update(f"{prefix}.{alias.name}" for alias in node.names)
         return found
@@ -1317,8 +1325,8 @@ class TestImportsStayPure:
         internal = {name for name in names if name.startswith("warlock")}
         assert internal == {
             "warlock.studio.clay_ops",
-            "warlock.studio.clay.presets",
-            "warlock.studio.clay.primitives",
+            "warlock.kernels.mesh.presets",
+            "warlock.kernels.mesh.primitives",
         }
 
     def test_module_imports_with_no_optional_dependency_present(self):

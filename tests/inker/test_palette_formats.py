@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
+from warlock.kernels.pixel import gpl
 from warlock.pipelines import pixel
 from warlock.service import palettes as svc_palettes
-from warlock.studio.inker import gpl
 
 FIXTURES = Path(__file__).parent / "fixtures" / "palettes"
 

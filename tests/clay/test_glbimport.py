@@ -12,14 +12,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock import glbio
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import glbimport
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay.elements import OpError
-from warlock.studio.viewer import glbwrite, gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import glbio, glbwrite, gltf
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import glbimport
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh.elements import OpError
 
 
 def _tex(seed: int = 0) -> tuple[int, int, bytes]:
@@ -191,7 +190,7 @@ def test_a_rigged_glb_is_refused_by_name() -> None:
     model = gltf.load(data)
     model.skins = [object()]  # type: ignore[list-item]
 
-    import warlock.studio.clay.glbimport as mod
+    import warlock.kernels.mesh.glbimport as mod
 
     original = gltf.load
     try:

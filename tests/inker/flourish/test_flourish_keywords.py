@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from warlock.studio.inker import flourish
-from warlock.studio.inker.flourish import keywords, presets, prims
+from warlock.kernels.pixel import flourish
+from warlock.kernels.pixel.flourish import keywords, presets, prims
 
 
 def _fireball():

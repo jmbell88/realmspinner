@@ -25,9 +25,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.mesh import primitives as bp
+from ...kernels.mesh import regen
 from .. import clay_mode, controls, icons, tokens, widgets
-from ..clay import primitives as bp
-from ..clay import regen
 from ..manual import render as manual_render
 from ..tokens import sp
 
@@ -204,7 +204,7 @@ def _dimensions(obj: Any) -> None:
     ``ops.world_box``'s answer rather than a second measurement here, so the
     row and the camera's framing cannot disagree about one object.
     """
-    from ..clay import ops as bops
+    from ...kernels.mesh import ops as bops
 
     box = bops.world_box(obj)
     if box is None:
@@ -372,7 +372,7 @@ def _diagnostics(state: Any, doc: Any, obj: Any) -> None:
     selection together, since either one alone leaves the user staring at an
     overlay of the wrong kind.
     """
-    from ..clay import diagnose
+    from ...kernels.mesh import diagnose
 
     widgets.field_label("mesh check")
     measured, rows = state.manifold.get(obj.uid, (None, []))

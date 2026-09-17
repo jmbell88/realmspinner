@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio import plotter_state
 from warlock.studio.plotter.tilemap import MapDoc
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 @pytest.fixture

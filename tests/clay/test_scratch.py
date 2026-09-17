@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import scratch as clay_scratch
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh import scratch as clay_scratch
 
 
 def _obj(name: str = "obj", mesh=None, **kwargs) -> bd.Obj:
@@ -190,7 +190,7 @@ def test_transplant_surfaces_a_material_the_real_document_refused_to_drop():
     document, whose undo stack holds a deleted object that named the slot.
     Before this fix the refusal was silently swallowed: the palette just
     didn't shrink, with no signal on the result."""
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     doc = bd.ClayDoc()  # materials: [default] at index 0
     extra = doc.add_material()  # index 1 -- the slot this test drops
@@ -230,7 +230,7 @@ def test_transplant_with_material_removal_keeps_face_indices_right():
     faces = obj.mesh.material.copy()
     third_index = next(i for i, m in enumerate(doc.materials) if m is third_material)
     faces[: len(faces) // 2] = third_index
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     repainted = bm.Mesh(
         positions=obj.mesh.positions, loops=obj.mesh.loops, starts=obj.mesh.starts,

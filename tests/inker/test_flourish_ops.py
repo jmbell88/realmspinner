@@ -13,9 +13,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker, inker_flourish, inker_mode, inker_ops, inker_state
-from warlock.studio.inker.flourish import bake as B
-from warlock.studio.inker.flourish import presets
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel.flourish import bake as B
+from warlock.kernels.pixel.flourish import presets
+from warlock.studio import inker_flourish, inker_mode, inker_ops, inker_state
 from warlock.studio.tasks import Done
 
 
@@ -150,9 +151,9 @@ def test_submit_insert_refusal_for_cost_does_not_also_claim_an_insert_is_already
     message contradicted the first and pointed at the wrong problem, when
     nothing was actually in flight.
     """
-    from warlock.studio.inker import flourish
-    from warlock.studio.inker.flourish import presets
-    from warlock.studio.inker.flourish import recipe as R
+    from warlock.kernels.pixel import flourish
+    from warlock.kernels.pixel.flourish import presets
+    from warlock.kernels.pixel.flourish import recipe as R
 
     tab = _open(ctx)
     maxed = flourish.clamp(
@@ -218,8 +219,8 @@ def test_tick_stops_resubmitting_a_recipe_refused_for_its_bake_cost(ctx):
     again, which re-toasted ``BAKE_TOO_COSTLY`` again, permanently occupying
     the toast stack's five visible slots even after the user clicked away.
     """
-    from warlock.studio.inker import flourish
-    from warlock.studio.inker.flourish import recipe as R
+    from warlock.kernels.pixel import flourish
+    from warlock.kernels.pixel.flourish import recipe as R
 
     tab = _open(ctx)
     rec = _small()

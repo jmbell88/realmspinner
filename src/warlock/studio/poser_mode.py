@@ -1369,7 +1369,7 @@ def preview_bounds(template_key: str) -> tuple[list[float], list[float]]:
     """
     # Function-level, the module's own rule: nothing under this import may pull
     # in a GL context, and math3d is only wanted by this one function.
-    from .viewer import math3d as m3
+    from ..kernels.geom3d import math3d as m3
 
     template = rigging.get_template(template_key)
     fitted = rigging.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
@@ -3271,7 +3271,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
         # rather than trusted.
         import numpy as np
 
-        from .viewer import math3d as m3
+        from ..kernels.geom3d import math3d as m3
 
         editor.enter_joints_mode()
         for name, delta in (data.get("moved") or {}).items():

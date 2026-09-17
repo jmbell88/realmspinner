@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import gltf
 from warlock.studio.mason import nodes as nd
-from warlock.studio.viewer import gltf
 
 
 def test_a_node_owns_its_translation_array_a_caller_mutating_it_after_does_not_reach_in() -> None:

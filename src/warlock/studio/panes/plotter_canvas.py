@@ -35,6 +35,8 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d import tileset as tileset_lib
 from .. import (
     controls,
     docmodes,
@@ -60,8 +62,6 @@ from ..plotter.tilemap import (
     TileLayer,
     objects_in_rect,
 )
-from ..tilegrid import gid as gidlib
-from ..tilegrid import tileset as tileset_lib
 from ..tokens import sp
 from . import plotter_layers, plotter_menu, plotter_textures
 

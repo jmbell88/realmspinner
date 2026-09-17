@@ -16,7 +16,7 @@ import math
 
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 
 FOV_Y = 45.0
 # OrbitControls' defaults, which the frontend never overrode.

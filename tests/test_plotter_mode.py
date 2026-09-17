@@ -16,11 +16,11 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio import plotter_io, plotter_mode
 from warlock.studio.plotter import tmx, wmap
 from warlock.studio.plotter.tilemap import MapObject, new_uid
-from warlock.studio.tilegrid import gid
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 class FakeCtx:
@@ -2113,7 +2113,7 @@ def _arrive(ctx, tab, *, projection=None, **kwargs):
 
 
 def test_an_arriving_set_is_one_tileset_and_one_undo_step():
-    from warlock.studio.tilegrid import blob
+    from warlock.kernels.grid2d import blob
 
     ctx = FakeCtx()
     tab = _tab(ctx)
@@ -2677,7 +2677,7 @@ def _blob_sheet(tile: int = 16, cols: int = 47) -> np.ndarray:
     fixture and the analyzer then agree about what a role looks like by
     construction.
     """
-    from warlock.studio.tilegrid import blob
+    from warlock.kernels.grid2d import blob
 
     depth = max(1, tile // 8) + 1
     rows = -(-blob.TILE_COUNT // cols)
@@ -2861,7 +2861,7 @@ def test_the_same_set_without_its_record_cannot_be_recognised(tmp_path, monkeypa
     If this ever starts returning a set, the record has stopped being the *only*
     thing that can land one -- and this test is where to say so.
     """
-    from warlock.studio.tilegrid import roles as rolelib
+    from warlock.kernels.grid2d import roles as rolelib
 
     atlas = _generated_terrain_atlas()
     assert rolelib.infer_roles(atlas, 16, 16) is None
@@ -3375,7 +3375,7 @@ def test_the_old_orthogonal_spelling_in_a_sidecar_is_not_a_mismatch(tmp_path, mo
 def _wang_tileset(name: str = "wang") -> Tileset:
     """Sixteen tiles over the complete two-colour corner set, and *no* blob
     terrains -- which is what a Tiled ``.tsx`` carrying a genuine Wang set is."""
-    from warlock.studio.tilegrid.wang import WangColour, WangSet
+    from warlock.kernels.grid2d.wang import WangColour, WangSet
 
     tiles = {
         index: (

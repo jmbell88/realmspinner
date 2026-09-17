@@ -249,8 +249,8 @@ def _a_model() -> Any:
     the same helper ``test_viewer_embed_textures.py`` uses, duplicated here
     rather than imported since that file is a sibling test module, not a
     library this one may depend on."""
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc()
     doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))

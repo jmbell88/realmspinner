@@ -18,10 +18,10 @@ import time
 
 import numpy as np
 
-from warlock.studio.clay import adjacency as adj
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import select, topo
+from warlock.kernels.mesh import adjacency as adj
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh import select, topo
 
 
 def _grid():
@@ -120,8 +120,8 @@ def test_linked_takes_the_whole_shell():
 
 def test_linked_stops_at_a_shell_boundary():
     """The verb that makes two shapes welded into one mesh separable again."""
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import ops
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import ops
 
     far = bd.Obj(
         uid=bd.new_uid(),
@@ -312,7 +312,7 @@ def test_by_material_finds_the_faces_using_a_slot():
 
 
 def test_verts_of_and_sel_from_verts_round_trip_a_face_selection():
-    from warlock.studio.clay import elements as el
+    from warlock.kernels.mesh import elements as el
 
     mesh = bp.box()
     faces = el.ElementSel(faces=[1])  # the top face: four corners, all its own
@@ -328,7 +328,7 @@ def test_verts_of_and_sel_from_verts_round_trip_a_face_selection():
 
 
 def test_verts_of_and_sel_from_verts_round_trip_an_edge_selection():
-    from warlock.studio.clay import elements as el
+    from warlock.kernels.mesh import elements as el
 
     mesh = _grid()
     edge = _interior_edge(mesh)
@@ -370,7 +370,7 @@ def test_faces_by_normal_ignores_a_degenerate_face_rather_than_matching_every_di
     proves the degenerate one is excluded *because* it is degenerate, not
     because nothing in this mesh would have matched anyway.
     """
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     real = bp.plane()  # one quad, facing +Y exactly, by its own docstring
     degenerate = np.full((4, 3), 2.0, dtype="f4")  # one point, four times over
@@ -514,7 +514,7 @@ def test_the_mirror_axis_is_a_parameter():
 
 
 def _three_boxes():
-    from warlock.studio.clay import document as bd
+    from warlock.kernels.mesh import document as bd
 
     doc = bd.ClayDoc()
     for i in range(3):
@@ -524,7 +524,7 @@ def _three_boxes():
 
 
 def test_deleting_several_selected_objects_undoes_in_one_step():
-    from warlock.studio.clay import selection
+    from warlock.kernels.mesh import selection
 
     doc = _three_boxes()
     doc.select([obj.uid for obj in doc.objects])
@@ -549,8 +549,8 @@ def test_deleting_several_selected_objects_undoes_in_one_step():
 
 
 def test_deleting_selected_faces_across_several_objects_undoes_in_one_step():
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import selection
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import selection
 
     doc = _three_boxes()
     doc.set_element_mode("face")
@@ -576,7 +576,7 @@ def test_deleting_selected_faces_across_several_objects_undoes_in_one_step():
 
 
 def test_duplicating_several_selected_objects_undoes_in_one_step():
-    from warlock.studio.clay import selection
+    from warlock.kernels.mesh import selection
 
     doc = _three_boxes()
     doc.select([obj.uid for obj in doc.objects])
@@ -606,7 +606,7 @@ def test_duplicate_selected_preserves_the_objects_original_relative_order():
     that ascending set order (Box0, Box1, Box2). The unfixed code copies in
     the set's order; the fix copies in the document's.
     """
-    from warlock.studio.clay import selection
+    from warlock.kernels.mesh import selection
 
     doc = _three_boxes()
     doc.objects.reverse()  # document order is now Box2, Box1, Box0

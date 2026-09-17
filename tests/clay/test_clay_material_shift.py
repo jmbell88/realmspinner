@@ -21,8 +21,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 
 
 def _obj(material: int = 0, faces: int | None = None) -> bd.Obj:

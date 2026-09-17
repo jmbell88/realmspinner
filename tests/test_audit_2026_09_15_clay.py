@@ -15,12 +15,12 @@ from types import SimpleNamespace
 import numpy as np
 from test_familiar_ui import _canned_calls, _FakeCtx  # shared rather than duplicated
 
+from warlock.kernels.mesh import diagnose
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.service import errors as service_errors
 from warlock.service import familiar as svc_familiar
 from warlock.studio import clay_mode, clay_view, familiar_ui
-from warlock.studio.clay import diagnose
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
 from warlock.studio.tasks import Done
 
 RECT = (0.0, 0.0, 128.0, 96.0)

@@ -174,7 +174,7 @@ def install(ctx: Any) -> None:
     ``App`` in one process (or a test that calls ``install`` more than once)
     needs.
     """
-    from .familiar import threads
+    from ..familiar import threads
 
     if getattr(ctx, "familiar_threads", None) is None:
         ctx.familiar_threads = threads.Threads()
@@ -202,7 +202,7 @@ def _active_tab_uid(ctx: Any) -> str:
 def thread_key(ctx: Any) -> tuple[str, str]:
     """The ``(mode, tab_uid)`` key this frame's conversation reads/writes --
     see ``threads.Threads.key_for``."""
-    from .familiar import threads
+    from ..familiar import threads
 
     mode = str(getattr(ctx.state, "mode", ""))
     return threads.Threads.key_for(mode, _active_tab_uid(ctx))
@@ -236,8 +236,8 @@ def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
     """
     if not tab_uid:
         return None
+    from ..familiar import contract
     from . import agent_clay
-    from .familiar import contract
 
     ghost = _pending_ghost(ctx, tab_uid)
     if ghost is not None:
@@ -315,7 +315,7 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     prompt = prompt.strip()
     if not prompt or ctx.busy(CHAT_KEY):
         return False
-    from .familiar import threads
+    from ..familiar import threads
 
     key = thread_key(ctx)
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
@@ -405,7 +405,7 @@ def submit_build(ctx: Any, prompt: str) -> bool:
         return False
     scene = _capture_scene(ctx, tab_uid)
 
-    from .familiar import threads
+    from ..familiar import threads
 
     key = thread_key(ctx)
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
@@ -472,7 +472,7 @@ def _say(ctx: Any, thread_key: Any, text: str, *, toast: bool = True) -> None:
         return
     threads_obj = getattr(ctx, "familiar_threads", None)
     if thread_key is not None and threads_obj is not None:
-        from .familiar import threads
+        from ..familiar import threads
 
         threads_obj.append(thread_key, threads.Turn("familiar", text))
     if toast:
@@ -572,7 +572,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             thread = tag.get("thread_key")
             threads_obj = getattr(ctx, "familiar_threads", None)
             if thread is not None and threads_obj is not None and text is not None:
-                from .familiar import threads
+                from ..familiar import threads
 
                 threads_obj.append(thread, threads.Turn("familiar", text, citations))
         else:
@@ -837,8 +837,8 @@ def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
     ghost -- or refuses, re-asking :func:`_staleness_refusal` the same
     question the submit side already asked, since the tab or the ghost being
     refined can have moved again while the batch ran."""
+    from ..kernels.mesh import scratch as clay_scratch
     from . import clay_mode
-    from .clay import scratch as clay_scratch
 
     ui.thinking = ""
     tag = done.tag if isinstance(done.tag, dict) else {}
@@ -1027,7 +1027,7 @@ def open_character_in_create(ctx: Any) -> None:
     ui.plan = None
     threads_obj = getattr(ctx, "familiar_threads", None)
     if threads_obj is not None:
-        from .familiar import threads
+        from ..familiar import threads
 
         threads_obj.append(thread_key(ctx), threads.Turn("familiar", text))
 

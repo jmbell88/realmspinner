@@ -19,10 +19,10 @@ import pytest
 
 from warlock import doctor, rigging
 from warlock.doctor import Check
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Model, Node
 from warlock.service import poses as svc_poses
 from warlock.studio import poser_mode
-from warlock.studio.viewer import math3d as m3
-from warlock.studio.viewer.gltf import Model, Node
 from warlock.studio.viewer.pose import PoseEditor
 
 

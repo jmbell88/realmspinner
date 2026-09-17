@@ -30,7 +30,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import atomic, dialogs, docmodes, filetypes, packwright_state, sizeguard
+from ..core.safeio import atomic, sizeguard
+from . import dialogs, docmodes, filetypes, packwright_state
 from .packwright_state import PackTab, active, ensure
 
 WPACK_FILTER = ["Warlock atlas (*.wpack)", "*.wpack"]

@@ -16,11 +16,11 @@ import inspect
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Material
 from warlock.studio.mason import document as doc
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import refs, scene
-from warlock.studio.viewer import math3d as m3
-from warlock.studio.viewer.gltf import Material
 
 
 def _box_ref(**params) -> refs.PrimitiveRef:

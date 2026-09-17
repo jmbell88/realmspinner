@@ -36,9 +36,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_mode
-from warlock.studio.inker import sheetout
-from warlock.studio.inker.animation import DirectionalLayout
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import sheetout
+from warlock.kernels.pixel.animation import DirectionalLayout
+from warlock.studio import inker_mode
 from warlock.studio.inker_state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)

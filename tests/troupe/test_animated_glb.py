@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from warlock import clips, glbio, rigging
+from warlock import clips, rigging
+from warlock.kernels.geom3d import glbio
 from warlock.pipelines import charsheet
 from warlock.pipelines import sheet as sheetlib
 from warlock.service import NotReady, derive, files

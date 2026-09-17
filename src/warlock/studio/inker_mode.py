@@ -19,16 +19,14 @@ import math
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
+from ..kernels.pixel import aseout
+from ..kernels.pixel.asein import ASEPRITE_SUFFIXES
 from . import (
-    atomic,
     dialogs,
     docmodes,
     filetypes,
     fonts,
-    # The two split-out modules this one still *calls* rather than merely
-    # serves: the playhead (stopped before every capture) and the colour-mode
-    # door (an indexed conversion). Both import this module back as a module
-    # object, so the pair may be imported in either order.
     inker_open,
     inker_ops,
     inker_palette_io,
@@ -37,8 +35,6 @@ from . import (
     journal,
 )
 from . import settings as settings_mod
-from .inker import aseout
-from .inker.asein import ASEPRITE_SUFFIXES
 from .inker_state import InkerDoc, InkerState
 from .state import set_mode
 
@@ -313,7 +309,7 @@ def _restore_canvas(state: InkerState, stored: Any) -> None:
     # ``"x+y"``, an axis this build no longer knows is dropped rather than kept
     # as a word the engine will not match, and a hand-edited ``"sideways"`` or
     # ``null`` comes out as no symmetry rather than raising on the first frame.
-    from .inker import brush
+    from ..kernels.pixel import brush
 
     state.symmetry = brush.compose(
         brush.axes_of(stored.get("symmetry", state.symmetry))
@@ -384,7 +380,7 @@ def capture_brush(ctx: Any) -> bool:
     The two refusals are told apart and both are said out loud: the engine
     answers None to either, and a silent no is indistinguishable from a bug.
     """
-    from . import inker
+    from ..kernels import pixel as inker
 
     state = ensure(ctx)
     tab = state.active
@@ -435,7 +431,7 @@ def active(ctx: Any) -> InkerDoc | None:
 
 
 def new_document(ctx: Any, width: int, height: int) -> InkerDoc:
-    from . import inker
+    from ..kernels import pixel as inker
 
     state = ensure(ctx)
     width, height = clamp_canvas(width, height)
@@ -701,7 +697,7 @@ def _write(doc: Any, path: Path, file_format: str) -> None:
     refusal, and ``invalid_from`` exists for the latter. Same idiom as
     ``import_tileset``'s own wrap, just on the write side of the same format.
     """
-    from . import inker
+    from ..kernels import pixel as inker
 
     if file_format == "ora":
         inker.write_ora(doc, path)
@@ -749,7 +745,7 @@ def _save_linked(ctx: Any, tab: InkerDoc) -> None:
     rev = doc.history.head
 
     def run() -> dict[str, Any]:
-        from . import inker
+        from ..kernels import pixel as inker
 
         svc_files.save_edited_image(ctx.svc, job_id, doc.png_bytes())
         svc_files.save_inker_working(ctx.svc, job_id, inker.ora_bytes(doc))
@@ -776,7 +772,7 @@ def save_as_reference(ctx: Any, tab: InkerDoc | None = None) -> None:
     def run() -> dict[str, Any]:
         result = svc_jobs.import_reference(ctx.svc, doc.png_bytes(), name=title)
         job_id = result["id"]
-        from . import inker
+        from ..kernels import pixel as inker
 
         # Linked immediately, so the next Ctrl+S saves in place rather than
         # minting a second job from the same pixels.
@@ -880,7 +876,7 @@ def revert(ctx: Any, tab: InkerDoc | None = None) -> None:
     path = tab.path
 
     def run() -> dict[str, Any]:
-        from . import inker
+        from ..kernels import pixel as inker
 
         svc_files.revert_reference(ctx.svc, job_id)
         svc_files.discard_inker_working(ctx.svc, job_id)
@@ -1533,7 +1529,7 @@ def _warn_rotsprite(ctx: Any, state: Any, tab: InkerDoc) -> None:
     the loudest bug in the editor. The engine falls back silently for exactly
     that reason -- see ``transform.ROTSPRITE_MAX_PIXELS``.
     """
-    from .inker import transform
+    from ..kernels.pixel import transform
 
     buf = tab.doc.floating
     if state.resample != "rotsprite" or buf is None:
@@ -1613,7 +1609,7 @@ def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
         # silent second way to open files, with none of the checks open_path
         # does.
         return False
-    from . import pixelguard
+    from ..core.safeio import pixelguard
 
     try:
         # The 2026-09-07 audit (inker-08) found this door decoded whatever the
@@ -1660,7 +1656,7 @@ def polygon_select(doc: Any, points: Any, op: str = "replace") -> bool:
     One ``select`` and therefore exactly one undo step, however many clicks or
     mouse-moves the vertices cost to draw.
     """
-    from .inker import SelectionMask
+    from ..kernels.pixel import SelectionMask
 
     points = list(points)
     if len(points) < 3:
@@ -1819,7 +1815,7 @@ def stamp_text(ctx: Any, state: Any, tab: InkerDoc) -> bool:
     placed is drag it into position; leaving the text tool in hand would mean
     that drag opens a second popup.
     """
-    from .inker import textstamp
+    from ..kernels.pixel import textstamp
 
     if tab.busy:
         return False
@@ -2175,7 +2171,7 @@ def _journal_slots(ctx: Any) -> list[InkerDoc]:
 
 
 def _journal_encode(tab: InkerDoc) -> bytes:
-    from .inker import ora
+    from ..kernels.pixel import ora
 
     return ora.ora_bytes(tab.doc)
 
@@ -2218,7 +2214,7 @@ def _load_recovery(path: Path, meta: dict[str, Any] | None = None) -> dict[str, 
     """Blocking; task thread only. ``None`` when the copy will not reopen --
     a corrupt ``.ora`` arrived as the generic "That did not work" here, where
     every other provider warns (``journal.adopt_failed``, 2026-09-05)."""
-    from .inker import Document
+    from ..kernels.pixel import Document
 
     try:
         doc = Document.load(Path(path))
@@ -2256,8 +2252,8 @@ def flourish_insert(
     """
     from dataclasses import replace as _replace
 
+    from ..kernels.pixel.flourish import presets
     from . import inker_flourish
-    from .inker.flourish import presets
 
     tab = tab or active(ctx)
     if tab is None or tab.busy:
@@ -2296,9 +2292,9 @@ def _scaled(recipe: Any, scale: float) -> Any:
     """The recipe on a smaller canvas, its geometry scaled with it."""
     from dataclasses import replace as _replace
 
-    from .inker.flourish import curves as flourish_curves
-    from .inker.flourish import prims
-    from .inker.flourish import recipe as flourish_recipe
+    from ..kernels.pixel.flourish import curves as flourish_curves
+    from ..kernels.pixel.flourish import prims
+    from ..kernels.pixel.flourish import recipe as flourish_recipe
 
     spatial = {"x", "y", "radius", "width", "height", "size", "spawn_radius", "speed",
                "gravity", "thickness", "scale", "noise_scale", "strength", "rise", "drift"}

@@ -68,7 +68,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ..viewer import gltf
+from ...kernels.geom3d import gltf
 from . import scene as sc
 from . import terrain as tr
 from .gltfout import DEFAULT_NAMES, kind_of, unique_name

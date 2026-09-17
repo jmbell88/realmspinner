@@ -32,12 +32,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel import asein, aseout, ora
+from warlock.kernels.pixel import composite as cp
+from warlock.kernels.pixel.brush import STAMP_ALIGN, Stamp
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import SelectionMask
 from warlock.studio import inker_mode, inker_state, probe, widgets
-from warlock.studio.inker import asein, aseout, ora
-from warlock.studio.inker import composite as cp
-from warlock.studio.inker.brush import STAMP_ALIGN, Stamp
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import SelectionMask
 from warlock.studio.panes import inker_canvas, inker_context, inker_tools
 
 RED = (255, 0, 0, 255)

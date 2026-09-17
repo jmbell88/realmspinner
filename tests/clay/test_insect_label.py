@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from warlock.studio.clay import presets
+from warlock.kernels.mesh import presets
 
 TEMPLATE_PATH = (
     Path(__file__).resolve().parents[2] / "src" / "warlock" / "templates" / "insect.json"

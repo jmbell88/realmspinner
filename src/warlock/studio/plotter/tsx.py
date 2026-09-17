@@ -34,9 +34,9 @@ from typing import Any
 
 import numpy as np
 
-from .. import xmlguard
-from ..tilegrid import blob
-from ..tilegrid.tileset import (
+from ...core.safeio import xmlguard
+from ...kernels.grid2d import blob
+from ...kernels.grid2d.tileset import (
     TerrainSpec,
     TileEllipse,
     TileFrame,
@@ -46,7 +46,7 @@ from ..tilegrid.tileset import (
     Tileset,
     compose_collection,
 )
-from ..tilegrid.wang import WANG_KINDS, WangColour, WangSet
+from ...kernels.grid2d.wang import WANG_KINDS, WangColour, WangSet
 from .props import (
     PROPERTY_TYPES,
     Prop,

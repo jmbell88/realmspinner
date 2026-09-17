@@ -15,8 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import Document
-from warlock.studio.inker.undo import ColorStateEdit, CompoundEdit, IndexPatchEdit, IndexRemapEdit
+from warlock.kernels.pixel import Document
+from warlock.kernels.pixel.undo import ColorStateEdit, CompoundEdit, IndexPatchEdit, IndexRemapEdit
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)
@@ -554,7 +554,7 @@ def test_an_rgb_document_is_untouched_by_any_of_this():
 def test_palette_constrained_rgb_keeps_its_old_step_shapes():
     """A slot move stays free and unrecorded there; only indexed mode charges
     for it, and only because it moves index data."""
-    from warlock.studio.inker.undo import PaletteEdit
+    from warlock.kernels.pixel.undo import PaletteEdit
 
     doc = Document.blank(4, 4)
     doc.stack.active.pixels[:, :] = RED
@@ -581,7 +581,7 @@ def test_check_materialized_catches_drift():
 
 def test_the_undo_budget_sees_an_index_plane():
     """An edit that under-reports its size is one the byte budget cannot evict."""
-    from warlock.studio.inker.undo import _plane_bytes
+    from warlock.kernels.pixel.undo import _plane_bytes
 
     doc = _doc(8, 8)
     layer = doc.stack.active
@@ -597,7 +597,7 @@ def test_a_layer_copy_owns_its_own_index_plane():
 
 
 def test_a_mismatched_index_plane_is_refused_at_construction():
-    from warlock.studio.inker.layers import Layer
+    from warlock.kernels.pixel.layers import Layer
 
     with pytest.raises(ValueError, match="the size of the layer"):
         Layer(pixels=np.zeros((4, 4, 4), np.uint8), indices=np.zeros((2, 2), np.uint8))
@@ -624,7 +624,7 @@ def test_the_exporter_is_handed_a_frame_s_own_index_plane():
     """``sheetout.index_plane_one`` is what makes a GIF slot-stable. It answers
     only when the flatten *is* a cel's materialisation, and the test of that is
     equality rather than a list of structural conditions."""
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     doc = _doc()
     _mark_duplicate(doc)
@@ -639,7 +639,7 @@ def test_a_blended_frame_is_not_offered_as_an_exact_plane():
     """A second layer means the flatten is a composite, not a materialisation --
     so the export falls back to a colour lookup rather than writing slots that
     describe a picture nobody is looking at."""
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     doc = _doc()
     doc.add_layer()
@@ -651,7 +651,7 @@ def test_a_blended_frame_is_not_offered_as_an_exact_plane():
 
 
 def test_an_rgb_document_is_never_offered_a_plane():
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     doc = Document.blank(4, 4)
     doc.add_frame()
@@ -666,7 +666,7 @@ def test_both_funnels_resolve_indices_through_one_function():
     on one slot when previewed and another when committed."""
     import inspect
 
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     for name in ("_commit_indexed_patch", "_patch_edit_for"):
         source = inspect.getsource(getattr(Document, name))
@@ -680,7 +680,7 @@ def test_the_preferred_slot_survives_the_extraction():
     lands in, and it is read inside the extracted helper."""
     import numpy as np
 
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     doc.convert_to_indexed([(10, 20, 30, 255), (10, 20, 30, 255), (0, 0, 0, 0)])

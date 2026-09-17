@@ -18,8 +18,9 @@ from types import SimpleNamespace
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio import inker, inker_state, probe, widgets
-from warlock.studio.inker import brush
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import brush
+from warlock.studio import inker_state, probe, widgets
 from warlock.studio.panes import inker_context
 
 

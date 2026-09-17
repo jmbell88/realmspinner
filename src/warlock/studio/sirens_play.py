@@ -82,8 +82,9 @@ def request_render(ctx: Any, tab: SongTab | None = None) -> None:
     whole = len(keep) == len(tab.doc.channels)
 
     def run() -> dict[str, Any]:
+        from ..kernels.audio import wavout
         from ..service.errors import invalid_from
-        from .sirens import synth, wavout
+        from .sirens import synth
 
         try:
             doc = wsng.read_wsng(data)
@@ -169,8 +170,9 @@ def audition(ctx: Any, tab: SongTab | None, uid: int) -> bool:
     effect = int(uid)
 
     def run() -> dict[str, Any]:
+        from ..kernels.audio import wavout
         from ..service.errors import invalid_from
-        from .sirens import synth, wavout
+        from .sirens import synth
 
         try:
             doc = wsng.read_wsng(data)
@@ -233,7 +235,8 @@ def preview_note(ctx: Any, note: int) -> bool:
     uid, value, kind = int(state.instrument), int(note), _caret_kind(ctx, tab)
 
     def run() -> dict[str, Any]:
-        from .sirens import synth, wavout
+        from ..kernels.audio import wavout
+        from .sirens import synth
 
         doc = wsng.read_wsng(data)
         samples = synth.render_note(
@@ -391,8 +394,9 @@ def play_pattern(ctx: Any, tab: SongTab | None = None) -> bool:
     uid = int(state.pattern)
 
     def run() -> dict[str, Any]:
+        from ..kernels.audio import wavout
         from ..service.errors import invalid_from
-        from .sirens import synth, wavout
+        from .sirens import synth
 
         try:
             doc = wsng.read_wsng(data)

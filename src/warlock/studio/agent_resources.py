@@ -47,7 +47,7 @@ DYNAMIC_URIS = frozenset({SCENE_URI, RENDER_LAST_URI})
 def _generators_json() -> dict[str, Any]:
     """``primitives.GENERATORS``, as JSON: for each generator, its default
     parameters. Derived, never hand-listed -- see the module docstring."""
-    from .clay import primitives as bp
+    from ..kernels.mesh import primitives as bp
 
     return {name: {"params": dict(defaults)} for name, (defaults, _fn) in bp.GENERATORS.items()}
 

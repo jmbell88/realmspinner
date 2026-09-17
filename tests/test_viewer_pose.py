@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 
 from warlock import rigging
+from warlock.kernels.geom3d import math3d as m3
 from warlock.studio.viewer import gizmo as gizmolib
 from warlock.studio.viewer import markers, picking
-from warlock.studio.viewer import math3d as m3
 from warlock.studio.viewer.camera import Camera, screen_ray
 from warlock.studio.viewer.pose import PoseEditor, mirror_quaternion
 

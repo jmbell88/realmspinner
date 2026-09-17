@@ -175,7 +175,11 @@ def test_manual_lock_paragraph_matches_pick_not_being_gated_by_locked():
 
 
 def test_compat_md_aseprite_user_data_row_matches_partial_retirement():
-    aseout = (STUDIO / "inker" / "aseout.py").read_text(encoding="utf-8")
+    # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
+    # warlock/kernels/pixel/, aseout.py included.
+    aseout = (ROOT / "src" / "warlock" / "kernels" / "pixel" / "aseout.py").read_text(
+        encoding="utf-8"
+    )
     assert "_user_data_chunks" in aseout
 
     compat = (ROOT / "docs" / "COMPAT.md").read_text(encoding="utf-8")

@@ -116,12 +116,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import presets, serialize
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import agent_clay, clay_mode, clay_ops
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import presets, serialize
-from warlock.studio.clay import primitives as bp
 from warlock.studio.panes import clay_tools as pane_clay_tools
-from warlock.studio.viewer import math3d as m3
 
 # --- a ctx double, no imgui, no GL, no pygame --------------------------------
 
@@ -461,7 +461,7 @@ def test_an_array_of_arrays_param_survives_the_agent_door_for_any_generator(
 
 
 def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() -> None:
-    from warlock.studio.clay import elements as clay_elements
+    from warlock.kernels.mesh import elements as clay_elements
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_element_mode"].schema["properties"]["mode"]["enum"])
@@ -469,7 +469,7 @@ def test_every_element_mode_is_a_clay_element_mode_enum_option_and_vice_versa() 
 
 
 def test_every_query_name_is_a_clay_select_by_enum_option_and_vice_versa() -> None:
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import select as clay_select_mod
 
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_select_by"].schema["properties"]["query"]["enum"])
@@ -483,8 +483,8 @@ def test_a_seventh_query_reaches_the_agent_surface_with_no_edit_here(
     tests above, for the fourth derived registry: monkeypatch a new entry
     into ``select.QUERIES``, restored automatically, and assert it shows up
     in ``clay_select_by``'s own enum with no code here touched at all."""
-    from warlock.studio.clay import elements as clay_elements
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import elements as clay_elements
+    from warlock.kernels.mesh import select as clay_select_mod
 
     fake = clay_select_mod.Query(
         name="seventh",
@@ -504,7 +504,7 @@ def test_every_query_argument_name_has_a_schema_fragment_and_vice_versa() -> Non
     place that vocabulary is spelled out, and this gate is what stops a query
     growing an argument nobody here can express, or an entry here nothing
     asks for any more."""
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import select as clay_select_mod
 
     all_args = {a for q in clay_select_mod.QUERIES.values() for a in q.args}
     assert all_args == set(agent_clay._QUERY_ARG_SCHEMAS)
@@ -3791,7 +3791,7 @@ def test_clay_select_elements_refuses_a_vertex_pair_that_is_not_an_edge() -> Non
 def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would() -> None:
     """Assert equality with ``select.edge_loop`` called directly, so the tool
     cannot drift from the verb it wraps."""
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import select as clay_select_mod
 
     ctx = _Ctx()
     session = agent_clay.Session()
@@ -3813,7 +3813,7 @@ def test_clay_select_by_loop_selects_the_ring_of_edges_a_human_alt_click_would()
 def test_clay_select_by_normal_takes_the_upward_faces_of_a_rotated_object_in_world_space() -> (
     None
 ):
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import select as clay_select_mod
 
     ctx = _Ctx()
     session = agent_clay.Session()

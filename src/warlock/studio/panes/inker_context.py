@@ -26,7 +26,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, inker, inker_mode, inker_state, toolbar, widgets
+from ...kernels import pixel as inker
+from .. import controls, icons, inker_mode, inker_state, toolbar, widgets
 from ..tokens import sp
 
 #: How wide a context field is, in design px, per widget kind. A number rather
@@ -329,7 +330,7 @@ def symmetry_trailing(ctx: Any, state: Any) -> Any:
     labels go, which is also what this bar did before any of this and what
     Aseprite does.
     """
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     axes = brush.axes_of(state.symmetry)
     style = imgui.get_style()
@@ -418,7 +419,7 @@ def _view_dirty(state: Any) -> bool:
 def _symmetry_popup(ctx: Any, state: Any) -> None:
     """Behind the ``Sym`` word: the mirrors in words, radial, the axis, Reset."""
 
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     with controls.menu_popup(SYMMETRY_POPUP) as opened:
         if not opened:
@@ -608,7 +609,7 @@ def _op_row(ctx: Any, inker_ops: Any, key: str, *, label: str = "") -> None:
 def _symmetry_hit(ctx: Any, state: Any, hit: str) -> None:
     """One of the five symmetry buttons, or nothing this function owns."""
 
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     if not hit.startswith("sym/"):
         return
@@ -819,7 +820,7 @@ def _field(ctx: Any, state: Any, tab: Any, key: str) -> Any:
     if key == "fill_refer":
         return combo(REFER_LABELS)
     if key == "gradient_dither":
-        from ..inker import dither
+        from ...kernels.pixel import dither
 
         return combo([("none", "None")] + [(m, m.title()) for m in dither.ORDERED])
     if key == "font":

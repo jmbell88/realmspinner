@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import clay_hints
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import primitives as bp
 
 
 def _doc(*meshes):

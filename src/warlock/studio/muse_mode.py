@@ -956,8 +956,9 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     form = dict(state.form)
 
     def run():
+        from ..kernels.audio import wavout
         from ..service.errors import invalid_from
-        from .sirens import synth, wavout
+        from .sirens import synth
 
         try:
             doc = wsng.read_wsng(data)

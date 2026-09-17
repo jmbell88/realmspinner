@@ -1,6 +1,6 @@
 """Regression tests for the 2026-09-15 audit's glTF loader findings.
 
-Two rows, both in ``src/warlock/studio/viewer/gltf.py``:
+Two rows, both in ``src/warlock/kernels/geom3d/gltf.py``:
 
 - clay-02: ``_Reader.decoded()``'s normalized-integer branch allocated and
   divided without charging either against ``MAX_TOTAL_BYTES``, and ran again
@@ -17,8 +17,8 @@ import struct
 import numpy as np
 import pytest
 
-from warlock.glbio import rebuild_glb
-from warlock.studio.viewer import gltf
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d.glbio import rebuild_glb
 
 
 def _glb(gltf_json: dict, binary: bytes) -> bytes:

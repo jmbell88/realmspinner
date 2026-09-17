@@ -90,14 +90,14 @@ OUTWARD_IMPORTS = {
         # editing can reach one history, rather than in a pane that owns it
         # twice. It brings nothing imgui-shaped with it, which the headless
         # import assertion below is what actually guarantees.
-        "warlock.studio.undo",
-        "warlock.studio.viewer.gltf",
-        "warlock.studio.viewer.math3d",
+        "warlock.core.undo",
+        "warlock.kernels.geom3d.gltf",
+        "warlock.kernels.geom3d",
     },
     # The GPU half, so it reaches only for viewer siblings.
     "studio/viewer/bonelines.py": {
         "warlock.studio.viewer.markers",
-        "warlock.studio.viewer.math3d",
+        "warlock.kernels.geom3d",
         "warlock.studio.viewer.render",
     },
 }

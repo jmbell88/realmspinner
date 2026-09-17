@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.clay import drag as bd
+from warlock.kernels.mesh import drag as bd
 
 
 def _reference(

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.inker import indexed as ix
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import indexed as ix
+from warlock.kernels.pixel.document import Document
 from warlock.studio.inker_state import InkerState
 
 BLACK = (0, 0, 0, 255)
@@ -286,7 +286,8 @@ def test_a_usage_count_is_not_shared_between_documents():
     other's counts. "0 px, safe to delete" is the one thing this number must
     never say wrongly."""
 
-    from warlock.studio import inker, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_state
     from warlock.studio.panes import inker_colors
 
     state = inker_state.InkerState()
@@ -310,7 +311,7 @@ def test_matte_for_answers_none_for_a_plane_with_no_alpha():
     """The guard was the crash it was guarding against."""
     import numpy as np
 
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     assert inker.matte_for(np.zeros((4, 4), np.uint8)) is None
     assert inker.matte_for(np.zeros((4, 4, 3), np.uint8)) is None

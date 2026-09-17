@@ -9,7 +9,7 @@ disagrees with the pixels beside it.
 
 from __future__ import annotations
 
-from warlock.studio.inker import transform as tf
+from warlock.kernels.pixel import transform as tf
 
 # --- the anchor grid ----------------------------------------------------------
 

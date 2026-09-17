@@ -12,23 +12,30 @@ tree, and a pin that answers it by *reading the code* survives every file
 move the restructure makes, because nothing here is keyed on where a file
 sits today except the one table below that says where it is *going*.
 
-**Layer by planned destination, not by current directory.** So
-``src/warlock/studio/clay/document.py`` is already layer 1 (bound for
-``kernels/mesh/``), ``studio/atomic.py`` is already layer 0, and
-``studio/familiar/router.py`` is already layer 3 -- each mapped by the same
-table ``dev/RESTRUCTURE.md``'s "Target architecture" section gives, transcribed
-once here rather than re-derived, because *where a file is going* is a plan
-decision, not a fact the tree can answer by itself. What the tree answers,
-and what actually gets walked with :mod:`ast`, is which mode owns a
-``studio/<mode>_*.py`` / ``studio/panes/<mode>_*.py`` / ``studio/<mode>/``
-file -- derived from :data:`warlock.studio.modes.KEYS`, the one authoritative
-mode list, exactly the way the task that produced this file asked for, so a
-fifteenth mode enrols itself in the sibling-import ban the day its files
-appear rather than waiting for a hand list to notice.
+**Layer by planned destination, not by current directory -- and that trick is
+now half-spent.** P3 landed 2026-09-17: ``core/safeio/``, ``core/undo.py``,
+``kernels/{mesh,pixel,grid2d,geom3d,audio}/`` and ``kernels/manual/
+{loader,parser,targets}.py`` are today's real paths, not a plan destination
+any more, so :func:`classify` matches them directly (a plain prefix or a
+literal set of the files that actually moved) instead of guessing from a
+``studio/...`` name that no longer exists on disk. ``warlock/familiar/``
+(the pilot) is the same story: ``familiar/router.py`` is layer 3 because
+``familiar/`` *is* where it lives now. What is left to move under this
+trick -- still classified by planned destination because the file has not
+moved yet -- is everything P4 onward names: the god-file splits, the
+per-mode folds (P5/P6), Muse into Create (P10), Review/Home into Library
+(P11/P12), plus the three still-undecided core/kernels edges in
+``_UNRESOLVED`` below. What the tree answers, and what actually gets walked
+with :mod:`ast`, is which mode owns a ``studio/<mode>_*.py`` /
+``studio/panes/<mode>_*.py`` / ``studio/<mode>/`` file -- derived from
+:data:`warlock.studio.modes.KEYS`, the one authoritative mode list, exactly
+the way the task that produced this file asked for, so a fifteenth mode
+enrols itself in the sibling-import ban the day its files appear rather than
+waiting for a hand list to notice.
 
 **Module scope only**, matching :mod:`_pure_packages`'s own choice, and for
 the same reason stated there plus one this repo already writes down twice.
-``studio/familiar/contract.py`` imports ``agent_clay`` *inside a function*
+``familiar/contract.py`` imports ``agent_clay`` *inside a function*
 specifically so the module keeps importing with no imgui/moderngl/pygame in
 the process, and its own docstring names that as the reason; ``poser_mode.py``
 imports ``clay_mode`` and ``troupe_mode`` the same way, inside functions, and
@@ -116,16 +123,24 @@ CORE_TOP = frozenset({
     # this tree's two canonical "pure, importable from anywhere" examples.
     "errors.py", "changelog.py",
 })
-CORE_SAFEIO = frozenset({
-    "studio/atomic.py", "studio/sizeguard.py", "studio/zipguard.py",
-    "studio/xmlguard.py", "studio/npyguard.py", "studio/pixelguard.py",
-})
-GEOM3D_TOP = frozenset({"glbio.py", "meshaudit.py", "meshreport.py", "tiercheck.py"})
-GEOM3D_VIEWER = frozenset({
-    "studio/viewer/math3d.py", "studio/viewer/gltf.py", "studio/viewer/glbwrite.py",
-})
+#: P3 landed: ``core/safeio/*`` and ``core/undo.py`` are today's paths, not a
+#: plan destination -- so this is a plain prefix now rather than a hand list
+#: of the pre-move ``studio/{atomic,sizeguard,...}.py`` names.
+CORE_NESTED_PREFIX = "core/"
+GEOM3D_TOP = frozenset({"meshaudit.py", "meshreport.py", "tiercheck.py"})
+#: P3 landed: ``viewer/{math3d,gltf,glbwrite}.py`` and ``glbio.py`` are both
+#: at ``kernels/geom3d/`` today.
+GEOM3D_PREFIX = "kernels/geom3d/"
 RIG_TOP = frozenset({"rigging.py", "clips.py", "clipmaps.py", "cliptransfer.py", "poselib.py"})
-AUDIO_KERNEL = frozenset({"studio/sirens/wavout.py"})
+#: P3 landed: ``sirens/wavout.py`` is at ``kernels/audio/wavout.py`` today.
+AUDIO_PREFIX = "kernels/audio/"
+#: P3 landed: ``manual/{loader,parser,targets}.py`` are at ``kernels/manual/``
+#: today -- ``render.py`` (the only piece that draws) stays behind at L4, per
+#: RESTRUCTURE.md's own table, so this is a prefix on the three files that
+#: actually moved rather than the whole former ``studio/manual/`` directory.
+MANUAL_KERNEL = frozenset({
+    "kernels/manual/loader.py", "kernels/manual/parser.py", "kernels/manual/targets.py",
+})
 WEIGHTS_TOP = frozenset({"models.py", "fetch.py", "packs.py", "publish.py"})
 #: Top-level, torch-free, pure planning/writer/contract modules with no row
 #: of their own in RESTRUCTURE.md's table -- grouped beside pipelines because
@@ -139,8 +154,10 @@ JOBS_TOP_EXTRA = frozenset({"queue.py", "vectors.py", "followups.py"})
 SHELL_NAMED = frozenset({
     "studio/main.py", "studio/widgets.py", "studio/theme.py", "studio/tokens.py",
     "studio/controls.py", "studio/icons.py", "studio/dialogs.py", "studio/state.py",
-    "studio/docmodes.py", "studio/undo.py", "studio/journal.py",
+    "studio/docmodes.py", "studio/journal.py",
     "studio/imgui_backend.py", "studio/tasks.py",
+    # studio/undo.py itself is gone -- P3 moved it to core/undo.py (see
+    # CORE_NESTED_PREFIX above); it is not renamed to a shell file here.
 })
 VIEWPORT_NAMED = frozenset({
     "studio/_view_bounds.py", "studio/_view_cache.py", "studio/_view_drag.py",
@@ -172,20 +189,22 @@ def classify(rel: str) -> Layer:
     bound for, by :data:`dev/RESTRUCTURE.md`'s table -- today's path, not
     today's directory listing.
     """
-    if rel in CORE_TOP or rel in CORE_SAFEIO:
+    if rel in CORE_TOP or rel.startswith(CORE_NESTED_PREFIX):
         return Layer(0, "core")
-    if rel in GEOM3D_TOP or rel in GEOM3D_VIEWER:
+    if rel in GEOM3D_TOP or rel.startswith(GEOM3D_PREFIX):
         return Layer(1, "kernel:geom3d")
-    if rel.startswith("studio/clay/"):
+    if rel.startswith("kernels/mesh/"):
         return Layer(1, "kernel:mesh")
-    if rel.startswith("studio/inker/"):
+    if rel.startswith("kernels/pixel/"):
         return Layer(1, "kernel:pixel")
-    if rel.startswith("studio/tilegrid/"):
+    if rel.startswith("kernels/grid2d/"):
         return Layer(1, "kernel:grid2d")
     if rel in RIG_TOP:
         return Layer(1, "kernel:rig")
-    if rel in AUDIO_KERNEL:
+    if rel.startswith(AUDIO_PREFIX):
         return Layer(1, "kernel:audio")
+    if rel in MANUAL_KERNEL:
+        return Layer(1, "kernel:manual")
     if rel in WEIGHTS_TOP:
         return Layer(2, "weights")
     if rel.startswith("pipelines/"):
@@ -196,7 +215,7 @@ def classify(rel: str) -> Layer:
         return Layer(3, "jobs")
     if rel.startswith("service/"):
         return Layer(3, "service")
-    if rel.startswith("studio/familiar/"):
+    if rel.startswith("familiar/"):
         return Layer(3, "familiar")
     if rel.startswith("characters/"):
         return Layer(3, "characters")
@@ -394,7 +413,11 @@ def _violations() -> list[tuple[Edge, str]]:
             imp.number <= 3
             and not imp_rel.startswith("studio/")
             and tgt_rel.startswith("studio/")
-            and tgt_rel not in CORE_SAFEIO
+            # No carve-out for core/safeio/* here any more: P3 actually moved
+            # those files out of studio/, so tgt_rel no longer starts with
+            # "studio/" for them at all -- the old exemption (for when they
+            # were physically under studio/ but logically core) is dead code
+            # now, not a rule this check still needs.
         ):
             reason = f"L{imp.number}({imp.kind}) (non-UI) may not import anything under studio/"
             out.append((edge, reason))
@@ -429,19 +452,16 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.panes.landing", "warlock.studio.create_stages"),
 })
 
-# P3 -- shared code moves out of studio/. Familiar's headless half (contract,
-# router, retrieval, doors, character_plan) is the pilot: service/familiar.py
-# and pipelines/llama_client.py depend on it today while it still lives under
-# studio/, which the "non-UI layer may not import under studio/" rule catches
-# regardless of Familiar's own future layer (3) being low enough on paper.
-_P3_FAMILIAR_MOVES_OUT: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.service.familiar", "warlock.studio.familiar.character_plan"),
-    ("warlock.service.familiar", "warlock.studio.familiar.contract"),
-    ("warlock.service.familiar", "warlock.studio.familiar.doors"),
-    ("warlock.service.familiar", "warlock.studio.familiar.retrieval"),
-    ("warlock.service.familiar", "warlock.studio.familiar.router"),
-    ("warlock.pipelines.llama_client", "warlock.studio.familiar.contract"),
-})
+# P3 -- shared code moves out of studio/, DONE for Familiar's headless half
+# (contract, router, retrieval, doors, character_plan): it now lives at
+# warlock/familiar/, and service/familiar.py importing it is layer 3
+# importing layer 3, not a violation any more -- the group that used to sit
+# here (_P3_FAMILIAR_MOVES_OUT) is gone. One of its six pairs survives under
+# a different name: see _UNRESOLVED's "pipelines/llama_client.py" entry --
+# the move fixed the "-> studio/" shape but not the underlying layer number,
+# because pipelines/ (L2) importing warlock/familiar/ (L3) is banned by
+# dev/RESTRUCTURE.md's own table regardless of studio/ being involved, and
+# no phase says who fixes that.
 
 # P3/P7 -- "Packwright stays a mode... the overlap was tilegrid and the
 # texture caches, which P3 and P7 already fix" (RESTRUCTURE.md's own words).
@@ -532,38 +552,54 @@ _P11_P12_LIBRARY_ABSORBS: frozenset[tuple[str, str]] = frozenset({
 # (removing them would just make the suite red for a gap in the plan, not in
 # the code) and named here for whoever picks the plan back up. See the P1
 # landing report for the case each one earns.
+#
+# studio/undo.py's layer and studio/manual/{loader,parser}.py's layer used to
+# sit here as open questions -- P3 (2026-09-17) answered both by literally
+# moving the files (undo.py to core/undo.py, loader.py/parser.py to
+# kernels/manual/), so `classify` now maps them to their real layer (0 and 1)
+# directly and every edge that used to name them here is no longer a
+# violation at all. Deleted rather than left, per this file's own second
+# test's rule for a landed phase.
 _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
-    # studio/undo.py is the layer table's own contradiction: its own
-    # docstring says it was extracted "for" Clay precisely so a pure engine
-    # would not depend on the raster editor for history, and
-    # tests/clay/test_clay_imports.py's OUTWARD_IMPORTS already excepts it on
-    # exactly that reasoning. Moving Inker's and Clay's engines to
-    # kernels/pixel and kernels/mesh (P3) does not resolve this edge -- an L1
-    # kernel would still import an L4 shell module the day P3 lands. Whoever
-    # runs P3 needs to also decide undo.py's real layer (core, beside
-    # vram/memlog, is the shape its own docstring already argues for).
-    ("warlock.studio.clay.document", "warlock.studio.undo"),
-    ("warlock.studio.clay.edits", "warlock.studio.undo"),
-    ("warlock.studio.inker.anim_edits", "warlock.studio.undo"),
-    ("warlock.studio.inker.tile_edits", "warlock.studio.undo"),
-    ("warlock.studio.inker.undo", "warlock.studio.undo"),
-    # studio/manual/ has no row in RESTRUCTURE.md's table at all. Familiar's
-    # retrieval already depends on manual.loader/parser (pure text chunking,
-    # no imgui) at module scope; manual.render.py is the only piece that
-    # actually draws. The same kernel/viewport split the plan already applies
-    # to viewer/ would resolve this, but no phase proposes it yet.
-    ("warlock.studio.familiar.retrieval", "warlock.studio.manual.loader"),
-    ("warlock.studio.familiar.retrieval", "warlock.studio.manual.parser"),
+    # pipelines/llama_client.py is the one _P3_FAMILIAR_MOVES_OUT pair P3
+    # did not actually close. The move fixed the "-> studio/" shape (Familiar
+    # is warlock/familiar/ now, not studio/familiar/), but dev/RESTRUCTURE.md's
+    # own table puts pipelines/ at L2 whose "may import" column is "core,
+    # kernels" -- L3 (warlock/familiar/) is not on it -- so pipelines/
+    # importing familiar/contract stays banned by the plain "may not import a
+    # higher layer" rule, just no longer by the studio-specific one. No phase
+    # says who resolves this (llama_client.py staying in pipelines/ while
+    # needing Familiar's contract module is exactly the "shared code trapped"
+    # shape P3's own intro names, but P3's own bullet list only names the
+    # move, not a fix for the layer number this leaves behind).
+    #
+    # Checked by hand 2026-09-17 before leaving it here, because the obvious
+    # fix is wrong. What ``llama_client`` takes from ``contract`` is only
+    # prompt-sizing data -- ``SIZED_SKILLS``, ``SAMPLING``, ``TRAINED_WINDOW``,
+    # ``output_budget`` -- which reads like kernel material, so "promote
+    # ``contract`` to ``kernels/``" is the tempting answer. It is not available:
+    # ``contract.derive_clay_card`` builds the Clay card from the *live*
+    # ``agent_clay`` tool surface, so ``contract`` depends on layer 5 and is not
+    # pure in the sense ``kernels/`` means. The real candidate is the other
+    # direction -- ``llama_client`` moves into ``warlock/familiar/``, and that
+    # package's httpx ban gains one recorded exemption for it, which keeps the
+    # property the ban is actually for (a training script can import
+    # ``contract`` with no network stack) while putting the client beside the
+    # thing it is a client of. That is a decision, not a move, so it belongs to
+    # whoever runs P4.
+    ("warlock.pipelines.llama_client", "warlock.familiar.contract"),
     # config.py (core) importing models.DEFAULT_BASE_MODEL (weights) for one
     # constant; clips.py (kernels/rig) and inker/sheetout.py (kernels/pixel)
-    # each importing a pipelines/ writer directly. None of the three is a
-    # "shared code trapped in studio/" case RESTRUCTURE.md's P3 describes --
-    # they are core/kernels reaching into weights/pipelines outright -- and
-    # no phase names any of them.
+    # each importing a pipelines/ writer directly. dev/RESTRUCTURE.md's own
+    # P3 section names these three explicitly as edges its first draft had no
+    # row for -- "not the trapped-in-studio shape at all... each needs a
+    # call: invert the dependency, or move the constant" -- and P3 has now
+    # come and gone (2026-09-17) without making that call, so this is a
+    # confirmed-still-open gap in the plan, not a newly discovered one.
     ("warlock.config", "warlock.models"),
     ("warlock.clips", "warlock.pipelines.charsheet"),
     ("warlock.clips", "warlock.pipelines.sheet"),
-    ("warlock.studio.inker.sheetout", "warlock.pipelines.sheet"),
+    ("warlock.kernels.pixel.sheetout", "warlock.pipelines.sheet"),
     # mason -> clay, in the direction Mason's own code says is banned:
     # clay_ops.py's `_align` docstring states "Mason may not import Clay (its
     # own import pin says so, and for a real reason)" while arguing the
@@ -583,7 +619,6 @@ _UNRESOLVED: frozenset[tuple[str, str]] = frozenset({
 
 EXCEPTIONS: frozenset[tuple[str, str]] = (
     _P2_SHELL_DISPATCH
-    | _P3_FAMILIAR_MOVES_OUT
     | _P3_P7_PACKWRIGHT_PLOTTER_OVERLAP
     | _P4_GOD_FILE_SPLIT
     | _P5_PILOT_FOUR

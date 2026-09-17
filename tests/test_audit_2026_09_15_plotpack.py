@@ -30,10 +30,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.grid2d import gid as gidlib
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio import plotter_mode, plotter_tilesets
 from warlock.studio.plotter import project
-from warlock.studio.tilegrid import gid as gidlib
-from warlock.studio.tilegrid.tileset import Tileset
 
 # --- plotter-04 -----------------------------------------------------------
 

@@ -596,14 +596,21 @@ def test_no_mode_is_persisted_anywhere():
 
     A write with no reader is how the two halves drift: the next person to add
     a restore would find a key that four call sites keep half-updated.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose, for the same reason as ``test_mode_writes.py`` --
+    ``settings.set("mode", ...)`` can only be written by shell code that holds
+    the App's ``Settings`` object, and P3 moved no such code out of ``studio/``.
     """
     import re
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
+    files = sorted(root.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {root} -- did the sweep root break?"
     offenders = [
         f"{path.relative_to(root)}:{n}"
-        for path in root.rglob("*.py")
+        for path in files
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if re.search(r"""settings\.set\(\s*["']mode["']""", line)
     ]

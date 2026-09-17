@@ -22,11 +22,11 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel.slices import SliceKey, slice_props
 from .. import (
     inker_state,
     theme,
 )
-from ..inker.slices import SliceKey, slice_props
 
 #: The four pure helpers this module used to define. They live in
 #: ``inker_state`` now (no imgui, no document, no side effects) and are named

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from warlock import native
-from warlock.studio.inker import transform as tf
+from warlock.kernels.pixel import transform as tf
 
 pytestmark = pytest.mark.skipif(
     not native.available(), reason="warlockc is not built in this checkout"

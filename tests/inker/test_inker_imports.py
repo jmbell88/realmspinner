@@ -24,13 +24,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import inker
+from warlock.kernels import pixel as inker
 
 # Located through the package rather than by climbing ``__file__``, which is how
 # the other three do it: a moved test file must not silently start pinning a
 # directory that does not exist.
 ENGINE = Path(inker.__file__).parent
-PACKAGE = "warlock.studio.inker"
+PACKAGE = "warlock.kernels.pixel"
 
 #: ``(module, imported name)`` for every import that leaves the package.
 #:
@@ -40,7 +40,8 @@ PACKAGE = "warlock.studio.inker"
 #: undo engine and the native kernel loader, both as headless as this package is.
 #:
 #: ``tiles.py``'s two entries are the tile model reaching for the *other*
-#: shared leaf, ``warlock.studio.tilegrid`` -- the gid word and the sliced-atlas
+#: shared leaf, ``warlock.kernels.grid2d`` (``studio/tilegrid/`` before P3 of
+#: ``dev/RESTRUCTURE.md`` moved it) -- the gid word and the sliced-atlas
 #: type. Same reasoning as ``undo.py``'s entry above: a shared leaf is not a
 #: sibling engine (``SIBLING_PACKAGES`` says so explicitly), so this is a
 #: deliberate, permanent addition rather than a drift to chase down later.
@@ -86,12 +87,12 @@ OUTWARD_IMPORTS = {
     # reason the algebra moved there rather than being copied: two engines
     # needed one table, and a second copy of a group-theory rule is the
     # kind of thing that drifts without either half noticing.
-    ("_doc_ranges.py", "warlock.studio.tilegrid"),
-    ("_doc_tiles.py", "warlock.studio.tilegrid"),
-    ("anim_edits.py", "warlock.studio.undo"),
-    ("asein.py", "warlock.studio.tilegrid"),
-    ("asein.py", "warlock.studio.tilegrid.tileset"),
-    ("aseout.py", "warlock.studio.tilegrid"),
+    ("_doc_ranges.py", "warlock.kernels.grid2d"),
+    ("_doc_tiles.py", "warlock.kernels.grid2d"),
+    ("anim_edits.py", "warlock.core.undo"),
+    ("asein.py", "warlock.kernels.grid2d"),
+    ("asein.py", "warlock.kernels.grid2d.tileset"),
+    ("aseout.py", "warlock.kernels.grid2d"),
     ("composite.py", "warlock.native"),
     ("dither.py", "warlock.native"),
     # The shared nearest-palette search: one definition for ``snap``,
@@ -115,26 +116,31 @@ OUTWARD_IMPORTS = {
     # so a failed encode left a ``.aseprite.tmp`` beside the user's document
     # forever. A third private copy of a staging rule is a copy that stops
     # agreeing with the twelve call sites that already share this one.
-    ("ora.py", "warlock.studio.atomic"),
-    ("aseout.py", "warlock.studio.atomic"),
-    ("ora.py", "warlock.studio.zipguard"),
-    ("ora.py", "warlock.studio.xmlguard"),
-    ("ora.py", "warlock.studio.pixelguard"),
-    ("asein.py", "warlock.studio.pixelguard"),
-    ("gifin.py", "warlock.studio.pixelguard"),
+    #
+    # 2026-09-17: P3 of ``dev/RESTRUCTURE.md`` folded the four guard modules
+    # into one ``core/safeio/`` package. ``ora.py`` reaches ``atomic``,
+    # ``zipguard``, ``xmlguard`` and ``pixelguard`` through a single
+    # ``from ... import`` line now, which is one outward edge, not four.
+    # ``aseout.py`` imports ``atomic`` through its own fully-qualified
+    # ``core.safeio.atomic`` line (a separate statement from the rest), so it
+    # keeps its own, more specific entry.
+    ("ora.py", "warlock.core.safeio"),
+    ("aseout.py", "warlock.core.safeio.atomic"),
+    ("asein.py", "warlock.core.safeio"),
+    ("gifin.py", "warlock.core.safeio"),
     # Reachable by *typing*: the surface is measured from the string in the
     # text field at the size in the size field, and nothing stood between a
     # 4000-point paste and ``Image.new``.
-    ("textstamp.py", "warlock.studio.pixelguard"),
-    ("document.py", "warlock.studio.pixelguard"),
-    ("ora.py", "warlock.studio.tilegrid"),
-    ("ora.py", "warlock.studio.tilegrid.tileset"),
+    ("textstamp.py", "warlock.core.safeio"),
+    ("document.py", "warlock.core.safeio"),
+    ("ora.py", "warlock.kernels.grid2d"),
+    ("ora.py", "warlock.kernels.grid2d.tileset"),
     ("selection.py", "warlock.native"),
     ("sheetout.py", "warlock.pipelines"),
-    ("tile_edits.py", "warlock.studio.undo"),
-    ("tiles.py", "warlock.studio.tilegrid"),
-    ("tiles.py", "warlock.studio.tilegrid.tileset"),
-    ("undo.py", "warlock.studio.undo"),
+    ("tile_edits.py", "warlock.core.undo"),
+    ("tiles.py", "warlock.kernels.grid2d"),
+    ("tiles.py", "warlock.kernels.grid2d.tileset"),
+    ("undo.py", "warlock.core.undo"),
     # RotSprite's kernel: the same native-loader door composite.py, dither.py,
     # index_plane.py and selection.py already use, with the numpy path kept
     # beside it as the reference.
@@ -154,11 +160,11 @@ LAZY_ONLY = {"PIL"}
 #: shrunk by the ``tilegrid`` promotion to just ``tsx`` and ``pngio``, since the
 #: gid word, the sliced atlas and the blob collapse moved to the shared leaf
 #: both packages now reach for instead -- and it runs the other way, so nothing
-#: here may point at any of them. ``warlock.studio.tilegrid`` is not one of
+#: here may point at any of them. ``warlock.kernels.grid2d`` is not one of
 #: these: it is a shared leaf, not a sibling engine, and this package is free to
 #: import it.
 SIBLING_PACKAGES = (
-    "warlock.studio.clay",
+    "warlock.kernels.mesh",
     "warlock.studio.plotter",
     "warlock.studio.packwright",
 )
@@ -274,35 +280,3 @@ def test_pillow_is_never_imported_at_module_scope():
 def test_the_package_imports_with_no_optional_dependency_present():
     """Importing every module is the cheapest possible smoke test that the
     lazy-import rule above is actually being followed."""
-    from warlock.studio.inker import (  # noqa: F401
-        _doc_ranges,
-        _doc_slices,
-        _doc_tiles,
-        anim_edits,
-        animation,
-        asein,
-        aseout,
-        brush,
-        composite,
-        dither,
-        document,
-        filters,
-        gifout,
-        gpl,
-        gradient,
-        groups,
-        index_plane,
-        indexed,
-        layers,
-        ora,
-        selection,
-        sheetin,
-        sheetout,
-        slices,
-        textstamp,
-        tile_edits,
-        tiles,
-        tiling,
-        transform,
-        undo,
-    )

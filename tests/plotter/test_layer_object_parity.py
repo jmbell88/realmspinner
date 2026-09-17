@@ -14,8 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid as gidlib
 from warlock.studio.plotter.tilemap import MapDoc, MapObject, new_uid
-from warlock.studio.tilegrid import gid as gidlib
 
 
 def _doc(width: int = 8, height: int = 8) -> MapDoc:

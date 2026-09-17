@@ -15,14 +15,14 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.tiles import strip
 from warlock.studio import inker_mode, plotter_mode, plotter_tilesets
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.tiles import strip
 from warlock.studio.inker_state import InkerDoc, InkerState
 from warlock.studio.plotter import tsx as tsxlib
 from warlock.studio.plotter.tilemap import MapDoc
 from warlock.studio.plotter_state import PlotterDoc, PlotterState
-from warlock.studio.tilegrid.tileset import TerrainSpec, Tileset
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -49,7 +49,7 @@ def _strip_tileset(*colours: tuple[int, int, int, int], w: int = 4, h: int = 4) 
 
 
 def _terrain_tileset(terrains: int = 2, k: int = 1) -> Tileset:
-    from warlock.studio.tilegrid import blob
+    from warlock.kernels.grid2d import blob
 
     tile = 4
     specs = tuple(

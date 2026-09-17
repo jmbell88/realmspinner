@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker.walk import rig as R
+from warlock.kernels.pixel.walk import rig as R
 
 SIZE = (64, 64)
 

@@ -15,10 +15,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from warlock.studio import tilegrid
+from warlock.kernels import grid2d as tilegrid
 
 ENGINE = Path(tilegrid.__file__).parent
-PACKAGE = "warlock.studio.tilegrid"
+PACKAGE = "warlock.kernels.grid2d"
 
 
 def _modules() -> list[Path]:
@@ -55,7 +55,7 @@ def test_the_leaf_imports_nothing_under_warlock() -> None:
 
 
 def test_the_leaf_lives_at_its_new_home() -> None:
-    assert tilegrid.__name__ == "warlock.studio.tilegrid"
+    assert tilegrid.__name__ == "warlock.kernels.grid2d"
 
 
 def test_the_public_names_are_present() -> None:

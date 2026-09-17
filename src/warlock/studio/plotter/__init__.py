@@ -5,7 +5,7 @@ plus a lazy Pillow, no imgui, no moderngl, no pygame, no ``service``. Every rule
 about where a tile lands, what a gid means and what a ``.tmx`` may contain is
 therefore assertable headlessly, which is the whole reason the split exists.
 
-The one outward import is :mod:`warlock.studio.undo`, the history engine the
+The one outward import is :mod:`warlock.core.undo`, the history engine the
 raster editor and Clay already share -- pinned by
 ``tests/plotter/test_plotter_imports.py`` along with everything else this
 package reaches for, so the next outward import is a decision rather than a

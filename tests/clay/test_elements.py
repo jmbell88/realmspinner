@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import primitives as prim
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import primitives as prim
 
 
 def test_arrays_are_canonicalised_copied_and_frozen() -> None:
@@ -154,9 +154,15 @@ def test_restrict_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is
     import re
     from pathlib import Path
 
-    import warlock.studio as studio_pkg
+    import warlock
 
-    root = Path(studio_pkg.__file__).parent
+    # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/clay/ -- the
+    # one caller this test exists to find, ClayDoc.set_generator_params --
+    # to warlock/kernels/mesh/, out from under studio/. Scanning the whole
+    # ``warlock`` package rather than just ``studio/`` is what keeps this
+    # test meaningful regardless of which side of that boundary a future
+    # caller lands on.
+    root = Path(warlock.__file__).parent
     callers = [
         path
         for path in root.rglob("*.py")
@@ -168,9 +174,9 @@ def test_restrict_is_reachable_from_a_live_code_path_or_its_docstring_says_it_is
 
     doc = inspect.getdoc(el.restrict) or ""
     assert "not currently called" in doc.lower(), (
-        "restrict() has no live caller under studio/, but its docstring no "
-        "longer admits that -- either wire it into the caller that should "
-        "use it, or restore the honest docstring"
+        "restrict() has no live caller anywhere under warlock/, but its "
+        "docstring no longer admits that -- either wire it into the caller "
+        "that should use it, or restore the honest docstring"
     )
 
 
@@ -189,7 +195,7 @@ def test_every_refusal_reads_like_a_sentence() -> None:
     import ast
     from pathlib import Path
 
-    import warlock.studio.clay as package
+    import warlock.kernels.mesh as package
 
     root = Path(package.__file__).parent
     checked = 0

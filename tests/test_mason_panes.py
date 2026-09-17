@@ -58,8 +58,8 @@ def test_mason_palette_primitive_grid_gets_a_button_for_a_fake_generator_it_has_
     ``clay.primitives.GENERATORS`` has never heard of and checking the grid
     draws it anyway -- the same fake-registration shape
     ``tests/clay/test_primitives.py`` uses to pin ``clay_tools``'s own grid."""
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import probe
-    from warlock.studio.clay import primitives as bp
 
     def fake_build(**kwargs):  # pragma: no cover - never invoked by this test
         raise NotImplementedError

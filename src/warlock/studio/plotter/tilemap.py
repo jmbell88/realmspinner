@@ -46,9 +46,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import TilesetRef, colour_text
-from ..undo import CompoundEdit, Edit, UndoStack
+from ...core.undo import CompoundEdit, Edit, UndoStack
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import TilesetRef, colour_text
 from . import project
 from ._map_geometry import GeometryOps
 from ._map_layers import LayerOps

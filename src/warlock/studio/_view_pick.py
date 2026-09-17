@@ -72,7 +72,7 @@ class PickOps:
         in :meth:`pick_element` and simply skip the depth filter under X-ray --
         so face mode needs the same per-object candidate this returns.
         """
-        from .clay.adjacency import cached_positions_f8, cached_triangulation
+        from ..kernels.mesh.adjacency import cached_positions_f8, cached_triangulation
 
         tris, tri_face = cached_triangulation(obj.mesh)
         positions = cached_positions_f8(obj.mesh)
@@ -115,7 +115,7 @@ class PickOps:
         viewport and a slideshow -- while a camera that has not moved makes the
         key hit and the whole thing free.
         """
-        from .clay import pick as bp
+        from ..kernels.mesh import pick as bp
 
         obj = doc.by_uid(uid)
         width, height = int(max(self._rect[2], 1)), int(max(self._rect[3], 1))
@@ -164,8 +164,8 @@ class PickOps:
         the two disagree by an ulp and make a vertex on the near face flicker
         in and out of pickability.
         """
-        from .clay import pick as bp
-        from .clay.adjacency import adjacency
+        from ..kernels.mesh import pick as bp
+        from ..kernels.mesh.adjacency import adjacency
 
         mode = doc.element_mode
         if mode == "object":
@@ -230,8 +230,8 @@ class PickOps:
 
     def element_sel_for(self: ClayView, doc: Any, uid: int, index: int) -> Any:
         """One picked element as an :class:`~.clay.elements.ElementSel`."""
-        from .clay import elements as el
-        from .clay.adjacency import adjacency
+        from ..kernels.mesh import elements as el
+        from ..kernels.mesh.adjacency import adjacency
 
         mode = doc.element_mode
         if mode == "vertex":

@@ -21,8 +21,8 @@ import hashlib
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import blob
 from warlock.pipelines import tilemask
-from warlock.studio.tilegrid import blob
 
 TILE = 32
 CELLS = 12

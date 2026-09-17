@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import tiling
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import tiling
+from warlock.kernels.pixel.document import Document
 
 # --- offset_layer ------------------------------------------------------------
 
@@ -278,7 +278,7 @@ def _reference_seam_ratio(pixels):
     """
     import numpy as np
 
-    from warlock.studio.inker.tiling import SEAM_MIN_SIDE
+    from warlock.kernels.pixel.tiling import SEAM_MIN_SIDE
 
     array = np.asarray(pixels)
     rgb = array[:, :, :3].astype(np.float64)
@@ -303,7 +303,7 @@ def test_the_int16_seam_ratio_is_bit_identical_to_the_float64_one():
     at 2048 square, measured, against 75 ms now."""
     import numpy as np
 
-    from warlock.studio.inker.tiling import seam_ratio
+    from warlock.kernels.pixel.tiling import seam_ratio
 
     rng = np.random.default_rng(1)
     cases = []
@@ -323,7 +323,7 @@ def test_the_int16_seam_ratio_is_bit_identical_to_the_float64_one():
 def test_a_flat_image_is_seamless_and_a_hard_join_is_not():
     import numpy as np
 
-    from warlock.studio.inker.tiling import seam_ratio
+    from warlock.kernels.pixel.tiling import seam_ratio
 
     flat = np.full((64, 64, 3), 128, np.uint8)
     assert seam_ratio(flat) == (0.0, 0.0)

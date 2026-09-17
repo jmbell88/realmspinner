@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d import gid as gidlib
 from warlock.studio.plotter import tools
-from warlock.studio.tilegrid import gid as gidlib
 
 
 def _map(width: int = 8, height: int = 8) -> np.ndarray:
@@ -376,7 +376,7 @@ def test_the_blob_neighbourhood_is_a_square_lattices() -> None:
     slices* of an array, and on an offset lattice those are not the
     neighbouring cells -- every other row is pushed sideways, and a hexagon has
     six neighbours rather than eight."""
-    from warlock.studio.tilegrid import blob
+    from warlock.kernels.grid2d import blob
 
     field = np.zeros((3, 3), dtype=bool)
     field[1, 1] = True

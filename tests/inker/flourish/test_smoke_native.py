@@ -17,9 +17,9 @@ import numpy as np
 import pytest
 
 from warlock import native
-from warlock.studio.inker.flourish.prims import smoke
-from warlock.studio.inker.flourish.recipe import Layer, Phase
-from warlock.studio.inker.flourish.render import FrameCtx
+from warlock.kernels.pixel.flourish.prims import smoke
+from warlock.kernels.pixel.flourish.recipe import Layer, Phase
+from warlock.kernels.pixel.flourish.render import FrameCtx
 
 pytestmark = pytest.mark.skipif(
     not native.available(), reason="warlockc is not built in this checkout"

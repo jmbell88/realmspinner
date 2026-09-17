@@ -472,7 +472,8 @@ def _bake_animated_glb(svc: WarlockService, job_dir: Path, template: str, tmp: P
     a race that slips through here is caught, and corrected, one request
     later rather than never.
     """
-    from .. import clips, glbio
+    from .. import clips
+    from ..kernels.geom3d import glbio
 
     digest = clips.library_digest(template)
     loops = list(clips.loop_names(template))
@@ -531,7 +532,8 @@ def _animation_stale(path: Path, template: str, rig_digest: str) -> bool:
     refusal, worded exactly like ``files.py``'s door for "nothing authored",
     so the two do not disagree about what this failure means.
     """
-    from .. import clips, glbio
+    from .. import clips
+    from ..kernels.geom3d import glbio
 
     try:
         extras = glbio.root_extras(path.read_bytes())

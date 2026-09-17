@@ -414,7 +414,7 @@ def test_adding_with_nothing_open_says_so():
 
 
 def test_an_inker_document_contributes_one_sprite_per_frame():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     ctx = FakeCtx()
     tab = _tab(ctx, sources=0)
@@ -1078,7 +1078,7 @@ def test_an_inker_document_with_no_atlas_starts_one_too():
     """The same door from Inker's bridge, which is where this is now offered
     from -- Packwright's sources pane could already pull a document in, and a
     push from the near side must not refuse for want of an atlas."""
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     ctx = FakeCtx()
     doc = Document.blank(8, 8)

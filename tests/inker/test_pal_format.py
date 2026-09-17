@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from warlock.studio.inker import gpl
+from warlock.kernels.pixel import gpl
 
 SAMPLE = "JASC-PAL\r\n0100\r\n3\r\n0 0 0\r\n255 255 255\r\n34 139 34\r\n"
 

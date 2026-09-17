@@ -22,7 +22,7 @@ def test_a_tileset_painted_inside_a_group_counts_as_used():
     """``tileset_usage`` walked ``doc.layers`` -- the *root* list -- so a tile
     layer inside a folder was invisible to it and ``remove_tileset`` renumbered
     every one of those cells."""
-    from warlock.studio.tilegrid.tileset import Tileset
+    from warlock.kernels.grid2d.tileset import Tileset
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)
@@ -43,8 +43,8 @@ def test_a_tileset_painted_inside_a_group_counts_as_used():
 
 def test_a_tile_object_counts_as_used_too():
     """A ``TileShape`` holds a gid exactly as a cell does."""
+    from warlock.kernels.grid2d.tileset import Tileset
     from warlock.studio.plotter.tilemap import MapObject, TileShape, new_uid
-    from warlock.studio.tilegrid.tileset import Tileset
 
     doc = MapDoc(4, 4, 16, 16)
     pixels = np.zeros((16, 32, 4), dtype=np.uint8)

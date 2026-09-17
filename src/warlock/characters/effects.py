@@ -212,7 +212,7 @@ def flame_recipe(
     quantisation runs afterwards and is the one that decides the palette; a
     flame that had already cut itself to 16 colours would be quantised twice.
     """
-    from ..studio.inker.flourish import recipe as flourish_recipe
+    from ..kernels.pixel.flourish import recipe as flourish_recipe
 
     base, tip = effect_colors(theme)
     params = theme.effect_params or {}
@@ -308,7 +308,7 @@ def composite_effects(
     import numpy as np
     from PIL import Image
 
-    from ..studio.inker.flourish import render as flourish_render
+    from ..kernels.pixel.flourish import render as flourish_render
 
     kind = effect_kind(theme)
     if kind is None:

@@ -51,11 +51,11 @@ import pytest_asyncio
 
 from warlock import fetch, models, vram
 from warlock.config import get_config
+from warlock.familiar import character_plan, contract, doors, router
 from warlock.pipelines import llama_client
 from warlock.pipelines.llama import LlamaServer
 from warlock.service import familiar as familiar_service
 from warlock.studio import create_assets, modes
-from warlock.studio.familiar import character_plan, contract, doors, router
 from warlock.studio.panes import app_settings
 
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]

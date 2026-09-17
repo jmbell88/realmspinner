@@ -276,7 +276,7 @@ def test_insert_ramp_docstring_does_not_claim_an_indexed_ramp_is_free():
     there is no step to push" with no RGB-vs-indexed qualifier, but its own
     indexed branch pushes a ``CompoundEdit`` -- ``sort_palette``'s shape,
     inker-13's finding, widened to this sibling on 2026-09-14."""
-    from warlock.studio.inker._doc_indexed import IndexedOps
+    from warlock.kernels.pixel._doc_indexed import IndexedOps
 
     doc = (IndexedOps.insert_ramp.__doc__ or "").lower()
     assert "repaints nothing, so there is no step to push" not in doc

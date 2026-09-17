@@ -14,9 +14,9 @@ import math
 import numpy as np
 import pytest
 
-from warlock.studio.inker import transform as tf
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import FloatingBuffer, SelectionMask
+from warlock.kernels.pixel import transform as tf
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import FloatingBuffer, SelectionMask
 
 RED = (255, 0, 0, 255)
 

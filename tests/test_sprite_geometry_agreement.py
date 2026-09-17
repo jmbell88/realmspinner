@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
+from warlock.kernels.pixel import animation as anim
 from warlock.pipelines import spritesynth as ss
-from warlock.studio.inker import animation as anim
 
 ALL_KINDS = sorted(set(ss.SHEET_TYPES) | set(ss.PLANNED_KINDS))
 

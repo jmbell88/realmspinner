@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from .render import DrawItem
 
 IDLE = 0x7C6CF0

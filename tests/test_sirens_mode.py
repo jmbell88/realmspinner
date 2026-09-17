@@ -758,7 +758,7 @@ def _wav(path: Path, *, seconds: float = 0.05, rate: int = 44100) -> Path:
     here would be a second answer to what this build reads back."""
     import numpy as np
 
-    from warlock.studio.sirens import wavout
+    from warlock.kernels.audio import wavout
 
     count = max(1, int(rate * seconds))
     tone = np.sin(np.linspace(0.0, 40.0, count, dtype=np.float64)).astype(np.float32)
@@ -825,8 +825,8 @@ def test_a_file_past_the_byte_ceiling_is_refused_before_it_is_read(tmp_path, mon
     """The door in front of the decoder: ``read_wav``'s frame count is in a
     header the file has to be *read* to reach, so what the file weighs is
     answered first, off the same constant."""
+    from warlock.kernels.audio import wavout
     from warlock.service.errors import ServiceError
-    from warlock.studio.sirens import wavout
 
     monkeypatch.setattr(wavout, "MAX_SAMPLE_FRAMES", 1)
     path = _wav(tmp_path / "album.wav")
@@ -1036,7 +1036,8 @@ def _device(monkeypatch):
 
 def test_auditioning_an_effect_renders_that_effect_rather_than_the_song(_device):
     """The one thing an Audition button must not do is play the music."""
-    from warlock.studio.sirens import synth, wavout
+    from warlock.kernels.audio import wavout
+    from warlock.studio.sirens import synth
 
     ctx = FakeCtx()
     tab = _tab(ctx)

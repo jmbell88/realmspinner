@@ -18,10 +18,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from warlock.studio import inker
-from warlock.studio.inker import animation
-from warlock.studio.inker import ora as inker_ora
-from warlock.studio.inker.animation import Tag
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import animation
+from warlock.kernels.pixel import ora as inker_ora
+from warlock.kernels.pixel.animation import Tag
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -140,7 +140,7 @@ def test_every_blend_mode_survives_a_real_file_round_trip(tmp_path: Path):
     back as the same mode through the encoder and the parser, which is what a
     user opening their file in Krita is relying on.
     """
-    from warlock.studio.inker import composite as cp
+    from warlock.kernels.pixel import composite as cp
 
     doc = inker.Document.blank(8, 8)
     for index, mode in enumerate(cp.BLEND_MODES):
@@ -745,8 +745,8 @@ def test_canvas_resolution_survives_a_round_trip(tmp_path):
     physical size quietly gone, with no comment anywhere saying so (unlike the
     group ``composite-op``, which is dropped on purpose and says so).
     """
-    from warlock.studio.inker import ora
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel import ora
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     doc.dpi = (300, 300)

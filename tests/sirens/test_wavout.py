@@ -15,7 +15,7 @@ import wave
 import numpy as np
 import pytest
 
-from warlock.studio.sirens import wavout
+from warlock.kernels.audio import wavout
 
 
 def _chunks(raw: bytes) -> dict[bytes, bytes]:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import tiling
+from warlock.kernels.pixel import tiling
 
 # --- spans ------------------------------------------------------------------
 

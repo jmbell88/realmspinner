@@ -22,13 +22,13 @@ import time
 import numpy as np
 import pytest
 
-from warlock.studio.clay import adjacency as adj
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops_subdiv as sub
-from warlock.studio.clay import pick as bp
-from warlock.studio.clay import topo
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import adjacency as adj
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops_subdiv as sub
+from warlock.kernels.mesh import pick as bp
+from warlock.kernels.mesh import topo
 
 # A grid this many quads on a side: 200 * 200 = 40,000 quads, 80,000 triangles,
 # 40,401 vertices. Big enough that a per-face Python loop is unmistakable and
@@ -102,7 +102,7 @@ def test_triangulating_stays_on_the_fan_fast_path(soup: bm.Mesh) -> None:
     ordinary grid as suspect, every face would go through a Python ear clip and
     this would take minutes rather than milliseconds.
     """
-    from warlock.studio.clay import earclip as ec
+    from warlock.kernels.mesh import earclip as ec
 
     suspect = ec.concave_faces(
         soup.positions, soup.loops, soup.starts, bm._face_normals(soup)

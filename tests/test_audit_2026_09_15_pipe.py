@@ -17,9 +17,9 @@ import httpx
 import pytest
 
 from warlock import models
+from warlock.familiar import contract
 from warlock.pipelines import download, llama_client, update_worker
 from warlock.pipelines.text2image import Text2Image
-from warlock.studio.familiar import contract
 
 ROOT = Path(__file__).resolve().parents[1]
 

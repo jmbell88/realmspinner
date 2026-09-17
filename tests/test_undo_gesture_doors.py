@@ -30,7 +30,8 @@ from test_sirens_mode import FakeCtx
 from test_sirens_panes_smoke import _loaded, _no_device  # noqa: F401
 from test_sirens_panes_smoke import frames as frames  # noqa: F401, PLC0414
 
-from warlock.studio import controls, sirens_mode, undo, widgets
+from warlock.core import undo
+from warlock.studio import controls, sirens_mode, widgets
 from warlock.studio.panes import (
     clay_outliner,
     clay_props,
@@ -450,7 +451,7 @@ def test_an_interrupted_opacity_drag_still_leaves_one_undo_step(monkeypatch, fra
     """
     import numpy as np
 
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
     from warlock.studio.panes import inker_menu
 
     doc = inker.Document.from_pixels(np.full((4, 4, 4), 255, dtype=np.uint8))

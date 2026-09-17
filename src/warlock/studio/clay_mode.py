@@ -48,7 +48,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from . import atomic, clay_state, dialogs, docmodes, journal, sizeguard
+from ..core.safeio import atomic, sizeguard
+from . import clay_state, dialogs, docmodes, journal
 from ._view_frame import AXIS_VIEW_KEYS, axis_view_key
 from .clay_state import ClayState, ClayTab
 
@@ -222,7 +223,7 @@ def adopt(
 
 
 def new_document(ctx: Any) -> ClayTab:
-    from .clay import document as bd
+    from ..kernels.mesh import document as bd
 
     return adopt(ctx, bd.ClayDoc(), title="Untitled")
 
@@ -256,7 +257,7 @@ def _within_mesh_ceiling(path: Path) -> Path:
 
 def _load(path: Path) -> dict[str, Any]:
     """Blocking; task thread only. Raises rather than returning a broken tab."""
-    from .clay import serialize
+    from ..kernels.mesh import serialize
 
     data = _within_ceiling(Path(path)).read_bytes()
     doc = serialize.read_wblk(data)
@@ -349,7 +350,7 @@ def edit_asset_in_clay(ctx: Any, job: Any) -> None:
 
 def _parse_glb(data: bytes, name: str) -> dict[str, Any]:
     """Blocking; task thread only. Raises rather than returning a broken tab."""
-    from .clay import glbimport
+    from ..kernels.mesh import glbimport
 
     doc = glbimport.glb_to_claydoc(data, name=name)
     triangles = sum(
@@ -448,7 +449,7 @@ def save_to(ctx: Any, tab: ClayTab, path: Path) -> None:
     encode itself -- right here instead, which is the exact stall this
     module's stated rule (see the module docstring) exists to forbid.
     """
-    from .clay import serialize
+    from ..kernels.mesh import serialize
 
     path = Path(path)
     doc = tab.doc
@@ -484,7 +485,7 @@ def save_as(ctx: Any, tab: ClayTab | None = None) -> None:
     now, moved inside ``run()`` by the 2026-09-06 audit (clay-03) alongside
     ``save_to``'s.
     """
-    from .clay import serialize
+    from ..kernels.mesh import serialize
 
     tab = tab or active(ctx)
     if tab is None or tab.saving:
@@ -540,11 +541,11 @@ def build_asset(
     document exists, headlessly included, with no tab, toast or task runner
     anywhere in it.
     """
+    from ..kernels.geom3d import glbwrite
+    from ..kernels.mesh import document as bd
+    from ..kernels.mesh import serialize
     from ..service import files as svc_files
     from ..service import jobs as svc_jobs
-    from .clay import document as bd
-    from .clay import serialize
-    from .viewer import glbwrite
 
     model = bd.to_model(doc)
     snap = serialize.snapshot(doc, view=view)
@@ -1144,14 +1145,14 @@ GROW_KEYS = {
 
 def _select_all(doc: Any) -> None:
     """``clay.selection.select_all``: everything visible, in the current mode."""
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     selection.select_all(doc)
 
 
 def _invert(doc: Any) -> None:
     """``clay.selection.invert``: Ctrl+Shift+I, in the current mode."""
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     selection.invert(doc)
 
@@ -1199,7 +1200,7 @@ def _journal_slots(ctx: Any) -> list[Any]:
 
 
 def _journal_encode(tab: Any) -> bytes:
-    from .clay import serialize
+    from ..kernels.mesh import serialize
 
     # The camera goes in for the same reason a save carries it: a recovered
     # model that framed itself somewhere else is a recovered model the user has
@@ -1226,7 +1227,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
 
 def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any]:
     """The task-thread half of a crash recovery: bytes to document."""
-    from .clay import serialize
+    from ..kernels.mesh import serialize
 
     try:
         doc = serialize.read_wblk(_within_ceiling(path).read_bytes())

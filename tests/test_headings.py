@@ -52,7 +52,18 @@ def _section_literals() -> list[tuple[str, int, str]]:
 
 
 def test_the_sweep_found_them_all() -> None:
-    """A guard on the guard: an AST walk that matches nothing passes vacuously."""
+    """A guard on the guard: an AST walk that matches nothing passes vacuously.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): ``section()`` is
+    ``widgets.section``, imgui-only, so this stays scoped to ``studio/`` on
+    purpose -- none of P3's moves (Clay's engine, Inker's engine, tilegrid,
+    the geom3d/audio/manual kernels, safeio, undo, Familiar's headless half)
+    draw imgui, so widening would only add files this scan can never match.
+    The file-count floor is the actual guard against the failure this pass
+    found elsewhere: a root that stops matching still passes on an empty set.
+    """
+    files = sorted(SRC.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {SRC} -- did the sweep root break?"
     found = _section_literals()
     assert len(found) > 50, f"only {len(found)} section literals -- did the walk break?"
 

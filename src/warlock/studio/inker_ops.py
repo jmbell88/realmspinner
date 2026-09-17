@@ -1586,7 +1586,7 @@ def nineslice_center(tab: Any, bounds: tuple[int, int, int, int]) -> Any:
     global _fit_stamp, _fit_center
     stamp = (*_doc_stamp(tab), tuple(bounds))
     if _fit_stamp != stamp:
-        from .inker import nineslice
+        from ..kernels.pixel import nineslice
 
         _fit_center = nineslice.fit(nineslice_flat(tab), bounds)
         _fit_stamp = stamp

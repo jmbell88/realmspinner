@@ -19,7 +19,7 @@ import time
 import pytest
 from _recipes import FIREBALL
 
-from warlock.studio.inker import flourish
+from warlock.kernels.pixel import flourish
 
 MAX_MS_PER_FRAME = 400.0
 
@@ -68,7 +68,7 @@ def test_check_bake_cost_refuses_a_particle_heavy_layer_that_would_blow_the_pati
     against the ~90s of patience ``MAX_BAKE_COST`` is calibrated to. A fixed
     cost model must refuse this recipe rather than wave it through.
     """
-    from warlock.studio.inker.flourish import recipe as R
+    from warlock.kernels.pixel.flourish import recipe as R
 
     rec = flourish.clamp(
         flourish.Recipe(
@@ -106,7 +106,7 @@ def test_check_bake_cost_refuses_a_trail_layer_that_would_blow_the_patience_budg
     past ``MAX_BAKE_COST`` once ``trail`` is weighted correctly, and must be
     refused rather than waved through.
     """
-    from warlock.studio.inker.flourish import recipe as R
+    from warlock.kernels.pixel.flourish import recipe as R
 
     rec = flourish.clamp(
         flourish.Recipe(
@@ -138,8 +138,8 @@ def test_check_bake_cost_still_allows_the_shipped_fireball_preset():
     ``dev/measurements`` for this preset's cost before and after the fix, if
     recorded there; here it is enough that it still fits.
     """
-    from warlock.studio.inker.flourish import presets
-    from warlock.studio.inker.flourish import recipe as R
+    from warlock.kernels.pixel.flourish import presets
+    from warlock.kernels.pixel.flourish import recipe as R
 
     rec = presets.load("fireball")
     R.check_bake_cost(rec)  # must not raise

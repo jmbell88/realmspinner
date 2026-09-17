@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.layers import Layer
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.layers import Layer
 
 FILTER = "brightness / contrast"
 RED = (255, 0, 0, 255)
@@ -252,7 +252,7 @@ def test_a_document_with_no_animation_still_takes_the_plain_path():
 
 
 def _counting_apply(calls: list[tuple]):
-    from warlock.studio.inker import filters as real
+    from warlock.kernels.pixel import filters as real
 
     def apply_named(name, before, **params):
         calls.append((name, tuple(sorted(params.items()))))
@@ -262,7 +262,7 @@ def _counting_apply(calls: list[tuple]):
 
 
 def test_an_unchanged_filter_and_params_is_computed_once_not_once_per_frame(monkeypatch):
-    from warlock.studio.inker import document as docmod
+    from warlock.kernels.pixel import document as docmod
 
     calls: list[tuple] = []
     monkeypatch.setattr(docmod.filters, "apply_named", _counting_apply(calls))
@@ -274,7 +274,7 @@ def test_an_unchanged_filter_and_params_is_computed_once_not_once_per_frame(monk
 
 
 def test_changing_a_parameter_recomputes(monkeypatch):
-    from warlock.studio.inker import document as docmod
+    from warlock.kernels.pixel import document as docmod
 
     calls: list[tuple] = []
     monkeypatch.setattr(docmod.filters, "apply_named", _counting_apply(calls))
@@ -287,7 +287,7 @@ def test_changing_a_parameter_recomputes(monkeypatch):
 
 
 def test_switching_filters_recomputes_which_is_why_the_frame_call_exists(monkeypatch):
-    from warlock.studio.inker import document as docmod
+    from warlock.kernels.pixel import document as docmod
 
     calls: list[tuple] = []
     monkeypatch.setattr(docmod.filters, "apply_named", _counting_apply(calls))
@@ -302,7 +302,7 @@ def test_a_new_session_does_not_reuse_the_last_ones_pixels(monkeypatch):
     """The memo is keyed on (name, params) and nothing else, so it *must* be
     dropped when the snapshot underneath it changes -- otherwise the second
     session previews the first session's layer."""
-    from warlock.studio.inker import document as docmod
+    from warlock.kernels.pixel import document as docmod
 
     calls: list[tuple] = []
     monkeypatch.setattr(docmod.filters, "apply_named", _counting_apply(calls))

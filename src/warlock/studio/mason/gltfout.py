@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..viewer import glbwrite, gltf
+from ...kernels.geom3d import glbwrite, gltf
 from . import scene as sc
 from . import terrain as tr
 from .nodes import CameraNode, GroupNode, LightNode, MeshNode, Node, PrefabNode, TerrainNode

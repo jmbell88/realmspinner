@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
+from warlock.kernels.pixel import sheetscope
+from warlock.kernels.pixel.sheetin import span_tags
 from warlock.pipelines import charsheet
-from warlock.studio.inker import sheetscope
-from warlock.studio.inker.sheetin import span_tags
 
 EIGHT = [name for name, _yaw in charsheet.DIRECTION_PRESETS[8]]
 

@@ -23,9 +23,9 @@ from typing import Any
 import numpy as np
 
 from ... import poselib, rigging
-from ..undo import Edit, UndoStack
-from . import math3d as m3
-from .gltf import Model
+from ...core.undo import Edit, UndoStack
+from ...kernels.geom3d import math3d as m3
+from ...kernels.geom3d.gltf import Model
 
 # Re-exported so nothing downstream is tempted to write the sign flip out again.
 mirror_quaternion = rigging.mirror_quaternion

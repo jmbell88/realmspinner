@@ -13,9 +13,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import Document
-from warlock.studio.inker import composite as cp
-from warlock.studio.inker import indexed as ix
+from warlock.kernels.pixel import Document
+from warlock.kernels.pixel import composite as cp
+from warlock.kernels.pixel import indexed as ix
 
 RED = (200, 20, 20, 255)
 GREEN = (20, 200, 20, 255)
@@ -37,7 +37,7 @@ def test_the_luma_is_the_one_the_rest_of_the_app_uses():
     """Rec. 709, shared with the palette sort and ``dither.build_palette``.
     Converting a document to grayscale and then sorting its palette by
     brightness has to produce the order the drawing actually has."""
-    from warlock.studio.inker import dither
+    from warlock.kernels.pixel import dither
 
     px = np.zeros((1, 1, 4), np.uint8)
     px[0, 0] = RED
@@ -226,7 +226,7 @@ def test_a_grayscale_document_with_a_palette_gets_both_constraints():
     explaining it."""
     import numpy as np
 
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     doc.color_mode = "grayscale"
@@ -244,12 +244,14 @@ def test_a_grayscale_document_with_a_palette_gets_both_constraints():
 def test_the_constraint_rule_is_written_out_only_once():
     import pathlib
 
+    # P3 of the restructure (dev/RESTRUCTURE.md) moved studio/inker/ to
+    # warlock/kernels/pixel/ -- Inker's engine, and this scan, live there now.
     root = (
         pathlib.Path(__file__).resolve().parents[2]
         / "src"
         / "warlock"
-        / "studio"
-        / "inker"
+        / "kernels"
+        / "pixel"
     )
     # The *pairing* is the rule, not the bare mode check -- ``to_grayscale`` asks
     # the same question to answer "already grayscale", which is a different

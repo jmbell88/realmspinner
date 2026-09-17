@@ -90,7 +90,7 @@ def _tab(*, busy=False, tags=(), splits=1, anim=True):
 
 @pytest.fixture
 def one_layer(monkeypatch):
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     monkeypatch.setattr(sheetout, "layer_splits", lambda doc: [object()])
 

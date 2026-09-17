@@ -14,11 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import presets
+from warlock.kernels.mesh.mesh import bounds, transformed, validate
+from warlock.kernels.mesh.primitives import GENERATORS
 from warlock.rigging import templates
-from warlock.studio.clay import presets
-from warlock.studio.clay.mesh import bounds, transformed, validate
-from warlock.studio.clay.primitives import GENERATORS
-from warlock.studio.viewer import math3d as m3
 
 #: How far a part's centre may sit from its bone's midpoint, in the templates'
 #: normalised units (the figure is one unit tall). Every part here is placed
@@ -346,7 +346,7 @@ def test_a_bodys_torso_is_one_form_rather_than_stacked_balls(key: str):
     measures, however much the balls overlap.
 
     Run against the pre-fix module (``git show
-    HEAD:src/warlock/studio/clay/presets.py``, i.e. before this file's own
+    HEAD:src/warlock/kernels/mesh/presets.py``, i.e. before this file's own
     edit), this fails on (b) for every pair in all three chains. For
     humanoid Hips/Spine, concretely: both collapsed to spheres (a collapsed
     capsule is spherical to float noise, so ``sphere_like`` is true for each),

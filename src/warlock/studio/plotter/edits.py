@@ -1,6 +1,6 @@
 """The undoable steps a map document is changed by.
 
-On :mod:`warlock.studio.undo`, the engine the raster editor and Clay already
+On :mod:`warlock.core.undo`, the engine the raster editor and Clay already
 share, and under its two travelling rules:
 
 **Every edit addresses its subject by uid, never by index.** An undo issued
@@ -29,7 +29,7 @@ from typing import Any
 
 import numpy as np
 
-from ..undo import CompoundEdit, Edit
+from ...core.undo import CompoundEdit, Edit
 
 # Re-exported on purpose. This module is where the rest of the package takes its
 # edit types from, and a sibling that needed ``CompoundEdit`` would otherwise

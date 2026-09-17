@@ -20,7 +20,7 @@ import math
 import moderngl
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 
 DIVISIONS = 16
 CENTRE_COLOR = 0x2C2F3A

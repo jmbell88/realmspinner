@@ -34,8 +34,8 @@ from warlock.characters import Recipe
 from warlock.characters import family as familylib
 from warlock.characters.instantiate import instantiate
 from warlock.characters.winged import generate
+from warlock.kernels.geom3d import gltf
 from warlock.pipelines import charsheet
-from warlock.studio.viewer import gltf
 
 ARCHETYPE = "winged"
 SILHOUETTES = sorted(familylib.silhouettes(ARCHETYPE))
@@ -84,7 +84,7 @@ def _stacked(model: gltf.Model) -> np.ndarray:
 
 
 def _mesh_of(baked: generate.Baked):
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     return bm.Mesh(
         positions=baked.positions.astype("f4"),
@@ -97,7 +97,7 @@ def _mesh_of(baked: generate.Baked):
 
 
 def _triangles(baked: generate.Baked) -> np.ndarray:
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     tris, _face = bm.triangulate(_mesh_of(baked))
     return np.asarray(tris, dtype="i8")
@@ -236,7 +236,7 @@ def test_every_baked_mesh_is_one_closed_solid(silhouette, rebuilt):
     plate rather than flush with it -- two surfaces that cross transversally
     leave no sliver for the weld to pinch.
     """
-    from warlock.studio.clay import adjacency
+    from warlock.kernels.mesh import adjacency
 
     report = adjacency.check_manifold(_mesh_of(rebuilt[silhouette]))
     assert report.clean, (
@@ -330,8 +330,8 @@ def test_a_displaced_mesh_is_still_the_same_closed_solid(silhouette, rebuilt):
     fail by arithmetic -- it can only fail if a channel ever stops being a
     displacement and starts being an edit, which is exactly the change that
     would need noticing."""
-    from warlock.studio.clay import adjacency
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import adjacency
+    from warlock.kernels.mesh import mesh as bm
 
     baked = rebuilt[silhouette]
     for channel, field in baked.displacements.items():

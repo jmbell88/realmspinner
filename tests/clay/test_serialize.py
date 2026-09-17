@@ -17,13 +17,13 @@ from io import BytesIO
 import numpy as np
 import pytest
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import serialize as ser
-from warlock.studio.viewer import gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh import serialize as ser
 
 
 def _doc() -> bd.ClayDoc:
@@ -293,7 +293,7 @@ def test_a_document_with_more_objects_than_glbimports_ceiling_is_refused(monkeyp
     ``scene``), so the ceiling here is monkeypatched low rather than the test
     building a 4,096-object archive to cross the real one.
     """
-    from warlock.studio.clay import glbimport
+    from warlock.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_OBJECTS", 2)
     data = ser.wblk_bytes(_doc())  # three objects
@@ -325,7 +325,7 @@ def test_a_document_with_more_triangles_than_glbimports_ceiling_is_refused(monke
     objects goes rather than before it starts -- the first object over the
     ceiling stops the read rather than every remaining one still being
     decompressed first."""
-    from warlock.studio.clay import glbimport
+    from warlock.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
     data = ser.wblk_bytes(_doc())  # a 12-segment cylinder alone is well past 4
@@ -344,7 +344,7 @@ def test_read_wblk_refuses_a_document_whose_ngons_exceed_max_triangles_once_fan_
     but fans into 6 triangles (over it), so the old, face-counting check let
     this document through and the fixed, fan-triangle-counting one refuses
     it."""
-    from warlock.studio.clay import glbimport
+    from warlock.kernels.mesh import glbimport
 
     monkeypatch.setattr(glbimport, "MAX_TRIANGLES", 4)
 

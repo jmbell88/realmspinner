@@ -84,11 +84,11 @@ from PIL import Image
 
 from warlock import fetch, guidance, models
 from warlock.config import get_config
+from warlock.kernels.grid2d import blob
 from warlock.pipelines import seam, tileatlas, tilemask, tilesheet
 from warlock.pipelines.pixelsheet import quantize_shared
 from warlock.pipelines.text2image import Text2Image
 from warlock.service import tilesheets as tilesheets_service
-from warlock.studio.tilegrid import blob
 
 #: ``pyproject.toml``'s ``--timeout 120`` is a hang net sized for the default
 #: lane, whose slowest surviving test is ~5 s. It is not survivable here: the

@@ -75,7 +75,7 @@ def _load_base(fam: Family) -> tuple[list[Any], np.ndarray, dict[str, np.ndarray
     silently, and worst on the vertices that moved the most -- so the two files
     are treated as one artifact that happens to be stored twice.
     """
-    from ..studio.viewer import gltf
+    from ..kernels.geom3d import gltf
 
     if not fam.base_glb.is_file():
         raise CharacterError(
@@ -246,7 +246,7 @@ def _write(path: Path, data: bytes) -> None:
 
 def instantiate(recipe: Recipe, out_dir: Any) -> Instance:
     """Build one character into *out_dir*, and say what was built."""
-    from ..studio.viewer import glbwrite, gltf
+    from ..kernels.geom3d import glbwrite, gltf
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

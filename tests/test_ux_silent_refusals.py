@@ -169,7 +169,8 @@ def test_fix_matte_records_what_happened_rather_than_swallowing_it(monkeypatch, 
     # (T7); ``inker_mode`` serves the names through ``__getattr__``, and a
     # ``setattr`` there would shadow rather than replace what the caller
     # reaches.
-    from warlock.studio import inker, inker_open
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_open
 
     monkeypatch.setattr(inker_open, "_cut_matte", _Recorder(applied))
     doc = inker.Document.blank(4, 4)

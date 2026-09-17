@@ -5,7 +5,7 @@ hand-built page, not against the helper that produced them) and
 ``test_sheet_slices.py`` (plain arithmetic, no ``Document`` where a bare array
 says the same thing). Nothing here needs a ``Document`` at all -- :func:`fit`,
 :func:`stretch` and :func:`ninepatch` take a plane and a rectangle, the same
-inputs :meth:`~warlock.studio.inker.document.Document.flatten` and a slice's
+inputs :meth:`~warlock.kernels.pixel.document.Document.flatten` and a slice's
 own ``bounds``/``center`` already are.
 """
 
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.inker import nineslice
+from warlock.kernels.pixel import nineslice
 
 CORNER = (10, 20, 30, 255)
 EDGE_H = (40, 50, 60, 255)  # the top/bottom border -- repeats along x

@@ -1,15 +1,15 @@
 """T8: ``studio/familiar/doors.py`` -- the pure prompt/schema/parse logic
 behind Familiar's navigate and create-draft skills.
 
-``warlock.studio.familiar.doors`` does not exist on the pre-T8 tree, so
+``warlock.familiar.doors`` does not exist on the pre-T8 tree, so
 every test below fails with an ``ImportError``/``ModuleNotFoundError``
 before its first assertion runs against the unmodified code.
 """
 
 from __future__ import annotations
 
+from warlock.familiar import doors
 from warlock.studio import create_assets
-from warlock.studio.familiar import doors
 
 
 def test_a_navigate_target_outside_the_offered_keys_is_none():

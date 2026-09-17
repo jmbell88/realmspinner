@@ -7,8 +7,8 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
 
-from warlock.studio.clay import mesh as bm
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.mesh import mesh as bm
 
 # The unit box, centred on the origin, one metre on a side. Every loop is
 # wound counter-clockwise seen from outside, so a correct Newell normal points
@@ -361,7 +361,7 @@ def test_a_textured_empty_mesh_renders_an_empty_uv_array_not_none() -> None:
 
 
 def test_mesh_bytes_skips_an_absent_uv_and_counts_a_present_one() -> None:
-    from warlock.studio.clay.edits import mesh_bytes
+    from warlock.kernels.mesh.edits import mesh_bytes
 
     plain, textured = box(), _uv_box()
     assert mesh_bytes(textured) == mesh_bytes(plain) + textured.uv.nbytes

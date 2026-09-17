@@ -27,10 +27,10 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel.flourish import curves as flourish_curves
+from ...kernels.pixel.flourish import engines, presets, prims
+from ...kernels.pixel.flourish import recipe as flourish_recipe
 from .. import controls, inker_flourish, inker_mode, inker_ops, tokens, widgets
-from ..inker.flourish import curves as flourish_curves
-from ..inker.flourish import engines, presets, prims
-from ..inker.flourish import recipe as flourish_recipe
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_colors

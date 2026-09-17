@@ -97,7 +97,7 @@ def test_the_engine_never_imports_the_raster_editor():
     without dragging the editor in behind it."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.studio.inker"), (
+            assert not name.startswith("warlock.kernels.pixel"), (
                 f"{path.name} imports {name}"
             )
 

@@ -39,7 +39,7 @@ from typing import Literal
 
 import numpy as np
 
-from ..viewer import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from .terrain import Terrain, height_at
 
 #: Translation, rotation (XYZW) and scale -- the same three-array shape

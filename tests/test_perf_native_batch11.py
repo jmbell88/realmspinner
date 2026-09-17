@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from warlock import native
-from warlock.studio.inker import transform as tf
+from warlock.kernels.pixel import transform as tf
 
 pytestmark = pytest.mark.perf
 
@@ -90,8 +90,8 @@ def test_rotsprite_at_256_squared_is_at_least_four_times_the_numpy_path_mask():
 
 
 def _smoke_layer(count: int):
-    from warlock.studio.inker.flourish.recipe import Layer, Phase
-    from warlock.studio.inker.flourish.render import FrameCtx
+    from warlock.kernels.pixel.flourish.recipe import Layer, Phase
+    from warlock.kernels.pixel.flourish.render import FrameCtx
 
     ctx = FrameCtx(
         seed=2,
@@ -111,7 +111,7 @@ def _smoke_layer(count: int):
 
 @pytest.mark.skipif(not native.available(), reason="warlockc is not built")
 def test_smoke_at_80_blobs_is_at_least_three_times_the_numpy_path():
-    from warlock.studio.inker.flourish.prims import smoke
+    from warlock.kernels.pixel.flourish.prims import smoke
 
     layer, ctx = _smoke_layer(80)
 

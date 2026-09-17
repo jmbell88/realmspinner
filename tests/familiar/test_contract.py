@@ -4,7 +4,7 @@ and (in ``dev/tests/familiar/test_contract.py``) run A's own recorded eval
 hashes and the training dataset's own recorded replies, which moved to
 ``dev/`` on 2026-09-16.
 
-``warlock.studio.familiar.contract`` is imported directly (no imgui/moderngl/
+``warlock.familiar.contract`` is imported directly (no imgui/moderngl/
 pygame/httpx/service/queue needed for any of this).
 """
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.familiar import contract
+from warlock.familiar import contract
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -178,7 +178,15 @@ def test_the_frozen_cards_are_exempt_from_line_ending_conversion():
     import fnmatch
 
     patterns = _unset_text_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
-    cards = ["src/warlock/studio/familiar/cards/" + name for name in contract.CARDS.values()]
+    # Derived from the package rather than written out: the literal used to
+    # say "src/warlock/studio/familiar/cards/", and when P3 of the
+    # restructure moved the package (2026-09-17) this test went on passing
+    # against a path that no longer existed while the real cards lost the
+    # exemption -- a green test guarding nothing.
+    cards_dir = Path(contract.__file__).resolve().parent / "cards"
+    cards = [
+        (cards_dir / name).relative_to(ROOT).as_posix() for name in contract.CARDS.values()
+    ]
     for card in cards:
         assert any(fnmatch.fnmatch(card, p) for p in patterns), card
 
@@ -207,12 +215,12 @@ def test_the_router_card_is_frozen_and_exempt_from_line_ending_conversion():
     assert contract.card_sha("router") == hashlib.sha256(card_path.read_bytes()).hexdigest()
 
     patterns = _unset_text_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
-    rel = "src/warlock/studio/familiar/cards/" + contract.CARDS["router"]
+    rel = card_path.relative_to(ROOT).as_posix()
     assert any(fnmatch.fnmatch(rel, p) for p in patterns), rel
 
 
 def _citation(n: int, *, chapter: str = "07-clay", anchor: str | None = None):
-    from warlock.studio.familiar import retrieval
+    from warlock.familiar import retrieval
 
     return retrieval.Citation(
         n=n, chapter=chapter, anchor=anchor, title_path=f"07 Clay > Section {n}", text=f"text {n}"
@@ -271,7 +279,7 @@ def test_the_manual_prompt_fits_one_slot_at_the_retrieval_budget():
     Manual turn runs under."""
     import inspect
 
-    from warlock.studio.familiar import retrieval
+    from warlock.familiar import retrieval
 
     budget_tokens = inspect.signature(retrieval.Index.search).parameters["budget_tokens"].default
     system_words = len(contract.MANUAL_SYSTEM.split())

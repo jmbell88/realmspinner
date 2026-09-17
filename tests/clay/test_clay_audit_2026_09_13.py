@@ -11,11 +11,11 @@ import inspect
 
 import pytest
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay.elements import ElementSel, OpError
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh.elements import ElementSel, OpError
 
 
 def _obj(name: str = "A", mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:

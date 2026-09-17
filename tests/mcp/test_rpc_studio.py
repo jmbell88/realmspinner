@@ -534,8 +534,8 @@ def test_scene_resource_matches_the_clay_scene_tool_after_adding_a_primitive(tmp
 
 
 def test_generators_and_operations_resources_derive_from_the_live_registries(tmp_path) -> None:
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import clay_ops
-    from warlock.studio.clay import primitives as bp
 
     host, stop_pumping, pumper = _started_host(tmp_path)
     try:

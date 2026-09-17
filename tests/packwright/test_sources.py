@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel.document import Document
 from warlock.studio.packwright import sources
 
 

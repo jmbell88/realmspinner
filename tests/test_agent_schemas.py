@@ -214,8 +214,8 @@ from typing import Any
 import pytest
 from test_agent_clay import _Ctx, _install_fake_view, _payload  # see module docstring
 
+from warlock.kernels.mesh import presets
 from warlock.studio import agent_clay, clay_mode
-from warlock.studio.clay import presets
 
 Args = dict[str, Any]
 BaselineFactory = Callable[..., tuple[Any, agent_clay.Session, Args]]
@@ -742,7 +742,7 @@ def _select_by_call(
     query: str, extra: Args, monkeypatch: Any = None, svc: Any = None
 ) -> tuple[Any, agent_clay.Session, Args]:
     del monkeypatch, svc
-    from warlock.studio.clay import select as clay_select_mod
+    from warlock.kernels.mesh import select as clay_select_mod
 
     ctx, session, uid1, _uid2 = _new_world()
     modes = clay_select_mod.QUERIES[query].modes

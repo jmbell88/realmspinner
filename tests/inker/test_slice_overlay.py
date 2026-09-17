@@ -21,9 +21,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.slices import SliceKey
 from warlock.studio import inker_state
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.slices import SliceKey
 from warlock.studio.panes import inker_canvas
 
 ORIGIN = (0.0, 0.0)

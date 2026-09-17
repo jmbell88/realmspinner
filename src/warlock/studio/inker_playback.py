@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..kernels.pixel import animation
 from . import inker_mode
-from .inker import animation
 from .inker_state import InkerDoc
 
 

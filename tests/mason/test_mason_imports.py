@@ -35,7 +35,7 @@ import importlib
 from pathlib import Path
 
 import pytest
-from _pure_packages import siblings_of
+from _pure_packages import dotted_root, siblings_of
 
 from warlock.studio import mason
 
@@ -44,71 +44,88 @@ PACKAGE = "warlock.studio.mason"
 
 #: Everything this package may *ever* reach for. The contract, not the tally.
 #:
-#: :mod:`~warlock.studio.undo` is the shared history engine, reached for the
+#: :mod:`~warlock.core.undo` is the shared history engine, reached for the
 #: same way Clay and Plotter reach for it -- a scene's undo step is a pair of
 #: callbacks and a byte cost like every other, and a fourth private notion of
 #: what one step is would be a fourth place for a gesture to fold wrongly.
+#: (2026-09-17: this moved from ``studio/undo.py`` to ``warlock/core/undo.py``
+#: in P3 of ``dev/RESTRUCTURE.md`` -- it needs no justification as a
+#: sibling-engine exception any more, since a scene engine reaching down into
+#: ``core`` is just the ordinary shape of the layer table now, not a reach
+#: back into the shell for a shared tool. The name below changed; the reason
+#: it is fine did not need to move anywhere, because P3 dissolved it.)
 #:
-#: ``viewer.gltf`` is the ``clay/document.py`` argument in a second document:
-#: a Mason material **is** a ``gltf.Material`` and a light's fields **are**
-#: ``KHR_lights_punctual``'s, because the export is the definition and a
-#: parallel type buys a conversion function and a place for the two to drift.
-#: ``viewer.math3d`` is the one place quaternions are XYZW in this project.
-#: ``viewer.picking`` is the ray arithmetic and the BVH -- picking a scene is
-#: picking each of its items, and a second Moller-Trumbore here would be a
-#: second set of answers about degenerate triangles and hits behind the origin.
+#: ``kernels.geom3d.gltf`` is the ``mesh/document.py`` argument in a second
+#: document: a Mason material **is** a ``gltf.Material`` and a light's fields
+#: **are** ``KHR_lights_punctual``'s, because the export is the definition and
+#: a parallel type buys a conversion function and a place for the two to
+#: drift. ``kernels.geom3d.math3d`` is the one place quaternions are XYZW in
+#: this project. Both lived at ``studio/viewer/{gltf,math3d}.py`` until P3
+#: moved them into the kernel they always logically were; ``studio.viewer``
+#: stays in the ceiling too, because ``picking`` -- the ray arithmetic and the
+#: BVH, picking a scene being picking each of its items -- did not move (it is
+#: GL-adjacent state, not a pure kernel) and this package still reaches it.
 #:
-#: ``warlock.glbio`` is the container-level GLB parser, for the reason
-#: ``clay/glbimport.py`` reaches for it: a declared-count preflight has to read
-#: the JSON chunk before anything decodes it, and there is one such parser.
+#: ``warlock.kernels.geom3d.glbio`` is the container-level GLB parser, for the
+#: reason ``mesh/glbimport.py`` reaches for it: a declared-count preflight has
+#: to read the JSON chunk before anything decodes it, and there is one such
+#: parser. Reserved here, unused today -- see the module docstring's
+#: ceiling-vs-tally distinction.
 #:
 #: The four guard leaves are one finding wearing four names -- a bound that
 #: eighteen call sites have to remember is a bound that holds at seventeen --
 #: and they are leaves rather than sibling engines, so this package is free to
-#: reach for them.
+#: reach for them. Recorded as the one package they now are
+#: (``warlock.core.safeio``) rather than three private module names: P3 folded
+#: ``studio/{zipguard,npyguard,pixelguard}.py`` into ``core/safeio/`` and
+#: ``serialize.py`` reaches all three through one ``from ... import`` line, so
+#: there is exactly one outward edge to record, not three.
 CEILING = frozenset(
     {
-        "warlock.studio.undo",
+        "warlock.core.undo",
         "warlock.studio.viewer",
-        "warlock.glbio",
-        "warlock.studio.zipguard",
-        "warlock.studio.npyguard",
-        "warlock.studio.pixelguard",
+        "warlock.kernels.geom3d",
+        "warlock.kernels.geom3d.glbio",
+        "warlock.core.safeio",
     }
 )
 
 #: ``(module, imported name)`` for every import that leaves the package, today.
 OUTWARD_IMPORTS = {
-    ("nodes.py", "warlock.studio.viewer"),
-    ("refs.py", "warlock.studio.viewer"),
-    ("terrain.py", "warlock.studio.viewer"),
-    ("edits.py", "warlock.studio.undo"),
-    ("edits.py", "warlock.studio.viewer"),
-    ("document.py", "warlock.studio.undo"),
-    ("document.py", "warlock.studio.viewer"),
-    ("scene.py", "warlock.studio.viewer"),
-    ("ops.py", "warlock.studio.viewer"),
+    ("nodes.py", "warlock.kernels.geom3d"),
+    ("refs.py", "warlock.kernels.geom3d"),
+    ("terrain.py", "warlock.kernels.geom3d"),
+    ("edits.py", "warlock.core.undo"),
+    ("edits.py", "warlock.kernels.geom3d"),
+    ("document.py", "warlock.core.undo"),
+    ("document.py", "warlock.kernels.geom3d"),
+    ("scene.py", "warlock.kernels.geom3d"),
+    ("ops.py", "warlock.kernels.geom3d"),
     ("pick.py", "warlock.studio.viewer"),
-    ("serialize.py", "warlock.studio.viewer"),
-    ("serialize.py", "warlock.studio.zipguard"),
-    ("serialize.py", "warlock.studio.npyguard"),
-    ("serialize.py", "warlock.studio.pixelguard"),
+    ("serialize.py", "warlock.kernels.geom3d"),
+    # P3 folded the three guard modules into ``core/safeio/``; ``serialize.py``
+    # reaches all three through one import statement, which is one outward
+    # edge, not three -- see :data:`CEILING`'s comment for the same collapse.
+    ("serialize.py", "warlock.core.safeio"),
     # The three exporters. ``gltfout`` is the row that moved
     # :data:`VIEWER_MODULES` from three names to four -- see its comment
-    # below -- and ``objout`` and ``manifest`` reach for the viewer only for
+    # below -- and ``objout`` and ``manifest`` reach for the kernel only for
     # the types they are writing out (``gltf.Primitive``/``gltf.Material``,
     # and ``math3d.decompose`` for the manifest's world TRS).
-    ("gltfout.py", "warlock.studio.viewer"),
-    ("manifest.py", "warlock.studio.viewer"),
-    ("objout.py", "warlock.studio.viewer"),
+    ("gltfout.py", "warlock.kernels.geom3d"),
+    ("manifest.py", "warlock.kernels.geom3d"),
+    ("objout.py", "warlock.kernels.geom3d"),
 }
 
-#: Which modules of the viewer, since the entry above is recorded at package
-#: granularity the way ``test_clay_imports`` records it. The viewer package
-#: also holds the GL-side model, the renderer's programs and the offscreen
-#: context, and reaching for one of those is the import this pin exists to
-#: catch: it would make the scene engine untestable in exactly the lane that
-#: is supposed to test all of it.
+#: Which modules of the viewer or of ``kernels.geom3d``, since the entry above
+#: is recorded at package granularity the way ``test_clay_imports`` records
+#: it. Three of these four moved from ``studio/viewer/`` to
+#: ``warlock/kernels/geom3d/`` in P3 of ``dev/RESTRUCTURE.md``; ``picking``
+#: stayed behind because it is ray/BVH arithmetic against the live GL scene,
+#: not a pure kernel. The viewer package also still holds the GL-side model,
+#: the renderer's programs and the offscreen context, and reaching for one of
+#: those is the import this pin exists to catch: it would make the scene
+#: engine untestable in exactly the lane that is supposed to test all of it.
 #:
 #: ``glbwrite`` is the fourth, and it arrived with Stage D's exporters rather
 #: than being reserved up front -- which is the point of pinning the tally
@@ -121,6 +138,11 @@ OUTWARD_IMPORTS = {
 #: round-trip against. Adding it was a decision; this line is where it was
 #: written down.
 VIEWER_MODULES = {"gltf", "math3d", "picking", "glbwrite"}
+
+#: Root names a module is being reached out of, for the check below. Two
+#: roots now hold what one used to: ``viewer`` for what stayed GL-adjacent,
+#: ``geom3d`` for what P3 proved was a pure kernel all along.
+VIEWER_ROOTS = ("viewer", "geom3d")
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
 
@@ -205,7 +227,16 @@ def test_the_engine_never_imports_the_queue_or_the_pipelines():
             assert not name.startswith("warlock._q"), f"{path.name} imports {name}"
 
 
-@pytest.mark.parametrize("other", siblings_of("mason"))
+#: ``geom3d`` is a shared kernel leaf Mason legitimately imports (see
+#: :data:`CEILING`/:data:`OUTWARD_IMPORTS`), not a peer engine -- the same
+#: ``tilegrid`` exception ``tests/inker/test_inker_imports.py`` already
+#: records for the same reason. Recorded here rather than left for the
+#: parametrize to catch and fail on, which is exactly what
+#: :func:`_pure_packages.siblings_of`'s ``allowed`` parameter is for.
+SHARED_LEAVES = frozenset({"geom3d"})
+
+
+@pytest.mark.parametrize("other", siblings_of("mason", allowed=SHARED_LEAVES))
 def test_the_engine_never_imports_another_headless_package(other):
     """Packages that are pure for the same reason are not packages that may
     reach for each other.
@@ -215,25 +246,34 @@ def test_the_engine_never_imports_another_headless_package(other):
     lands -- see :mod:`_pure_packages` for the six hand lists that failed open
     and made that worth doing.
 
-    The one this test is really about is ``clay``. Mason places primitives and
-    Clay owns the fifteen generators that build them, so the obvious move is to
-    import ``clay.primitives`` and call it -- and that is exactly the import
-    this refuses. A ``PrimitiveRef`` resolves through the same ``GeometrySource``
-    callback a ``LibraryRef`` does: the library path has to be a callback
-    anyway, one resolution mechanism beats two, and it keeps this package's
-    reach a leaf rather than a chain.
+    The one this test is really about is ``mesh`` -- Clay's engine, since P3
+    of ``dev/RESTRUCTURE.md`` moved and renamed it. Mason places primitives
+    and Clay owns the fifteen generators that build them, so the obvious move
+    is to import ``mesh.primitives`` and call it -- and that is exactly the
+    import this refuses. A ``PrimitiveRef`` resolves through the same
+    ``GeometrySource`` callback a ``LibraryRef`` does: the library path has to
+    be a callback anyway, one resolution mechanism beats two, and it keeps
+    this package's reach a leaf rather than a chain.
     """
+    root = dotted_root(other)
     for path in _modules():
         for name in _outward(path):
-            assert f"warlock.studio.{other}" not in name, f"{path.name} imports {name}"
+            assert not (name == root or name.startswith(root + ".")), (
+                f"{path.name} imports {name}"
+            )
 
 
 def test_the_sibling_ban_is_not_empty():
     """The parametrize above is derived, and a derivation that returned nothing
     would make it a test that runs zero cases and reports green."""
-    siblings = siblings_of("mason")
-    assert "clay" in siblings and "plotter" in siblings
+    siblings = siblings_of("mason", allowed=SHARED_LEAVES)
+    # 2026-09-17: P3 of dev/RESTRUCTURE.md renamed Clay's engine to ``mesh``
+    # (it moved to warlock/kernels/mesh/) -- the sibling this test is really
+    # about, per the function docstring above, is still Clay's engine, just
+    # under its new name.
+    assert "mesh" in siblings and "plotter" in siblings
     assert "mason" not in siblings
+    assert "geom3d" not in siblings
 
 
 def test_nothing_is_reached_for_outside_the_pinned_ceiling():
@@ -268,7 +308,7 @@ def test_only_the_four_pinned_modules_of_the_viewer_are_reached_for():
         alias.name
         for path in _modules()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("viewer")
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith(VIEWER_ROOTS)
         for alias in node.names
     }
     assert reached == VIEWER_MODULES

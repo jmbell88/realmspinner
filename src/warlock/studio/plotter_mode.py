@@ -948,7 +948,7 @@ def _copy(ctx: Any, state: PlotterState, tab: PlotterDoc, *, cut: bool) -> None:
     """Take the selected cells, optionally clearing them in one step."""
     import numpy as np
 
-    from .tilegrid import gid as gidlib
+    from ..kernels.grid2d import gid as gidlib
 
     if state.tool == "object" and state.selected_object is not None:
         # With Objects in hand, Ctrl+C is about the object -- a marquee left
@@ -1202,7 +1202,7 @@ def _delete(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
     """
     import numpy as np
 
-    from .tilegrid import gid as gidlib
+    from ..kernels.grid2d import gid as gidlib
 
     if state.tool == "object" and state.selected_objects:
         # Grouped by the layer each uid actually lives on, not just

@@ -119,7 +119,8 @@ def test_an_inker_row_that_is_a_document_state_reports_its_tick():
     """``MenuSpec.checked`` was hardcoded False for every Inker op, so the one
     row that is a *setting* rather than an action drew no tick and the user had
     no way to see which way it was set."""
-    from warlock.studio import inker, inker_state, menus
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_state, menus
 
     app_ctx = _ctx()
     app_ctx.state.mode = "inker"

@@ -282,7 +282,7 @@ def check_glb(data: bytes, field: str = "glb") -> None:
     the mesh list is looked at, and nothing is decoded. A mesh that is *bad* is
     the mesh report's business, not the door's.
     """
-    from ..glbio import read_glb
+    from ..kernels.geom3d.glbio import read_glb
 
     if not data.startswith(GLB_MAGIC):
         raise Invalid("that file is not a binary glTF (.glb)", field=field)

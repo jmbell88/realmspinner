@@ -409,7 +409,7 @@ def ray_triangles(
 
     Moller-Trumbore, computed for every triangle at once. ``tris`` is an
     ``(T, 3)`` index array into ``positions``, which is what
-    :func:`~warlock.studio.clay.mesh.triangulate` hands back -- so the index
+    :func:`~warlock.kernels.mesh.mesh.triangulate` hands back -- so the index
     returned is a *triangle* index, and a caller who wants the face the user
     selected maps it through that function's ``tri_face``.
 

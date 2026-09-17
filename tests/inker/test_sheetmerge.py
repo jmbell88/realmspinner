@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import sheetmerge
+from warlock.kernels.pixel import sheetmerge
 
 
 def _cell(value: int = 0, size: int = 4) -> np.ndarray:

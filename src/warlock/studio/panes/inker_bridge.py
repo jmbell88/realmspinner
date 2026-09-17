@@ -24,8 +24,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import transform
 from .. import controls, docmodes, icons, inker_mode, theme, tokens, widgets
-from ..inker import transform
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_colors
@@ -642,7 +642,7 @@ def submit_inpaint(ctx: Any, tab: Any, prompt: str, strength: float) -> bool:
     works, and the result must go back to the layer it was asked about, not
     to whatever is active when it arrives.
     """
-    from ..inker import inpaint
+    from ...kernels.pixel import inpaint
 
     state = inker_mode.ensure(ctx)
     doc = tab.doc
@@ -758,7 +758,7 @@ def _decode_inpaint(pending: dict[str, Any], image_path: Any) -> dict[str, Any] 
     """Blocking; task thread only. The picture, fitted to the box it fills."""
     from PIL import Image
 
-    from ..inker import inpaint
+    from ...kernels.pixel import inpaint
 
     try:
         with Image.open(image_path) as im:
@@ -819,7 +819,7 @@ def _still_in_the_stack(doc: Any, layer_uid: int) -> bool:
 
 
 def _open_filter(ctx: Any, tab: Any) -> None:
-    from ..inker import filters
+    from ...kernels.pixel import filters
 
     state = inker_mode.ensure(ctx)
     if tab.busy:
@@ -836,7 +836,7 @@ def _open_filter(ctx: Any, tab: Any) -> None:
 
 
 def _filter_values(state: Any, name: str) -> dict[str, Any]:
-    from ..inker import filters
+    from ...kernels.pixel import filters
 
     got = state.filter_params.get(name)
     if got is None:
@@ -872,7 +872,7 @@ def _filter_control(
     through ``labeled_combo``, whose id is its label -- which is the same string
     for both of them, neither being relabelled.)
     """
-    from ..inker import filters
+    from ...kernels.pixel import filters
 
     label = _param_label(key)
     if key in filters.COLOUR_PARAMS:
@@ -923,7 +923,7 @@ def _filter_control(
 
 
 def _filter_popup(ctx: Any, tab: Any) -> None:
-    from ..inker import filters
+    from ...kernels.pixel import filters
 
     state = inker_mode.ensure(ctx)
     if not imgui.begin_popup(FILTER_POPUP):
@@ -1033,7 +1033,7 @@ def _pair(label: str, value: tuple[int, int], low: int = 0) -> tuple[int, int]:
 
 
 def _sheet_import_popup(ctx: Any, state: Any) -> None:
-    from ..inker import sheetin
+    from ...kernels.pixel import sheetin
 
     if not imgui.begin_popup(SHEET_IMPORT_POPUP):
         # imgui closes a popup on a click outside, and the picture is a
@@ -1132,7 +1132,7 @@ def _convert_table(state: Any, doc: Any) -> list[tuple[int, int, int, int]]:
 
 
 def open_convert(ctx: Any, tab: Any, *, to_mode: str = "") -> None:
-    from ..inker import dither
+    from ...kernels.pixel import dither
 
     state = inker_mode.ensure(ctx)
     # Before the busy return: whoever opens the popup decides the flavour, and
@@ -1333,7 +1333,7 @@ def convert_popup(ctx: Any, tab: Any) -> None:
     while the previewed document kept a dither nobody approved, with no hook
     left to take it back.
     """
-    from ..inker import dither
+    from ...kernels.pixel import dither
 
     state = inker_mode.ensure(ctx)
     owner = state.get(state.convert_uid) if state.convert_uid else None

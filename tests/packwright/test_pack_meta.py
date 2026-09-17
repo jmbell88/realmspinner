@@ -134,8 +134,8 @@ def test_a_document_with_nothing_to_say_is_not_an_error():
 def test_an_inker_document_hands_its_slices_over_per_frame():
     """The real seam, end to end: the resolving happens on the editor's side and
     what crosses is plain data."""
-    from warlock.studio.inker.document import Document
-    from warlock.studio.inker.slices import SliceKey
+    from warlock.kernels.pixel.document import Document
+    from warlock.kernels.pixel.slices import SliceKey
 
     doc = Document.blank(16, 12)
     doc.add_frame()

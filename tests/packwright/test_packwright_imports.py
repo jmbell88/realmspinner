@@ -5,15 +5,15 @@ audit's packwright-06 is the reason that count is spelled out rather than left
 for a reader to total the set), and every one of them is the same argument:
 reach for the module that *owns* a definition rather than restating it.
 ``pipelines.sheet`` owns the atlas ceiling and what "trim" means;
-``plotter.tsx`` owns the ``.tsx`` format and ``tilegrid.tileset`` the type it
-is written from; ``studio.undo`` owns history; ``zipguard`` owns the bounded
-zip read four container doors share, this package's own ``.wpack`` among
-them. Restating any of those is how two answers to one question appear and
-then drift.
+``plotter.tsx`` owns the ``.tsx`` format and ``kernels.grid2d.tileset`` the
+type it is written from; ``core.undo`` owns history; ``core.safeio.zipguard``
+owns the bounded zip read four container doors share, this package's own
+``.wpack`` among them. Restating any of those is how two answers to one
+question appear and then drift.
 
-``studio.inker`` is pointedly *not* one of them, and the test below says so from
-the other side: ``sources`` takes a document and asks it for frames rather than
-importing the editor that owns the type.
+``kernels.pixel`` (Inker's engine) is pointedly *not* one of them, and the
+test below says so from the other side: ``sources`` takes a document and asks
+it for frames rather than importing the editor that owns the type.
 
 This is the ``tests/inker/test_sheetout.py`` pin, third instance.
 """
@@ -33,16 +33,18 @@ OUTWARD_IMPORTS = {
     # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
     # each of these carried is written by whoever wrote the archive, and a
     # fourth private copy of a security bound is a copy that stops agreeing.
-    ("wpack.py", "warlock.studio.zipguard"),
+    # (2026-09-17: P3 of dev/RESTRUCTURE.md folded it into ``core/safeio/``,
+    # so the outward edge is the package now, not the standalone module.)
+    ("wpack.py", "warlock.core.safeio"),
     # The shared history engine, as headless as this package is.
-    ("document.py", "warlock.studio.undo"),
+    ("document.py", "warlock.core.undo"),
     # The authority on how big an atlas may be before an engine refuses it,
     # and on where a sprite's alpha stops. Recorded at package granularity, as
     # ``test_sheetout`` records it; the test below says which module.
     ("layout.py", "warlock.pipelines"),
     # The one .tsx writer in the repo. A second one is how a published format
     # comes to have two dialects.
-    ("tsxout.py", "warlock.studio.tilegrid.tileset"),
+    ("tsxout.py", "warlock.kernels.grid2d.tileset"),
     ("tsxout.py", "warlock.studio.plotter.tsx"),
     # The one RGBA-to-PNG encoder; the ``tsxout`` argument again. Four
     # byte-identical copies existed and all four sit on a determinism path, so
@@ -53,7 +55,7 @@ OUTWARD_IMPORTS = {
     # ``frozen_rgba``, over the edge ``tsxout`` had already established. A
     # sprite and a tileset image obey one immutability rule and used to hold
     # two byte-identical copies of it.
-    ("sources.py", "warlock.studio.tilegrid.tileset"),
+    ("sources.py", "warlock.kernels.grid2d.tileset"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
@@ -163,7 +165,7 @@ def test_only_the_source_enumerator_reaches_for_the_raster_editor():
     handed loose PNG files and no document at all."""
     for path in _modules():
         for name in _outward(path):
-            assert not name.startswith("warlock.studio.inker"), f"{path.name} imports {name}"
+            assert not name.startswith("warlock.kernels.pixel"), f"{path.name} imports {name}"
 
 
 def test_pillow_is_never_imported_at_module_scope():

@@ -20,11 +20,11 @@ import math
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
 from warlock.studio import mason_marks
 from warlock.studio.mason import document as md
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import scene as msc
-from warlock.studio.viewer import math3d as m3
 
 
 def _doc_with_a_light_and_a_mesh() -> md.MasonDoc:

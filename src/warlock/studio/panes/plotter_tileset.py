@@ -23,9 +23,9 @@ from typing import Any
 
 import numpy as np
 
+from ...kernels.grid2d import gid as gidlib
 from .. import controls, icons, plotter_mode, tokens, widgets
 from ..manual import render as manual_render
-from ..tilegrid import gid as gidlib
 from ..tokens import sp
 from . import plotter_layers, plotter_textures
 
@@ -393,7 +393,7 @@ def _tile_form(ctx: Any, state: Any, tab: Any, ref: Any, index: int) -> None:
 
 
 def _frame(local: int) -> Any:
-    from ..tilegrid.tileset import TileFrame
+    from ...kernels.grid2d.tileset import TileFrame
 
     return TileFrame(local_id=int(local), duration_ms=100)
 

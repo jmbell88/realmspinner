@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.tilegrid.tileset import Tileset, TilesetRef
+from warlock.kernels.grid2d.tileset import Tileset, TilesetRef
 
 
 def _pixels(w: int, h: int) -> np.ndarray:
@@ -106,8 +106,8 @@ def test_firstgid_belongs_to_the_reference_not_the_tileset():
 
 
 def test_a_phased_terrain_set_maps_ids_both_ways():
-    from warlock.studio.tilegrid import blob
-    from warlock.studio.tilegrid.tileset import TerrainSpec, Tileset
+    from warlock.kernels.grid2d import blob
+    from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
 
     k, tile = 2, 8
     terrains = (
@@ -131,15 +131,15 @@ def test_a_phased_terrain_set_maps_ids_both_ways():
 
 
 def test_a_phase_count_outside_the_table_is_refused():
-    from warlock.studio.tilegrid.tileset import Tileset
+    from warlock.kernels.grid2d.tileset import Tileset
 
     with pytest.raises(ValueError):
         Tileset(name="g", pixels=_pixels(16, 16), tile_w=8, tile_h=8, phases=3)
 
 
 def test_a_phased_set_needs_phase_squared_rows_per_terrain():
-    from warlock.studio.tilegrid import blob
-    from warlock.studio.tilegrid.tileset import TerrainSpec, Tileset
+    from warlock.kernels.grid2d import blob
+    from warlock.kernels.grid2d.tileset import TerrainSpec, Tileset
 
     with pytest.raises(ValueError):
         Tileset(
@@ -166,7 +166,7 @@ def test_tileset_module_docstring_does_not_claim_image_collections_are_refused()
     in the same file does not exist risks a reintroduced refusal or a second,
     duplicate model of collections elsewhere.
     """
-    from warlock.studio.tilegrid import tileset
+    from warlock.kernels.grid2d import tileset
 
     doc = tileset.__doc__ or ""
     assert "is refused" not in doc, (

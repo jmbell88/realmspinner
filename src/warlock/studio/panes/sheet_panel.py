@@ -15,9 +15,10 @@ from typing import Any
 from imgui_bundle import imgui
 
 from ... import models, rigging
+from ...core.safeio import atomic
 from ...service import sheets as svc_sheets
 from ...service import validation
-from .. import asset_open, atomic, controls, dialogs, forms, icons, theme, verbs, widgets
+from .. import asset_open, controls, dialogs, forms, icons, theme, verbs, widgets
 from ..manual import render as manual_render
 from ..viewer import sheet as sheetlib
 from . import model_gate, stamps

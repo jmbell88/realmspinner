@@ -14,10 +14,11 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio import inker, inker_mode, inker_open, inker_ops, inker_state
-from warlock.studio.inker import filters
-from warlock.studio.inker.flourish import bake as B
-from warlock.studio.inker.flourish import engines, presets
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import filters
+from warlock.kernels.pixel.flourish import bake as B
+from warlock.kernels.pixel.flourish import engines, presets
+from warlock.studio import inker_mode, inker_open, inker_ops, inker_state
 from warlock.studio.state import AppState
 
 # --- shared harness: runs a submitted task inline, exactly test_flourish_ops.py's own ------

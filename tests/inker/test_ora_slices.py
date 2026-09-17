@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.inker import ora
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.slices import SliceKey
+from warlock.kernels.pixel import ora
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.slices import SliceKey
 
 
 def _doc() -> Document:

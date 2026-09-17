@@ -39,9 +39,9 @@ import numpy as np
 import pytest
 from _asecorpus import BUILDERS, EXPECTED_WARNINGS, FIXTURE_DIR, MANIFEST, available, read
 
-from warlock.studio.inker import asein, aseout
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.tiles import TilemapCel
+from warlock.kernels.pixel import asein, aseout
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.tiles import TilemapCel
 
 
 def test_the_fixture_directory_exists():

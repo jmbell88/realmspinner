@@ -34,7 +34,7 @@ def ui(monkeypatch):
         yield imgui
 
 def _doc():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     doc.stack[0].name = "Art"

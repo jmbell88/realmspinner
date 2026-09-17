@@ -18,9 +18,9 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.glbio import rebuild_glb
-from warlock.studio.viewer import gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.glbio import rebuild_glb
 
 REAL_JOB = "44593039ccee"
 REAL_MESH = Path(f"assets/{REAL_JOB}/model.glb")
@@ -407,7 +407,7 @@ def test_the_real_mesh_is_grounded_and_carries_both_pbr_maps():
 def test_the_real_meshs_transform_is_on_a_child_not_the_root():
     """postprocess inserts the scale/translation below the root precisely so a
     loader that drops root transforms still gets it."""
-    doc, _ = __import__("warlock.glbio", fromlist=["read_glb"]).read_glb(REAL_MESH)
+    doc, _ = __import__("warlock.kernels.geom3d.glbio", fromlist=["read_glb"]).read_glb(REAL_MESH)
     root = doc["nodes"][doc["scenes"][doc.get("scene", 0)]["nodes"][0]]
     assert "scale" not in root and "translation" not in root
     child = doc["nodes"][root["children"][0]]
@@ -430,7 +430,7 @@ def test_json_only_glbs_are_still_valid(tmp_path):
     path = tmp_path / "empty.glb"
     path.write_bytes(rebuild_glb(struct.pack("<III", 0x46546C67, 2, 0), doc, b""))
     # The fixture really is JSON-only: no BIN chunk came back out of it.
-    from warlock.glbio import read_glb
+    from warlock.kernels.geom3d.glbio import read_glb
 
     assert read_glb(path)[1] == b""
 
@@ -1476,7 +1476,7 @@ def test_a_glb_whose_json_chunk_is_not_an_object_is_refused_by_name_not_a_bare_a
     bare, un-messaged AttributeError instead of the named ValueError every
     other malformed-GLB boundary in this module raises.
     """
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     header = struct.pack("<III", 0x46546C67, 2, 0)
     # rebuild_glb only promises to json.dumps whatever it is given; a list

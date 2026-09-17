@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.studio.sirens import wavout
+from warlock.kernels.audio import wavout
 
 _ACESTEP = Path(__file__).resolve().parents[1] / "src" / "warlock" / "pipelines" / "acestep"
 _PIPELINE = _ACESTEP / "pipeline_ace_step.py"

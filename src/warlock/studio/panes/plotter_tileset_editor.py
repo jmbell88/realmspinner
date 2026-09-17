@@ -44,12 +44,12 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.grid2d import picking
+from ...kernels.grid2d import tileset as tileset_lib
+from ...kernels.grid2d import wang as wanglib
+from ...kernels.grid2d.tileset import TileEllipse, TileFrame, TilePolygon, TileRect
 from .. import controls, icons, plotter_mode, theme, widgets
 from ..manual import render as manual_render
-from ..tilegrid import picking
-from ..tilegrid import tileset as tileset_lib
-from ..tilegrid import wang as wanglib
-from ..tilegrid.tileset import TileEllipse, TileFrame, TilePolygon, TileRect
 from ..tokens import sp
 from . import plotter_textures
 

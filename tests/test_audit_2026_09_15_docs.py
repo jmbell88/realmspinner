@@ -68,7 +68,7 @@ def test_manual_ch28_seam_threshold_matches_seam_dominance_max():
     ``seam_dominance`` divides by the interior's *worst* join, not its
     "grain" (a word this chapter used for the ratio it no longer computes).
     """
-    from warlock.studio.inker.tiling import SEAM_DOMINANCE_MAX
+    from warlock.kernels.pixel.tiling import SEAM_DOMINANCE_MAX
 
     chapter = (MANUAL / "28-inker.md").read_text(encoding="utf-8")
     match = re.search(r"turning amber above ([\d.]+)", chapter)

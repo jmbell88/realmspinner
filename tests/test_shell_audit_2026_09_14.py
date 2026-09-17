@@ -21,8 +21,9 @@ from typing import Any
 
 from test_review_mode import FakeCtx, _mesh, _scanned  # noqa: F401 -- see shell-05
 
+from warlock.core.safeio import zipguard
 from warlock.service import export as svc_export
-from warlock.studio import dialogs, review_mode, status_bar, zipguard
+from warlock.studio import dialogs, review_mode, status_bar
 from warlock.studio.panes import inspector, library
 
 # --- shell-01: Enter always cancelled a Confirm, even mid-edit --------------
@@ -207,19 +208,30 @@ def test_reference_path_cache_does_not_grow_without_bound(monkeypatch, tmp_path)
 
 
 def _bounded_zip_callers() -> list[str]:
-    """Every module under ``studio/`` that instantiates ``zipguard.BoundedZip``
-    directly, as a path relative to ``studio/`` -- derived from the tree by
-    grep rather than hand-listed a second time, so this (and the docstring
-    test that uses it) cannot go stale the way the docstring itself did.
+    """Every module under ``warlock/`` that instantiates ``zipguard.BoundedZip``
+    directly, named by its own directory plus filename -- derived from the
+    tree by grep rather than hand-listed a second time, so this (and the
+    docstring test that uses it) cannot go stale the way the docstring itself
+    did.
+
+    Scanned from the ``warlock`` package root, not ``studio/`` alone: P3 of
+    the restructure (``dev/RESTRUCTURE.md``) moved two of these doors --
+    Inker's ``ora.py`` and Clay's ``serialize.py`` -- out from under
+    ``studio/`` into ``kernels/pixel/`` and ``kernels/mesh/``, so a
+    ``studio/``-relative scan no longer reaches every caller. Naming each one
+    by its immediate directory rather than a full path keeps the docstring
+    reading as "which engine", the thing a reader of this module actually
+    wants to know, rather than which package layer that engine currently
+    sits in.
     """
-    studio_root = Path(dialogs.__file__).resolve().parent
+    warlock_root = Path(zipguard.__file__).resolve().parent.parent.parent
     pattern = re.compile(r"zipguard\.BoundedZip\(")
     callers = []
-    for path in sorted(studio_root.rglob("*.py")):
+    for path in sorted(warlock_root.rglob("*.py")):
         if path.name == "zipguard.py":
             continue
         if pattern.search(path.read_text(encoding="utf-8")):
-            callers.append(path.relative_to(studio_root).as_posix())
+            callers.append(f"{path.parent.name}/{path.name}")
     return callers
 
 

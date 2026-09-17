@@ -414,7 +414,7 @@ def test_copy_names_count_up_the_way_clay_ops_names_do():
     """The four-line judgement -- count up, never prefix -- is stated twice on
     purpose (this module may not import studio, says the comment beside
     ``_SUFFIX``); this pins that the two spellings still agree."""
-    from warlock.studio.clay.ops import _next_name
+    from warlock.kernels.mesh.ops import _next_name
 
     cases = (
         ("Crouch", ()),

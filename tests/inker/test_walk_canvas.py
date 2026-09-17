@@ -18,8 +18,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker, inker_state, inker_walk
-from warlock.studio.inker.walk import rig as R
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel.walk import rig as R
+from warlock.studio import inker_state, inker_walk
 from warlock.studio.panes import inker_walk_canvas as pane
 
 SIZE = (32, 32)

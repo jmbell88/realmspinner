@@ -305,7 +305,7 @@ def test_a_row_still_checking_is_not_ready():
 
 
 def test_the_size_three_pixel_nib_is_a_plus():
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
 
     assert brush.make_stamp(3, 1.0, "pixel").astype(int).tolist() == [
         [0, 1, 0],

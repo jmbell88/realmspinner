@@ -14,13 +14,13 @@ import inspect
 import numpy as np
 import pytest
 
+from warlock.core.undo import Edit
+from warlock.kernels.geom3d.gltf import Material
 from warlock.studio.mason import document as doc
 from warlock.studio.mason import edits as ed
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import refs
 from warlock.studio.mason import terrain as tr
-from warlock.studio.undo import Edit
-from warlock.studio.viewer.gltf import Material
 
 
 def _terrain(side: int = 4, size: float = 8.0) -> tr.Terrain:

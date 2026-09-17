@@ -7,8 +7,8 @@ import math
 import numpy as np
 import pytest
 
-from warlock.studio.inker import brush
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import brush
+from warlock.kernels.pixel.document import Document
 
 RED = (255, 0, 0, 255)
 
@@ -197,7 +197,7 @@ def test_symmetry_applies_to_erasing_too_because_it_mirrors_positions():
 
 
 def test_a_selection_clips_the_brush_with_the_same_multiply_it_clips_a_fill():
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     pixels = _layer((32, 32))
     clip = SelectionMask.from_rect((32, 32), (0, 0, 16, 32))
@@ -208,7 +208,7 @@ def test_a_selection_clips_the_brush_with_the_same_multiply_it_clips_a_fill():
 
 
 def test_a_feathered_clip_softens_the_brush_rather_than_cutting_it():
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     pixels = _layer((64, 64), (255, 255, 255, 255))
     clip = SelectionMask.from_rect((64, 64), (0, 0, 32, 64)).feathered(4.0)
@@ -560,7 +560,7 @@ def test_a_stroke_whose_layer_is_deleted_under_it_abandons_cleanly():
     with it raising, the stroke could never be closed, so the document was left
     permanently mid-stroke and every later paint call raised as well.
     """
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(8, 8)
     doc.add_layer()

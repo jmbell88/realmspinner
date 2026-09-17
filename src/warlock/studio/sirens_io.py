@@ -26,7 +26,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import atomic, dialogs, docmodes, filetypes, sirens_state, sizeguard
+from ..core.safeio import atomic, sizeguard
+from . import dialogs, docmodes, filetypes, sirens_state
 from .sirens_state import SongTab, active, ensure
 
 #: The picker's one row. Label *and* pattern through :mod:`.filetypes`, which
@@ -131,7 +132,7 @@ def _sample_ceiling(path: Path) -> Path:
     widest frame this build decodes (stereo 32-bit), rather than a second
     figure invented here.
     """
-    from .sirens import wavout
+    from ..kernels.audio import wavout
 
     return sizeguard.within_ceiling(path, wavout.MAX_SAMPLE_FRAMES * 8)
 
@@ -152,8 +153,9 @@ def _decode_sample(path: Path, instrument: int | None, switch: bool = False) -> 
     ``instrument`` does, so the caller that wants the window moved to Sirens
     gets it moved *after* the decode lands rather than before it can fail.
     """
+    from ..kernels.audio import wavout
     from ..service.errors import invalid_from
-    from .sirens import synth, wavout
+    from .sirens import synth
 
     path = _sample_ceiling(Path(path))
     try:
@@ -356,7 +358,7 @@ def safe_stem(name: str, fallback: str) -> str:
     somebody called ``...`` would be a refusal about the wrong thing. The
     fallback is positional (``effect3``), so the file is still findable.
     """
-    from .inker import sheetout
+    from ..kernels.pixel import sheetout
 
     # ``strip(" .-")`` on top of the character class. A dot is legal *inside* a
     # filename and illegal at either end of one on Windows, which silently
@@ -456,7 +458,8 @@ def export_plan(doc: Any, directory: Path) -> dict[Path, bytes]:
     which is why ``wavout`` was written by hand -- a soundtrack whose loop is in
     a sidecar the engine does not read is a soundtrack that does not loop.
     """
-    from .sirens import synth, wavout
+    from ..kernels.audio import wavout
+    from .sirens import synth
 
     directory = Path(directory)
     rate = synth.SAMPLE_RATE

@@ -19,10 +19,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio import clay_ops, undo
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import primitives as bp
+from warlock.core import undo
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import primitives as bp
+from warlock.studio import clay_ops
 from warlock.studio.clay_state import ClayState
 
 

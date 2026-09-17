@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.grid2d import gid
 from warlock.studio.plotter import tools
-from warlock.studio.tilegrid import gid
 
 
 def _layer(width: int = 6, height: int = 4) -> np.ndarray:

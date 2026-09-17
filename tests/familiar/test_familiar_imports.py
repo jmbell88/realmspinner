@@ -14,7 +14,7 @@ from pathlib import Path
 
 import _pure_packages as pp
 
-from warlock.studio import familiar
+from warlock import familiar
 
 PACKAGE_DIR = Path(familiar.__file__).parent
 
@@ -118,12 +118,24 @@ def test_the_familiar_package_imports_no_window_service_or_network():
                 raise AssertionError(f"{path.name} imports banned module {name!r}")
 
 
-def test_familiar_appears_in_pure_packages():
-    """The point of the whole fix: ``_pure_packages.pure_packages()`` derives
-    this rather than trusting a hand-kept list, and this package must now
-    actually earn a place in it (see ``tests/test_pure_packages.py`` for the
+def test_familiar_no_longer_needs_pure_packages_to_prove_this():
+    """``_pure_packages.pure_packages()`` used to be where this package earned
+    its "pure" claim (see ``tests/test_pure_packages.py`` for the
     relative-import resolution bug that used to let it in for the wrong
     reason -- before ``apply.py``/``scratch_ctx.py`` moved out, ``familiar``
     was misreported "pure" only because the helper could not see through a
-    relative import into ``agent_clay``)."""
-    assert "familiar" in pp.pure_packages()
+    relative import into ``agent_clay``).
+
+    2026-09-17, P3 of ``dev/RESTRUCTURE.md`` moved this package out of
+    ``studio/`` entirely, to ``warlock/familiar/`` -- L3 in the restructure's
+    layer table, beside ``service`` and ``characters``, not L1 alongside the
+    kernels or a mode-owned ``studio/`` package. ``pure_packages()`` only
+    walks ``warlock/kernels/`` and ``warlock/studio/`` now (see its own
+    docstring), so ``familiar`` correctly does not appear in its answer any
+    more -- that set answers "which engine must a sibling mode not import",
+    and ``familiar`` was never that. The test above
+    (``test_the_familiar_package_imports_no_window_service_or_network``) is
+    what actually proves this package pure; it never needed
+    ``pure_packages()`` membership to do that, and now it is the only proof
+    left."""
+    assert "familiar" not in pp.pure_packages()

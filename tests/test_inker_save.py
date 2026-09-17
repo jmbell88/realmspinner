@@ -16,9 +16,10 @@ from typing import Any
 import pytest
 from PIL import Image
 
+from warlock.kernels import pixel as inker
 from warlock.service import files as svc_files
 from warlock.service import jobs as svc_jobs
-from warlock.studio import inker, inker_mode
+from warlock.studio import inker_mode
 from warlock.studio.inker_state import InkerDoc
 
 
@@ -604,7 +605,7 @@ def test_save_as_writes_an_aseprite_file_asein_can_read_back(tmp_path, monkeypat
     """The round trip the retirement is for: Save As can now put an edited
     drawing into ``.aseprite``, and what it writes must be the real format --
     readable by the same parser an import uses, not a renamed ORA."""
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     ctx = _SaveCtx()
     tab = _untitled_tab()
@@ -632,7 +633,7 @@ def test_save_as_writes_an_aseprite_file_asein_can_read_back(tmp_path, monkeypat
 def test_an_ase_suffix_also_routes_to_aseprite(tmp_path, monkeypatch):
     """Aseprite's older releases wrote ``.ase``; both suffixes name the one
     format, so both must route the same way."""
-    from warlock.studio.inker import asein
+    from warlock.kernels.pixel import asein
 
     ctx = _SaveCtx()
     tab = _untitled_tab()
@@ -668,9 +669,9 @@ def test_a_reachable_writer_refusal_names_itself_not_the_generic_toast(
     """
     import numpy as np
 
+    from warlock.kernels.pixel.document import Document
+    from warlock.kernels.pixel.tiles import strip
     from warlock.service.errors import Invalid
-    from warlock.studio.inker.document import Document
-    from warlock.studio.inker.tiles import strip
 
     def _tile(colour: tuple[int, int, int, int]) -> np.ndarray:
         return np.full((4, 4, 4), colour, dtype=np.uint8)
@@ -782,7 +783,7 @@ def test_a_dirty_aseprite_tabs_journal_payload_is_still_ora(tmp_path):
     ``inker_mode._journal_encode``): a tab whose ``file_format`` is
     ``"aseprite"`` must still hand the crash-recovery loop bytes that
     ``ora.read_ora`` can open, not an Aseprite encode."""
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     src = tmp_path / "sprite.aseprite"
     doc = inker.Document.blank(8, 8)

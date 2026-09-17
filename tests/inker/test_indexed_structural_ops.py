@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker import Document
-from warlock.studio.inker.ora import read_ora, write_ora
-from warlock.studio.inker.selection import SelectionMask
+from warlock.kernels.pixel import Document
+from warlock.kernels.pixel.ora import read_ora, write_ora
+from warlock.kernels.pixel.selection import SelectionMask
 
 BLACK = (0, 0, 0, 255)
 RED = (200, 20, 20, 255)

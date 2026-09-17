@@ -17,8 +17,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import inker
-from warlock.studio.undo import CompoundEdit, Edit, UndoStack
+from warlock.core.undo import CompoundEdit, Edit, UndoStack
+from warlock.kernels import pixel as inker
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
 
@@ -28,10 +28,20 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "warlock" / "studio"
 
 def test_no_caller_hands_set_mode_the_context():
     """``state.set_mode(state, key)`` reads ``state.mode``; handed the context
-    it raised ``AttributeError`` outside every guard. Two callers did."""
+    it raised ``AttributeError`` outside every guard. Two callers did.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose. ``set_mode`` is ``AppState``'s own method (L4
+    shell, per dev/RESTRUCTURE.md's layer table) -- a kernel or a service door
+    has no ``ctx``/``state`` pair to get backwards in the first place, so
+    widening this scan would only ever sweep files that cannot contain the
+    bug.
+    """
+    files = sorted(SRC.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {SRC} -- did the sweep root break?"
     offenders = [
         path.relative_to(SRC)
-        for path in SRC.rglob("*.py")
+        for path in files
         if "set_mode(ctx, " in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
@@ -115,7 +125,7 @@ def test_a_gesture_longer_than_the_depth_cap_folds_exactly_its_own_steps():
     """``collapse_since`` sliced by a recorded length while ``_evict`` popped
     from the front, so a gesture that ran past ``UNDO_MAX_DEPTH`` folded the
     wrong steps and evicted the work before it."""
-    from warlock.studio.undo import UNDO_MAX_DEPTH
+    from warlock.core.undo import UNDO_MAX_DEPTH
 
     stack = UndoStack()
     earlier = _Cheap()
@@ -243,8 +253,8 @@ def test_edits_made_while_a_clip_save_is_writing_survive_the_landing(monkeypatch
 def test_delete_and_copy_apply_the_wand_mask():
     from test_plotter_mode import FakeCtx, _tab
 
+    from warlock.kernels.grid2d import gid
     from warlock.studio import plotter_mode
-    from warlock.studio.tilegrid import gid
 
     ctx = FakeCtx()
     tab = _tab(ctx)

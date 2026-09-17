@@ -515,7 +515,7 @@ def _wang_swatch(wangset: Any, colour: Any) -> Any:
     read out of a ``.tsx``: the format does not store one and the swatch is the
     only thing that reads it.
     """
-    from ..tilegrid.tileset import TerrainSpec
+    from ...kernels.grid2d.tileset import TerrainSpec
 
     fill = hex_rgba(colour.colour)
     return TerrainSpec(

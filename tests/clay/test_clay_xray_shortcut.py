@@ -16,9 +16,9 @@ from typing import Any
 import pygame
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import clay_mode
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
 from warlock.studio.panes import clay_header
 
 

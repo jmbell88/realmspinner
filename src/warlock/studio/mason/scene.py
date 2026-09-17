@@ -122,8 +122,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..viewer import gltf
-from ..viewer import math3d as m3
+from ...kernels.geom3d import gltf
+from ...kernels.geom3d import math3d as m3
 from . import nodes as nd
 from .nodes import GroupNode, MeshNode, Node, PrefabNode
 from .refs import Ref, ref_key

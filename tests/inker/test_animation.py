@@ -11,10 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import animation
-from warlock.studio.inker.animation import Animation, Frame, Tag, Track
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.layers import Layer
+from warlock.kernels.pixel import animation
+from warlock.kernels.pixel.animation import Animation, Frame, Tag, Track
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.layers import Layer
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -795,7 +795,7 @@ def test_a_linked_cel_is_rotated_exactly_once():
     """Walking the slots instead of the distinct cels rotates a background
     linked across three frames three times -- and it looks plausible, because
     every frame agrees with every other."""
-    from warlock.studio.inker import transform as tf
+    from warlock.kernels.pixel import transform as tf
 
     doc = _doc(8, 4)
     weight = np.ones((2, 1), dtype=np.float32)
@@ -907,7 +907,7 @@ def test_editing_a_linked_cel_invalidates_every_frame_it_appears_on():
 
 
 def test_the_frame_cache_respects_its_byte_ceiling(monkeypatch):
-    from warlock.studio.inker import document as document_mod
+    from warlock.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     one_frame = 64 * 64 * 4
@@ -923,7 +923,7 @@ def test_the_frame_cache_respects_its_byte_ceiling(monkeypatch):
 def test_one_frame_over_the_whole_budget_is_still_returned(monkeypatch):
     """A large canvas must not end up caching nothing and recompositing on
     every draw, which is what evicting the entry just stored would mean."""
-    from warlock.studio.inker import document as document_mod
+    from warlock.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     monkeypatch.setattr(document_mod, "FRAME_CACHE_BYTES", 1)
@@ -969,7 +969,7 @@ def test_forgetting_a_frame_drops_its_filtered_flatten_too():
 
 
 def test_the_byte_ceiling_counts_filtered_flattens(monkeypatch):
-    from warlock.studio.inker import document as document_mod
+    from warlock.kernels.pixel import document as document_mod
 
     doc = _doc(64, 64)
     one_frame = 64 * 64 * 4
@@ -1709,7 +1709,8 @@ def test_a_ghost_wraps_inside_the_span_rather_than_clamping():
 def test_constant_frame_rate_changes_the_playback_and_not_the_frames():
     """What an animator asking "what does this look like at 12 fps" means --
     the alternative is an undoable edit to every frame of the document."""
-    from warlock.studio import inker, inker_mode, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, inker_state
 
     doc = inker.Document.blank(4, 4)
     doc.ensure_animation()
@@ -1733,7 +1734,7 @@ def test_a_tag_left_past_the_end_by_a_frame_delete_is_still_reachable():
     ``active_tag`` compared against the raw numbers: the tag contained no index
     at all, so it never played and never highlighted, with nothing to say why.
     """
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     doc = Document.blank(4, 4)
     for _ in range(9):

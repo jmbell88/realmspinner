@@ -177,7 +177,7 @@ def _tiny_png() -> bytes:
 
 
 def test_troubleshooting_is_named_once_and_resolves():
-    from warlock.studio.manual import loader, targets
+    from warlock.kernels.manual import loader, targets
 
     chapter, anchor = targets.TROUBLESHOOTING
     assert anchor is None
@@ -188,7 +188,7 @@ def test_troubleshooting_is_not_a_help_target():
     """It is the same shape and deliberately not in that dict: HELP_TARGETS is
     asserted against the pane (?) call sites in both directions, and none of
     the three surfaces that lead here is a pane with a (?)."""
-    from warlock.studio.manual.targets import HELP_TARGETS
+    from warlock.kernels.manual.targets import HELP_TARGETS
 
     assert "diagnostics" not in HELP_TARGETS
 

@@ -10,7 +10,7 @@ This is the ``tests/inker/test_sheetout.py`` pin applied to the second pure
 package, and it is written the same way on purpose.
 
 The tile vocabulary itself -- the gid word, the sliced atlas, the blob
-collapse -- moved out to :mod:`warlock.studio.tilegrid` on 2026-08-18: the
+collapse -- moved out to :mod:`warlock.kernels.grid2d` on 2026-08-18: the
 second shared leaf after ``studio/undo.py``, reached for by every module here
 that used to import ``.gid``, ``.tileset`` or ``.blob`` as a sibling.
 """
@@ -26,12 +26,15 @@ ENGINE = Path(plotter.__file__).parent
 PACKAGE = "warlock.studio.plotter"
 
 #: ``(module, imported name)`` for every import that leaves the package.
-#: :mod:`~warlock.studio.undo` is the history engine the raster editor and Clay
+#: :mod:`~warlock.core.undo` is the history engine the raster editor and Clay
 #: already share -- as headless as this package is, and the reason a ``.wmap``
-#: undo step and an ``.ora`` one obey the same byte budget.
-#: :mod:`~warlock.studio.tilegrid` and its ``.tileset`` submodule are the shared
-#: tile vocabulary -- every module that places, flips or slices a tile reaches
-#: for one or both.
+#: undo step and an ``.ora`` one obey the same byte budget. (2026-09-17: moved
+#: from ``studio/undo.py`` to ``warlock/core/undo.py`` in P3 of
+#: ``dev/RESTRUCTURE.md``, which resolves the reason this needed defending as
+#: a sibling exception -- reaching down into ``core`` needs none.)
+#: :mod:`~warlock.kernels.grid2d` (``studio/tilegrid/`` before the same move)
+#: and its ``.tileset`` submodule are the shared tile vocabulary -- every
+#: module that places, flips or slices a tile reaches for one or both.
 OUTWARD_IMPORTS = {
     # The shared bounded zip reader. One rule for four container doors, and a
     # leaf for ``tilegrid``/``undo``'s reason exactly: the ``file_size`` sum
@@ -42,29 +45,32 @@ OUTWARD_IMPORTS = {
     # seventeen. ``zipguard`` said so first and the rest are the same sentence
     # about a different declared number -- an image's pixel count, a ``.npy``
     # header's shape, an XML document's DTD and nesting depth. Shared leaves,
-    # not sibling engines, so this package is free to reach for them.
-    ("wmap.py", "warlock.studio.zipguard"),
-    ("wmap.py", "warlock.studio.npyguard"),
-    ("wmap.py", "warlock.studio.pixelguard"),
-    ("tsx.py", "warlock.studio.xmlguard"),
-    ("_map_geometry.py", "warlock.studio.tilegrid"),
-    ("_map_layers.py", "warlock.studio.tilegrid"),
-    ("_map_layers.py", "warlock.studio.tilegrid.tileset"),
-    ("_map_model.py", "warlock.studio.tilegrid.tileset"),
-    ("_map_paint.py", "warlock.studio.tilegrid"),
+    # not sibling engines, so this package is free to reach for them. P3
+    # folded the four modules into one ``core/safeio/`` package; ``wmap.py``
+    # reaches three of them through a single ``from ... import`` line, which
+    # is one outward edge, not three, and ``tsx.py`` reaches the fourth the
+    # same way even alone -- the collapse is about the package the name lives
+    # in, not about how many names one file happens to need from it.
+    ("wmap.py", "warlock.core.safeio"),
+    ("tsx.py", "warlock.core.safeio"),
+    ("_map_geometry.py", "warlock.kernels.grid2d"),
+    ("_map_layers.py", "warlock.kernels.grid2d"),
+    ("_map_layers.py", "warlock.kernels.grid2d.tileset"),
+    ("_map_model.py", "warlock.kernels.grid2d.tileset"),
+    ("_map_paint.py", "warlock.kernels.grid2d"),
     # ``MapDoc.set_stamp`` writes a block of gids and needs their dtype. The
     # same leaf every painting module here already reaches for, for the same
     # reason: a gid is what a cell *is*, and this package is the editor of them.
-    ("tilemap.py", "warlock.studio.tilegrid"),
-    ("_map_tilesets.py", "warlock.studio.tilegrid"),
-    ("_map_tilesets.py", "warlock.studio.tilegrid.tileset"),
-    ("edits.py", "warlock.studio.undo"),
-    ("render.py", "warlock.studio.tilegrid"),
-    ("scene.py", "warlock.studio.tilegrid.tileset"),
-    ("terrain.py", "warlock.studio.tilegrid"),
-    ("terrain.py", "warlock.studio.tilegrid.tileset"),
-    ("tilemap.py", "warlock.studio.tilegrid.tileset"),
-    ("tilemap.py", "warlock.studio.undo"),
+    ("tilemap.py", "warlock.kernels.grid2d"),
+    ("_map_tilesets.py", "warlock.kernels.grid2d"),
+    ("_map_tilesets.py", "warlock.kernels.grid2d.tileset"),
+    ("edits.py", "warlock.core.undo"),
+    ("render.py", "warlock.kernels.grid2d"),
+    ("scene.py", "warlock.kernels.grid2d.tileset"),
+    ("terrain.py", "warlock.kernels.grid2d"),
+    ("terrain.py", "warlock.kernels.grid2d.tileset"),
+    ("tilemap.py", "warlock.kernels.grid2d.tileset"),
+    ("tilemap.py", "warlock.core.undo"),
     # The four-connected flood kernel, with the frontier dilation beside it as
     # the reference and the fallback.
     ("tools.py", "warlock.native"),
@@ -73,15 +79,15 @@ OUTWARD_IMPORTS = {
     # a leaf -- ctypes and a DLL path, nothing from the studio -- so the edge
     # costs this package none of the headlessness it is pinned for.
     ("render.py", "warlock.native"),
-    ("tmx.py", "warlock.studio.tilegrid"),
-    ("tsx.py", "warlock.studio.tilegrid.wang"),
-    ("wmap.py", "warlock.studio.tilegrid.wang"),
-    ("tmx.py", "warlock.studio.tilegrid.tileset"),
-    ("tools.py", "warlock.studio.tilegrid"),
-    ("tsx.py", "warlock.studio.tilegrid"),
-    ("tsx.py", "warlock.studio.tilegrid.tileset"),
-    ("wmap.py", "warlock.studio.tilegrid"),
-    ("wmap.py", "warlock.studio.tilegrid.tileset"),
+    ("tmx.py", "warlock.kernels.grid2d"),
+    ("tsx.py", "warlock.kernels.grid2d.wang"),
+    ("wmap.py", "warlock.kernels.grid2d.wang"),
+    ("tmx.py", "warlock.kernels.grid2d.tileset"),
+    ("tools.py", "warlock.kernels.grid2d"),
+    ("tsx.py", "warlock.kernels.grid2d"),
+    ("tsx.py", "warlock.kernels.grid2d.tileset"),
+    ("wmap.py", "warlock.kernels.grid2d"),
+    ("wmap.py", "warlock.kernels.grid2d.tileset"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}

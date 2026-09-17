@@ -25,8 +25,8 @@ import pytest
 def test_a_file_past_the_ceiling_is_refused_before_a_byte_is_read(tmp_path):
     """The shared "is this small enough to open" question, which three modes
     had a private copy of and two more had none at all."""
+    from warlock.core.safeio import sizeguard
     from warlock.service.errors import TooLarge
-    from warlock.studio import sizeguard
 
     path = tmp_path / "big.bin"
     path.write_bytes(b"x" * 100)
@@ -44,7 +44,7 @@ def test_the_ceiling_is_read_at_call_time():
     """Which is what lets a test lower it rather than build half a gigabyte."""
     import inspect
 
-    from warlock.studio import sizeguard
+    from warlock.core.safeio import sizeguard
 
     signature = inspect.signature(sizeguard.within_ceiling)
     assert "ceiling" in signature.parameters
@@ -235,7 +235,7 @@ def test_a_packed_item_row_is_its_own_function():
 
 def test_a_picked_element_is_expressed_in_the_mode_that_picked_it():
     """The one place a hit index becomes a selection, and nothing named it."""
-    from warlock.studio.clay.primitives import box
+    from warlock.kernels.mesh.primitives import box
     from warlock.studio.clay_view import ClayView
 
     mesh = box()

@@ -140,7 +140,7 @@ def test_the_seed_survives_the_recipe_codecs_own_masking():
     """``recipe.clamp`` masks a seed to 31 bits. A value that did not already
     fit would come back as a *different* flame from the one this function
     named, silently."""
-    from warlock.studio.inker.flourish import recipe as flourish_recipe
+    from warlock.kernels.pixel.flourish import recipe as flourish_recipe
 
     seed = effects.effect_seed(2**31 - 1, 5)
     assert 0 <= seed <= 0x7FFFFFFF
@@ -193,7 +193,7 @@ def test_a_theme_with_neither_region_falls_back_to_the_primitives_own_flame():
     that vanishes because a palette had no ``accent`` is a bug nobody can see."""
     from dataclasses import replace
 
-    from warlock.studio.inker.flourish import prims
+    from warlock.kernels.pixel.flourish import prims
 
     theme = replace(_theme(), materials={}, effect_params={})
     base, tip = effects.effect_colors(theme)
@@ -397,7 +397,7 @@ def test_a_half_transparent_flame_mixes_rather_than_replaces():
 
 def test_the_flame_actually_draws_something():
     """A recipe that clamps to nothing visible would pass every test above."""
-    from warlock.studio.inker.flourish import render as flourish_render
+    from warlock.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     plane = flourish_render.render_frame(recipe, 0)
@@ -410,7 +410,7 @@ def test_the_flames_base_sits_at_the_canvas_centre_and_it_rises_from_there():
     """``rise = -90`` in screen degrees is straight up. If it were +90 the
     flame would hang below the socket, which on a crown is the character's face.
     """
-    from warlock.studio.inker.flourish import render as flourish_render
+    from warlock.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     alpha = flourish_render.to_uint8(
@@ -422,7 +422,7 @@ def test_the_flames_base_sits_at_the_canvas_centre_and_it_rises_from_there():
 
 
 def test_two_frames_of_one_movement_are_two_different_flames():
-    from warlock.studio.inker.flourish import render as flourish_render
+    from warlock.kernels.pixel.flourish import render as flourish_render
 
     recipe = _flame(cell_px=64, height_px=24, frames=4)
     first, second = (
@@ -433,7 +433,7 @@ def test_two_frames_of_one_movement_are_two_different_flames():
 
 
 def test_two_runs_of_one_recipe_are_the_same_bytes():
-    from warlock.studio.inker.flourish import render as flourish_render
+    from warlock.kernels.pixel.flourish import render as flourish_render
 
     a = flourish_render.render_frame(_flame(cell_px=64, height_px=24), 1)
     b = flourish_render.render_frame(_flame(cell_px=64, height_px=24), 1)

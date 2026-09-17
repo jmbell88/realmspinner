@@ -602,7 +602,7 @@ def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
     direction and already playing at the speed it was rendered for."""
     import numpy as np
 
-    from warlock.studio.inker import sheetin
+    from warlock.kernels.pixel import sheetin
 
     layout = cs.plan(_records(), frame_size=16)
     block = cs.animation_block()
@@ -629,7 +629,7 @@ def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
 
 
 def test_the_general_tag_builder_still_produces_the_walk_sheet_tags():
-    from warlock.studio.inker import sheetin
+    from warlock.kernels.pixel import sheetin
 
     tags = sheetin.walk_tags()
     assert [t.name for t in tags] == [
@@ -639,7 +639,7 @@ def test_the_general_tag_builder_still_produces_the_walk_sheet_tags():
 
 
 def test_a_tag_that_runs_backwards_is_refused():
-    from warlock.studio.inker import sheetin
+    from warlock.kernels.pixel import sheetin
 
     with pytest.raises(ValueError, match="covers frames 5-2"):
         sheetin.span_tags([{"name": "bad", "start": 5, "end": 2}])

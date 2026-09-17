@@ -69,7 +69,7 @@ from typing import Any
 
 import httpx
 
-from ..studio.familiar import contract
+from ..familiar import contract
 
 #: How long a chat round trip may take before this gives up. Generous:
 #: Familiar runs on whatever GPU is in the machine, `-ngl 999` with no

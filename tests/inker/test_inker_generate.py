@@ -8,8 +8,9 @@ reason the panel exists rather than staying a menu.
 
 from __future__ import annotations
 
-from warlock.studio import inker, inker_ops
-from warlock.studio.inker import sheetout
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import sheetout
+from warlock.studio import inker_ops
 from warlock.studio.inker_state import InkerDoc
 from warlock.studio.panes import inker_generate
 

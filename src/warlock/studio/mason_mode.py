@@ -39,7 +39,8 @@ import weakref
 from pathlib import Path
 from typing import Any
 
-from . import dialogs, docmodes, journal, mason_assets, mason_io, mason_state, sizeguard
+from ..core.safeio import sizeguard
+from . import dialogs, docmodes, journal, mason_assets, mason_io, mason_state
 from ._view_frame import AXIS_VIEW_KEYS, axis_view_key
 from .mason_state import MasonState, MasonTab
 
@@ -575,9 +576,9 @@ def add_terrain(ctx: Any, side: int = 0, size: float = 0.0) -> int | None:
         return None
     import numpy as np
 
+    from ..kernels.geom3d import gltf
     from .mason import nodes as nd
     from .mason.terrain import Terrain
-    from .viewer import gltf
 
     side = int(side or mason_state.DEFAULT_TERRAIN_SIDE)
     size = float(size or mason_state.DEFAULT_TERRAIN_SIZE)
@@ -871,10 +872,10 @@ def export_library(ctx: Any, tab: MasonTab | None = None) -> None:
     snap = serialize.snapshot(doc)
 
     def run() -> dict[str, Any]:
+        from ..kernels.geom3d import glbwrite
         from ..service import files as svc_files
         from ..service import jobs as svc_jobs
         from .mason import gltfout
-        from .viewer import glbwrite
 
         source = mason_assets.ensure(ctx)
         export = gltfout.scene_model(doc, source)

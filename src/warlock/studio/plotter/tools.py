@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 
 from ... import native
-from ..tilegrid import gid as gidlib
+from ...kernels.grid2d import gid as gidlib
 
 Region = tuple[int, int, np.ndarray]
 

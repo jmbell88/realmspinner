@@ -22,9 +22,9 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel import nineslice
+from warlock.kernels.pixel.document import Document
 from warlock.studio import inker_ops
-from warlock.studio.inker import nineslice
-from warlock.studio.inker.document import Document
 from warlock.studio.panes import inker_tools
 
 CORNER = (10, 20, 30, 255)

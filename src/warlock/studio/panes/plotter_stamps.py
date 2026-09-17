@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...kernels.grid2d import gid as gidlib
 from .. import controls, icons, plotter_mode, widgets
 from ..manual import render as manual_render
-from ..tilegrid import gid as gidlib
 from ..tokens import sp
 
 #: What this pane refuses to shrink past, in design pixels.

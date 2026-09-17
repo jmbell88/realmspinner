@@ -1169,7 +1169,7 @@ def test_the_manual_builds_embedded(app_ctx, imgui_ctx):
     # the not-found path rather than the renderer this test exists for, and
     # neither renumbering that moved the chapter could fail here. Looking the
     # key up means the next one cannot go stale in silence either.
-    from warlock.studio.manual import loader
+    from warlock.kernels.manual import loader
 
     shortcuts = next(c.key for c in loader.chapters() if c.key.endswith("-shortcuts"))
     app_ctx.state.manual.open_at(shortcuts, None)
@@ -1309,7 +1309,8 @@ def test_a_chapter_with_a_screenshot_uploads_and_draws_it(app_ctx, imgui_ctx):
     Any chapter carrying a screenshot exercises the same seam, and only three of
     them do, so the search is also the assertion that some chapter still does.
     """
-    from warlock.studio.manual import loader, parser, render
+    from warlock.kernels.manual import loader, parser
+    from warlock.studio.manual import render
 
     found = (
         (c.key, b)
@@ -1338,7 +1339,8 @@ def test_a_missing_screenshot_degrades_to_its_alt_text(app_ctx, imgui_ctx):
     """Which is why alt text is required rather than optional: the chapters
     ship and the captures are generated, so "not there yet" is an ordinary
     state and must read as a caption rather than as damage."""
-    from warlock.studio.manual import parser, render
+    from warlock.kernels.manual import parser
+    from warlock.studio.manual import render
 
     block = parser.Image("The Inker toolbar", "img/not-generated-yet.png")
     _frame(imgui_ctx, lambda: render._draw_image(app_ctx, block))
@@ -1353,7 +1355,8 @@ def test_the_toc_tree_draws_its_sections_and_follows_the_scroll(app_ctx, imgui_c
     identically-named sections apart, and the scroll read that has to happen
     inside the page child rather than the host.
     """
-    from warlock.studio.manual import loader, parser, render
+    from warlock.kernels.manual import loader, parser
+    from warlock.studio.manual import render
 
     ms = app_ctx.state.manual
     inker = next(c.key for c in loader.chapters() if c.key.endswith("-inker"))
@@ -1403,7 +1406,7 @@ def test_the_manual_overlay_builds_over_a_mode(app_ctx, imgui_ctx):
 
     app_ctx.state.manual.open = False
     frame()
-    from warlock.studio.manual import loader
+    from warlock.kernels.manual import loader
 
     shortcuts = next(c.key for c in loader.chapters() if c.key.endswith("-shortcuts"))
     render.open_at(app_ctx, (shortcuts, None))
@@ -1941,7 +1944,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # each is a branch of ``_filter_control`` that only a real frame walks.
     # Selecting one also seeds its values, which is where Invert's popup turns
     # its three toggles on.
-    from warlock.studio.inker import filters as inker_filters
+    from warlock.kernels.pixel import filters as inker_filters
 
     for name in inker_filters.FILTERS:
         state.filter_name = name
@@ -2022,7 +2025,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # over one shared state object while the session lives on one document, so
     # switching tabs with it up used to cancel on whichever tab was now in front
     # -- leaving the previewed one holding pixels nobody would ever answer for.
-    from warlock.studio.inker.document import Document as _Document
+    from warlock.kernels.pixel.document import Document as _Document
 
     wants_convert.append(1)
     _frame(imgui_ctx, build)
@@ -2084,7 +2087,7 @@ def test_paint_mode_builds_and_gives_its_textures_back(app_ctx, imgui_ctx):
     # only state where the tile panel draws its picker rather than its "nothing
     # yet" branch -- and the only one that uploads an atlas texture, which the
     # close below has to give back with the rest.
-    from warlock.studio.inker.tiles import strip as _strip
+    from warlock.kernels.pixel.tiles import strip as _strip
 
     tiles = np.zeros((3, 8, 8, 4), dtype=np.uint8)
     tiles[1, ..., 0] = tiles[1, ..., 3] = 255
@@ -2121,7 +2124,8 @@ def test_the_context_bar_draws_every_tools_own_options(app_ctx, imgui_ctx):
     can be drawn. The bucket's three Aseprite options were the case that made
     the difference matter -- the exercise pass presses tool *groups* and leaves
     the bar showing the brush's widgets, so nothing rendered them."""
-    from warlock.studio import inker, inker_mode, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, inker_state
     from warlock.studio.panes import inker_context
 
     app_ctx.state.mode = "inker"
@@ -2143,7 +2147,8 @@ def test_the_timeline_draws_group_headers_open_and_folded(app_ctx, imgui_ctx):
     unbalances the id stack takes the frame loop down and the plan alone
     cannot say."""
 
-    from warlock.studio import inker, inker_mode
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode
     from warlock.studio.panes import inker_timeline
 
     app_ctx.state.mode = "inker"
@@ -2187,7 +2192,8 @@ def test_the_animated_inker_builds_and_gives_its_frame_textures_back(app_ctx, im
     """
     from imgui_bundle import imgui
 
-    from warlock.studio import inker, inker_mode
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode
     from warlock.studio.panes import (
         inker_canvas,
         inker_colors,
@@ -2452,9 +2458,9 @@ def test_a_toolbar_row_never_draws_past_the_pane_it_is_in(app_ctx, imgui_ctx, sc
 
 def _clay_tab(app_ctx, *, objects: int = 2):
     """A Clay document with objects in it, adopted as the active tab."""
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import clay_mode
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
 
     doc = bd.ClayDoc()
     for i in range(objects):
@@ -2607,8 +2613,8 @@ def test_the_clay_properties_pane_builds_for_a_frozen_object(app_ctx, imgui_ctx)
 def test_the_clay_properties_pane_builds_for_every_generator(app_ctx, imgui_ctx):
     """The parameter widgets come off the registry, so every default type in it
     has to have a widget -- a float, an int and a tuple today."""
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio.panes import clay_props
 
     tab = _clay_tab(app_ctx, objects=0)
@@ -2645,8 +2651,8 @@ def test_the_clay_properties_pane_enumerates_a_generator_it_has_never_seen(
     labels are read back off the frame, so a default type with no widget shows
     up as a missing label rather than as a pane that merely did not crash.
     """
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio.panes import clay_props
 
     def wedge(width: float = 2.0, steps: int = 3, footprint=(1.0, 1.0)):
@@ -2711,8 +2717,8 @@ def test_an_empty_clay_scene_says_how_to_add_a_shape(app_ctx, imgui_ctx, gl, mon
     (W1.5). The viewport now says so itself, through the same
     ``overlay.centred_empty`` every other empty viewport in the app uses.
     """
+    from warlock.kernels.mesh import document as bd
     from warlock.studio import clay_mode, widgets
-    from warlock.studio.clay import document as bd
     from warlock.studio.main import App
     from warlock.studio.panes import overlay
 
@@ -4090,7 +4096,7 @@ def test_the_3d_form_builds_with_a_custom_budget(app_ctx, imgui_ctx, monkeypatch
 
 
 def _tileset(size: int = 32, tile: int = 16):
-    from warlock.studio.tilegrid.tileset import Tileset
+    from warlock.kernels.grid2d.tileset import Tileset
 
     pixels = np.zeros((size, size, 4), dtype=np.uint8)
     pixels[..., 3] = 255
@@ -4103,6 +4109,7 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
     none of the mode's controls, which is exactly why it is drawn first."""
     from imgui_bundle import imgui
 
+    from warlock.kernels.grid2d import gid
     from warlock.studio import plotter_mode, plotter_state
     from warlock.studio.panes import (
         plotter_bridge,
@@ -4113,7 +4120,6 @@ def test_plotter_builds_empty_and_with_a_map(app_ctx, imgui_ctx):
         plotter_tools,
     )
     from warlock.studio.plotter.tilemap import MapObject, new_uid
-    from warlock.studio.tilegrid import gid
     from warlock.studio.tokens import sp
 
     app_ctx.state.mode = "plotter"
@@ -5128,7 +5134,7 @@ def test_every_symmetry_button_actually_moves_the_setting():
     checked by *pressing* it rather than by scanning a dispatcher's source for
     each key, which is the stronger check anyway.
     """
-    from warlock.studio.inker import brush
+    from warlock.kernels.pixel import brush
     from warlock.studio.panes import inker_context
 
     # ``_symmetry_hit`` persists, and ``inker_mode.persist`` reads the whole
@@ -5423,9 +5429,9 @@ def test_the_sheet_popup_pump_runs_before_the_empty_map_return(app_ctx, imgui_ct
     that no popup ever asks about."""
     import numpy as np
 
+    from warlock.kernels.grid2d import slicing
     from warlock.studio import plotter_mode
     from warlock.studio.panes import plotter_tileset
-    from warlock.studio.tilegrid import slicing
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5453,9 +5459,9 @@ def test_a_frame_without_the_sheet_popup_drops_the_pixels(app_ctx, imgui_ctx):
     megabytes: the frame that finds the popup gone is what releases them."""
     import numpy as np
 
+    from warlock.kernels.grid2d import slicing
     from warlock.studio import plotter_mode
     from warlock.studio.panes import plotter_tileset
-    from warlock.studio.tilegrid import slicing
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -5485,8 +5491,8 @@ def test_the_resize_popup_shows_a_detected_pixel_grid(app_ctx):
     already existed on the export path -- this is the editor reaching it."""
     import numpy as np
 
+    from warlock.kernels.pixel.document import Document as _Doc
     from warlock.studio import inker_mode
-    from warlock.studio.inker.document import Document as _Doc
     from warlock.studio.panes import inker_bridge
 
     rng = np.random.default_rng(5)
@@ -5524,8 +5530,8 @@ def test_the_seam_readout_and_wrap_button_appear_only_in_tiled_mode(app_ctx):
     to avoid."""
     import numpy as np
 
+    from warlock.kernels.pixel.document import Document as _Doc
     from warlock.studio import inker_mode
-    from warlock.studio.inker.document import Document as _Doc
     from warlock.studio.panes import inker_canvas
 
     state = inker_mode.ensure(app_ctx)
@@ -5572,8 +5578,8 @@ def test_the_canvas_seam_indicator_decides_on_dominance_not_the_retired_ratio(ap
     ``SEAM_DOMINANCE_MAX`` of 1.0, correctly quiet, because the line is a
     harder join than the seam is.
     """
+    from warlock.kernels.pixel.document import Document as _Doc
     from warlock.studio import inker_mode, theme
-    from warlock.studio.inker.document import Document as _Doc
     from warlock.studio.panes import inker_canvas
 
     state = inker_mode.ensure(app_ctx)
@@ -5605,9 +5611,9 @@ def test_flourish_submit_refuses_a_recipe_over_the_bake_cost_ceiling():
     """
     from types import SimpleNamespace
 
+    from warlock.kernels.pixel import flourish
+    from warlock.kernels.pixel.flourish import recipe as R
     from warlock.studio import inker_flourish
-    from warlock.studio.inker import flourish
-    from warlock.studio.inker.flourish import recipe as R
 
     maxed = flourish.clamp(
         R.Recipe(
@@ -5824,9 +5830,9 @@ def test_the_undo_history_popover_lists_the_stack_and_jumps(app_ctx, imgui_ctx):
     had no panel at all."""
     import numpy as np
 
+    from warlock.kernels.grid2d import gid as gidlib
     from warlock.studio import controls, plotter_mode
     from warlock.studio.panes import plotter_bridge
-    from warlock.studio.tilegrid import gid as gidlib
 
     imgui, _renderer = imgui_ctx
     tab = _plotter_tab(app_ctx)
@@ -5931,9 +5937,9 @@ def test_choosing_a_tab_changes_the_tileset_and_drops_the_brush(app_ctx, imgui_c
     import imgui_bundle
     import numpy as np
 
+    from warlock.kernels.grid2d import gid as gidlib
     from warlock.studio import plotter_mode
     from warlock.studio.panes import plotter_tileset
-    from warlock.studio.tilegrid import gid as gidlib
 
     imgui, _renderer = imgui_ctx
     _plotter_tab(app_ctx, tilesets=("Grass", "Dungeon", "props"))
@@ -6147,9 +6153,9 @@ def test_the_plotter_stamp_ghost_draws_the_brush_under_the_pointer(app_ctx, imgu
     """
     import numpy as np
 
+    from warlock.kernels.grid2d import gid
     from warlock.studio import plotter_mode
     from warlock.studio.panes import plotter_canvas
-    from warlock.studio.tilegrid import gid
 
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
     state = plotter_mode.ensure(app_ctx)
@@ -6425,9 +6431,9 @@ def test_the_plotter_stamps_pane_draws_full_and_empty_slots(app_ctx, imgui_ctx):
     """
     import numpy as np
 
+    from warlock.kernels.grid2d import gid
     from warlock.studio import plotter_mode
     from warlock.studio.panes import plotter_stamps
-    from warlock.studio.tilegrid import gid
 
     imgui, _renderer = imgui_ctx
     tab = plotter_mode.new_document(app_ctx, (8, 8, 16, 16))
@@ -6486,8 +6492,8 @@ def test_the_clay_stats_overlay_draws_when_it_is_asked_for(app_ctx, imgui_ctx):
     """Off, on, and on with a selection in each element mode -- none of which
     the pane walk reaches, because the overlay draws nothing at all unless it
     has been switched on."""
+    from warlock.kernels.mesh import elements as el
     from warlock.studio import clay_mode
-    from warlock.studio.clay import elements as el
     from warlock.studio.panes import clay_hud
 
     tab = _clay_tab(app_ctx)

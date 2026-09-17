@@ -13,8 +13,8 @@ import json
 import httpx
 import pytest
 
+from warlock.familiar import contract
 from warlock.pipelines import llama_client
-from warlock.studio.familiar import contract
 
 
 class _FakeServer:

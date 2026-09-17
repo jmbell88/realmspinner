@@ -19,8 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from ...kernels.geom3d import math3d as m3
 from ...pipelines import sheet as sheetlib
-from . import math3d as m3
 from .glctx import Viewport
 
 CELL = 64

@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import gradient as grad
-from warlock.studio.inker import transform as tf
+from warlock.kernels.pixel import gradient as grad
+from warlock.kernels.pixel import transform as tf
 
 RED = (255, 0, 0, 255)
 
@@ -312,7 +312,7 @@ def test_every_named_anchor_places_the_image_inside_the_new_canvas():
 
 
 def test_a_centred_canvas_growth_puts_the_image_in_the_middle():
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     doc.stack.active.pixels[:, :] = RED
@@ -327,7 +327,7 @@ def test_a_centred_canvas_growth_puts_the_image_in_the_middle():
 def test_an_explicit_offset_still_wins_over_the_anchor():
     """The general form, and every caller that already computed one keeps
     working unchanged."""
-    from warlock.studio import inker
+    from warlock.kernels import pixel as inker
 
     doc = inker.Document.blank(4, 4)
     doc.stack.active.pixels[:, :] = RED

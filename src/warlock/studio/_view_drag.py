@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .clay import document as bd
-from .viewer import math3d as m3
+from ..kernels.geom3d import math3d as m3
+from ..kernels.mesh import document as bd
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .clay_view import ClayView
@@ -95,7 +95,7 @@ def _rotation_hud(quat: Any, entry: Any) -> str:
     axis reads as the angle about that axis and a typed value reads back as
     itself -- which is the whole reason the HUD is worth drawing.
     """
-    from .clay import drag as bdrag
+    from ..kernels.mesh import drag as bdrag
 
     out = bdrag.constrain_rotation(quat, entry)
     length = float(np.linalg.norm(np.asarray(out, dtype="f8")[:3]))
@@ -211,7 +211,7 @@ class DragOps:
         origin = None if gizmo is None else getattr(gizmo, "origin", None)
         self._drag_origin = np.zeros(3) if origin is None else np.array(origin, dtype="f8")
         self._grab = "gizmo"
-        from .clay import drag as bdrag
+        from ..kernels.mesh import drag as bdrag
 
         self.drag_input = bdrag.DragInput()
         self.drag_hud = ""
@@ -286,7 +286,7 @@ class DragOps:
         element path) is the code that already exists rather than a parallel
         set that has to be kept agreeing with it.
         """
-        from .clay import drag as bdrag
+        from ..kernels.mesh import drag as bdrag
 
         point = self._view_plane_point(local, self._drag_origin)
         if point is None or self._key_anchor is None:
@@ -338,7 +338,7 @@ class DragOps:
         transform tools orbit, because dragging a gizmo tool over the void is
         how a user looks around.
         """
-        from .clay import elements as el
+        from ..kernels.mesh import elements as el
 
         how = "add" if shift else ("subtract" if ctrl else "replace")
         hit = self.pick_face(doc, local)
@@ -465,7 +465,7 @@ class DragOps:
         sentence a user means in every element mode and refusing two of the
         three would be an offer taken back.
         """
-        from .clay import select as bsel
+        from ..kernels.mesh import select as bsel
 
         found = self.pick_element(doc, local)
         if found is None:
@@ -485,7 +485,7 @@ class DragOps:
         )
         if not len(pairs):
             return False
-        from .clay import elements as el
+        from ..kernels.mesh import elements as el
 
         doc.set_element_sel(uid, el.ElementSel(edges=pairs))
         doc.select([uid])
@@ -500,7 +500,7 @@ class DragOps:
         through a vertex is not a single answer, and picking the first is what
         Blender does from a face too.
         """
-        from .clay.adjacency import adjacency
+        from ..kernels.mesh.adjacency import adjacency
 
         a = adjacency(mesh)
         mode = doc.element_mode
@@ -538,7 +538,7 @@ class DragOps:
         return self._grab in ("gizmo", "keydrag")
 
     def _clear_drag_input(self: ClayView) -> None:
-        from .clay import drag as bdrag
+        from ..kernels.mesh import drag as bdrag
 
         self.drag_input = bdrag.DragInput()
         self.drag_hud = ""
@@ -687,7 +687,7 @@ class DragOps:
         report a snap, which is the worst failure available: it looks like the
         feature working.
         """
-        from .clay import pick as bp
+        from ..kernels.mesh import pick as bp
 
         object_mode = doc.element_mode == "object"
         best: tuple[float, np.ndarray] | None = None
@@ -725,9 +725,9 @@ class DragOps:
         deselects -- so the same gesture does both, with the area deciding
         which, rather than the press having to guess in advance.
         """
-        from .clay import elements as el
-        from .clay import pick as bp
-        from .clay.adjacency import adjacency
+        from ..kernels.mesh import elements as el
+        from ..kernels.mesh import pick as bp
+        from ..kernels.mesh.adjacency import adjacency
 
         rect, self.marquee, self._marquee_from = self.marquee, None, None
         if rect is None:
@@ -830,8 +830,8 @@ class DragOps:
 
     def _begin_element_drag(self: ClayView, doc: Any) -> None:
         """Snapshot every selected object's affected vertices at the press."""
-        from .clay import drag as bdrag
-        from .clay import elements as el
+        from ..kernels.mesh import drag as bdrag
+        from ..kernels.mesh import elements as el
 
         state = self.state
         radius = 0.0
@@ -882,7 +882,7 @@ class DragOps:
         single ``inverse @ W @ matrix`` and knows nothing about which gizmo the
         user grabbed.
         """
-        from .clay import ops
+        from ..kernels.mesh import ops
 
         centre = self._element_centre
         # The grid stands down for anything more specific. A vertex snap and a
@@ -1060,7 +1060,7 @@ class DragOps:
         origin otherwise -- so the constrained displacement is the one that is
         actually applied rather than one measured from somewhere else.
         """
-        from .clay import drag as bdrag
+        from ..kernels.mesh import drag as bdrag
 
         tool = getattr(state, "tool", "") if state is not None else ""
         entry = self.drag_input
@@ -1132,7 +1132,7 @@ class DragOps:
         the press -- which the translation arm has always subtracted and the
         other two never read.
         """
-        from .clay import ops
+        from ..kernels.mesh import ops
 
         # See ``_element_world_transform``: the grid stands down for a vertex
         # snap or a typed value, both of which are more specific answers to the

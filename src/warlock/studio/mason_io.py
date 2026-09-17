@@ -20,8 +20,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic, sizeguard
 from ..service.files import MAX_SCENE_SOURCE_BYTES
-from . import atomic, mason_state, sizeguard
+from . import mason_state
 
 WSCN_FILTER = ["Warlock scene (*.wscn)", "*.wscn"]
 OBJ_FILTER = ["Wavefront OBJ (*.obj)", "*.obj"]
@@ -105,8 +106,8 @@ def glb_bundle(doc: Any, source: Any) -> dict[str, bytes]:
     both the manifest and the GLB writer -- the same model, the same node
     records, encoded twice rather than walked twice.
     """
+    from ..kernels.geom3d import glbwrite
     from .mason import gltfout, manifest
-    from .viewer import glbwrite
 
     export = gltfout.scene_model(doc, source)
     return {

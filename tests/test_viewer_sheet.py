@@ -13,8 +13,9 @@ import numpy as np
 import pytest
 import trimesh
 
-from warlock.studio.viewer import capture, glctx, gltf
-from warlock.studio.viewer import math3d as m3
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
+from warlock.studio.viewer import capture, glctx
 from warlock.studio.viewer import scene as scenelib
 from warlock.studio.viewer import sheet as sheetlib
 from warlock.studio.viewer.render import Renderer

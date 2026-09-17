@@ -39,8 +39,8 @@ from typing import Any
 
 import numpy as np
 
-from ..undo import CompoundEdit, Edit, UndoStack
-from ..viewer import gltf
+from ...core.undo import CompoundEdit, Edit, UndoStack
+from ...kernels.geom3d import gltf
 from . import edits as ed
 from . import nodes as nd
 from . import scene as sc

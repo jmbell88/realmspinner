@@ -17,7 +17,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_mode, inker_state
 from warlock.studio.inker_state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)
@@ -583,7 +584,7 @@ def test_export_dest_and_options_do_not_touch_saved_head_or_dirty():
 def test_the_packed_arrange_is_the_squarest_grid():
     """What "packed" means for frames that are all one size -- the bin-packing
     the name suggests would have nothing to solve here."""
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     for count, columns in ((4, 2), (9, 3), (10, 4), (1, 1)):
         plan = sheetout.plan_frames(count, 16, 16, arrange="packed")
@@ -591,7 +592,7 @@ def test_the_packed_arrange_is_the_squarest_grid():
 
 
 def test_packed_is_one_of_the_arranges_the_engine_names():
-    from warlock.studio.inker import sheetout
+    from warlock.kernels.pixel import sheetout
 
     assert "packed" in sheetout.ARRANGES
     assert "packed" not in sheetout.COUNTED_ARRANGES, "it takes no wrap count"
@@ -638,7 +639,8 @@ def test_a_refused_export_does_not_settle_the_document_first():
 
     import numpy as np
 
-    from warlock.studio import inker, inker_mode, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, inker_state
 
     doc = inker.Document.blank(8, 8)
     doc.add_frame()

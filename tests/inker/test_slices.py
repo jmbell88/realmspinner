@@ -25,10 +25,10 @@ import json
 import zipfile
 from io import BytesIO
 
-from warlock.studio.inker import ora
-from warlock.studio.inker import transform as tf
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.slices import Slice, SliceKey
+from warlock.kernels.pixel import ora
+from warlock.kernels.pixel import transform as tf
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.slices import Slice, SliceKey
 
 
 def _doc(width: int = 32, height: int = 16) -> Document:

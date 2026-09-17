@@ -16,11 +16,11 @@ import io
 import pytest
 import trimesh
 
+from warlock.kernels.geom3d import glbwrite
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.service import files, jobs
 from warlock.service.errors import Invalid, TooLarge
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
-from warlock.studio.viewer import glbwrite
 
 
 def _glb(mesh=None, translation=(0.0, 0.0, 0.0)) -> bytes:
@@ -169,7 +169,7 @@ def test_a_glb_with_no_mesh_in_it_is_refused(svc) -> None:
     """Belt and braces -- we author these bytes -- but "inputs are bounded at
     the door" is the invariant, and this is the door. A GLB of nothing would
     mint a done row whose every downstream export produced an empty file."""
-    from warlock.studio.viewer import gltf
+    from warlock.kernels.geom3d import gltf
 
     empty = glbwrite.write_glb(gltf.Model([gltf.Node(name="nothing")], [0], [], []))
     with pytest.raises(Invalid, match="no mesh"):

@@ -22,8 +22,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from warlock.studio import inker, inker_mode
-from warlock.studio.inker.slices import SliceKey
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel.slices import SliceKey
+from warlock.studio import inker_mode
 from warlock.studio.inker_state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)

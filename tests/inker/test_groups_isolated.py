@@ -24,10 +24,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import composite as cp
-from warlock.studio.inker import groups as gp
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.layers import _shown_pixels
+from warlock.kernels.pixel import composite as cp
+from warlock.kernels.pixel import groups as gp
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.layers import _shown_pixels
 
 RED = (255, 0, 0, 255)
 WHITE = (255, 255, 255, 255)

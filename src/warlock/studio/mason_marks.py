@@ -39,8 +39,8 @@ from typing import Any
 import moderngl
 import numpy as np
 
+from ..kernels.geom3d import math3d as m3
 from .mason.pick import MARK_SIZE
-from .viewer import math3d as m3
 from .viewer.render import DrawItem
 
 #: Marker colours, as 0xRRGGBB -- :mod:`.viewer.markers`' own spelling, and

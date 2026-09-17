@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ..tilegrid import gid as gidlib
+from ...kernels.grid2d import gid as gidlib
 from ._map_model import TileLayer
 from .edits import TilePatchEdit
 

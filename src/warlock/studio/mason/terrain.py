@@ -19,7 +19,7 @@ from typing import Literal
 
 import numpy as np
 
-from ..viewer import gltf
+from ...kernels.geom3d import gltf
 
 #: The largest side (cells per edge; the array itself is one larger) a
 #: ``Terrain`` will hold. Measured 2026-09-11 (see ``dev/measurements/`` for

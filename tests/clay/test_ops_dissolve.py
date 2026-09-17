@@ -7,12 +7,12 @@ import time
 import numpy as np
 import pytest
 
-from warlock.studio.clay import adjacency as adj
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops_dissolve as dis
-from warlock.studio.clay import primitives as prim
-from warlock.studio.clay import topo
+from warlock.kernels.mesh import adjacency as adj
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops_dissolve as dis
+from warlock.kernels.mesh import primitives as prim
+from warlock.kernels.mesh import topo
 
 from .topo_asserts import assert_closed, assert_consistently_oriented
 
@@ -246,7 +246,7 @@ def test_a_dissolve_may_produce_a_concave_face_that_still_triangulates_inside() 
     out, _ = dis.dissolve_faces(m, el.ElementSel(faces=[0, 1, 2]))
     bm.validate(out)
     normals = bm._face_normals(out)
-    from warlock.studio.clay import earclip as ec
+    from warlock.kernels.mesh import earclip as ec
 
     assert ec.concave_faces(out.positions, out.loops, out.starts, normals).any()
     tris, tri_face = bm.triangulate(out)
@@ -356,7 +356,7 @@ def test_a_zigzag_past_the_concave_bound_is_refused_not_mistriangulated() -> Non
     with pytest.raises(el.OpError, match="too complex"):
         dis.dissolve_faces(over, el.ElementSel(faces=range(600)))
 
-    from warlock.studio.clay import earclip as ec
+    from warlock.kernels.mesh import earclip as ec
 
     under = _comb_row(teeth=498)  # merges into a 998-corner zigzag
     out, sel = dis.dissolve_faces(under, el.ElementSel(faces=range(498)))

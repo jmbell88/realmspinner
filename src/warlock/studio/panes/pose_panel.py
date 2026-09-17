@@ -14,8 +14,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...core.safeio import atomic
 from ...service import rig as svc_rig
-from .. import atomic, controls, dialogs, docmodes, forms, icons, theme, widgets
+from .. import controls, dialogs, docmodes, forms, icons, theme, widgets
 from ..manual import render as manual_render
 from . import stage_rig
 

@@ -94,7 +94,7 @@ def test_manual_says_a_prefab_instance_carries_its_own_transform_not_only_positi
 
 
 def test_manual_29_reference_layer_claim_matches_asein_visibility_behaviour():
-    asein_src = _read("src/warlock/studio/inker/asein.py")
+    asein_src = _read("src/warlock/kernels/pixel/asein.py")
     # The literal warning text asein.py emits for a reference layer -- the
     # ground truth the chapter must agree with.
     warn_match = re.search(

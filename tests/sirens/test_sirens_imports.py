@@ -1,10 +1,15 @@
 """What ``studio/sirens/`` is allowed to reach for, pinned exactly.
 
-Three outward imports, and the interesting part of this file is the *absences*.
+Four outward imports, and the interesting part of this file is the *absences*.
 
-``studio.undo`` owns history and ``zipguard``/``npyguard`` own the two container
-bounds. Nothing else: this package decides what a song sounds like, and every
-other question belongs to somebody who already answers it.
+``core.undo`` owns history and ``core.safeio``'s ``zipguard``/``npyguard`` own
+the two container bounds. ``kernels.audio.wavout`` is this package's own
+16-bit-PCM writer, pulled out from under ``studio/sirens/`` in P3 of
+``dev/RESTRUCTURE.md`` into a shared kernel -- it asked for that move in its
+own docstring, per ``dev/RESTRUCTURE.md``'s layer table, and Sirens is still
+the only caller. Nothing else besides those four: this package decides what a
+song sounds like, and every other question belongs to somebody who already
+answers it.
 
 **``pygame`` is the absence that matters.** Sirens is the only mode in the app
 whose output is audio, so it is the only one with a reason to want a sound
@@ -27,20 +32,33 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from _pure_packages import dotted_root, siblings_of
+
 from warlock.studio import sirens
 
 ENGINE = Path(sirens.__file__).parent
 PACKAGE = "warlock.studio.sirens"
 
+#: ``audio`` is this package's own kernel (``kernels/audio/wavout.py``,
+#: extracted from ``studio/sirens/wavout.py`` in P3), not a peer engine --
+#: Sirens is the only caller it has. Excepted from the sibling ban below the
+#: same way ``tests/inker/test_inker_imports.py`` excepts ``tilegrid``.
+SHARED_LEAVES = frozenset({"audio"})
+
 OUTWARD_IMPORTS = {
     # The shared history engine, as headless as this package is.
-    ("document.py", "warlock.studio.undo"),
-    ("edits.py", "warlock.studio.undo"),
+    ("document.py", "warlock.core.undo"),
+    ("edits.py", "warlock.core.undo"),
     # The two container doors. A ``.wsng`` is a zip of ``.npy`` members, which
     # is the exact pair ``.wmap`` and ``.wblk`` already go through -- the
     # archive's directory cannot see a lie one format down inside a member.
-    ("wsng.py", "warlock.studio.zipguard"),
-    ("wsng.py", "warlock.studio.npyguard"),
+    # P3 of dev/RESTRUCTURE.md folded both into one ``core/safeio/`` package;
+    # ``wsng.py`` reaches them through a single ``from ... import`` line, one
+    # outward edge rather than two.
+    ("wsng.py", "warlock.core.safeio"),
+    # This package's own writer, since P3 moved it out of ``studio/sirens/``
+    # into ``kernels/audio/`` -- see the module docstring.
+    ("wsng.py", "warlock.kernels.audio"),
 }
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "moderngl", "pygame", "OpenGL", "glfw"}
@@ -126,11 +144,23 @@ def test_the_engine_never_imports_the_queue():
 
 def test_the_engine_never_imports_another_editor():
     """A song has nothing to say about a bitmap, a mesh or a tile map, and none
-    of those four packages has anything to say about a song."""
-    for path in _modules():
-        for name in _outward(path):
-            for other in ("inker", "clay", "plotter", "packwright", "tilegrid"):
-                assert f"warlock.studio.{other}" not in name, f"{path.name} imports {name}"
+    of those packages has anything to say about a song.
+
+    Derived over :func:`_pure_packages.siblings_of` rather than the
+    ``("inker", "clay", "plotter", "packwright", "tilegrid")`` this used to
+    hard-code: three of those five renamed or moved in P3 of
+    ``dev/RESTRUCTURE.md`` (``inker`` to ``warlock.kernels.pixel``, ``clay``
+    to ``warlock.kernels.mesh``, ``tilegrid`` to ``warlock.kernels.grid2d``),
+    and a literal ``"warlock.studio.inker"`` check bans an import string
+    nothing in the tree has written since.
+    """
+    for other in siblings_of("sirens", allowed=SHARED_LEAVES):
+        root = dotted_root(other)
+        for path in _modules():
+            for name in _outward(path):
+                assert not (name == root or name.startswith(root + ".")), (
+                    f"{path.name} imports {name}"
+                )
 
 
 def test_the_only_outward_imports_are_the_ones_written_down():
@@ -149,13 +179,4 @@ def test_pillow_is_never_imported_at_module_scope():
 
 
 def test_every_module_imports():
-    from warlock.studio.sirens import (  # noqa: F401
-        document,
-        edits,
-        instruments,
-        notes,
-        synth,
-        voices,
-        wavout,
-        wsng,
-    )
+    pass

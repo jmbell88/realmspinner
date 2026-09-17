@@ -12,6 +12,15 @@ Packwright's own package pins do. No live violation today -- every module here
 already keeps the claim -- so this is the missing tripwire, not a fix to any
 one module.
 
+**Fourteen, not seventeen, since 2026-09-17.** P3 of ``dev/RESTRUCTURE.md``
+moved this package's three genuinely pure modules -- ``math3d``, ``gltf`` and
+``glbwrite`` -- out to ``warlock/kernels/geom3d/``, where they are pinned by
+their own layering rather than by this package's "no window toolkit" claim
+(they never needed the ModernGL half of it, only the pygame/imgui half, which
+``kernels/geom3d`` gets for free by living outside ``studio/`` at all). What
+is left here genuinely does build GL objects, the way the module docstring
+already says half of it does -- so the count shrank, the claim did not.
+
 Unlike those siblings, ``moderngl`` is not banned: this package is the
 ModernGL viewport, and half its modules (``glctx``, ``render``, ``scene``,
 ``grid``, ``bonelines``) build GL objects directly. The claim under test is
@@ -52,11 +61,16 @@ def _modules() -> list[Path]:
     return sorted(p for p in ENGINE.glob("*.py") if p.name != "__init__.py")
 
 
-def test_there_are_seventeen_modules_to_check():
+def test_there_are_fourteen_modules_to_check():
     """A glob that quietly started matching fewer files would measure less
     than it claims to; a glob that started matching more (a stray script
-    dropped in the package) is worth noticing too."""
-    assert len(_modules()) == 17
+    dropped in the package) is worth noticing too.
+
+    Fourteen since 2026-09-17, not the seventeen this was first written for
+    -- P3 of ``dev/RESTRUCTURE.md`` moved ``math3d``, ``gltf`` and
+    ``glbwrite`` to ``warlock/kernels/geom3d/``. See the module docstring.
+    """
+    assert len(_modules()) == 14
 
 
 def test_none_of_them_imports_a_window_or_an_immediate_mode_gui():

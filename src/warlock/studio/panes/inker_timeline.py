@@ -59,8 +59,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import animation
 from .. import anchors, controls, icons, inker_mode, theme, tokens, toolbar, widgets
-from ..inker import animation
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_flourish as inker_flourish_pane
@@ -276,7 +276,7 @@ def track_depth(doc: Any, track_uid: int) -> list[int]:
     """
     if not doc.groups:
         return []
-    from ..inker import groups as gp
+    from ...kernels.pixel import groups as gp
 
     return gp.ancestry(doc.group_of, track_uid)
 
@@ -1480,8 +1480,8 @@ def _group_row(ctx: Any, tab: Any, doc: Any, entry: RowEntry) -> None:
 
 def _group_menu(ctx: Any, tab: Any, doc: Any, group_uid: int) -> None:
     """The header's verbs -- ``_row_menu``'s shape, one level up."""
-    from .. import inker
-    from ..inker import groups as gp
+    from ...kernels import pixel as inker
+    from ...kernels.pixel import groups as gp
 
     if not imgui.begin_popup_context_item("group-menu"):
         return

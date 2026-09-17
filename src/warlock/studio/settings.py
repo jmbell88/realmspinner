@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import generation
-from . import atomic
+from ..core.safeio import atomic
 
 log = logging.getLogger(__name__)
 

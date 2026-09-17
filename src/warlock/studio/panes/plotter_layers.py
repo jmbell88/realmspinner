@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any
 
+from ...kernels.grid2d import gid as gidlib
 from .. import controls, icons, plotter_mode, tokens, widgets
 from ..manual import render as manual_render
 from ..plotter.props import CONTAINER_TYPES, PROPERTY_TYPES, Prop
@@ -35,7 +36,6 @@ from ..plotter.tilemap import (
     TileShape,
     new_uid,
 )
-from ..tilegrid import gid as gidlib
 from ..tokens import sp
 
 #: The glyph each layer kind is listed under. A dict rather than a chain of

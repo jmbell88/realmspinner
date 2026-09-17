@@ -20,10 +20,10 @@ from xml.etree import ElementTree
 import numpy as np
 from PIL import Image
 
-from warlock.studio import inker
-from warlock.studio.inker import groups as gp
-from warlock.studio.inker import ora as inker_ora
-from warlock.studio.inker.document import Document
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import groups as gp
+from warlock.kernels.pixel import ora as inker_ora
+from warlock.kernels.pixel.document import Document
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -231,7 +231,7 @@ def test_unmodelled_group_attributes_are_dropped_not_refused(tmp_path: Path, cap
         '<stack name="G" selected="true" alpha-preserve="1">'
         '<layer name="L" src="data/a.png"/></stack>',
     )
-    with caplog.at_level("DEBUG", logger="warlock.studio.inker.ora"):
+    with caplog.at_level("DEBUG", logger="warlock.kernels.pixel.ora"):
         doc = inker.Document.load(path)
     assert len(doc.groups) == 1
     assert "selected" in caplog.text
@@ -321,7 +321,7 @@ def test_a_grouping_with_too_many_nodes_costs_the_folders_and_not_the_grid(
     than trusting the final ``doc.groups``, which an unreferenced node would
     leave empty either way (``_install_groups`` prunes anything with no
     members)."""
-    from warlock.studio.inker import groups as gp
+    from warlock.kernels.pixel import groups as gp
 
     calls: list[dict] = []
     original = gp.GroupNode

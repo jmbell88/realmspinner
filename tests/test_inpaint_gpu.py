@@ -34,9 +34,9 @@ from PIL import Image
 
 from warlock import models
 from warlock.config import get_config
+from warlock.kernels.pixel import inpaint
 from warlock.pipelines import conditioning as conditioning_mod
 from warlock.pipelines.text2image import Text2Image
-from warlock.studio.inker import inpaint
 
 #: One checkpoint load and one masked sample.
 pytestmark = [pytest.mark.gpu, pytest.mark.timeout(1800)]

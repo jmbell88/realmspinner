@@ -23,8 +23,9 @@ from typing import Any
 
 import numpy as np
 
-from warlock.studio import inker, inker_mode
-from warlock.studio.inker import sheetout
+from warlock.kernels import pixel as inker
+from warlock.kernels.pixel import sheetout
+from warlock.studio import inker_mode
 from warlock.studio.inker_state import InkerDoc, InkerState
 
 RED = (255, 0, 0, 255)

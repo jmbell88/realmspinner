@@ -33,11 +33,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warlock.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
-from warlock.studio.inker import asein, gpl, ora, sheetout
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d.glbio import CHUNK_BIN, CHUNK_JSON, GLB_MAGIC
+from warlock.kernels.grid2d.tileset import Tileset
+from warlock.kernels.pixel import asein, gpl, ora, sheetout
 from warlock.studio.plotter import tmx, tsx, wmap
-from warlock.studio.tilegrid.tileset import Tileset
-from warlock.studio.viewer import gltf
 
 # --- fixtures -----------------------------------------------------------------
 
@@ -288,7 +288,7 @@ def _wmap_with_layer(payload: bytes | None) -> bytes:
 def test_an_npz_inside_a_wblk_is_read_through_the_bounded_zip():
     """``np.load`` on an ``.npz`` opens a nested zip with numpy's own plain
     ``zipfile``, so the outer ``BoundedZip`` is not in the path at all."""
-    from warlock.studio import npyguard
+    from warlock.core.safeio import npyguard
 
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w") as zf:
@@ -299,7 +299,7 @@ def test_an_npz_inside_a_wblk_is_read_through_the_bounded_zip():
 
 def test_an_npy_declaring_object_dtype_is_refused_by_name():
     """``allow_pickle=False``'s refusal, made from the header instead."""
-    from warlock.studio import npyguard
+    from warlock.core.safeio import npyguard
 
     with pytest.raises(ValueError, match="unpickle"):
         npyguard.read_array(_npy((2,), "|O"), "a mesh")
@@ -322,7 +322,7 @@ def test_an_ora_layer_count_has_a_ceiling(tmp_path, monkeypatch):
     tiny PNG asks for five hundred full canvases."""
     from PIL import Image
 
-    from warlock.studio.inker import transform
+    from warlock.kernels.pixel import transform
 
     tiny = io.BytesIO()
     Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(tiny, "PNG")
@@ -476,7 +476,7 @@ def test_read_animation_refuses_a_frame_palette_past_the_colour_ceiling(tmp_path
     grid degrades to the flat read with a log line, never opening thousands of
     entries for one frame.
     """
-    from warlock.studio.inker import index_plane as ixp
+    from warlock.kernels.pixel import index_plane as ixp
 
     n_colours = 100_000
     animation = json.dumps(
@@ -523,7 +523,7 @@ def test_a_single_frame_aseprite_with_many_empty_layers_has_a_ceiling(monkeypatc
     every empty slot for exactly this reason, and a still document had no
     equivalent bound at all: a 2,544-byte file naming 100 empty layers at
     1024x1024 cost 424 MiB."""
-    from warlock.studio.inker import composite
+    from warlock.kernels.pixel import composite
 
     count = 100
     data = _aseprite_with_empty_layers(1024, 1024, count)
@@ -557,7 +557,7 @@ def test_a_moved_linked_cel_is_charged_against_the_decoded_pixel_budget(monkeypa
     cels could allocate without limit, scaling with cel count and never
     refused.
     """
-    from warlock.studio import pixelguard
+    from warlock.core.safeio import pixelguard
 
     width = height = 8
     # One real cel is allowed; the first moved-link cel on top of it is not.
@@ -578,13 +578,13 @@ def test_a_single_frame_aseprite_with_many_empty_tilemap_layers_has_a_ceiling(
     inker-02: the identical amplification through the one branch that fix
     missed.
     """
-    from warlock.studio.inker import asein as asein_module
+    from warlock.kernels.pixel import asein as asein_module
 
     width = height = 8
     count = 5
     # Budget for two full-canvas layers; the third must be refused.
     monkeypatch.setattr(
-        "warlock.studio.pixelguard.MAX_DECODE_PIXELS", (width * height) * 2
+        "warlock.core.safeio.pixelguard.MAX_DECODE_PIXELS", (width * height) * 2
     )
     data = _aseprite_with_empty_tilemap_layers(width, height, count)
     assert len(data) < 1024
@@ -610,8 +610,8 @@ def test_a_gif_is_bounded_by_composed_pixels_and_not_by_its_file_size(
     costs. The budget is spent on what is built."""
     from PIL import Image
 
-    from warlock.studio import pixelguard
-    from warlock.studio.inker import gifin
+    from warlock.core.safeio import pixelguard
+    from warlock.kernels.pixel import gifin
 
     frames = [Image.new("RGBA", (8, 8), (i, 0, 0, 255)) for i in range(6)]
     path = tmp_path / "clip.gif"
@@ -778,7 +778,7 @@ def test_an_ora_stack_hides_its_dtd_the_same_two_ways(tmp_path):
 def test_xml_nesting_is_capped_at_the_door(monkeypatch):
     """``ET.fromstring`` will build a 20,001-deep tree out of 300 KB, and the
     recursion limit is 1000."""
-    from warlock.studio import xmlguard
+    from warlock.core.safeio import xmlguard
 
     monkeypatch.setattr(xmlguard, "MAX_DEPTH", 8)
     deep = b"<a>" + b"<b>" * 20 + b"</b>" * 20 + b"</a>"
@@ -790,7 +790,7 @@ def test_xml_nesting_is_capped_at_the_door(monkeypatch):
 def test_a_deeply_nested_tmx_is_refused_rather_than_opened():
     """The nastier half is the *shallow* one: a document nested a few hundred
     deep loads, and then the frame-thread walkers blow up once a frame."""
-    from warlock.studio import xmlguard
+    from warlock.core.safeio import xmlguard
 
     depth = xmlguard.MAX_DEPTH + 5
     body = "<group>" * depth + "</group>" * depth
@@ -850,7 +850,7 @@ def test_the_pixel_ceiling_is_asked_before_convert(monkeypatch):
     two times itself, and nothing in this repo ever set it."""
     from PIL import Image
 
-    from warlock.studio import pixelguard
+    from warlock.core.safeio import pixelguard
 
     buf = io.BytesIO()
     Image.new("RGB", (64, 64)).save(buf, "PNG")
@@ -862,7 +862,8 @@ def test_the_pixel_ceiling_is_asked_before_convert(monkeypatch):
 def test_the_pixel_ceiling_reaches_the_shared_document_decoder(tmp_path, monkeypatch):
     from PIL import Image
 
-    from warlock.studio import docmodes, pixelguard
+    from warlock.core.safeio import pixelguard
+    from warlock.studio import docmodes
 
     path = tmp_path / "p.png"
     Image.new("RGB", (64, 64)).save(path)
@@ -918,8 +919,14 @@ def test_two_export_names_that_differ_only_in_normalisation_are_refused():
 
 def test_the_guard_leaves_are_where_the_engines_can_reach_them():
     """The vacuous-pass guard for the file: every case above imports through a
-    format module, so a renamed leaf would fail here rather than everywhere."""
-    from warlock.studio import npyguard, pixelguard, xmlguard
+    format module, so a renamed leaf would fail here rather than everywhere.
+
+    P3 of the restructure (``dev/RESTRUCTURE.md``) moved the six safeio
+    guards from ``studio/`` to ``warlock/core/safeio/`` so they sit beside
+    the other shared, no-GL kernels rather than under the studio package the
+    engines that use them were themselves being moved out of.
+    """
+    from warlock.core.safeio import npyguard, pixelguard, xmlguard
 
     for module in (npyguard, pixelguard, xmlguard):
-        assert Path(module.__file__).parent.name == "studio"
+        assert Path(module.__file__).parent.name == "safeio"

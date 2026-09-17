@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from warlock.kernels.pixel.document import Document
 from warlock.studio import inker_mode
-from warlock.studio.inker.document import Document
 from warlock.studio.inker_state import InkerDoc
 
 

@@ -24,7 +24,7 @@ from typing import Any
 import httpx
 
 from .. import winjob
-from ..glbio import split_glb
+from ..kernels.geom3d.glbio import split_glb
 from ..progress import pump
 
 log = logging.getLogger(__name__)

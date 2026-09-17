@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d.gltf import Material
 from warlock.studio.mason import terrain as T
-from warlock.studio.viewer.gltf import Material
 
 
 def _flat(side: int, height: float = 0.0) -> np.ndarray:

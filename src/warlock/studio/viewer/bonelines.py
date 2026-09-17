@@ -18,7 +18,7 @@ from typing import Any
 import moderngl
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from .markers import ACTIVE, _rgb
 from .render import DrawItem
 

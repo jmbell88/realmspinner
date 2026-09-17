@@ -44,7 +44,7 @@ from typing import Any
 
 import numpy as np
 
-from .clay import shading as _shading
+from ..kernels.mesh import shading as _shading
 
 __all__ = [
     "OPS",
@@ -276,7 +276,7 @@ def run(ctx: Any, doc: Any, op: Op, **params: Any) -> bool:
     surfaces funnel through, so the range a ``Param`` declares is enforced once,
     where it cannot be bypassed.
     """
-    from .clay.elements import OpError
+    from ..kernels.mesh.elements import OpError
 
     if not op.enabled(doc):
         return False
@@ -350,7 +350,7 @@ def run_mesh_op(
     what a user selecting faces across two objects means by pressing the button
     once.
     """
-    from .clay.elements import OpError
+    from ..kernels.mesh.elements import OpError
 
     ran = False
     for uid in list(doc.element_sel):
@@ -384,7 +384,7 @@ def run_object_op(
     The snapshot is taken before anything runs because ``doc.selection`` is live
     and several of these ops change it.
     """
-    from .clay.elements import OpError
+    from ..kernels.mesh.elements import OpError
 
     ran = False
     for uid in list(doc.selection if uids is None else uids):
@@ -554,18 +554,24 @@ def _in_mode_reason(*modes: str) -> Callable[[Any], str]:
 
 
 def _element(dotted: str) -> Callable[..., None]:
-    """Register a ``clay.ops_*`` function as an op, resolved lazily by name.
+    """Register a ``kernels.mesh.ops_*`` function as an op, resolved lazily by
+    name.
 
     Lazy so importing the registry does not drag every topology module in at
     startup, and by name so the table below reads as a list of ops rather than a
     list of imports.
+
+    The package is named absolutely since 2026-09-17: the mesh engine used to
+    be ``studio/clay/``, a relative hop from here, and is ``warlock.kernels.mesh``
+    now that it is a kernel every layer may reach rather than one mode's
+    private package.
     """
     module, func = dotted.rsplit(".", 1)
 
     def call(ctx: Any, doc: Any, **params: Any) -> bool:
         import importlib
 
-        target = getattr(importlib.import_module(f".clay.{module}", __package__), func)
+        target = getattr(importlib.import_module(f"warlock.kernels.mesh.{module}"), func)
         return run_mesh_op(ctx, doc, target, **params)
 
     return call
@@ -578,7 +584,7 @@ def _dissolve(ctx: Any, doc: Any, **_: Any) -> None:
     and heal what it separated); it is only the implementation that differs, so
     splitting it into three rows would be exposing the implementation.
     """
-    from .clay import ops_dissolve
+    from ..kernels.mesh import ops_dissolve
 
     which = {
         "vertex": ops_dissolve.dissolve_verts,
@@ -598,7 +604,7 @@ def _extrude(ctx: Any, doc: Any, **params: Any) -> bool:
     simple rename: a mesh stores no wire edges, so it extrudes the *border*
     edges the selection implies -- see ``ops_topo.extrude_verts``.
     """
-    from .clay import ops_topo
+    from ..kernels.mesh import ops_topo
 
     which = {
         "vertex": ops_topo.extrude_verts,
@@ -615,8 +621,8 @@ def _smooth(ctx: Any, doc: Any, levels: float = 1.0, **_: Any) -> None:
     moves the original vertices, and moving only some of them tears the surface
     along the edge of the selection. See ``ops_subdiv.catmull_clark``.
     """
-    from .clay import elements as el
-    from .clay import ops_subdiv
+    from ..kernels.mesh import elements as el
+    from ..kernels.mesh import ops_subdiv
 
     def one(doc: Any, obj: Any) -> None:
         mesh, sel = ops_subdiv.catmull_clark(obj.mesh, el.empty(), levels=int(levels))
@@ -626,7 +632,7 @@ def _smooth(ctx: Any, doc: Any, levels: float = 1.0, **_: Any) -> None:
 
 
 def _duplicate(ctx: Any, doc: Any, **_: Any) -> None:
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     del ctx
     selection.duplicate_selected(doc)
@@ -648,7 +654,7 @@ def _bake(ctx: Any, doc: Any, **_: Any) -> None:
     through ``clay_ops.run`` and would have caught the fold landing as two
     steps rather than one.
     """
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
         baked = clay_ops_geom.bake_transform(obj)
@@ -685,7 +691,7 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     *is* shown. ``_select_all`` no longer hands over hidden objects, so this is
     the second half -- an object hidden after it was selected.
     """
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = clay_ops_geom.join([doc.by_uid(uid) for uid in uids], eps=float(weld))
@@ -712,7 +718,7 @@ def _union(ctx: Any, doc: Any, **_: Any) -> None:
     fast at the scale Clay authors at, and handing this to ``TaskRunner`` would
     mean a document edit landing from another thread.
     """
-    from .clay import ops_boolean
+    from ..kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = ops_boolean.union([doc.by_uid(uid) for uid in uids])
@@ -741,7 +747,7 @@ def _difference(ctx: Any, doc: Any, **_: Any) -> None:
     tool -- only the registry, which the menu, the tools pane and the keyboard
     all read, offered a human just this one's sibling.
     """
-    from .clay import ops_boolean
+    from ..kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = ops_boolean.difference([doc.by_uid(uid) for uid in uids])
@@ -758,7 +764,7 @@ def _intersection(ctx: Any, doc: Any, **_: Any) -> None:
     as the target. See ``_difference``'s docstring for the finding this and
     it both close.
     """
-    from .clay import ops_boolean
+    from ..kernels.mesh import ops_boolean
 
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
     mesh = ops_boolean.intersection([doc.by_uid(uid) for uid in uids])
@@ -768,7 +774,7 @@ def _intersection(ctx: Any, doc: Any, **_: Any) -> None:
 
 
 def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> None:
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
         doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
@@ -813,8 +819,8 @@ def _array_linear(
     so every copy shares the source's -- an array of sixty fence posts is one
     GPU upload, not sixty.
     """
-    from .clay import document as bd
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import document as bd
+    from ..kernels.mesh import ops as clay_ops_geom
 
     del ctx
     n = int(count)
@@ -893,8 +899,8 @@ def _array_radial(
     shape rather than a frozen one: a rotation about the origin is a
     transform change, and the mesh is never touched.
     """
-    from .clay import document as bd
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import document as bd
+    from ..kernels.mesh import ops as clay_ops_geom
 
     del ctx
     n = int(count)
@@ -936,8 +942,8 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     would still offer the source generator's size field, and touching it
     would rebuild a pristine, unmirrored primitive over the copy.
     """
-    from .clay import document as bd
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import document as bd
+    from ..kernels.mesh import ops as clay_ops_geom
 
     del ctx
     taken = [obj.name for obj in doc.objects]
@@ -988,7 +994,7 @@ def _place_between(ctx: Any, doc: Any, fit: float = 1.0, **_: Any) -> bool:
     because they are answering different questions: "which of these survives"
     against "which of these is the newcomer".
     """
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     del ctx
     uids = [obj.uid for obj in doc.objects if obj.uid in doc.selection]
@@ -1015,7 +1021,7 @@ def _world_boxes(doc: Any, uids: Iterable[int]) -> dict[int, tuple[np.ndarray, n
     (``ops.world_box`` returns ``None``) and is left out rather than degrading
     every other object's math with a phantom point at the origin.
     """
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     out: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for uid in uids:
@@ -1104,7 +1110,7 @@ def _snap_to_grid(ctx: Any, doc: Any, step: float = 1.0, **_: Any) -> None:
     each axis independently -- ``ops.snap_translation``'s own rounding
     (half away from zero, so the grid stays symmetric about the origin).
     """
-    from .clay import ops as clay_ops_geom
+    from ..kernels.mesh import ops as clay_ops_geom
 
     def one(doc: Any, obj: Any) -> None:
         snapped = clay_ops_geom.snap_translation(obj.translation, step)
@@ -1140,7 +1146,7 @@ def _forget_manifold(ctx: Any, uids: Iterable[int]) -> None:
 
 
 def _delete(ctx: Any, doc: Any, **_: Any) -> None:
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     before = {obj.uid for obj in doc.objects}
     for message in selection.delete_selected(doc):
@@ -1162,7 +1168,7 @@ def _unwrap(ctx: Any, doc: Any, **_: Any) -> None:
     unwrapped is still describable as "box, size 1", and re-editing the size
     correctly rebuilds it with the generator's own canonical coordinates.
     """
-    from .clay import uv as uv_mod
+    from ..kernels.mesh import uv as uv_mod
 
     def one(doc: Any, obj: Any) -> None:
         doc.set_mesh(obj.uid, uv_mod.box_unwrap(obj.mesh), keep_generator=True)
@@ -1183,7 +1189,7 @@ def _shade(smooth: bool) -> Callable[..., None]:
         if doc.element_mode == "object":
             run_object_op(ctx, doc, lambda doc, obj: doc.set_shading(obj.uid, None, smooth))
             return
-        from .clay import elements as el
+        from ..kernels.mesh import elements as el
 
         del ctx
         for uid in list(doc.element_sel):
@@ -1231,7 +1237,7 @@ def _frame(ctx: Any, doc: Any, **_: Any) -> None:
 
 
 def _select_all(ctx: Any, doc: Any, **_: Any) -> None:
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     del ctx
     selection.select_all(doc)
@@ -1243,7 +1249,7 @@ def _select_none(ctx: Any, doc: Any, **_: Any) -> None:
 
 
 def _invert(ctx: Any, doc: Any, **_: Any) -> None:
-    from .clay import selection
+    from ..kernels.mesh import selection
 
     del ctx
     selection.invert(doc)
@@ -1287,7 +1293,7 @@ def _selection_op(verb: Any) -> Any:
 
 
 def _verb_linked(mesh: Any, sel: Any, mode: str) -> Any:
-    from .clay import select as bsel
+    from ..kernels.mesh import select as bsel
 
     verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
@@ -1296,7 +1302,7 @@ def _verb_linked(mesh: Any, sel: Any, mode: str) -> Any:
 
 
 def _verb_grow(mesh: Any, sel: Any, mode: str) -> Any:
-    from .clay import select as bsel
+    from ..kernels.mesh import select as bsel
 
     verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
@@ -1305,7 +1311,7 @@ def _verb_grow(mesh: Any, sel: Any, mode: str) -> Any:
 
 
 def _verb_shrink(mesh: Any, sel: Any, mode: str) -> Any:
-    from .clay import select as bsel
+    from ..kernels.mesh import select as bsel
 
     verts = bsel.verts_of(mesh, sel, mode)
     if not len(verts):
@@ -1314,8 +1320,8 @@ def _verb_shrink(mesh: Any, sel: Any, mode: str) -> Any:
 
 
 def _verb_boundary(mesh: Any, sel: Any, mode: str) -> Any:
-    from .clay import elements as el
-    from .clay import select as bsel
+    from ..kernels.mesh import elements as el
+    from ..kernels.mesh import select as bsel
 
     del sel
     pairs = bsel.boundary(mesh)

@@ -367,7 +367,7 @@ def decode_rgba(path: Path) -> np.ndarray:
     door that already had it. This is the door every other mode reaches an
     image through, so it is the one place the rule buys the most.
     """
-    from . import pixelguard
+    from ..core.safeio import pixelguard
 
     return pixelguard.decode_rgba(path, f"{Path(path).name}")
 

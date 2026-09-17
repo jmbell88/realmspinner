@@ -16,13 +16,13 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops as clay_ops_geom
+from warlock.kernels.mesh import ops_topo
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import clay_ops
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops as clay_ops_geom
-from warlock.studio.clay import ops_topo
-from warlock.studio.clay import primitives as bp
 
 
 class _Toasts:
@@ -660,7 +660,7 @@ def test_array_radial_of_four_over_90_degrees_reaches_90_degrees() -> None:
     *reach* 90, not fall short of it the way dividing by ``count`` (the
     closed-ring rule) would -- four copies over 90 would land at 22.5, 45 and
     67.5, nothing at 90."""
-    from warlock.studio.clay import ops as clay_ops_geom
+    from warlock.kernels.mesh import ops as clay_ops_geom
 
     doc, uid = _doc()
     doc.select([uid])
@@ -680,7 +680,7 @@ def test_array_radial_of_two_over_a_partial_sweep_lands_the_copy_at_the_full_ang
     copy lands at ``angle`` exactly -- the degenerate case of the open-arc
     rule, and the one most likely to silently regress to the closed-ring
     divisor since ``1`` and ``2`` differ by so little."""
-    from warlock.studio.clay import ops as clay_ops_geom
+    from warlock.kernels.mesh import ops as clay_ops_geom
 
     doc, uid = _doc()
     doc.select([uid])
@@ -1221,7 +1221,7 @@ def test_every_op_hint_names_a_binding_that_exists() -> None:
 
 
 def test_every_ops_boolean_kind_has_a_human_reachable_op() -> None:
-    from warlock.studio.clay import ops_boolean
+    from warlock.kernels.mesh import ops_boolean
 
     op_names = {op.name for op in clay_ops.OPS}
     missing = [kind for kind in ops_boolean.KINDS if kind not in op_names]
@@ -1399,7 +1399,7 @@ def test_distribute_appears_in_the_object_menu() -> None:
 
 
 def test_drop_to_ground_rests_a_rotated_scaled_objects_world_box_on_y_zero() -> None:
-    from warlock.studio.viewer import math3d as m3
+    from warlock.kernels.geom3d import math3d as m3
 
     doc = bd.ClayDoc()
     rotation = m3.quat_from_axis_angle(np.array([0.0, 0.0, 1.0]), np.radians(45.0))

@@ -33,8 +33,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.mesh.elements import OpError
 from warlock.service.errors import Invalid
-from warlock.studio.clay.elements import OpError
 from warlock.studio.panes import library
 
 # --- the refusal reaches the user -------------------------------------------
@@ -108,7 +108,7 @@ def test_clay_sends_a_rigged_mesh_somewhere_that_can_take_it():
     than by driving the UI because the words *are* the interface here, which is
     what ``OpError``'s docstring says.
     """
-    from warlock.studio.clay import glbimport
+    from warlock.kernels.mesh import glbimport
 
     source = Path(glbimport.__file__).read_text(encoding="utf-8")
     refusal = source.split("model.skins", 1)[1].split(")", 1)[0]
@@ -204,11 +204,11 @@ def test_importing_a_two_material_glb_gives_each_object_its_own_default_material
     geometry with), wrong on any ordinary multi-material import with no
     malformed file required.
     """
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import glbimport
-    from warlock.studio.clay import mesh as bm
-    from warlock.studio.clay import primitives as bp
-    from warlock.studio.viewer import glbwrite
+    from warlock.kernels.geom3d import glbwrite
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import glbimport
+    from warlock.kernels.mesh import mesh as bm
+    from warlock.kernels.mesh import primitives as bp
 
     doc = bd.ClayDoc(materials=[bd.default_material("a"), bd.default_material("b")])
     two_tone = bp.box()

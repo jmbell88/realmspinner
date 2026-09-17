@@ -14,7 +14,8 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from warlock.studio import inker, inker_mode, matte_preview
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_mode, matte_preview
 from warlock.studio.panes import settings_3d
 from warlock.studio.state import DEFAULT_FORM_3D, AppState
 

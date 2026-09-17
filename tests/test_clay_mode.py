@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import clay_mode, clay_state
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import primitives as bp
 
 
 class FakeCtx:
@@ -436,7 +436,7 @@ def test_save_as_leaves_a_readable_document_and_no_temporary_behind(
 ) -> None:
     """Staged like ``save_to``: the ``.tmp`` is an implementation detail that
     must not survive the write, and what lands is a document that reopens."""
-    from warlock.studio.clay import serialize
+    from warlock.kernels.mesh import serialize
 
     ctx = FakeCtx(svc)
     tab = _tab(ctx, dirty=True)
@@ -727,7 +727,7 @@ def test_paths_are_pathlib_objects_not_strings(svc, tmp_path) -> None:
 
 
 def _glb_bytes() -> bytes:
-    from warlock.studio.viewer import glbwrite
+    from warlock.kernels.geom3d import glbwrite
 
     doc = bd.ClayDoc()
     doc.objects.append(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
@@ -818,7 +818,7 @@ def test_editing_an_asset_prefers_the_authored_document_over_the_mesh(
     parameters -- and importing the GLB instead would hand them back a single
     frozen triangle soup of their own work.
     """
-    from warlock.studio.clay import serialize
+    from warlock.kernels.mesh import serialize
 
     job_dir = tmp_path / "0123456789ab"
     job_dir.mkdir(parents=True)
@@ -1004,7 +1004,7 @@ def _stray_vertex_box() -> Any:
     """A box plus a vertex no face uses: one finding, in vertex mode."""
     import numpy as np
 
-    from warlock.studio.clay import mesh as bm
+    from warlock.kernels.mesh import mesh as bm
 
     box = bp.box()
     return bm.Mesh(
@@ -1017,7 +1017,7 @@ def _stray_vertex_box() -> Any:
 
 
 def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
-    from warlock.studio.clay import diagnose
+    from warlock.kernels.mesh import diagnose
 
     doc = bd.ClayDoc()
     obj = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=_stray_vertex_box()))
@@ -1034,7 +1034,7 @@ def test_a_stored_check_is_stale_the_moment_the_mesh_is_replaced() -> None:
 
 
 def test_clicking_a_finding_selects_exactly_its_elements_in_its_own_mode() -> None:
-    from warlock.studio.clay import diagnose
+    from warlock.kernels.mesh import diagnose
     from warlock.studio.panes import clay_props
 
     doc = bd.ClayDoc()
@@ -1060,7 +1060,7 @@ def test_a_finding_click_pushes_no_undo_step() -> None:
     A step here would move ``history.head`` and make a document ask to be saved
     because the user looked at a hole.
     """
-    from warlock.studio.clay import diagnose
+    from warlock.kernels.mesh import diagnose
     from warlock.studio.panes import clay_props
 
     doc = bd.ClayDoc()
@@ -1078,8 +1078,8 @@ def test_deleting_a_checked_object_drops_its_manifold_cache_entry() -> None:
     the whole ``Mesh`` (positions/loops/starts arrays) it measured alive,
     unreachable, for the rest of the tab's life.
     """
+    from warlock.kernels.mesh import diagnose
     from warlock.studio import clay_ops
-    from warlock.studio.clay import diagnose
 
     doc = bd.ClayDoc()
     keep = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1100,8 +1100,8 @@ def test_merging_an_absorbed_object_drops_its_manifold_cache_entry() -> None:
     """clay-08's other two sites: ``join_objects`` also drops an object from
     ``doc.objects`` (the ones a merge or a union absorbs), outside a tab
     close, and the same cache leak applies."""
+    from warlock.kernels.mesh import diagnose
     from warlock.studio import clay_ops
-    from warlock.studio.clay import diagnose
 
     doc = bd.ClayDoc()
     target = doc.add_object(bd.Obj(uid=bd.new_uid(), name="A", mesh=bp.box()))
@@ -1131,8 +1131,8 @@ def test_outliner_trash_button_drops_the_deleted_objects_manifold_cache_entry() 
     menu's Delete item now call; this exercises it the way each of them does,
     with one object rather than the whole selection.
     """
+    from warlock.kernels.mesh import diagnose
     from warlock.studio import clay_mode
-    from warlock.studio.clay import diagnose
     from warlock.studio.panes import clay_outliner
 
     doc = bd.ClayDoc()
@@ -1548,9 +1548,9 @@ def test_framing_a_small_document_does_not_shrink_the_grid(gl) -> None:
     """The bug ``grid_size`` exists to fix: before Task A, ``F`` re-fit the
     grid to whatever was just framed, so a 100 m grid vanished into a 1 m
     prop's footprint the moment you pressed it."""
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio import clay_view
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import primitives as bp
 
     view = clay_view.ClayView(gl, None)
     try:

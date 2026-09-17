@@ -24,6 +24,16 @@ from typing import Any
 import numpy as np
 from imgui_bundle import imgui
 
+from ...kernels.grid2d import gid
+from ...kernels.pixel import STAMP_MODES
+from ...kernels.pixel.indexed import shade_ramp
+from ...kernels.pixel.tiling import (
+    SEAM_DOMINANCE_MAX,
+    axes_of,
+    canonical,
+    seam_dominance,
+    tile_offset,
+)
 from .. import (
     ants,
     controls,
@@ -37,9 +47,6 @@ from .. import (
     toolbar,
     widgets,
 )
-from ..inker import STAMP_MODES
-from ..inker.indexed import shade_ramp
-from ..inker.tiling import SEAM_DOMINANCE_MAX, axes_of, canonical, seam_dominance, tile_offset
 
 #: The four pure helpers this module used to define. They live in
 #: ``inker_state`` now (no imgui, no document, no side effects) and are named
@@ -58,7 +65,6 @@ from ..inker_state import (
     marquee_rect,  # noqa: F401 -- re-export
 )
 from ..inker_state import onion_index as _onion_index
-from ..tilegrid import gid
 from ..tokens import sp
 from . import inker_bridge, inker_context, inker_menu, inker_textures, inker_walk_canvas
 
@@ -339,7 +345,7 @@ def _transform_row(ctx: Any, state: Any, tab: Any) -> None:
     )
     buf = doc.floating
     if buf is not None and state.resample == "rotsprite":
-        from ..inker import transform
+        from ...kernels.pixel import transform
 
         if not transform.rotsprite_fits(buf.size):
             # The standing version of the toast Ctrl+T raised once: a drag
@@ -2704,7 +2710,7 @@ def symmetry_axes(state: Any) -> tuple[str, ...]:
     two functions of the same name in one namespace is exactly the confusion
     that puts a tiling answer into a symmetry question.
     """
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     return brush.axes_of(state.symmetry)
 
@@ -2727,7 +2733,7 @@ def _symmetry(state: Any, draw_list: Any, view: Any, origin, size) -> None:
     the hardcoded centre this function's first paragraph is about, one field
     later.
     """
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     width, height = size
     colour = _u32(theme.ACCENT, 0.6)
@@ -2978,7 +2984,7 @@ def _pixel_cell(state: Any, tab: Any, draw_list: Any, origin) -> None:
     # not (the 2026-09-02 review, section 5). Dimmer, because they follow the
     # pointer rather than being it. Through the engine's own ``mirrors_of``, so
     # the outline cannot land somewhere the stroke will not.
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     size = tab.doc.size
     twins = brush.mirrors_of(
@@ -3017,7 +3023,7 @@ def _footprint_box(state: Any, tab: Any, point) -> tuple[int, int, int, int] | N
     ``None`` for a one-pixel brush, whose footprint *is* the cell outline
     ``_pixel_cell`` already draws.
     """
-    from ..inker import brush
+    from ...kernels.pixel import brush
 
     tip = state.tip_for(state.tool)
     at = (float(point[0]) + 0.5, float(point[1]) + 0.5)

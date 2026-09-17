@@ -327,7 +327,7 @@ def _png(colour, size=8) -> bytes:
 def _bin(body: bytes) -> bytes:
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     return struct.pack("<II", len(body), glbio.CHUNK_BIN) + body
 
@@ -341,7 +341,7 @@ def _textured_glb(path, *, shared_image=False, materials=1) -> bytes:
     """
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     png = _png((10, 20, 30))
     body = png + b"\0" * (-len(png) % 4)
@@ -387,7 +387,7 @@ def test_a_mesh_with_no_albedo_is_a_false_rather_than_a_raise(tmp_path):
     honest stand-in for a missing base."""
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -421,7 +421,7 @@ def test_the_swap_appends_rather_than_overwriting_a_shared_image(tmp_path):
     dest = tmp_path / "new.glb"
     assert retexture.swap_base_colour(glb, atlas, dest) is True
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     gltf, buffer = glbio.read_glb(dest)
     # The other slot still points at the original image, byte for byte.
@@ -443,7 +443,7 @@ def test_every_material_sharing_the_atlas_is_repointed(tmp_path):
     dest = tmp_path / "new.glb"
     assert retexture.swap_base_colour(glb, atlas, dest) is True
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     gltf, _ = glbio.read_glb(dest)
     indices = {
@@ -460,7 +460,7 @@ def test_the_swap_leaves_the_rest_of_the_document_alone(tmp_path):
     glb = tmp_path / "model.glb"
     _textured_glb(glb)
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     before, buffer_before = glbio.read_glb(glb)
     before["nodes"] = [{"name": "grounding", "scale": [2.0, 2.0, 2.0]}]
@@ -504,7 +504,7 @@ def test_a_mesh_with_no_uvs_cannot_be_given_a_skin(tmp_path):
     which reads as a failed restyle rather than as an unwrapped mesh."""
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -528,7 +528,7 @@ def test_an_untextured_unwrapped_mesh_gains_the_slot(tmp_path):
     """
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     glb = tmp_path / "clay.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)
@@ -569,7 +569,7 @@ def test_the_default_atlas_size_is_the_mesh_s_own(tmp_path):
 def test_an_unreadable_or_absent_atlas_has_no_size(tmp_path):
     import struct
 
-    from warlock import glbio
+    from warlock.kernels.geom3d import glbio
 
     glb = tmp_path / "bare.glb"
     header = struct.pack("<III", glbio.GLB_MAGIC, 2, 0)

@@ -22,12 +22,12 @@ from io import BytesIO
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import gltf
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import serialize as ser
 from warlock.studio.mason.document import MasonDoc
 from warlock.studio.mason.refs import LibraryRef, ref_key
 from warlock.studio.mason.terrain import Terrain
-from warlock.studio.viewer import gltf
 
 
 def _tex(seed: int = 0) -> tuple[int, int, bytes]:

@@ -15,9 +15,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import indexed as ix
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.layers import Layer, LayerStack
+from warlock.kernels.pixel import indexed as ix
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.layers import Layer, LayerStack
 
 BLACK = (0, 0, 0, 255)
 WHITE = (255, 255, 255, 255)
@@ -274,7 +274,7 @@ def test_a_slot_edit_across_frames_is_one_undo_step():
 
 
 def test_the_palette_survives_an_ora_round_trip(tmp_path):
-    from warlock.studio.inker.ora import read_ora, write_ora
+    from warlock.kernels.pixel.ora import read_ora, write_ora
 
     doc = _doc()
     doc.stack.active.pixels[:, :] = RED
@@ -295,7 +295,7 @@ def test_the_palette_survives_an_ora_round_trip(tmp_path):
 
 
 def test_an_ora_without_a_palette_opens_unindexed(tmp_path):
-    from warlock.studio.inker.ora import read_ora, write_ora
+    from warlock.kernels.pixel.ora import read_ora, write_ora
 
     path = tmp_path / "plain.ora"
     write_ora(_doc(), path)
@@ -308,7 +308,7 @@ def test_opening_an_indexed_file_pushes_no_undo_step(tmp_path):
     """The pixels in the file were written snapped, so re-snapping them would
     cost a whole-document rewrite on every open and make opening a file
     undoable."""
-    from warlock.studio.inker.ora import read_ora, write_ora
+    from warlock.kernels.pixel.ora import read_ora, write_ora
 
     doc = _doc()
     doc.stack.active.pixels[:, :] = RED
@@ -322,7 +322,7 @@ def test_opening_an_indexed_file_pushes_no_undo_step(tmp_path):
 def test_a_corrupt_palette_member_costs_the_constraint_not_the_file(tmp_path):
     import zipfile
 
-    from warlock.studio.inker.ora import PALETTE_MEMBER, read_ora, write_ora
+    from warlock.kernels.pixel.ora import PALETTE_MEMBER, read_ora, write_ora
 
     doc = _doc()
     doc.set_palette(RAMP)
@@ -347,7 +347,7 @@ def test_a_corrupt_palette_member_costs_the_constraint_not_the_file(tmp_path):
 def test_a_gif_written_with_a_palette_carries_that_table(tmp_path):
     from PIL import Image
 
-    from warlock.studio.inker import gifout
+    from warlock.kernels.pixel import gifout
 
     frame = _plane(4, 4, fill=RED)
     path = tmp_path / "clip.gif"
@@ -361,7 +361,7 @@ def test_a_gif_written_with_a_palette_carries_that_table(tmp_path):
 def test_a_gif_colour_lands_in_the_slot_the_user_put_it_in(tmp_path):
     from PIL import Image
 
-    from warlock.studio.inker import gifout
+    from warlock.kernels.pixel import gifout
 
     path = tmp_path / "clip.gif"
     gifout.write_gif(path, [_plane(4, 4, fill=RED)], [100], palette=RAMP)
@@ -372,7 +372,7 @@ def test_a_gif_colour_lands_in_the_slot_the_user_put_it_in(tmp_path):
 
 def test_a_palette_too_long_for_a_gif_falls_back_rather_than_truncating(tmp_path):
     """A dropped swatch is pixels changing colour in the export."""
-    from warlock.studio.inker import gifout
+    from warlock.kernels.pixel import gifout
 
     long = [(i % 256, 0, 0, 255) for i in range(gifout.MAX_PALETTE + 1)]
     path = tmp_path / "clip.gif"

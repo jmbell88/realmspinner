@@ -169,9 +169,18 @@ def test_no_new_settings_get_or_default_creeps_back():
     ``settings.get(k) or {}`` is the shape, and it is easy to write again
     because it *looks* like a guard. ``as_dict``/``as_list`` are the answer and
     they read almost the same, which is the point.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose. ``studio.settings`` is the App's own persisted
+    config object; nothing under ``core/``, ``kernels/`` or ``familiar/``
+    reads it (a kernel is pure, and Familiar's headless half takes plain
+    dicts, never the ``Settings`` singleton), so this is a claim about the
+    shell, not the package.
     """
+    files = sorted(STUDIO.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {STUDIO} -- did the sweep root break?"
     offenders: list[str] = []
-    for path in sorted(STUDIO.rglob("*.py")):
+    for path in files:
         if path.name == "settings.py":
             continue  # it documents the shape it refuses
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

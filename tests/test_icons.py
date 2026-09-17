@@ -36,6 +36,20 @@ def _studio_sources() -> dict[Path, str]:
     }
 
 
+def test_the_sweep_found_the_studio_tree() -> None:
+    """2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose. Icon glyphs are drawn by imgui buttons and panes;
+    none of P3's moves pull imgui with them, so a kernel or ``core/`` module
+    cannot be an icon-constant offender. The floor is the guard against the
+    failure this pass found elsewhere -- an empty (or merely smaller) file set
+    still passes every ``== []`` assertion below.
+    """
+    files = list(_studio_sources())
+    assert len(files) > 200, (
+        f"only {len(files)} files under {STUDIO_ROOT} -- did the sweep root break?"
+    )
+
+
 def test_no_icon_constant_is_an_empty_string():
     """This is the check that would have caught LINK/UNLINK the day they
     landed empty: a Private-Use-Area constant with no codepoint renders as a

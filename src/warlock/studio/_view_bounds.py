@@ -44,7 +44,7 @@ class BoundsOps:
         rather than mutated, so identity misses exactly when the answer can
         change -- and this is asked every frame a gizmo is on screen.
         """
-        from .clay import elements as el
+        from ..kernels.mesh import elements as el
 
         key = (id(doc), tuple(
             (uid, id(sel), *self._obj_key(doc, uid))
@@ -133,7 +133,7 @@ class BoundsOps:
         properties panel's dimensions row and the camera's framing would have
         come to disagree about the size of one object.
         """
-        from .clay import ops as bops
+        from ..kernels.mesh import ops as bops
 
         return bops.world_box(obj)
 

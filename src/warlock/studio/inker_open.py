@@ -25,7 +25,8 @@ from typing import Any
 
 import numpy as np
 
-from . import dialogs, inker_mode, sizeguard
+from ..core.safeio import sizeguard
+from . import dialogs, inker_mode
 from .inker_state import InkerDoc
 from .state import set_mode
 
@@ -77,7 +78,7 @@ def open_path(ctx: Any, path: Path) -> None:
 
 def _load(path: Path) -> dict[str, Any]:
     """Blocking; task thread only."""
-    from . import inker
+    from ..kernels import pixel as inker
 
     path = Path(path)
     doc = inker.Document.load(path)
@@ -102,7 +103,7 @@ def open_pixels(ctx: Any, pixels: Any, *, title: str = "Untitled") -> None:
     array = np.array(pixels, dtype=np.uint8)
 
     def run() -> dict[str, Any]:
-        from . import inker
+        from ..kernels import pixel as inker
 
         return {"doc": inker.Document.from_pixels(array, name="Atlas"), "title": title}
 
@@ -125,7 +126,7 @@ def ask_import_sheet(ctx: Any) -> None:
     inker_mode.ensure(ctx)
 
     def run() -> dict[str, Any] | None:
-        from . import pixelguard
+        from ..core.safeio import pixelguard
 
         path = dialogs.open_file("Import sprite sheet", inker_mode.OPEN_FILTER)
         if path is None:
@@ -159,7 +160,7 @@ def _suggest_grid(atlas: Any) -> tuple[tuple[int, int], tuple[int, int], tuple[i
     convenience, so resetting them on a failed detection would throw away a
     number the user typed for the previous sheet.
     """
-    from .tilegrid import slicing
+    from ..kernels.grid2d import slicing
 
     grid = slicing.detect_grid(atlas)
     if grid is None:
@@ -189,7 +190,7 @@ def import_sheet(ctx: Any) -> bool:
     reopens when a *new* file is picked, so a rejected grid would mean choosing
     the same file again to correct one number.
     """
-    from .inker import sheetin
+    from ..kernels.pixel import sheetin
 
     state = inker_mode.ensure(ctx)
     pending = state.sheet_import
@@ -262,8 +263,8 @@ def _load_aseprite(path: Path) -> dict[str, Any]:
     a destination first -- and the first Ctrl+S asks where to put it, Aseprite
     included if that is what is chosen there.
     """
+    from ..kernels.pixel import asein
     from ..service.files import MAX_INKER_BYTES
-    from .inker import asein
 
     path = Path(path)
     doc, warnings = asein.document_from_aseprite(
@@ -372,9 +373,9 @@ def _load_sprite_draft(
     svc: Any, job_id: str, draft_id: str, candidate: str
 ) -> dict[str, Any]:
     """Blocking; task thread only."""
+    from ..core.safeio import pixelguard
+    from ..kernels.pixel import sheetin
     from ..service import sprites as svc_sprites
-    from . import pixelguard
-    from .inker import sheetin
 
     record = svc_sprites.get_sprite_draft(svc, job_id, draft_id)
     png = svc_sprites.sprite_draft_png(svc, job_id, draft_id, candidate)
@@ -456,8 +457,9 @@ def open_pixel_artifact(
 
     def run() -> dict[str, Any]:
         """Blocking; task thread only."""
+        from ..core.safeio import pixelguard
+        from ..kernels import pixel as inker
         from ..service import derive as svc_derive
-        from . import inker, pixelguard
 
         path = svc_derive.get_file(
             ctx.svc,
@@ -506,9 +508,9 @@ def _load_rendered_sheet(
     svc: Any, job_id: str, sheet_id: str, pixel: bool
 ) -> dict[str, Any]:
     """Blocking; task thread only."""
+    from ..core.safeio import pixelguard
+    from ..kernels.pixel import sheetin
     from ..service import sheets as svc_sheets
-    from . import pixelguard
-    from .inker import sheetin
 
     if pixel:
         record = svc_sheets.get_pixel_sheet(svc, job_id, sheet_id)
@@ -591,8 +593,8 @@ def load_sheet_cells(svc: Any, job_id: str, sheet_id: str) -> list[Any]:
     the geometry disagrees, so the sentence names the *sheet* the user picked
     instead of surfacing from three layers down.
     """
+    from ..core.safeio import pixelguard
     from ..service import sheets as svc_sheets
-    from . import pixelguard
 
     record = svc_sheets.get_sheet(svc, job_id, sheet_id)
     png = svc_sheets.sheet_png(svc, job_id, sheet_id)
@@ -671,8 +673,8 @@ def open_job_reference(ctx: Any, job: Any, *, matte: bool = False) -> None:
 
 def _load_job(svc: Any, job_id: str, *, matte: bool = False) -> dict[str, Any]:
     """Blocking; task thread only."""
+    from ..kernels import pixel as inker
     from ..service import files as svc_files
-    from . import inker
 
     flat = svc.job_dir(job_id) / "input.png"
     working = svc_files.inker_working_path(svc, job_id)

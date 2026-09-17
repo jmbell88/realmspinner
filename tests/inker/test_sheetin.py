@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import sheetin, sheetout
-from warlock.studio.inker.animation import DIRECTION_ORDER, DirectionalLayout
+from warlock.kernels.pixel import sheetin, sheetout
+from warlock.kernels.pixel.animation import DIRECTION_ORDER, DirectionalLayout
 
 CELL = 8
 
@@ -105,7 +105,7 @@ def test_the_layout_rides_along():
 
 
 def test_every_frame_gets_the_default_duration():
-    from warlock.studio.inker.animation import DEFAULT_DURATION_MS
+    from warlock.kernels.pixel.animation import DEFAULT_DURATION_MS
 
     doc = sheetin.document_from_atlas(_atlas("walk"), _cells("walk"), "walk")
     assert {f.duration_ms for f in doc.anim.frames} == {DEFAULT_DURATION_MS}

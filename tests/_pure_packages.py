@@ -54,17 +54,49 @@ function would no longer iterate at all, so it drops out of
 named it. That is the exact failure shape the rest of this file spends its
 docstring arguing against -- a hand list (here, a hand-picked directory
 depth) that is correct on the day it is written and silently wrong on the day
-the tree changes shape under it. So :func:`pure_packages` now looks in two
+the tree changes shape under it. So :func:`pure_packages` looks in three
 places rather than encoding the future layout as a rename: directly under
 ``studio/`` (today's shape, for every package that has not moved yet) *and*
 at ``studio/modes/<name>/engine/`` for each ``<name>`` under ``studio/modes/``
 (tomorrow's shape, for every one that has). Both are walked by the same
 window-root check, so a mode's ``engine/`` that imports imgui is exactly as
-disqualifying as a top-level package's would be. Nothing under
-``studio/modes/`` exists yet, so this changes no test's answer today; it is
-here so that landing P5's Clay UI/agent fold does not also require a matching
-edit to this file, which is the whole point of deriving the set instead of
-writing it down.
+disqualifying as a top-level package's would be.
+
+**2026-09-17, the same day, a third place.** P3 of the restructure actually
+landed before P5 did: ``studio/clay/``, ``studio/inker/`` (incl.
+``flourish/``, ``walk/``), ``studio/tilegrid/``, the pure half of
+``studio/viewer/`` (``math3d``/``gltf``/``glbwrite`` plus the top-level
+``glbio``), ``studio/manual/{loader,parser,targets}`` and
+``studio/sirens/wavout.py`` all moved out of ``studio/`` entirely, straight
+into ``warlock/kernels/*`` -- not into a mode's future ``engine/``, because
+they are shared domain kernels, not one mode's private engine (``tilegrid``
+was already the shared-leaf case this file's own docstring names above; P3
+just gave that shape a real package to live in and put four more engines
+next to it). ``dev/RESTRUCTURE.md``'s own layer table calls ``warlock/kernels/``
+pure by definition (``tests/test_layering.py`` is the pin that makes an
+import out of it a build-time failure, not a maybe), so a directory under it
+never needs the window-root walk to prove itself -- but this function runs
+that walk anyway, uniformly, rather than special-casing "trust this root":
+the day a kernel accidentally grows a GL import, this is the test that says
+so, not a shrug that layering already covers it. Skipping the walk here would
+be exactly the kind of "it can't happen" this whole file was written to stop
+assuming.
+
+The consequence for every sibling-ban pin that reads :func:`pure_packages`:
+what used to be ``clay`` and ``inker`` are ``mesh`` and ``pixel`` now -- the
+directory name, not a mode's name, because a kernel is named for the domain
+it models rather than for the workspace that happens to be its only caller
+today (``tests/mason/test_mason_imports.py`` still bans one sibling engine
+from reaching Clay's primitives; it now bans ``warlock.kernels.mesh``, the
+same rule wearing its new name). What remains directly under ``studio/`` is
+the mode-owned set with no kernel of its own yet: ``mason``, ``muse``,
+``packwright``, ``plotter``, ``sirens``, ``tour``, ``troupe``. ``familiar``
+left both roots on the same day, straight to ``warlock/familiar/`` -- L3 in
+the layer table, not L1 -- so it is not a headless *engine* in this
+function's sense at all any more, and does not appear in
+:func:`pure_packages`'s answer; its own purity is pinned directly in
+``tests/familiar/test_familiar_imports.py`` instead, by AST, the way this
+function proves purity for everything else.
 """
 
 from __future__ import annotations
@@ -72,9 +104,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import warlock.kernels
 import warlock.studio
 
 STUDIO = Path(warlock.studio.__file__).parent
+KERNELS = Path(warlock.kernels.__file__).parent
 
 #: A module importing one of these at module scope is not headless. The same
 #: set every pin's own banned-roots test uses, stated once here because this
@@ -195,22 +229,29 @@ def _headless(package_dir: Path) -> bool:
 def pure_packages() -> tuple[str, ...]:
     """Every headless package this tree currently has, sorted.
 
-    Looks in two places, because the restructure (``dev/RESTRUCTURE.md``) is
-    mid-move: directly under ``studio/`` -- today's shape, for whichever
+    Looks in three places, because the restructure (``dev/RESTRUCTURE.md``) is
+    mid-move: directly under ``warlock/kernels/`` -- the shared domain kernels
+    P3 already moved out of ``studio/`` (``mesh``, ``pixel``, ``grid2d``,
+    ``geom3d``, ``audio``, ``manual``), pure by construction
+    (``tests/test_layering.py`` enforces it) but walked by the same
+    window-root check as everywhere else rather than trusted on that account
+    -- directly under ``studio/`` -- today's shape, for whichever mode-owned
     packages have not folded into a mode yet -- and at
     ``studio/modes/<name>/engine/`` for each ``<name>`` under
     ``studio/modes/`` -- tomorrow's shape, for whichever have. See this
-    module's own docstring (the 2026-09-17 addition) for why a directory-depth
-    assumption is exactly the kind of hand list the rest of this file argues
-    against, and why the fix is deriving over both shapes rather than picking
-    one and editing this file again when the other one lands.
+    module's own docstring (the 2026-09-17 additions) for why a
+    directory-depth or a directory-root assumption is exactly the kind of
+    hand list the rest of this file argues against, and why the fix is
+    deriving over every shape rather than picking one and editing this file
+    again when the next one lands.
     """
     found = []
-    for child in sorted(STUDIO.iterdir()):
-        if not child.is_dir() or not (child / "__init__.py").exists():
-            continue
-        if _headless(child):
-            found.append(child.name)
+    for root in (KERNELS, STUDIO):
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or not (child / "__init__.py").exists():
+                continue
+            if _headless(child):
+                found.append(child.name)
     modes_dir = STUDIO / "modes"
     if modes_dir.is_dir():
         for mode_dir in sorted(modes_dir.iterdir()):
@@ -232,3 +273,29 @@ def siblings_of(
     ``OUTWARD_IMPORTS`` instead, where the exact-set test holds it.
     """
     return tuple(name for name in pure_packages() if name != package and name not in allowed)
+
+
+def dotted_root(name: str) -> str:
+    """The fully-dotted import prefix *name* (as :func:`pure_packages` names
+    it) is actually reached through.
+
+    A pin's sibling-ban test used to be able to assume every name in
+    :func:`siblings_of`'s answer hung off ``warlock.studio.<name>`` -- true
+    while every headless package lived directly under ``studio/``. It is
+    silently false for half of them since P3 of ``dev/RESTRUCTURE.md``:
+    checking a module's imports for ``"warlock.studio.mesh"`` bans nothing at
+    all, because the mesh engine has always been imported as
+    ``warlock.kernels.mesh`` -- Clay's own name for it never appeared in an
+    import statement anywhere, it is only what :func:`pure_packages` calls the
+    directory. This looks the prefix up against the tree itself, the same way
+    :func:`pure_packages` found *name* there in the first place, rather than
+    asking every pin to keep a second list of "which of these are kernels
+    now" that can (and, before this function existed, silently did) go stale
+    the moment a sibling-ban parametrize kept naming a package whose real
+    import path had moved out from under it.
+    """
+    if (KERNELS / name / "__init__.py").exists():
+        return f"warlock.kernels.{name}"
+    if (STUDIO / "modes" / name / "engine" / "__init__.py").exists():
+        return f"warlock.studio.modes.{name}.engine"
+    return f"warlock.studio.{name}"

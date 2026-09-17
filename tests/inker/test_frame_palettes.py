@@ -26,9 +26,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel import asein, aseout, ora
+from warlock.kernels.pixel.document import Document
 from warlock.studio import inker_ops, inker_state
-from warlock.studio.inker import asein, aseout, ora
-from warlock.studio.inker.document import Document
 
 HOLE = (0, 0, 0, 0)
 RED = (255, 0, 0, 255)

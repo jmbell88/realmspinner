@@ -26,13 +26,13 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import gltf
+from warlock.kernels.geom3d import math3d as m3
 from warlock.studio import mason_view
 from warlock.studio.mason import document as md
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import refs as mrefs
 from warlock.studio.mason import scene as msc
-from warlock.studio.viewer import gltf
-from warlock.studio.viewer import math3d as m3
 
 RECT = (0.0, 0.0, 128.0, 96.0)
 
@@ -493,8 +493,8 @@ def test_active_pivot_uses_the_last_clicked_node_not_document_order() -> None:
 
 def _ground(side: int = 4, size: float = 8.0) -> md.MasonDoc:
     """A flat terrain and the node that places it."""
+    from warlock.kernels.geom3d import gltf as _gltf
     from warlock.studio.mason.terrain import Terrain
-    from warlock.studio.viewer import gltf as _gltf
 
     doc = md.MasonDoc()
     doc.set_terrain(

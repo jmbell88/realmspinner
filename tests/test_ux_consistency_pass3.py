@@ -127,7 +127,7 @@ def test_the_packwright_button_opens_the_picker_that_exists():
 def test_the_clay_button_never_names_a_generator():
     """The registry is data (``clay_props``' rule), and the button that adds a
     primitive lives under the same rule."""
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio.panes import overlay
 
     source = inspect.getsource(overlay._clay_box)

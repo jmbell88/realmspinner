@@ -24,11 +24,11 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay import regen, shading
-from warlock.studio.clay.adjacency import adjacency
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh import regen, shading
+from warlock.kernels.mesh.adjacency import adjacency
 from warlock.studio.panes import clay_props, clay_tools
 
 

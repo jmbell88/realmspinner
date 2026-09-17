@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import transform as tf
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import transform as tf
+from warlock.kernels.pixel.document import Document
 
 
 def _art(cells: np.ndarray, scale: int, phase: tuple[int, int] = (0, 0)) -> np.ndarray:

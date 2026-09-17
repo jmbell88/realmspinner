@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio import inker
+from warlock.kernels import pixel as inker
 
 
 def _doc(count=5):
@@ -53,7 +53,7 @@ def test_a_gesture_that_changed_nothing_pushes_nothing():
 def test_a_gesture_with_one_step_in_it_stays_that_step():
     """A lone ``CompoundEdit`` around one edit reads as "compound" in the
     history panel where the edit itself reads as what it did."""
-    from warlock.studio.undo import CompoundEdit
+    from warlock.core.undo import CompoundEdit
 
     doc = _doc(2)
     with doc.one_gesture():

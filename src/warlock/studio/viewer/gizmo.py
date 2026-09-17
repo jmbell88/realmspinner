@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from . import picking
 from .render import DrawItem
 

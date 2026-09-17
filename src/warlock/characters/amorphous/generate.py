@@ -188,7 +188,7 @@ def _basis_from_y(direction: np.ndarray) -> np.ndarray:
 
 
 def _placed(mesh: Any, matrix3: np.ndarray, centre: np.ndarray) -> Any:
-    from ...studio.clay import mesh as bm
+    from ...kernels.mesh import mesh as bm
 
     matrix = np.eye(4)
     matrix[:3, :3] = matrix3
@@ -197,7 +197,7 @@ def _placed(mesh: Any, matrix3: np.ndarray, centre: np.ndarray) -> Any:
 
 
 def _sphere_at(centre: Any, radius: float, *, segments: int = 12, rings: int = 8) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     body = primitives.uv_sphere(radius=radius, segments=segments, rings=rings)
     return _placed(body, np.eye(3), np.asarray(centre, dtype="f8"))
@@ -206,21 +206,21 @@ def _sphere_at(centre: Any, radius: float, *, segments: int = 12, rings: int = 8
 def _ellipsoid_at(
     centre: Any, radii: Any, *, segments: int = SEG, rings: int = RINGS
 ) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     body = primitives.uv_sphere(radius=1.0, segments=segments, rings=rings)
     return _placed(body, np.diag(np.asarray(radii, dtype="f8")), np.asarray(centre, dtype="f8"))
 
 
 def _cylinder_at(centre: Any, radius: float, height: float, *, segments: int = SEG) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     body = primitives.cylinder(radius=radius, height=height, segments=segments)
     return _placed(body, np.eye(3), np.asarray(centre, dtype="f8"))
 
 
 def _cone_between(a: Any, b: Any, radius: float, *, segments: int = 6) -> Any:
-    from ...studio.clay import primitives
+    from ...kernels.mesh import primitives
 
     a = np.asarray(a, dtype="f8")
     b = np.asarray(b, dtype="f8")
@@ -373,9 +373,9 @@ def _parts(
 
 def _solid(parts: list[tuple[str, Any]]) -> Any:
     """Union every part into one closed solid, smooth it once, weld it."""
-    from ...studio.clay import elements, ops_boolean, ops_subdiv, ops_topo
-    from ...studio.clay import mesh as bm
-    from ...studio.clay.document import Obj
+    from ...kernels.mesh import elements, ops_boolean, ops_subdiv, ops_topo
+    from ...kernels.mesh import mesh as bm
+    from ...kernels.mesh.document import Obj
 
     objs = [Obj(uid=i + 1, name=name, mesh=m) for i, (name, m) in enumerate(parts)]
     merged = ops_boolean.union(objs)
@@ -534,8 +534,8 @@ def _fields(
 
 def build(silhouette: str) -> Baked:
     """Generate one silhouette group from scratch. Deterministic, no I/O."""
-    from ...studio.clay import adjacency
-    from ...studio.clay import mesh as bm
+    from ...kernels.mesh import adjacency
+    from ...kernels.mesh import mesh as bm
 
     try:
         group = GROUPS[silhouette]
@@ -619,8 +619,8 @@ def build(silhouette: str) -> Baked:
 
 def primitives_of(baked: Baked) -> list[tuple[int, np.ndarray, np.ndarray]]:
     """``(region id, positions, indices)`` per region, in region-id order."""
-    from ...studio.clay import mesh as bm
-    from ...studio.clay import topo
+    from ...kernels.mesh import mesh as bm
+    from ...kernels.mesh import topo
 
     out: list[tuple[int, np.ndarray, np.ndarray]] = []
     source = bm.Mesh(
@@ -656,7 +656,7 @@ def _smooth_normals(positions: np.ndarray, indices: np.ndarray) -> np.ndarray:
 
 def bake(baked: Baked) -> tuple[bytes, dict[str, np.ndarray]]:
     """``(glb bytes, npz arrays)`` for one silhouette group. Pure."""
-    from ...studio.viewer import glbwrite, gltf
+    from ...kernels.geom3d import glbwrite, gltf
 
     parts = primitives_of(baked)
     prims: list[gltf.Primitive] = []

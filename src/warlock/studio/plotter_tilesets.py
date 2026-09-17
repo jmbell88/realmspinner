@@ -229,8 +229,8 @@ def _terrain_from(pixels: Any, tile_w: int, tile_h: int) -> Any:
     Runs only when the grid holds at least the 47 cells a complete set needs;
     below that there is nothing to find and the analysis is pure cost.
     """
-    from .tilegrid import blob
-    from .tilegrid import roles as rolelib
+    from ..kernels.grid2d import blob
+    from ..kernels.grid2d import roles as rolelib
 
     array = pixels
     rows = array.shape[0] // int(tile_h)
@@ -259,8 +259,8 @@ def _declared_terrain_set(
     path and the sheet still lands, sliced blind, exactly as it would with no
     sidecar at all.
     """
-    from .tilegrid import slicing
-    from .tilegrid.tileset import Tileset
+    from ..kernels.grid2d import slicing
+    from ..kernels.grid2d.tileset import Tileset
 
     array = pixels
     if record.cell != (int(tile_w), int(tile_h)):
@@ -322,8 +322,8 @@ def _sheet_or_tileset(
     the user in a popup, and there is nothing to ask about a set that says what
     it is.
     """
-    from .tilegrid import slicing
-    from .tilegrid.tileset import Tileset
+    from ..kernels.grid2d import slicing
+    from ..kernels.grid2d.tileset import Tileset
 
     if record is not None and record.is_terrain_set:
         landed = _declared_terrain_set(name, pixels, record, tile_w, tile_h)
@@ -460,8 +460,8 @@ def import_detected_sheet(ctx: Any) -> bool:
     milliseconds -- and routing it through a task would put a second popup-shaped
     round trip between the button and the tiles.
     """
-    from .tilegrid import slicing
-    from .tilegrid.tileset import Tileset
+    from ..kernels.grid2d import slicing
+    from ..kernels.grid2d.tileset import Tileset
 
     found = _parked(ctx)
     if found is None:
@@ -520,8 +520,8 @@ def import_sheet_terrain(ctx: Any) -> bool:
     longer the file on disk, and a ``.tmx`` export must not reference art it is
     not drawing.
     """
-    from .tilegrid import roles as rolelib
-    from .tilegrid.tileset import TerrainSpec, Tileset
+    from ..kernels.grid2d import roles as rolelib
+    from ..kernels.grid2d.tileset import TerrainSpec, Tileset
 
     found = _parked(ctx)
     if found is None:
@@ -558,7 +558,7 @@ def import_sheet_blind(ctx: Any) -> bool:
     scene, a silhouette sheet -- can rule itself off convincingly, and the answer
     to that is a button that does exactly what yesterday's build did.
     """
-    from .tilegrid.tileset import Tileset
+    from ..kernels.grid2d.tileset import Tileset
 
     found = _parked(ctx)
     if found is None:
@@ -664,7 +664,7 @@ def tileset_from_inker(ctx: Any, doc: Any, *, index: int | None = None) -> None:
     ``index`` names the tileset to repaint. Without one this is an ordinary
     append, which is what an unrelated drawing should be.
     """
-    from .tilegrid.tileset import Tileset
+    from ..kernels.grid2d.tileset import Tileset
 
     tab = active(ctx)
     if tab is None:
@@ -713,7 +713,7 @@ def repaint_tileset(
     ``verb`` is the only thing the two doors differ by, and it is in the toast
     because "repainted" is a lie about a file the user picked in Photoshop.
     """
-    from .tilegrid.tileset import repolish
+    from ..kernels.grid2d.tileset import repolish
 
     if index < 0 or index >= len(tab.doc.tilesets):
         return False
@@ -861,7 +861,7 @@ def _recorded_terrains(raw: Any) -> tuple[Any, ...]:
     terrain set, it is a different one. Ordered as written, which is the order
     ``pipelines.tileatlas`` published and the order the atlas's rows are in.
     """
-    from .tilegrid.tileset import TerrainSpec
+    from ..kernels.grid2d.tileset import TerrainSpec
 
     if not isinstance(raw, list) or not raw:
         return ()

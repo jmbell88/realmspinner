@@ -21,7 +21,8 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from warlock.studio import inker, inker_mode, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_mode, inker_state
 from warlock.studio import state as state_mod
 from warlock.studio.panes import inker_canvas
 
@@ -223,7 +224,8 @@ def test_a_read_only_tool_is_told_nothing_about_either(tool: str) -> None:
 def _op_session():
     from types import MethodType, SimpleNamespace
 
-    from warlock.studio import inker, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_state
     from warlock.studio import state as state_mod
 
     tab = inker_state.InkerDoc(doc=inker.Document.blank(8, 8), uid="t1", title="t")

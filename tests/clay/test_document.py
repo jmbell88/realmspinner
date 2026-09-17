@@ -12,13 +12,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import elements as el
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import ops_topo, selection
-from warlock.studio.clay import primitives as bp
-from warlock.studio.clay.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
-from warlock.studio.undo import CompoundEdit
+from warlock.core.undo import CompoundEdit
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import elements as el
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import ops_topo, selection
+from warlock.kernels.mesh import primitives as bp
+from warlock.kernels.mesh.edits import MeshEdit, TransformEdit, _texture_bytes, mesh_bytes
 
 
 def _obj(name: str, mesh: bm.Mesh | None = None, **kwargs: object) -> bd.Obj:
@@ -802,7 +802,7 @@ def test_clearing_the_element_selection_clears_the_objects_too() -> None:
 
 
 def _merged(doc: bd.ClayDoc, target: int, others: list[int]) -> bm.Mesh:
-    from warlock.studio.clay import ops as clay_ops_geom
+    from warlock.kernels.mesh import ops as clay_ops_geom
 
     return clay_ops_geom.join([doc.by_uid(u) for u in [target, *others]], eps=0.0)
 

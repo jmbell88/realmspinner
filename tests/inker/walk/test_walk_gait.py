@@ -13,8 +13,8 @@ import math
 import pytest
 from _figure import figure
 
-from warlock.studio.inker.walk import gait
-from warlock.studio.inker.walk import rig as R
+from warlock.kernels.pixel.walk import gait
+from warlock.kernels.pixel.walk import rig as R
 
 SIDES = ("near", "far")
 

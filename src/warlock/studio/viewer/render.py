@@ -15,7 +15,7 @@ from typing import Any
 import moderngl
 import numpy as np
 
-from . import math3d as m3
+from ...kernels.geom3d import math3d as m3
 from .env import Environment
 from .glctx import Viewport
 from .grid import Grid, span_for

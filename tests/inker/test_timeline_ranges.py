@@ -15,9 +15,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker._doc_ranges import clamp_span
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.selection import FloatingBuffer
+from warlock.kernels.pixel._doc_ranges import clamp_span
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.selection import FloatingBuffer
 
 RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
@@ -412,7 +412,7 @@ def test_filling_a_range_floods_every_cel_it_covers_as_one_step():
 
 
 def test_filling_a_range_honours_the_selection_as_a_weight():
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     doc = _clip(2)
     mask = np.zeros((4, 4), dtype=np.uint8)
@@ -521,7 +521,7 @@ def test_filling_a_range_commits_a_float_before_it_reads_the_cels():
 
 def _lift_square(doc: Document, box=(0, 0, 2, 2)) -> None:
     """Select a square on the active cel and float it."""
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     mask = np.zeros((4, 4), dtype=np.uint8)
     mask[box[1] : box[3], box[0] : box[2]] = 255
@@ -706,7 +706,7 @@ def test_a_flip_replays_with_the_mask_it_lifted_not_a_mirrored_one():
     lifted a *mirrored* footprint on every cel. Solid rectangles are
     flip-symmetric, which is why the other equivalence tests cannot see this;
     the mask here is an L."""
-    from warlock.studio.inker.selection import SelectionMask
+    from warlock.kernels.pixel.selection import SelectionMask
 
     plain, ranged = _clip(2), _clip(2)
     mask = np.zeros((4, 4), dtype=np.uint8)

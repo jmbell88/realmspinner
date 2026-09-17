@@ -20,8 +20,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import asein, aseout
-from warlock.studio.inker.document import Document
+from warlock.kernels.pixel import asein, aseout
+from warlock.kernels.pixel.document import Document
 
 
 def _animated(frames: int = 2) -> Document:
@@ -211,7 +211,7 @@ def test_a_document_that_never_dimmed_a_cel_writes_the_bytes_it_always_wrote():
 
 
 def test_a_per_cel_opacity_round_trips_through_ora(tmp_path):
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     doc = _animated()
     doc.unlink_cel(track_index=0, frame_index=1)
@@ -224,7 +224,7 @@ def test_a_per_cel_opacity_round_trips_through_ora(tmp_path):
 
 
 def test_a_linked_cels_two_opacities_round_trip_through_ora(tmp_path):
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     doc = _animated()
     doc.set_cel_opacity(0.25, track_index=0, frame_index=0)
@@ -242,7 +242,7 @@ def test_a_linked_cels_two_opacities_round_trip_through_ora(tmp_path):
 
 def test_an_undimmed_document_writes_a_byte_identical_ora(tmp_path):
     """The standing negative control, on the determinism pin's own terms."""
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     doc = _animated()
     first = tmp_path / "a.ora"
@@ -261,7 +261,7 @@ def test_an_opacity_key_an_older_build_never_wrote_reads_back_at_full(tmp_path):
     import json
     import zipfile
 
-    from warlock.studio.inker import ora
+    from warlock.kernels.pixel import ora
 
     doc = _animated()
     path = tmp_path / "a.ora"
@@ -286,7 +286,7 @@ def test_the_fold_is_the_only_place_the_grid_reaches_the_compositor():
     """
     import inspect
 
-    from warlock.studio.inker import composite, layers
+    from warlock.kernels.pixel import composite, layers
 
     for module in (layers, composite):
         assert "cel_opacity" not in inspect.getsource(module)

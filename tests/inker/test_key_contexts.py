@@ -10,7 +10,8 @@ is this" a plain assertion.
 
 from __future__ import annotations
 
-from warlock.studio import inker, inker_ops, inker_state
+from warlock.kernels import pixel as inker
+from warlock.studio import inker_ops, inker_state
 
 
 def _tab():
@@ -155,7 +156,8 @@ def test_the_digits_set_brush_opacity_with_zero_meaning_full():
 
     import pygame
 
-    from warlock.studio import inker, inker_mode
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode
     from warlock.studio import state as state_mod
 
     doc = inker.Document.blank(8, 8)
@@ -223,7 +225,8 @@ def test_enter_on_a_still_document_says_why_with_a_brush_in_hand():
 
     import pygame
 
-    from warlock.studio import inker, inker_mode, inker_state
+    from warlock.kernels import pixel as inker
+    from warlock.studio import inker_mode, inker_state
     from warlock.studio import state as state_mod
 
     doc = inker.Document.blank(8, 8)

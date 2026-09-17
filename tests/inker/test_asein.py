@@ -21,9 +21,9 @@ import zlib
 import numpy as np
 import pytest
 
-from warlock.studio.inker import asein
-from warlock.studio.inker.tiles import TilemapCel
-from warlock.studio.tilegrid import gid
+from warlock.kernels.grid2d import gid
+from warlock.kernels.pixel import asein
+from warlock.kernels.pixel.tiles import TilemapCel
 
 MAGIC = 0xA5E0
 FRAME_MAGIC = 0xF1FA
@@ -357,7 +357,7 @@ def test_an_animated_aseprite_with_many_real_cels_has_a_pixel_budget(monkeypatch
     building the multi-hundred-megabyte file that would trip the real one) so
     ten small real frames -- not linked, which cost nothing extra -- trip it
     without an expensive fixture."""
-    from warlock.studio import pixelguard
+    from warlock.core.safeio import pixelguard
 
     monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 4 * 4 * 5)
     frames = [_frame([_layer("Art"), _cel(0, _rgba(4, 4, (1, 2, 3, 255)), 4, 4)])]
@@ -444,7 +444,7 @@ def test_layer_properties_come_across():
 def test_every_aseprite_blend_mode_has_one_of_ours(index, mode):
     """Nineteen modes each way, since C6 added the seven that were missing --
     so no file loses a mode on the way in and none is approximated."""
-    from warlock.studio.inker import composite as cp
+    from warlock.kernels.pixel import composite as cp
 
     assert mode in cp.BLEND_MODES
     doc, warnings = asein.document_from_aseprite(
@@ -762,7 +762,7 @@ def test_group_layers_become_groups_with_their_nesting():
     assert doc.group_of[inner] == outer
     assert doc.stack[1].uid not in doc.group_of
 
-    from warlock.studio.inker import groups as gp
+    from warlock.kernels.pixel import groups as gp
 
     gp.check(doc.groups, doc.group_of, doc.member_uids())
 
@@ -957,7 +957,7 @@ def test_parse_refuses_when_summed_tileset_bytes_exceed_the_decode_budget(monkey
     real_cels_has_a_pixel_budget`` above states, so two small,
     individually-legal tileset chunks trip it without building the
     multi-hundred-megabyte fixture the real budget would need."""
-    from warlock.studio import pixelguard
+    from warlock.core.safeio import pixelguard
 
     monkeypatch.setattr(pixelguard, "MAX_DECODE_PIXELS", 6)
     tile = _rgba(2, 2, (1, 2, 3, 255))

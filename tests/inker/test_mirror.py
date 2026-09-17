@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import composite, mirror
+from warlock.kernels.pixel import composite, mirror
 
 
 def _sprite(size: int = 16) -> np.ndarray:

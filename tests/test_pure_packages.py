@@ -58,9 +58,26 @@ def test_a_relative_import_of_a_gl_module_is_not_counted_pure(tmp_path: Path):
     )
 
 
-def test_familiar_is_pure_now_that_the_gl_side_moved_to_studio_level():
-    """``studio/familiar/`` itself, post-move: it may still import
-    ``clay_mode`` (a plain controller module, no window) but no longer
-    ``agent_clay`` -- that reaches the window and now lives in
-    ``studio/familiar_preview.py`` instead."""
-    assert "familiar" in pp.pure_packages()
+def test_familiar_left_pure_packages_the_same_day_it_left_studio():
+    """``familiar`` no longer answers to :func:`pp.pure_packages` at all --
+    not because it stopped being pure, but because P3 of the core-vs-subsystems
+    restructure (``dev/RESTRUCTURE.md``) moved it straight out of ``studio/``
+    to ``warlock/familiar/``, one layer down (L3, beside ``service`` and
+    ``characters``) from the L1 kernels and mode-owned ``studio/`` packages
+    this function's docstring says it is for.
+
+    This used to assert the opposite -- that ``"familiar" in
+    pp.pure_packages()`` -- back when the fix worth recording here was that a
+    *relative* import chain into a window was invisible to the derivation
+    (see :func:`test_a_relative_import_of_a_gl_module_is_not_counted_pure`
+    above, which still holds and is unaffected by the move). That claim is
+    obsolete now for a different reason than the bug it fixed: the function
+    this file tests answers "which packages are headless engines a sibling
+    mode must not import", and ``familiar`` was never a sibling of ``clay`` or
+    ``inker`` in that sense -- it earns its own AST pin instead, in
+    ``tests/familiar/test_familiar_imports.py``, which proves the same
+    "no window, no service, no network" claim directly rather than through
+    membership in a set this function no longer has any reason to include it
+    in.
+    """
+    assert "familiar" not in pp.pure_packages()

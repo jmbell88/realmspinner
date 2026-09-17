@@ -20,10 +20,10 @@ from typing import Any
 
 import pytest
 
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio import clay_mode, clay_state, main
 from warlock.studio.app_ctx import Ctx
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
 
 
 @pytest.fixture(autouse=True)
@@ -267,7 +267,7 @@ def test_every_assembly_preset_is_reachable_as_a_button():
     failing test rather than a button that raises under the user's cursor."""
     import inspect
 
-    from warlock.studio.clay import presets
+    from warlock.kernels.mesh import presets
     from warlock.studio.panes import clay_tools
 
     assert "presets.ASSEMBLIES" in inspect.getsource(clay_tools._figures)
@@ -286,7 +286,7 @@ def test_a_whole_figure_is_one_undo_step():
     that show a dismembered figure. One gesture is one step: ``add_objects``
     folds them into a single ``CompoundEdit``, and undoing it takes the whole
     figure away."""
-    from warlock.studio.clay import presets
+    from warlock.kernels.mesh import presets
     from warlock.studio.panes import clay_tools
 
     key = next(iter(presets.ASSEMBLIES))
@@ -307,7 +307,7 @@ def test_the_figure_step_is_named_after_the_figure():
     """``CompoundEdit`` reads as "compound" in the history panel, which tells a
     reader nothing about what they are about to undo -- the exact case
     ``Edit.label`` exists for."""
-    from warlock.studio.clay import presets
+    from warlock.kernels.mesh import presets
     from warlock.studio.panes import clay_tools
 
     key = next(iter(presets.ASSEMBLIES))
@@ -325,7 +325,7 @@ def test_a_figure_whose_parts_share_a_name_still_places_them_apart(monkeypatch):
     uniquely, which is exactly why this is asserted against a preset that does
     not: the guard would otherwise be checked by nothing until the first
     template that repeats a name."""
-    from warlock.studio.clay import presets
+    from warlock.kernels.mesh import presets
     from warlock.studio.panes import clay_tools
 
     part = presets.Part(name="Leg", bone=None, generator="box", params={}, translation=(0, 0, 0))

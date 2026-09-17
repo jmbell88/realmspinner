@@ -163,10 +163,10 @@ from pathlib import Path
 
 from test_agent_clay import _Ctx  # see module docstring -- shared rather than duplicated
 
+from warlock.kernels.mesh import diagnose as clay_diagnose
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import serialize
 from warlock.studio import agent_clay, agent_transcript, clay_mode
-from warlock.studio.clay import diagnose as clay_diagnose
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import serialize
 
 FIXTURES = Path(__file__).parent / "fixtures" / "agent_transcripts"
 

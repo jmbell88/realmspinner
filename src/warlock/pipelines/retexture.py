@@ -569,7 +569,7 @@ def atlas_size(glb_path: Path) -> int | None:
 
     from PIL import Image
 
-    from .. import glbio
+    from ..kernels.geom3d import glbio
 
     try:
         gltf, buffer = glbio.read_glb(glb_path)
@@ -607,7 +607,7 @@ def extract_base_colour(glb_path: Path, dest: Path, *, size: int) -> bool:
     """
     from PIL import Image
 
-    from .. import glbio
+    from ..kernels.geom3d import glbio
 
     try:
         gltf, buffer = glbio.read_glb(glb_path)
@@ -656,7 +656,7 @@ def swap_base_colour(glb_path: Path, atlas_png: Path, dest: Path) -> bool:
     """
     import struct
 
-    from .. import glbio
+    from ..kernels.geom3d import glbio
 
     try:
         data = glb_path.read_bytes()

@@ -12,12 +12,13 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels import pixel as inker
+from ...kernels.pixel import nineslice
 from .. import (
     anchors,
     controls,
     docmodes,
     icons,
-    inker,
     inker_mode,
     inker_ops,
     inker_state,
@@ -25,7 +26,6 @@ from .. import (
     tokens,
     widgets,
 )
-from ..inker import nineslice
 from ..inker_state import (
     PAINT_TOOLS,
     PATTERN_TOOLS,

@@ -33,7 +33,8 @@ from typing import Any
 
 import numpy as np
 
-from . import atomic, dialogs, docmodes, plotter_state, sizeguard
+from ..core.safeio import atomic, sizeguard
+from . import dialogs, docmodes, plotter_state
 from .plotter_state import PlotterDoc, active, ensure
 
 # One row, all three patterns on it. Written as four entries once, which

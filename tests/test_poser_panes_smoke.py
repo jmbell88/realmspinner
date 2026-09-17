@@ -16,13 +16,13 @@ from typing import Any
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Model, Node
 from warlock.studio.app_ctx import Ctx
 from warlock.studio.jobs_cache import JobsCache
 from warlock.studio.settings import Settings
 from warlock.studio.state import AppState
-from warlock.studio.viewer import math3d as m3
 from warlock.studio.viewer.camera import Camera
-from warlock.studio.viewer.gltf import Model, Node
 from warlock.studio.viewer.pose import PoseEditor
 
 
@@ -818,8 +818,8 @@ def test_typing_a_joint_rotation_or_root_offset_refreshes_the_bound_meshs_skin_p
 
 
 def test_joints_changed_from_rest_are_marked(app_ctx, imgui_ctx):
+    from warlock.kernels.geom3d import math3d as m3
     from warlock.studio.panes import poser_controls
-    from warlock.studio.viewer import math3d as m3
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()
@@ -860,9 +860,9 @@ def test_update_key_shows_pending_when_the_pose_drifted(app_ctx, imgui_ctx):
     """``_key_pending`` is what draws the accent dot beside "Update key from
     pose" -- true only once a key is loaded and the live pose has moved off
     it, and false again while scrubbing an in-between frame."""
+    from warlock.kernels.geom3d import math3d as m3
     from warlock.studio import poser_mode
     from warlock.studio.panes import poser_clips
-    from warlock.studio.viewer import math3d as m3
 
     app_ctx.rigging_available = True
     app_ctx.poser_viewer = _PoserViewer()

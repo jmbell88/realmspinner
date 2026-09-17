@@ -2,7 +2,7 @@
 character skill (build the messages, build the schema, parse a reply into a
 plan, map a plan onto ``recipe_from_prompt``'s own override keys).
 
-``warlock.studio.familiar.character_plan`` does not exist on the pre-T7
+``warlock.familiar.character_plan`` does not exist on the pre-T7
 tree, so every test below fails with an ``ImportError`` before its first
 assertion runs against the unmodified code.
 """
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 
+from warlock.familiar import character_plan
 from warlock.service.characters import _RECIPE_OVERRIDE_KEYS
-from warlock.studio.familiar import character_plan
 
 
 def _options() -> dict:

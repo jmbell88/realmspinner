@@ -11,8 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.inker import undo as U
-from warlock.studio.inker.layers import Layer, LayerStack
+from warlock.kernels.pixel import undo as U
+from warlock.kernels.pixel.layers import Layer, LayerStack
 
 
 class FakeDoc:
@@ -346,7 +346,7 @@ def test_one_step_leaves_a_lone_edit_unwrapped():
     reads as "compound" -- which is why every one of the nine call sites this
     replaces had to make the same choice, and why nine copies of a choice is how
     one of them comes to differ."""
-    from warlock.studio.inker.undo import CompoundEdit, LayerFlagEdit, one_step
+    from warlock.kernels.pixel.undo import CompoundEdit, LayerFlagEdit, one_step
 
     lone = LayerFlagEdit(1, {"background": False}, {"background": True})
     assert one_step([lone]) is lone
@@ -363,7 +363,7 @@ def test_one_step_refuses_an_empty_list():
     happen."""
     import pytest
 
-    from warlock.studio.inker.undo import one_step
+    from warlock.kernels.pixel.undo import one_step
 
     with pytest.raises(ValueError):
         one_step([])
@@ -376,9 +376,14 @@ def test_the_idiom_is_not_written_out_anywhere_any_more():
         pathlib.Path(__file__).resolve().parents[2]
         / "src"
         / "warlock"
-        / "studio"
-        / "inker"
+        / "kernels"
+        / "pixel"
     )
+    # P3 of the restructure (2026-09-17) moved the engine out of
+    # ``studio/inker/``. This scan kept the old root for as long as it took
+    # somebody to notice: ``glob`` over a directory with no ``.py`` files in it
+    # finds nothing, and a sweep that finds nothing passes.
+    assert list(root.glob("*.py")), f"no engine modules under {root}"
     for path in root.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         if path.name == "undo.py":

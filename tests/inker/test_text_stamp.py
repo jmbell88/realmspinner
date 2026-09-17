@@ -19,9 +19,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from warlock.kernels.pixel.document import Document
+from warlock.kernels.pixel.textstamp import MAX_SIZE, MIN_SIZE, text_stamp
 from warlock.studio import fonts, inker_mode, inker_state
-from warlock.studio.inker.document import Document
-from warlock.studio.inker.textstamp import MAX_SIZE, MIN_SIZE, text_stamp
 from warlock.studio.panes import inker_canvas, inker_gestures
 
 FONT = str(fonts.FONT_DIR / "Inter-Regular.ttf")

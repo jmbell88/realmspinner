@@ -13,10 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.plotter import tools
-from warlock.studio.plotter.tilemap import MapDoc
-from warlock.studio.tilegrid import gid as gidlib
-from warlock.studio.tilegrid.tileset import (
+from warlock.kernels.grid2d import gid as gidlib
+from warlock.kernels.grid2d.tileset import (
     TileEllipse,
     TileFrame,
     TileMeta,
@@ -24,6 +22,8 @@ from warlock.studio.tilegrid.tileset import (
     TileRect,
     Tileset,
 )
+from warlock.studio.plotter import tools
+from warlock.studio.plotter.tilemap import MapDoc
 
 
 def _pixels(size: int = 64) -> np.ndarray:

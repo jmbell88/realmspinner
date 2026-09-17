@@ -21,10 +21,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from warlock.kernels.grid2d import gid
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio.plotter import tmx, tsx
 from warlock.studio.plotter.tilemap import MapDoc, MapObject, ObjectLayer, TileLayer, new_uid
-from warlock.studio.tilegrid import gid
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 def _pixels(w: int = 64, h: int = 64) -> np.ndarray:
@@ -535,8 +535,8 @@ def test_an_embedded_tileset_keeps_the_terrains_its_wangset_declares():
     """The XML side recognised a wangset and then dropped it, which left the
     Terrain tool greyed out on a map whose own atlas declares one. Read-side
     parity with the ``.tmj`` case in ``test_tmx_refusals``."""
+    from warlock.kernels.grid2d import blob
     from warlock.studio.plotter import terrain as terrainlib
-    from warlock.studio.tilegrid import blob
 
     from ._terrainset import terrain_tileset
 
@@ -744,10 +744,10 @@ def test_import_warnings_reach_the_pane_not_only_the_log(caplog):
     changed something opened looking wrong with nothing on screen saying why.
     Now the same sentences come back as data on the read, and the Map file
     pane groups them by layer under the import row."""
+    from warlock.kernels.grid2d.tileset import Tileset
     from warlock.studio.panes import plotter_bridge
     from warlock.studio.plotter.tilemap import MapDoc, MapObject, TileShape, new_uid
     from warlock.studio.plotter_state import PlotterDoc
-    from warlock.studio.tilegrid.tileset import Tileset
 
     # The stagger fallback, through the real read path: map-level, so no
     # layer name attaches to it.

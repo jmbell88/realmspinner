@@ -11,12 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from warlock.kernels.geom3d import math3d as m3
+from warlock.kernels.geom3d.gltf import Material, Primitive
 from warlock.studio.mason import nodes as nd
 from warlock.studio.mason import pick, refs
 from warlock.studio.mason import terrain as T
 from warlock.studio.mason.scene import Placed
-from warlock.studio.viewer import math3d as m3
-from warlock.studio.viewer.gltf import Material, Primitive
 
 IDENTITY = m3.identity()
 

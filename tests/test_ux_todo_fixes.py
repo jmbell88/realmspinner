@@ -337,10 +337,17 @@ def test_no_toast_forwards_a_bare_exception():
     and keeping a candidate -- were the two where the attempt was least
     guessable. A frame costs one f-string and turns the message into a
     sentence about their action.
+
+    2026-09-17 (dev/RESTRUCTURE.md P3 sweep-coverage pass): stays scoped to
+    ``studio/`` on purpose -- ``ctx.toast`` only exists on the App context a
+    pane holds, and no engine P3 moved out of ``studio/`` (Clay, Inker,
+    tilegrid, ...) ever held one.
     """
+    files = sorted(STUDIO.rglob("*.py"))
+    assert len(files) > 200, f"only {len(files)} files under {STUDIO} -- did the sweep root break?"
     offenders = [
         f"{path.relative_to(SRC).as_posix()}:{n}"
-        for path in sorted(STUDIO.rglob("*.py"))
+        for path in files
         for n in _bare_exception_toasts(path)
     ]
     assert offenders == []

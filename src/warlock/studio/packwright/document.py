@@ -26,7 +26,7 @@ from typing import Any
 
 import numpy as np
 
-from ..undo import Edit, UndoStack
+from ...core.undo import Edit, UndoStack
 from .layout import MAX_SPRITES, Layout, PackSettings
 from .layout import layout as build_layout
 from .sources import Sprite

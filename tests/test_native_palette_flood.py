@@ -109,7 +109,7 @@ def _both_ways(monkeypatch, run):
 
 
 def test_snap_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.studio.inker import indexed as ix
+    from warlock.kernels.pixel import indexed as ix
 
     rng = np.random.default_rng(2)
     pixels = np.zeros((32, 32, 4), dtype=np.uint8)
@@ -124,7 +124,7 @@ def test_snap_agrees_with_and_without_the_kernel(monkeypatch) -> None:
 
 
 def test_ordered_dithering_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.studio.inker import dither
+    from warlock.kernels.pixel import dither
 
     rng = np.random.default_rng(6)
     pixels = np.zeros((24, 24, 4), dtype=np.uint8)
@@ -138,7 +138,7 @@ def test_ordered_dithering_agrees_with_and_without_the_kernel(monkeypatch) -> No
 
 
 def test_resolve_agrees_with_and_without_the_kernel(monkeypatch) -> None:
-    from warlock.studio.inker import index_plane as ixp
+    from warlock.kernels.pixel import index_plane as ixp
 
     rng = np.random.default_rng(8)
     pixels = np.zeros((16, 16, 4), dtype=np.uint8)

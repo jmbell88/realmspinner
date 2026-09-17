@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from warlock.studio.manual import loader
+from warlock.kernels.manual import loader
 from warlock.studio.state import AppState, ManualState
 
 

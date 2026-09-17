@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.tilegrid import slicing
+from warlock.kernels.grid2d import slicing
 
 
 def _sheet(

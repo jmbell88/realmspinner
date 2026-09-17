@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from warlock.studio.inker import ora, sheetmerge
-from warlock.studio.inker.sheetin import document_from_grid, document_from_sheet
+from warlock.kernels.pixel import ora, sheetmerge
+from warlock.kernels.pixel.sheetin import document_from_grid, document_from_sheet
 
 CELL = 8
 FRAMES = 4
@@ -89,7 +89,7 @@ def test_the_grid_importer_records_nothing():
 
 
 def test_an_ordinary_document_has_no_base_at_all():
-    from warlock.studio.inker.document import Document
+    from warlock.kernels.pixel.document import Document
 
     assert Document.blank(8, 8).sheet_base is None
 

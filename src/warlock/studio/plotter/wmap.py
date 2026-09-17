@@ -114,9 +114,9 @@ from typing import Any, NoReturn
 
 import numpy as np
 
-from .. import npyguard, pixelguard, zipguard
-from ..tilegrid import gid as gidlib
-from ..tilegrid.tileset import (
+from ...core.safeio import npyguard, pixelguard, zipguard
+from ...kernels.grid2d import gid as gidlib
+from ...kernels.grid2d.tileset import (
     Collection,
     TerrainSpec,
     TileEllipse,
@@ -128,7 +128,7 @@ from ..tilegrid.tileset import (
     TilesetRef,
     colour_text,
 )
-from ..tilegrid.wang import WangColour, WangSet
+from ...kernels.grid2d.wang import WangColour, WangSet
 from . import project
 from .pngio import png_bytes
 from .props import read_wmap_properties, write_wmap_properties

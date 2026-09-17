@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from warlock.studio.tilegrid import gid
+from warlock.kernels.grid2d import gid
 
 
 def test_all_eight_symmetries_round_trip():

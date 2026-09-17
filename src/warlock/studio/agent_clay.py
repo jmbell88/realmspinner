@@ -358,25 +358,25 @@ from typing import Any
 
 import numpy as np
 
+from ..kernels.geom3d import gltf
+from ..kernels.geom3d import math3d as m3
+from ..kernels.mesh import analyze as clay_analyze
+from ..kernels.mesh import diagnose as clay_diagnose
+from ..kernels.mesh import document as bd
+from ..kernels.mesh import elements as el
+from ..kernels.mesh import mesh as bm
+from ..kernels.mesh import ops as clay_geom_ops
+from ..kernels.mesh import ops_boolean, presets, regen, shading
+from ..kernels.mesh import primitives as bp
+from ..kernels.mesh import select as bsel
+from ..kernels.mesh.adjacency import adjacency
+from ..kernels.mesh.elements import OpError
 from ..service import files as svc_files
 from ..service import validation as svc_validation
 from ..service.errors import NotFound, ServiceError
 from . import agent_program, clay_mode, clay_ops
-from .clay import analyze as clay_analyze
-from .clay import diagnose as clay_diagnose
-from .clay import document as bd
-from .clay import elements as el
-from .clay import mesh as bm
-from .clay import ops as clay_geom_ops
-from .clay import ops_boolean, presets, regen, shading
-from .clay import primitives as bp
-from .clay import select as bsel
-from .clay.adjacency import adjacency
-from .clay.elements import OpError
 from .clay_view import ClayView
 from .panes import clay_tools as pane_clay_tools
-from .viewer import gltf
-from .viewer import math3d as m3
 from .viewer.camera import Camera
 
 log = logging.getLogger(__name__)

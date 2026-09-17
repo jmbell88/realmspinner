@@ -15,7 +15,7 @@ sheet and ``pending_dialog`` still works.
 Generating *into* a layer was called "a separate programme, deliberately not
 started here" when this pane was written. It shipped on 2026-08-30 and it is
 not one of these buttons: masked regeneration lives on the Edit menu and in
-:mod:`~warlock.studio.inker.inpaint`, because it acts on a *selection* inside
+:mod:`~warlock.kernels.pixel.inpaint`, because it acts on a *selection* inside
 the open document rather than sending the document somewhere. The four verbs
 below are still the ones that hand a drawing to another workspace, which is
 what this pane is for.
@@ -33,8 +33,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import sheetout
 from .. import anchors, controls, inker_export, inker_mode, inker_ops, theme, tokens, widgets
-from ..inker import sheetout
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import inker_menu

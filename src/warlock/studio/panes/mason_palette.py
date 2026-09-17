@@ -28,8 +28,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.mesh import primitives as bp
 from .. import controls, icons, mason_mode, mason_state, tool_palette, widgets
-from ..clay import primitives as bp
 from ..manual import render as manual_render
 from ..tokens import sp
 from . import library, thumbs

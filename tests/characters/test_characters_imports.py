@@ -45,17 +45,17 @@ ARCHETYPE_PACKAGES = {"humanoid", "quadruped", "winged", "amorphous"}
 #: not would be a body plan that had stopped being built the shared way.
 _GENERATOR_IMPORTS = {
     "warlock.rigging",
-    "warlock.studio.clay.adjacency",
-    "warlock.studio.clay.document",
-    "warlock.studio.clay.elements",
-    "warlock.studio.clay.mesh",
-    "warlock.studio.clay.ops_boolean",
-    "warlock.studio.clay.ops_subdiv",
-    "warlock.studio.clay.ops_topo",
-    "warlock.studio.clay.primitives",
-    "warlock.studio.clay.topo",
-    "warlock.studio.viewer.glbwrite",
-    "warlock.studio.viewer.gltf",
+    "warlock.kernels.mesh.adjacency",
+    "warlock.kernels.mesh.document",
+    "warlock.kernels.mesh.elements",
+    "warlock.kernels.mesh.mesh",
+    "warlock.kernels.mesh.ops_boolean",
+    "warlock.kernels.mesh.ops_subdiv",
+    "warlock.kernels.mesh.ops_topo",
+    "warlock.kernels.mesh.primitives",
+    "warlock.kernels.mesh.topo",
+    "warlock.kernels.geom3d.glbwrite",
+    "warlock.kernels.geom3d.gltf",
 }
 
 #: ``relative path -> every ``warlock.*`` name it imports``, exactly.
@@ -84,8 +84,8 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # ``validate_joints`` a hand-corrected rig comes in by.
     "instantiate.py": {
         "warlock.rigging",
-        "warlock.studio.viewer.glbwrite",
-        "warlock.studio.viewer.gltf",
+        "warlock.kernels.geom3d.glbwrite",
+        "warlock.kernels.geom3d.gltf",
     },
     # **The one outward edge that leaves the app's own back end.** A theme
     # declares ``effects=("embers",)`` and Flourish is the thing in this repo
@@ -96,8 +96,8 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
     # because ``characters`` is what the door imports to answer "what can we
     # make" and Flourish drags numpy and ten primitive modules in behind it.
     "effects.py": {
-        "warlock.studio.inker.flourish.recipe",
-        "warlock.studio.inker.flourish.render",
+        "warlock.kernels.pixel.flourish.recipe",
+        "warlock.kernels.pixel.flourish.render",
     },
     "__init__.py": set(),
     "humanoid/__init__.py": set(),
@@ -115,7 +115,7 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
 
 BANNED_ROOTS = {"imgui", "imgui_bundle", "pygame", "moderngl", "OpenGL", "glfw", "bpy", "torch"}
 
-LAZY_ONLY = {"warlock.studio.clay", "warlock.studio.inker.flourish"}
+LAZY_ONLY = {"warlock.kernels.mesh", "warlock.kernels.pixel.flourish"}
 
 
 def _package_for(rel: str) -> str:
@@ -241,7 +241,7 @@ def test_flourish_is_only_ever_imported_inside_a_function():
     """
     for rel in OUTWARD_IMPORTS:
         for name, module_scope in _imports(rel):
-            if name.startswith("warlock.studio.inker.flourish"):
+            if name.startswith("warlock.kernels.pixel.flourish"):
                 assert not module_scope, f"{rel} imports {name} at module scope"
 
 

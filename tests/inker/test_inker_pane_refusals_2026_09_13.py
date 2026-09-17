@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from warlock.studio import inker
+from warlock.kernels import pixel as inker
 from warlock.studio.panes import inker_colors, inker_timeline
 
 

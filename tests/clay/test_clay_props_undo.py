@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import inspect
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import primitives as bp
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio.panes import clay_props
 
 

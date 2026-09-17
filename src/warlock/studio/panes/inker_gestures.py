@@ -22,6 +22,8 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ...kernels.pixel import textstamp
+from ...kernels.pixel.document import catmull_rom, curve_points, curve_spans
 from .. import (
     controls,
     inker_mode,
@@ -30,8 +32,6 @@ from .. import (
     tokens,
     widgets,
 )
-from ..inker import textstamp
-from ..inker.document import catmull_rom, curve_points, curve_spans
 
 #: The four pure helpers this module used to define. They live in
 #: ``inker_state`` now (no imgui, no document, no side effects) and are named

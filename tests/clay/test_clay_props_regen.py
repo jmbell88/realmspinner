@@ -26,9 +26,9 @@ import numpy as np
 import pytest
 from _ui_context import imgui_context
 
-from warlock.studio.clay import document as bd
-from warlock.studio.clay import mesh as bm
-from warlock.studio.clay import primitives as bp
+from warlock.kernels.mesh import document as bd
+from warlock.kernels.mesh import mesh as bm
+from warlock.kernels.mesh import primitives as bp
 from warlock.studio.panes import clay_props
 
 

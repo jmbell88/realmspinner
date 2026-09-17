@@ -110,7 +110,7 @@ def test_sirens_manual_sample_ceiling_matches_max_sample_frames():
     replaced), and a test that only accepted "10 minutes" would fail against
     the correct fix for no reason but its own choice of numeral style.
     """
-    from warlock.studio.sirens import wavout
+    from warlock.kernels.audio import wavout
 
     seconds = wavout.MAX_SAMPLE_FRAMES / 48_000
     minutes = seconds / 60
@@ -179,10 +179,10 @@ def test_manual_clay_chapter_does_not_claim_one_undo_step_per_object_for_element
 
     import numpy as np
 
+    from warlock.kernels.mesh import document as bd
+    from warlock.kernels.mesh import elements as el
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio._view_drag import DragOps, _ElementDrag
-    from warlock.studio.clay import document as bd
-    from warlock.studio.clay import elements as el
-    from warlock.studio.clay import primitives as bp
 
     doc = bd.ClayDoc()
     uids = [

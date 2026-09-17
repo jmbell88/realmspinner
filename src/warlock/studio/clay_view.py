@@ -67,6 +67,8 @@ from typing import Any
 import moderngl
 import numpy as np
 
+from ..kernels.geom3d import math3d as m3
+from ..kernels.mesh import mesh as bm
 from ._view_bounds import BoundsOps
 from ._view_cache import CacheOps
 
@@ -93,9 +95,7 @@ from ._view_overlay import _toward_eye as _toward_eye
 # a caller reaches for is the viewport's, so it is re-exported here.
 from ._view_pick import Hit as Hit
 from ._view_pick import PickOps
-from .clay import mesh as bm
 from .viewer import capture, glctx
-from .viewer import math3d as m3
 from .viewer.camera import Camera, screen_ray
 from .viewer.gizmo import RotateGizmo, ScaleGizmo, TranslateGizmo
 from .viewer.render import DrawItem, Renderer
@@ -343,7 +343,7 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, FrameOps):
         # should draw for it. Both are per drag: created at the press and
         # dropped at the release, because a lock that outlived one would
         # silently constrain the next.
-        from .clay import drag as bdrag
+        from ..kernels.mesh import drag as bdrag
 
         self.drag_input = bdrag.DragInput()
         self.drag_hud: str = ""

@@ -988,7 +988,7 @@ def test_both_remesh_call_sites_go_through_the_one_predicate():
 
 def test_the_properties_pane_never_lists_a_generator_by_name():
     """The registry is data precisely so the pane is not a chain of names."""
-    from warlock.studio.clay import primitives as bp
+    from warlock.kernels.mesh import primitives as bp
     from warlock.studio.panes import clay_props
 
     source = inspect.getsource(clay_props)

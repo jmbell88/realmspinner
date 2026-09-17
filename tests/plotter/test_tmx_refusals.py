@@ -16,8 +16,8 @@ import json
 import numpy as np
 import pytest
 
+from warlock.kernels.grid2d.tileset import Tileset
 from warlock.studio.plotter import tilemap, tmx, tsx, wmap
-from warlock.studio.tilegrid.tileset import Tileset
 
 
 def _pixels() -> np.ndarray:
@@ -157,7 +157,7 @@ def test_zstd_layer_data_reads_the_same_cells_as_its_zlib_twin():
     import numpy as np
     import zstandard
 
-    from warlock.studio.tilegrid import gid
+    from warlock.kernels.grid2d import gid
 
     cells = np.array([[1, 2], [3, 4]], gid.DTYPE)
     raw = cells.astype("<u4").tobytes()
@@ -405,7 +405,7 @@ def _tmj(tileset: dict) -> bytes:
 
 def _blob_wangset(colours: list[dict]) -> dict:
     """The set ``tsx.write_wangsets`` emits, in Tiled's JSON spelling."""
-    from warlock.studio.tilegrid import blob as bloblib
+    from warlock.kernels.grid2d import blob as bloblib
 
     tiles = []
     for index in range(len(colours)):
@@ -435,7 +435,7 @@ def test_a_tmj_wangset_this_build_wrote_is_recognised_rather_than_refused():
     """Recognise-or-refuse, the rule the XML side already followed. The JSON
     side used to refuse *every* wangset, so a ``.tmj`` carrying a set this build
     had itself written was turned away."""
-    from warlock.studio.tilegrid import blob as bloblib
+    from warlock.kernels.grid2d import blob as bloblib
 
     colours = [{"name": "Grass", "color": "#6a994e"}, {"name": "Sand", "color": "#d6c384"}]
     doc = tmx.read_tmj(
