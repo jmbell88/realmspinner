@@ -150,6 +150,22 @@ are in the commit each one names.
   when it is the only link between solid pixels on either side of it; a real
   gap, such as the space between two legs, stays open. This changes a few
   pixels on most frames of every pixel-art sheet.
+- **A Familiar build no longer freezes the window while it lands.** The model's
+  whole batch of Clay calls (as many as 32, unions included) ran on the thread
+  that draws the app, so a build of a few dozen spheres and unions stopped
+  everything for well over half a second. It now runs in the background and the
+  ghost appears when it is done; closing or switching the tab meanwhile still
+  refuses the preview.
+- **Familiar can no longer start on the card beside a GPU job that has just
+  taken it.** A chat message that was part-way through starting Familiar when a
+  reconstruction or training job claimed the card would carry on and launch it
+  anyway, the overcommit the handoff exists to prevent. Taking the card and
+  starting Familiar now decide against each other under one lock.
+- **A Familiar request that times out is cancelled rather than left running.**
+  It kept its slot on Familiar's server after the pane had already said it did
+  not answer in time, so a retry waited behind a request nobody was waiting for.
+- **The Familiar pane's drag handle is in the manual.** Chapter 20 now says the
+  expanded pane can be dragged taller or shorter and keeps the height.
 
 ## 0.0.47 — 2026-09-14
 

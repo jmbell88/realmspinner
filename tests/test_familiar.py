@@ -12,6 +12,7 @@ never a fault.
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import pytest
 
@@ -173,6 +174,64 @@ async def test_familiar_refuses_to_start_while_a_gpu_job_holds_the_lease(tmp_pat
     srv._leased = True
     with pytest.raises(RuntimeError, match="GPU job holds the card"):
         await srv.ensure_started()
+
+
+@pytest.mark.asyncio
+async def test_a_gpu_lease_taken_while_familiar_is_still_spawning_still_prevents_the_spawn(
+    tmp_path, monkeypatch
+):
+    """The 2026-09-17 audit (familiar-02): ``ensure_started`` read ``_leased``
+    once at the top and never again, so a lease taken on another thread after
+    that read but before ``subprocess.Popen`` -- while the server was not yet
+    ``running``, so ``stop_for_gpu_job`` had nothing to kill and returned at
+    once -- went unnoticed, and the spawn went ahead anyway: ``llama-server
+    -ngl 999`` started beside the GPU job that had just taken the card, the
+    overcommit the lease exists to prevent (the 2026-08-03 crash class).
+
+    Drives a real second thread through ``stop_for_gpu_job`` from inside a
+    monkeypatched ``_check_vram``, which lands it deterministically in that
+    window -- no sleeps, no guessing at timing.
+    """
+    srv = _srv(tmp_path)
+    srv._resolve_exe().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_exe().write_bytes(b"")
+    srv._resolve_weights().parent.mkdir(parents=True, exist_ok=True)
+    srv._resolve_weights().write_bytes(b"")
+    monkeypatch.setattr(
+        llama_mod.fetch,
+        "verify_manifest",
+        lambda dest: fetch.Verification(dest=dest, status=fetch.VERIFY_UNKNOWN),
+    )
+    monkeypatch.setattr(llama_mod, "_port_in_use", lambda port: False)
+    monkeypatch.setattr(llama_mod.winjob, "assign", lambda pid: None)
+    monkeypatch.setattr(llama_mod.winjob, "track", lambda pid, name: None)
+    monkeypatch.setattr(srv, "_claim_port", lambda pid: None)
+    monkeypatch.setattr(srv, "_pump", lambda: None)
+    fake_proc = type("P", (), {"pid": 4242, "returncode": None, "poll": lambda self: None})()
+    monkeypatch.setattr(llama_mod.subprocess, "Popen", lambda *a, **k: fake_proc)
+
+    def _lease_mid_start() -> None:
+        # ``_check_vram`` runs after the early ``_leased`` check and before
+        # the spawn -- exactly the window familiar-02 found unguarded.
+        thread = threading.Thread(target=srv.stop_for_gpu_job)
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "stop_for_gpu_job did not return"
+
+    monkeypatch.setattr(srv, "_check_vram", _lease_mid_start)
+
+    import httpx
+
+    async def fake_get(self, url, **kwargs):
+        return httpx.Response(200)
+
+    monkeypatch.setattr(llama_mod.httpx.AsyncClient, "get", fake_get)
+
+    with pytest.raises(RuntimeError, match="GPU job holds the card"):
+        await srv.ensure_started()
+
+    assert srv._proc is None, "the lease landed mid-start but the child spawned anyway"
+    assert not srv.running
 
 
 def test_an_idle_familiar_is_stopped_after_its_timeout(tmp_path, monkeypatch):

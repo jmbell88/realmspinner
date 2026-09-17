@@ -94,6 +94,22 @@ class LlamaServer:
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock_asyncio = None  # set lazily; see _lock property
         self._stop_lock = threading.Lock()
+        # Guards the check-then-spawn section of ``ensure_started`` (the
+        # ``_leased`` recheck through the ``Popen`` call and ``_proc``
+        # assignment) against ``stop_for_gpu_job``, which takes the same
+        # lock around setting ``_leased`` and reading ``running``. Before
+        # this lock existed (the 2026-09-17 audit, familiar-02),
+        # ``ensure_started`` read ``_leased`` once at the top and never
+        # again, so a lease taken on a ``to_thread`` pool thread after that
+        # read -- while the server was not yet ``running``, so
+        # ``stop_for_gpu_job`` had nothing to kill and returned at once --
+        # was invisible to the ``Popen`` call that followed: a chat message
+        # spawning ``llama-server -ngl 999`` beside the GPU job that just
+        # took the card, the overcommit the lease exists to prevent (the
+        # 2026-08-03 crash class). Held only across synchronous code, never
+        # across an ``await`` or ``self.stop()``'s own wait, so it cannot
+        # block the asyncio loop or deadlock against ``_stop_lock``.
+        self._spawn_lock = threading.Lock()
         self.last_used = 0.0
         self.on_line: Callable[[str], None] | None = None
         self._reader: threading.Thread | None = None
@@ -107,12 +123,16 @@ class LlamaServer:
         # refuses while this is True, and only ``release_lease`` clears it.
         # Read on the loop thread inside ``ensure_started`` (under ``_lock``,
         # an asyncio lock) but written from a ``to_thread`` pool thread by
-        # ``stop_for_gpu_job``/``release_lease``. Safe with no lock of its
-        # own only because a Python bool assignment is atomic under the GIL,
-        # and the only ordering that matters is "set before stop()" --
-        # ``stop_for_gpu_job`` already sets ``_leased = True`` before it
-        # calls ``self.stop()``, so a concurrent ``ensure_started`` always
-        # sees the lease before the kill it would otherwise race.
+        # ``stop_for_gpu_job``/``release_lease``. A bare bool assignment is
+        # atomic under the GIL, which is enough for the *early* check at the
+        # top of ``ensure_started`` (a fast-fail, not the guarantee) -- but
+        # it is not enough on its own for the recheck right before ``Popen``:
+        # the 2026-09-17 audit (familiar-02) found that a lease taken between
+        # those two points, while the server was not yet ``running`` (so
+        # ``stop_for_gpu_job`` had no child to kill and returned at once),
+        # was never seen, and the spawn went ahead beside the GPU job. That
+        # recheck, and ``stop_for_gpu_job``'s own read of ``running``, now
+        # both go through ``_spawn_lock`` instead.
         self._leased = False
 
     @property
@@ -406,20 +426,36 @@ class LlamaServer:
             self._check_vram()
             if _port_in_use(self._port):
                 await self._reclaim_port()
-            log.info("starting llama-server on port %d", self._port)
-            self._open_log()
-            key_path = self._write_key_file()
-            self._proc = subprocess.Popen(
-                self._argv(key_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=0,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            winjob.assign(self._proc.pid)
-            winjob.track(self._proc.pid, "llama-server")
-            self._claim_port(self._proc.pid)
-            self._spawned_at = time.monotonic()
+            with self._spawn_lock:
+                # Rechecked here, not just at the top of this method: the
+                # 2026-09-17 audit (familiar-02) found a lease taken on
+                # another thread, after the early check above but before
+                # this spawn, went unnoticed because nothing reread
+                # ``_leased``. ``stop_for_gpu_job`` takes this same lock
+                # around setting the lease and reading ``running``, so
+                # whichever of the two gets here first decides the outcome:
+                # a lease landing here refuses the spawn outright (this
+                # branch); a lease landing after ``_proc`` is assigned finds
+                # a ``running`` child and stops it instead (unchanged).
+                if self._leased:
+                    raise RuntimeError(
+                        "Familiar cannot start while a GPU job holds the card -- "
+                        "it will restart on your next message."
+                    )
+                log.info("starting llama-server on port %d", self._port)
+                self._open_log()
+                key_path = self._write_key_file()
+                self._proc = subprocess.Popen(
+                    self._argv(key_path),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=0,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                winjob.assign(self._proc.pid)
+                winjob.track(self._proc.pid, "llama-server")
+                self._claim_port(self._proc.pid)
+                self._spawned_at = time.monotonic()
             # Stamped at spawn, not only once /health answers 200. ``running``
             # is true from the moment the child exists, and
             # ``queue.Worker._maybe_evict_idle`` compares ``last_used`` against
@@ -556,15 +592,30 @@ class LlamaServer:
         """Yield the card to a queued GPU job: take the lease, kill the child.
 
         Blocking, like ``stop()`` -- ``Worker.before_gpu_job`` dispatches this
-        through ``asyncio.to_thread``. Takes the lease *before* stopping so a
-        concurrent ``ensure_started`` (a chat message arriving in the same
-        instant) sees ``leased`` and refuses rather than racing the kill.
+        through ``asyncio.to_thread``. Takes the lease *before* stopping, and
+        both the lease assignment and the ``running`` read happen under
+        ``_spawn_lock`` -- the same lock ``ensure_started`` holds across its
+        own ``_leased`` recheck and ``Popen`` call. Before that lock existed
+        (the 2026-09-17 audit, familiar-02), a lease taken while the server
+        was not yet ``running`` had nothing to kill and returned at once, and
+        a concurrent ``ensure_started`` that had already passed its one-shot
+        ``_leased`` check span ahead and spawned anyway -- the overcommit the
+        lease exists to prevent. Now the lock makes the two calls decide the
+        outcome between them, whichever gets there first: this call sees
+        ``running`` either False, because ``ensure_started`` has not reached
+        the lock yet and will find the lease set and refuse to spawn, or
+        True, because ``ensure_started`` already assigned ``_proc`` and this
+        call must stop it below. The stop itself, and the VRAM wait after it,
+        stay outside the lock -- both can take real time and must not hold up
+        an ``ensure_started`` that is only refusing, not spawning.
         Waits up to ``GPU_YIELD_TIMEOUT`` for the driver to report the memory
         back, best-effort: a slow reclaim is not a reason to block the GPU job
         that asked for the card, which has its own admission check regardless.
         """
-        self._leased = True
-        if not self.running:
+        with self._spawn_lock:
+            self._leased = True
+            running = self.running
+        if not running:
             return
         with contextlib.suppress(RuntimeError):
             self.stop()

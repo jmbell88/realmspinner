@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import threading
 from types import SimpleNamespace
 
 import httpx
@@ -20,6 +21,7 @@ import pytest
 from warlock import models
 from warlock.service import characters as svc_characters
 from warlock.service import familiar as svc_familiar
+from warlock.service.core import WarlockService
 from warlock.service.errors import Invalid
 from warlock.service.familiar import FamiliarRefusal
 from warlock.studio.familiar import contract, retrieval, router
@@ -154,6 +156,65 @@ def test_a_loop_timeout_is_a_refusal_not_an_unmapped_error(monkeypatch):
         svc_familiar.chat_reply(_SlowSvc(), "hello")
 
     assert excinfo.value.reason == "unhealthy"
+
+
+class _LoopSvc:
+    """Enough of ``WarlockService`` to reach the real ``call_on_loop`` --
+    unlike ``_FakeSvc`` above (a synchronous stand-in that never goes near
+    ``run_coroutine_threadsafe``), this is what the primitive actually does
+    on a loop thread, since familiar-05 is a bug in that primitive itself,
+    not in ``_call``'s own except clause."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.worker = type("Worker", (), {"familiar": object()})()
+        self.loop = loop
+
+    call_on_loop = WarlockService.call_on_loop
+
+
+def test_a_loop_timeout_cancels_the_abandoned_chat_request_instead_of_leaving_it_running(
+    monkeypatch,
+):
+    """The 2026-09-17 audit (familiar-05): ``call_on_loop``'s
+    ``fut.result(timeout)`` never cancelled the ``run_coroutine_threadsafe``
+    future it gave up waiting on, so a timed-out chat request kept running on
+    the ``warlock-loop`` thread -- holding its llama-server slot with nothing
+    to reclaim it, and its eventual (late) end logged nowhere. A retry then
+    queued behind a request nobody was still waiting for. Proven with a real
+    event loop on its own thread, not the synchronous ``_FakeSvc`` stand-in
+    the rest of this module uses, because the bug is specifically in what
+    happens to the *abandoned coroutine*, which a synchronous fake never has."""
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    started = threading.Event()
+    cancelled = threading.Event()
+
+    async def fake_chat(*args, **kwargs):
+        started.set()
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return "too slow to matter"  # pragma: no cover -- never reached
+
+    monkeypatch.setattr(svc_familiar.llama_client, "chat", fake_chat)
+    monkeypatch.setattr(svc_familiar, "LOOP_TIMEOUT", 0.05)
+
+    try:
+        with pytest.raises(FamiliarRefusal) as excinfo:
+            svc_familiar.chat_reply(_LoopSvc(loop), "hello")
+        assert excinfo.value.reason == "unhealthy"
+        assert started.wait(1), "the fake chat coroutine never ran at all"
+        assert cancelled.wait(1), (
+            "a timed-out call_on_loop must cancel the abandoned coroutine, "
+            "not leave it running on the loop"
+        )
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+        loop.close()
 
 
 def test_an_httpx_transport_timeout_is_a_familiar_refusal_not_an_unmapped_exception(

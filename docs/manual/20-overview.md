@@ -232,8 +232,10 @@ One row along the foot of the window, in every mode, where the per-item status l
 text depends on whether Familiar's weights are downloaded: **✦ Familiar isn't installed —** beside an
 **Install…** button that opens Settings → Models, or once every row is present, a clickable **▸ ✦
 Familiar** row that expands into a short conversation: a scrollback of what you and Familiar have
-said, an input line, and **Send**. The per-item readouts that used to sit here (workspace, document,
-tool, zoom, queue, health) moved to the menu bar's own right-aligned group, described above.
+said, an input line, and **Send**. Drag the thin handle along the top edge of the expanded pane to make
+it taller or shorter; Warlock remembers the height you leave it at. The per-item readouts that used to sit
+here (workspace, document, tool, zoom, queue, health) moved to the menu bar's own right-aligned group,
+described above.
 
 Familiar reads a sent message before answering it: a short router decision picks what the message is actually asking
 for — build something in Clay, edit what's already there, a question about Warlock itself, or just conversation — and

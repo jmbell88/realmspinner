@@ -135,7 +135,23 @@ class WarlockService:
             # worst of the three possible behaviours.
             return asyncio.run(coro_factory())
         fut: Future[Any] = asyncio.run_coroutine_threadsafe(coro_factory(), self.loop)
-        return fut.result(timeout)
+        try:
+            return fut.result(timeout)
+        except TimeoutError:
+            # The 2026-09-17 audit (familiar-05): a caller that gives up on
+            # this wait must not leave the coroutine still running on the
+            # loop on their behalf. Familiar's own door (service/familiar.py
+            # `_call`) is where this was found -- a timed-out chat request
+            # kept its llama-server slot with nothing to reclaim it, and a
+            # retry queued behind a request nobody was still waiting for --
+            # but the fix belongs here, in the one place every caller of
+            # this primitive shares. ``fut.cancel()`` on the
+            # ``concurrent.futures.Future`` a ``run_coroutine_threadsafe``
+            # call returns propagates to the underlying task via asyncio's
+            # own ``_chain_future`` wiring, so this reaches the coroutine
+            # itself, not just this thread's view of it.
+            fut.cancel()
+            raise
 
     # -- jobs --------------------------------------------------------------
 

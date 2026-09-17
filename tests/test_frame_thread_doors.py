@@ -706,3 +706,73 @@ def test_a_stale_precompute_result_cannot_pair_its_key_with_a_newer_buffer(monke
     # is claiming, the buffer underneath it must be that key's own blend.
     expected = muse_io.loops_mod.crossfade(one.pcm, *one.loop_cache_key)
     assert np.array_equal(one.loop_cache, expected)
+
+
+# --- 11. Familiar's Clay build landing -----------------------------------
+
+
+class _FamiliarCtx(_Threaded):
+    """Enough of ``app_ctx.Ctx`` to land a Familiar Clay build -- the
+    thread-checking twin of ``test_familiar_ui._FakeCtx``, which records a
+    submitted closure rather than running one on a real, joined worker."""
+
+    def __init__(self) -> None:
+        from warlock.studio.familiar import threads as familiar_threads_mod
+
+        doc = clay_document.ClayDoc()
+        tab = clay_mode.ClayTab(doc=doc)
+        clay_state = clay_mode.ClayState(docs=[tab], active_uid=tab.uid)
+        self.state = SimpleNamespace(clay=clay_state, mode="clay", familiar=None, preview={})
+        self.tab = tab
+        self.familiar_threads = familiar_threads_mod.Threads()
+        self.clay_view = SimpleNamespace(cleared=0, previewed=None, grabbing=False)
+        self.clay_view.clear_preview = lambda: setattr(
+            self.clay_view, "cleared", self.clay_view.cleared + 1
+        )
+        self.clay_view.set_preview = lambda diff, scratch: setattr(
+            self.clay_view, "previewed", (diff, scratch)
+        )
+        self.toasts: list[str] = []
+        self.submitted, self.tags, self.result = [], [], None
+
+    def toast(self, message: str, level: str = "info") -> None:
+        self.toasts.append(message)
+
+
+def test_a_familiar_build_landing_runs_its_clay_batch_off_the_frame_thread(monkeypatch):
+    """familiar-01 (the 2026-09-17 audit): a landed Familiar build ran its
+    whole ``clay_batch`` -- up to ``agent_clay.BATCH_MAX`` = 32 calls,
+    booleans included -- inline inside ``familiar_ui.on_task_done``, which
+    ``App.frame`` calls on the pygame frame thread (624-705 ms wall,
+    reproduced with 16 uv-sphere adds and 15 unions, no GPU or weights
+    involved -- the app froze for ~40 frames on an ordinary Build).
+    ``on_task_done`` now only clones the base document -- a numpy copy, not
+    a batch of ops -- inline, and submits the batch itself under
+    ``familiar_ui.LAND_KEY``; this is that class's own proof, the same shape
+    every other door in this file already keeps: a ``ctx`` whose ``submit``
+    runs the task on a real worker thread, with the expensive call spied to
+    record which thread it ran on.
+    """
+    from warlock.studio import familiar_preview, familiar_ui
+
+    ctx = _FamiliarCtx()
+    threads = _spy(monkeypatch, familiar_preview, "run_scratch")
+    calls = [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "crate"}}]
+    done = _Done(
+        key=familiar_ui.BUILD_KEY,
+        result=calls,
+        tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
+    )
+
+    familiar_ui.on_task_done(ctx, done)
+
+    assert ctx.submitted == [familiar_ui.LAND_KEY]
+    assert threads == [WORKER], "clay_batch must not run on the frame thread"
+    assert ctx.clay_view.previewed is None, "nothing landed yet -- only submitted"
+
+    land_tag = ctx.tags[-1]
+    familiar_ui.on_task_done(ctx, _Done(key=familiar_ui.LAND_KEY, result=ctx.result, tag=land_tag))
+
+    ui = familiar_ui.ensure(ctx)
+    assert ui.preview_calls == calls, "the batch's own result still lands as the ghost preview"
+    assert ctx.clay_view.previewed is not None

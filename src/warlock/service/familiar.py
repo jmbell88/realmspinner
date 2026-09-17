@@ -121,6 +121,16 @@ def _call(
         )
         return reply
     except (TimeoutError, concurrent.futures.TimeoutError) as exc:
+        # The 2026-09-17 audit (familiar-05): this used to just refuse and
+        # walk away, leaving the abandoned chat coroutine running on the loop
+        # with its llama-server slot -- a retry then queued behind a request
+        # nobody was still waiting for, and its late end was logged nowhere.
+        # The cancel itself lives in svc.call_on_loop (service/core.py),
+        # the one place every caller of that primitive shares, not here --
+        # this except clause still only maps the timeout to a refusal; the
+        # `finally` below still records this request (reply=None, this
+        # error) regardless of whether the coroutine had already been
+        # cancelled by the time it runs.
         error = FamiliarRefusal(
             "Familiar did not answer in time -- try again.", reason="unhealthy"
         )

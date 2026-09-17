@@ -14,7 +14,11 @@ network round trip goes through ``ctx.submit`` under one of two keys
 thread; the frame thread only ever reads :class:`FamiliarUIState` and calls
 :func:`on_task_done` when a result lands, the same shape every other mode's
 ``ctx.submit``/``on_task_done`` pair already uses (``clay_mode.py``'s module
-docstring states the rule this module follows).
+docstring states the rule this module follows). Landing a build that came
+back with calls is itself two more of these round trips, not one inline
+computation: :data:`LAND_KEY` carries the ``clay_batch`` run itself off the
+frame thread too (the 2026-09-17 audit, familiar-01) -- see
+:func:`_submit_build_preview`/:func:`_land_build_preview`.
 
 **Threads are keyed by mode/tab, never by conversation content.** See
 ``studio/familiar/threads.py``'s own docstring: a thread is display and
@@ -40,6 +44,16 @@ BUILD_KEY = "familiar/build"
 #: and the two must be free to overlap the way any two independent
 #: ``ctx.submit`` keys already are.
 CHARACTER_KEY = "familiar/character"
+#: The batch itself -- landing a build's ``clay_batch`` run, split off
+#: ``CHAT_KEY``/``BUILD_KEY`` by the 2026-09-17 audit (familiar-01): up to
+#: ``agent_clay.BATCH_MAX`` calls, booleans included, used to run inline
+#: inside ``on_task_done``, on the pygame frame thread -- 624-705 ms wall for
+#: 16 uv-sphere adds and 15 unions with no GPU or weights involved, freezing
+#: the app for ~40 frames on an ordinary Build. Its own key for the same
+#: reason ``CHAT_KEY``/``BUILD_KEY`` get theirs -- see :func:`_submit_build_
+#: preview`/:func:`_land_build_preview` for the two-phase shape this key
+#: exists to carry.
+LAND_KEY = "familiar/land"
 
 #: The bottom pane's expanded height, in design pixels, before
 #: ``bottom_pane.max_height``'s own window-relative clamp -- room for a short
@@ -104,7 +118,11 @@ class FamiliarUIState:
     input_text: str = ""
     #: ``""`` | ``"chat"`` | ``"build"`` -- which key is in flight, so the
     #: pane can show "Thinking..." against the right control without asking
-    #: ``ctx.busy`` twice for two different-shaped questions.
+    #: ``ctx.busy`` twice for two different-shaped questions. "build" now
+    #: spans two task keys in turn (``BUILD_KEY``/``CHAT_KEY``, then
+    #: ``LAND_KEY`` -- see :func:`_submit_build_preview`), set again once the
+    #: first lands, so this stays honest for the whole time a build is
+    #: outstanding rather than dropping to "" while the batch itself runs.
     thinking: str = ""
     #: The last refusal's ``FamiliarRefusal.reason`` (see
     #: ``service.familiar.REASONS``), or ``None`` when the last outcome was
@@ -116,7 +134,7 @@ class FamiliarUIState:
     message: str | None = None
     #: A ready Clay preview: the parsed tool calls, the scratch document they
     #: ran against, the diff computed from it, and which tab it previews for.
-    #: All four are set together (:func:`_run_build_preview`) and cleared
+    #: All four are set together (:func:`_land_build_preview`) and cleared
     #: together (:func:`_clear_preview`) -- a partial set would let Apply run
     #: against a diff that does not describe ``preview_scratch``.
     preview_calls: list[dict] | None = None
@@ -128,7 +146,7 @@ class FamiliarUIState:
     #: waiting on a press. Cleared by whichever of Create/Open in
     #: Create/Discard the user presses; landing a *new* plan while one is
     #: already pending simply replaces it -- the same "the document changed,
-    #: preview again" spirit ``_run_build_preview`` keeps, one plan at a time.
+    #: preview again" spirit ``_staleness_refusal`` keeps, one plan at a time.
     plan: dict[str, Any] | None = None
 
 
@@ -514,7 +532,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             if isinstance(result, Answer) and result.calls is not None:
                 # The router sent this one to Clay -- land it exactly like
                 # an explicit Build's own result, calls and all.
-                _run_build_preview(
+                _submit_build_preview(
                     ctx,
                     ui,
                     tag.get("tab_uid", ""),
@@ -580,7 +598,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
         calls = done.result if isinstance(done.result, list) else []
         ui.reason = None
         ui.message = None
-        _run_build_preview(
+        _submit_build_preview(
             ctx,
             ui,
             tag.get("tab_uid", ""),
@@ -589,6 +607,14 @@ def on_task_done(ctx: Any, done: Any) -> None:
             thread_key=tag.get("thread_key"),
             exchange=tag.get("exchange"),
         )
+        return
+
+    if done.key == LAND_KEY:
+        # Phase two: the worker's ``clay_batch`` run has landed -- see
+        # :func:`_land_build_preview`'s own docstring for why every
+        # staleness fact is asked again here rather than trusted from the
+        # submit that started it.
+        _land_build_preview(ctx, ui, done)
         return
 
     if done.key == CHARACTER_KEY:
@@ -690,33 +716,19 @@ def _log_preview(exchange_id: Any, *, diff: Any = None, refusal: str | None = No
         familiar_log.record("preview", **fields)
 
 
-def _run_build_preview(
-    ctx: Any,
-    ui: FamiliarUIState,
-    tab_uid: str,
-    calls: list[dict],
-    *,
-    refine: Any = None,
-    thread_key: Any = None,
-    exchange: Any = None,
-) -> None:
-    """Run *calls* as one batch against a scratch clone of *tab_uid*'s
-    document -- or, when *refine* is the ghost a follow-up was asked against,
-    against a clone of that ghost -- and show the result as the ghost the
-    moment it has run clean. A refinement's diff is still taken against the
-    real document, so Apply lands the first build and every follow-up at
-    once.
-
-    *thread_key* -- the same ``(mode, tab_uid)`` the request was submitted
-    under -- is where the "done" sentence (:func:`_preview_sentence`, or one
-    of the refusals below) lands as a Familiar turn, via :func:`_say`;
-    *exchange* is the dev-log id the same round trip's ``submit``/``request``
-    records used."""
-    from . import clay_mode, familiar_preview
-    from .clay import scratch as clay_scratch
-
-    state = clay_mode.ensure(ctx)
-    tab = state.get(tab_uid) if tab_uid else None
+def _staleness_refusal(
+    state: Any, tab: Any, tab_uid: str, ui: FamiliarUIState, refine: Any
+) -> str | None:
+    """The two facts a build preview's landing depends on, both re-asked by
+    :func:`_land_build_preview` after the worker returns as well as checked
+    here by :func:`_submit_build_preview` before it ever submits -- the
+    2026-09-17 audit (familiar-01) split what used to be one inline check
+    into two call sites once the batch itself moved to a worker, since the
+    tab can close, the user can switch tabs, or the ghost being refined can
+    be applied/discarded during the time the batch spends off the frame
+    thread, none of which the pre-submit check alone could still see by the
+    time the result lands.
+    """
     if tab is None or tab_uid != state.active_uid:
         # The tab this build was requested against closed, or the user
         # switched to another tab, while Familiar was thinking -- the same
@@ -731,29 +743,131 @@ def _run_build_preview(
         # Apply already refused a stale base at that point, but the display
         # never did. Landing now refuses the same way Apply always has,
         # rather than showing a ghost for a document nobody is looking at.
-        ui.message = "the document changed -- preview again"
-        ui.reason = None
-        _log_preview(exchange, refusal=ui.message)
-        _say(ctx, thread_key, ui.message)
-        return
-
+        return "the document changed -- preview again"
     if refine is not None and (ui.preview_scratch is not refine or ui.preview_tab_uid != tab_uid):
         # Applied or discarded while the model was thinking: these calls were
         # written against a ghost that is gone, and on the real document they
         # would address objects that are not there.
-        ui.message = "the preview changed -- preview again"
+        return "the preview changed -- preview again"
+    return None
+
+
+def _submit_build_preview(
+    ctx: Any,
+    ui: FamiliarUIState,
+    tab_uid: str,
+    calls: list[dict],
+    *,
+    refine: Any = None,
+    thread_key: Any = None,
+    exchange: Any = None,
+) -> None:
+    """Phase one of landing a build: the staleness checks and the scratch
+    clone -- both cheap, both fine on the frame thread -- then hand the
+    batch itself to a worker under :data:`LAND_KEY`.
+
+    The 2026-09-17 audit (familiar-01): this function used to also run the
+    batch (``familiar_preview.run_scratch(..., "clay_batch", ...)``) right
+    here, inline on the frame thread -- up to ``agent_clay.BATCH_MAX`` calls,
+    booleans included, 624-705 ms wall for 16 uv-sphere adds and 15 unions
+    with no GPU or weights involved, freezing ``App.frame`` for ~40 frames on
+    an ordinary Build. Now this only clones the base document (a numpy copy,
+    not a batch of ops -- see ``clay.scratch.clone``) and submits the batch;
+    :func:`_land_build_preview` is the second half, called back from
+    :func:`on_task_done` once the worker is done, where the diff is taken and
+    the ghost is shown.
+
+    *thread_key* -- the same ``(mode, tab_uid)`` the request was submitted
+    under -- is where the "done" sentence (:func:`_preview_sentence`, or a
+    refusal) lands as a Familiar turn, via :func:`_say`; *exchange* is the
+    dev-log id the same round trip's ``submit``/``request`` records used.
+    Both are carried into :data:`LAND_KEY`'s own tag so the second phase can
+    use them too.
+    """
+    from . import clay_mode, familiar_preview
+
+    state = clay_mode.ensure(ctx)
+    tab = state.get(tab_uid) if tab_uid else None
+    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine)
+    if refusal is not None:
+        ui.message = refusal
         ui.reason = None
-        _log_preview(exchange, refusal=ui.message)
-        _say(ctx, thread_key, ui.message)
+        _log_preview(exchange, refusal=refusal)
+        _say(ctx, thread_key, refusal)
         return
-    base_calls = list(ui.preview_calls or []) if refine is not None else []
+
     scratch_ctx = familiar_preview.build(refine if refine is not None else tab.doc)
+
     # One clay_batch, never call by call: the model names objects made earlier
     # in the same reply as {"$ref": "<name>"}, which only a batch resolves --
     # it is the shape the training data, the eval and the door all share. Run
     # one at a time, the first $ref was refused ("Build the Eiffel Tower" came
     # back as clay_boolean's "uids must be a list of integers.", 2026-09-16).
-    result = familiar_preview.run_scratch(scratch_ctx, "clay_batch", {"calls": calls})
+    # This closure touches only ``scratch_ctx`` -- its own, private
+    # ``ClayState`` holding nothing but the clone (see ``familiar_preview``'s
+    # module docstring) -- never ``ctx.state``, GL or imgui, which is what
+    # makes running it off the frame thread safe.
+    def run() -> dict:
+        return familiar_preview.run_scratch(scratch_ctx, "clay_batch", {"calls": calls})
+
+    tag = {
+        "thread_key": thread_key,
+        "exchange": exchange,
+        "tab_uid": tab_uid,
+        "refine": refine,
+        "calls": calls,
+        "scratch_ctx": scratch_ctx,
+    }
+    if not ctx.submit(LAND_KEY, run, tag=tag):
+        # A second build already landing on this same key -- CHAT_KEY and
+        # BUILD_KEY are independent submits, so (rarely) both can land in the
+        # same frame. Dropped rather than queued: the disabled Send/Build
+        # button is the real guard against this in the ordinary case, and
+        # ``ui.thinking`` is left as this branch found it (``on_task_done``
+        # already cleared it to "" before calling here), so nothing is stuck
+        # "thinking" over a build that was simply never submitted.
+        return
+    ui.thinking = "build"
+
+
+def _land_build_preview(ctx: Any, ui: FamiliarUIState, done: Any) -> None:
+    """Phase two of landing a build (see :func:`_submit_build_preview`),
+    called from :func:`on_task_done` for :data:`LAND_KEY`: the worker's
+    ``clay_batch`` run has landed, so this takes the diff and shows the
+    ghost -- or refuses, re-asking :func:`_staleness_refusal` the same
+    question the submit side already asked, since the tab or the ghost being
+    refined can have moved again while the batch ran."""
+    from . import clay_mode
+    from .clay import scratch as clay_scratch
+
+    ui.thinking = ""
+    tag = done.tag if isinstance(done.tag, dict) else {}
+    thread_key, exchange = tag.get("thread_key"), tag.get("exchange")
+    tab_uid, refine = tag.get("tab_uid", ""), tag.get("refine")
+    scratch_ctx, calls = tag.get("scratch_ctx"), tag.get("calls") or []
+
+    state = clay_mode.ensure(ctx)
+    tab = state.get(tab_uid) if tab_uid else None
+    refusal = _staleness_refusal(state, tab, tab_uid, ui, refine)
+    if refusal is not None:
+        ui.message = refusal
+        ui.reason = None
+        _log_preview(exchange, refusal=refusal)
+        _say(ctx, thread_key, refusal)
+        return
+
+    if not done.ok:
+        # ``run_scratch``/``agent_clay.call`` do not normally raise -- a
+        # refusal comes back as ``isError`` in the result, handled below --
+        # but a defensive path all the same, the same shape a raised
+        # BUILD_KEY/CHAT_KEY task already lands with.
+        ui.message = done.message or "Something went wrong."
+        ui.reason = None
+        _log_preview(exchange, refusal=ui.message)
+        _say(ctx, thread_key, ui.message)
+        return
+
+    result = done.result if isinstance(done.result, dict) else {}
     if result.get("isError"):
         ui.message = _refusal_sentence(result)
         ui.reason = "parse"
@@ -761,6 +875,7 @@ def _run_build_preview(
         _say(ctx, thread_key, ui.message)
         return
 
+    base_calls = list(ui.preview_calls or []) if refine is not None else []
     scratch_doc = scratch_ctx.state.clay.get(scratch_ctx.tab_uid).doc
     diff = clay_scratch.diff(tab.doc, scratch_doc)
     ui.preview_calls = base_calls + list(calls)

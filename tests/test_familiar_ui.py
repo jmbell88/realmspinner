@@ -226,6 +226,20 @@ def _canned_calls() -> list[dict]:
     return [{"name": "clay_add_primitive", "arguments": {"generator": "box", "name": "crate"}}]
 
 
+def _run_land(ctx) -> None:
+    """Run the pending :data:`familiar_ui.LAND_KEY` closure to completion and
+    land its result -- the 2026-09-17 audit (familiar-01) split the
+    ``clay_batch`` run itself off ``BUILD_KEY``/``CHAT_KEY`` onto its own
+    submit, so landing a build that did not refuse before reaching that
+    point is now two ``on_task_done`` calls, not one; ``_FakeCtx.submit``
+    only records a closure (see its own docstring), it never runs one, so
+    this is the worker-thread half every such test now has to drive by hand.
+    """
+    fn, args, kwargs, tag = ctx._pending.pop(familiar_ui.LAND_KEY)
+    result = fn(*args, **kwargs)
+    familiar_ui.on_task_done(ctx, Done(key=familiar_ui.LAND_KEY, result=result, tag=tag))
+
+
 def test_a_canned_build_previews_as_a_ghost_and_apply_lands_it():
     doc = bd.ClayDoc()
     ctx = _FakeCtx(doc, mode="clay")
@@ -237,6 +251,9 @@ def test_a_canned_build_previews_as_a_ghost_and_apply_lands_it():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    assert familiar_ui.LAND_KEY in ctx._pending, "the batch itself must run off the frame thread"
+    assert familiar_ui.ensure(ctx).thinking == "build", "still thinking while the batch lands"
+    _run_land(ctx)
 
     ui = familiar_ui.ensure(ctx)
     assert ui.preview_calls == calls
@@ -282,6 +299,7 @@ def test_a_build_that_addresses_its_own_objects_by_ref_previews_as_one_batch():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     ui = familiar_ui.ensure(ctx)
     assert ui.message is None
@@ -310,6 +328,7 @@ def test_a_refused_build_reports_the_refused_call_s_own_sentence():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     ui = familiar_ui.ensure(ctx)
     assert ui.preview_calls is None
@@ -319,12 +338,18 @@ def test_a_refused_build_reports_the_refused_call_s_own_sentence():
 
 
 def _land_build(ctx, calls, **tag) -> None:
+    """Land a build the same way the app does in two steps now (the
+    2026-09-17 audit, familiar-01): submit ``BUILD_KEY``'s own result, then
+    -- unless a staleness check refused before ever reaching the worker --
+    run and land the ``LAND_KEY`` closure it queued."""
     done = Done(
         key=familiar_ui.BUILD_KEY,
         result=calls,
         tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid, **tag},
     )
     familiar_ui.on_task_done(ctx, done)
+    if familiar_ui.LAND_KEY in ctx._pending:
+        _run_land(ctx)
 
 
 def test_a_follow_up_while_a_ghost_is_pending_is_sent_the_ghost_as_its_scene(monkeypatch):
@@ -423,6 +448,7 @@ def test_apply_after_the_document_changed_returns_preview_again():
         tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
     )
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
     assert familiar_ui.ensure(ctx).preview_calls is not None
 
     # The user edits the real document in between -- the base head moves.
@@ -447,6 +473,7 @@ def test_discard_clears_the_ghost_without_touching_the_document():
         tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
     )
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     familiar_ui.discard_preview(ctx)
 
@@ -473,6 +500,7 @@ def test_a_clean_preview_appends_a_familiar_turn_naming_the_counts_and_toasts():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
     assert turns, "nothing landed in the transcript"
@@ -496,6 +524,7 @@ def test_an_empty_diff_preview_says_it_changed_nothing():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
     assert turns, "nothing landed in the transcript"
@@ -521,6 +550,7 @@ def test_a_refused_preview_appends_the_refusal_as_a_turn():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     ui = familiar_ui.ensure(ctx)
     turns = ctx.familiar_threads.get(("clay", ctx.tab.uid))
@@ -534,7 +564,7 @@ def test_a_refused_preview_appends_the_refusal_as_a_turn():
 def test_a_failed_build_task_appends_a_turn():
     """A BUILD_KEY task that failed outright (the door itself raised) must
     also say so in the transcript, the same as a refusal landed by
-    ``_run_build_preview`` itself."""
+    ``_land_build_preview`` itself."""
     ctx = _FakeCtx(mode="clay")
     error = svc_familiar.FamiliarRefusal(
         "Familiar is not available in this session.", reason="missing"
@@ -565,6 +595,7 @@ def test_apply_appends_applied_to_the_scene():
         tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
     )
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     familiar_ui.apply_preview(ctx)
 
@@ -585,6 +616,7 @@ def test_discard_appends_a_turn_without_toasting():
         tag={"thread_key": ("clay", ctx.tab.uid), "tab_uid": ctx.tab.uid},
     )
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
     toasts_before = list(ctx.toasts)
 
     familiar_ui.discard_preview(ctx)
@@ -647,6 +679,7 @@ def test_a_routed_build_in_clay_lands_as_a_ghost_preview():
     )
 
     familiar_ui.on_task_done(ctx, done)
+    _run_land(ctx)
 
     ui = familiar_ui.ensure(ctx)
     assert ui.preview_calls == calls
