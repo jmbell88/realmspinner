@@ -39,6 +39,32 @@ from a list nobody reads.
 is a decision about that edge rather than a mechanical substitution, and it
 belongs to whoever takes that decision. What is here is the derivation the next
 pin can adopt without inventing it again.
+
+**2026-09-17: a second shape, for the same reason as the first.** The
+core-vs-subsystems restructure (``dev/RESTRUCTURE.md``) folds each mode's UI
+into ``studio/modes/<name>/`` with the mode-private kernel, where one exists,
+at ``studio/modes/<name>/engine/`` beside a UI sibling at
+``studio/modes/<name>/ui/``. A derivation keyed on "a directory directly under
+``studio/``" answers the headless question correctly today and stops
+answering it the moment that fold lands -- not by breaking, which would at
+least be loud, but by quietly returning a smaller set: ``clay`` living at
+``studio/modes/clay/engine/`` instead of ``studio/clay/`` is a directory this
+function would no longer iterate at all, so it drops out of
+:func:`pure_packages` and, with it, out of every ``siblings_of(...)`` ban that
+named it. That is the exact failure shape the rest of this file spends its
+docstring arguing against -- a hand list (here, a hand-picked directory
+depth) that is correct on the day it is written and silently wrong on the day
+the tree changes shape under it. So :func:`pure_packages` now looks in two
+places rather than encoding the future layout as a rename: directly under
+``studio/`` (today's shape, for every package that has not moved yet) *and*
+at ``studio/modes/<name>/engine/`` for each ``<name>`` under ``studio/modes/``
+(tomorrow's shape, for every one that has). Both are walked by the same
+window-root check, so a mode's ``engine/`` that imports imgui is exactly as
+disqualifying as a top-level package's would be. Nothing under
+``studio/modes/`` exists yet, so this changes no test's answer today; it is
+here so that landing P5's Clay UI/agent fold does not also require a matching
+edit to this file, which is the whole point of deriving the set instead of
+writing it down.
 """
 
 from __future__ import annotations
@@ -156,21 +182,43 @@ def _module_roots(path: Path, _stack: frozenset[Path] = frozenset()) -> set[str]
     return roots
 
 
-def pure_packages() -> tuple[str, ...]:
-    """Every headless package directly under ``studio/``, sorted.
+def _headless(package_dir: Path) -> bool:
+    """Whether *package_dir* (a real package: has an ``__init__.py``) is
+    headless -- recursive over its own modules, so a subpackage that imports
+    a window disqualifies its parent. ``inker/flourish/`` is part of what
+    "inker is headless" claims, and a check that only read ``inker/*.py``
+    would let the claim be half true.
+    """
+    return not any(_module_roots(path) & WINDOW_ROOTS for path in package_dir.rglob("*.py"))
 
-    Recursive over each package's own modules, so a subpackage that imports a
-    window disqualifies its parent -- ``inker/flourish/`` is part of what
-    "inker is headless" claims, and a check that only read ``inker/*.py`` would
-    let the claim be half true.
+
+def pure_packages() -> tuple[str, ...]:
+    """Every headless package this tree currently has, sorted.
+
+    Looks in two places, because the restructure (``dev/RESTRUCTURE.md``) is
+    mid-move: directly under ``studio/`` -- today's shape, for whichever
+    packages have not folded into a mode yet -- and at
+    ``studio/modes/<name>/engine/`` for each ``<name>`` under
+    ``studio/modes/`` -- tomorrow's shape, for whichever have. See this
+    module's own docstring (the 2026-09-17 addition) for why a directory-depth
+    assumption is exactly the kind of hand list the rest of this file argues
+    against, and why the fix is deriving over both shapes rather than picking
+    one and editing this file again when the other one lands.
     """
     found = []
     for child in sorted(STUDIO.iterdir()):
         if not child.is_dir() or not (child / "__init__.py").exists():
             continue
-        if any(_module_roots(path) & WINDOW_ROOTS for path in child.rglob("*.py")):
-            continue
-        found.append(child.name)
+        if _headless(child):
+            found.append(child.name)
+    modes_dir = STUDIO / "modes"
+    if modes_dir.is_dir():
+        for mode_dir in sorted(modes_dir.iterdir()):
+            engine = mode_dir / "engine"
+            if not mode_dir.is_dir() or not (engine / "__init__.py").exists():
+                continue
+            if _headless(engine):
+                found.append(mode_dir.name)
     return tuple(found)
 
 
