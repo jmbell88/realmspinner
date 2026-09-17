@@ -18,6 +18,106 @@ stability. If you want the short version, the app shows the opening sentence of
 each entry under **All release notes...** on the Home screen, and only expands
 the release you are actually running.
 
+## 0.0.49 — 2026-09-17
+
+Familiar moved to Qwen3-VL-4B and learned to take follow-ups on a ghost
+build without freezing the window, rigging gained a manual door for meshes
+no template fits, and the eleventh native-kernel batch put the RotSprite
+drag and Flourish's smoke into C while taking Clay's dissolve and extrude
+and Inker's nine-slice guides out of Python loops. Development material
+now lives outside the public tree.
+
+- **Development-only material moved out of the public repository, into a
+  local `dev/` folder that stays on the maintainer's disk and is gitignored.**
+  The plan file, the invariants ledger, the measurement write-ups, the review
+  screenshot trees, the Clay-assistant training programme, and the bench and
+  calibration scripts (with the tests that read them) all live there now
+  rather than at the paths older commits and documents name; a clean checkout
+  never carries any of it, and the public docs no longer cite it by path.
+- **Familiar's base model moved from Gemma 4 E2B-it to Qwen3-VL-4B-Instruct**,
+  text only for now (no mmproj, no image input). The testing pin is Qwen's
+  own Q8_0 GGUF, Apache-2.0 like the model; `familiar_v1.0` stays reserved
+  for the Clay-assistant fine-tune of the new base, which is not published
+  yet, so Clay Build still refuses by name until one is. The figures the old
+  pin was measured for were measured again on Qwen rather than carried over:
+  Familiar's VRAM admission rises from 4.0 to 7.7 GiB (6.82 GiB peak, where
+  Gemma kept part of itself off the card), and the smallest reply budget a
+  Clay build may be given rises from 1,893 to 2,573 tokens, counted with
+  Qwen's own tokenizer, which spends a token per digit. The router, navigate,
+  create and character replies all parse on Qwen unchanged.
+- **A Familiar build that refers to its own new objects no longer fails to
+  preview.** The model names an object it made earlier in the same reply as
+  `{"$ref": "name"}`, which only resolves inside one `clay_batch`, but the
+  preview ran the calls one by one -- "Build the Eiffel Tower" came back as
+  "uids must be a list of integers." The reply now runs as one batch, and a
+  refusal shows the refused call's own sentence.
+- **You can keep talking to Familiar while a build is still a ghost.** The
+  input stays open under Apply and Discard, and a follow-up refines the
+  ghost: the model is shown the previewed scene, its calls run on top of it,
+  and Apply lands the build and every refinement as one undo step.
+- **Familiar's pane can be dragged taller or shorter**, remembers the height,
+  and draws the conversation as chat bubbles that stay pinned to the newest
+  turn.
+- **A mesh no template fits can be rigged by hand.** **Rig manually** sits
+  beside the existing rig doors and fits a hidden one-bone template, so a real
+  `rig.glb` lands that Poser's **Edit skeleton** then builds out.
+- **Switching the agent server off and on again no longer fails** when no
+  agent had ever connected: stopping it now releases the pipe instead of
+  leaving the listener thread holding it.
+- **Familiar says when it is done.** A build that lands as a ghost now
+  answers in the conversation and as a toast -- "Done: the preview adds 3
+  objects and changes 1" -- and so does a refusal, so a finished build is
+  visible with the pane collapsed. Apply answers "Applied to the scene.";
+  Discard answers in the conversation only.
+- **The window no longer opens under the taskbar.** The first-run size was
+  clamped to the whole display and counted only the client area, so Familiar's
+  Build and Send row sat behind the Windows taskbar. The window is now sized
+  to the work area and, once it exists, moved and shrunk so its title bar and
+  frame fit inside it too.
+- **A mesh that arrives already rigged now rigs standing up.** CesiumMan's
+  deformation check sheet drew every pose lying on its side: the rotation that
+  stood the mesh upright lived on the skeleton Warlock discards, and removing
+  that skeleton dropped it, but only once Blender next recomputed the scene.
+  By then the new joints had been fitted to the upright box, so the mesh was
+  bound 90 degrees off its skeleton. The strip now keeps the mesh's world
+  orientation and bakes it in before anything is measured.
+- **Thin limbs no longer break apart on a 32 px character sheet.** At that
+  size a shin is about one pixel wide, and where its coverage dipped under
+  half the alpha snap dropped the pixel and the outline painted the hole into
+  a black band. It showed most on the jump's crouch and land frames, feet cut
+  off from the shins. A pixel between a half and a quarter covered is now kept
+  when it is the only link between solid pixels on either side of it; a real
+  gap, such as the space between two legs, stays open. This changes a few
+  pixels on most frames of every pixel-art sheet.
+- **A Familiar build no longer freezes the window while it lands.** The model's
+  whole batch of Clay calls (as many as 32, unions included) ran on the thread
+  that draws the app, so a build of a few dozen spheres and unions stopped
+  everything for well over half a second. It now runs in the background and the
+  ghost appears when it is done; closing or switching the tab meanwhile still
+  refuses the preview.
+- **Familiar can no longer start on the card beside a GPU job that has just
+  taken it.** A chat message that was part-way through starting Familiar when a
+  reconstruction or training job claimed the card would carry on and launch it
+  anyway, the overcommit the handoff exists to prevent. Taking the card and
+  starting Familiar now decide against each other under one lock.
+- **A Familiar request that times out is cancelled rather than left running.**
+  It kept its slot on Familiar's server after the pane had already said it did
+  not answer in time, so a retry waited behind a request nobody was waiting for.
+- **The Familiar pane's drag handle is in the manual.** Chapter 20 now says the
+  expanded pane can be dragged taller or shorter and keeps the height.
+- **A RotSprite rotate drag no longer stalls the editor.** Turning a lifted
+  selection with RotSprite re-renders on every mouse move and cost 0.3 s a
+  move at 256 px square and 1.3 s at the 512 px cap; with the optional native
+  kernels built (`native\build.ps1`) it is now about 10 ms at 256 px, and the
+  bytes are identical to before. Without the kernels the numpy path is
+  unchanged.
+- **Merge Faces, Extrude and the nine-slice guides are quicker on big meshes
+  and panels.** Dissolving every face of a 200k-face import went from 0.67 s
+  to about 70 ms and extruding them from 0.92 s to about 0.2 s, with the same
+  mesh to the byte, and a nine-slice guide drag on a 2048 px panel went from
+  54 ms to 4 ms. Flourish's smoke primitive bakes about four and a half times
+  faster with the native kernels built.
+
 ## 0.0.48 — 2026-09-16
 
 The 2026-09-16 audit swept all sixteen slices of the app and closed every one
@@ -87,97 +187,6 @@ are in the commit each one names.
 - **`clay_program`'s all-or-nothing guarantee held again**: a negative number
   raised to a fractional power used to escape uncaught and leave a partially
   applied program with no rollback.
-- **Development-only material moved out of the public repository, into a
-  local `dev/` folder that stays on the maintainer's disk and is gitignored.**
-  The plan file, the invariants ledger, the measurement write-ups, the review
-  screenshot trees, the Clay-assistant training programme, and the bench and
-  calibration scripts (with the tests that read them) all live there now
-  rather than at the paths older commits and documents name; a clean checkout
-  never carries any of it, and the public docs no longer cite it by path.
-- **Familiar's base model moved from Gemma 4 E2B-it to Qwen3-VL-4B-Instruct**,
-  text only for now (no mmproj, no image input). The testing pin is Qwen's
-  own Q8_0 GGUF, Apache-2.0 like the model; `familiar_v1.0` stays reserved
-  for the Clay-assistant fine-tune of the new base, which is not published
-  yet, so Clay Build still refuses by name until one is. The figures the old
-  pin was measured for were measured again on Qwen rather than carried over:
-  Familiar's VRAM admission rises from 4.0 to 7.7 GiB (6.82 GiB peak, where
-  Gemma kept part of itself off the card), and the smallest reply budget a
-  Clay build may be given rises from 1,893 to 2,573 tokens, counted with
-  Qwen's own tokenizer, which spends a token per digit. The router, navigate,
-  create and character replies all parse on Qwen unchanged.
-- **A Familiar build that refers to its own new objects no longer fails to
-  preview.** The model names an object it made earlier in the same reply as
-  `{"$ref": "name"}`, which only resolves inside one `clay_batch`, but the
-  preview ran the calls one by one -- "Build the Eiffel Tower" came back as
-  "uids must be a list of integers." The reply now runs as one batch, and a
-  refusal shows the refused call's own sentence.
-- **You can keep talking to Familiar while a build is still a ghost.** The
-  input stays open under Apply and Discard, and a follow-up refines the
-  ghost: the model is shown the previewed scene, its calls run on top of it,
-  and Apply lands the build and every refinement as one undo step.
-- **Familiar's pane can be dragged taller or shorter**, remembers the height,
-  and draws the conversation as chat bubbles that stay pinned to the newest
-  turn.
-- **A mesh no template fits can be rigged by hand.** **Rig manually** sits
-  beside the existing rig doors and fits a hidden one-bone template, so a real
-  `rig.glb` lands that Poser's **Edit skeleton** then builds out.
-- **Switching the agent server off and on again no longer fails** when no
-  agent had ever connected: stopping it now releases the pipe instead of
-  leaving the listener thread holding it.
-
-- **Familiar says when it is done.** A build that lands as a ghost now
-  answers in the conversation and as a toast -- "Done: the preview adds 3
-  objects and changes 1" -- and so does a refusal, so a finished build is
-  visible with the pane collapsed. Apply answers "Applied to the scene.";
-  Discard answers in the conversation only.
-- **The window no longer opens under the taskbar.** The first-run size was
-  clamped to the whole display and counted only the client area, so Familiar's
-  Build and Send row sat behind the Windows taskbar. The window is now sized
-  to the work area and, once it exists, moved and shrunk so its title bar and
-  frame fit inside it too.
-- **A mesh that arrives already rigged now rigs standing up.** CesiumMan's
-  deformation check sheet drew every pose lying on its side: the rotation that
-  stood the mesh upright lived on the skeleton Warlock discards, and removing
-  that skeleton dropped it, but only once Blender next recomputed the scene.
-  By then the new joints had been fitted to the upright box, so the mesh was
-  bound 90 degrees off its skeleton. The strip now keeps the mesh's world
-  orientation and bakes it in before anything is measured.
-- **Thin limbs no longer break apart on a 32 px character sheet.** At that
-  size a shin is about one pixel wide, and where its coverage dipped under
-  half the alpha snap dropped the pixel and the outline painted the hole into
-  a black band. It showed most on the jump's crouch and land frames, feet cut
-  off from the shins. A pixel between a half and a quarter covered is now kept
-  when it is the only link between solid pixels on either side of it; a real
-  gap, such as the space between two legs, stays open. This changes a few
-  pixels on most frames of every pixel-art sheet.
-- **A Familiar build no longer freezes the window while it lands.** The model's
-  whole batch of Clay calls (as many as 32, unions included) ran on the thread
-  that draws the app, so a build of a few dozen spheres and unions stopped
-  everything for well over half a second. It now runs in the background and the
-  ghost appears when it is done; closing or switching the tab meanwhile still
-  refuses the preview.
-- **Familiar can no longer start on the card beside a GPU job that has just
-  taken it.** A chat message that was part-way through starting Familiar when a
-  reconstruction or training job claimed the card would carry on and launch it
-  anyway, the overcommit the handoff exists to prevent. Taking the card and
-  starting Familiar now decide against each other under one lock.
-- **A Familiar request that times out is cancelled rather than left running.**
-  It kept its slot on Familiar's server after the pane had already said it did
-  not answer in time, so a retry waited behind a request nobody was waiting for.
-- **The Familiar pane's drag handle is in the manual.** Chapter 20 now says the
-  expanded pane can be dragged taller or shorter and keeps the height.
-- **A RotSprite rotate drag no longer stalls the editor.** Turning a lifted
-  selection with RotSprite re-renders on every mouse move and cost 0.3 s a
-  move at 256 px square and 1.3 s at the 512 px cap; with the optional native
-  kernels built (`native\build.ps1`) it is now about 10 ms and 30 ms, and the
-  bytes are identical to before. Without the kernels the numpy path is
-  unchanged.
-- **Merge Faces, Extrude and the nine-slice guides are quicker on big meshes
-  and panels.** Dissolving every face of a 200k-face import went from 0.67 s
-  to about 70 ms and extruding them from 0.92 s to about 0.2 s, with the same
-  mesh to the byte; a nine-slice guide drag on a 2048 px panel is faster by
-  the same rule. Flourish's smoke primitive bakes about four and a half times
-  faster with the native kernels built.
 
 ## 0.0.47 — 2026-09-14
 
