@@ -24,7 +24,9 @@ from warlock import _q_jobs, models
 from warlock import _q_music as q
 from warlock.service import _jobs_music as door
 from warlock.service.errors import Invalid
-from warlock.studio import muse_io, muse_mode, muse_state
+from warlock.studio.modes.muse import fileio as muse_io
+from warlock.studio.modes.muse import mode as muse_mode
+from warlock.studio.modes.muse import state as muse_state
 
 # --- service-02: a derive with "How many" > 1 ------------------------------
 
@@ -174,7 +176,7 @@ def test_the_derive_popup_does_not_offer_how_many_for_audio2audio():
     # existing unused would pass every assertion above.
     import inspect
 
-    from warlock.studio.panes import muse_results
+    from warlock.studio.modes.muse.ui.panes import results as muse_results
 
     assert "SINGLE_TAKE_TASKS" in inspect.getsource(muse_results.derive_popup)
 
@@ -339,7 +341,7 @@ def test_music_and_separate_are_rows_in_the_publishers_cancel_commit_scan():
 
 
 def _player(seconds: float = 10.0, rate: int = 44100) -> Any:
-    from warlock.studio.muse import waveform
+    from warlock.studio.modes.muse.engine import waveform
 
     pcm = np.zeros((int(seconds * rate), 2), dtype=np.int16)
     return muse_state.Player(

@@ -116,7 +116,7 @@ def _leave_mode_if_needed(ctx: Any, old: str) -> None:
     inspector.flush_unsent_on_mode_change(ctx)
     _leave_sirens_if_needed(ctx, old)
     if old == "muse":
-        from .. import muse_mode
+        from ..modes.muse import mode as muse_mode
 
         muse_mode.stop(ctx)
     elif old == "plotter":
@@ -611,7 +611,7 @@ class EventsMixin:
             packwright_mode.handle_key(ctx, event)
             return
         if ctx.state.mode == "muse":
-            from .. import muse_mode
+            from ..modes.muse import mode as muse_mode
 
             # Unconditional and returning, for the reason every workspace arm
             # here is: ``handle_key`` answers False for every key it does not

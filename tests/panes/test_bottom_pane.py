@@ -11,8 +11,10 @@ from __future__ import annotations
 import inspect
 
 from warlock.studio import main as main_mod
-from warlock.studio import muse_brief, widgets
-from warlock.studio.panes import bottom_pane, muse_player, overlay, tour
+from warlock.studio import widgets
+from warlock.studio.modes.muse.ui import brief as muse_brief
+from warlock.studio.modes.muse.ui.panes import player as muse_player
+from warlock.studio.panes import bottom_pane, overlay, tour
 
 
 def test_the_bottom_pane_never_exceeds_a_quarter_of_the_window():

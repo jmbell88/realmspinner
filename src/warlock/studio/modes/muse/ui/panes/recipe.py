@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import focus, muse_mode, widgets
-from ..manual import render as manual_render
-from . import model_gate
+from ..... import focus, widgets
+from .....manual import render as manual_render
+from .....panes import model_gate
+from ... import mode as muse_mode
 
 #: This pane's key in the focus ring.
 FOCUS_PANE = "muse-recipe"
@@ -55,7 +56,7 @@ def draw(ctx: Any) -> None:
     # an 8 GB download only after writing a prompt and pressing Generate was
     # the worst moment to learn it. The refusal at the door is still the
     # authority; this is the courtesy in front of it.
-    from ...service import jobs as svc_jobs
+    from ......service import jobs as svc_jobs
 
     model_gate.draw(ctx, svc_jobs.MUSIC_ROWS, what="Generating music")
 
@@ -185,7 +186,7 @@ def _seed(ctx: Any, form: dict[str, Any]) -> None:
 
 
 def _max_seed() -> int:
-    from ...service.validation import MAX_SEED
+    from ......service.validation import MAX_SEED
 
     return MAX_SEED
 

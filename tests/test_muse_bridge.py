@@ -215,14 +215,14 @@ def test_the_composers_default_closeness_is_the_derive_paths_own(svc):
     """One knob, one default. Before this the mode's default and the door's
     were two independent ``0.5``s that merely happened to agree.
     """
-    from warlock.studio import muse_state
+    from warlock.studio.modes.muse import state as muse_state
 
     state = muse_state.MuseState()
     assert state.compose_strength == pytest.approx(
         muse_state.DEFAULT_DERIVE["ref_audio_strength"]
     )
     low, high = 0.0, 0.9
-    from warlock.studio.panes.muse_results import DERIVE_FIELDS
+    from warlock.studio.modes.muse.ui.panes.results import DERIVE_FIELDS
 
     assert DERIVE_FIELDS["ref_audio_strength"][1:3] == (low, high)
     assert low <= state.compose_strength <= high

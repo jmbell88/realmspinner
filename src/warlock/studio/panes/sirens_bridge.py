@@ -162,7 +162,7 @@ def _export(ctx: Any, tab: Any) -> None:
             "Your loop points travel with it."
         ),
     ):
-        from .. import muse_mode
+        from ..modes.muse import mode as muse_mode
 
         muse_mode.compose_from_sirens(ctx, tab)
 
@@ -207,8 +207,8 @@ def _closeness(ctx: Any) -> None:
     to *Make more -> Something like this* to adjust it -- a control on a
     different job, which is a documentation bug whether or not this ships.
     """
-    from .. import muse_mode
-    from .muse_results import DERIVE_FIELDS
+    from ..modes.muse import mode as muse_mode
+    from ..modes.muse.ui.panes.results import DERIVE_FIELDS
 
     label, low, high, hint = DERIVE_FIELDS["ref_audio_strength"]
     state = muse_mode.ensure(ctx)

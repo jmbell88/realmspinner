@@ -6614,15 +6614,15 @@ def test_muse_draws_all_four_of_its_panes(app_ctx, imgui_ctx, monkeypatch):
 
     from warlock.studio import layout as layout_mod
     from warlock.studio.main import App
-    from warlock.studio.muse_state import Player as MusePlayer
-    from warlock.studio.panes import muse_player
+    from warlock.studio.modes.muse.state import Player as MusePlayer
+    from warlock.studio.modes.muse.ui.panes import player as muse_player
 
     ctx = app_ctx
     ctx.state.mode = "muse"
     # A decoded take, because ``should_draw`` keeps the strip off screen until
     # one has been auditioned -- so without this the test would pass on a frame
     # that never asked for the strip at all.
-    from warlock.studio import muse_mode
+    from warlock.studio.modes.muse import mode as muse_mode
 
     state = muse_mode.ensure(ctx)
     state.player = MusePlayer(
@@ -6656,8 +6656,8 @@ def test_a_failed_loop_search_clears_finding_instead_of_spinning_forever():
     """
     from types import SimpleNamespace
 
-    from warlock.studio import muse_mode
-    from warlock.studio.muse_state import Player as MusePlayer
+    from warlock.studio.modes.muse import mode as muse_mode
+    from warlock.studio.modes.muse.state import Player as MusePlayer
     from warlock.studio.state import AppState
 
     ctx = SimpleNamespace(state=AppState())

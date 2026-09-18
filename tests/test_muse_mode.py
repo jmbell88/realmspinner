@@ -13,7 +13,9 @@ from typing import Any
 
 import pytest
 
-from warlock.studio import muse_io, muse_mode, muse_state
+from warlock.studio.modes.muse import fileio as muse_io
+from warlock.studio.modes.muse import mode as muse_mode
+from warlock.studio.modes.muse import state as muse_state
 
 
 class _AppState:
@@ -125,7 +127,7 @@ def test_the_recipe_columns_scheduler_and_cfg_options_match_the_door():
     door could otherwise leave the Recipe combo silently stale.
     """
     from warlock.service import _jobs_music as door
-    from warlock.studio.panes import muse_recipe
+    from warlock.studio.modes.muse.ui.panes import recipe as muse_recipe
 
     assert {key for key, _label in muse_recipe._SCHEDULERS} == set(door._SCHEDULERS)
     assert {key for key, _label in muse_recipe._CFG_TYPES} == set(door._CFG_TYPES)
@@ -549,7 +551,7 @@ def test_precompute_loop_cache_does_not_land_on_a_different_take_with_the_same_r
     Fails against the unfixed code, which has no id check in this branch at
     all and adopts the result onto whatever player is current.
     """
-    from warlock.studio.muse_state import Player
+    from warlock.studio.modes.muse.state import Player
 
     state = muse_mode.ensure(ctx)
     state.player = Player(job="a", pcm=[0] * 100, rate=100, duration=1.0)
@@ -850,7 +852,7 @@ def test_the_counts_top_pill_matches_the_doors_max_count():
     control from the door with no test catching it.
     """
     from warlock.service import _jobs_music as door
-    from warlock.studio import muse_brief
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     assert max(muse_brief._COUNTS) == door.MAX_COUNT
 
@@ -861,7 +863,7 @@ def test_the_take_count_stays_on_screen_when_its_control_is_dropped():
     rows -- they cannot see. Against the unfixed code the label is plain
     "Generate" at every width, which is what made the number vanish.
     """
-    from warlock.studio import muse_brief
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_brief.generate_label(None) == "Generate"
     assert muse_brief.generate_label(1) == "Generate", "one take does not apologise"
@@ -876,7 +878,8 @@ def test_instrumental_is_a_choice_not_an_empty_field():
     ``muse_brief`` has no ``_set_instrumental`` to flip it and clear the
     field it describes.
     """
-    from warlock.studio import muse_brief, muse_state
+    from warlock.studio.modes.muse import state as muse_state
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_state.DEFAULT_FORM["instrumental"] is True, (
         "empty lyrics has always meant instrumental -- the default form must say so"
@@ -901,7 +904,8 @@ def test_the_lyric_field_can_expand():
     so the field's height is the fixed ``LYRICS_H`` regardless of what space
     is actually left.
     """
-    from warlock.studio import muse_brief, muse_state
+    from warlock.studio.modes.muse import state as muse_state
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     assert state.lyrics_expanded is False
@@ -921,7 +925,7 @@ def test_the_duration_pill_text_reads_seconds_below_five_minutes_and_minutes_at_
     restates rather than misses. Fails against the unfixed code, which has no
     ``_duration_label`` at all.
     """
-    from warlock.studio import muse_brief
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     presets = muse_brief._DURATIONS
     assert muse_brief._duration_label(presets[0]) == "30s"
@@ -940,7 +944,7 @@ def test_clamp_duration_holds_a_typed_value_inside_the_doors_range():
     anything.
     """
     from warlock.service._jobs_music import MAX_DURATION, MIN_DURATION
-    from warlock.studio import muse_brief
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     assert muse_brief._clamp_duration(int(MIN_DURATION) - 5) == int(MIN_DURATION)
     assert muse_brief._clamp_duration(int(MAX_DURATION) + 500) == int(MAX_DURATION)
@@ -954,7 +958,8 @@ def test_picking_a_preset_writes_the_number_and_custom_leaves_it_where_it_was():
     unfixed code, which has no ``_pick_duration`` and decided which pill lit
     from ``duration``'s membership in ``_DURATIONS`` alone.
     """
-    from warlock.studio import muse_brief, muse_state
+    from warlock.studio.modes.muse import state as muse_state
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     form = state.form
@@ -980,7 +985,8 @@ def test_an_off_preset_duration_lights_custom_even_with_the_flag_unset():
     else _DURATIONS[1])``, which drew "60s" as selected the instant
     ``duration`` held anything else.
     """
-    from warlock.studio import muse_brief, muse_state
+    from warlock.studio.modes.muse import state as muse_state
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     state = muse_state.MuseState()
     form = state.form
@@ -1001,7 +1007,7 @@ def test_step_walks_the_duration_options_and_wraps_onto_custom(monkeypatch):
     own rule, stated at its head, is that nothing here touches imgui -- so
     only ``_step``'s own index arithmetic is exercised.
     """
-    from warlock.studio import muse_brief
+    from warlock.studio.modes.muse.ui import brief as muse_brief
 
     class _Key:
         left_arrow = "left"
@@ -1040,7 +1046,8 @@ def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio import muse_mode, sirens_audio
+    from warlock.studio import sirens_audio
+    from warlock.studio.modes.muse import mode as muse_mode
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)
@@ -1077,7 +1084,8 @@ def test_a_take_switch_gives_the_first_takes_loop_points_back(ctx, monkeypatch):
     """
     import numpy as np
 
-    from warlock.studio import muse_mode, sirens_audio
+    from warlock.studio import sirens_audio
+    from warlock.studio.modes.muse import mode as muse_mode
 
     monkeypatch.setattr(sirens_audio, "play", lambda *a, **k: True)
     state = muse_mode.ensure(ctx)
@@ -1111,7 +1119,8 @@ def test_the_loop_memory_is_bounded(ctx):
     ``Player`` docstring refuses, but it is still not allowed to grow without
     bound while somebody works through a tray.
     """
-    from warlock.studio import muse_mode, muse_state
+    from warlock.studio.modes.muse import mode as muse_mode
+    from warlock.studio.modes.muse import state as muse_state
 
     state = muse_mode.ensure(ctx)
     for index in range(muse_state.LOOP_MEMORY + 10):

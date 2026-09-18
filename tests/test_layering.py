@@ -504,7 +504,7 @@ _P2_SHELL_DISPATCH: frozenset[tuple[str, str]] = frozenset({
     ("warlock.studio.shell.app", "warlock.studio.modes.clay.ui.viewport"),
     ("warlock.studio.shell.app", "warlock.studio.modes.inker.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.mason_viewport"),
-    ("warlock.studio.shell.app", "warlock.studio.muse_workspace"),
+    ("warlock.studio.shell.app", "warlock.studio.modes.muse.ui.workspace"),
     ("warlock.studio.shell.app", "warlock.studio.packwright_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.plotter_workspace"),
     ("warlock.studio.shell.app", "warlock.studio.modes.poser.ui.viewport"),
@@ -602,12 +602,12 @@ _P6_REMAINING_MODES: frozenset[tuple[str, str]] = frozenset({
 # muse <-> sirens cross-import" (RESTRUCTURE.md's own words) once
 # kernels/audio/ (P3) holds what the two shared.
 _P10_MUSE_FOLDS_INTO_CREATE: frozenset[tuple[str, str]] = frozenset({
-    ("warlock.studio.muse_mode", "warlock.studio.sirens_audio"),
-    ("warlock.studio.muse_mode", "warlock.studio.sirens_io"),
-    ("warlock.studio.muse_mode", "warlock.studio.sirens_mode"),
-    ("warlock.studio.muse_mode", "warlock.studio.sirens_state"),
-    ("warlock.studio.panes.muse_player", "warlock.studio.sirens_audio"),
-    ("warlock.studio.panes.muse_results", "warlock.studio.sirens_audio"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_audio"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_io"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_mode"),
+    ("warlock.studio.modes.muse.mode", "warlock.studio.sirens_state"),
+    ("warlock.studio.modes.muse.ui.panes.player", "warlock.studio.sirens_audio"),
+    ("warlock.studio.modes.muse.ui.panes.results", "warlock.studio.sirens_audio"),
 })
 
 # P11 -- Review folds into a Library view; P12 -- Home folds into Library's

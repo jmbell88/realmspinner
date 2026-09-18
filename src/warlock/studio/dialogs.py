@@ -672,7 +672,8 @@ def modal_open(ctx: Any) -> bool:
     tour is a pane, and importing ``main`` for one predicate made a leaf depend
     on the shell. This module already owns two of the four answers.
     """
-    from . import matte_preview, muse_mode
+    from . import matte_preview
+    from .modes.muse import mode as muse_mode
     from .modes.troupe.ui.panes import send as troupe_send
     from .panes import first_run, packwright_sources
 

@@ -20,8 +20,11 @@ from typing import Any
 import pytest
 from test_muse_mode import FakeCtx
 
-from warlock.studio import muse_brief, muse_mode
-from warlock.studio.panes import muse_player, muse_recipe, muse_results
+from warlock.studio.modes.muse import mode as muse_mode
+from warlock.studio.modes.muse.ui import brief as muse_brief
+from warlock.studio.modes.muse.ui.panes import player as muse_player
+from warlock.studio.modes.muse.ui.panes import recipe as muse_recipe
+from warlock.studio.modes.muse.ui.panes import results as muse_results
 
 PANES = (
     ("muse-brief", muse_brief),
@@ -254,8 +257,8 @@ def _with_player(ctx, seconds: float = 6.0):
     """
     import numpy as np
 
-    from warlock.studio import muse_state
-    from warlock.studio.muse import waveform
+    from warlock.studio.modes.muse import state as muse_state
+    from warlock.studio.modes.muse.engine import waveform
 
     rate = 44100
     t = np.arange(int(seconds * rate), dtype=np.float32) / rate
@@ -278,7 +281,7 @@ def test_the_player_draws_with_a_take_under_it(frames, tmp_path):
 def test_the_player_draws_with_a_region_and_candidates(frames, tmp_path):
     """The branch with every control on it: markers, the fill, the candidate
     buttons, the crossfade slider and both exports."""
-    from warlock.studio.muse.loops import Candidate
+    from warlock.studio.modes.muse.engine.loops import Candidate
 
     ctx = _ctx(tmp_path, [_take("a")])
     one = _with_player(ctx)
@@ -313,7 +316,7 @@ def test_the_player_strips_transport_is_greyed_with_no_device(frames, tmp_path, 
     Fails against the unfixed code, whose captured call carries no
     ``enabled``/``reason`` keys, so ``.get("enabled", True)`` reads ``True``.
     """
-    from warlock.studio.panes import muse_player as mp
+    from warlock.studio.modes.muse.ui.panes import player as mp
 
     ctx = _ctx(tmp_path, [_take("a")])
     _with_player(ctx)
@@ -337,7 +340,7 @@ def test_the_trays_card_transport_is_greyed_with_no_device(frames, tmp_path, mon
     device. Fails against the unfixed code the same way the strip's test
     does above.
     """
-    from warlock.studio.panes import muse_results as mr
+    from warlock.studio.modes.muse.ui.panes import results as mr
 
     ctx = _ctx(tmp_path, [_take("a", status="done")])
     calls: list[dict[str, Any]] = []
@@ -409,7 +412,7 @@ def test_every_task_the_menu_offers_has_controls_and_a_door():
     refuses; one in the third and not the first is capability with no way in.
     """
     from warlock.service._jobs_music import TASKS
-    from warlock.studio import muse_mode
+    from warlock.studio.modes.muse import mode as muse_mode
 
     offered = [one[0] for one in muse_results.DERIVE_ITEMS]
     assert sorted(offered) == sorted(TASKS)
@@ -425,8 +428,8 @@ def test_every_derive_control_is_drawn_by_something():
     task's popup opens, and no smoke test would reach it -- the popup only
     draws once a take exists and a menu item has been pressed.
     """
-    from warlock.studio import muse_mode
-    from warlock.studio.muse_state import DEFAULT_DERIVE
+    from warlock.studio.modes.muse import mode as muse_mode
+    from warlock.studio.modes.muse.state import DEFAULT_DERIVE
 
     named = {name for names in muse_mode.DERIVE_CONTROLS.values() for name in names}
     assert named <= set(DEFAULT_DERIVE)

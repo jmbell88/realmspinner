@@ -34,11 +34,13 @@ from typing import Any
 import numpy as np
 from imgui_bundle import imgui
 
-from .. import controls, layout, muse_io, muse_mode, sirens_audio, theme, widgets
-from ..manual import render as manual_render
-from ..muse import waveform
-from ..muse_state import MAX_XFADE_MS
-from ..tokens import sp
+from ..... import controls, layout, sirens_audio, theme, widgets
+from .....manual import render as manual_render
+from .....tokens import sp
+from ... import fileio as muse_io
+from ... import mode as muse_mode
+from ...engine import waveform
+from ...state import MAX_XFADE_MS
 
 #: The strip's height in design pixels: the envelope, a row of transport
 #: buttons, and the loop row under it.

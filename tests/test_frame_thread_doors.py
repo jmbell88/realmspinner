@@ -49,10 +49,13 @@ from test_sirens_mode import _tab as sirens_tab
 from warlock.kernels import pixel as inker
 from warlock.kernels.mesh import document as clay_document
 from warlock.kernels.mesh import serialize as clay_serialize
-from warlock.studio import muse_io, muse_mode, muse_state, packwright_io
+from warlock.studio import packwright_io
 from warlock.studio.modes.clay import mode as clay_mode
 from warlock.studio.modes.inker import mode as inker_mode
 from warlock.studio.modes.inker.state import InkerDoc
+from warlock.studio.modes.muse import fileio as muse_io
+from warlock.studio.modes.muse import mode as muse_mode
+from warlock.studio.modes.muse import state as muse_state
 from warlock.studio.modes.troupe import mode as troupe_mode
 from warlock.studio.packwright import wpack
 from warlock.studio.packwright.document import PackDoc
@@ -590,7 +593,7 @@ def test_playing_a_freshly_marked_loop_region_does_not_block_the_frame_thread(mo
     ``play_region``'s own call into ``loop_body`` is a cache hit and never
     calls the blend itself.
     """
-    from warlock.studio.muse.loops import Candidate
+    from warlock.studio.modes.muse.engine.loops import Candidate
 
     ctx = _MuseCtx()
     monkeypatch.setattr(muse_mode, "sirens_audio", _MuseDevice())

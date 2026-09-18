@@ -441,7 +441,7 @@ def test_modal_open_sees_the_muse_derive_popup():
     ``imgui.begin_popup_modal``, but was never one of ``modal_open``'s answers,
     so Ctrl+Enter reached ``muse_mode.handle_key`` and queued a fresh job from
     the top brief while the popup believed it alone had the keyboard (I77)."""
-    from warlock.studio.muse_state import MuseState
+    from warlock.studio.modes.muse.state import MuseState
 
     ctx = SimpleNamespace(
         confirms=dialogs.ConfirmQueue(),
@@ -512,7 +512,7 @@ _WORKSPACE_ARMS = {
     "plotter": "plotter_mode",
     "packwright": "packwright_mode",
     "troupe": "modes.troupe.mode",
-    "muse": "muse_mode",
+    "muse": "modes.muse.mode",
     "sirens": "sirens_mode",
     "mason": "mason_mode",
 }

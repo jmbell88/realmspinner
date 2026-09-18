@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from warlock.studio import muse_state
+from warlock.studio.modes.muse import state as muse_state
 
 
 def _source() -> str:

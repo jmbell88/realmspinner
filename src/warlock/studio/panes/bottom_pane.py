@@ -74,8 +74,8 @@ def _mode_chrome(ctx: Any) -> float:
 
     mode = str(getattr(getattr(ctx, "state", None), "mode", ""))
     if mode == "muse":
-        from .. import muse_brief
-        from . import muse_player
+        from ..modes.muse.ui import brief as muse_brief
+        from ..modes.muse.ui.panes import player as muse_player
 
         return muse_brief.BAR_H + muse_player.STRIP_H
     return 0.0

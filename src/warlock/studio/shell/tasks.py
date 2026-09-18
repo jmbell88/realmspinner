@@ -195,7 +195,7 @@ class TasksMixin:
 
                     mason_mode.on_task_failed(ctx, done)
                 elif done.key.startswith("muse-"):
-                    from .. import muse_mode
+                    from ..modes.muse import mode as muse_mode
 
                     # muse-03 (2026-09-07 audit): this chain had no branch for
                     # Muse at all, so a failed loop search left ``finding``
@@ -564,7 +564,7 @@ class TasksMixin:
                 self._capture_clay_thumbnail(done.result["job_id"])
             return
         if key.startswith("muse-"):
-            from .. import muse_mode
+            from ..modes.muse import mode as muse_mode
 
             muse_mode.on_task_done(ctx, done)
             return

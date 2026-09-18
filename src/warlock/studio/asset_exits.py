@@ -579,7 +579,7 @@ def _sirens(ctx: Any, job: Any) -> Exit | None:
         return None
     if "track.wav" not in _files(job):
         return None
-    from . import muse_mode
+    from .modes.muse import mode as muse_mode
 
     def door(ctx: Any, job: Any) -> None:
         muse_mode.open_in_sirens(ctx, job.get("id"))

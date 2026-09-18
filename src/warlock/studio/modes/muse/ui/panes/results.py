@@ -23,8 +23,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from .. import controls, icons, muse_mode, sirens_audio, verbs, widgets
-from ..tokens import sp
+from ..... import controls, icons, sirens_audio, verbs, widgets
+from .....tokens import sp
+from ... import mode as muse_mode
 
 #: A card's size in design pixels. Wide enough for two lines of tags at a
 #: readable width and for the three buttons beneath them -- two on a row and
@@ -441,13 +442,13 @@ def _derive_field(
 
 
 def _max_count() -> int:
-    from ...service._jobs_music import MAX_COUNT
+    from ......service._jobs_music import MAX_COUNT
 
     return MAX_COUNT
 
 
 def _max_lyrics() -> int:
-    from ...service._jobs_music import MAX_LYRICS
+    from ......service._jobs_music import MAX_LYRICS
 
     return MAX_LYRICS
 
@@ -462,7 +463,7 @@ def _max_extend() -> float:
     written again so the popup's slider and the door's refusal are stating the
     same number.
     """
-    from ...service._jobs_music import MAX_EXTEND_DURATION
+    from ......service._jobs_music import MAX_EXTEND_DURATION
 
     return MAX_EXTEND_DURATION
 

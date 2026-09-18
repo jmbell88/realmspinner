@@ -478,7 +478,7 @@ MUSE_RECIPE_FIELDS = (
 
 def test_the_muse_recipe_columns_six_controls_ring_and_clear_their_own_errors():
     """The 2026-09-07 audit, finding muse-04."""
-    source = _source("panes/muse_recipe.py")
+    source = _source("modes/muse/ui/panes/recipe.py")
     for field in MUSE_RECIPE_FIELDS:
         assert f'clear_field_error("{field}")' in source, (
             f"muse_recipe never clears {field!r}'s ring when its own control is edited"

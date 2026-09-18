@@ -24,10 +24,10 @@ from pathlib import Path
 
 from _pure_packages import dotted_root, siblings_of
 
-from warlock.studio import muse
+from warlock.studio.modes.muse import engine as muse
 
 ENGINE = Path(muse.__file__).parent
-PACKAGE = "warlock.studio.muse"
+PACKAGE = "warlock.studio.modes.muse.engine"
 
 #: Empty, and that is the claim. See the module docstring.
 OUTWARD_IMPORTS: set[tuple[str, str]] = set()

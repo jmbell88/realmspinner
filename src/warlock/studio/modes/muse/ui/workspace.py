@@ -58,10 +58,13 @@ class MuseWorkspace:
         """
         from imgui_bundle import imgui
 
-        from . import layout as layout_mod
-        from . import muse_brief, tokens
-        from .panes import muse_player, muse_recipe, muse_results
-        from .shell.frame import _column_boundary
+        from .... import layout as layout_mod
+        from .... import tokens
+        from ....shell.frame import _column_boundary
+        from . import brief as muse_brief
+        from .panes import player as muse_player
+        from .panes import recipe as muse_recipe
+        from .panes import results as muse_results
 
         ctx = self.app_ctx
         right_w = layout_mod.sidebar_width("right")

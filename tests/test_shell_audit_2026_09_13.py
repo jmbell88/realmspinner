@@ -37,7 +37,7 @@ def _leave(ctx: Any, old: str, new: str) -> None:
 
 
 def test_leaving_muse_mode_stops_a_sounding_take(monkeypatch):
-    from warlock.studio import muse_mode
+    from warlock.studio.modes.muse import mode as muse_mode
 
     stopped: list[Any] = []
     monkeypatch.setattr(muse_mode, "stop", lambda ctx: stopped.append(ctx))

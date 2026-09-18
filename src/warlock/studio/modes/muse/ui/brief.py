@@ -26,8 +26,9 @@ from typing import Any
 
 from imgui_bundle import imgui
 
-from . import anchors, controls, focus, fonts, muse_mode, theme, widgets
-from .tokens import sp
+from .... import anchors, controls, focus, fonts, theme, widgets
+from ....tokens import sp
+from .. import mode as muse_mode
 
 #: The pane's height in design pixels. Taller than Create's 62: this bar
 #: carries a *second* multi-line field (the lyrics), because a lyric block is
@@ -531,8 +532,8 @@ def _generate(
     now carries the notice and the Install button; this is the same fact on the
     control, so the two agree and the reason is on the hover.
     """
-    from ..service import jobs as svc_jobs
-    from .panes import model_gate
+    from .....service import jobs as svc_jobs
+    from ....panes import model_gate
 
     blocked = bool(model_gate.missing(ctx, svc_jobs.MUSIC_ROWS))
     with focus.item(ctx.state, FOCUS_PANE, "generate") as focused:
@@ -582,25 +583,25 @@ def _ring(ctx: Any, field: str) -> bool:
 
 def _max_prompt() -> int:
     """``MAX_PROMPT``, imported lazily so this module stays cheap to import."""
-    from ..service.validation import MAX_PROMPT
+    from .....service.validation import MAX_PROMPT
 
     return MAX_PROMPT
 
 
 def _max_lyrics() -> int:
-    from ..service._jobs_music import MAX_LYRICS
+    from .....service._jobs_music import MAX_LYRICS
 
     return MAX_LYRICS
 
 
 def _min_duration() -> float:
-    from ..service._jobs_music import MIN_DURATION
+    from .....service._jobs_music import MIN_DURATION
 
     return MIN_DURATION
 
 
 def _max_duration() -> float:
-    from ..service._jobs_music import MAX_DURATION
+    from .....service._jobs_music import MAX_DURATION
 
     return MAX_DURATION
 

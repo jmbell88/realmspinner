@@ -178,7 +178,7 @@ def open_asset(ctx: Any, job_or_id: Any) -> None:
 
     target = route(job)
     if target.mode == "muse":
-        from . import muse_mode
+        from .modes.muse import mode as muse_mode
         from .state import set_mode
 
         muse_mode.ensure(ctx).selected_job = target.job_id

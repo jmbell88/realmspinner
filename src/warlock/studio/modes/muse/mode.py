@@ -49,8 +49,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import muse_io, sirens_audio, sirens_io, sirens_mode, sirens_state
-from .muse_state import (  # noqa: F401
+from ... import sirens_audio, sirens_io, sirens_mode, sirens_state
+from ...state import set_mode
+from . import fileio as muse_io
+from .state import (  # noqa: F401
     DEFAULT_DERIVE,
     DEFAULT_FORM,
     LOOP_MEMORY,
@@ -58,8 +60,7 @@ from .muse_state import (  # noqa: F401
     active,
     ensure,
 )
-from .muse_state import Player as MusePlayer
-from .state import set_mode
+from .state import Player as MusePlayer
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +95,8 @@ def generate(ctx: Any) -> bool:
     -- the button, the keyboard, and the bridge -- inherits it rather than
     each needing its own copy.
     """
-    from ..service import jobs as svc_jobs
-    from .panes import model_gate
+    from ....service import jobs as svc_jobs
+    from ...panes import model_gate
 
     if model_gate.missing(ctx, svc_jobs.MUSIC_ROWS):
         ctx.toast("The music model is not downloaded. See the Recipe panel.", "warn")
@@ -215,7 +216,7 @@ def derive(ctx: Any) -> bool:
     empty string, because those mean different things at that door: ``None`` is
     "keep the parent's" and ``""`` is "drop the words entirely".
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     state = ensure(ctx)
     form = dict(state.derive_form)
@@ -506,7 +507,7 @@ def separate(ctx: Any, job_id: str) -> bool:
     take, which is why ``check_weights`` refuses this job and never a
     generation.
     """
-    from ..service import jobs as svc_jobs
+    from ....service import jobs as svc_jobs
 
     ctx.state.clear_field_errors()
     if not ctx.submit(f"muse-separate:{job_id}", svc_jobs.separate_job, ctx.svc, job_id):
@@ -818,7 +819,7 @@ def handle_key(ctx: Any, event: Any) -> bool:
 
     if event.type != pygame.KEYDOWN:
         return False
-    from .panes import muse_results
+    from .ui.panes import results as muse_results
 
     ctrl = bool(event.mod & pygame.KMOD_CTRL)
     if ctrl and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -923,9 +924,9 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     beside the button that calls this, because how near to stay to the song is a
     property of this hand-off and not of the brief (W1).
     """
-    from ..service import jobs as svc_jobs
-    from .panes import model_gate
-    from .sirens import wsng
+    from ....service import jobs as svc_jobs
+    from ...panes import model_gate
+    from ...sirens import wsng
 
     # muse-02 (2026-09-14 audit): this door does not call ``generate``, so its
     # own model_gate check does not cover it -- Sirens' "Compose in Muse" used
@@ -956,9 +957,9 @@ def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:
     form = dict(state.form)
 
     def run():
-        from ..kernels.audio import wavout
-        from ..service.errors import invalid_from
-        from .sirens import synth
+        from ....kernels.audio import wavout
+        from ....service.errors import invalid_from
+        from ...sirens import synth
 
         try:
             doc = wsng.read_wsng(data)

@@ -29,8 +29,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import dialogs
-from .muse import loops as loops_mod
+from ... import dialogs
+from .engine import loops as loops_mod
 
 log = logging.getLogger(__name__)
 
@@ -73,8 +73,8 @@ def read_track(path: Any) -> dict[str, Any]:
     import soundfile as sf
     from scipy.signal import resample_poly
 
-    from . import sirens_audio
-    from .muse import waveform
+    from ... import sirens_audio
+    from .engine import waveform
 
     data, rate = sf.read(str(path), dtype="float32", always_2d=True)
     rate = int(rate)
@@ -119,7 +119,7 @@ def find_loops(pcm: Any, rate: int) -> list[Any]:
 def _wav(pcm: Any, rate: int, loop: tuple[int, int] | None = None) -> bytes:
     import numpy as np
 
-    from ..kernels.audio import wavout
+    from ....kernels.audio import wavout
 
     data = np.asarray(pcm)
     # ``wav_bytes`` takes floats and re-quantises. Divided by the same 32767
@@ -344,7 +344,7 @@ def _save(ctx: Any, make: Any, default_name: str, title: str) -> None:
     ``export_loop``/``export_with_points`` for what ``make`` does: the
     crossfade blend, the whole WAV byte encode, or both.
     """
-    from ..core.safeio import atomic
+    from ....core.safeio import atomic
 
     def run() -> str | None:
         path = dialogs.save_file(title, default_name, dialogs.filters_for(".wav"))
